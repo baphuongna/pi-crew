@@ -456,7 +456,10 @@ function parseAgentOverride(value: unknown): AgentOverrideConfig | undefined {
 function parseUiConfig(value: unknown): CrewUiConfig | undefined {
 	const obj = asRecord(value);
 	if (!obj) return undefined;
-	const rawWidgetPlacement = parseWithSchema(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")]), obj.widgetPlacement);
+	const rawWidgetPlacement = parseWithSchema(
+		Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor"), Type.Literal("bottom")]),
+		obj.widgetPlacement,
+	);
 	const rawDashboardPlacement = parseWithSchema(Type.Union([Type.Literal("center"), Type.Literal("right")]), obj.dashboardPlacement);
 	const rawRowStyle = parseWithSchema(Type.Union([Type.Literal("compact"), Type.Literal("detailed")]), obj.widgetRowStyle);
 	const ui: CrewUiConfig = {

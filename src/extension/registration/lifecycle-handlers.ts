@@ -40,7 +40,7 @@ import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
-import { requestRender, setExtensionWidget } from "../../ui/pi-ui-compat.ts";
+import { requestRender, setExtensionWidget, toPiWidgetPlacement } from "../../ui/pi-ui-compat.ts";
 import {
 	registerPiCrewPowerbarSegments,
 	requestPowerbarUpdate,
@@ -692,7 +692,7 @@ function setupRenderLoop(
 		const manifests = lastPreloadedManifests;
 		if (!lastPreloadedConfig) backgroundPreload();
 		if (ctx.uiState.liveSidebarRunId || ctx.uiState.dashboardOpen) {
-			const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
+			const placement = toPiWidgetPlacement(config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement);
 			if (ctx.widgetState.lastVisibility !== "hidden" || ctx.widgetState.lastPlacement !== placement) {
 				setExtensionWidget(ctx.currentCtx, "pi-crew", undefined, { placement });
 				setExtensionWidget(ctx.currentCtx, "pi-crew-active", undefined, { placement });

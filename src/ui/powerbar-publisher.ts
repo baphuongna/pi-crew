@@ -12,6 +12,7 @@ import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { extractSessionId } from "../utils/session-utils.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
+import { getCrewViewSessionState } from "./inline-panel/view-session-store.ts";
 import { RenderCoalescer } from "./render-coalescer.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
 import { notificationBadge } from "./widget/widget-formatters.ts";
@@ -279,7 +280,10 @@ class PowerbarPublisher {
 		// P3 (#10): prefer an explicit workspaceId arg; otherwise self-derive
 		// from the ctx every caller already passes (ExtensionContext exposes
 		// sessionManager). Back-compat: when neither is present, no filtering.
-		const effectiveWorkspaceId = workspaceId ?? extractSessionId(ctx);
+		// While an agent session view is open, fall back to the MAIN session's
+		// id — the view session's own id would filter out the run being viewed.
+		const viewState = getCrewViewSessionState();
+		const effectiveWorkspaceId = workspaceId ?? (viewState.active ? viewState.mainSessionId : undefined) ?? extractSessionId(ctx);
 		const allRuns = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
 		const runs = effectiveWorkspaceId
 			? allRuns.filter((run) => !run.ownerSessionId || run.ownerSessionId === effectiveWorkspaceId)

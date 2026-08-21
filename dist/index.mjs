@@ -1490,7 +1490,9 @@ var init_defaults = __esm({
       // The crew widget (agent rows + hint + main row) docks BELOW the editor,
       // matching pi-subtask's subtask panel — the transcript pane separately
       // mounts above the editor, exactly like pi-subtask's fork view.
-      widgetPlacement: "belowEditor",
+      // The dock renders at the very bottom of the screen, below the crew-vibes
+      // quota/meter footer (falls back to belowEditor when no footer sink exists).
+      widgetPlacement: "bottom",
       widgetMaxLines: 8,
       widgetRowStyle: "compact",
       inlinePanel: true,
@@ -7264,32 +7266,32 @@ function EscapeKey(key) {
 function IsDefined2(value) {
   return value !== void 0;
 }
-function Create(errorType, schema, path99, value, errors2 = []) {
+function Create(errorType, schema, path100, value, errors2 = []) {
   return {
     type: errorType,
     schema,
-    path: path99,
+    path: path100,
     value,
-    message: GetErrorFunction()({ errorType, path: path99, schema, value, errors: errors2 }),
+    message: GetErrorFunction()({ errorType, path: path100, schema, value, errors: errors2 }),
     errors: errors2
   };
 }
-function* FromAny3(schema, references, path99, value) {
+function* FromAny3(schema, references, path100, value) {
 }
-function* FromArgument3(schema, references, path99, value) {
+function* FromArgument3(schema, references, path100, value) {
 }
-function* FromArray8(schema, references, path99, value) {
+function* FromArray8(schema, references, path100, value) {
   if (!IsArray2(value)) {
-    return yield Create(ValueErrorType.Array, schema, path99, value);
+    return yield Create(ValueErrorType.Array, schema, path100, value);
   }
   if (IsDefined2(schema.minItems) && !(value.length >= schema.minItems)) {
-    yield Create(ValueErrorType.ArrayMinItems, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMinItems, schema, path100, value);
   }
   if (IsDefined2(schema.maxItems) && !(value.length <= schema.maxItems)) {
-    yield Create(ValueErrorType.ArrayMaxItems, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMaxItems, schema, path100, value);
   }
   for (let i = 0; i < value.length; i++) {
-    yield* Visit6(schema.items, references, `${path99}/${i}`, value[i]);
+    yield* Visit6(schema.items, references, `${path100}/${i}`, value[i]);
   }
   if (schema.uniqueItems === true && !(function() {
     const set = /* @__PURE__ */ new Set();
@@ -7303,116 +7305,116 @@ function* FromArray8(schema, references, path99, value) {
     }
     return true;
   })()) {
-    yield Create(ValueErrorType.ArrayUniqueItems, schema, path99, value);
+    yield Create(ValueErrorType.ArrayUniqueItems, schema, path100, value);
   }
   if (!(IsDefined2(schema.contains) || IsDefined2(schema.minContains) || IsDefined2(schema.maxContains))) {
     return;
   }
   const containsSchema = IsDefined2(schema.contains) ? schema.contains : Never();
-  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path99}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
+  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path100}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
   if (containsCount === 0) {
-    yield Create(ValueErrorType.ArrayContains, schema, path99, value);
+    yield Create(ValueErrorType.ArrayContains, schema, path100, value);
   }
   if (IsNumber2(schema.minContains) && containsCount < schema.minContains) {
-    yield Create(ValueErrorType.ArrayMinContains, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMinContains, schema, path100, value);
   }
   if (IsNumber2(schema.maxContains) && containsCount > schema.maxContains) {
-    yield Create(ValueErrorType.ArrayMaxContains, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMaxContains, schema, path100, value);
   }
 }
-function* FromAsyncIterator5(schema, references, path99, value) {
+function* FromAsyncIterator5(schema, references, path100, value) {
   if (!IsAsyncIterator2(value))
-    yield Create(ValueErrorType.AsyncIterator, schema, path99, value);
+    yield Create(ValueErrorType.AsyncIterator, schema, path100, value);
 }
-function* FromBigInt3(schema, references, path99, value) {
+function* FromBigInt3(schema, references, path100, value) {
   if (!IsBigInt2(value))
-    return yield Create(ValueErrorType.BigInt, schema, path99, value);
+    return yield Create(ValueErrorType.BigInt, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.BigIntMaximum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.BigIntMinimum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === BigInt(0))) {
-    yield Create(ValueErrorType.BigIntMultipleOf, schema, path99, value);
+    yield Create(ValueErrorType.BigIntMultipleOf, schema, path100, value);
   }
 }
-function* FromBoolean3(schema, references, path99, value) {
+function* FromBoolean3(schema, references, path100, value) {
   if (!IsBoolean2(value))
-    yield Create(ValueErrorType.Boolean, schema, path99, value);
+    yield Create(ValueErrorType.Boolean, schema, path100, value);
 }
-function* FromConstructor5(schema, references, path99, value) {
-  yield* Visit6(schema.returns, references, path99, value.prototype);
+function* FromConstructor5(schema, references, path100, value) {
+  yield* Visit6(schema.returns, references, path100, value.prototype);
 }
-function* FromDate3(schema, references, path99, value) {
+function* FromDate3(schema, references, path100, value) {
   if (!IsDate2(value))
-    return yield Create(ValueErrorType.Date, schema, path99, value);
+    return yield Create(ValueErrorType.Date, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximumTimestamp) && !(value.getTime() < schema.exclusiveMaximumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimumTimestamp) && !(value.getTime() > schema.exclusiveMinimumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.maximumTimestamp) && !(value.getTime() <= schema.maximumTimestamp)) {
-    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.minimumTimestamp) && !(value.getTime() >= schema.minimumTimestamp)) {
-    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOfTimestamp) && !(value.getTime() % schema.multipleOfTimestamp === 0)) {
-    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path100, value);
   }
 }
-function* FromFunction5(schema, references, path99, value) {
+function* FromFunction5(schema, references, path100, value) {
   if (!IsFunction2(value))
-    yield Create(ValueErrorType.Function, schema, path99, value);
+    yield Create(ValueErrorType.Function, schema, path100, value);
 }
-function* FromImport2(schema, references, path99, value) {
+function* FromImport2(schema, references, path100, value) {
   const definitions = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  yield* Visit6(target, [...references, ...definitions], path99, value);
+  yield* Visit6(target, [...references, ...definitions], path100, value);
 }
-function* FromInteger3(schema, references, path99, value) {
+function* FromInteger3(schema, references, path100, value) {
   if (!IsInteger(value))
-    return yield Create(ValueErrorType.Integer, schema, path99, value);
+    return yield Create(ValueErrorType.Integer, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.IntegerMaximum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.IntegerMinimum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.IntegerMultipleOf, schema, path99, value);
+    yield Create(ValueErrorType.IntegerMultipleOf, schema, path100, value);
   }
 }
-function* FromIntersect10(schema, references, path99, value) {
+function* FromIntersect10(schema, references, path100, value) {
   let hasError = false;
   for (const inner of schema.allOf) {
-    for (const error of Visit6(inner, references, path99, value)) {
+    for (const error of Visit6(inner, references, path100, value)) {
       hasError = true;
       yield error;
     }
   }
   if (hasError) {
-    return yield Create(ValueErrorType.Intersect, schema, path99, value);
+    return yield Create(ValueErrorType.Intersect, schema, path100, value);
   }
   if (schema.unevaluatedProperties === false) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path99}/${valueKey}`, value);
+        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path100}/${valueKey}`, value);
       }
     }
   }
@@ -7420,59 +7422,59 @@ function* FromIntersect10(schema, references, path99, value) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        const next = Visit6(schema.unevaluatedProperties, references, `${path99}/${valueKey}`, value[valueKey]).next();
+        const next = Visit6(schema.unevaluatedProperties, references, `${path100}/${valueKey}`, value[valueKey]).next();
         if (!next.done)
           yield next.value;
       }
     }
   }
 }
-function* FromIterator5(schema, references, path99, value) {
+function* FromIterator5(schema, references, path100, value) {
   if (!IsIterator2(value))
-    yield Create(ValueErrorType.Iterator, schema, path99, value);
+    yield Create(ValueErrorType.Iterator, schema, path100, value);
 }
-function* FromLiteral4(schema, references, path99, value) {
+function* FromLiteral4(schema, references, path100, value) {
   if (!(value === schema.const))
-    yield Create(ValueErrorType.Literal, schema, path99, value);
+    yield Create(ValueErrorType.Literal, schema, path100, value);
 }
-function* FromNever3(schema, references, path99, value) {
-  yield Create(ValueErrorType.Never, schema, path99, value);
+function* FromNever3(schema, references, path100, value) {
+  yield Create(ValueErrorType.Never, schema, path100, value);
 }
-function* FromNot3(schema, references, path99, value) {
-  if (Visit6(schema.not, references, path99, value).next().done === true)
-    yield Create(ValueErrorType.Not, schema, path99, value);
+function* FromNot3(schema, references, path100, value) {
+  if (Visit6(schema.not, references, path100, value).next().done === true)
+    yield Create(ValueErrorType.Not, schema, path100, value);
 }
-function* FromNull3(schema, references, path99, value) {
+function* FromNull3(schema, references, path100, value) {
   if (!IsNull2(value))
-    yield Create(ValueErrorType.Null, schema, path99, value);
+    yield Create(ValueErrorType.Null, schema, path100, value);
 }
-function* FromNumber3(schema, references, path99, value) {
+function* FromNumber3(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsNumberLike(value))
-    return yield Create(ValueErrorType.Number, schema, path99, value);
+    return yield Create(ValueErrorType.Number, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path99, value);
+    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path99, value);
+    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.NumberMaximum, schema, path99, value);
+    yield Create(ValueErrorType.NumberMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.NumberMinimum, schema, path99, value);
+    yield Create(ValueErrorType.NumberMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.NumberMultipleOf, schema, path99, value);
+    yield Create(ValueErrorType.NumberMultipleOf, schema, path100, value);
   }
 }
-function* FromObject9(schema, references, path99, value) {
+function* FromObject9(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsObjectLike(value))
-    return yield Create(ValueErrorType.Object, schema, path99, value);
+    return yield Create(ValueErrorType.Object, schema, path100, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path100, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path100, value);
   }
   const requiredKeys = Array.isArray(schema.required) ? schema.required : [];
   const knownKeys = Object.getOwnPropertyNames(schema.properties);
@@ -7480,12 +7482,12 @@ function* FromObject9(schema, references, path99, value) {
   for (const requiredKey of requiredKeys) {
     if (unknownKeys.includes(requiredKey))
       continue;
-    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path99}/${EscapeKey(requiredKey)}`, void 0);
+    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path100}/${EscapeKey(requiredKey)}`, void 0);
   }
   if (schema.additionalProperties === false) {
     for (const valueKey of unknownKeys) {
       if (!knownKeys.includes(valueKey)) {
-        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path99}/${EscapeKey(valueKey)}`, value[valueKey]);
+        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path100}/${EscapeKey(valueKey)}`, value[valueKey]);
       }
     }
   }
@@ -7493,235 +7495,235 @@ function* FromObject9(schema, references, path99, value) {
     for (const valueKey of unknownKeys) {
       if (knownKeys.includes(valueKey))
         continue;
-      yield* Visit6(schema.additionalProperties, references, `${path99}/${EscapeKey(valueKey)}`, value[valueKey]);
+      yield* Visit6(schema.additionalProperties, references, `${path100}/${EscapeKey(valueKey)}`, value[valueKey]);
     }
   }
   for (const knownKey of knownKeys) {
     const property = schema.properties[knownKey];
     if (schema.required && schema.required.includes(knownKey)) {
-      yield* Visit6(property, references, `${path99}/${EscapeKey(knownKey)}`, value[knownKey]);
+      yield* Visit6(property, references, `${path100}/${EscapeKey(knownKey)}`, value[knownKey]);
       if (ExtendsUndefinedCheck(schema) && !(knownKey in value)) {
-        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path99}/${EscapeKey(knownKey)}`, void 0);
+        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path100}/${EscapeKey(knownKey)}`, void 0);
       }
     } else {
       if (TypeSystemPolicy.IsExactOptionalProperty(value, knownKey)) {
-        yield* Visit6(property, references, `${path99}/${EscapeKey(knownKey)}`, value[knownKey]);
+        yield* Visit6(property, references, `${path100}/${EscapeKey(knownKey)}`, value[knownKey]);
       }
     }
   }
 }
-function* FromPromise5(schema, references, path99, value) {
+function* FromPromise5(schema, references, path100, value) {
   if (!IsPromise(value))
-    yield Create(ValueErrorType.Promise, schema, path99, value);
+    yield Create(ValueErrorType.Promise, schema, path100, value);
 }
-function* FromRecord5(schema, references, path99, value) {
+function* FromRecord5(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsRecordLike(value))
-    return yield Create(ValueErrorType.Object, schema, path99, value);
+    return yield Create(ValueErrorType.Object, schema, path100, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path100, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path100, value);
   }
   const [patternKey, patternSchema] = Object.entries(schema.patternProperties)[0];
   const regex = new RegExp(patternKey);
   for (const [propertyKey, propertyValue] of Object.entries(value)) {
     if (regex.test(propertyKey))
-      yield* Visit6(patternSchema, references, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
+      yield* Visit6(patternSchema, references, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
   }
   if (typeof schema.additionalProperties === "object") {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (!regex.test(propertyKey))
-        yield* Visit6(schema.additionalProperties, references, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
+        yield* Visit6(schema.additionalProperties, references, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
   if (schema.additionalProperties === false) {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (regex.test(propertyKey))
         continue;
-      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
+      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
 }
-function* FromRef6(schema, references, path99, value) {
-  yield* Visit6(Deref(schema, references), references, path99, value);
+function* FromRef6(schema, references, path100, value) {
+  yield* Visit6(Deref(schema, references), references, path100, value);
 }
-function* FromRegExp3(schema, references, path99, value) {
+function* FromRegExp3(schema, references, path100, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path99, value);
+    return yield Create(ValueErrorType.String, schema, path100, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path100, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path100, value);
   }
   const regex = new RegExp(schema.source, schema.flags);
   if (!regex.test(value)) {
-    return yield Create(ValueErrorType.RegExp, schema, path99, value);
+    return yield Create(ValueErrorType.RegExp, schema, path100, value);
   }
 }
-function* FromString3(schema, references, path99, value) {
+function* FromString3(schema, references, path100, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path99, value);
+    return yield Create(ValueErrorType.String, schema, path100, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path100, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path100, value);
   }
   if (IsString2(schema.pattern)) {
     const regex = new RegExp(schema.pattern);
     if (!regex.test(value)) {
-      yield Create(ValueErrorType.StringPattern, schema, path99, value);
+      yield Create(ValueErrorType.StringPattern, schema, path100, value);
     }
   }
   if (IsString2(schema.format)) {
     if (!format_exports.Has(schema.format)) {
-      yield Create(ValueErrorType.StringFormatUnknown, schema, path99, value);
+      yield Create(ValueErrorType.StringFormatUnknown, schema, path100, value);
     } else {
       const format2 = format_exports.Get(schema.format);
       if (!format2(value)) {
-        yield Create(ValueErrorType.StringFormat, schema, path99, value);
+        yield Create(ValueErrorType.StringFormat, schema, path100, value);
       }
     }
   }
 }
-function* FromSymbol3(schema, references, path99, value) {
+function* FromSymbol3(schema, references, path100, value) {
   if (!IsSymbol2(value))
-    yield Create(ValueErrorType.Symbol, schema, path99, value);
+    yield Create(ValueErrorType.Symbol, schema, path100, value);
 }
-function* FromTemplateLiteral5(schema, references, path99, value) {
+function* FromTemplateLiteral5(schema, references, path100, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path99, value);
+    return yield Create(ValueErrorType.String, schema, path100, value);
   const regex = new RegExp(schema.pattern);
   if (!regex.test(value)) {
-    yield Create(ValueErrorType.StringPattern, schema, path99, value);
+    yield Create(ValueErrorType.StringPattern, schema, path100, value);
   }
 }
-function* FromThis2(schema, references, path99, value) {
-  yield* Visit6(Deref(schema, references), references, path99, value);
+function* FromThis2(schema, references, path100, value) {
+  yield* Visit6(Deref(schema, references), references, path100, value);
 }
-function* FromTuple7(schema, references, path99, value) {
+function* FromTuple7(schema, references, path100, value) {
   if (!IsArray2(value))
-    return yield Create(ValueErrorType.Tuple, schema, path99, value);
+    return yield Create(ValueErrorType.Tuple, schema, path100, value);
   if (schema.items === void 0 && !(value.length === 0)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path99, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path100, value);
   }
   if (!(value.length === schema.maxItems)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path99, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path100, value);
   }
   if (!schema.items) {
     return;
   }
   for (let i = 0; i < schema.items.length; i++) {
-    yield* Visit6(schema.items[i], references, `${path99}/${i}`, value[i]);
+    yield* Visit6(schema.items[i], references, `${path100}/${i}`, value[i]);
   }
 }
-function* FromUndefined3(schema, references, path99, value) {
+function* FromUndefined3(schema, references, path100, value) {
   if (!IsUndefined2(value))
-    yield Create(ValueErrorType.Undefined, schema, path99, value);
+    yield Create(ValueErrorType.Undefined, schema, path100, value);
 }
-function* FromUnion12(schema, references, path99, value) {
+function* FromUnion12(schema, references, path100, value) {
   if (Check(schema, references, value))
     return;
-  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path99, value)));
-  yield Create(ValueErrorType.Union, schema, path99, value, errors2);
+  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path100, value)));
+  yield Create(ValueErrorType.Union, schema, path100, value, errors2);
 }
-function* FromUint8Array3(schema, references, path99, value) {
+function* FromUint8Array3(schema, references, path100, value) {
   if (!IsUint8Array2(value))
-    return yield Create(ValueErrorType.Uint8Array, schema, path99, value);
+    return yield Create(ValueErrorType.Uint8Array, schema, path100, value);
   if (IsDefined2(schema.maxByteLength) && !(value.length <= schema.maxByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path99, value);
+    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path100, value);
   }
   if (IsDefined2(schema.minByteLength) && !(value.length >= schema.minByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path99, value);
+    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path100, value);
   }
 }
-function* FromUnknown3(schema, references, path99, value) {
+function* FromUnknown3(schema, references, path100, value) {
 }
-function* FromVoid3(schema, references, path99, value) {
+function* FromVoid3(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsVoidLike(value))
-    yield Create(ValueErrorType.Void, schema, path99, value);
+    yield Create(ValueErrorType.Void, schema, path100, value);
 }
-function* FromKind2(schema, references, path99, value) {
+function* FromKind2(schema, references, path100, value) {
   const check = type_exports2.Get(schema[Kind]);
   if (!check(schema, value))
-    yield Create(ValueErrorType.Kind, schema, path99, value);
+    yield Create(ValueErrorType.Kind, schema, path100, value);
 }
-function* Visit6(schema, references, path99, value) {
+function* Visit6(schema, references, path100, value) {
   const references_ = IsDefined2(schema.$id) ? [...references, schema] : references;
   const schema_ = schema;
   switch (schema_[Kind]) {
     case "Any":
-      return yield* FromAny3(schema_, references_, path99, value);
+      return yield* FromAny3(schema_, references_, path100, value);
     case "Argument":
-      return yield* FromArgument3(schema_, references_, path99, value);
+      return yield* FromArgument3(schema_, references_, path100, value);
     case "Array":
-      return yield* FromArray8(schema_, references_, path99, value);
+      return yield* FromArray8(schema_, references_, path100, value);
     case "AsyncIterator":
-      return yield* FromAsyncIterator5(schema_, references_, path99, value);
+      return yield* FromAsyncIterator5(schema_, references_, path100, value);
     case "BigInt":
-      return yield* FromBigInt3(schema_, references_, path99, value);
+      return yield* FromBigInt3(schema_, references_, path100, value);
     case "Boolean":
-      return yield* FromBoolean3(schema_, references_, path99, value);
+      return yield* FromBoolean3(schema_, references_, path100, value);
     case "Constructor":
-      return yield* FromConstructor5(schema_, references_, path99, value);
+      return yield* FromConstructor5(schema_, references_, path100, value);
     case "Date":
-      return yield* FromDate3(schema_, references_, path99, value);
+      return yield* FromDate3(schema_, references_, path100, value);
     case "Function":
-      return yield* FromFunction5(schema_, references_, path99, value);
+      return yield* FromFunction5(schema_, references_, path100, value);
     case "Import":
-      return yield* FromImport2(schema_, references_, path99, value);
+      return yield* FromImport2(schema_, references_, path100, value);
     case "Integer":
-      return yield* FromInteger3(schema_, references_, path99, value);
+      return yield* FromInteger3(schema_, references_, path100, value);
     case "Intersect":
-      return yield* FromIntersect10(schema_, references_, path99, value);
+      return yield* FromIntersect10(schema_, references_, path100, value);
     case "Iterator":
-      return yield* FromIterator5(schema_, references_, path99, value);
+      return yield* FromIterator5(schema_, references_, path100, value);
     case "Literal":
-      return yield* FromLiteral4(schema_, references_, path99, value);
+      return yield* FromLiteral4(schema_, references_, path100, value);
     case "Never":
-      return yield* FromNever3(schema_, references_, path99, value);
+      return yield* FromNever3(schema_, references_, path100, value);
     case "Not":
-      return yield* FromNot3(schema_, references_, path99, value);
+      return yield* FromNot3(schema_, references_, path100, value);
     case "Null":
-      return yield* FromNull3(schema_, references_, path99, value);
+      return yield* FromNull3(schema_, references_, path100, value);
     case "Number":
-      return yield* FromNumber3(schema_, references_, path99, value);
+      return yield* FromNumber3(schema_, references_, path100, value);
     case "Object":
-      return yield* FromObject9(schema_, references_, path99, value);
+      return yield* FromObject9(schema_, references_, path100, value);
     case "Promise":
-      return yield* FromPromise5(schema_, references_, path99, value);
+      return yield* FromPromise5(schema_, references_, path100, value);
     case "Record":
-      return yield* FromRecord5(schema_, references_, path99, value);
+      return yield* FromRecord5(schema_, references_, path100, value);
     case "Ref":
-      return yield* FromRef6(schema_, references_, path99, value);
+      return yield* FromRef6(schema_, references_, path100, value);
     case "RegExp":
-      return yield* FromRegExp3(schema_, references_, path99, value);
+      return yield* FromRegExp3(schema_, references_, path100, value);
     case "String":
-      return yield* FromString3(schema_, references_, path99, value);
+      return yield* FromString3(schema_, references_, path100, value);
     case "Symbol":
-      return yield* FromSymbol3(schema_, references_, path99, value);
+      return yield* FromSymbol3(schema_, references_, path100, value);
     case "TemplateLiteral":
-      return yield* FromTemplateLiteral5(schema_, references_, path99, value);
+      return yield* FromTemplateLiteral5(schema_, references_, path100, value);
     case "This":
-      return yield* FromThis2(schema_, references_, path99, value);
+      return yield* FromThis2(schema_, references_, path100, value);
     case "Tuple":
-      return yield* FromTuple7(schema_, references_, path99, value);
+      return yield* FromTuple7(schema_, references_, path100, value);
     case "Undefined":
-      return yield* FromUndefined3(schema_, references_, path99, value);
+      return yield* FromUndefined3(schema_, references_, path100, value);
     case "Union":
-      return yield* FromUnion12(schema_, references_, path99, value);
+      return yield* FromUnion12(schema_, references_, path100, value);
     case "Uint8Array":
-      return yield* FromUint8Array3(schema_, references_, path99, value);
+      return yield* FromUint8Array3(schema_, references_, path100, value);
     case "Unknown":
-      return yield* FromUnknown3(schema_, references_, path99, value);
+      return yield* FromUnknown3(schema_, references_, path100, value);
     case "Void":
-      return yield* FromVoid3(schema_, references_, path99, value);
+      return yield* FromVoid3(schema_, references_, path100, value);
     default:
       if (!type_exports2.Has(schema_[Kind]))
         throw new ValueErrorsUnknownTypeError(schema);
-      return yield* FromKind2(schema_, references_, path99, value);
+      return yield* FromKind2(schema_, references_, path100, value);
   }
 }
 function Errors(...args) {
@@ -7854,16 +7856,16 @@ var init_assert = __esm({
     init_errors2();
     init_error();
     init_check();
-    __classPrivateFieldSet = function(receiver, state2, value, kind, f) {
+    __classPrivateFieldSet = function(receiver, state3, value, kind, f) {
       if (kind === "m") throw new TypeError("Private method is not writable");
       if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-      if (typeof state2 === "function" ? receiver !== state2 || !f : !state2.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-      return kind === "a" ? f.call(receiver, value) : f ? f.value = value : state2.set(receiver, value), value;
+      if (typeof state3 === "function" ? receiver !== state3 || !f : !state3.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+      return kind === "a" ? f.call(receiver, value) : f ? f.value = value : state3.set(receiver, value), value;
     };
-    __classPrivateFieldGet = function(receiver, state2, kind, f) {
+    __classPrivateFieldGet = function(receiver, state3, kind, f) {
       if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-      if (typeof state2 === "function" ? receiver !== state2 || !f : !state2.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-      return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state2.get(receiver);
+      if (typeof state3 === "function" ? receiver !== state3 || !f : !state3.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+      return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state3.get(receiver);
     };
     AssertError = class extends TypeBoxError {
       constructor(iterator) {
@@ -8962,50 +8964,50 @@ var init_convert2 = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/decode.mjs
-function Default3(schema, path99, value) {
+function Default3(schema, path100, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Decode(value) : value;
   } catch (error) {
-    throw new TransformDecodeError(schema, path99, value, error);
+    throw new TransformDecodeError(schema, path100, value, error);
   }
 }
-function FromArray14(schema, references, path99, value) {
-  return IsArray2(value) ? Default3(schema, path99, value.map((value2, index) => Visit11(schema.items, references, `${path99}/${index}`, value2))) : Default3(schema, path99, value);
+function FromArray14(schema, references, path100, value) {
+  return IsArray2(value) ? Default3(schema, path100, value.map((value2, index) => Visit11(schema.items, references, `${path100}/${index}`, value2))) : Default3(schema, path100, value);
 }
-function FromIntersect15(schema, references, path99, value) {
+function FromIntersect15(schema, references, path100, value) {
   if (!IsObject2(value) || IsValueType(value))
-    return Default3(schema, path99, value);
+    return Default3(schema, path100, value);
   const knownEntries = KeyOfPropertyEntries(schema);
   const knownKeys = knownEntries.map((entry) => entry[0]);
   const knownProperties = { ...value };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit11(knownSchema, references, `${path99}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit11(knownSchema, references, `${path100}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
-    return Default3(schema, path99, knownProperties);
+    return Default3(schema, path100, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const unevaluatedProperties = schema.unevaluatedProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(unevaluatedProperties, `${path99}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(unevaluatedProperties, `${path100}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path99, unknownProperties);
+  return Default3(schema, path100, unknownProperties);
 }
-function FromImport7(schema, references, path99, value) {
+function FromImport7(schema, references, path100, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Visit11(target, [...references, ...additional], path99, value);
-  return Default3(schema, path99, result4);
+  const result4 = Visit11(target, [...references, ...additional], path100, value);
+  return Default3(schema, path100, result4);
 }
-function FromNot5(schema, references, path99, value) {
-  return Default3(schema, path99, Visit11(schema.not, references, path99, value));
+function FromNot5(schema, references, path100, value) {
+  return Default3(schema, path100, Visit11(schema.not, references, path100, value));
 }
-function FromObject15(schema, references, path99, value) {
+function FromObject15(schema, references, path100, value) {
   if (!IsObject2(value))
-    return Default3(schema, path99, value);
+    return Default3(schema, path100, value);
   const knownKeys = KeyOfPropertyKeys(schema);
   const knownProperties = { ...value };
   for (const key of knownKeys) {
@@ -9013,90 +9015,90 @@ function FromObject15(schema, references, path99, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit11(schema.properties[key], references, `${path99}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit11(schema.properties[key], references, `${path100}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path99, knownProperties);
+    return Default3(schema, path100, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path99}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path100}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path99, unknownProperties);
+  return Default3(schema, path100, unknownProperties);
 }
-function FromRecord10(schema, references, path99, value) {
+function FromRecord10(schema, references, path100, value) {
   if (!IsObject2(value))
-    return Default3(schema, path99, value);
+    return Default3(schema, path100, value);
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
   const knownKeys = new RegExp(pattern);
   const knownProperties = { ...value };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path99}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path100}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path99, knownProperties);
+    return Default3(schema, path100, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path99}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path100}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path99, unknownProperties);
+  return Default3(schema, path100, unknownProperties);
 }
-function FromRef11(schema, references, path99, value) {
+function FromRef11(schema, references, path100, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path99, Visit11(target, references, path99, value));
+  return Default3(schema, path100, Visit11(target, references, path100, value));
 }
-function FromThis7(schema, references, path99, value) {
+function FromThis7(schema, references, path100, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path99, Visit11(target, references, path99, value));
+  return Default3(schema, path100, Visit11(target, references, path100, value));
 }
-function FromTuple12(schema, references, path99, value) {
-  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path99, schema.items.map((schema2, index) => Visit11(schema2, references, `${path99}/${index}`, value[index]))) : Default3(schema, path99, value);
+function FromTuple12(schema, references, path100, value) {
+  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path100, schema.items.map((schema2, index) => Visit11(schema2, references, `${path100}/${index}`, value[index]))) : Default3(schema, path100, value);
 }
-function FromUnion17(schema, references, path99, value) {
+function FromUnion17(schema, references, path100, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const decoded = Visit11(subschema, references, path99, value);
-    return Default3(schema, path99, decoded);
+    const decoded = Visit11(subschema, references, path100, value);
+    return Default3(schema, path100, decoded);
   }
-  return Default3(schema, path99, value);
+  return Default3(schema, path100, value);
 }
-function Visit11(schema, references, path99, value) {
+function Visit11(schema, references, path100, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray14(schema_, references_, path99, value);
+      return FromArray14(schema_, references_, path100, value);
     case "Import":
-      return FromImport7(schema_, references_, path99, value);
+      return FromImport7(schema_, references_, path100, value);
     case "Intersect":
-      return FromIntersect15(schema_, references_, path99, value);
+      return FromIntersect15(schema_, references_, path100, value);
     case "Not":
-      return FromNot5(schema_, references_, path99, value);
+      return FromNot5(schema_, references_, path100, value);
     case "Object":
-      return FromObject15(schema_, references_, path99, value);
+      return FromObject15(schema_, references_, path100, value);
     case "Record":
-      return FromRecord10(schema_, references_, path99, value);
+      return FromRecord10(schema_, references_, path100, value);
     case "Ref":
-      return FromRef11(schema_, references_, path99, value);
+      return FromRef11(schema_, references_, path100, value);
     case "Symbol":
-      return Default3(schema_, path99, value);
+      return Default3(schema_, path100, value);
     case "This":
-      return FromThis7(schema_, references_, path99, value);
+      return FromThis7(schema_, references_, path100, value);
     case "Tuple":
-      return FromTuple12(schema_, references_, path99, value);
+      return FromTuple12(schema_, references_, path100, value);
     case "Union":
-      return FromUnion17(schema_, references_, path99, value);
+      return FromUnion17(schema_, references_, path100, value);
     default:
-      return Default3(schema_, path99, value);
+      return Default3(schema_, path100, value);
   }
 }
 function TransformDecode(schema, references, value) {
@@ -9122,10 +9124,10 @@ var init_decode = __esm({
       }
     };
     TransformDecodeError = class extends TypeBoxError {
-      constructor(schema, path99, value, error) {
+      constructor(schema, path100, value, error) {
         super(error instanceof Error ? error.message : "Unknown error");
         this.schema = schema;
-        this.path = path99;
+        this.path = path100;
         this.value = value;
         this.error = error;
       }
@@ -9134,25 +9136,25 @@ var init_decode = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/encode.mjs
-function Default4(schema, path99, value) {
+function Default4(schema, path100, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Encode(value) : value;
   } catch (error) {
-    throw new TransformEncodeError(schema, path99, value, error);
+    throw new TransformEncodeError(schema, path100, value, error);
   }
 }
-function FromArray15(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
-  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path99}/${index}`, value2)) : defaulted;
+function FromArray15(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
+  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path100}/${index}`, value2)) : defaulted;
 }
-function FromImport8(schema, references, path99, value) {
+function FromImport8(schema, references, path100, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Default4(schema, path99, value);
-  return Visit12(target, [...references, ...additional], path99, result4);
+  const result4 = Default4(schema, path100, value);
+  return Visit12(target, [...references, ...additional], path100, result4);
 }
-function FromIntersect16(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
+function FromIntersect16(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
   if (!IsObject2(value) || IsValueType(value))
     return defaulted;
   const knownEntries = KeyOfPropertyEntries(schema);
@@ -9160,7 +9162,7 @@ function FromIntersect16(schema, references, path99, value) {
   const knownProperties = { ...defaulted };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit12(knownSchema, references, `${path99}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit12(knownSchema, references, `${path100}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
     return knownProperties;
@@ -9170,15 +9172,15 @@ function FromIntersect16(schema, references, path99, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(unevaluatedProperties, `${path99}/${key}`, properties[key]);
+      properties[key] = Default4(unevaluatedProperties, `${path100}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromNot6(schema, references, path99, value) {
-  return Default4(schema.not, path99, Default4(schema, path99, value));
+function FromNot6(schema, references, path100, value) {
+  return Default4(schema.not, path100, Default4(schema, path100, value));
 }
-function FromObject16(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
+function FromObject16(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
   if (!IsObject2(defaulted))
     return defaulted;
   const knownKeys = KeyOfPropertyKeys(schema);
@@ -9188,7 +9190,7 @@ function FromObject16(schema, references, path99, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit12(schema.properties[key], references, `${path99}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit12(schema.properties[key], references, `${path100}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9198,12 +9200,12 @@ function FromObject16(schema, references, path99, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(additionalProperties, `${path99}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path100}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRecord11(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
+function FromRecord11(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
   if (!IsObject2(value))
     return defaulted;
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
@@ -9211,7 +9213,7 @@ function FromRecord11(schema, references, path99, value) {
   const knownProperties = { ...defaulted };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path99}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path100}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9221,65 +9223,65 @@ function FromRecord11(schema, references, path99, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      properties[key] = Default4(additionalProperties, `${path99}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path100}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRef12(schema, references, path99, value) {
+function FromRef12(schema, references, path100, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path99, value);
-  return Default4(schema, path99, resolved);
+  const resolved = Visit12(target, references, path100, value);
+  return Default4(schema, path100, resolved);
 }
-function FromThis8(schema, references, path99, value) {
+function FromThis8(schema, references, path100, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path99, value);
-  return Default4(schema, path99, resolved);
+  const resolved = Visit12(target, references, path100, value);
+  return Default4(schema, path100, resolved);
 }
-function FromTuple13(schema, references, path99, value) {
-  const value1 = Default4(schema, path99, value);
-  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path99}/${index}`, value1[index])) : [];
+function FromTuple13(schema, references, path100, value) {
+  const value1 = Default4(schema, path100, value);
+  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path100}/${index}`, value1[index])) : [];
 }
-function FromUnion18(schema, references, path99, value) {
+function FromUnion18(schema, references, path100, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const value1 = Visit12(subschema, references, path99, value);
-    return Default4(schema, path99, value1);
+    const value1 = Visit12(subschema, references, path100, value);
+    return Default4(schema, path100, value1);
   }
   for (const subschema of schema.anyOf) {
-    const value1 = Visit12(subschema, references, path99, value);
+    const value1 = Visit12(subschema, references, path100, value);
     if (!Check(schema, references, value1))
       continue;
-    return Default4(schema, path99, value1);
+    return Default4(schema, path100, value1);
   }
-  return Default4(schema, path99, value);
+  return Default4(schema, path100, value);
 }
-function Visit12(schema, references, path99, value) {
+function Visit12(schema, references, path100, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray15(schema_, references_, path99, value);
+      return FromArray15(schema_, references_, path100, value);
     case "Import":
-      return FromImport8(schema_, references_, path99, value);
+      return FromImport8(schema_, references_, path100, value);
     case "Intersect":
-      return FromIntersect16(schema_, references_, path99, value);
+      return FromIntersect16(schema_, references_, path100, value);
     case "Not":
-      return FromNot6(schema_, references_, path99, value);
+      return FromNot6(schema_, references_, path100, value);
     case "Object":
-      return FromObject16(schema_, references_, path99, value);
+      return FromObject16(schema_, references_, path100, value);
     case "Record":
-      return FromRecord11(schema_, references_, path99, value);
+      return FromRecord11(schema_, references_, path100, value);
     case "Ref":
-      return FromRef12(schema_, references_, path99, value);
+      return FromRef12(schema_, references_, path100, value);
     case "This":
-      return FromThis8(schema_, references_, path99, value);
+      return FromThis8(schema_, references_, path100, value);
     case "Tuple":
-      return FromTuple13(schema_, references_, path99, value);
+      return FromTuple13(schema_, references_, path100, value);
     case "Union":
-      return FromUnion18(schema_, references_, path99, value);
+      return FromUnion18(schema_, references_, path100, value);
     default:
-      return Default4(schema_, path99, value);
+      return Default4(schema_, path100, value);
   }
 }
 function TransformEncode(schema, references, value) {
@@ -9305,10 +9307,10 @@ var init_encode = __esm({
       }
     };
     TransformEncodeError = class extends TypeBoxError {
-      constructor(schema, path99, value, error) {
+      constructor(schema, path100, value, error) {
         super(`${error instanceof Error ? error.message : "Unknown error"}`);
         this.schema = schema;
-        this.path = path99;
+        this.path = path100;
         this.value = value;
         this.error = error;
       }
@@ -9708,18 +9710,18 @@ var init_pointer = __esm({
   "node_modules/@sinclair/typebox/build/esm/value/pointer/pointer.mjs"() {
     init_error2();
     ValuePointerRootSetError = class extends TypeBoxError {
-      constructor(value, path99, update) {
+      constructor(value, path100, update) {
         super("Cannot set root value");
         this.value = value;
-        this.path = path99;
+        this.path = path100;
         this.update = update;
       }
     };
     ValuePointerRootDeleteError = class extends TypeBoxError {
-      constructor(value, path99) {
+      constructor(value, path100) {
         super("Cannot delete root value");
         this.value = value;
-        this.path = path99;
+        this.path = path100;
       }
     };
   }
@@ -9778,82 +9780,82 @@ var init_equal = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/delta/delta.mjs
-function CreateUpdate(path99, value) {
-  return { type: "update", path: path99, value };
+function CreateUpdate(path100, value) {
+  return { type: "update", path: path100, value };
 }
-function CreateInsert(path99, value) {
-  return { type: "insert", path: path99, value };
+function CreateInsert(path100, value) {
+  return { type: "insert", path: path100, value };
 }
-function CreateDelete(path99) {
-  return { type: "delete", path: path99 };
+function CreateDelete(path100) {
+  return { type: "delete", path: path100 };
 }
 function AssertDiffable(value) {
   if (globalThis.Object.getOwnPropertySymbols(value).length > 0)
     throw new ValueDiffError(value, "Cannot diff objects with symbols");
 }
-function* ObjectType4(path99, current, next) {
+function* ObjectType4(path100, current, next) {
   AssertDiffable(current);
   AssertDiffable(next);
   if (!IsStandardObject(next))
-    return yield CreateUpdate(path99, next);
+    return yield CreateUpdate(path100, next);
   const currentKeys = globalThis.Object.getOwnPropertyNames(current);
   const nextKeys = globalThis.Object.getOwnPropertyNames(next);
   for (const key of nextKeys) {
     if (HasPropertyKey2(current, key))
       continue;
-    yield CreateInsert(`${path99}/${key}`, next[key]);
+    yield CreateInsert(`${path100}/${key}`, next[key]);
   }
   for (const key of currentKeys) {
     if (!HasPropertyKey2(next, key))
       continue;
     if (Equal(current, next))
       continue;
-    yield* Visit15(`${path99}/${key}`, current[key], next[key]);
+    yield* Visit15(`${path100}/${key}`, current[key], next[key]);
   }
   for (const key of currentKeys) {
     if (HasPropertyKey2(next, key))
       continue;
-    yield CreateDelete(`${path99}/${key}`);
+    yield CreateDelete(`${path100}/${key}`);
   }
 }
-function* ArrayType4(path99, current, next) {
+function* ArrayType4(path100, current, next) {
   if (!IsArray2(next))
-    return yield CreateUpdate(path99, next);
+    return yield CreateUpdate(path100, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path99}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path100}/${i}`, current[i], next[i]);
   }
   for (let i = 0; i < next.length; i++) {
     if (i < current.length)
       continue;
-    yield CreateInsert(`${path99}/${i}`, next[i]);
+    yield CreateInsert(`${path100}/${i}`, next[i]);
   }
   for (let i = current.length - 1; i >= 0; i--) {
     if (i < next.length)
       continue;
-    yield CreateDelete(`${path99}/${i}`);
+    yield CreateDelete(`${path100}/${i}`);
   }
 }
-function* TypedArrayType2(path99, current, next) {
+function* TypedArrayType2(path100, current, next) {
   if (!IsTypedArray(next) || current.length !== next.length || globalThis.Object.getPrototypeOf(current).constructor.name !== globalThis.Object.getPrototypeOf(next).constructor.name)
-    return yield CreateUpdate(path99, next);
+    return yield CreateUpdate(path100, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path99}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path100}/${i}`, current[i], next[i]);
   }
 }
-function* ValueType2(path99, current, next) {
+function* ValueType2(path100, current, next) {
   if (current === next)
     return;
-  yield CreateUpdate(path99, next);
+  yield CreateUpdate(path100, next);
 }
-function* Visit15(path99, current, next) {
+function* Visit15(path100, current, next) {
   if (IsStandardObject(current))
-    return yield* ObjectType4(path99, current, next);
+    return yield* ObjectType4(path100, current, next);
   if (IsArray2(current))
-    return yield* ArrayType4(path99, current, next);
+    return yield* ArrayType4(path100, current, next);
   if (IsTypedArray(current))
-    return yield* TypedArrayType2(path99, current, next);
+    return yield* TypedArrayType2(path100, current, next);
   if (IsValueType(current))
-    return yield* ValueType2(path99, current, next);
+    return yield* ValueType2(path100, current, next);
   throw new ValueDiffError(current, "Unable to diff value");
 }
 function Diff(current, next) {
@@ -9969,9 +9971,9 @@ var init_equal2 = __esm({
 function IsStandardObject2(value) {
   return IsObject2(value) && !IsArray2(value);
 }
-function ObjectType5(root, path99, current, next) {
+function ObjectType5(root, path100, current, next) {
   if (!IsStandardObject2(current)) {
-    pointer_exports.Set(root, path99, Clone2(next));
+    pointer_exports.Set(root, path100, Clone2(next));
   } else {
     const currentKeys = Object.getOwnPropertyNames(current);
     const nextKeys = Object.getOwnPropertyNames(next);
@@ -9986,43 +9988,43 @@ function ObjectType5(root, path99, current, next) {
       }
     }
     for (const nextKey of nextKeys) {
-      Visit16(root, `${path99}/${nextKey}`, current[nextKey], next[nextKey]);
+      Visit16(root, `${path100}/${nextKey}`, current[nextKey], next[nextKey]);
     }
   }
 }
-function ArrayType5(root, path99, current, next) {
+function ArrayType5(root, path100, current, next) {
   if (!IsArray2(current)) {
-    pointer_exports.Set(root, path99, Clone2(next));
+    pointer_exports.Set(root, path100, Clone2(next));
   } else {
     for (let index = 0; index < next.length; index++) {
-      Visit16(root, `${path99}/${index}`, current[index], next[index]);
+      Visit16(root, `${path100}/${index}`, current[index], next[index]);
     }
     current.splice(next.length);
   }
 }
-function TypedArrayType3(root, path99, current, next) {
+function TypedArrayType3(root, path100, current, next) {
   if (IsTypedArray(current) && current.length === next.length) {
     for (let i = 0; i < current.length; i++) {
       current[i] = next[i];
     }
   } else {
-    pointer_exports.Set(root, path99, Clone2(next));
+    pointer_exports.Set(root, path100, Clone2(next));
   }
 }
-function ValueType3(root, path99, current, next) {
+function ValueType3(root, path100, current, next) {
   if (current === next)
     return;
-  pointer_exports.Set(root, path99, next);
+  pointer_exports.Set(root, path100, next);
 }
-function Visit16(root, path99, current, next) {
+function Visit16(root, path100, current, next) {
   if (IsArray2(next))
-    return ArrayType5(root, path99, current, next);
+    return ArrayType5(root, path100, current, next);
   if (IsTypedArray(next))
-    return TypedArrayType3(root, path99, current, next);
+    return TypedArrayType3(root, path100, current, next);
   if (IsStandardObject2(next))
-    return ObjectType5(root, path99, current, next);
+    return ObjectType5(root, path100, current, next);
   if (IsValueType(next))
-    return ValueType3(root, path99, current, next);
+    return ValueType3(root, path100, current, next);
 }
 function IsNonMutableValue(value) {
   return IsTypedArray(value) || IsValueType(value);
@@ -10472,7 +10474,7 @@ var init_config_schema = __esm({
     );
     PiTeamsUiConfigSchema = Type.Object(
       {
-        widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")])),
+        widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor"), Type.Literal("bottom")])),
         widgetMaxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
         powerbar: Type.Optional(Type.Boolean()),
         dashboardPlacement: Type.Optional(Type.Union([Type.Literal("center"), Type.Literal("right")])),
@@ -10621,14 +10623,14 @@ function errorPathFromValidation(error) {
 function validateConfigWithWarnings(raw) {
   if (!value_exports2.Check(PiTeamsConfigSchema, raw)) {
     return [...value_exports2.Errors(PiTeamsConfigSchema, raw)].map((error) => {
-      const path99 = errorPathFromValidation(error);
+      const path100 = errorPathFromValidation(error);
       const message = error.message ?? "invalid value";
       if (error.keyword === "additionalProperties") {
-        const offendingKey = path99.split("/").pop() ?? path99;
+        const offendingKey = path100.split("/").pop() ?? path100;
         const suggestion = suggestConfigKey(offendingKey, KNOWN_TOP_LEVEL_KEYS);
-        if (suggestion) return `${path99}: ${message} (did you mean '${suggestion}'?)`;
+        if (suggestion) return `${path100}: ${message} (did you mean '${suggestion}'?)`;
       }
-      return `${path99}: ${message}`;
+      return `${path100}: ${message}`;
     });
   }
   return [];
@@ -10927,7 +10929,10 @@ function parseAgentOverride(value) {
 function parseUiConfig(value) {
   const obj = asRecord(value);
   if (!obj) return void 0;
-  const rawWidgetPlacement = parseWithSchema(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")]), obj.widgetPlacement);
+  const rawWidgetPlacement = parseWithSchema(
+    Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor"), Type.Literal("bottom")]),
+    obj.widgetPlacement
+  );
   const rawDashboardPlacement = parseWithSchema(Type.Union([Type.Literal("center"), Type.Literal("right")]), obj.dashboardPlacement);
   const rawRowStyle = parseWithSchema(Type.Union([Type.Literal("compact"), Type.Literal("detailed")]), obj.widgetRowStyle);
   const ui2 = {
@@ -13094,16 +13099,16 @@ function parseGenericGitUrl(url) {
   const { repo: repoWithoutRef, ref } = splitRef(url);
   let repo = repoWithoutRef;
   let host = "";
-  let path99 = "";
+  let path100 = "";
   const scpLikeMatch = repoWithoutRef.match(/^git@([^:]+):(.+)$/);
   if (scpLikeMatch) {
     host = scpLikeMatch[1] ?? "";
-    path99 = scpLikeMatch[2] ?? "";
+    path100 = scpLikeMatch[2] ?? "";
   } else if (repoWithoutRef.startsWith("https://") || repoWithoutRef.startsWith("http://") || repoWithoutRef.startsWith("ssh://") || repoWithoutRef.startsWith("git://")) {
     try {
       const parsed = new URL(repoWithoutRef);
       host = parsed.hostname;
-      path99 = parsed.pathname.replace(/^\/+/, "");
+      path100 = parsed.pathname.replace(/^\/+/, "");
     } catch {
       return null;
     }
@@ -13113,13 +13118,13 @@ function parseGenericGitUrl(url) {
       return null;
     }
     host = repoWithoutRef.slice(0, slashIndex);
-    path99 = repoWithoutRef.slice(slashIndex + 1);
+    path100 = repoWithoutRef.slice(slashIndex + 1);
     if (!host.includes(".") && host !== "localhost") {
       return null;
     }
     repo = `https://${repoWithoutRef}`;
   }
-  const normalizedPath = path99.replace(/\.git$/, "").replace(/^\/+/, "");
+  const normalizedPath = path100.replace(/\.git$/, "").replace(/^\/+/, "");
   if (!host || !normalizedPath || normalizedPath.split("/").length < 2) {
     return null;
   }
@@ -13941,9 +13946,9 @@ var init_cancellation_token = __esm({
         this.throwIfCancelled();
         this.#lastHeartbeatAt = this.#now().toISOString();
         this.#lastHeartbeatStage = stage;
-        const state2 = this.state();
-        this.#onHeartbeat?.(state2);
-        return state2;
+        const state3 = this.state();
+        this.#onHeartbeat?.(state3);
+        return state3;
       }
       throwIfCancelled() {
         if (this.aborted) throw new CrewCancellationError(this.#reason ?? cancellationReasonFromUnknown(this.#controller.signal.reason));
@@ -18607,13 +18612,13 @@ var init_errors3 = __esm({
       }
     };
     errors = {
-      fileRead(path99, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path99}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileRead(path100, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path100}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system read operation"
         );
       },
-      fileWrite(path99, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path99}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileWrite(path100, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path100}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system write operation"
         );
       },
@@ -19559,45 +19564,45 @@ function readJsonlTail(filePath, tailBytes) {
     }
   }
 }
-function readLinesSince(filePath, state2) {
+function readLinesSince(filePath, state3) {
   let fd;
   try {
     fd = fs27.openSync(filePath, "r");
   } catch {
     return {
       lines: [],
-      state: { byteOffset: state2.byteOffset, lineCount: state2.lineCount },
+      state: { byteOffset: state3.byteOffset, lineCount: state3.lineCount },
       eof: true
     };
   }
   try {
     const stat2 = fs27.fstatSync(fd);
     const fileSize = stat2.size;
-    if (fileSize <= state2.byteOffset) {
+    if (fileSize <= state3.byteOffset) {
       return {
         lines: [],
-        state: { byteOffset: fileSize, lineCount: state2.lineCount },
+        state: { byteOffset: fileSize, lineCount: state3.lineCount },
         eof: true
       };
     }
-    const bytesToRead = fileSize - state2.byteOffset;
+    const bytesToRead = fileSize - state3.byteOffset;
     const buf = Buffer.alloc(bytesToRead);
     let totalRead = 0;
     while (totalRead < bytesToRead) {
       const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
-      const bytesRead = fs27.readSync(fd, buf, totalRead, chunkSize, state2.byteOffset + totalRead);
+      const bytesRead = fs27.readSync(fd, buf, totalRead, chunkSize, state3.byteOffset + totalRead);
       if (bytesRead === 0) break;
       totalRead += bytesRead;
     }
     const content = buf.toString("utf-8", 0, totalRead);
     const lines = [];
-    let lineCount = state2.lineCount;
-    let committedOffset = state2.byteOffset;
+    let lineCount = state3.lineCount;
+    let committedOffset = state3.byteOffset;
     let searchFrom = 0;
     let newlineIdx;
     while ((newlineIdx = content.indexOf("\n", searchFrom)) !== -1) {
       const lineText = content.slice(searchFrom, newlineIdx);
-      committedOffset = state2.byteOffset + newlineIdx + 1;
+      committedOffset = state3.byteOffset + newlineIdx + 1;
       searchFrom = newlineIdx + 1;
       if (lineText.length > 0) {
         lines.push(lineText);
@@ -19619,8 +19624,8 @@ function readLinesSince(filePath, state2) {
     }
   }
 }
-function readJsonlSince(filePath, state2) {
-  const result4 = readLinesSince(filePath, state2);
+function readJsonlSince(filePath, state3) {
+  const result4 = readLinesSince(filePath, state3);
   const items = [];
   for (const line4 of result4.lines) {
     try {
@@ -21502,6 +21507,9 @@ function setExtensionWidget(ctx, key, content, options) {
   const { persist: _persist, ...widgetOptions } = options ?? {};
   ctx.ui.setWidget(key, content, widgetOptions);
 }
+function toPiWidgetPlacement(placement) {
+  return placement === "bottom" ? "belowEditor" : placement;
+}
 function setFooter(ctx, factory) {
   if (!ctx) return;
   const record = maybeRecord(ctx.ui);
@@ -23020,26 +23028,26 @@ var init_syntax_highlight = __esm({
 
 // src/ui/transcript-cache.ts
 import * as fs33 from "node:fs";
-function cacheKey(path99, options) {
-  return `${path99}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
+function cacheKey(path100, options) {
+  return `${path100}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
-function getTranscriptCacheEntry(path99, options = {}) {
+function getTranscriptCacheEntry(path100, options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: options.maxTailBytes ?? DEFAULT_TAIL_BYTES
   };
-  return transcriptCache.get(cacheKey(path99, normalized)) ?? transcriptCache.get(path99);
+  return transcriptCache.get(cacheKey(path100, normalized)) ?? transcriptCache.get(path100);
 }
-function readTranscriptText(path99, stat2, options) {
+function readTranscriptText(path100, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
     return {
-      text: fs33.readFileSync(path99, "utf-8"),
+      text: fs33.readFileSync(path100, "utf-8"),
       bytesRead: stat2.size,
       truncated: false
     };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs33.openSync(path99, "r");
+  const fd = fs33.openSync(path100, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
     fs33.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -23051,16 +23059,16 @@ function readTranscriptText(path99, stat2, options) {
     fs33.closeSync(fd);
   }
 }
-function readTranscriptLinesCached(path99, parse4, now = Date.now(), options = {}) {
+function readTranscriptLinesCached(path100, parse4, now = Date.now(), options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: Math.max(1024, options.maxTailBytes ?? DEFAULT_TAIL_BYTES)
   };
-  const key = cacheKey(path99, normalized);
+  const key = cacheKey(path100, normalized);
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs33.statSync(path99);
+    stat2 = fs33.statSync(path100);
   } catch {
     return previous?.lines ?? [];
   }
@@ -23069,10 +23077,10 @@ function readTranscriptLinesCached(path99, parse4, now = Date.now(), options = {
     return previous.lines;
   }
   try {
-    const read = readTranscriptText(path99, stat2, normalized);
+    const read = readTranscriptText(path100, stat2, normalized);
     const lines = parse4(read.text);
     const entry = {
-      path: path99,
+      path: path100,
       mtimeMs: stat2.mtimeMs,
       size: stat2.size,
       lines,
@@ -23272,16 +23280,16 @@ function readRunTranscript(manifest, taskId, options = {}) {
   readRunTranscriptCache.set(cacheKey2, { parsedAt: now, result: result4 });
   return result4;
 }
-function renderViewerBase(state2, width, lines, title, subtitle) {
+function renderViewerBase(state3, width, lines, title, subtitle) {
   const inner = Math.max(20, width - 4);
   const bodyText = lines.join("\n");
-  const { visualLines, skippedCount } = truncateToVisualLines(bodyText, state2.lastHeight, inner);
-  const maxScroll = Math.max(0, visualLines.length - state2.lastHeight);
-  if (state2.autoScroll) state2.scroll = maxScroll;
-  state2.scroll = Math.min(state2.scroll, maxScroll);
-  const visible = visualLines.slice(state2.scroll, state2.scroll + state2.lastHeight);
-  const statusLine = `${visualLines.length} lines \xB7 ${visualLines.length ? Math.round((state2.scroll + visible.length) / visualLines.length * 100) : 100}% \xB7 auto-scroll ${state2.autoScroll ? "on" : "off"}`;
-  const fg = (color, text) => state2.theme.fg(color, text);
+  const { visualLines, skippedCount } = truncateToVisualLines(bodyText, state3.lastHeight, inner);
+  const maxScroll = Math.max(0, visualLines.length - state3.lastHeight);
+  if (state3.autoScroll) state3.scroll = maxScroll;
+  state3.scroll = Math.min(state3.scroll, maxScroll);
+  const visible = visualLines.slice(state3.scroll, state3.scroll + state3.lastHeight);
+  const statusLine = `${visualLines.length} lines \xB7 ${visualLines.length ? Math.round((state3.scroll + visible.length) / visualLines.length * 100) : 100}% \xB7 auto-scroll ${state3.autoScroll ? "on" : "off"}`;
+  const fg = (color, text) => state3.theme.fg(color, text);
   const row = (text) => `${fg("border", "\u2502")} ${pad(truncate(text, inner), inner)} ${fg("border", "\u2502")}`;
   const linesOut = [
     fg("border", `\u256D${"\u2500".repeat(inner + 2)}\u256E`),
@@ -24943,12 +24951,12 @@ function readDeliveryState(manifest) {
     if (obj.messages && typeof obj.messages === "object" && !Array.isArray(obj.messages)) {
       for (const [id, status] of Object.entries(obj.messages)) if (isStatus(status)) messages[id] = status;
     }
-    const state2 = {
+    const state3 = {
       messages,
       updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : (/* @__PURE__ */ new Date()).toISOString()
     };
-    setDeliveryCacheEntry(filePath, { mtimeMs: stat2.mtimeMs, state: state2 });
-    return state2;
+    setDeliveryCacheEntry(filePath, { mtimeMs: stat2.mtimeMs, state: state3 });
+    return state3;
   } catch (error) {
     const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
     try {
@@ -24966,25 +24974,25 @@ function readDeliveryState(manifest) {
     return { messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
   }
 }
-function writeDeliveryState(manifest, state2, options) {
+function writeDeliveryState(manifest, state3, options) {
   ensureRunMailbox(manifest);
   const MAX_DELIVERY_MESSAGES = 1e4;
-  if (Object.keys(state2.messages).length > MAX_DELIVERY_MESSAGES) {
-    const sorted = Object.entries(state2.messages).sort(([, a], [, b]) => {
+  if (Object.keys(state3.messages).length > MAX_DELIVERY_MESSAGES) {
+    const sorted = Object.entries(state3.messages).sort(([, a], [, b]) => {
       const order = { queued: 0, delivered: 1, acknowledged: 2 };
       return (order[a] ?? 3) - (order[b] ?? 3);
     });
     const trimmed = sorted.slice(0, MAX_DELIVERY_MESSAGES);
-    state2.messages = Object.fromEntries(trimmed);
+    state3.messages = Object.fromEntries(trimmed);
   }
   const filePath = deliveryFile(manifest, true);
-  atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(state2), null, 2)}
+  atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(state3), null, 2)}
 `, {
     durability: options?.durability ?? "best-effort"
   });
   try {
     const postStat = fs40.statSync(filePath);
-    setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state: state2 });
+    setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state: state3 });
   } catch {
     deliveryCache.delete(filePath);
   }
@@ -25975,9 +25983,6 @@ function warnUnvalidatedPassthrough(model, reason) {
   const key = `${model}|${reason}`;
   if (passthroughWarned.has(key)) return;
   passthroughWarned.add(key);
-  console.warn(
-    `[model-routing] unvalidated passthrough: '${model}' (${reason}) \u2014 not confirmed against the configured model catalog; spawn may fail at the provider.`
-  );
 }
 function resolveModelCandidate(model, availableModels, preferredProvider) {
   if (!model) return void 0;
@@ -26926,17 +26931,17 @@ function confidenceToThreshold(confidence) {
 }
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
-  const path99 = getSkillActivationsPath(cwd, activation.runId);
+  const path100 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync4(path99, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync4(path100, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
-  const path99 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync27(path99)) {
+  const path100 = getSkillActivationsPath(cwd, runId);
+  if (!existsSync27(path100)) {
     return [];
   }
-  const content = readFileSync30(path99, "utf-8");
+  const content = readFileSync30(path100, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -29383,11 +29388,11 @@ function parseSkillFrontmatter(content) {
     };
   }
 }
-function hard(path99, field, reason) {
-  return { path: path99, field, reason, severity: "error" };
+function hard(path100, field, reason) {
+  return { path: path100, field, reason, severity: "error" };
 }
-function warn(path99, field, reason) {
-  return { path: path99, field, reason, severity: "warn" };
+function warn(path100, field, reason) {
+  return { path: path100, field, reason, severity: "warn" };
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
@@ -33559,8 +33564,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path99) {
-      let input = path99;
+    function removeDotSegments(path100) {
+      let input = path100;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -33812,8 +33817,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path99, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path99 && path99 !== "/" ? path99 : void 0;
+        const [path100, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path100 && path100 !== "/" ? path100 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -40641,11 +40646,11 @@ function resolveSchemaKey(schema, key) {
     childSchema: childSchemas[0]
   };
 }
-function findUnknownConfigKeyPaths(value, schema, depth = 0, path99 = []) {
+function findUnknownConfigKeyPaths(value, schema, depth = 0, path100 = []) {
   if (!isRecord2(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
   const unknownPaths = [];
   for (const [key, childValue] of Object.entries(value)) {
-    const childPath = [...path99, key];
+    const childPath = [...path100, key];
     const resolution = resolveSchemaKey(schema, key);
     if (!resolution.allowed) {
       unknownPaths.push(childPath);
@@ -40657,8 +40662,8 @@ function findUnknownConfigKeyPaths(value, schema, depth = 0, path99 = []) {
   }
   return unknownPaths;
 }
-function isAgentOverrideKeyPath(path99) {
-  return path99.length === 4 && path99[0] === "agents" && path99[1] === "overrides";
+function isAgentOverrideKeyPath(path100) {
+  return path100.length === 4 && path100[0] === "agents" && path100[1] === "overrides";
 }
 function extractConfigReferences(config) {
   const agents = /* @__PURE__ */ new Set();
@@ -52943,8 +52948,8 @@ var init_theme_discovery = __esm({
 });
 
 // src/extension/team-tool/handle-settings.ts
-function setNested(obj, path99, value) {
-  const keys = path99.split(".");
+function setNested(obj, path100, value) {
+  const keys = path100.split(".");
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
@@ -52954,8 +52959,8 @@ function setNested(obj, path99, value) {
   }
   target[keys[keys.length - 1]] = value;
 }
-function getNested(obj, path99) {
-  const keys = path99.split(".");
+function getNested(obj, path100) {
+  const keys = path100.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -54303,10 +54308,10 @@ var init_goal_state_store = __esm({
       }
       /** Load a goal by id. Returns undefined if missing/corrupt. Throws on unsafe goalId (§0c C10). */
       load(goalId) {
-        const path99 = goalFilePath(this.cwd, goalId);
+        const path100 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync57(path99)) return void 0;
-          const raw = readFileSync62(path99, "utf-8");
+          if (!existsSync57(path100)) return void 0;
+          const raw = readFileSync62(path100, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -54315,22 +54320,22 @@ var init_goal_state_store = __esm({
         }
       }
       /** Atomically persist a goal state. Emits a goal.state_changed event if eventsPath given. */
-      save(state2, eventsPath) {
-        assertSafePathId("goalId", state2.goalId);
-        const path99 = goalFilePath(this.cwd, state2.goalId);
-        const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      save(state3, eventsPath) {
+        assertSafePathId("goalId", state3.goalId);
+        const path100 = goalFilePath(this.cwd, state3.goalId);
+        const next = { ...state3, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync35(dirname37(path99), { recursive: true });
-          atomicWriteJson(path99, next);
+          mkdirSync35(dirname37(path100), { recursive: true });
+          atomicWriteJson(path100, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
               type: "goal.state_changed",
-              runId: state2.goalId,
-              data: { goalId: state2.goalId, state: state2.state }
+              runId: state3.goalId,
+              data: { goalId: state3.goalId, state: state3.state }
             });
           }
         } catch (error) {
-          logInternalError("goal-state-store.save", error, `goalId=${state2.goalId}`);
+          logInternalError("goal-state-store.save", error, `goalId=${state3.goalId}`);
           throw error;
         }
       }
@@ -54348,8 +54353,8 @@ var init_goal_state_store = __esm({
         return next;
       }
       /** Convenience: transition state with optional event emission. */
-      setStatus(goalId, state2, eventsPath) {
-        return this.patch(goalId, { state: state2 }, eventsPath);
+      setStatus(goalId, state3, eventsPath) {
+        return this.patch(goalId, { state: state3 }, eventsPath);
       }
       /**
        * Compare-And-Set status for atomic stuck↔resume transitions (P1b, RFC v0.5 §P1b).
@@ -54418,9 +54423,9 @@ var init_goal_state_store = __esm({
       /** Remove a goal file (used by `goal clear`). Returns true if deleted. */
       remove(goalId) {
         try {
-          const path99 = goalFilePath(this.cwd, goalId);
-          if (!existsSync57(path99)) return false;
-          unlinkSync8(path99);
+          const path100 = goalFilePath(this.cwd, goalId);
+          if (!existsSync57(path100)) return false;
+          unlinkSync8(path100);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -55258,6 +55263,27 @@ var init_usage = __esm({
   }
 });
 
+// src/ui/inline-panel/view-session-store.ts
+function getCrewViewSessionState() {
+  return state2;
+}
+function setCrewViewSessionState(next) {
+  state2 = next;
+}
+function isCrewViewSessionFile(file) {
+  if (!file) return false;
+  const base = file.split(/[\\/]/).pop() ?? "";
+  return base === CREW_VIEW_SESSION_BASENAME;
+}
+var CREW_VIEW_SESSION_BASENAME, state2;
+var init_view_session_store = __esm({
+  "src/ui/inline-panel/view-session-store.ts"() {
+    "use strict";
+    CREW_VIEW_SESSION_BASENAME = "view-session.jsonl";
+    state2 = { active: false };
+  }
+});
+
 // src/ui/render-coalescer.ts
 var RenderCoalescer;
 var init_render_coalescer = __esm({
@@ -55775,6 +55801,7 @@ var init_powerbar_publisher = __esm({
     init_internal_error();
     init_session_utils();
     init_discover_workflows();
+    init_view_session_store();
     init_render_coalescer();
     init_widget_formatters();
     TASK_READ_TTL_MS = 200;
@@ -55806,7 +55833,8 @@ var init_powerbar_publisher = __esm({
       update(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests, workspaceId) {
         if (config?.powerbar === false) return;
         const useStatusFallback = !hasPowerbarConsumer(events);
-        const effectiveWorkspaceId = workspaceId ?? extractSessionId(ctx);
+        const viewState = getCrewViewSessionState();
+        const effectiveWorkspaceId = workspaceId ?? (viewState.active ? viewState.mainSessionId : void 0) ?? extractSessionId(ctx);
         const allRuns = preloadedManifests ?? (manifestCache2 ? manifestCache2.list(20) : listRecentRuns(cwd, 20));
         const runs = effectiveWorkspaceId ? allRuns.filter((run) => !run.ownerSessionId || run.ownerSessionId === effectiveWorkspaceId) : allRuns;
         const active = runs.map((run) => {
@@ -56713,6 +56741,27 @@ var init_tool_renderers = __esm({
         }
       }
     };
+  }
+});
+
+// src/ui/dock-footer.ts
+function setFooterDockProvider(provider) {
+  dockProvider = provider;
+}
+function getFooterDockProvider() {
+  return dockProvider;
+}
+function setFooterDockSinkActive(active) {
+  sinkActive = active;
+}
+function isFooterDockSinkActive() {
+  return sinkActive;
+}
+var dockProvider, sinkActive;
+var init_dock_footer = __esm({
+  "src/ui/dock-footer.ts"() {
+    "use strict";
+    sinkActive = false;
   }
 });
 
@@ -57815,7 +57864,9 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
     }, 0);
     if (agentCount > 0) {
       let hint;
-      if (options.viewedTaskId) {
+      if (options.viewBack) {
+        hint = "agent view \u2014 esc back to main \xB7 \u2193 switch";
+      } else if (options.viewedTaskId) {
         const viewedName = runs.flatMap((entry) => entry.agents).find((a) => a.taskId === options.viewedTaskId)?.agent ?? "agent";
         hint = `viewing @${viewedName} \u2014 typing goes to the agent \xB7 \u2193 switch \xB7 esc back`;
       } else if (options.focused) {
@@ -58374,19 +58425,19 @@ function ensureShared() {
   return shared;
 }
 function registerOverlayScheduler(render, onInvalidate) {
-  const state2 = ensureShared();
-  state2.renderers.add(render);
-  if (onInvalidate) state2.invalidators.add(onInvalidate);
+  const state3 = ensureShared();
+  state3.renderers.add(render);
+  if (onInvalidate) state3.invalidators.add(onInvalidate);
   return {
     schedule: () => {
-      state2.scheduler.schedule();
+      state3.scheduler.schedule();
     },
     dispose: () => {
-      state2.renderers.delete(render);
-      if (onInvalidate) state2.invalidators.delete(onInvalidate);
-      if (state2.renderers.size === 0) {
-        state2.scheduler.dispose();
-        if (shared === state2) shared = void 0;
+      state3.renderers.delete(render);
+      if (onInvalidate) state3.invalidators.delete(onInvalidate);
+      if (state3.renderers.size === 0) {
+        state3.scheduler.dispose();
+        if (shared === state3) shared = void 0;
       }
     }
   };
@@ -58448,11 +58499,12 @@ function uninstallResizeListener() {
     process.stdout.removeListener("resize", onResize);
   }
 }
-function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, preloadedManifests) {
+function updateCrewWidget(ctx, state3, config, manifestCache2, snapshotCache, preloadedManifests) {
   if (!ctx.hasUI) return;
-  state2.frame += 1;
+  state3.frame += 1;
   const maxLines = config?.widgetMaxLines ?? MAX_LINES_DEFAULT;
-  let workspaceId = ctx.sessionManager?.getSessionId?.();
+  const viewState = getCrewViewSessionState();
+  let workspaceId = viewState.active ? viewState.mainSessionId : ctx.sessionManager?.getSessionId?.();
   if (!workspaceId && manifestCache2) {
     const runs2 = manifestCache2.list(20);
     const active = runs2.find((r) => r.status === "running" || r.status === "queued");
@@ -58461,37 +58513,43 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
   const runs = activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId);
   const rowStyle = config?.widgetRowStyle ?? DEFAULT_UI.widgetRowStyle;
   setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId)));
-  const lines = buildWidgetLines(ctx.cwd, state2.frame, maxLines, runs, state2.notificationCount ?? 0, getRenderWidth(), {
+  const lines = buildWidgetLines(ctx.cwd, state3.frame, maxLines, runs, state3.notificationCount ?? 0, getRenderWidth(), {
     rowStyle,
     ...panelDisplayState()
   });
   const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
+  const bottomMode = placement === "bottom";
+  const dockInFooter = bottomMode && isFooterDockSinkActive();
+  const piPlacement = bottomMode ? "belowEditor" : placement;
   ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : void 0);
-  const shouldClearLegacy = state2.legacyCleared !== true || state2.lastPlacement !== placement;
+  const shouldClearLegacy = state3.legacyCleared !== true || state3.lastPlacement !== placement;
   if (shouldClearLegacy) {
-    setExtensionWidget(ctx, LEGACY_WIDGET_KEY, void 0, { placement });
-    state2.legacyCleared = true;
+    setExtensionWidget(ctx, LEGACY_WIDGET_KEY, void 0, { placement: piPlacement });
+    state3.legacyCleared = true;
   }
   if (!lines.length) {
-    if (state2.lastVisibility !== "hidden" || state2.lastPlacement !== placement) {
-      setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement });
-      state2.lastVisibility = "hidden";
-      state2.lastPlacement = placement;
-      state2.lastKey = WIDGET_KEY;
-      state2.lastMaxLines = maxLines;
-      state2.lastCwd = ctx.cwd;
-      state2.model = void 0;
+    if (state3.lastVisibility !== "hidden" || state3.lastPlacement !== placement) {
+      setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
+      state3.footerDock?.dispose();
+      state3.footerDock = void 0;
+      setFooterDockProvider(void 0);
+      state3.lastVisibility = "hidden";
+      state3.lastPlacement = placement;
+      state3.lastKey = WIDGET_KEY;
+      state3.lastMaxLines = maxLines;
+      state3.lastCwd = ctx.cwd;
+      state3.model = void 0;
     }
     requestRender(ctx);
     return;
   }
-  const needsWidgetInstall = state2.lastVisibility !== "visible" || state2.lastPlacement !== placement || state2.lastKey !== WIDGET_KEY || state2.lastMaxLines !== maxLines || state2.lastCwd !== ctx.cwd || !state2.model;
-  if (!state2.model)
-    state2.model = {
+  const needsWidgetInstall = state3.lastVisibility !== "visible" || state3.lastPlacement !== placement || state3.lastKey !== WIDGET_KEY || state3.lastMaxLines !== maxLines || state3.lastCwd !== ctx.cwd || !state3.model;
+  if (!state3.model)
+    state3.model = {
       cwd: ctx.cwd,
-      frame: state2.frame,
+      frame: state3.frame,
       maxLines,
-      notificationCount: state2.notificationCount ?? 0,
+      notificationCount: state3.notificationCount ?? 0,
       manifestCache: manifestCache2,
       snapshotCache,
       preloadManifests: preloadedManifests,
@@ -58499,53 +58557,78 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
       rowStyle
     };
   else {
-    state2.model.cwd = ctx.cwd;
-    state2.model.frame = state2.frame;
-    state2.model.maxLines = maxLines;
-    state2.model.notificationCount = state2.notificationCount ?? 0;
-    state2.model.manifestCache = manifestCache2;
-    state2.model.snapshotCache = snapshotCache;
-    state2.model.preloadManifests = preloadedManifests;
-    state2.model.workspaceId = workspaceId;
-    state2.model.rowStyle = rowStyle;
+    state3.model.cwd = ctx.cwd;
+    state3.model.frame = state3.frame;
+    state3.model.maxLines = maxLines;
+    state3.model.notificationCount = state3.notificationCount ?? 0;
+    state3.model.manifestCache = manifestCache2;
+    state3.model.snapshotCache = snapshotCache;
+    state3.model.preloadManifests = preloadedManifests;
+    state3.model.workspaceId = workspaceId;
+    state3.model.rowStyle = rowStyle;
   }
-  if (needsWidgetInstall) {
-    const model = state2.model;
+  if (dockInFooter) {
+    if (needsWidgetInstall && state3.lastKey === WIDGET_KEY) {
+      setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
+    }
+    if (!state3.footerDock) state3.footerDock = new FooterDockHost(state3.model);
+    setFooterDockProvider((width) => state3.footerDock.render(width));
+  } else {
+    if (state3.footerDock) {
+      state3.footerDock.dispose();
+      state3.footerDock = void 0;
+    }
+    setFooterDockProvider(void 0);
+  }
+  if (needsWidgetInstall && !dockInFooter) {
+    const model = state3.model;
     setExtensionWidget(ctx, WIDGET_KEY, ((_tui, theme) => new CrewWidgetComponent(model, theme, _tui)), {
-      placement,
+      placement: piPlacement,
       persist: true
     });
-    state2.lastVisibility = "visible";
-    state2.lastPlacement = placement;
-    state2.lastKey = WIDGET_KEY;
-    state2.lastMaxLines = maxLines;
-    state2.lastCwd = ctx.cwd;
+    state3.lastVisibility = "visible";
+    state3.lastPlacement = placement;
+    state3.lastKey = WIDGET_KEY;
+    state3.lastMaxLines = maxLines;
+    state3.lastCwd = ctx.cwd;
+  } else if (dockInFooter) {
+    state3.lastVisibility = "visible";
+    state3.lastPlacement = placement;
+    state3.lastKey = WIDGET_KEY;
+    state3.lastMaxLines = maxLines;
+    state3.lastCwd = ctx.cwd;
   }
   requestRender(ctx);
 }
-function stopCrewWidget(ctx, state2, config) {
+function stopCrewWidget(ctx, state3, config) {
   uninstallResizeListener();
   if (ctx?.hasUI) {
     const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
+    const piPlacement = placement === "bottom" ? "belowEditor" : placement;
     ctx.ui.setStatus(STATUS_KEY, void 0);
-    setExtensionWidget(ctx, LEGACY_WIDGET_KEY, void 0, { placement });
-    setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement });
-    state2.lastVisibility = "hidden";
-    state2.lastPlacement = placement;
-    state2.lastKey = WIDGET_KEY;
-    state2.model = void 0;
-    state2.legacyCleared = true;
+    setExtensionWidget(ctx, LEGACY_WIDGET_KEY, void 0, { placement: piPlacement });
+    setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
+    state3.footerDock?.dispose();
+    state3.footerDock = void 0;
+    setFooterDockProvider(void 0);
+    state3.lastVisibility = "hidden";
+    state3.lastPlacement = placement;
+    state3.lastKey = WIDGET_KEY;
+    state3.model = void 0;
+    state3.legacyCleared = true;
     requestRender(ctx);
   }
 }
-var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, STATUS_KEY, SIGNATURE_CACHE_TTL_MS, resizeListenerInstalled, activeResizeTarget, resizeTimer, onResize, CrewWidgetComponent;
+var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, STATUS_KEY, SIGNATURE_CACHE_TTL_MS, resizeListenerInstalled, activeResizeTarget, resizeTimer, onResize, CrewWidgetComponent, FooterDockHost;
 var init_widget = __esm({
   "src/ui/widget/index.ts"() {
     "use strict";
     init_defaults();
     init_visual();
+    init_dock_footer();
     init_panel_rows();
     init_panel_store();
+    init_view_session_store();
     init_pi_ui_compat();
     init_shared_overlay_scheduler();
     init_spinner();
@@ -58670,7 +58753,8 @@ var init_widget = __esm({
         const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
         const runningGlyph = spinnerFrame("widget-header");
         const panel = panelDisplayState();
-        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+        const viewBack = getCrewViewSessionState().active;
+        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}/${viewBack ? 1 : 0}`;
         const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
@@ -58680,7 +58764,7 @@ var init_widget = __esm({
             runs,
             this.model.notificationCount ?? 0,
             width,
-            { rowStyle: this.model.rowStyle, ...panel }
+            { rowStyle: this.model.rowStyle, ...panel, viewBack }
           ).map((line4, index) => {
             if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
@@ -58700,6 +58784,21 @@ var init_widget = __esm({
           this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
         }
         return this.cachedLines.map((line4) => truncate(line4, width));
+      }
+    };
+    FooterDockHost = class {
+      component;
+      model;
+      constructor(model) {
+        this.model = model;
+      }
+      render(width) {
+        if (!this.component) this.component = new CrewWidgetComponent(this.model, void 0, void 0);
+        return this.component.render(width);
+      }
+      dispose() {
+        this.component?.dispose();
+        this.component = void 0;
       }
     };
   }
@@ -66502,10 +66601,10 @@ var init_dwf_state_store = __esm({
       }
       /** Load the checkpoint for this run's stateRoot. Returns undefined if missing or corrupt (fresh run). */
       load() {
-        const path99 = this.path;
+        const path100 = this.path;
         try {
-          if (!existsSync74(path99)) return void 0;
-          const raw = readFileSync78(path99, "utf-8");
+          if (!existsSync74(path100)) return void 0;
+          const raw = readFileSync78(path100, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -66514,23 +66613,23 @@ var init_dwf_state_store = __esm({
         }
       }
       /** Atomically persist a checkpoint state. Stamps `updatedAt` (callers need not set it). */
-      save(state2) {
-        const path99 = this.path;
-        const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      save(state3) {
+        const path100 = this.path;
+        const next = { ...state3, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync42(dirname42(path99), { recursive: true });
-          atomicWriteJson(path99, next);
+          mkdirSync42(dirname42(path100), { recursive: true });
+          atomicWriteJson(path100, next);
         } catch (error) {
-          logInternalError("dwf-state-store.save", error, `runId=${state2.runId}`);
+          logInternalError("dwf-state-store.save", error, `runId=${state3.runId}`);
           throw error;
         }
       }
       /** Remove the checkpoint file (after a clean completion). Best-effort; never throws. */
       delete() {
-        const path99 = this.path;
+        const path100 = this.path;
         try {
-          if (!existsSync74(path99)) return;
-          unlinkSync13(path99);
+          if (!existsSync74(path100)) return;
+          unlinkSync13(path100);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
         }
@@ -67420,9 +67519,9 @@ async function runDynamicWorkflow(input) {
     resumedState,
     // round-18 P2-3: checkpoint after each ctx.agent() call so a crash between calls
     // leaves durable state. onCheckpoint captures the closure values at call time.
-    onCheckpoint: (state2) => {
+    onCheckpoint: (state3) => {
       try {
-        dwfStore.save(state2);
+        dwfStore.save(state3);
       } catch (error) {
         logInternalError("dynamic-workflow-runner.checkpoint-save", error, `runId=${manifest.runId}`);
       }
@@ -69376,11 +69475,11 @@ function extractDwfPhaseState(events) {
   });
   return { phases, currentPhase };
 }
-function renderDwfPhaseLines(state2, options) {
+function renderDwfPhaseLines(state3, options) {
   const ascii = options?.ascii === true;
   const lines = [];
-  if (state2.phases.length > 1) lines.push(DWF_PHASE_HEADER);
-  for (const entry of state2.phases) {
+  if (state3.phases.length > 1) lines.push(DWF_PHASE_HEADER);
+  for (const entry of state3.phases) {
     lines.push(`  ${markerFor(entry.status, ascii)} Phase: ${entry.name}`);
   }
   return lines;
@@ -71107,24 +71206,24 @@ var init_mascot = __esm({
         }
       }
       tickTypewriter() {
-        const state2 = this.effectState;
-        if (state2.pos === void 0) return true;
+        const state3 = this.effectState;
+        if (state3.pos === void 0) return true;
         for (let i = 0; i < 18; i++) {
-          const row = Math.floor(state2.pos / ARMIN_WIDTH);
-          const x = state2.pos % ARMIN_WIDTH;
+          const row = Math.floor(state3.pos / ARMIN_WIDTH);
+          const x = state3.pos % ARMIN_WIDTH;
           if (row >= ARMIN_DISPLAY_HEIGHT) return true;
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
-          state2.pos++;
+          state3.pos++;
         }
         return false;
       }
       tickScanline() {
-        const state2 = this.effectState;
-        if (state2.row === void 0) return true;
+        const state3 = this.effectState;
+        if (state3.row === void 0) return true;
         for (let step = 0; step < 3; step++) {
-          if (state2.row >= ARMIN_DISPLAY_HEIGHT) return true;
-          for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state2.row][x] = this.finalArminGrid[state2.row][x];
-          state2.row++;
+          if (state3.row >= ARMIN_DISPLAY_HEIGHT) return true;
+          for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state3.row][x] = this.finalArminGrid[state3.row][x];
+          state3.row++;
         }
         return false;
       }
@@ -71160,33 +71259,33 @@ var init_mascot = __esm({
         return allSettled;
       }
       tickFade() {
-        const state2 = this.effectState;
-        if (!state2.positions || state2.idx === void 0) return true;
+        const state3 = this.effectState;
+        if (!state3.positions || state3.idx === void 0) return true;
         for (let i = 0; i < 54; i++) {
-          if (state2.idx >= state2.positions.length) return true;
-          const [row, x] = state2.positions[state2.idx];
+          if (state3.idx >= state3.positions.length) return true;
+          const [row, x] = state3.positions[state3.idx];
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
-          state2.idx++;
+          state3.idx++;
         }
         return false;
       }
       tickCrt() {
-        const state2 = this.effectState;
-        if (state2.expansion === void 0) return true;
+        const state3 = this.effectState;
+        if (state3.expansion === void 0) return true;
         const midRow = Math.floor(ARMIN_DISPLAY_HEIGHT / 2);
         this.currentArminGrid = emptyArminGrid();
-        const top = midRow - state2.expansion;
-        const bottom = midRow + state2.expansion;
+        const top = midRow - state3.expansion;
+        const bottom = midRow + state3.expansion;
         for (let row = Math.max(0, top); row <= Math.min(ARMIN_DISPLAY_HEIGHT - 1, bottom); row++) {
           for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
         }
-        state2.expansion += 3;
-        return state2.expansion > ARMIN_DISPLAY_HEIGHT;
+        state3.expansion += 3;
+        return state3.expansion > ARMIN_DISPLAY_HEIGHT;
       }
       tickGlitch() {
-        const state2 = this.effectState;
-        if (state2.phase === void 0 || state2.glitchFrames === void 0) return true;
-        if (state2.phase < state2.glitchFrames) {
+        const state3 = this.effectState;
+        if (state3.phase === void 0 || state3.glitchFrames === void 0) return true;
+        if (state3.phase < state3.glitchFrames) {
           const offset = Math.floor(Math.random() * 7) - 3;
           const swapRow = Math.floor(Math.random() * ARMIN_DISPLAY_HEIGHT);
           const doShift = Math.random() < 0.3;
@@ -71201,7 +71300,7 @@ var init_mascot = __esm({
               }
             }
           }
-          state2.phase += 3;
+          state3.phase += 3;
           return false;
         }
         for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
@@ -71212,13 +71311,13 @@ var init_mascot = __esm({
         return true;
       }
       tickDissolve() {
-        const state2 = this.effectState;
-        if (!state2.positions || state2.idx === void 0) return true;
+        const state3 = this.effectState;
+        if (!state3.positions || state3.idx === void 0) return true;
         for (let i = 0; i < 66; i++) {
-          if (state2.idx >= state2.positions.length) return true;
-          const [row, x] = state2.positions[state2.idx];
+          if (state3.idx >= state3.positions.length) return true;
+          const [row, x] = state3.positions[state3.idx];
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
-          state2.idx++;
+          state3.idx++;
         }
         return false;
       }
@@ -71321,8 +71420,8 @@ function formatValue2(value, id) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function getNestedValue(obj, path99) {
-  const keys = path99.split(".");
+function getNestedValue(obj, path100) {
+  const keys = path100.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -74404,13 +74503,13 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks2(path99) {
+function readTasks2(path100) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs113.readFileSync(path99, "utf-8"));
+    const parsed = JSON.parse(fs113.readFileSync(path100, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
-    return readJsonFileCoalesced(path99, TASK_READ_TTL_MS3, parse4);
+    return readJsonFileCoalesced(path100, TASK_READ_TTL_MS3, parse4);
   } catch {
     return [];
   }
@@ -74641,21 +74740,22 @@ async function importLiveRunSidebar() {
   }
   return _cachedLiveRunSidebar;
 }
-async function installLiveSidebar(ctx, runId, state2, deps) {
+async function installLiveSidebar(ctx, runId, state3, deps) {
   const uiConfig = loadConfig(ctx.cwd).config.ui;
   const autoOpen = uiConfig?.autoOpenDashboard === true;
   const foregroundAutoOpen = uiConfig?.autoOpenDashboardForForegroundRuns ?? DEFAULT_UI.autoOpenDashboardForForegroundRuns;
   if (!ctx.hasUI || !autoOpen || !foregroundAutoOpen || (uiConfig?.dashboardPlacement ?? DEFAULT_UI.dashboardPlacement) !== "right") {
     return false;
   }
-  if (state2.liveSidebarRunId === runId) return true;
-  state2.liveSidebarRunId = runId;
-  state2.dashboardOpened = true;
+  if (state3.liveSidebarRunId === runId) return true;
+  state3.liveSidebarRunId = runId;
+  state3.dashboardOpened = true;
   const widgetPlacement = uiConfig?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
-  setExtensionWidget(ctx, "pi-crew", void 0, { placement: widgetPlacement });
-  setExtensionWidget(ctx, "pi-crew-active", void 0, { placement: widgetPlacement });
+  const placement = toPiWidgetPlacement(widgetPlacement);
+  setExtensionWidget(ctx, "pi-crew", void 0, { placement });
+  setExtensionWidget(ctx, "pi-crew-active", void 0, { placement });
   deps.widgetState.lastVisibility = "hidden";
-  deps.widgetState.lastPlacement = widgetPlacement;
+  deps.widgetState.lastPlacement = placement;
   deps.widgetState.lastKey = "pi-crew-active";
   deps.widgetState.model = void 0;
   const width = Math.min(90, Math.max(40, uiConfig?.dashboardWidth ?? DEFAULT_UI.dashboardWidth));
@@ -74686,7 +74786,7 @@ async function installLiveSidebar(ctx, runId, state2, deps) {
         }
       }
     ).finally(() => {
-      if (state2.liveSidebarRunId === runId) state2.liveSidebarRunId = void 0;
+      if (state3.liveSidebarRunId === runId) state3.liveSidebarRunId = void 0;
       const c = deps.getCurrentCtx();
       if (!c) return;
       updateCrewWidget(
@@ -74703,12 +74803,12 @@ async function installLiveSidebar(ctx, runId, state2, deps) {
     return false;
   }
 }
-function clearDashboardPowerbar(state2, deps) {
+function clearDashboardPowerbar(state3, deps) {
   const c = deps.getCurrentCtx();
   if (c) stopCrewWidget(c, deps.widgetState, loadConfig(c.cwd).config.ui);
   clearPiCrewPowerbar(deps.pi.events);
   resetPowerbarDedupState();
-  state2.dashboardOpened = false;
+  state3.dashboardOpened = false;
 }
 function registerPowerbarSegments(deps, uiConfig) {
   registerPiCrewPowerbarSegments(deps.pi.events, uiConfig);
@@ -74842,12 +74942,12 @@ __export(async_notifier_exports, {
 function isFinished2(status) {
   return status === "completed" || status === "failed" || status === "cancelled" || status === "blocked";
 }
-function addSeenFinishedRunId(state2, runId) {
-  state2.seenFinishedRunIds.add(runId);
-  while (state2.seenFinishedRunIds.size > MAX_SEEN_FINISHED_RUN_IDS) {
-    const oldest = state2.seenFinishedRunIds.values().next().value;
+function addSeenFinishedRunId(state3, runId) {
+  state3.seenFinishedRunIds.add(runId);
+  while (state3.seenFinishedRunIds.size > MAX_SEEN_FINISHED_RUN_IDS) {
+    const oldest = state3.seenFinishedRunIds.values().next().value;
     if (oldest === void 0) break;
-    state2.seenFinishedRunIds.delete(oldest);
+    state3.seenFinishedRunIds.delete(oldest);
   }
 }
 function isAsyncTerminalEvent(event) {
@@ -74922,32 +75022,32 @@ function markDeadAsyncRunIfNeeded(run, now = Date.now(), quietMs = 3e4) {
     return failed;
   });
 }
-function startAsyncRunNotifier(ctx, state2, intervalMs = 5e3, options = {}) {
-  if (state2.interval) clearInterval(state2.interval);
-  const generation = options.generation ?? (state2.generation ?? 0) + 1;
-  state2.generation = generation;
+function startAsyncRunNotifier(ctx, state3, intervalMs = 5e3, options = {}) {
+  if (state3.interval) clearInterval(state3.interval);
+  const generation = options.generation ?? (state3.generation ?? 0) + 1;
+  state3.generation = generation;
   const startedAtMs = Date.now();
-  const staleBeforeMs = state2.lastStoppedAtMs ?? startedAtMs;
+  const staleBeforeMs = state3.lastStoppedAtMs ?? startedAtMs;
   const sid = extractSessionId(ctx);
   const ownsRun = (run) => !sid || !run.ownerSessionId || run.ownerSessionId === sid;
   for (const run of listRuns(ctx.cwd).filter(ownsRun)) {
-    if (state2.seenFinishedRunIds.size >= MAX_SEEN_FINISHED_RUN_IDS) break;
+    if (state3.seenFinishedRunIds.size >= MAX_SEEN_FINISHED_RUN_IDS) break;
     const updatedAtMs = timeMs(run.updatedAt) ?? 0;
-    if (isFinished2(run.status) && updatedAtMs < staleBeforeMs) addSeenFinishedRunId(state2, run.runId);
+    if (isFinished2(run.status) && updatedAtMs < staleBeforeMs) addSeenFinishedRunId(state3, run.runId);
   }
   let cachedRuns;
-  state2.interval = setInterval(() => {
+  state3.interval = setInterval(() => {
     try {
       if (options.isCurrent && !options.isCurrent(generation)) return;
       const nowMs3 = Date.now();
-      if (cachedRuns === void 0 || nowMs3 - (state2.lastListRunsMs ?? 0) > LIST_RUNS_DEBOUNCE_MS) {
+      if (cachedRuns === void 0 || nowMs3 - (state3.lastListRunsMs ?? 0) > LIST_RUNS_DEBOUNCE_MS) {
         cachedRuns = listRuns(ctx.cwd).filter(ownsRun).slice(0, 20);
-        state2.lastListRunsMs = nowMs3;
+        state3.lastListRunsMs = nowMs3;
       }
       for (const run of cachedRuns) {
         const current = markDeadAsyncRunIfNeeded(run) ?? run;
-        if (!isFinished2(current.status) || state2.seenFinishedRunIds.has(current.runId)) continue;
-        addSeenFinishedRunId(state2, current.runId);
+        if (!isFinished2(current.status) || state3.seenFinishedRunIds.has(current.runId)) continue;
+        addSeenFinishedRunId(state3, current.runId);
         if (current.workflow === "goal-turn" && current.team.startsWith("goal-")) continue;
         const level = current.status === "completed" ? "info" : current.status === "cancelled" ? "warning" : "error";
         ctx.ui.notify(`pi-crew run ${current.status}: ${current.runId} (${current.team}/${current.workflow ?? "none"})`, level);
@@ -74960,14 +75060,14 @@ function startAsyncRunNotifier(ctx, state2, intervalMs = 5e3, options = {}) {
       logInternalError("async-notifier", error, `interval=${intervalMs}`);
     }
   }, intervalMs);
-  if (typeof state2.interval.unref === "function") state2.interval.unref();
+  if (typeof state3.interval.unref === "function") state3.interval.unref();
 }
-function stopAsyncRunNotifier(state2) {
-  if (state2.interval) clearInterval(state2.interval);
-  state2.interval = void 0;
-  state2.seenFinishedRunIds.clear();
-  state2.generation = (state2.generation ?? 0) + 1;
-  state2.lastStoppedAtMs = Date.now();
+function stopAsyncRunNotifier(state3) {
+  if (state3.interval) clearInterval(state3.interval);
+  state3.interval = void 0;
+  state3.seenFinishedRunIds.clear();
+  state3.generation = (state3.generation ?? 0) + 1;
+  state3.lastStoppedAtMs = Date.now();
 }
 var MAX_SEEN_FINISHED_RUN_IDS, LIST_RUNS_DEBOUNCE_MS;
 var init_async_notifier = __esm({
@@ -75437,7 +75537,7 @@ var init_overflow_recovery = __esm({
           default:
             break;
         }
-        const state2 = {
+        const state3 = {
           taskId,
           runId,
           phase,
@@ -75446,14 +75546,14 @@ var init_overflow_recovery = __esm({
           compactionCount,
           retryCount
         };
-        this.states.set(key, state2);
+        this.states.set(key, state3);
         this.resetTimeout(key);
         if (this.states.size > MAX_TRACKED_STATES) {
           this.evictOldestTerminalState();
         }
         if (previousPhase !== phase && this.callbacks.onPhaseChange) {
           try {
-            this.callbacks.onPhaseChange(state2, previousPhase);
+            this.callbacks.onPhaseChange(state3, previousPhase);
           } catch (error) {
             logInternalError("overflow-recovery.onPhaseChange", error, `taskId=${taskId}`);
           }
@@ -75462,13 +75562,13 @@ var init_overflow_recovery = __esm({
       }
       getState(taskId, runId) {
         if (runId) return this.states.get(this.keyFor(taskId, runId));
-        return [...this.states.values()].find((state2) => state2.taskId === taskId);
+        return [...this.states.values()].find((state3) => state3.taskId === taskId);
       }
       getPhase(taskId, runId) {
         return this.getState(taskId, runId)?.phase ?? "none";
       }
       removeTask(taskId, runId) {
-        const keys = runId ? [this.keyFor(taskId, runId)] : [...this.states.entries()].filter(([, state2]) => state2.taskId === taskId).map(([key]) => key);
+        const keys = runId ? [this.keyFor(taskId, runId)] : [...this.states.entries()].filter(([, state3]) => state3.taskId === taskId).map(([key]) => key);
         for (const key of keys) this.removeKey(key);
       }
       /**
@@ -75480,10 +75580,10 @@ var init_overflow_recovery = __esm({
       evictOldestTerminalState() {
         let oldestKey;
         let oldestTimestamp = Infinity;
-        for (const [key, state2] of this.states) {
-          const isTerminal = state2.phase === "recovered" || state2.phase === "failed" || state2.phase === "none";
-          if (isTerminal && state2.lastEventAt < oldestTimestamp) {
-            oldestTimestamp = state2.lastEventAt;
+        for (const [key, state3] of this.states) {
+          const isTerminal = state3.phase === "recovered" || state3.phase === "failed" || state3.phase === "none";
+          if (isTerminal && state3.lastEventAt < oldestTimestamp) {
+            oldestTimestamp = state3.lastEventAt;
             oldestKey = key;
           }
         }
@@ -75512,27 +75612,27 @@ var init_overflow_recovery = __esm({
         const timeoutMs = current?.phase === "recovered" || current?.phase === "failed" || current?.phase === "none" ? TERMINAL_STATE_TTL_MS : PHASE_TIMEOUT_MS;
         const timer = setTimeout(() => {
           this.timers.delete(key);
-          const state2 = this.states.get(key);
-          if (!state2) return;
-          if (state2.phase === "recovered" || state2.phase === "failed" || state2.phase === "none") {
+          const state3 = this.states.get(key);
+          if (!state3) return;
+          if (state3.phase === "recovered" || state3.phase === "failed" || state3.phase === "none") {
             this.states.delete(key);
             return;
           }
-          const previousPhase = state2.phase;
-          state2.phase = "failed";
-          state2.lastEventAt = Date.now();
+          const previousPhase = state3.phase;
+          state3.phase = "failed";
+          state3.lastEventAt = Date.now();
           if (this.callbacks.onTimeout) {
             try {
-              this.callbacks.onTimeout(state2);
+              this.callbacks.onTimeout(state3);
             } catch (error) {
-              logInternalError("overflow-recovery.onTimeout", error, `taskId=${state2.taskId}`);
+              logInternalError("overflow-recovery.onTimeout", error, `taskId=${state3.taskId}`);
             }
           }
           if (this.callbacks.onPhaseChange) {
             try {
-              this.callbacks.onPhaseChange(state2, previousPhase);
+              this.callbacks.onPhaseChange(state3, previousPhase);
             } catch (error) {
-              logInternalError("overflow-recovery.onPhaseChange-timeout", error, `taskId=${state2.taskId}`);
+              logInternalError("overflow-recovery.onPhaseChange-timeout", error, `taskId=${state3.taskId}`);
             }
           }
         }, timeoutMs);
@@ -75553,10 +75653,10 @@ __export(lifecycle_exports, {
   startLifecycleWatchers: () => startLifecycleWatchers,
   stopLifecycleWatchers: () => stopLifecycleWatchers
 });
-function startLifecycleWatchers(ctx, state2, deps) {
-  if (state2.notifierStarted) return false;
+function startLifecycleWatchers(ctx, state3, deps) {
+  if (state3.notifierStarted) return false;
   const loadedConfig = loadConfig(ctx.cwd);
-  state2.notifierStarted = true;
+  state3.notifierStarted = true;
   try {
     void Promise.resolve().then(() => (init_async_notifier(), async_notifier_exports)).then(({ startAsyncRunNotifier: startAsyncRunNotifier2 }) => {
       if (deps.isCleanedUp()) return;
@@ -75567,14 +75667,14 @@ function startLifecycleWatchers(ctx, state2, deps) {
     });
     return true;
   } catch (error) {
-    state2.notifierStarted = false;
+    state3.notifierStarted = false;
     logInternalError("register.startLifecycleWatchers", error);
     return false;
   }
 }
-function stopLifecycleWatchers(state2, deps) {
-  if (!state2.notifierStarted) return;
-  state2.notifierStarted = false;
+function stopLifecycleWatchers(state3, deps) {
+  if (!state3.notifierStarted) return;
+  state3.notifierStarted = false;
   try {
     void Promise.resolve().then(() => (init_async_notifier(), async_notifier_exports)).then(({ stopAsyncRunNotifier: stopAsyncRunNotifier2 }) => {
       stopAsyncRunNotifier2(deps.notifierState);
@@ -75583,11 +75683,11 @@ function stopLifecycleWatchers(state2, deps) {
     logInternalError("register.stopLifecycleWatchers", error);
   }
 }
-async function configureNotifications(ctx, state2, deps) {
-  state2.notificationRouter?.dispose();
-  state2.notificationSink?.dispose();
-  state2.notificationRouter = void 0;
-  state2.notificationSink = void 0;
+async function configureNotifications(ctx, state3, deps) {
+  state3.notificationRouter?.dispose();
+  state3.notificationSink?.dispose();
+  state3.notificationRouter = void 0;
+  state3.notificationSink = void 0;
   const config = loadConfig(ctx.cwd).config;
   if (config.notifications?.enabled === false) return;
   const { NotificationRouter: NotificationRouter2 } = await Promise.resolve().then(() => (init_notification_router(), notification_router_exports));
@@ -75595,18 +75695,18 @@ async function configureNotifications(ctx, state2, deps) {
   const { sendFollowUp: sendFollowUp2 } = await Promise.resolve().then(() => (init_subagent_helpers(), subagent_helpers_exports));
   const { updateCrewWidget: updateCrewWidget2 } = await Promise.resolve().then(() => (init_widget(), widget_exports));
   if (config.telemetry?.enabled !== false) {
-    state2.notificationSink = createJsonlSink2(
+    state3.notificationSink = createJsonlSink2(
       projectCrewRoot(ctx.cwd),
       config.notifications?.sinkRetentionDays ?? DEFAULT_NOTIFICATIONS.sinkRetentionDays
     );
   }
-  state2.notificationRouter = new NotificationRouter2(
+  state3.notificationRouter = new NotificationRouter2(
     {
       dedupWindowMs: config.notifications?.dedupWindowMs ?? DEFAULT_NOTIFICATIONS.dedupWindowMs,
       batchWindowMs: config.notifications?.batchWindowMs ?? DEFAULT_NOTIFICATIONS.batchWindowMs,
       quietHours: config.notifications?.quietHours,
       severityFilter: config.notifications?.severityFilter ?? [...DEFAULT_NOTIFICATIONS.severityFilter],
-      sink: (notification) => state2.notificationSink?.write(notification)
+      sink: (notification) => state3.notificationSink?.write(notification)
     },
     (notification) => {
       if (notification.clear) {
@@ -75641,20 +75741,20 @@ async function configureNotifications(ctx, state2, deps) {
     }
   );
 }
-function disposeNotifications(state2) {
-  state2.notificationRouter?.dispose();
-  state2.notificationRouter = void 0;
-  state2.notificationSink?.dispose();
-  state2.notificationSink = void 0;
+function disposeNotifications(state3) {
+  state3.notificationRouter?.dispose();
+  state3.notificationRouter = void 0;
+  state3.notificationSink?.dispose();
+  state3.notificationSink = void 0;
 }
-async function configureDeliveryCoordinator(state2, deps) {
-  state2.deliveryCoordinator?.dispose();
-  state2.deliveryCoordinator = void 0;
-  state2.overflowTracker?.dispose();
-  state2.overflowTracker = void 0;
+async function configureDeliveryCoordinator(state3, deps) {
+  state3.deliveryCoordinator?.dispose();
+  state3.deliveryCoordinator = void 0;
+  state3.overflowTracker?.dispose();
+  state3.overflowTracker = void 0;
   const { DeliveryCoordinator: DeliveryCoordinator2 } = await Promise.resolve().then(() => (init_delivery_coordinator(), delivery_coordinator_exports));
   const { OverflowRecoveryTracker: OverflowRecoveryTracker2 } = await Promise.resolve().then(() => (init_overflow_recovery(), overflow_recovery_exports));
-  state2.deliveryCoordinator = new DeliveryCoordinator2({
+  state3.deliveryCoordinator = new DeliveryCoordinator2({
     emit: (event, data) => {
       deps.pi.events?.emit?.(event, data);
     },
@@ -75665,7 +75765,7 @@ async function configureDeliveryCoordinator(state2, deps) {
       deps.sendAgentWakeUp(deps.pi, message);
     }
   });
-  state2.overflowTracker = new OverflowRecoveryTracker2({
+  state3.overflowTracker = new OverflowRecoveryTracker2({
     onPhaseChange: (phaseState, previousPhase) => {
       if (deps.observabilityState.metricRegistry) {
         deps.observabilityState.metricRegistry.counter("crew.task.overflow_recovery_total", "Overflow recovery phase transitions").inc({
@@ -75692,11 +75792,11 @@ async function configureDeliveryCoordinator(state2, deps) {
     }
   });
 }
-function disposeDeliveryCoordinator(state2) {
-  state2.deliveryCoordinator?.dispose();
-  state2.deliveryCoordinator = void 0;
-  state2.overflowTracker?.dispose();
-  state2.overflowTracker = void 0;
+function disposeDeliveryCoordinator(state3) {
+  state3.deliveryCoordinator?.dispose();
+  state3.deliveryCoordinator = void 0;
+  state3.overflowTracker?.dispose();
+  state3.overflowTracker = void 0;
 }
 var init_lifecycle = __esm({
   "src/extension/registration/lifecycle.ts"() {
@@ -76701,21 +76801,21 @@ async function importOTLPExporter() {
   }
   return _cachedOTLPExporter;
 }
-async function configureObservability(ctx, state2, deps) {
-  await disposeObservability(state2, deps.isCleanedUp());
+async function configureObservability(ctx, state3, deps) {
+  await disposeObservability(state3, deps.isCleanedUp());
   const config = loadConfig(ctx.cwd).config;
   if (config.observability?.enabled === false) return;
   const { createMetricRegistry: createMetricRegistry2 } = await Promise.resolve().then(() => (init_metric_registry(), metric_registry_exports));
   const { wireEventToMetrics: wireEventToMetrics2 } = await Promise.resolve().then(() => (init_event_to_metric(), event_to_metric_exports));
   const { createMetricFileSink: createMetricFileSink2 } = await Promise.resolve().then(() => (init_metric_sink(), metric_sink_exports));
-  state2.metricRegistry = createMetricRegistry2();
+  state3.metricRegistry = createMetricRegistry2();
   if (deps.pi.events) {
-    state2.eventMetricSub = wireEventToMetrics2(deps.pi.events, state2.metricRegistry);
+    state3.eventMetricSub = wireEventToMetrics2(deps.pi.events, state3.metricRegistry);
   }
   if (config.telemetry?.enabled !== false) {
-    state2.metricSink = createMetricFileSink2({
+    state3.metricSink = createMetricFileSink2({
       crewRoot: projectCrewRoot(ctx.cwd),
-      registry: state2.metricRegistry,
+      registry: state3.metricRegistry,
       retentionDays: config.observability?.metricRetentionDays ?? 7
     });
   }
@@ -76723,10 +76823,10 @@ async function configureObservability(ctx, state2, deps) {
     const otlpEndpoint = config.otlp.endpoint;
     const otlpHeaders = config.otlp.headers;
     const otlpInterval = config.otlp.intervalMs;
-    const owningRegistry = state2.metricRegistry;
+    const owningRegistry = state3.metricRegistry;
     void importOTLPExporter().then((Ctor) => {
-      if (deps.isCleanedUp() || state2.metricRegistry !== owningRegistry || !owningRegistry) return;
-      state2.otlpExporter = new Ctor(
+      if (deps.isCleanedUp() || state3.metricRegistry !== owningRegistry || !owningRegistry) return;
+      state3.otlpExporter = new Ctor(
         {
           endpoint: otlpEndpoint,
           headers: otlpHeaders,
@@ -76734,15 +76834,15 @@ async function configureObservability(ctx, state2, deps) {
         },
         owningRegistry
       );
-      state2.otlpExporter?.start();
+      state3.otlpExporter?.start();
     }).catch((error) => logInternalError("register.otlp-lazy-import", error));
   }
   const { HeartbeatWatcher: HeartbeatWatcher2 } = await Promise.resolve().then(() => (init_heartbeat_watcher(), heartbeat_watcher_exports));
-  state2.heartbeatWatcher = new HeartbeatWatcher2({
+  state3.heartbeatWatcher = new HeartbeatWatcher2({
     cwd: ctx.cwd,
     pollIntervalMs: config.observability?.pollIntervalMs ?? 5e3,
     manifestCache: deps.getManifestCache(ctx.cwd),
-    registry: state2.metricRegistry,
+    registry: state3.metricRegistry,
     router: {
       enqueue: (notification) => {
         deps.notifyOperator(notification);
@@ -76758,7 +76858,7 @@ async function configureObservability(ctx, state2, deps) {
         attempts: 0,
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       });
-      state2.metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "heartbeat-dead" });
+      state3.metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "heartbeat-dead" });
       deps.pi.events?.emit?.("crew.task.deadletter", {
         runId: manifest.runId,
         taskId,
@@ -76766,7 +76866,7 @@ async function configureObservability(ctx, state2, deps) {
       });
     }
   });
-  state2.heartbeatWatcher.start();
+  state3.heartbeatWatcher.start();
   try {
     deps.pi.on?.("before_agent_start", () => {
       if (deps.isCleanedUp()) return;
@@ -76780,7 +76880,7 @@ async function configureObservability(ctx, state2, deps) {
   }
   const autoRepairIntervalMs = config.reliability?.autoRepairIntervalMs ?? 3e5;
   if (autoRepairIntervalMs > 0) {
-    state2.autoRepairTimer = setInterval(() => {
+    state3.autoRepairTimer = setInterval(() => {
       if (deps.isCleanedUp()) return;
       try {
         const staleResults = deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd), extractSessionId(ctx));
@@ -76803,8 +76903,8 @@ async function configureObservability(ctx, state2, deps) {
         logInternalError("register.autoRepair", error);
       }
     }, autoRepairIntervalMs);
-    state2.autoRepairTimer.unref();
-    state2.tempReconcileTimer = setInterval(() => {
+    state3.autoRepairTimer.unref();
+    state3.tempReconcileTimer = setInterval(() => {
       if (deps.isCleanedUp()) return;
       try {
         deps.reconcileOrphanedTempWorkspaces(Date.now(), {
@@ -76834,7 +76934,7 @@ async function configureObservability(ctx, state2, deps) {
         logInternalError("register.tempAutoRepair", error);
       }
     }, autoRepairIntervalMs * 5);
-    state2.tempReconcileTimer.unref();
+    state3.tempReconcileTimer.unref();
   }
   if (config.reliability?.autoRecover === true) {
     const cwdSnapshot = ctx.cwd;
@@ -76855,25 +76955,25 @@ async function configureObservability(ctx, state2, deps) {
     }).catch((error) => logInternalError("register.crash-recovery-lazy-import", error));
   }
 }
-async function disposeObservability(state2, _isCleanedUp) {
-  state2.heartbeatWatcher?.dispose();
-  state2.heartbeatWatcher = void 0;
-  if (state2.autoRepairTimer) {
-    clearInterval(state2.autoRepairTimer);
-    state2.autoRepairTimer = void 0;
+async function disposeObservability(state3, _isCleanedUp) {
+  state3.heartbeatWatcher?.dispose();
+  state3.heartbeatWatcher = void 0;
+  if (state3.autoRepairTimer) {
+    clearInterval(state3.autoRepairTimer);
+    state3.autoRepairTimer = void 0;
   }
-  if (state2.tempReconcileTimer) {
-    clearInterval(state2.tempReconcileTimer);
-    state2.tempReconcileTimer = void 0;
+  if (state3.tempReconcileTimer) {
+    clearInterval(state3.tempReconcileTimer);
+    state3.tempReconcileTimer = void 0;
   }
-  state2.metricSink?.dispose();
-  state2.metricSink = void 0;
-  state2.eventMetricSub?.dispose();
-  state2.eventMetricSub = void 0;
-  await state2.otlpExporter?.dispose();
-  state2.otlpExporter = void 0;
-  state2.metricRegistry?.dispose();
-  state2.metricRegistry = void 0;
+  state3.metricSink?.dispose();
+  state3.metricSink = void 0;
+  state3.eventMetricSub?.dispose();
+  state3.eventMetricSub = void 0;
+  await state3.otlpExporter?.dispose();
+  state3.otlpExporter = void 0;
+  state3.metricRegistry?.dispose();
+  state3.metricRegistry = void 0;
 }
 var _cachedOTLPExporter;
 var init_observability = __esm({
@@ -77730,6 +77830,7 @@ var CREW_SHORTCUT_KEYS = CREW_SHORTCUTS.map((s) => s.key);
 // src/extension/crew-vibes/index.ts
 init_pi_ui_compat();
 init_internal_error();
+init_dock_footer();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
@@ -77909,17 +78010,17 @@ function normalizeConfig(raw) {
 }
 function loadConfig2() {
   try {
-    const path99 = configPath2();
-    if (!existsSync78(path99)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync84(path99, "utf8")));
+    const path100 = configPath2();
+    if (!existsSync78(path100)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync84(path100, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
 }
 function saveConfig(config) {
-  const path99 = configPath2();
-  mkdirSync45(dirname44(path99), { recursive: true });
-  writeFileSync11(path99, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  const path100 = configPath2();
+  mkdirSync45(dirname44(path100), { recursive: true });
+  writeFileSync11(path100, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -77981,8 +78082,10 @@ function isDangerStage(index, levels) {
 }
 
 // src/extension/crew-vibes/footer.ts
+init_dock_footer();
 init_pi_ui_compat();
 init_theme_adapter();
+init_widget_renderer();
 init_visual();
 import { isAbsolute as isAbsolute11, relative as relative8, resolve as resolve22, sep as sep9 } from "node:path";
 
@@ -78281,11 +78384,27 @@ var CrewVibesFooter = class {
     }
     return [truncateToWidth(cap, width, "\u2026"), this.rightAlign(quota, width)];
   }
+  /** Dock lines registered by the crew widget (`widgetPlacement: "bottom"`):
+   *  painted as the very last block of the footer, below the quota/meters.
+   *  The provider returns RAW lines; we color them with this footer's theme
+   *  (same per-line palette the widget would have used) and truncate to the
+   *  real render width. */
+  buildDockLines(width) {
+    const provider = getFooterDockProvider();
+    if (!provider) return [];
+    const raw = provider(width);
+    if (raw.length === 0) return [];
+    return renderLines(
+      raw.map((line4, index) => colorWidgetLine(line4, index, this.theme)),
+      width
+    ).map((line4) => truncateToWidth(line4, width, "\u2026"));
+  }
   render(width) {
     const lines = [this.buildPwdLine(width), this.buildStatsLine(width)];
     const statusLine = this.buildStatusLine(width);
     if (statusLine) lines.push(statusLine);
     lines.push(...this.buildMeterLines(width));
+    lines.push(...this.buildDockLines(width));
     return lines;
   }
 };
@@ -78809,11 +78928,15 @@ function registerCrewVibes(pi) {
   function installFooter(ctx) {
     if (!ctx?.hasUI) return;
     if (!metersActive()) {
-      safeUiCall("clear-footer", () => setFooter(ctx, void 0));
+      safeUiCall("clear-footer", () => {
+        setFooterDockSinkActive(false);
+        setFooter(ctx, void 0);
+      });
       return;
     }
     safeUiCall("install-footer", () => {
       setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
+      setFooterDockSinkActive(true);
       requestRender(ctx);
     });
   }
@@ -78935,6 +79058,7 @@ function registerCrewVibes(pi) {
       stopFooterTimer();
       stopCapacityTimer();
       stopProviderTimer();
+      setFooterDockSinkActive(false);
       setFooter(ctx, void 0);
       clearVibesStatus(ctx);
       return;
@@ -79038,6 +79162,7 @@ function registerCrewVibes(pi) {
     stopFooterTimer();
     stopCapacityTimer();
     stopProviderTimer();
+    setFooterDockSinkActive(false);
     setFooter(ctx, void 0);
     clearVibesStatus(ctx);
   });
@@ -79216,9 +79341,9 @@ function closeWatcher(watcher) {
   } catch {
   }
 }
-function watchWithErrorHandler(path99, listener, onError) {
+function watchWithErrorHandler(path100, listener, onError) {
   try {
-    const watcher = fs108.watch(path99, listener);
+    const watcher = fs108.watch(path100, listener);
     watcher.on("error", onError);
     return watcher;
   } catch (error) {
@@ -80635,7 +80760,7 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
         }).catch((error) => logInternalError("register.foreground-watchdog", error, `runId=${runId}`));
       }
       const ownerCurrent = ctx.isContextCurrent(extensionCtx, ownerGeneration);
-      if (extensionCtx.hasUI) {
+      if (ownerCurrent && extensionCtx.hasUI) {
         try {
           setWorkingIndicator(extensionCtx);
           extensionCtx.ui.setWorkingMessage();
@@ -80733,9 +80858,9 @@ function validateJson(content, _filePath) {
 var DEFAULT_VALIDATORS = /* @__PURE__ */ new Map([["json", validateJson]]);
 var MAX_DEDUP_ENTRIES = 256;
 var seenContent = /* @__PURE__ */ new Map();
-function rememberSeen(path99, content) {
-  if (seenContent.has(path99)) seenContent.delete(path99);
-  seenContent.set(path99, content);
+function rememberSeen(path100, content) {
+  if (seenContent.has(path100)) seenContent.delete(path100);
+  seenContent.set(path100, content);
   while (seenContent.size > MAX_DEDUP_ENTRIES) {
     const oldest = seenContent.keys().next().value;
     if (oldest === void 0) break;
@@ -80941,7 +81066,7 @@ init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
 import * as fs121 from "node:fs";
-import * as path98 from "node:path";
+import * as path99 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
 init_locks();
@@ -83306,9 +83431,219 @@ var CrewAgentPane = class {
   }
 };
 
+// src/ui/inline-panel/agent-view-session.ts
+init_crew_agent_records();
+init_state_store();
+init_view_session_store();
+import { existsSync as existsSync84, mkdirSync as mkdirSync50, readFileSync as readFileSync92, writeFileSync as writeFileSync12 } from "node:fs";
+import path97 from "node:path";
+var MAX_VIEW_MESSAGE_ENTRIES = 1e3;
+var MAX_LEADIN_CHARS = 240;
+function asRecord14(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  return value;
+}
+function asContentParts(message) {
+  if (!message) return [];
+  const content = message.content;
+  if (!Array.isArray(content)) return [];
+  return content.map(asRecord14).filter((part) => part !== void 0);
+}
+function foldToolResultPart(part, pendingCalls, callNamesById, callSeq) {
+  const name = typeof part.name === "string" ? part.name : "tool";
+  let id;
+  for (let i = pendingCalls.length - 1; i >= 0; i--) {
+    const candidate = pendingCalls[i];
+    if (callNamesById.get(candidate) === name) {
+      pendingCalls.splice(i, 1);
+      id = candidate;
+      break;
+    }
+  }
+  if (!id) {
+    id = `crew-call-${++callSeq.n}`;
+  }
+  const folded = {
+    type: "toolResult",
+    id,
+    name
+  };
+  if (part.content !== void 0) folded.content = part.content;
+  if (part.isError !== void 0) folded.isError = part.isError;
+  return folded;
+}
+function recordsToSessionEntries(records, headerTimestamp) {
+  const entries = [];
+  const pendingCalls = [];
+  const callNamesById = /* @__PURE__ */ new Map();
+  const callSeq = { n: 0 };
+  let entrySeq = 0;
+  let pendingMessage;
+  let prevId = "crew-view-intro";
+  const emitAssistant = (message, timestamp) => {
+    const parts = asContentParts(message);
+    const content = [];
+    let hasText = false;
+    for (const part of parts) {
+      if (part.type === "text") {
+        const text = typeof part.text === "string" ? part.text : "";
+        hasText = hasText || text.length > 0;
+        content.push({ type: "text", text });
+      } else if (part.type === "toolCall") {
+        const id2 = `crew-call-${++callSeq.n}`;
+        pendingCalls.push(id2);
+        callNamesById.set(id2, typeof part.name === "string" ? part.name : "tool");
+        const call = { type: "toolCall", id: id2, name: part.name };
+        if (part.input !== void 0) call.input = part.input;
+        content.push(call);
+      } else if (part.type === "toolResult") {
+        const folded = foldToolResultPart(part, pendingCalls, callNamesById, callSeq);
+        if (folded) content.push(folded);
+      }
+    }
+    if (!hasText && content.length === 0) return;
+    if (entrySeq >= MAX_VIEW_MESSAGE_ENTRIES) return;
+    entrySeq += 1;
+    const id = `crew-ev-${entrySeq}`;
+    const entryMessage = {
+      role: "assistant",
+      content,
+      // ALWAYS present: pi's interactive footer calls addUsageToTotals
+      // unconditionally for assistant entries (usage-totals.js reads
+      // usage.input / usage.cost.total), so a missing or non-pi-shaped
+      // usage on a synthesized entry crashes the whole TUI. The worker
+      // event log is compacted and may carry usage at the RECORD level
+      // ({input, output, cost: number}) or inside the message; both are
+      // normalized to pi's shape here.
+      usage: normalizeUsage(message.usage)
+    };
+    if (message.model !== void 0) entryMessage.model = message.model;
+    if (message.stopReason !== void 0) entryMessage.stopReason = message.stopReason;
+    if (message.errorMessage !== void 0) entryMessage.errorMessage = message.errorMessage;
+    entries.push({ type: "message", id, parentId: prevId, timestamp, message: entryMessage });
+    prevId = id;
+  };
+  for (const record of records) {
+    const event = asRecord14(record.event) ?? {};
+    const type = typeof event.type === "string" ? event.type : "";
+    const timestamp = typeof record.time === "string" && record.time ? record.time : headerTimestamp;
+    if (type === "message") {
+      const message = asRecord14(event.message);
+      if (message && message.role === "assistant") pendingMessage = { record, timestamp };
+      continue;
+    }
+    if (type === "message_end") {
+      const eventUsageRecord = asRecord14(event.usage ?? asRecord14(event.message)?.usage);
+      const message = asRecord14(event.message);
+      const pendingAggregate = pendingMessage ? asRecord14(asRecord14(pendingMessage.record.event)?.message) : void 0;
+      pendingMessage = void 0;
+      if (message && message.role === "assistant" && asContentParts(message).length > 0) {
+        emitAssistant({ ...message, usage: eventUsageRecord ?? message.usage }, timestamp);
+      } else if (pendingAggregate && pendingAggregate.role === "assistant") {
+        emitAssistant({ ...pendingAggregate, usage: eventUsageRecord ?? pendingAggregate.usage }, timestamp);
+      }
+    }
+  }
+  if (pendingMessage) {
+    const event = asRecord14(pendingMessage.record.event);
+    const message = asRecord14(event?.message);
+    if (message && message.role === "assistant") emitAssistant(message, pendingMessage.timestamp);
+  }
+  return entries;
+}
+function normalizeUsage(raw) {
+  const usage = asRecord14(raw);
+  const toNum = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const costRaw = usage ? usage.cost : void 0;
+  const costRecord = asRecord14(costRaw);
+  return {
+    input: toNum(usage?.input),
+    output: toNum(usage?.output),
+    cacheRead: toNum(usage?.cacheRead),
+    cacheWrite: toNum(usage?.cacheWrite),
+    cost: { total: toNum(costRecord?.total ?? costRaw) }
+  };
+}
+function leadInText(manifest, taskId, role) {
+  const goal = (manifest.goal || "").replace(/\s+/g, " ").trim();
+  const label = role ? `${role} agent` : "agent";
+  const body = goal ? `${label} \xB7 ${taskId} \u2014 ${goal}` : `${label} \xB7 ${taskId}`;
+  const trimmed = body.slice(0, MAX_LEADIN_CHARS);
+  return trimmed.length < body.length ? `${trimmed}\u2026` : trimmed;
+}
+function buildAgentViewSessionFile(options) {
+  const loaded = loadRunManifestById(options.cwd, options.runId);
+  if (!loaded) return void 0;
+  const { manifest, tasks } = loaded;
+  const eventsPath = agentEventsPath(manifest, options.taskId);
+  if (!existsSync84(eventsPath)) return void 0;
+  let raw;
+  try {
+    raw = readFileSync92(eventsPath, "utf8");
+  } catch {
+    return void 0;
+  }
+  const records = [];
+  for (const line4 of raw.split("\n")) {
+    if (!line4.trim()) continue;
+    try {
+      records.push(JSON.parse(line4));
+    } catch {
+    }
+  }
+  const headerTimestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const entries = recordsToSessionEntries(records, headerTimestamp);
+  const task = tasks.find((t2) => t2.id === options.taskId);
+  const lines = [];
+  lines.push(
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: `crew-view-${options.taskId}`,
+      timestamp: headerTimestamp,
+      cwd: manifest.cwd || options.cwd,
+      ...options.parentSessionFile ? { parentSession: options.parentSessionFile } : {}
+    })
+  );
+  const leadIn = {
+    type: "message",
+    id: "crew-view-intro",
+    parentId: null,
+    timestamp: headerTimestamp,
+    message: { role: "user", content: [{ type: "text", text: `[crew view] ${leadInText(manifest, options.taskId, task?.role)}` }] }
+  };
+  lines.push(JSON.stringify(leadIn));
+  for (const entry of entries) lines.push(JSON.stringify(entry));
+  if (entries.length === 0) {
+    lines.push(
+      JSON.stringify({
+        type: "message",
+        id: "crew-ev-init",
+        parentId: "crew-view-intro",
+        timestamp: headerTimestamp,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: `(${task?.role ?? "agent"} is still starting \u2014 no transcript yet)` }],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }
+        }
+      })
+    );
+  }
+  const outDir = agentStateDir(manifest, options.taskId);
+  try {
+    mkdirSync50(outDir, { recursive: true });
+    writeFileSync12(path97.join(outDir, CREW_VIEW_SESSION_BASENAME), `${lines.join("\n")}
+`, "utf8");
+  } catch {
+    return void 0;
+  }
+  return path97.join(outDir, CREW_VIEW_SESSION_BASENAME);
+}
+
 // src/ui/inline-panel/crew-editor.ts
 init_panel_selection();
 init_panel_store();
+init_view_session_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth3, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
@@ -83349,6 +83684,7 @@ var CrewInlineEditor = class extends CustomEditor {
         setPanelSelection(null);
         const target = result4.action.target;
         if (target) this.options.onOpenPane(target);
+        else if (getCrewViewSessionState().active) this.dispatchCommand("/crew-back");
         else if (closePaneOnMain) this.options.onClosePane();
         return;
       }
@@ -83361,9 +83697,38 @@ var CrewInlineEditor = class extends CustomEditor {
       }
     }
   }
+  /**
+   * Route a slash command through pi's normal editor submit path
+   * (`onSubmit` — the same hook a typed Enter uses), so session-level
+   * commands like `/crew-view`/`/crew-back` execute with the full command
+   * context (where pi exposes `switchSession`).
+   */
+  dispatchCommand(text) {
+    setPanelSelection(null);
+    setViewedAgent(void 0);
+    this.setText(text);
+    this.onSubmit?.(text);
+  }
   handleInput(data) {
     const rows = panelRows();
     const viewed2 = getViewedAgent();
+    if (getCrewViewSessionState().active && !viewed2) {
+      if (getPanelSelection() !== null) {
+        this.applyDispatch(data, rows, this.panelKeys(data), true);
+        return;
+      }
+      if (matchesKey3(data, "down") && this.getText() === "" && rows.length > 0) {
+        const result4 = dispatchPanelKey(this.panelKeys(data), rows, null);
+        setPanelSelection(result4.selection);
+        return;
+      }
+      if (matchesKey3(data, "escape")) {
+        this.dispatchCommand("/crew-back");
+        return;
+      }
+      super.handleInput(data);
+      return;
+    }
     if (viewed2) {
       if (getPanelSelection() !== null) {
         this.applyDispatch(data, rows, this.panelKeys(data), true);
@@ -83420,10 +83785,16 @@ var CrewInlineEditor = class extends CustomEditor {
   render(width) {
     const lines = super.render(width);
     const viewed2 = getViewedAgent();
-    if (viewed2 && lines.length > 0) {
+    const viewState = getCrewViewSessionState();
+    let name;
+    if (viewed2) {
       const rows = panelRows();
       const row = rows.find((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId);
-      const name = row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX);
+      name = row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX);
+    } else if (viewState.active) {
+      name = `${viewState.taskId ?? "agent"} \xB7 view`;
+    }
+    if (name && lines.length > 0) {
       const label = ` @${truncateToWidth3(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
       const labelWidth = visibleWidth4(label);
       if (visibleWidth4(lines[0]) >= labelWidth + 4) {
@@ -83436,9 +83807,11 @@ var CrewInlineEditor = class extends CustomEditor {
 
 // src/ui/inline-panel/index.ts
 init_panel_store();
+init_view_session_store();
 var PANE_WIDGET_KEY = "pi-crew-agent-view";
 var PANE_PLACEMENT = "aboveEditor";
 var currentPane;
+var currentEditor;
 var lastCtx;
 var editorInstalled = false;
 var hooksRegistered2 = false;
@@ -83450,21 +83823,40 @@ function notifyResult2(ctx, result4) {
   const text = textFromToolResult(result4);
   ctx.ui.notify(isToolError(result4) ? `panel: ${text}` : text, isToolError(result4) ? "error" : "info");
 }
+var VIEW_BUILD_RETRY_MS = 500;
+var VIEW_BUILD_MAX_RETRIES = 16;
+async function buildViewPath(ctx, target) {
+  for (let attempt = 0; ; attempt += 1) {
+    const viewPath = buildAgentViewSessionFile({ cwd: ctx.cwd, runId: target.runId, taskId: target.taskId });
+    if (viewPath) return viewPath;
+    if (attempt >= VIEW_BUILD_MAX_RETRIES) return void 0;
+    await new Promise((resolve26) => setTimeout(resolve26, VIEW_BUILD_RETRY_MS));
+  }
+}
 function openPane(ctx, target) {
   setViewedAgent(target);
-  try {
-    setExtensionWidget(
-      ctx,
-      PANE_WIDGET_KEY,
-      ((tui, theme) => {
-        currentPane = new CrewAgentPane(tui, theme, ctx.cwd);
-        return currentPane;
-      }),
-      { placement: PANE_PLACEMENT }
-    );
-  } catch {
-  }
-  requestRender(ctx);
+  void (async () => {
+    const viewPath = await buildViewPath(ctx, target);
+    if (viewPath) {
+      setTimeout(() => {
+        currentEditor?.dispatchCommand(`/crew-view ${target.runId} ${target.taskId}`);
+      }, 0);
+      return;
+    }
+    try {
+      setExtensionWidget(
+        ctx,
+        PANE_WIDGET_KEY,
+        ((tui, theme) => {
+          currentPane = new CrewAgentPane(tui, theme, ctx.cwd);
+          return currentPane;
+        }),
+        { placement: PANE_PLACEMENT }
+      );
+    } catch {
+    }
+    requestRender(ctx);
+  })();
 }
 function closePane(ctx) {
   setViewedAgent(void 0);
@@ -83505,25 +83897,110 @@ async function actOnAgent(ctx, target, finished) {
     ctx.ui.notify(`panel: cancel failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
+async function handleCrewViewCommand(args, ctx) {
+  const tokens = args.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) {
+    ctx.ui.notify("Usage: /crew-view <runId> <taskId>", "error");
+    return;
+  }
+  if (typeof ctx.switchSession !== "function") {
+    ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
+    return;
+  }
+  const [runId, taskId] = tokens;
+  const prev = getCrewViewSessionState();
+  const currentFile = ctx.sessionManager.getSessionFile();
+  const alreadyViewing = isCrewViewSessionFile(currentFile);
+  const mainSessionFile = alreadyViewing ? prev.mainSessionFile : currentFile;
+  try {
+    const viewPath = buildAgentViewSessionFile({
+      cwd: ctx.cwd,
+      runId,
+      taskId,
+      parentSessionFile: mainSessionFile ?? prev.mainSessionFile
+    });
+    if (!viewPath) {
+      ctx.ui.notify(`No transcript for agent ${taskId} in run ${runId}.`, "error");
+      return;
+    }
+    const sessionId = alreadyViewing ? prev.mainSessionId : typeof ctx.sessionManager?.getSessionId === "function" ? ctx.sessionManager.getSessionId() : void 0;
+    setCrewViewSessionState({
+      active: true,
+      runId,
+      taskId,
+      mainSessionFile: mainSessionFile ?? prev.mainSessionFile,
+      mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId
+    });
+    await ctx.switchSession(viewPath);
+  } catch (error) {
+    setCrewViewSessionState({ ...prev, active: false });
+    ctx.ui.notify(`crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+async function handleCrewBackCommand(_args, ctx) {
+  const prev = getCrewViewSessionState();
+  if (!prev.active || !prev.mainSessionFile) {
+    ctx.ui.notify("Not viewing an agent session.", "info");
+    return;
+  }
+  if (typeof ctx.switchSession !== "function") {
+    ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
+    return;
+  }
+  const mainSessionFile = prev.mainSessionFile;
+  setCrewViewSessionState({ active: false });
+  try {
+    await ctx.switchSession(mainSessionFile);
+  } catch (error) {
+    ctx.ui.notify(`crew-back failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+function reconcileViewSessionState(ctx) {
+  const file = ctx.sessionManager.getSessionFile();
+  if (!file) return;
+  const nextActive = isCrewViewSessionFile(file);
+  const prev = getCrewViewSessionState();
+  if (nextActive) {
+    setCrewViewSessionState(prev);
+    return;
+  }
+  setCrewViewSessionState({
+    active: false,
+    // Keep the last known main file (a view that was abandoned via /new
+    // still has a return path; a fresh session keeps its own file).
+    mainSessionFile: file ?? prev.mainSessionFile
+  });
+}
 function installInlinePanel(pi, ctx, uiConfig) {
   lastCtx = ctx;
   if (!ctx.hasUI) return;
+  reconcileViewSessionState(ctx);
   const enabled = uiConfig?.inlinePanel !== false;
   try {
     if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
       ctx.ui.setEditorComponent((tui, theme, kb) => {
-        return new CrewInlineEditor(tui, theme, kb, {
+        const editor = new CrewInlineEditor(tui, theme, kb, {
           onOpenPane: (target) => openPane(ctx, target),
           onClosePane: () => closePane(ctx),
           onScrollPane: (delta) => scrollPane(delta),
           onSteer: (target, message) => void steerAgent(ctx, target, message),
           onAct: (target, finished) => void actOnAgent(ctx, target, finished)
         });
+        currentEditor = editor;
+        return editor;
       });
       editorInstalled = true;
     }
   } catch {
   }
+  pi.registerCommand("crew-view", {
+    description: "Open a real pi session view of a crew agent (usage: crew-view <runId> <taskId>)",
+    handler: handleCrewViewCommand
+  });
+  pi.registerCommand("crew-back", {
+    description: "Return from an agent session view to the main session",
+    handler: handleCrewBackCommand
+  });
   if (!hooksRegistered2) {
     hooksRegistered2 = true;
     pi.on("session_shutdown", () => {
@@ -83736,7 +84213,7 @@ init_artifact_store();
 init_internal_error();
 init_paths();
 import * as fs120 from "node:fs";
-import * as path97 from "node:path";
+import * as path98 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
@@ -83747,7 +84224,7 @@ function collectArtifactDescriptors(runsDir) {
   }
   for (const dir of dirs) {
     if (!dir.isDirectory()) continue;
-    const manifestPath = path97.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
+    const manifestPath = path98.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
       const manifest = JSON.parse(fs120.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
@@ -83760,8 +84237,8 @@ function collectArtifactDescriptors(runsDir) {
 }
 function runArtifactCleanup(cwd) {
   try {
-    const userArtifactsRoot = path97.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
-    const projectArtifactsRoot = path97.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
+    const userArtifactsRoot = path98.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
+    const projectArtifactsRoot = path98.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
     cleanupOldArtifacts(userArtifactsRoot, {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
@@ -83770,8 +84247,8 @@ function runArtifactCleanup(cwd) {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
-    pruneExpiredArtifacts(collectArtifactDescriptors(path97.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
-    pruneExpiredArtifacts(collectArtifactDescriptors(path97.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path98.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path98.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
   } catch (error) {
     logInternalError("register.artifact-cleanup", error, `cwd=${cwd}`);
   }
@@ -84182,7 +84659,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     const manifests = lastPreloadedManifests;
     if (!lastPreloadedConfig) backgroundPreload();
     if (ctx.uiState.liveSidebarRunId || ctx.uiState.dashboardOpen) {
-      const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
+      const placement = toPiWidgetPlacement(config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement);
       if (ctx.widgetState.lastVisibility !== "hidden" || ctx.widgetState.lastPlacement !== placement) {
         setExtensionWidget(ctx.currentCtx, "pi-crew", void 0, { placement });
         setExtensionWidget(ctx.currentCtx, "pi-crew-active", void 0, { placement });
@@ -84335,7 +84812,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
-    const crewRunsDir = path98.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
+    const crewRunsDir = path99.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
     if (fs121.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -84346,7 +84823,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
-    const userRunsDir = path98.join(userCrewRoot(), "state", "runs");
+    const userRunsDir = path99.join(userCrewRoot(), "state", "runs");
     if (fs121.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);

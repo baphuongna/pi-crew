@@ -19,6 +19,7 @@ function safeUiCall(scope: string, fn: () => void): void {
 	}
 }
 
+import { setFooterDockSinkActive } from "../../ui/dock-footer.ts";
 import { type CrewVibesConfig, loadConfig, saveConfig } from "./config.ts";
 import { intervalForSpeed } from "./figures.ts";
 import { type CrewVibesFooterSource, createCrewVibesFooter } from "./footer.ts";
@@ -91,11 +92,18 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 	function installFooter(ctx: ExtensionContext): void {
 		if (!ctx?.hasUI) return;
 		if (!metersActive()) {
-			safeUiCall("clear-footer", () => setFooter(ctx, undefined));
+			safeUiCall("clear-footer", () => {
+				// The crew dock can no longer render at the very bottom — the
+				// widget falls back to pi's belowEditor slot automatically.
+				setFooterDockSinkActive(false);
+				setFooter(ctx, undefined);
+			});
 			return;
 		}
 		safeUiCall("install-footer", () => {
 			setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
+			// The footer can now host the crew dock below the quota lines.
+			setFooterDockSinkActive(true);
 			requestRender(ctx);
 		});
 	}
@@ -245,6 +253,7 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 			stopFooterTimer();
 			stopCapacityTimer();
 			stopProviderTimer();
+			setFooterDockSinkActive(false);
 			setFooter(ctx, undefined);
 			clearVibesStatus(ctx);
 			return;
@@ -370,6 +379,7 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 		stopFooterTimer();
 		stopCapacityTimer();
 		stopProviderTimer();
+		setFooterDockSinkActive(false);
 		setFooter(ctx, undefined);
 		clearVibesStatus(ctx);
 	});

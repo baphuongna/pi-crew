@@ -132,7 +132,9 @@ export const DEFAULT_UI = {
 	// The crew widget (agent rows + hint + main row) docks BELOW the editor,
 	// matching pi-subtask's subtask panel — the transcript pane separately
 	// mounts above the editor, exactly like pi-subtask's fork view.
-	widgetPlacement: "belowEditor" as const,
+	// The dock renders at the very bottom of the screen, below the crew-vibes
+	// quota/meter footer (falls back to belowEditor when no footer sink exists).
+	widgetPlacement: "bottom" as const,
 	widgetMaxLines: 8,
 	widgetRowStyle: "compact" as const,
 	inlinePanel: true,

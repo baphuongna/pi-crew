@@ -282,7 +282,7 @@ export const PiTeamsOtlpConfigSchema = Type.Object(
 
 export const PiTeamsUiConfigSchema = Type.Object(
 	{
-		widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor")])),
+		widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor"), Type.Literal("bottom")])),
 		widgetMaxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
 		powerbar: Type.Optional(Type.Boolean()),
 		dashboardPlacement: Type.Optional(Type.Union([Type.Literal("center"), Type.Literal("right")])),

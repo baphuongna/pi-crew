@@ -111,6 +111,12 @@ export interface WidgetRenderOptions {
 	 * the idle widget stays capped to keep the prompt area small.
 	 */
 	focused?: boolean;
+	/**
+	 * True while the active pi session IS an agent view session (the user is
+	 * "inside" an agent). The hint then advertises escape-to-return instead of
+	 * enter-to-view.
+	 */
+	viewBack?: boolean;
 }
 
 export function buildWidgetLines(
@@ -146,7 +152,11 @@ export function buildWidgetLines(
 		}, 0);
 		if (agentCount > 0) {
 			let hint: string;
-			if (options.viewedTaskId) {
+			if (options.viewBack) {
+				// The active session IS the agent view — the dock advertises how
+				// to get back to the main conversation.
+				hint = "agent view — esc back to main · ↓ switch";
+			} else if (options.viewedTaskId) {
 				const viewedName = runs.flatMap((entry) => entry.agents).find((a) => a.taskId === options.viewedTaskId)?.agent ?? "agent";
 				hint = `viewing @${viewedName} — typing goes to the agent · ↓ switch · esc back`;
 			} else if (options.focused) {

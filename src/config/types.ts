@@ -143,7 +143,14 @@ export interface GoalWrapWorkflowConfig {
 }
 
 export interface CrewUiConfig {
-	widgetPlacement?: "aboveEditor" | "belowEditor";
+	/**
+	 * Where the crew dock (agents list) renders:
+	 *  - `aboveEditor` / `belowEditor`: pi's widget slots around the prompt;
+	 *  - `bottom`: inside the crew-vibes footer, BELOW the quota/meter lines
+	 *    (the very bottom of the screen). Falls back to `belowEditor` when
+	 *    crew-vibes is not active (no footer sink).
+	 */
+	widgetPlacement?: "aboveEditor" | "belowEditor" | "bottom";
 	widgetMaxLines?: number;
 	/**
 	 * Per-agent row layout in the widget. `compact` is one width-budgeted line

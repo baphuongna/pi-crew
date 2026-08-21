@@ -15,7 +15,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import type { LiveRunSidebar as LiveRunSidebarType } from "../../ui/live-run-sidebar.ts";
-import { requestRender, setExtensionWidget, showCustom } from "../../ui/pi-ui-compat.ts";
+import { requestRender, setExtensionWidget, showCustom, toPiWidgetPlacement } from "../../ui/pi-ui-compat.ts";
 import {
 	clearPiCrewPowerbar,
 	registerPiCrewPowerbarSegments,
@@ -76,10 +76,11 @@ export async function installLiveSidebar(ctx: ExtensionContext, runId: string, s
 	state.liveSidebarRunId = runId;
 	state.dashboardOpened = true;
 	const widgetPlacement = uiConfig?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
-	setExtensionWidget(ctx, "pi-crew", undefined, { placement: widgetPlacement });
-	setExtensionWidget(ctx, "pi-crew-active", undefined, { placement: widgetPlacement });
+	const placement = toPiWidgetPlacement(widgetPlacement);
+	setExtensionWidget(ctx, "pi-crew", undefined, { placement });
+	setExtensionWidget(ctx, "pi-crew-active", undefined, { placement });
 	deps.widgetState.lastVisibility = "hidden";
-	deps.widgetState.lastPlacement = widgetPlacement;
+	deps.widgetState.lastPlacement = placement;
 	deps.widgetState.lastKey = "pi-crew-active";
 	deps.widgetState.model = undefined;
 	const width = Math.min(90, Math.max(40, uiConfig?.dashboardWidth ?? DEFAULT_UI.dashboardWidth));

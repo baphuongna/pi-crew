@@ -23,7 +23,8 @@ import { type EditorTheme, matchesKey, type TUI, truncateToWidth, visibleWidth }
 
 import type { PanelKeys, PanelTarget } from "./panel-selection.ts";
 import { dispatchPanelKey } from "./panel-selection.ts";
-import { getPanelSelection, getViewedAgent, panelRows, setPanelSelection } from "./panel-store.ts";
+import { getPanelSelection, getViewedAgent, panelRows, setPanelSelection, setViewedAgent } from "./panel-store.ts";
+import { getCrewViewSessionState } from "./view-session-store.ts";
 
 export const AGENT_LABEL_MAX = 24;
 
@@ -82,6 +83,7 @@ export class CrewInlineEditor extends CustomEditor {
 				setPanelSelection(null);
 				const target = result.action.target;
 				if (target) this.options.onOpenPane(target);
+				else if (getCrewViewSessionState().active) this.dispatchCommand("/crew-back");
 				else if (closePaneOnMain) this.options.onClosePane();
 				return;
 			}
@@ -95,9 +97,47 @@ export class CrewInlineEditor extends CustomEditor {
 		}
 	}
 
+	/**
+	 * Route a slash command through pi's normal editor submit path
+	 * (`onSubmit` — the same hook a typed Enter uses), so session-level
+	 * commands like `/crew-view`/`/crew-back` execute with the full command
+	 * context (where pi exposes `switchSession`).
+	 */
+	dispatchCommand(text: string): void {
+		setPanelSelection(null);
+		setViewedAgent(undefined);
+		this.setText(text);
+		this.onSubmit?.(text);
+	}
+
 	handleInput(data: string): void {
 		const rows = panelRows();
 		const viewed = getViewedAgent();
+
+		// ── Agent session view: the active session IS the agent's own ──────
+		// session (opened via /crew-view). The dock still navigates the run
+		// rows (↓/enter switch agent, enter on main returns); escape returns
+		// to the main session; plain typing stays a REAL pi turn in the view
+		// session — exactly like a normal conversation.
+		if (getCrewViewSessionState().active && !viewed) {
+			if (getPanelSelection() !== null) {
+				this.applyDispatch(data, rows, this.panelKeys(data), true);
+				return;
+			}
+			if (matchesKey(data, "down") && this.getText() === "" && rows.length > 0) {
+				// Same entry as the main session: `↓` on an empty prompt moves
+				// into the dock rows, so "↓ switch agent" works while viewing.
+				const result = dispatchPanelKey(this.panelKeys(data), rows, null);
+				setPanelSelection(result.selection);
+				return;
+			}
+			if (matchesKey(data, "escape")) {
+				this.dispatchCommand("/crew-back");
+				return;
+			}
+			super.handleInput(data);
+			return;
+		}
 
 		// ── Pane open: typing goes to the viewed agent ─────────────────────
 		if (viewed) {
@@ -171,10 +211,17 @@ export class CrewInlineEditor extends CustomEditor {
 	render(width: number): string[] {
 		const lines = super.render(width);
 		const viewed = getViewedAgent();
-		if (viewed && lines.length > 0) {
+		const viewState = getCrewViewSessionState();
+		let name: string | undefined;
+		if (viewed) {
 			const rows = panelRows();
 			const row = rows.find((r) => r.runId === viewed.runId && r.taskId === viewed.taskId);
-			const name = row?.name ?? viewed.taskId.slice(-AGENT_LABEL_MAX);
+			name = row?.name ?? viewed.taskId.slice(-AGENT_LABEL_MAX);
+		} else if (viewState.active) {
+			// The editor belongs to the agent's own session now.
+			name = `${viewState.taskId ?? "agent"} · view`;
+		}
+		if (name && lines.length > 0) {
 			const label = ` @${truncateToWidth(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
 			const labelWidth = visibleWidth(label);
 			if (visibleWidth(lines[0]) >= labelWidth + 4) {

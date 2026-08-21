@@ -24,7 +24,10 @@
     },
     "ignoreMethod": {
       "type": "string",
-      "enum": ["gitignore", "exclude"],
+      "enum": [
+        "gitignore",
+        "exclude"
+      ],
       "default": "gitignore",
       "description": "Method for ignoring pi-crew generated directories from VCS: 'gitignore' appends to .gitignore, 'exclude' writes to .git/info/exclude."
     },
@@ -33,16 +36,34 @@
       "additionalProperties": false,
       "description": "Autonomous team routing policy injected into the agent system prompt.",
       "properties": {
-        "profile": { "type": "string", "enum": ["manual", "suggested", "assisted", "aggressive"] },
-        "enabled": { "type": "boolean" },
-        "injectPolicy": { "type": "boolean" },
-        "preferAsyncForLongTasks": { "type": "boolean" },
-        "allowWorktreeSuggestion": { "type": "boolean" },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "suggested",
+            "assisted",
+            "aggressive"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "injectPolicy": {
+          "type": "boolean"
+        },
+        "preferAsyncForLongTasks": {
+          "type": "boolean"
+        },
+        "allowWorktreeSuggestion": {
+          "type": "boolean"
+        },
         "magicKeywords": {
           "type": "object",
           "additionalProperties": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -52,14 +73,37 @@
       "additionalProperties": false,
       "description": "Runtime safety limits for crew workers and policy decisions.",
       "properties": {
-        "maxConcurrentWorkers": { "type": "integer", "minimum": 1 },
-        "allowUnboundedConcurrency": { "type": "boolean" },
-        "maxTaskDepth": { "type": "integer", "minimum": 1 },
-        "maxChildrenPerTask": { "type": "integer", "minimum": 1 },
-        "maxRunMinutes": { "type": "integer", "minimum": 1 },
-        "maxRetriesPerTask": { "type": "integer", "minimum": 1 },
-        "maxTasksPerRun": { "type": "integer", "minimum": 1 },
-        "heartbeatStaleMs": { "type": "integer", "minimum": 1 }
+        "maxConcurrentWorkers": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "allowUnboundedConcurrency": {
+          "type": "boolean"
+        },
+        "maxTaskDepth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxChildrenPerTask": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxRunMinutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxRetriesPerTask": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxTasksPerRun": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "heartbeatStaleMs": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "runtime": {
@@ -67,18 +111,71 @@
       "additionalProperties": false,
       "description": "Crew runtime selection and live-agent behavior knobs.",
       "properties": {
-        "mode": { "type": "string", "enum": ["auto", "scaffold", "child-process", "live-session"] },
-        "preferLiveSession": { "type": "boolean" },
-        "allowChildProcessFallback": { "type": "boolean" },
-        "maxTurns": { "type": "integer", "minimum": 1 },
-        "graceTurns": { "type": "integer", "minimum": 1 },
-        "inheritContext": { "type": "boolean" },
-        "promptMode": { "type": "string", "enum": ["replace", "append"] },
-        "groupJoin": { "type": "string", "enum": ["off", "group", "smart"] },
-        "groupJoinAckTimeoutMs": { "type": "integer", "minimum": 1 },
-        "requirePlanApproval": { "type": "boolean" },
-        "completionMutationGuard": { "type": "string", "enum": ["off", "warn", "fail"] },
-        "effectivenessGuard": { "type": "string", "enum": ["off", "warn", "block", "fail"] }
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "scaffold",
+            "child-process",
+            "live-session"
+          ]
+        },
+        "preferLiveSession": {
+          "type": "boolean"
+        },
+        "allowChildProcessFallback": {
+          "type": "boolean"
+        },
+        "maxTurns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "graceTurns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "inheritContext": {
+          "type": "boolean"
+        },
+        "promptMode": {
+          "type": "string",
+          "enum": [
+            "replace",
+            "append"
+          ]
+        },
+        "groupJoin": {
+          "type": "string",
+          "enum": [
+            "off",
+            "group",
+            "smart"
+          ]
+        },
+        "groupJoinAckTimeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "requirePlanApproval": {
+          "type": "boolean"
+        },
+        "completionMutationGuard": {
+          "type": "string",
+          "enum": [
+            "off",
+            "warn",
+            "fail"
+          ]
+        },
+        "effectivenessGuard": {
+          "type": "string",
+          "enum": [
+            "off",
+            "warn",
+            "block",
+            "fail"
+          ]
+        }
       }
     },
     "control": {
@@ -86,8 +183,13 @@
       "additionalProperties": false,
       "description": "Agent control-plane settings for attention/stale activity detection.",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "needsAttentionAfterMs": { "type": "integer", "minimum": 1 }
+        "enabled": {
+          "type": "boolean"
+        },
+        "needsAttentionAfterMs": {
+          "type": "integer",
+          "minimum": 1
+        }
       }
     },
     "worktree": {
@@ -95,9 +197,17 @@
       "additionalProperties": false,
       "description": "Worktree setup hooks and dependency-linking options.",
       "properties": {
-        "setupHook": { "type": "string", "minLength": 1 },
-        "setupHookTimeoutMs": { "type": "integer", "minimum": 1 },
-        "linkNodeModules": { "type": "boolean" }
+        "setupHook": {
+          "type": "string",
+          "minLength": 1
+        },
+        "setupHookTimeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "linkNodeModules": {
+          "type": "boolean"
+        }
       }
     },
     "goalWrap": {
@@ -107,20 +217,47 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "enabled": { "type": "boolean" },
-          "maxTurns": { "type": "integer", "minimum": 1, "maximum": 50 },
-          "evaluatorModel": { "type": "string", "minLength": 1 },
+          "enabled": {
+            "type": "boolean"
+          },
+          "maxTurns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "evaluatorModel": {
+            "type": "string",
+            "minLength": 1
+          },
           "verification": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "commands": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-              "mode": { "type": "string", "enum": ["text-only"] }
+              "commands": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "text-only"
+                ]
+              }
             },
-            "required": ["commands"]
+            "required": [
+              "commands"
+            ]
           },
-          "budgetTotal": { "type": "integer", "minimum": 1000 },
-          "budgetUnlimited": { "type": "boolean" }
+          "budgetTotal": {
+            "type": "integer",
+            "minimum": 1000
+          },
+          "budgetUnlimited": {
+            "type": "boolean"
+          }
         }
       }
     },
@@ -129,18 +266,61 @@
       "additionalProperties": false,
       "description": "Builtin agent override settings.",
       "properties": {
-        "disableBuiltins": { "type": "boolean" },
+        "disableBuiltins": {
+          "type": "boolean"
+        },
         "overrides": {
           "type": "object",
           "additionalProperties": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "disabled": { "type": "boolean" },
-              "model": { "oneOf": [{ "type": "string", "minLength": 1 }, { "const": false }] },
-              "fallbackModels": { "oneOf": [{ "type": "array", "items": { "type": "string", "minLength": 1 } }, { "const": false }] },
-              "thinking": { "oneOf": [{ "type": "string", "minLength": 1 }, { "const": false }] },
-              "tools": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+              "disabled": {
+                "type": "boolean"
+              },
+              "model": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              "fallbackModels": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              "thinking": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "const": false
+                  }
+                ]
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
             }
           }
         }
@@ -151,20 +331,93 @@
       "additionalProperties": false,
       "description": "Pi UI settings for the crew widget, dashboard, and optional powerbar segments.",
       "properties": {
-        "widgetPlacement": { "type": "string", "enum": ["aboveEditor", "belowEditor"] },
-        "widgetMaxLines": { "type": "integer", "minimum": 1, "maximum": 50 },
-        "powerbar": { "type": "boolean" },
-        "dashboardPlacement": { "type": "string", "enum": ["center", "right"], "default": "right", "description": "Place /team-dashboard as a centered overlay or right-side panel." },
-        "dashboardWidth": { "type": "integer", "minimum": 32, "maximum": 120, "default": 56 },
-        "dashboardLiveRefreshMs": { "type": "integer", "minimum": 250, "maximum": 60000, "default": 1000 },
-        "autoOpenDashboard": { "type": "boolean", "default": false, "description": "Opt in to automatically opening the live right sidebar for foreground runs when UI is available. Disabled by default because Pi overlays are modal in some terminals." },
-        "autoOpenDashboardForForegroundRuns": { "type": "boolean", "default": true },
-        "showModel": { "type": "boolean", "default": true, "description": "Show worker model attempts in dashboard agent rows." },
-        "showTokens": { "type": "boolean", "description": "Show token usage in dashboard agent rows." },
-        "showTools": { "type": "boolean", "description": "Show tool activity in dashboard agent rows." },
-        "transcriptTailBytes": { "type": "integer", "minimum": 1024, "maximum": 52428800, "default": 262144, "description": "Maximum transcript bytes to parse by default; use viewer hotkey f to load full content." },
-        "mascotStyle": { "type": "string", "enum": ["cat", "armin"] },
-        "mascotEffect": { "type": "string", "enum": ["random", "none", "typewriter", "scanline", "rain", "fade", "crt", "glitch", "dissolve"] }
+        "widgetPlacement": {
+          "type": "string",
+          "enum": [
+            "aboveEditor",
+            "belowEditor",
+            "bottom"
+          ]
+        },
+        "widgetMaxLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "powerbar": {
+          "type": "boolean"
+        },
+        "dashboardPlacement": {
+          "type": "string",
+          "enum": [
+            "center",
+            "right"
+          ],
+          "default": "right",
+          "description": "Place /team-dashboard as a centered overlay or right-side panel."
+        },
+        "dashboardWidth": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 120,
+          "default": 56
+        },
+        "dashboardLiveRefreshMs": {
+          "type": "integer",
+          "minimum": 250,
+          "maximum": 60000,
+          "default": 1000
+        },
+        "autoOpenDashboard": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to automatically opening the live right sidebar for foreground runs when UI is available. Disabled by default because Pi overlays are modal in some terminals."
+        },
+        "autoOpenDashboardForForegroundRuns": {
+          "type": "boolean",
+          "default": true
+        },
+        "showModel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show worker model attempts in dashboard agent rows."
+        },
+        "showTokens": {
+          "type": "boolean",
+          "description": "Show token usage in dashboard agent rows."
+        },
+        "showTools": {
+          "type": "boolean",
+          "description": "Show tool activity in dashboard agent rows."
+        },
+        "transcriptTailBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 52428800,
+          "default": 262144,
+          "description": "Maximum transcript bytes to parse by default; use viewer hotkey f to load full content."
+        },
+        "mascotStyle": {
+          "type": "string",
+          "enum": [
+            "cat",
+            "armin"
+          ]
+        },
+        "mascotEffect": {
+          "type": "string",
+          "enum": [
+            "random",
+            "none",
+            "typewriter",
+            "scanline",
+            "rain",
+            "fade",
+            "crt",
+            "glitch",
+            "dissolve"
+          ]
+        }
       }
     },
     "tools": {
@@ -172,9 +425,19 @@
       "additionalProperties": false,
       "description": "Public tool registration and foreground result behavior.",
       "properties": {
-        "enableClaudeStyleAliases": { "type": "boolean", "default": true },
-        "enableSteer": { "type": "boolean", "default": true },
-        "terminateOnForeground": { "type": "boolean", "default": false, "description": "Opt in to returning terminate:true from foreground Agent/crew_agent calls after the child result is available." }
+        "enableClaudeStyleAliases": {
+          "type": "boolean",
+          "default": true
+        },
+        "enableSteer": {
+          "type": "boolean",
+          "default": true
+        },
+        "terminateOnForeground": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to returning terminate:true from foreground Agent/crew_agent calls after the child result is available."
+        }
       }
     },
     "telemetry": {
@@ -182,7 +445,10 @@
       "additionalProperties": false,
       "description": "Pi-crew telemetry event controls.",
       "properties": {
-        "enabled": { "type": "boolean", "default": true }
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
       }
     },
     "policy": {
@@ -190,7 +456,11 @@
       "additionalProperties": false,
       "description": "Operator policy gates for high-risk pi-crew actions.",
       "properties": {
-        "requireIntentForDestructiveActions": { "type": "boolean", "default": false, "description": "Require config.intent or config._intent for destructive actions such as cancel, delete, forget, prune, and forced cleanup." }
+        "requireIntentForDestructiveActions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require config.intent or config._intent for destructive actions such as cancel, delete, forget, prune, and forced cleanup."
+        }
       }
     },
     "notifications": {
@@ -198,12 +468,48 @@
       "additionalProperties": false,
       "description": "Operator notification routing, quiet-hours, batching, and JSONL sink settings.",
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
-        "severityFilter": { "type": "array", "items": { "type": "string", "enum": ["info", "warning", "error", "critical"] }, "default": ["warning", "error", "critical"] },
-        "dedupWindowMs": { "type": "integer", "minimum": 1000, "default": 30000 },
-        "batchWindowMs": { "type": "integer", "minimum": 0, "default": 0 },
-        "quietHours": { "type": "string", "pattern": "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$", "description": "Local HH:MM-HH:MM quiet-hours range; supports cross-day ranges such as 22:00-07:00." },
-        "sinkRetentionDays": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7 }
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "severityFilter": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error",
+              "critical"
+            ]
+          },
+          "default": [
+            "warning",
+            "error",
+            "critical"
+          ]
+        },
+        "dedupWindowMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000
+        },
+        "batchWindowMs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "quietHours": {
+          "type": "string",
+          "pattern": "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$",
+          "description": "Local HH:MM-HH:MM quiet-hours range; supports cross-day ranges such as 22:00-07:00."
+        },
+        "sinkRetentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90,
+          "default": 7
+        }
       }
     },
     "observability": {
@@ -211,9 +517,22 @@
       "additionalProperties": false,
       "description": "Metric registry, heartbeat watcher, and metric file sink settings.",
       "properties": {
-        "enabled": { "type": "boolean", "default": true },
-        "pollIntervalMs": { "type": "integer", "minimum": 1000, "maximum": 60000, "default": 5000 },
-        "metricRetentionDays": { "type": "integer", "minimum": 1, "maximum": 365, "default": 7 }
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "pollIntervalMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 60000,
+          "default": 5000
+        },
+        "metricRetentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365,
+          "default": 7
+        }
       }
     },
     "reliability": {
@@ -221,18 +540,54 @@
       "additionalProperties": false,
       "description": "Opt-in reliability controls for retry, recovery, and deadletter handling.",
       "properties": {
-        "autoRetry": { "type": "boolean", "default": false },
-        "autoRecover": { "type": "boolean", "default": false },
-        "deadletterThreshold": { "type": "integer", "minimum": 1, "default": 3 },
+        "autoRetry": {
+          "type": "boolean",
+          "default": false
+        },
+        "autoRecover": {
+          "type": "boolean",
+          "default": false
+        },
+        "deadletterThreshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3
+        },
         "retryPolicy": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 10, "default": 3 },
-            "backoffMs": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 1000 },
-            "jitterRatio": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.3 },
-            "exponentialFactor": { "type": "number", "minimum": 1, "maximum": 5, "default": 2 },
-            "retryableErrors": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 3
+            },
+            "backoffMs": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 60000,
+              "default": 1000
+            },
+            "jitterRatio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.3
+            },
+            "exponentialFactor": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 5,
+              "default": 2
+            },
+            "retryableErrors": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
           }
         }
       }
@@ -242,10 +597,25 @@
       "additionalProperties": false,
       "description": "Optional OpenTelemetry metric export. Disabled by default.",
       "properties": {
-        "enabled": { "type": "boolean", "default": false },
-        "endpoint": { "type": "string", "minLength": 1 },
-        "headers": { "type": "object", "additionalProperties": { "type": "string" } },
-        "intervalMs": { "type": "integer", "minimum": 5000, "default": 60000 }
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "endpoint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "intervalMs": {
+          "type": "integer",
+          "minimum": 5000,
+          "default": 60000
+        }
       }
     },
     "broker": {
@@ -253,10 +623,24 @@
       "additionalProperties": false,
       "description": "Phase 0 inter-pi broker config for cross-process communication.",
       "properties": {
-        "enabled": { "type": "boolean" },
-        "pathHashLen": { "type": "integer", "minimum": 4, "maximum": 32 },
-        "maxFrameBytes": { "type": "integer", "minimum": 1024, "maximum": 1048576 },
-        "outboundQueueCap": { "type": "integer", "minimum": 32, "maximum": 4096 },
+        "enabled": {
+          "type": "boolean"
+        },
+        "pathHashLen": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 32
+        },
+        "maxFrameBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 1048576
+        },
+        "outboundQueueCap": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 4096
+        },
         "waitMethodsEnabled": {
           "type": "boolean",
           "description": "WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask item 7): gate for the broker wait.* methods. Default false - fail-closed."
@@ -268,9 +652,23 @@
       "additionalProperties": false,
       "description": "Governed nesting (ADR-5 docs/decisions/2026-08-17-governed-nesting.md). Worker-to-grandchild delegation via the delegate tool. Default false - fail-closed until WP-5 completes.",
       "properties": {
-        "enabled": { "type": "boolean", "sensitive": true, "description": "Master switch. Privilege-raising: user config only; project-level nesting.enabled is ignored." },
-        "maxSlots": { "type": "integer", "minimum": 1, "maximum": 64, "description": "Nested-slot budget override. Default max(1, floor(globalSem/2))." },
-        "maxDepth": { "type": "integer", "minimum": 1, "maximum": 10, "description": "Max crew depth for delegate-driven nesting. Default 2 (mirrors PI_CREW_MAX_DEPTH clamp)." }
+        "enabled": {
+          "type": "boolean",
+          "sensitive": true,
+          "description": "Master switch. Privilege-raising: user config only; project-level nesting.enabled is ignored."
+        },
+        "maxSlots": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "description": "Nested-slot budget override. Default max(1, floor(globalSem/2))."
+        },
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Max crew depth for delegate-driven nesting. Default 2 (mirrors PI_CREW_MAX_DEPTH clamp)."
+        }
       }
     }
   }

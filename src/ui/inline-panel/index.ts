@@ -12,22 +12,27 @@
  * module never pulls the runtime chain at startup (AGENTS.md lazy boundary).
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import type { CrewUiConfig } from "../../config/types.ts";
 import { isToolError, type PiTeamsToolResult, textFromToolResult } from "../../extension/tool-result.ts";
 import { requestRender, setExtensionWidget } from "../pi-ui-compat.ts";
 import { CrewAgentPane } from "./agent-pane.ts";
 import { resetAllAgentTranscriptCursors } from "./agent-transcript.ts";
+import { buildAgentViewSessionFile } from "./agent-view-session.ts";
 import { CrewInlineEditor } from "./crew-editor.ts";
 import type { PanelTarget } from "./panel-selection.ts";
 import { resetPanelStore, setViewedAgent } from "./panel-store.ts";
+import { getCrewViewSessionState, isCrewViewSessionFile, setCrewViewSessionState } from "./view-session-store.ts";
 
-/** Widget key for the transcript pane. */
+/** Widget key for the transcript pane (fallback when a view session cannot be built). */
 export const PANE_WIDGET_KEY = "pi-crew-agent-view";
 const PANE_PLACEMENT = "aboveEditor" as const;
 
 let currentPane: CrewAgentPane | undefined;
+/** The active CrewInlineEditor instance, so panelless flows (session view
+ *  opening) can route a slash command through pi's normal submit path. */
+let currentEditor: CrewInlineEditor | undefined;
 let lastCtx: ExtensionContext | undefined;
 let editorInstalled = false;
 /** Guards the one-time per-process event hooks. */
@@ -45,22 +50,62 @@ function notifyResult(ctx: ExtensionContext, result: PiTeamsToolResult): void {
 	ctx.ui.notify(isToolError(result) ? `panel: ${text}` : text, isToolError(result) ? "error" : "info");
 }
 
+/**
+ * Open an agent "view".
+ *
+ * Preferred path: build a REAL pi session file from the agent's event log and
+ * switch the whole screen to it (`/crew-view` — entered via the editor's
+ * submit path so pi's own command dispatch handles the session swap). The
+ * command is dispatched AFTER the current input tick unwinds: `switchSession`
+ * tears the current session down, which would invalidate the editor while we
+ * are still inside its key handler otherwise.
+ *
+ * Fallback: when the session file cannot be built (run missing, events file
+ * absent), keep the in-document transcript pane.
+ */
+const VIEW_BUILD_RETRY_MS = 500;
+const VIEW_BUILD_MAX_RETRIES = 16;
+
+/** Build the view file, retrying briefly while the run's state settles
+ *  (enter can land in the gap between a task row appearing and its event
+ *  files flushing). Falls back to the in-document pane after exhausting
+ *  the attempts. */
+async function buildViewPath(ctx: ExtensionContext, target: PanelTarget): Promise<string | undefined> {
+	for (let attempt = 0; ; attempt += 1) {
+		const viewPath = buildAgentViewSessionFile({ cwd: ctx.cwd, runId: target.runId, taskId: target.taskId });
+		if (viewPath) return viewPath;
+		if (attempt >= VIEW_BUILD_MAX_RETRIES) return undefined;
+		await new Promise((resolve) => setTimeout(resolve, VIEW_BUILD_RETRY_MS));
+	}
+}
+
 function openPane(ctx: ExtensionContext, target: PanelTarget): void {
 	setViewedAgent(target);
-	try {
-		setExtensionWidget(
-			ctx,
-			PANE_WIDGET_KEY,
-			((tui: unknown, theme: unknown) => {
-				currentPane = new CrewAgentPane(tui as never, theme as never, ctx.cwd);
-				return currentPane;
-			}) as never,
-			{ placement: PANE_PLACEMENT },
-		);
-	} catch {
-		/* stale ctx across session replacement */
-	}
-	requestRender(ctx);
+
+	void (async () => {
+		const viewPath = await buildViewPath(ctx, target);
+		if (viewPath) {
+			setTimeout(() => {
+				currentEditor?.dispatchCommand(`/crew-view ${target.runId} ${target.taskId}`);
+			}, 0);
+			return;
+		}
+		// State never materialised — keep the live in-document pane.
+		try {
+			setExtensionWidget(
+				ctx,
+				PANE_WIDGET_KEY,
+				((tui: unknown, theme: unknown) => {
+					currentPane = new CrewAgentPane(tui as never, theme as never, ctx.cwd);
+					return currentPane;
+				}) as never,
+				{ placement: PANE_PLACEMENT },
+			);
+		} catch {
+			/* stale ctx across session replacement */
+		}
+		requestRender(ctx);
+	})();
 }
 
 function closePane(ctx: ExtensionContext): void {
@@ -114,6 +159,116 @@ async function actOnAgent(ctx: ExtensionContext, target: PanelTarget, finished: 
 	}
 }
 
+// ── Agent session view commands ───────────────────────────────────────
+//
+// `/crew-view <runId> <taskId>` — switch the WHOLE screen to a real pi session
+// built from that agent's event log (pi's own transcript rendering, tool cards,
+// working editor). `/crew-back` — return to the main session. These are also
+// reachable by typing, which keeps the feature usable without the panel.
+//
+// `switchSession` is only exposed on the extension COMMAND context (not the
+// plain ExtensionContext), so the panel opens views by submitting these
+// commands through the editor's submit path instead of calling pi directly.
+
+async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
+	const tokens = args.trim().split(/\s+/).filter(Boolean);
+	if (tokens.length < 2) {
+		ctx.ui.notify("Usage: /crew-view <runId> <taskId>", "error");
+		return;
+	}
+	if (typeof ctx.switchSession !== "function") {
+		ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
+		return;
+	}
+	const [runId, taskId] = tokens;
+	const prev = getCrewViewSessionState();
+	const currentFile = ctx.sessionManager.getSessionFile();
+	// When /crew-view runs FROM a view session (↓-switching agents), the
+	// current session is another view — its file/session id must NOT become
+	// the store's return path. Keep the ORIGINAL main session instead.
+	const alreadyViewing = isCrewViewSessionFile(currentFile);
+	const mainSessionFile = alreadyViewing ? prev.mainSessionFile : currentFile;
+	try {
+		const viewPath = buildAgentViewSessionFile({
+			cwd: ctx.cwd,
+			runId,
+			taskId,
+			parentSessionFile: mainSessionFile ?? prev.mainSessionFile,
+		});
+		if (!viewPath) {
+			ctx.ui.notify(`No transcript for agent ${taskId} in run ${runId}.`, "error");
+			return;
+		}
+		// Remember the return path BEFORE the switch tears this session down.
+		const sessionId = alreadyViewing
+			? prev.mainSessionId
+			: typeof ctx.sessionManager?.getSessionId === "function"
+				? ctx.sessionManager.getSessionId()
+				: undefined;
+		setCrewViewSessionState({
+			active: true,
+			runId,
+			taskId,
+			mainSessionFile: mainSessionFile ?? prev.mainSessionFile,
+			mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId,
+		});
+		await ctx.switchSession(viewPath);
+	} catch (error) {
+		setCrewViewSessionState({ ...prev, active: false });
+		ctx.ui.notify(`crew-view failed — ${error instanceof Error ? error.message : String(error)}`, "error");
+	}
+}
+
+async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext): Promise<void> {
+	const prev = getCrewViewSessionState();
+	if (!prev.active || !prev.mainSessionFile) {
+		ctx.ui.notify("Not viewing an agent session.", "info");
+		return;
+	}
+	if (typeof ctx.switchSession !== "function") {
+		ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
+		return;
+	}
+	const mainSessionFile = prev.mainSessionFile;
+	// Clear BEFORE switching: session_start reconciles the store against the
+	// file that ends up active, and a stale `active` flag would relabel the
+	// main session as a view.
+	setCrewViewSessionState({ active: false });
+	try {
+		await ctx.switchSession(mainSessionFile);
+	} catch (error) {
+		ctx.ui.notify(`crew-back failed — ${error instanceof Error ? error.message : String(error)}`, "error");
+	}
+}
+
+/**
+ * Reconcile the view-session store against the CURRENT session file.
+ *
+ * Runs on every session_start (main AND view sessions): when the active file
+ * is one of our agent-view sessions, the store stays "viewing" (so the editor
+ * rebinds escape→back); otherwise the store snaps back to not-viewing and
+ * refreshes the main session path (covers /crew-back, /resume, /new …).
+ */
+function reconcileViewSessionState(ctx: ExtensionContext): void {
+	const file = ctx.sessionManager.getSessionFile();
+	// The session file may not be bound yet when session_start fires right
+	// after a switchSession — never clear the view state based on a missing
+	// file (that race would silently disable escape-to-back).
+	if (!file) return;
+	const nextActive = isCrewViewSessionFile(file);
+	const prev = getCrewViewSessionState();
+	if (nextActive) {
+		setCrewViewSessionState(prev);
+		return;
+	}
+	setCrewViewSessionState({
+		active: false,
+		// Keep the last known main file (a view that was abandoned via /new
+		// still has a return path; a fresh session keeps its own file).
+		mainSessionFile: file ?? prev.mainSessionFile,
+	});
+}
+
 /**
  * Install the panel for a session. Call from session_start AFTER the widget
  * has been registered, with the already-loaded UI config.
@@ -126,24 +281,44 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 	lastCtx = ctx;
 	if (!ctx.hasUI) return;
 
+	// The active session may be an agent view (or we may have returned from
+	// one) — reconcile before wiring the editor so escape/enter behave right.
+	reconcileViewSessionState(ctx);
+
 	const enabled = uiConfig?.inlinePanel !== false;
 	try {
 		if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
 			ctx.ui.setEditorComponent((tui, theme, kb) => {
 				// Fresh instance per session; options close over the current ctx.
-				return new CrewInlineEditor(tui, theme, kb, {
+				const editor = new CrewInlineEditor(tui, theme, kb, {
 					onOpenPane: (target) => openPane(ctx, target),
 					onClosePane: () => closePane(ctx),
 					onScrollPane: (delta) => scrollPane(delta),
 					onSteer: (target, message) => void steerAgent(ctx, target, message),
 					onAct: (target, finished) => void actOnAgent(ctx, target, finished),
 				});
+				currentEditor = editor;
+				return editor;
 			});
 			editorInstalled = true;
 		}
 	} catch {
 		/* editor context can be transient across session replacement */
 	}
+
+	// Commands must be re-registered for EVERY session: pi's switchSession
+	// (our /crew-view) builds a fresh extension command table for the new
+	// session, and a classic once-per-process guard leaves the view session
+	// without crew-back (its submit would then become a REAL user message).
+	// registerCommand is idempotent on the current session's runner.
+	pi.registerCommand("crew-view", {
+		description: "Open a real pi session view of a crew agent (usage: crew-view <runId> <taskId>)",
+		handler: handleCrewViewCommand,
+	});
+	pi.registerCommand("crew-back", {
+		description: "Return from an agent session view to the main session",
+		handler: handleCrewBackCommand,
+	});
 
 	if (!hooksRegistered) {
 		hooksRegistered = true;
@@ -153,7 +328,11 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 			resetAllAgentTranscriptCursors();
 		});
 		pi.on("session_start", () => {
-			// pi may have replaced or dropped its editor between sessions.
+			// pi may have replaced or dropped its editor between sessions. The
+			// EDITOR instance is process-wide (pi creates it once from our
+			// factory and keeps it across session switches), so `currentEditor`
+			// stays valid for the dispatch path — only the "installed" flag is
+			// reset so the next install re-registers the factory if needed.
 			editorInstalled = false;
 		});
 	}
@@ -162,4 +341,5 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 /** Test hook: force the next install to re-attempt the editor. */
 export function __resetInlinePanelForTest(): void {
 	editorInstalled = false;
+	currentEditor = undefined;
 }

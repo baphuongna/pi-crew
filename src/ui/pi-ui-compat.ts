@@ -46,6 +46,15 @@ export function setExtensionWidget(
 	ctx.ui.setWidget(key, content as never, widgetOptions as WidgetOptions);
 }
 
+/**
+ * Map the crew widget placement onto pi's `WidgetPlacement`. `"bottom"` is a
+ * crew-only placement (rendered inside the crew-vibes footer, below the quota
+ * lines); when a raw widget slot is involved it falls back to `belowEditor`.
+ */
+export function toPiWidgetPlacement(placement: "aboveEditor" | "belowEditor" | "bottom"): "aboveEditor" | "belowEditor" {
+	return placement === "bottom" ? "belowEditor" : placement;
+}
+
 type FooterFactory = (tui: unknown, theme: unknown, footerData: unknown) => unknown;
 
 /** Install a custom footer component, or pass `undefined` to restore pi's built-in footer.

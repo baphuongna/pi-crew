@@ -142,7 +142,11 @@ function startForegroundRunImpl(
 						.catch((error) => logInternalError("register.foreground-watchdog", error, `runId=${runId}`));
 				}
 				const ownerCurrent = ctx.isContextCurrent(extensionCtx, ownerGeneration);
-				if (extensionCtx.hasUI) {
+				// The owner ctx can go stale while the run is in flight (e.g. the
+				// user opened an agent session view via /crew-view and the run
+				// finishes there): the `hasUI` getter THROWS on a stale ctx, so
+				// it must only be touched for the still-current owner.
+				if (ownerCurrent && extensionCtx.hasUI) {
 					try {
 						setWorkingIndicator(extensionCtx);
 						extensionCtx.ui.setWorkingMessage();

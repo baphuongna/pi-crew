@@ -42,7 +42,7 @@ test(
 		const config = JSON.parse(fs.readFileSync(path.join(cwd, ".pi", "agent", "pi-crew.json"), "utf-8"));
 		assert.equal(config.agents.overrides.explorer.model, false);
 		assert.equal(config.agents.overrides.executor.thinking, "medium");
-		assert.equal(config.ui.widgetPlacement, "belowEditor");
+		assert.equal(config.ui.widgetPlacement, "bottom");
 		assert.equal(config.ui.widgetMaxLines, 8);
 		assert.equal(config.ui.dashboardPlacement, "center");
 		assert.equal(config.ui.dashboardWidth, 72);

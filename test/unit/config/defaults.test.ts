@@ -221,7 +221,9 @@ describe("DEFAULT_UI", () => {
 	});
 
 	it("has widgetPlacement and dashboardPlacement as known strings", () => {
-		assert.equal(DEFAULT_UI.widgetPlacement, "belowEditor");
+		// The dock renders at the very bottom (below crew-vibes' quota footer)
+		// by default; pi's widget slots (aboveEditor) remain for explicit config.
+		assert.equal(DEFAULT_UI.widgetPlacement, "bottom");
 		assert.equal(DEFAULT_UI.dashboardPlacement, "center");
 	});
 

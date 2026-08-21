@@ -11,8 +11,10 @@ import { DEFAULT_UI } from "../../config/defaults.ts";
 import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { truncate } from "../../utils/visual.ts";
+import { isFooterDockSinkActive, setFooterDockProvider } from "../dock-footer.ts";
 import { panelRowsFromRuns } from "../inline-panel/panel-rows.ts";
 import { panelDisplayState, setPanelRowsProvider, subscribePanelChange } from "../inline-panel/panel-store.ts";
+import { getCrewViewSessionState } from "../inline-panel/view-session-store.ts";
 import { requestRender, requestRenderTarget, setExtensionWidget } from "../pi-ui-compat.ts";
 import type { OverlaySchedulerHandle } from "../shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "../shared-overlay-scheduler.ts";
@@ -307,9 +309,11 @@ class CrewWidgetComponent implements WidgetComponent {
 		const runningGlyph = spinnerFrame("widget-header");
 
 		// Panel cursor/pane state is part of the rendered output, so it belongs in
-		// the cache key — otherwise moving the cursor would not repaint.
+		// the cache key — otherwise moving the cursor would not repaint. View-mode
+		// (the active session IS an agent view) changes the dock's hint line too.
 		const panel = panelDisplayState();
-		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+		const viewBack = getCrewViewSessionState().active;
+		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}/${viewBack ? 1 : 0}`;
 
 		// The spinner-frame swap only belongs on the LEGACY header, whose line 0
 		// already starts with a glyph position (`<frame> Crew agents …`). The
@@ -324,7 +328,7 @@ class CrewWidgetComponent implements WidgetComponent {
 				runs,
 				this.model.notificationCount ?? 0,
 				width,
-				{ rowStyle: this.model.rowStyle, ...panel },
+				{ rowStyle: this.model.rowStyle, ...panel, viewBack },
 			).map((line, index) => {
 				if (!compactDock && index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
 				return line;
@@ -353,6 +357,35 @@ class CrewWidgetComponent implements WidgetComponent {
 	}
 }
 
+// ── Footer dock host (widgetPlacement: "bottom") ──────────────────────
+
+/**
+ * Dock host for `widgetPlacement: "bottom"`. Keeps a single CrewWidgetComponent
+ * (theme-less → raw lines, no ANSI) per session and feeds its render output to
+ * the crew-vibes footer through the dock-footer registry. The footer colors the
+ * lines with ITS OWN theme so the dock matches the footer context. All caching,
+ * event wiring (panel changes, run events, resize) lives in the wrapped
+ * component; the footer is re-rendered by pi on every host repaint.
+ */
+class FooterDockHost {
+	private component: CrewWidgetComponent | undefined;
+	private readonly model: CrewWidgetModel;
+
+	constructor(model: CrewWidgetModel) {
+		this.model = model;
+	}
+
+	render(width: number): string[] {
+		if (!this.component) this.component = new CrewWidgetComponent(this.model, undefined, undefined);
+		return this.component.render(width);
+	}
+
+	dispose(): void {
+		this.component?.dispose();
+		this.component = undefined;
+	}
+}
+
 // ── Re-export listLiveAgents for buildSignature ───────────────────────
 
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
@@ -371,7 +404,10 @@ export function updateCrewWidget(
 	state.frame += 1;
 	const maxLines = config?.widgetMaxLines ?? MAX_LINES_DEFAULT;
 
-	let workspaceId = ctx.sessionManager?.getSessionId?.();
+	// While an agent session view is open, run-scoped surfaces must filter by
+	// the MAIN session's id (the view's own id would hide the run being viewed).
+	const viewState = getCrewViewSessionState();
+	let workspaceId = viewState.active ? viewState.mainSessionId : ctx.sessionManager?.getSessionId?.();
 	if (!workspaceId && manifestCache) {
 		const runs = manifestCache.list(20);
 		const active = runs.find((r) => r.status === "running" || r.status === "queued");
@@ -389,18 +425,27 @@ export function updateCrewWidget(
 		...panelDisplayState(),
 	});
 	const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
+	// `bottom` is not a pi widget slot: the dock then renders inside the
+	// crew-vibes footer (dock-footer registry). pi's slot calls always use a
+	// real slot so legacy-clear/installs stay on maps pi understands.
+	const bottomMode = placement === "bottom";
+	const dockInFooter = bottomMode && isFooterDockSinkActive();
+	const piPlacement: "aboveEditor" | "belowEditor" = bottomMode ? "belowEditor" : placement;
 
 	ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : undefined);
 
 	const shouldClearLegacy = state.legacyCleared !== true || state.lastPlacement !== placement;
 	if (shouldClearLegacy) {
-		setExtensionWidget(ctx, LEGACY_WIDGET_KEY, undefined, { placement });
+		setExtensionWidget(ctx, LEGACY_WIDGET_KEY, undefined, { placement: piPlacement });
 		state.legacyCleared = true;
 	}
 
 	if (!lines.length) {
 		if (state.lastVisibility !== "hidden" || state.lastPlacement !== placement) {
-			setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement });
+			setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
+			state.footerDock?.dispose();
+			state.footerDock = undefined;
+			setFooterDockProvider(undefined);
 			state.lastVisibility = "hidden";
 			state.lastPlacement = placement;
 			state.lastKey = WIDGET_KEY;
@@ -444,12 +489,38 @@ export function updateCrewWidget(
 		state.model.rowStyle = rowStyle;
 	}
 
-	if (needsWidgetInstall) {
+	if (dockInFooter) {
+		// Keep pi's widget slot free: the crew-vibes footer paints the dock at
+		// the very bottom, below the quota/meter lines. A widget-slot install
+		// from a PREVIOUS placement (or a sink that was just enabled) must be
+		// removed first.
+		if (needsWidgetInstall && state.lastKey === WIDGET_KEY) {
+			setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
+		}
+		if (!state.footerDock) state.footerDock = new FooterDockHost(state.model);
+		setFooterDockProvider((width) => state.footerDock!.render(width));
+	} else {
+		// Widget-slot path (aboveEditor/belowEditor, or no footer sink for
+		// "bottom"): ensure any stale footer dock is detached first.
+		if (state.footerDock) {
+			state.footerDock.dispose();
+			state.footerDock = undefined;
+		}
+		setFooterDockProvider(undefined);
+	}
+
+	if (needsWidgetInstall && !dockInFooter) {
 		const model = state.model;
 		setExtensionWidget(ctx, WIDGET_KEY, ((_tui: unknown, theme: unknown) => new CrewWidgetComponent(model, theme, _tui)) as never, {
-			placement,
+			placement: piPlacement,
 			persist: true,
 		});
+		state.lastVisibility = "visible";
+		state.lastPlacement = placement;
+		state.lastKey = WIDGET_KEY;
+		state.lastMaxLines = maxLines;
+		state.lastCwd = ctx.cwd;
+	} else if (dockInFooter) {
 		state.lastVisibility = "visible";
 		state.lastPlacement = placement;
 		state.lastKey = WIDGET_KEY;
@@ -470,9 +541,13 @@ export function stopCrewWidget(
 	uninstallResizeListener();
 	if (ctx?.hasUI) {
 		const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
+		const piPlacement: "aboveEditor" | "belowEditor" = placement === "bottom" ? "belowEditor" : placement;
 		ctx.ui.setStatus(STATUS_KEY, undefined);
-		setExtensionWidget(ctx, LEGACY_WIDGET_KEY, undefined, { placement });
-		setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement });
+		setExtensionWidget(ctx, LEGACY_WIDGET_KEY, undefined, { placement: piPlacement });
+		setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
+		state.footerDock?.dispose();
+		state.footerDock = undefined;
+		setFooterDockProvider(undefined);
 		state.lastVisibility = "hidden";
 		state.lastPlacement = placement;
 		state.lastKey = WIDGET_KEY;

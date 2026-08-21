@@ -1,7 +1,9 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getFooterDockProvider } from "../../ui/dock-footer.ts";
 import { requestRenderTarget } from "../../ui/pi-ui-compat.ts";
 import { asCrewTheme, type CrewTheme } from "../../ui/theme-adapter.ts";
+import { colorWidgetLine, renderLines } from "../../ui/widget/widget-renderer.ts";
 import { truncateToWidth, visibleWidth } from "../../utils/visual.ts";
 import type { CrewVibesConfig } from "./config.ts";
 import type { ProviderUsage } from "./provider-usage.ts";
@@ -280,11 +282,28 @@ class CrewVibesFooter implements FooterComponent {
 		return [truncateToWidth(cap, width, "…"), this.rightAlign(quota, width)];
 	}
 
+	/** Dock lines registered by the crew widget (`widgetPlacement: "bottom"`):
+	 *  painted as the very last block of the footer, below the quota/meters.
+	 *  The provider returns RAW lines; we color them with this footer's theme
+	 *  (same per-line palette the widget would have used) and truncate to the
+	 *  real render width. */
+	private buildDockLines(width: number): string[] {
+		const provider = getFooterDockProvider();
+		if (!provider) return [];
+		const raw = provider(width);
+		if (raw.length === 0) return [];
+		return renderLines(
+			raw.map((line, index) => colorWidgetLine(line, index, this.theme)),
+			width,
+		).map((line) => truncateToWidth(line, width, "…"));
+	}
+
 	render(width: number): string[] {
 		const lines = [this.buildPwdLine(width), this.buildStatsLine(width)];
 		const statusLine = this.buildStatusLine(width);
 		if (statusLine) lines.push(statusLine);
 		lines.push(...this.buildMeterLines(width));
+		lines.push(...this.buildDockLines(width));
 		return lines;
 	}
 }
