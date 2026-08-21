@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { summarizeModelBudget } from "../../../../src/runtime/model/model-budget-summary.ts";
-import { resetPassthroughWarnings, resolveModelCandidate } from "../../../../src/runtime/model/model-fallback.ts";
+import { buildModelCandidates, resetPassthroughWarnings, resolveModelCandidate } from "../../../../src/runtime/model/model-fallback.ts";
 import { computeSpawnBudgetMax } from "../../../../src/runtime/task-runner/child-executor.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
 import { renderTranscriptPane } from "../../../../src/ui/dashboard-panes/transcript-pane.ts";
@@ -90,6 +90,25 @@ test("passthrough warning: no-catalog and no-match paths warn with their reasons
 	assert.ok(reasons.includes("no model catalog available"), String(reasons));
 	assert.ok(reasons.includes("no exact or fuzzy catalog match"), String(reasons));
 	assert.equal(reasons.filter((r) => r === "provider-qualified ref, no catalog check").length, 0, "different models do not collide");
+});
+
+test("passthrough warning: catalog-enumerated refs (auto fallback tail) stay silent; hand-asserted refs still warn", () => {
+	resetPassthroughWarnings();
+	const original = console.warn;
+	const warned: string[] = [];
+	console.warn = (msg: string) => warned.push(String(msg));
+	try {
+		// The auto fallback tail enumerates catalog entries — every OpenRouter-style
+		// id contains "/", but these are validated by construction.
+		const autoTail = buildModelCandidates(undefined, ["zai/glm-5.3", "qwencoder/qwen3.7-max"], CATALOG, undefined, { fromCatalog: true });
+		assert.deepEqual(autoTail, ["zai/glm-5.3", "qwencoder/qwen3.7-max"]);
+		// Hand-asserted provider-qualified ref keeps the loud trust-path warning.
+		assert.equal(buildModelCandidates(undefined, ["zai/glm-5.3"], CATALOG).length, 1);
+	} finally {
+		console.warn = original;
+	}
+	const passthrough = warned.filter((w) => w.includes("provider-qualified ref"));
+	assert.equal(passthrough.length, 1, "exactly the hand-asserted ref warns");
 });
 
 function snapshotWith(tasks: TeamTaskState[]): RunUiSnapshot {

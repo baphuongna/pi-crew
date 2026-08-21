@@ -293,17 +293,28 @@ export function resetPassthroughWarnings(): void {
 	passthroughWarned.clear();
 }
 
+export interface ResolveModelCandidateOptions {
+	/** Refs enumerated from the model catalog are validated by construction;
+	 *  the passthrough warning is for hand-asserted refs only. */
+	fromCatalog?: boolean;
+}
+
 export function resolveModelCandidate(
 	model: string | undefined,
 	availableModels: AvailableModelInfo[] | undefined,
 	preferredProvider?: string,
+	options?: ResolveModelCandidateOptions,
 ): string | undefined {
 	if (!model) return undefined;
 	// Provider-qualified refs ("provider/model") pass through UNVALIDATED —
 	// the caller asserted a full id; there is nothing to resolve. Loud (R8):
-	// this is the documented trust path, not a silent one.
+	// this is the documented trust path, not a silent one. Refs enumerated
+	// from the catalog itself (auto fallback tail) are the exception: they
+	// are catalog entries, so warning about them is a false positive.
 	if (model.includes("/")) {
-		warnUnvalidatedPassthrough(model, "provider-qualified ref, no catalog check");
+		if (!options?.fromCatalog) {
+			warnUnvalidatedPassthrough(model, "provider-qualified ref, no catalog check");
+		}
 		return model;
 	}
 	if (!availableModels || availableModels.length === 0) {
@@ -439,12 +450,13 @@ export function buildModelCandidates(
 	fallbackModels: string[] | undefined,
 	availableModels: AvailableModelInfo[] | undefined,
 	preferredProvider?: string,
+	options?: ResolveModelCandidateOptions,
 ): string[] {
 	const seen = new Set<string>();
 	const candidates: string[] = [];
 	for (const raw of [primaryModel, ...(fallbackModels ?? [])]) {
 		if (!raw) continue;
-		const normalized = resolveModelCandidate(raw.trim(), availableModels, preferredProvider);
+		const normalized = resolveModelCandidate(raw.trim(), availableModels, preferredProvider, options);
 		if (!normalized || seen.has(normalized)) continue;
 		seen.add(normalized);
 		candidates.push(normalized);
@@ -734,7 +746,7 @@ export function buildConfiguredModelRouting(input: {
 	// only auto candidate is the inherited parent model.
 	const autoRaw = availableModels ? availableModels.map((model) => model.fullId) : parentModel ? [parentModel] : [];
 	const declaredSet = new Set(declaredCandidates);
-	const autoResolved = buildModelCandidates(undefined, autoRaw, availableModels, preferredProvider).filter(
+	const autoResolved = buildModelCandidates(undefined, autoRaw, availableModels, preferredProvider, { fromCatalog: true }).filter(
 		(candidate) => !declaredSet.has(candidate),
 	);
 	const anchorProvider = providerOfModelRef(declaredCandidates[0]) ?? providerOfModelRef(parentModel);
