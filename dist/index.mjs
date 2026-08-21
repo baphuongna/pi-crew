@@ -83966,26 +83966,9 @@ function dispatchViewCommand(text) {
   }
   currentEditor?.dispatchCommandFallback(text);
 }
-var VIEW_BUILD_RETRY_MS = 500;
-var VIEW_BUILD_MAX_RETRIES = 16;
-async function buildViewPath(ctx, target) {
-  for (let attempt = 0; ; attempt += 1) {
-    const viewPath = buildAgentViewSessionFile({ cwd: ctx.cwd, runId: target.runId, taskId: target.taskId });
-    if (viewPath) return viewPath;
-    if (attempt >= VIEW_BUILD_MAX_RETRIES) return void 0;
-    await new Promise((resolve26) => setTimeout(resolve26, VIEW_BUILD_RETRY_MS));
-  }
-}
 function openPane(ctx, target) {
   setViewedAgent(target);
-  void (async () => {
-    const viewPath = await buildViewPath(ctx, target);
-    if (viewPath) {
-      setTimeout(() => {
-        dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
-      }, 0);
-      return;
-    }
+  if (!currentPane) {
     try {
       setExtensionWidget(
         ctx,
@@ -83998,8 +83981,8 @@ function openPane(ctx, target) {
       );
     } catch {
     }
-    requestRender(ctx);
-  })();
+  }
+  requestRender(ctx);
 }
 function closePane(ctx) {
   setViewedAgent(void 0);

@@ -19685,7 +19685,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 17347,
+      "bytes": 17025,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -20501,7 +20501,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7516134
+      "bytes": 7515324
     },
     "dist/index.mjs": {
       "imports": [
@@ -24614,7 +24614,7 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 8568
+          "bytesInOutput": 7912
         },
         "src/ui/inline-panel/agent-pane.ts": {
           "bytesInOutput": 6345
@@ -24665,7 +24665,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3222456
+      "bytes": 3221800
     }
   }
 }
