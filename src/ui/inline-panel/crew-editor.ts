@@ -39,6 +39,14 @@ export interface CrewEditorOptions {
 	onSteer: (target: PanelTarget, message: string) => void;
 	/** `x`: cancel a running agent's run, or dismiss a finished one. */
 	onAct: (target: PanelTarget, finished: boolean) => void;
+	/**
+	 * Dispatch a slash command (crew-view / crew-back) through pi's IMMEDIATE
+	 * command-execution path (sendUserMessage + expandPromptTemplates). The
+	 * legacy editor submit path queues input while a turn is busy — a
+	 * foreground team run keeps the main turn busy for its whole lifetime, so
+	 * a queued /crew-view only ran after the run ended (or never).
+	 */
+	onDispatchCommand?: (text: string) => void;
 }
 
 export class CrewInlineEditor extends CustomEditor {
@@ -98,12 +106,28 @@ export class CrewInlineEditor extends CustomEditor {
 	}
 
 	/**
-	 * Route a slash command through pi's normal editor submit path
-	 * (`onSubmit` — the same hook a typed Enter uses), so session-level
-	 * commands like `/crew-view`/`/crew-back` execute with the full command
-	 * context (where pi exposes `switchSession`).
+	 * Route a slash command (crew-view / crew-back) to the host's immediate
+	 * dispatch (sendUserMessage + expandPromptTemplates — pi executes "/"
+	 * commands synchronously through session.prompt in ALL session states).
+	 * Falls back to the legacy editor submit path if no dispatcher is wired.
+	 *
+	 * Do NOT setText here: the legacy submit path would leave the command
+	 * text sitting in the input when queued, and the new path does not touch
+	 * the editor at all (the user's draft must survive).
 	 */
 	dispatchCommand(text: string): void {
+		setPanelSelection(null);
+		setViewedAgent(undefined);
+		if (this.options.onDispatchCommand) {
+			this.options.onDispatchCommand(text);
+			return;
+		}
+		this.dispatchCommandFallback(text);
+	}
+
+	/** Legacy submit path (setText + onSubmit) — used only when the host
+	 *  dispatcher is unavailable (very old pi without sendUserMessage). */
+	dispatchCommandFallback(text: string): void {
 		setPanelSelection(null);
 		setViewedAgent(undefined);
 		this.setText(text);

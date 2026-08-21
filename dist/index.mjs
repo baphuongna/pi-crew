@@ -83262,6 +83262,7 @@ init_heartbeat_aggregator();
 
 // src/ui/inline-panel/index.ts
 init_tool_result();
+init_internal_error();
 init_pi_ui_compat();
 
 // src/ui/inline-panel/agent-pane.ts
@@ -83811,12 +83812,27 @@ var CrewInlineEditor = class extends CustomEditor {
     }
   }
   /**
-   * Route a slash command through pi's normal editor submit path
-   * (`onSubmit` — the same hook a typed Enter uses), so session-level
-   * commands like `/crew-view`/`/crew-back` execute with the full command
-   * context (where pi exposes `switchSession`).
+   * Route a slash command (crew-view / crew-back) to the host's immediate
+   * dispatch (sendUserMessage + expandPromptTemplates — pi executes "/"
+   * commands synchronously through session.prompt in ALL session states).
+   * Falls back to the legacy editor submit path if no dispatcher is wired.
+   *
+   * Do NOT setText here: the legacy submit path would leave the command
+   * text sitting in the input when queued, and the new path does not touch
+   * the editor at all (the user's draft must survive).
    */
   dispatchCommand(text) {
+    setPanelSelection(null);
+    setViewedAgent(void 0);
+    if (this.options.onDispatchCommand) {
+      this.options.onDispatchCommand(text);
+      return;
+    }
+    this.dispatchCommandFallback(text);
+  }
+  /** Legacy submit path (setText + onSubmit) — used only when the host
+   *  dispatcher is unavailable (very old pi without sendUserMessage). */
+  dispatchCommandFallback(text) {
     setPanelSelection(null);
     setViewedAgent(void 0);
     this.setText(text);
@@ -83926,6 +83942,7 @@ var PANE_PLACEMENT = "aboveEditor";
 var currentPane;
 var currentEditor;
 var lastCtx;
+var lastPi;
 var editorInstalled = false;
 var hooksRegistered2 = false;
 async function runTeamTool(params, ctx) {
@@ -83935,6 +83952,19 @@ async function runTeamTool(params, ctx) {
 function notifyResult2(ctx, result4) {
   const text = textFromToolResult(result4);
   ctx.ui.notify(isToolError(result4) ? `panel: ${text}` : text, isToolError(result4) ? "error" : "info");
+}
+function dispatchViewCommand(text) {
+  const pi = lastPi;
+  const sendUserMessage = pi?.sendUserMessage;
+  if (typeof sendUserMessage === "function") {
+    try {
+      sendUserMessage.call(pi, text, { expandPromptTemplates: true });
+    } catch (error) {
+      logInternalError("view.dispatch", error, text);
+    }
+    return;
+  }
+  currentEditor?.dispatchCommandFallback(text);
 }
 var VIEW_BUILD_RETRY_MS = 500;
 var VIEW_BUILD_MAX_RETRIES = 16;
@@ -83952,7 +83982,7 @@ function openPane(ctx, target) {
     const viewPath = await buildViewPath(ctx, target);
     if (viewPath) {
       setTimeout(() => {
-        currentEditor?.dispatchCommand(`/crew-view ${target.runId} ${target.taskId}`);
+        dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
       }, 0);
       return;
     }
@@ -84045,7 +84075,15 @@ async function handleCrewViewCommand(args, ctx) {
       mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId
     });
     markViewSwitchInFlight();
-    const result4 = await ctx.switchSession(viewPath);
+    let result4;
+    try {
+      result4 = await ctx.switchSession(viewPath);
+    } catch (error) {
+      clearViewSwitchInFlight();
+      setCrewViewSessionState({ ...prev, active: false });
+      ctx.ui.notify(`crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+      return;
+    }
     if (result4?.cancelled) clearViewSwitchInFlight();
   } catch (error) {
     clearViewSwitchInFlight();
@@ -84098,6 +84136,7 @@ function reconcileViewSessionState(ctx) {
 }
 function installInlinePanel(pi, ctx, uiConfig) {
   lastCtx = ctx;
+  lastPi = pi;
   if (!ctx.hasUI) return;
   reconcileViewSessionState(ctx);
   const enabled = uiConfig?.inlinePanel !== false;
@@ -84109,7 +84148,8 @@ function installInlinePanel(pi, ctx, uiConfig) {
           onClosePane: () => closePane(ctx),
           onScrollPane: (delta) => scrollPane(delta),
           onSteer: (target, message) => void steerAgent(ctx, target, message),
-          onAct: (target, finished) => void actOnAgent(ctx, target, finished)
+          onAct: (target, finished) => void actOnAgent(ctx, target, finished),
+          onDispatchCommand: (text) => void dispatchViewCommand(text)
         });
         currentEditor = editor;
         return editor;

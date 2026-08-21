@@ -16,6 +16,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@e
 
 import type { CrewUiConfig } from "../../config/types.ts";
 import { isToolError, type PiTeamsToolResult, textFromToolResult } from "../../extension/tool-result.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { requestRender, setExtensionWidget } from "../pi-ui-compat.ts";
 import { CrewAgentPane } from "./agent-pane.ts";
 import { resetAllAgentTranscriptCursors } from "./agent-transcript.ts";
@@ -41,6 +42,7 @@ let currentPane: CrewAgentPane | undefined;
  *  opening) can route a slash command through pi's normal submit path. */
 let currentEditor: CrewInlineEditor | undefined;
 let lastCtx: ExtensionContext | undefined;
+let lastPi: ExtensionAPI | undefined;
 let editorInstalled = false;
 /** Guards the one-time per-process event hooks. */
 let hooksRegistered = false;
@@ -55,6 +57,37 @@ async function runTeamTool(params: Record<string, unknown>, ctx: ExtensionContex
 function notifyResult(ctx: ExtensionContext, result: PiTeamsToolResult): void {
 	const text = textFromToolResult(result);
 	ctx.ui.notify(isToolError(result) ? `panel: ${text}` : text, isToolError(result) ? "error" : "info");
+}
+
+/**
+ * Dispatch a session-level slash command (crew-view / crew-back) through pi's
+ * IMMEDIATE command-execution path: `sendUserMessage(text, { expandPromptTemplates:
+ * true })` → session.prompt → extension commands execute synchronously in ALL
+ * session states (streaming, tool-executing, idle).
+ *
+ * The legacy editor submit path was unreliable for this: a FOREGROUND team run
+ * keeps the main turn busy for its whole lifetime, so the submitted text was
+ * queued as a plain user input and only ran after the run ended — or never,
+ * leaving "/crew-view …" sitting in the input (regression: "view won't open,
+ * only the input changes").
+ */
+function dispatchViewCommand(text: string): void {
+	const pi = lastPi;
+	const sendUserMessage = (pi as { sendUserMessage?: (content: string, options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean }) => Promise<void> } | undefined)
+		?.sendUserMessage;
+	if (typeof sendUserMessage === "function") {
+		try {
+			// The extension API is FIRE-AND-FORGET: it returns void (rejections
+			// are routed to the runner's error channel) — never chain on the
+			// return value.
+			sendUserMessage.call(pi, text, { expandPromptTemplates: true });
+		} catch (error) {
+			logInternalError("view.dispatch", error, text);
+		}
+		return;
+	}
+	// Very old pi without sendUserMessage — legacy editor submit path.
+	currentEditor?.dispatchCommandFallback(text);
 }
 
 /**
@@ -93,7 +126,7 @@ function openPane(ctx: ExtensionContext, target: PanelTarget): void {
 		const viewPath = await buildViewPath(ctx, target);
 		if (viewPath) {
 			setTimeout(() => {
-				currentEditor?.dispatchCommand(`/crew-view ${target.runId} ${target.taskId}`);
+				dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
 			}, 0);
 			return;
 		}
@@ -224,7 +257,15 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 		// stopSessionBoundSubagents). Cleared when the switch lands (next
 		// session_start) or cancels.
 		markViewSwitchInFlight();
-		const result = await ctx.switchSession(viewPath);
+		let result: { cancelled?: boolean } | undefined;
+		try {
+			result = await ctx.switchSession(viewPath);
+		} catch (error) {
+			clearViewSwitchInFlight();
+			setCrewViewSessionState({ ...prev, active: false });
+			ctx.ui.notify(`crew-view failed — ${error instanceof Error ? error.message : String(error)}`, "error");
+			return;
+		}
 		if (result?.cancelled) clearViewSwitchInFlight();
 	} catch (error) {
 		clearViewSwitchInFlight();
@@ -310,6 +351,7 @@ function reconcileViewSessionState(ctx: ExtensionContext): void {
  */
 export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiConfig?: CrewUiConfig): void {
 	lastCtx = ctx;
+	lastPi = pi;
 	if (!ctx.hasUI) return;
 
 	// The active session may be an agent view (or we may have returned from
@@ -327,6 +369,7 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 					onScrollPane: (delta) => scrollPane(delta),
 					onSteer: (target, message) => void steerAgent(ctx, target, message),
 					onAct: (target, finished) => void actOnAgent(ctx, target, finished),
+					onDispatchCommand: (text) => void dispatchViewCommand(text),
 				});
 				currentEditor = editor;
 				return editor;

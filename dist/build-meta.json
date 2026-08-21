@@ -19654,7 +19654,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/crew-editor.ts": {
-      "bytes": 8706,
+      "bytes": 9753,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -19685,12 +19685,17 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 15464,
+      "bytes": 17347,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
           "kind": "import-statement",
           "original": "../../extension/tool-result.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
         },
         {
           "path": "src/ui/pi-ui-compat.ts",
@@ -20496,7 +20501,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7512303
+      "bytes": 7516134
     },
     "dist/index.mjs": {
       "imports": [
@@ -24609,7 +24614,7 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 7805
+          "bytesInOutput": 8568
         },
         "src/ui/inline-panel/agent-pane.ts": {
           "bytesInOutput": 6345
@@ -24621,7 +24626,7 @@
           "bytesInOutput": 8069
         },
         "src/ui/inline-panel/crew-editor.ts": {
-          "bytesInOutput": 5469
+          "bytesInOutput": 6106
         },
         "src/utils/run-watcher-registry.ts": {
           "bytesInOutput": 3309
@@ -24660,7 +24665,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3221056
+      "bytes": 3222456
     }
   }
 }
