@@ -282,9 +282,13 @@ function warnUnvalidatedPassthrough(model: string, reason: string): void {
 	const key = `${model}|${reason}`;
 	if (passthroughWarned.has(key)) return;
 	passthroughWarned.add(key);
-	console.warn(
-		`[model-routing] unvalidated passthrough: '${model}' (${reason}) — not confirmed against the configured model catalog; spawn may fail at the provider.`,
-	);
+	// Muted: per-model passthrough noise became too loud when many pi-crew
+	// child workers resolve their parent model + fallback chain against the
+	// full catalog (each worker printed one line). Dedup Set is preserved
+	// so re-enabling is a one-line revert.
+	// console.warn(
+	// 	`[model-routing] unvalidated passthrough: '${model}' (${reason}) — not confirmed against the configured model catalog; spawn may fail at the provider.`,
+	// );
 }
 
 /** Test seam: the dedup set is module-global (one warn per model+reason per
