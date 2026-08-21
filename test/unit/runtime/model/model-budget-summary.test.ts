@@ -1,7 +1,8 @@
 /**
  * WP-8 (R8) model-routing transparency tests:
- * pre-run budget summary (chain + worst-case spawns), loud passthrough
- * warnings (deduped), per-attempt model lines in the transcript pane.
+ * pre-run budget summary (chain + worst-case spawns), muted passthrough
+ * behavior (silence pinned — see warnUnvalidatedPassthrough), per-attempt
+ * model lines in the transcript pane.
  */
 
 import assert from "node:assert/strict";
@@ -57,7 +58,7 @@ test("summarizeModelBudget: honors configured maxAttempts (config可靠性)", ()
 	}
 });
 
-test("passthrough warning: provider-qualified ref warns ONCE (deduped) and still returns the model", () => {
+test("passthrough (muted): provider-qualified ref passes through unvalidated, NO warning emitted", () => {
 	resetPassthroughWarnings();
 	const original = console.warn;
 	const warned: string[] = [];
@@ -69,12 +70,16 @@ test("passthrough warning: provider-qualified ref warns ONCE (deduped) and still
 	} finally {
 		console.warn = original;
 	}
+	// The per-model passthrough console.warn is MUTED (see warnUnvalidatedPassthrough
+	// in model-fallback.ts): each child worker resolving its fallback chain against
+	// the full catalog produced one line per model — too loud in multi-worker runs.
+	// This pins the silence: re-enabling the warn must be a conscious change that
+	// updates this test too.
 	const passthrough = warned.filter((w) => w.includes("unvalidated passthrough"));
-	assert.equal(passthrough.length, 1, "deduped to exactly one warning");
-	assert.match(passthrough[0] ?? "", /provider-qualified ref/);
+	assert.equal(passthrough.length, 0, `passthrough warning is muted — got ${passthrough.length}: ${passthrough.join(" | ")}`);
 });
 
-test("passthrough warning: no-catalog and no-match paths warn with their reasons; exact match stays silent", () => {
+test("passthrough (muted): no-catalog and no-match paths still return the model; exact match resolves; NO warnings", () => {
 	resetPassthroughWarnings();
 	const original = console.warn;
 	const warned: string[] = [];
@@ -82,14 +87,13 @@ test("passthrough warning: no-catalog and no-match paths warn with their reasons
 	try {
 		assert.equal(resolveModelCandidate("some-model", undefined), "some-model");
 		assert.equal(resolveModelCandidate("ghost-model-xyz", CATALOG), "ghost-model-xyz");
-		assert.equal(resolveModelCandidate("glm-5.3", CATALOG), "zai/glm-5.3", "exact match resolves — NO warning");
+		assert.equal(resolveModelCandidate("glm-5.3", CATALOG), "zai/glm-5.3", "exact match resolves");
 	} finally {
 		console.warn = original;
 	}
-	const reasons = warned.filter((w) => w.includes("unvalidated passthrough")).map((w) => (w.match(/\((.*?)\)/) ?? [])[1]);
-	assert.ok(reasons.includes("no model catalog available"), String(reasons));
-	assert.ok(reasons.includes("no exact or fuzzy catalog match"), String(reasons));
-	assert.equal(reasons.filter((r) => r === "provider-qualified ref, no catalog check").length, 0, "different models do not collide");
+	// Same mute pin as above — all passthrough reasons stay silent.
+	const passthrough = warned.filter((w) => w.includes("unvalidated passthrough"));
+	assert.equal(passthrough.length, 0, `all passthrough warnings are muted — got ${passthrough.length}: ${passthrough.join(" | ")}`);
 });
 
 function snapshotWith(tasks: TeamTaskState[]): RunUiSnapshot {
