@@ -21,6 +21,7 @@ import { loadConfig } from "../config/config.ts";
 import { startRuntimeWarmup } from "../runtime/model/runtime-warmup.ts";
 import { primePeerDep } from "../runtime/peer-dep.ts";
 import { deployBundledThemes } from "../ui/deploy-bundled-themes.ts";
+import { installChildProcessAbortShield } from "../utils/child-process-shield.ts";
 import { resetTimings, time } from "../utils/timings.ts";
 import { registerAutonomousPolicy } from "./autonomous-policy.ts";
 import { registerContextStatusInjection } from "./context-status-injection.ts";
@@ -51,6 +52,13 @@ export { __test__subagentSpawnParams };
 export function registerPiTeams(pi: ExtensionAPI): void {
 	resetTimings();
 	time("register:start");
+
+	// MUST run before any team run can start: guarantees every signal-spawned
+	// child in the process has an 'error' listener so Node's abort-after-exit
+	// AbortError dispatches instead of being rethrown on the next tick as an
+	// uncaughtException that kills pi (see child-process-shield.ts for the
+	// full crash chain — /crew-view mid-run crash).
+	installChildProcessAbortShield();
 
 	startRuntimeWarmup();
 	primePeerDep().catch(() => undefined);

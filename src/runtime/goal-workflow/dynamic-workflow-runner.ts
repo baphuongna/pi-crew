@@ -26,6 +26,7 @@ import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { packageRoot, projectCrewRoot, userPiRoot } from "../../utils/paths.ts";
+import { safeAbort } from "../../utils/safe-abort.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { DynamicWorkflowConfig } from "../../workflows/workflow-config.ts";
 import { assertDeterministicScript, isDeterminismCheckEnabled } from "../deterministic-ast.ts";
@@ -231,7 +232,10 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 				// ERR-1: abort the timeout controller so the abort propagates to
 				// runChildPi (via the combined signal passed to makeWorkflowCtx),
 				// which kills spawned children instead of letting them run.
-				timeoutController.abort();
+				// safeAbort: the combined signal may feed a signal-spawned child
+				// (abortChildProcess AbortError would otherwise reach the
+				// uncaughtException handler from this timer callback).
+				safeAbort(timeoutController, "dwf-script-timeout");
 				reject(
 					new Error(
 						`Dynamic workflow script timed out after ${SCRIPT_TIMEOUT_MS}ms. The script may have spawned a child process that did not exit. Check for spawn/exec calls without proper stdio handling.`,

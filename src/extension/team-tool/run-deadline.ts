@@ -1,5 +1,6 @@
 import type { PiTeamsConfig } from "../../config/config.ts";
 import { loadConfig } from "../../config/config.ts";
+import { safeAbort } from "../../utils/safe-abort.ts";
 import type { TeamContext } from "./context.ts";
 
 /**
@@ -66,10 +67,14 @@ export function resolveRunDeadline<T extends object>(
 	// signal fired afterwards, the listener would only call abort() on an
 	// already-aborted controller — a no-op.
 	if (ctx.signal) {
-		if (ctx.signal.aborted) controller.abort();
+		if (ctx.signal.aborted) safeAbort(controller, "run-deadline.caller-preaborted");
 		else {
 			const callerSignal = ctx.signal;
-			const onCallerAbort = () => controller.abort();
+			// The deadline signal is passed down to run executors that may spawn
+			// children with it; aborting after a child exited throws AbortError
+			// from Node's child_process listener — never let that escape a
+			// pi event handler (safe-abort).
+			const onCallerAbort = () => safeAbort(controller, "run-deadline.caller-abort");
 			callerSignal.addEventListener("abort", onCallerAbort, { once: true });
 			controller.signal.addEventListener("abort", () => callerSignal.removeEventListener("abort", onCallerAbort), { once: true });
 		}
@@ -77,9 +82,11 @@ export function resolveRunDeadline<T extends object>(
 	// Arm the deadline timer (unref'd so it never blocks process exit).
 	// RC-02: expose the timer so callers can clearTimeout on normal completion —
 	// otherwise every run leaves a dangling 1h timer retaining ctx/params in closure.
+	// Same abort-after-exit guard as above: the timer may fire after workers
+	// already exited and their spawn-signal listeners are gone — Node can throw.
 	let timer: NodeJS.Timeout | undefined;
 	if (deadlineMs > 0) {
-		timer = setTimeout(() => controller.abort(), deadlineMs);
+		timer = setTimeout(() => safeAbort(controller, "run-deadline.timer"), deadlineMs);
 		timer.unref?.();
 	}
 	return { signal: controller.signal, deadlineMs, controller, timer };

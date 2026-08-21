@@ -6526,6 +6526,17 @@
       ],
       "format": "esm"
     },
+    "src/utils/child-process-shield.ts": {
+      "bytes": 5073,
+      "imports": [
+        {
+          "path": "node:module",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
     "src/utils/timings.ts": {
       "bytes": 919,
       "imports": [],
@@ -8294,7 +8305,7 @@
       "format": "esm"
     },
     "src/state/stores/plan-store.ts": {
-      "bytes": 11352,
+      "bytes": 11348,
       "imports": [
         {
           "path": "node:fs",
@@ -14899,13 +14910,24 @@
       ],
       "format": "esm"
     },
+    "src/utils/safe-abort.ts": {
+      "bytes": 1820,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "./internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/ui/tool-progress-formatter.ts": {
       "bytes": 3806,
       "imports": [],
       "format": "esm"
     },
     "src/extension/registration/team-tool.ts": {
-      "bytes": 14336,
+      "bytes": 14628,
       "imports": [
         {
           "path": "node:fs",
@@ -14951,6 +14973,11 @@
           "path": "src/ui/widget/index.ts",
           "kind": "import-statement",
           "original": "../../ui/widget/index.ts"
+        },
+        {
+          "path": "src/utils/safe-abort.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-abort.ts"
         },
         {
           "path": "src/utils/safe-paths.ts",
@@ -16397,12 +16424,17 @@
       "format": "esm"
     },
     "src/extension/team-tool/run-deadline.ts": {
-      "bytes": 4133,
+      "bytes": 4689,
       "imports": [
         {
           "path": "src/config/config.ts",
           "kind": "import-statement",
           "original": "../../config/config.ts"
+        },
+        {
+          "path": "src/utils/safe-abort.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-abort.ts"
         }
       ],
       "format": "esm"
@@ -16886,7 +16918,7 @@
       "format": "esm"
     },
     "src/runtime/goal-workflow/dynamic-workflow-runner.ts": {
-      "bytes": 14978,
+      "bytes": 15251,
       "imports": [
         {
           "path": "node:fs",
@@ -16929,6 +16961,11 @@
           "original": "../../utils/paths.ts"
         },
         {
+          "path": "src/utils/safe-abort.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-abort.ts"
+        },
+        {
           "path": "src/utils/safe-paths.ts",
           "kind": "import-statement",
           "original": "../../utils/safe-paths.ts"
@@ -16957,7 +16994,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 35253,
+      "bytes": 35515,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -17008,6 +17045,11 @@
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/safe-abort.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-abort.ts"
         },
         {
           "path": "src/utils/safe-paths.ts",
@@ -18801,7 +18843,7 @@
       "format": "esm"
     },
     "src/extension/registration/foreground-run-controller.ts": {
-      "bytes": 9119,
+      "bytes": 9418,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -18832,6 +18874,11 @@
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/safe-abort.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-abort.ts"
         },
         {
           "path": "src/extension/registration/ui.ts",
@@ -19518,7 +19565,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-transcript.ts": {
-      "bytes": 7480,
+      "bytes": 7472,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -19973,7 +20020,7 @@
       "format": "esm"
     },
     "src/extension/registration/runtime-cleanup.ts": {
-      "bytes": 10570,
+      "bytes": 11281,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -20014,6 +20061,11 @@
           "path": "src/utils/paths.ts",
           "kind": "import-statement",
           "original": "../../utils/paths.ts"
+        },
+        {
+          "path": "src/utils/safe-abort.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-abort.ts"
         },
         {
           "path": "src/utils/session-utils.ts",
@@ -20256,7 +20308,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 5376,
+      "bytes": 5847,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -20277,6 +20329,11 @@
           "path": "src/ui/deploy-bundled-themes.ts",
           "kind": "import-statement",
           "original": "../ui/deploy-bundled-themes.ts"
+        },
+        {
+          "path": "src/utils/child-process-shield.ts",
+          "kind": "import-statement",
+          "original": "../utils/child-process-shield.ts"
         },
         {
           "path": "src/utils/timings.ts",
@@ -20418,7 +20475,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7491038
+      "bytes": 7502360
     },
     "dist/index.mjs": {
       "imports": [
@@ -22023,6 +22080,11 @@
           "external": true
         },
         {
+          "path": "node:module",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
@@ -23291,7 +23353,7 @@
           "bytesInOutput": 8424
         },
         "src/state/stores/plan-store.ts": {
-          "bytesInOutput": 6614
+          "bytesInOutput": 6610
         },
         "src/runtime/plan-approval.ts": {
           "bytesInOutput": 2889
@@ -24079,11 +24141,14 @@
         "src/ui/widget/index.ts": {
           "bytesInOutput": 13834
         },
+        "src/utils/safe-abort.ts": {
+          "bytesInOutput": 436
+        },
         "src/ui/tool-progress-formatter.ts": {
           "bytesInOutput": 2682
         },
         "src/extension/registration/team-tool.ts": {
-          "bytesInOutput": 9831
+          "bytesInOutput": 9883
         },
         "src/extension/team-tool/parallel-dispatch.ts": {
           "bytesInOutput": 5288
@@ -24200,7 +24265,7 @@
           "bytesInOutput": 1529
         },
         "src/extension/team-tool/run-deadline.ts": {
-          "bytesInOutput": 1137
+          "bytesInOutput": 1254
         },
         "src/extension/team-tool/goal-wrap.ts": {
           "bytesInOutput": 7085
@@ -24251,10 +24316,10 @@
           "bytesInOutput": 21999
         },
         "src/runtime/goal-workflow/dynamic-workflow-runner.ts": {
-          "bytesInOutput": 7035
+          "bytesInOutput": 7083
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 25952
+          "bytesInOutput": 26032
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 26980
@@ -24407,10 +24472,13 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 1915
+          "bytesInOutput": 1951
         },
         "src/ui/deploy-bundled-themes.ts": {
           "bytesInOutput": 1300
+        },
+        "src/utils/child-process-shield.ts": {
+          "bytesInOutput": 997
         },
         "src/extension/context-status-injection.ts": {
           "bytesInOutput": 2827
@@ -24473,7 +24541,7 @@
           "bytesInOutput": 750
         },
         "src/extension/registration/foreground-run-controller.ts": {
-          "bytesInOutput": 6544
+          "bytesInOutput": 6592
         },
         "src/extension/registration/hook-registration.ts": {
           "bytesInOutput": 2139
@@ -24521,7 +24589,7 @@
           "bytesInOutput": 6345
         },
         "src/ui/inline-panel/agent-transcript.ts": {
-          "bytesInOutput": 3649
+          "bytesInOutput": 3641
         },
         "src/ui/inline-panel/agent-view-session.ts": {
           "bytesInOutput": 8069
@@ -24542,7 +24610,7 @@
           "bytesInOutput": 1617
         },
         "src/extension/registration/runtime-cleanup.ts": {
-          "bytesInOutput": 5460
+          "bytesInOutput": 5587
         },
         "src/extension/registration/subagent-manager-setup.ts": {
           "bytesInOutput": 7761
@@ -24566,7 +24634,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3216497
+      "bytes": 3218492
     }
   }
 }

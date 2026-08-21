@@ -13005,11 +13005,11 @@ var init_discover_agents = __esm({
 });
 
 // src/utils/git.ts
-import { createRequire as createRequire2 } from "node:module";
+import { createRequire as createRequire3 } from "node:module";
 function getHostedGitInfo() {
-  const require4 = createRequire2(import.meta.url);
+  const require5 = createRequire3(import.meta.url);
   try {
-    return require4("hosted-git-info");
+    return require5("hosted-git-info");
   } catch {
     return null;
   }
@@ -22957,9 +22957,9 @@ var init_render_diff = __esm({
 });
 
 // src/ui/syntax-highlight.ts
-import { createRequire as createRequire3 } from "node:module";
+import { createRequire as createRequire4 } from "node:module";
 function cliHighlight() {
-  if (!cached) cached = require3("cli-highlight");
+  if (!cached) cached = require4("cli-highlight");
   return cached;
 }
 function buildCliTheme(theme) {
@@ -23017,12 +23017,12 @@ function highlightJson(payload, themeLike = void 0) {
     }
   }
 }
-var require3, cached;
+var require4, cached;
 var init_syntax_highlight = __esm({
   "src/ui/syntax-highlight.ts"() {
     "use strict";
     init_theme_adapter();
-    require3 = createRequire3(import.meta.url);
+    require4 = createRequire4(import.meta.url);
   }
 });
 
@@ -24182,7 +24182,7 @@ function loadPlanRecords(manifest) {
     const raw = fs37.readFileSync(planFilePath(manifest), "utf-8");
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.revisions)) return [];
-    return parsed.revisions.filter((r) => Boolean(r && r.id && typeof r.version === "number"));
+    return parsed.revisions.filter((r) => Boolean(r?.id && typeof r.version === "number"));
   } catch (err2) {
     if (err2.code === "ENOENT") return [];
     logInternalError("plan-store.read-failed", err2 instanceof Error ? err2 : new Error(String(err2)), `run=${manifest.runId}`);
@@ -29359,12 +29359,12 @@ var init_agent_observability = __esm({
 
 // src/skills/validate.ts
 import * as fs47 from "node:fs";
-import { createRequire as createRequire4 } from "node:module";
+import { createRequire as createRequire5 } from "node:module";
 import * as path35 from "node:path";
 function getYaml() {
   if (!yamlModule) {
-    const require4 = createRequire4(import.meta.url);
-    yamlModule = require4("yaml");
+    const require5 = createRequire5(import.meta.url);
+    yamlModule = require5("yaml");
   }
   return yamlModule;
 }
@@ -54017,7 +54017,7 @@ var init_orphan_worker_registry = __esm({
 // src/runtime/async-runner.ts
 import { spawn as spawn6 } from "node:child_process";
 import * as fs84 from "node:fs";
-import { createRequire as createRequire5 } from "node:module";
+import { createRequire as createRequire6 } from "node:module";
 import * as path66 from "node:path";
 import { fileURLToPath as fileURLToPath7, pathToFileURL as pathToFileURL2 } from "node:url";
 function packageRootFromRuntime() {
@@ -54212,7 +54212,7 @@ var init_async_runner = __esm({
     init_redaction();
     init_orphan_worker_registry();
     init_peer_dep();
-    requireFromHere = createRequire5(import.meta.url);
+    requireFromHere = createRequire6(import.meta.url);
     STRIP_TYPES_MIN_MAJOR = 22;
     STRIP_TYPES_MIN_MINOR = 6;
     BACKGROUND_RUNNER_ENV_ALLOWLIST = [
@@ -58804,6 +58804,26 @@ var init_widget = __esm({
   }
 });
 
+// src/utils/safe-abort.ts
+function safeAbort(controller, scope) {
+  if (!controller) return;
+  try {
+    controller.abort();
+  } catch (error) {
+    logInternalError(`safe-abort.${scope}`, error);
+  }
+}
+function safeAbortAll(controllers, scope) {
+  if (!controllers) return;
+  for (const controller of controllers) safeAbort(controller, scope);
+}
+var init_safe_abort = __esm({
+  "src/utils/safe-abort.ts"() {
+    "use strict";
+    init_internal_error();
+  }
+});
+
 // src/ui/tool-progress-formatter.ts
 function pickActiveAgent(agents) {
   if (!agents || agents.length === 0) return void 0;
@@ -58954,7 +58974,7 @@ function registerTeamTool(pi, deps) {
       const controller = new AbortController();
       const toolKey = /* @__PURE__ */ Symbol();
       deps.foregroundControllers.set(toolKey, controller);
-      const abort = () => controller.abort();
+      const abort = () => safeAbort(controller, "team-tool.caller-abort");
       signal?.addEventListener("abort", abort, { once: true });
       const stopProgress = startTeamToolProgressBinder(onUpdate);
       try {
@@ -59092,6 +59112,7 @@ var init_team_tool = __esm({
     init_powerbar_publisher();
     init_tool_renderers();
     init_widget();
+    init_safe_abort();
     init_safe_paths();
     init_crew_agent_records();
     init_state_store();
@@ -64403,17 +64424,17 @@ function resolveRunDeadline(ctx, params, config) {
   const deadlineMs = timeoutMs ?? (maxRunMinutes ? maxRunMinutes * 6e4 : DEFAULT_RUN_DEADLINE_MS);
   const controller = new AbortController();
   if (ctx.signal) {
-    if (ctx.signal.aborted) controller.abort();
+    if (ctx.signal.aborted) safeAbort(controller, "run-deadline.caller-preaborted");
     else {
       const callerSignal = ctx.signal;
-      const onCallerAbort = () => controller.abort();
+      const onCallerAbort = () => safeAbort(controller, "run-deadline.caller-abort");
       callerSignal.addEventListener("abort", onCallerAbort, { once: true });
       controller.signal.addEventListener("abort", () => callerSignal.removeEventListener("abort", onCallerAbort), { once: true });
     }
   }
   let timer;
   if (deadlineMs > 0) {
-    timer = setTimeout(() => controller.abort(), deadlineMs);
+    timer = setTimeout(() => safeAbort(controller, "run-deadline.timer"), deadlineMs);
     timer.unref?.();
   }
   return { signal: controller.signal, deadlineMs, controller, timer };
@@ -64423,6 +64444,7 @@ var init_run_deadline = __esm({
   "src/extension/team-tool/run-deadline.ts"() {
     "use strict";
     init_config();
+    init_safe_abort();
     DEFAULT_RUN_DEADLINE_MS = 36e5;
   }
 });
@@ -67464,9 +67486,9 @@ async function loadWorkflowModule(scriptPath) {
     const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
     assertDeterministicScript(js);
   }
-  const { createRequire: createRequire6 } = await import("node:module");
-  const require4 = createRequire6(import.meta.url);
-  const createJiti = require4("jiti").default ?? require4("jiti");
+  const { createRequire: createRequire7 } = await import("node:module");
+  const require5 = createRequire7(import.meta.url);
+  const createJiti = require5("jiti").default ?? require5("jiti");
   const jiti = createJiti(import.meta.url, { interopDefault: true });
   const mod = await jiti(scriptPath);
   const fn = mod.default ?? mod;
@@ -67534,7 +67556,7 @@ async function runDynamicWorkflow(input) {
     let timeoutHandle;
     const timeoutPromise = new Promise((_, reject) => {
       timeoutHandle = setTimeout(() => {
-        timeoutController.abort();
+        safeAbort(timeoutController, "dwf-script-timeout");
         reject(
           new Error(
             `Dynamic workflow script timed out after ${SCRIPT_TIMEOUT_MS}ms. The script may have spawned a child process that did not exit. Check for spawn/exec calls without proper stdio handling.`
@@ -67610,6 +67632,7 @@ var init_dynamic_workflow_runner = __esm({
     init_artifact_store();
     init_internal_error();
     init_paths();
+    init_safe_abort();
     init_safe_paths();
     init_deterministic_ast();
     init_dwf_state_store();
@@ -68140,9 +68163,9 @@ ${dwfResult.manifest.summary ?? ""}`,
     ctx.startForegroundRun(async (signal) => {
       fgCallbackSignal = signal;
       if (signal && signal !== fgSignal) {
-        if (signal.aborted) fgDeadline.controller.abort();
+        if (signal.aborted) safeAbort(fgDeadline.controller, "fg-run.caller-preaborted");
         else {
-          fgAbortListener = () => fgDeadline.controller.abort();
+          fgAbortListener = () => safeAbort(fgDeadline.controller, "fg-run.caller-abort");
           signal.addEventListener("abort", fgAbortListener, { once: true });
         }
       }
@@ -68267,6 +68290,7 @@ var init_run2 = __esm({
     init_fs_errno();
     init_guards();
     init_internal_error();
+    init_safe_abort();
     init_safe_paths();
     init_async_runner();
     init_runtime_resolver();
@@ -77450,6 +77474,33 @@ function deployBundledThemes() {
   }
 }
 
+// src/utils/child-process-shield.ts
+import { createRequire as createRequire2 } from "node:module";
+var require3 = createRequire2(import.meta.url);
+var childProcessModule = require3("node:child_process");
+var SHIELD_MARKER = /* @__PURE__ */ Symbol.for("pi-crew.childProcessAbortShieldInstalled");
+function shieldErrorListener() {
+}
+function installChildProcessAbortShield() {
+  const proto = childProcessModule.ChildProcess.prototype;
+  if (proto[SHIELD_MARKER]) return;
+  const originalKill = proto.kill;
+  proto.kill = function shieldedKill(signal) {
+    if (this.listenerCount("error") === 0) this.on("error", shieldErrorListener);
+    return originalKill.call(this, signal);
+  };
+  const moduleObject = childProcessModule;
+  const originalSpawn = moduleObject.spawn;
+  moduleObject.spawn = function shieldedSpawn(...args) {
+    const child = originalSpawn.apply(this, args);
+    if (child && args[2]?.signal !== void 0) {
+      child.on("error", shieldErrorListener);
+    }
+    return child;
+  };
+  proto[SHIELD_MARKER] = true;
+}
+
 // src/extension/register.ts
 init_timings();
 init_autonomous_policy();
@@ -80693,6 +80744,7 @@ init_pi_ui_compat();
 init_powerbar_publisher();
 init_widget();
 init_internal_error();
+init_safe_abort();
 function installForegroundRunController(pi, ctx) {
   ctx.openLiveSidebar = (extCtx, runId) => {
     void openLiveSidebarImpl(pi, ctx, extCtx, runId);
@@ -80701,7 +80753,7 @@ function installForegroundRunController(pi, ctx) {
   ctx.abortForegroundRun = (runId) => {
     const controller = ctx.foregroundTeamRunControllers.get(runId);
     if (!controller) return false;
-    controller.abort();
+    safeAbort(controller, "fg-run.abort-by-run-id");
     return true;
   };
 }
@@ -83202,7 +83254,7 @@ function parseEventRecord(record, pending2) {
       if (text) items.push({ type: "assistant", text, seq });
       for (const part of content) {
         const item = asRecord13(part);
-        if (!item || item.type !== "toolResult") continue;
+        if (item?.type !== "toolResult") continue;
         const name = typeof item.name === "string" ? item.name : "tool";
         matchPending(pending2, name, item.content, item.isError === true);
       }
@@ -84975,6 +85027,7 @@ init_powerbar_publisher();
 init_widget();
 init_internal_error();
 init_paths();
+init_safe_abort();
 init_session_utils();
 init_async_notifier();
 init_team_tool2();
@@ -85053,7 +85106,7 @@ function buildCleanupRuntime(ctx) {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
     ctx.stopSessionBoundSubagents();
-    for (const controller of ctx.foregroundTeamRunControllers.values()) controller.abort();
+    safeAbortAll(ctx.foregroundTeamRunControllers.values(), "cleanup-runtime.foreground-team");
     ctx.foregroundTeamRunControllers.clear();
     stopAllWatchdogs();
     ctx.crewScheduler?.stop();
@@ -85099,9 +85152,13 @@ function buildDisposeRenderSchedulerSubscriptions(ctx) {
 }
 function buildStopSessionBoundSubagents(ctx) {
   return () => {
-    for (const controller of ctx.foregroundControllers.values()) controller.abort();
+    safeAbortAll(ctx.foregroundControllers.values(), "stop-session-bound.foreground");
     ctx.foregroundControllers.clear();
-    ctx.subagentManager.abortAll("Session switching \u2014 foreground subagents cancelled.");
+    try {
+      ctx.subagentManager.abortAll("Session switching \u2014 foreground subagents cancelled.");
+    } catch (error) {
+      logInternalError("stop-session-bound.abortAll", error);
+    }
     terminateActiveChildPiProcesses();
     ctx.disposeRenderSchedulerSubscriptions();
     ctx.renderScheduler?.dispose();
@@ -86283,6 +86340,7 @@ function installCrossExtensionWiring(pi, ctx) {
 function registerPiTeams(pi) {
   resetTimings();
   time("register:start");
+  installChildProcessAbortShield();
   startRuntimeWarmup();
   primePeerDep().catch(() => void 0);
   deployBundledThemes();

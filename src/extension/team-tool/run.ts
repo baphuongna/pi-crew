@@ -15,6 +15,7 @@ const _typeCheck: typeof ExecuteTeamRunFn = null as never as typeof ExecuteTeamR
 import { fsFailureLabel } from "../../utils/fs-errno.ts";
 import { errorMessage } from "../../utils/guards.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { safeAbort } from "../../utils/safe-abort.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 
 let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
@@ -722,12 +723,14 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			// so cancel-via-abortForegroundRun propagates to executeTeamRun.
 			fgCallbackSignal = signal;
 			if (signal && signal !== fgSignal) {
-				if (signal.aborted) fgDeadline.controller.abort();
+				if (signal.aborted) safeAbort(fgDeadline.controller, "fg-run.caller-preaborted");
 				else {
 					// RC-03: keep the ref so we can removeEventListener on completion (the
 					// {once:true} alone leaks on the success path — the listener stays
 					// attached to the long-lived callback signal if the deadline never fires).
-					fgAbortListener = () => fgDeadline.controller.abort();
+					// safe-abort: the deadline signal may be linked to spawned children;
+					// aborting after they exited throws AbortError from Node's listener.
+					fgAbortListener = () => safeAbort(fgDeadline.controller, "fg-run.caller-abort");
 					signal.addEventListener("abort", fgAbortListener, { once: true });
 				}
 			}

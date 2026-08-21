@@ -20,6 +20,7 @@ import { setWorkingIndicator } from "../../ui/pi-ui-compat.ts";
 import { requestPowerbarUpdate } from "../../ui/powerbar-publisher.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { safeAbort } from "../../utils/safe-abort.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 
 /**
@@ -36,7 +37,10 @@ export function installForegroundRunController(pi: ExtensionAPI, ctx: Registrati
 	ctx.abortForegroundRun = (runId) => {
 		const controller = ctx.foregroundTeamRunControllers.get(runId);
 		if (!controller) return false;
-		controller.abort();
+		// safe-abort: cancel can race a completed run whose spawned children
+		// already exited — Node's child_process signal listener would throw
+		// AbortError out of abort() and kill the host (uncaughtException).
+		safeAbort(controller, "fg-run.abort-by-run-id");
 		return true;
 	};
 }

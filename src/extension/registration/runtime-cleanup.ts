@@ -26,6 +26,7 @@ import { clearPiCrewPowerbar, disposePowerbarCoalescer } from "../../ui/powerbar
 import { stopCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { clearProjectRootCache } from "../../utils/paths.ts";
+import { safeAbortAll } from "../../utils/safe-abort.ts";
 import { extractSessionId } from "../../utils/session-utils.ts";
 import { stopAsyncRunNotifier } from "../async-notifier.ts";
 import { uninstallCrewGlobalRegistry } from "../team-tool.ts";
@@ -135,7 +136,9 @@ function buildCleanupRuntime(ctx: RegistrationContext): () => void {
 		ctx.stopSessionBoundSubagents();
 		// P0 fix: also abort foreground team runs on session shutdown (not on session switch).
 		// This is the only place where foreground team run controllers should be aborted.
-		for (const controller of ctx.foregroundTeamRunControllers.values()) controller.abort();
+		// safe-abort: shutdown races completed runs whose spawned children already
+		// exited — abort() would throw AbortError from Node's child_process listener.
+		safeAbortAll(ctx.foregroundTeamRunControllers.values(), "cleanup-runtime.foreground-team");
 		ctx.foregroundTeamRunControllers.clear();
 		// RC-01: stop the foreground-run watchdog timers on full shutdown — they were
 		// never cleared, so an active (non-terminal) foreground run left its watchdog
@@ -219,9 +222,18 @@ function buildStopSessionBoundSubagents(ctx: RegistrationContext): () => void {
 		// Only abort subagent controllers — NOT foreground team runs.
 		// Foreground team runs are bound to the session lifecycle; they will be aborted
 		// by cleanupRuntime during session_shutdown.
-		for (const controller of ctx.foregroundControllers.values()) controller.abort();
+		// safe-abort: these signals may be linked to spawned children (pipelines pass
+		// them into spawn options.signal); aborting after a child exited makes Node's
+		// child_process listener throw AbortError synchronously — inside a session
+		// event handler that would surface as uncaughtException and kill pi.
+		// Regression: /crew-view session switch mid-foreground-run crashed the host.
+		safeAbortAll(ctx.foregroundControllers.values(), "stop-session-bound.foreground");
 		ctx.foregroundControllers.clear();
-		ctx.subagentManager.abortAll("Session switching — foreground subagents cancelled.");
+		try {
+			ctx.subagentManager.abortAll("Session switching — foreground subagents cancelled.");
+		} catch (error) {
+			logInternalError("stop-session-bound.abortAll", error);
+		}
 		terminateActiveChildPiProcesses();
 		ctx.disposeRenderSchedulerSubscriptions();
 		ctx.renderScheduler?.dispose();

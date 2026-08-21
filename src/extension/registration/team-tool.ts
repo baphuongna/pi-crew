@@ -13,6 +13,7 @@ import type { createRunSnapshotCache } from "../../ui/run-snapshot-cache.ts";
 import { statusIcon, type ToolRenderContext, teamToolRenderer } from "../../ui/tool-renderers/index.ts";
 import type { CrewWidgetState } from "../../ui/widget/index.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";
+import { safeAbort } from "../../utils/safe-abort.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 // Team tool handler — lazy-loaded because team-tool.ts imports many modules
 import type { handleTeamTool as HandleTeamToolFn } from "../team-tool.ts";
@@ -174,7 +175,10 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 			const controller = new AbortController();
 			const toolKey = Symbol();
 			deps.foregroundControllers.set(toolKey, controller);
-			const abort = (): void => controller.abort();
+			// safe-abort: pi's tool-call abort can race a completed run whose
+			// spawned children already exited — Node's child_process signal
+			// listener throws AbortError out of abort() and kills the host.
+			const abort = (): void => safeAbort(controller, "team-tool.caller-abort");
 			signal?.addEventListener("abort", abort, { once: true });
 			const stopProgress = startTeamToolProgressBinder(onUpdate as OnUpdate | undefined);
 			try {
