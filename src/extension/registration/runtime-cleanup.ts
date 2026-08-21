@@ -22,6 +22,7 @@ import { loadConfig } from "../../config/config.ts";
 import { clearHooksScoped } from "../../hooks/registry.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { stopAllWatchdogs } from "../../runtime/foreground-watchdog.ts";
+import { isViewSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
 import { clearPiCrewPowerbar, disposePowerbarCoalescer } from "../../ui/powerbar-publisher.ts";
 import { stopCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -219,6 +220,15 @@ function buildDisposeRenderSchedulerSubscriptions(ctx: RegistrationContext): () 
  */
 function buildStopSessionBoundSubagents(ctx: RegistrationContext): () => void {
 	return (): void => {
+		// A `/crew-view` / `/crew-back` switch is NAVIGATIONAL: the user is
+		// only looking at a worker's session, so the run + its workers must
+		// keep running. Skipping here is safe on real shutdowns too — a
+		// quit/reload still aborts the run via cleanupRuntime, and pi's
+		// session-end hook (tryRegisterSessionCleanup) terminates child pi
+		// processes when the process actually exits.
+		// Regression: entering the view killed the child workers (exit 143)
+		// and cancelled the run 9.9s into it.
+		if (isViewSwitchInFlight()) return;
 		// Only abort subagent controllers — NOT foreground team runs.
 		// Foreground team runs are bound to the session lifecycle; they will be aborted
 		// by cleanupRuntime during session_shutdown.

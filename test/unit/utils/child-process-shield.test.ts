@@ -87,9 +87,7 @@ test("shield is idempotent — no duplicate listeners on repeated install", asyn
 	// namespace was created; fetch the CURRENT (patched) spawn via require so
 	// the shield's spawn wrapper actually wraps this child.
 	const require = createRequire(import.meta.url);
-	const patchedSpawn = (
-		require("node:child_process") as typeof import("node:child_process")
-	).spawn as typeof rawSpawn;
+	const patchedSpawn = (require("node:child_process") as typeof import("node:child_process")).spawn as typeof rawSpawn;
 	const controller = new AbortController();
 	const child = patchedSpawn("/nonexistent/definitely-missing-bin-xyz", [], { signal: controller.signal });
 	await new Promise((resolve) => setTimeout(resolve, 300));

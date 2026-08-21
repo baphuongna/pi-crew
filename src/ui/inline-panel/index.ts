@@ -23,7 +23,14 @@ import { buildAgentViewSessionFile } from "./agent-view-session.ts";
 import { CrewInlineEditor } from "./crew-editor.ts";
 import type { PanelTarget } from "./panel-selection.ts";
 import { resetPanelStore, setViewedAgent } from "./panel-store.ts";
-import { getCrewViewSessionState, isCrewViewSessionFile, setCrewViewSessionState } from "./view-session-store.ts";
+import {
+	clearViewSwitchInFlight,
+	getCrewViewSessionState,
+	isCrewViewSessionFile,
+	markViewSwitchInFlight,
+	resolveReturnSessionFile,
+	setCrewViewSessionState,
+} from "./view-session-store.ts";
 
 /** Widget key for the transcript pane (fallback when a view session cannot be built). */
 export const PANE_WIDGET_KEY = "pi-crew-agent-view";
@@ -212,8 +219,15 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 			mainSessionFile: mainSessionFile ?? prev.mainSessionFile,
 			mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId,
 		});
-		await ctx.switchSession(viewPath);
+		// Navigational switch: session-lifecycle cleanup must NOT abort the
+		// run's workers/children while this is in flight (see
+		// stopSessionBoundSubagents). Cleared when the switch lands (next
+		// session_start) or cancels.
+		markViewSwitchInFlight();
+		const result = await ctx.switchSession(viewPath);
+		if (result?.cancelled) clearViewSwitchInFlight();
 	} catch (error) {
+		clearViewSwitchInFlight();
 		setCrewViewSessionState({ ...prev, active: false });
 		ctx.ui.notify(`crew-view failed — ${error instanceof Error ? error.message : String(error)}`, "error");
 	}
@@ -221,7 +235,17 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 
 async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const prev = getCrewViewSessionState();
-	if (!prev.active || !prev.mainSessionFile) {
+	// Self-healing return path: when the CURRENT session is a crew view, the
+	// view file's header records the main session even if the store was reset
+	// by a stale reconcile (a session_start for the old session can fire
+	// before the view's own start lands).
+	const currentFile = ctx.sessionManager.getSessionFile();
+	const mainSessionFile = resolveReturnSessionFile(currentFile, prev);
+	if (!prev.active && !isCrewViewSessionFile(currentFile)) {
+		ctx.ui.notify("Not viewing an agent session.", "info");
+		return;
+	}
+	if (!mainSessionFile) {
 		ctx.ui.notify("Not viewing an agent session.", "info");
 		return;
 	}
@@ -229,14 +253,18 @@ async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext
 		ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
 		return;
 	}
-	const mainSessionFile = prev.mainSessionFile;
 	// Clear BEFORE switching: session_start reconciles the store against the
 	// file that ends up active, and a stale `active` flag would relabel the
 	// main session as a view.
 	setCrewViewSessionState({ active: false });
+	// Same navigational guarantee as /crew-view: the run's workers survive
+	// the return switch.
+	markViewSwitchInFlight();
 	try {
-		await ctx.switchSession(mainSessionFile);
+		const result = await ctx.switchSession(mainSessionFile);
+		if (result?.cancelled) clearViewSwitchInFlight();
 	} catch (error) {
+		clearViewSwitchInFlight();
 		ctx.ui.notify(`crew-back failed — ${error instanceof Error ? error.message : String(error)}`, "error");
 	}
 }
@@ -251,6 +279,9 @@ async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext
  */
 function reconcileViewSessionState(ctx: ExtensionContext): void {
 	const file = ctx.sessionManager.getSessionFile();
+	// Any session start means a pending view switch has landed (or aborted) —
+	// the destructive-cleanup suppression window for that switch is over.
+	clearViewSwitchInFlight();
 	// The session file may not be bound yet when session_start fires right
 	// after a switchSession — never clear the view state based on a missing
 	// file (that race would silently disable escape-to-back).

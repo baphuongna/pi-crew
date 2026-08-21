@@ -55264,6 +55264,16 @@ var init_usage = __esm({
 });
 
 // src/ui/inline-panel/view-session-store.ts
+import { closeSync as closeSync14, openSync as openSync14, readSync as readSync6 } from "node:fs";
+function markViewSwitchInFlight() {
+  viewSwitchInFlight = true;
+}
+function clearViewSwitchInFlight() {
+  viewSwitchInFlight = false;
+}
+function isViewSwitchInFlight() {
+  return viewSwitchInFlight;
+}
 function getCrewViewSessionState() {
   return state2;
 }
@@ -55275,12 +55285,42 @@ function isCrewViewSessionFile(file) {
   const base = file.split(/[\\/]/).pop() ?? "";
   return base === CREW_VIEW_SESSION_BASENAME;
 }
-var CREW_VIEW_SESSION_BASENAME, state2;
+function readViewParentSessionFile(viewSessionFile) {
+  let fd;
+  try {
+    fd = openSync14(viewSessionFile, "r");
+    const buf = Buffer.alloc(4096);
+    const bytesRead = readSync6(fd, buf, 0, buf.length, 0);
+    if (bytesRead <= 0) return void 0;
+    const firstLine = buf.toString("utf8", 0, bytesRead).split("\n", 1)[0];
+    if (!firstLine) return void 0;
+    const header = JSON.parse(firstLine);
+    return typeof header.parentSession === "string" && header.parentSession ? header.parentSession : void 0;
+  } catch {
+    return void 0;
+  } finally {
+    if (fd !== void 0) {
+      try {
+        closeSync14(fd);
+      } catch {
+      }
+    }
+  }
+}
+function resolveReturnSessionFile(currentSessionFile, prev) {
+  if (isCrewViewSessionFile(currentSessionFile)) {
+    const fromHeader = readViewParentSessionFile(currentSessionFile);
+    if (fromHeader) return fromHeader;
+  }
+  return prev.mainSessionFile;
+}
+var CREW_VIEW_SESSION_BASENAME, state2, viewSwitchInFlight;
 var init_view_session_store = __esm({
   "src/ui/inline-panel/view-session-store.ts"() {
     "use strict";
     CREW_VIEW_SESSION_BASENAME = "view-session.jsonl";
     state2 = { active: false };
+    viewSwitchInFlight = false;
   }
 });
 
@@ -83983,15 +84023,24 @@ async function handleCrewViewCommand(args, ctx) {
       mainSessionFile: mainSessionFile ?? prev.mainSessionFile,
       mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId
     });
-    await ctx.switchSession(viewPath);
+    markViewSwitchInFlight();
+    const result4 = await ctx.switchSession(viewPath);
+    if (result4?.cancelled) clearViewSwitchInFlight();
   } catch (error) {
+    clearViewSwitchInFlight();
     setCrewViewSessionState({ ...prev, active: false });
     ctx.ui.notify(`crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 async function handleCrewBackCommand(_args, ctx) {
   const prev = getCrewViewSessionState();
-  if (!prev.active || !prev.mainSessionFile) {
+  const currentFile = ctx.sessionManager.getSessionFile();
+  const mainSessionFile = resolveReturnSessionFile(currentFile, prev);
+  if (!prev.active && !isCrewViewSessionFile(currentFile)) {
+    ctx.ui.notify("Not viewing an agent session.", "info");
+    return;
+  }
+  if (!mainSessionFile) {
     ctx.ui.notify("Not viewing an agent session.", "info");
     return;
   }
@@ -83999,16 +84048,19 @@ async function handleCrewBackCommand(_args, ctx) {
     ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
     return;
   }
-  const mainSessionFile = prev.mainSessionFile;
   setCrewViewSessionState({ active: false });
+  markViewSwitchInFlight();
   try {
-    await ctx.switchSession(mainSessionFile);
+    const result4 = await ctx.switchSession(mainSessionFile);
+    if (result4?.cancelled) clearViewSwitchInFlight();
   } catch (error) {
+    clearViewSwitchInFlight();
     ctx.ui.notify(`crew-back failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 function reconcileViewSessionState(ctx) {
   const file = ctx.sessionManager.getSessionFile();
+  clearViewSwitchInFlight();
   if (!file) return;
   const nextActive = isCrewViewSessionFile(file);
   const prev = getCrewViewSessionState();
@@ -85023,6 +85075,7 @@ init_config();
 init_registry2();
 init_child_pi();
 init_foreground_watchdog();
+init_view_session_store();
 init_powerbar_publisher();
 init_widget();
 init_internal_error();
@@ -85152,6 +85205,7 @@ function buildDisposeRenderSchedulerSubscriptions(ctx) {
 }
 function buildStopSessionBoundSubagents(ctx) {
   return () => {
+    if (isViewSwitchInFlight()) return;
     safeAbortAll(ctx.foregroundControllers.values(), "stop-session-bound.foreground");
     ctx.foregroundControllers.clear();
     try {

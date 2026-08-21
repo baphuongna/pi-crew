@@ -1,19 +1,26 @@
 /**
  * Unit tests for the process-wide agent-view session state (return path,
- * view-file detection, teardown survival).
+ * view-file detection, teardown survival, navigational-switch flag).
  */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 
 import {
 	CREW_VIEW_SESSION_BASENAME,
+	clearViewSwitchInFlight,
 	getCrewViewSessionState,
 	isCrewViewSessionFile,
+	isViewSwitchInFlight,
+	markViewSwitchInFlight,
+	readViewParentSessionFile,
 	resetCrewViewSessionState,
+	resolveReturnSessionFile,
 	setCrewViewSessionState,
 } from "../../../src/ui/inline-panel/view-session-store.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
 
 test("defaults: not viewing, no main session recorded", () => {
 	resetCrewViewSessionState();
@@ -56,4 +63,57 @@ test("reset clears the store entirely", () => {
 	const state = getCrewViewSessionState();
 	assert.equal(state.active, false);
 	assert.equal(state.mainSessionFile, undefined);
+});
+
+test("view-switch-in-flight flag lifecycle (navigational cleanup suppression)", () => {
+	resetCrewViewSessionState();
+	assert.equal(isViewSwitchInFlight(), false, "defaults off");
+	markViewSwitchInFlight();
+	assert.equal(isViewSwitchInFlight(), true, "set before switchSession");
+	clearViewSwitchInFlight();
+	assert.equal(isViewSwitchInFlight(), false, "cleared when the switch lands");
+	markViewSwitchInFlight();
+	resetCrewViewSessionState();
+	assert.equal(isViewSwitchInFlight(), false, "test reset also clears the flag");
+});
+
+test("resolveReturnSessionFile prefers the CURRENT view file's parentSession header", () => {
+	const dir = createTrackedTempDir("view-store");
+	try {
+		const viewFile = path.join(dir, "agents", "01_explore", CREW_VIEW_SESSION_BASENAME);
+		fs.mkdirSync(path.dirname(viewFile), { recursive: true });
+		fs.writeFileSync(
+			viewFile,
+			[JSON.stringify({ type: "session", version: 3, id: "crew-view-01", parentSession: "/tmp/main-session.jsonl" }), "{}"].join(
+				"\n",
+			),
+			"utf8",
+		);
+		// Store is stale/reset — back must still find the way home.
+		resetCrewViewSessionState();
+		const target = resolveReturnSessionFile(viewFile, getCrewViewSessionState());
+		assert.equal(target, "/tmp/main-session.jsonl");
+	} finally {
+		removeTrackedTempDir(dir);
+	}
+});
+
+test("resolveReturnSessionFile falls back to the store's main file outside views", () => {
+	resetCrewViewSessionState();
+	setCrewViewSessionState({ active: true, mainSessionFile: "/tmp/main-session.jsonl" });
+	assert.equal(resolveReturnSessionFile("/tmp/regular-session.jsonl", getCrewViewSessionState()), "/tmp/main-session.jsonl");
+	assert.equal(resolveReturnSessionFile(undefined, { active: false }), undefined);
+	resetCrewViewSessionState();
+});
+
+test("readViewParentSessionFile tolerates a missing or headerless file", () => {
+	const dir = createTrackedTempDir("view-store");
+	try {
+		assert.equal(readViewParentSessionFile(path.join(dir, "does-not-exist.jsonl")), undefined);
+		const headerless = path.join(dir, "headerless.jsonl");
+		fs.writeFileSync(headerless, "{}\n", "utf8");
+		assert.equal(readViewParentSessionFile(headerless), undefined);
+	} finally {
+		removeTrackedTempDir(dir);
+	}
 });

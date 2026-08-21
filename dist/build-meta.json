@@ -14339,8 +14339,14 @@
       "format": "esm"
     },
     "src/ui/inline-panel/view-session-store.ts": {
-      "bytes": 2137,
-      "imports": [],
+      "bytes": 5028,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
       "format": "esm"
     },
     "src/ui/render-coalescer.ts": {
@@ -19674,7 +19680,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 14179,
+      "bytes": 15464,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -20020,7 +20026,7 @@
       "format": "esm"
     },
     "src/extension/registration/runtime-cleanup.ts": {
-      "bytes": 11281,
+      "bytes": 11911,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -20041,6 +20047,11 @@
           "path": "src/runtime/foreground-watchdog.ts",
           "kind": "import-statement",
           "original": "../../runtime/foreground-watchdog.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/view-session-store.ts",
+          "kind": "import-statement",
+          "original": "../../ui/inline-panel/view-session-store.ts"
         },
         {
           "path": "src/ui/powerbar-publisher.ts",
@@ -20475,7 +20486,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7502360
+      "bytes": 7508597
     },
     "dist/index.mjs": {
       "imports": [
@@ -21691,6 +21702,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -24082,7 +24098,7 @@
           "bytesInOutput": 3672
         },
         "src/ui/inline-panel/view-session-store.ts": {
-          "bytesInOutput": 519
+          "bytesInOutput": 1785
         },
         "src/ui/render-coalescer.ts": {
           "bytesInOutput": 2165
@@ -24583,7 +24599,7 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 7316
+          "bytesInOutput": 7805
         },
         "src/ui/inline-panel/agent-pane.ts": {
           "bytesInOutput": 6345
@@ -24610,7 +24626,7 @@
           "bytesInOutput": 1617
         },
         "src/extension/registration/runtime-cleanup.ts": {
-          "bytesInOutput": 5587
+          "bytesInOutput": 5654
         },
         "src/extension/registration/subagent-manager-setup.ts": {
           "bytesInOutput": 7761
@@ -24634,7 +24650,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3218492
+      "bytes": 3220314
     }
   }
 }
