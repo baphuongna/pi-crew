@@ -7,6 +7,7 @@ import {
 	clearRunPromisesForTest,
 	detachRunPromise,
 	hasActiveRunPromise,
+	hasPendingRunDetach,
 	registerRunPromise,
 	rejectRunPromise,
 	resolveRunPromise,
@@ -83,20 +84,59 @@ test("detachRunPromise releases the foreground waiter while the run is still run
 		assert.equal(result.manifest.status, "running");
 		// Waiter is gone, so the run's own later completion is a no-op.
 		assert.equal(hasActiveRunPromise(created.manifest.runId), false);
-		assert.equal(detachRunPromise(created.manifest.runId, cwd), false);
+		// A second detach has no waiter left — it only records a request.
+		assert.equal(detachRunPromise(created.manifest.runId, cwd), true);
+		assert.equal(hasPendingRunDetach(created.manifest.runId), true);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 		clearRunPromisesForTest();
 	}
 });
 
-test("detachRunPromise is a no-op for a run without a foreground waiter", async () => {
+test("detach releases a POLLING waiter (promise not registered yet)", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "test" });
 		saveRunManifest({ ...created.manifest, status: "running" as const });
-		assert.equal(detachRunPromise(created.manifest.runId, cwd), false);
+		// No registerRunPromise: this is the race where the tool starts waiting
+		// before executeTeamRun registers its foreground promise.
+		const waiting = waitForRun(created.manifest.runId, cwd, { timeoutMs: 5000 });
+		await wait(50);
+		assert.equal(detachRunPromise(created.manifest.runId, cwd), true);
+		const result = await waiting;
+		assert.equal(result.detached, true);
+		assert.equal(result.manifest.status, "running");
+		// Request was consumed — a later waiter is unaffected.
+		assert.equal(hasPendingRunDetach(created.manifest.runId), false);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+		clearRunPromisesForTest();
+	}
+});
+
+test("detach requested before the waiter starts still releases it", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "test" });
+		saveRunManifest({ ...created.manifest, status: "running" as const });
+		assert.equal(detachRunPromise(created.manifest.runId, cwd), true);
+		assert.equal(hasPendingRunDetach(created.manifest.runId), true);
+		const result = await waitForRun(created.manifest.runId, cwd, { timeoutMs: 5000 });
+		assert.equal(result.detached, true);
+		assert.equal(hasPendingRunDetach(created.manifest.runId), false);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+		clearRunPromisesForTest();
+	}
+});
+
+test("detachRunPromise returns false when the run state cannot be read", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		assert.equal(detachRunPromise("team_does_not_exist", cwd), false);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 		clearRunPromisesForTest();

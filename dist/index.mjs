@@ -26807,6 +26807,7 @@ __export(run_tracker_exports, {
   clearRunPromisesForTest: () => clearRunPromisesForTest,
   detachRunPromise: () => detachRunPromise,
   hasActiveRunPromise: () => hasActiveRunPromise,
+  hasPendingRunDetach: () => hasPendingRunDetach,
   registerRunPromise: () => registerRunPromise,
   rejectRunPromise: () => rejectRunPromise,
   resolveRunPromise: () => resolveRunPromise,
@@ -26815,6 +26816,7 @@ __export(run_tracker_exports, {
 import * as fs43 from "node:fs";
 import * as path33 from "node:path";
 function registerRunPromise(runId) {
+  detachRequests.delete(runId);
   let resolve26;
   let reject;
   const promise = new Promise((res, rej) => {
@@ -26826,13 +26828,20 @@ function registerRunPromise(runId) {
   return entry;
 }
 function detachRunPromise(runId, cwd) {
-  const entry = activeRunPromises.get(runId);
-  if (!entry) return false;
   const loaded = loadRunManifestById(cwd, runId);
   if (!loaded) return false;
-  activeRunPromises.delete(runId);
-  entry.resolve({ ...loaded, detached: true });
+  const entry = activeRunPromises.get(runId);
+  if (entry) {
+    activeRunPromises.delete(runId);
+    detachRequests.delete(runId);
+    entry.resolve({ ...loaded, detached: true });
+    return true;
+  }
+  detachRequests.add(runId);
   return true;
+}
+function hasPendingRunDetach(runId) {
+  return detachRequests.has(runId);
 }
 function resolveRunPromise(runId, result4) {
   const entry = activeRunPromises.get(runId);
@@ -26851,9 +26860,13 @@ function rejectRunPromise(runId, reason) {
 async function waitForRun(runId, cwd, options = {}) {
   const { timeoutMs = 3e5, pollIntervalMs = 500 } = options;
   const deadline = Date.now() + timeoutMs;
+  const detachPending = detachRequests.delete(runId);
   const loaded = loadRunManifestById(cwd, runId);
   if (loaded && isFinishedRunStatus(loaded.manifest.status)) {
     return loaded;
+  }
+  if (detachPending && loaded) {
+    return { ...loaded, detached: true };
   }
   const entry = activeRunPromises.get(runId);
   if (entry) {
@@ -26869,6 +26882,10 @@ async function waitForRun(runId, cwd, options = {}) {
   }
   let attempt = 0;
   while (Date.now() < deadline) {
+    if (detachRequests.delete(runId)) {
+      const current = loadRunManifestById(cwd, runId);
+      if (current) return { ...current, detached: true };
+    }
     if (attempt === 0) {
       const runDir = path33.join(projectCrewRoot(cwd), "state", "runs", runId);
       if (!fs43.existsSync(runDir)) {
@@ -26889,12 +26906,13 @@ function hasActiveRunPromise(runId) {
   return activeRunPromises.has(runId);
 }
 function clearRunPromisesForTest() {
+  detachRequests.clear();
   for (const entry of activeRunPromises.values()) {
     entry.reject(new Error("Cleared by test"));
   }
   activeRunPromises.clear();
 }
-var activeRunPromises;
+var activeRunPromises, detachRequests;
 var init_run_tracker = __esm({
   "src/runtime/run-tracker.ts"() {
     "use strict";
@@ -26902,6 +26920,7 @@ var init_run_tracker = __esm({
     init_paths();
     init_process_status();
     activeRunPromises = /* @__PURE__ */ new Map();
+    detachRequests = /* @__PURE__ */ new Set();
   }
 });
 
@@ -83403,9 +83422,17 @@ function sessionsRootFromFile(sessionFile) {
   return /^--.+--$/.test(path97.basename(dir)) ? path97.dirname(dir) : dir;
 }
 function taskMatchFragment(manifest, task) {
-  const raw = (task?.title ?? manifest.goal ?? "").replace(/\s+/g, " ").trim();
+  const raw = (task?.title ?? "").replace(/\s+/g, " ").trim();
   if (!raw) return void 0;
+  const goal = (manifest.goal ?? "").replace(/\s+/g, " ").trim();
+  if (goal && (raw === goal || goal.includes(raw))) return void 0;
   return raw.slice(0, 80);
+}
+function sessionFileStartMs(name) {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/.exec(name);
+  if (!match) return void 0;
+  const parsed = Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`);
+  return Number.isFinite(parsed) ? parsed : void 0;
 }
 function fileContainsFragment(file, fragment) {
   try {
@@ -83443,21 +83470,23 @@ function resolveWorkerSessionFile(options, manifest, task) {
     if (mainFile && path97.resolve(full) === mainFile) continue;
     try {
       const st = statSync57(full);
-      if (st.mtimeMs < windowStart || st.mtimeMs > windowEnd) continue;
       if (!st.isFile()) continue;
-      candidates.push(full);
+      const createdMs = sessionFileStartMs(name) ?? st.mtimeMs;
+      if (createdMs < windowStart || createdMs > windowEnd) continue;
+      candidates.push({ file: full, createdMs });
     } catch {
     }
   }
   if (candidates.length === 0) return void 0;
-  candidates.sort((a, b) => statSync57(b).mtimeMs - statSync57(a).mtimeMs);
-  if (candidates.length === 1) return candidates[0];
+  const knownStart = Number.isFinite(started);
+  candidates.sort((a, b) => knownStart ? a.createdMs - b.createdMs : b.createdMs - a.createdMs);
+  if (candidates.length === 1) return candidates[0].file;
   const fragment = taskMatchFragment(manifest, task);
   if (fragment) {
-    const matches = candidates.filter((file) => fileContainsFragment(file, fragment));
-    if (matches.length === 1) return matches[0];
+    const matches = candidates.filter((candidate) => fileContainsFragment(candidate.file, fragment));
+    if (matches.length === 1) return matches[0].file;
   }
-  return candidates[0];
+  return candidates[0].file;
 }
 function buildViewFromWorkerSession(options, loaded) {
   const task = loaded.tasks.find((candidate) => candidate.id === options.taskId);

@@ -599,6 +599,64 @@ test("sequential overlap: the newest in-window session wins (previous worker's s
 	}
 });
 
+test("pi-named sessions: the PREVIOUS worker still writing does not win this task's view", () => {
+	const fixture = makeFixture("Read a file and summarize it");
+	try {
+		// The task started 30s ago; the previous task's worker session was created
+		// BEFORE that but keeps writing (mtime = now), which is exactly the case
+		// that made 02_plan's view show 01_explore's session.
+		const taskStart = new Date(Date.now() - 30_000);
+		const sessionRoot = path.join(path.dirname(fixture.cwd), "sessions-root");
+		const stem = `--${fixture.cwd.replace(/^\/+/, "").replace(/[\\/]/g, "-")}--`;
+		const dir = path.join(sessionRoot, stem);
+		fs.mkdirSync(dir, { recursive: true });
+		const piName = (date: Date, id: string): string => `${date.toISOString().replace(/:/g, "-").replace(".", "-")}_${id}.jsonl`;
+		const write = (file: string, id: string, mtime: Date): void => {
+			fs.writeFileSync(
+				file,
+				[
+					JSON.stringify({ type: "session", version: 3, id, timestamp: new Date().toISOString(), cwd: fixture.cwd }),
+					JSON.stringify({
+						type: "message",
+						id: `${id}-m1`,
+						parentId: null,
+						timestamp: new Date().toISOString(),
+						// Both workers embed the SAME run goal — the goal can never
+						// disambiguate them.
+						message: { role: "user", content: [{ type: "text", text: '<file name="task.md">\nRead a file and summarize it' }] },
+					}),
+				].join("\n") + "\n",
+				"utf-8",
+			);
+			fs.utimesSync(file, mtime, mtime);
+		};
+		const previous = path.join(dir, piName(new Date(Date.now() - 90_000), "prev-worker"));
+		write(previous, "previous-worker-id", new Date()); // still writing
+		const current = path.join(dir, piName(new Date(Date.now() - 28_000), "curr-worker"));
+		write(current, "current-worker-id", new Date(Date.now() - 20_000));
+
+		// Task timing on disk: startedAt inside the fixture's task state.
+		const tasksFile = path.join(fixture.cwd, ".crew", "state", "runs", fixture.runId, "tasks.json");
+		const tasks = JSON.parse(fs.readFileSync(tasksFile, "utf-8")) as Array<Record<string, unknown>>;
+		const list = Array.isArray(tasks) ? tasks : ((tasks as unknown as { tasks: Array<Record<string, unknown>> }).tasks ?? []);
+		for (const task of list) if (task.id === fixture.taskId) task.startedAt = taskStart.toISOString();
+		fs.writeFileSync(tasksFile, JSON.stringify(tasks), "utf-8");
+		__test__clearManifestCache();
+
+		const viewPath = buildAgentViewSessionFile({
+			cwd: fixture.cwd,
+			runId: fixture.runId,
+			taskId: fixture.taskId,
+			parentSessionFile: "/tmp/main-session.jsonl",
+			sessionRoot,
+		});
+		assert.ok(viewPath);
+		assert.equal(String(readView(fixture)[0]?.id), "current-worker-id", "session CREATED after the task start wins");
+	} finally {
+		removeTrackedTempDir(fixture.cwd);
+	}
+});
+
 test("rebuild preserves pi-appended entries (typed messages, thinking_level changes)", () => {
 	const fixture = makeFixture("Live goal");
 	try {

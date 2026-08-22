@@ -84,11 +84,37 @@ export function sessionsRootFromFile(sessionFile: string | undefined): string | 
 	return /^--.+--$/.test(path.basename(dir)) ? path.dirname(dir) : dir;
 }
 
-/** A short distinctive fragment of the task's own text, for disambiguation. */
+/**
+ * A TASK-SPECIFIC fragment for disambiguation.
+ *
+ * The run goal is embedded in EVERY worker's prompt, so it identifies nothing:
+ * used as a fragment it "matched" whichever sibling session had already
+ * flushed its prompt — typically the PREVIOUS task's worker (the view for
+ * 02_plan then showed 01_explore's session). Only the task's own title
+ * qualifies, and only when it actually differs from the goal.
+ */
 function taskMatchFragment(manifest: TeamRunManifest, task: { title?: string } | undefined): string | undefined {
-	const raw = (task?.title ?? manifest.goal ?? "").replace(/\s+/g, " ").trim();
+	const raw = (task?.title ?? "").replace(/\s+/g, " ").trim();
 	if (!raw) return undefined;
+	const goal = (manifest.goal ?? "").replace(/\s+/g, " ").trim();
+	if (goal && (raw === goal || goal.includes(raw))) return undefined;
 	return raw.slice(0, 80);
+}
+
+/**
+ * Session START time from pi's session filename
+ * (`2026-08-22T09-55-38-850Z_<uuid>.jsonl`).
+ *
+ * Creation time is what identifies a worker's session: a worker's file is
+ * created right after its task starts, while its MTIME keeps moving for as
+ * long as it writes — the previous task's worker therefore stayed inside the
+ * next task's mtime window and won a "newest wins" comparison.
+ */
+function sessionFileStartMs(name: string): number | undefined {
+	const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/.exec(name);
+	if (!match) return undefined;
+	const parsed = Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`);
+	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function fileContainsFragment(file: string, fragment: string): boolean {
@@ -140,33 +166,39 @@ function resolveWorkerSessionFile(
 	const windowEnd = (Number.isFinite(finished) ? (finished as number) : now) + WORKER_SESSION_WINDOW_TRAIL_MS;
 	const mainFile = options.parentSessionFile ? path.resolve(options.parentSessionFile) : undefined;
 
-	const candidates: string[] = [];
+	const candidates: { file: string; createdMs: number }[] = [];
 	for (const name of files) {
 		if (!name.endsWith(".jsonl")) continue;
 		const full = path.join(dir, name);
 		if (mainFile && path.resolve(full) === mainFile) continue;
 		try {
 			const st = statSync(full);
-			if (st.mtimeMs < windowStart || st.mtimeMs > windowEnd) continue;
 			if (!st.isFile()) continue;
-			candidates.push(full);
+			// Match on CREATION, not mtime: a still-writing sibling worker would
+			// otherwise fall inside every later task's window.
+			// Files not following pi's naming fall back to mtime (best available).
+			const createdMs = sessionFileStartMs(name) ?? st.mtimeMs;
+			if (createdMs < windowStart || createdMs > windowEnd) continue;
+			candidates.push({ file: full, createdMs });
 		} catch {
 			/* unreadable/stale — skip */
 		}
 	}
 	if (candidates.length === 0) return undefined;
-	candidates.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-	if (candidates.length === 1) return candidates[0];
-	// Parallel workers: pick the one whose content embeds THIS task's text.
-	// Sequential runs settle in order, so the newest file in the window is the
-	// current task's worker — the fragment check only needs to disprove the
-	// unusual sibling-overlap case.
+	// Known task start → the worker created FIRST after it is this task's.
+	// Unknown start (task still spawning) → the most recent file is the closest
+	// guess, since the window is then just "the last 10 minutes".
+	const knownStart = Number.isFinite(started);
+	candidates.sort((a, b) => (knownStart ? a.createdMs - b.createdMs : b.createdMs - a.createdMs));
+	if (candidates.length === 1) return candidates[0].file;
+	// Parallel fan-out: several workers start within the same window, so pin the
+	// one whose prompt embeds THIS task's own title.
 	const fragment = taskMatchFragment(manifest, task);
 	if (fragment) {
-		const matches = candidates.filter((file) => fileContainsFragment(file, fragment));
-		if (matches.length === 1) return matches[0];
+		const matches = candidates.filter((candidate) => fileContainsFragment(candidate.file, fragment));
+		if (matches.length === 1) return matches[0].file;
 	}
-	return candidates[0];
+	return candidates[0].file;
 }
 
 /**

@@ -21,7 +21,19 @@ export interface ActiveRunPromise {
 
 const activeRunPromises = new Map<string, ActiveRunPromise>();
 
+/**
+ * Runs whose waiter should be released on its next opportunity.
+ *
+ * A detach request can arrive BEFORE `executeTeamRun` registers its foreground
+ * promise (the tool starts the run and calls `waitForRun` immediately, so a
+ * slow-starting run puts the waiter on the polling path with no promise to
+ * resolve). The flag makes the request path-independent: the polling loop
+ * consumes it just like `detachRunPromise` resolves a registered promise.
+ */
+const detachRequests = new Set<string>();
+
 export function registerRunPromise(runId: string): ActiveRunPromise {
+	detachRequests.delete(runId);
 	let resolve!: (value: RunWaitResult) => void;
 	let reject!: (reason: unknown) => void;
 	const promise = new Promise<RunWaitResult>((res, rej) => {
@@ -44,17 +56,27 @@ export function registerRunPromise(runId: string): ActiveRunPromise {
  * parent turn can settle, and the session switch lands — `executeTeamRun`
  * itself keeps going in this process and the async notifier reports completion.
  *
- * Returns false when the run has no foreground waiter in this process (already
- * background/finished) or its state cannot be read.
+ * Returns false only when the run's state cannot be read at all. When no
+ * foreground promise is registered yet (or the waiter is on the polling path),
+ * the request is recorded and consumed by `waitForRun` on its next poll.
  */
 export function detachRunPromise(runId: string, cwd: string): boolean {
-	const entry = activeRunPromises.get(runId);
-	if (!entry) return false;
 	const loaded = loadRunManifestById(cwd, runId);
 	if (!loaded) return false;
-	activeRunPromises.delete(runId);
-	entry.resolve({ ...loaded, detached: true });
+	const entry = activeRunPromises.get(runId);
+	if (entry) {
+		activeRunPromises.delete(runId);
+		detachRequests.delete(runId);
+		entry.resolve({ ...loaded, detached: true });
+		return true;
+	}
+	detachRequests.add(runId);
 	return true;
+}
+
+/** True while a detach was requested but no waiter has consumed it yet. */
+export function hasPendingRunDetach(runId: string): boolean {
+	return detachRequests.has(runId);
 }
 
 export function resolveRunPromise(runId: string, result: RunWaitResult): void {
@@ -87,10 +109,17 @@ export async function waitForRun(
 	const { timeoutMs = 300_000, pollIntervalMs = 500 } = options;
 	const deadline = Date.now() + timeoutMs;
 
+	// A detach requested before this waiter existed applies to it (and is
+	// consumed here, so it can never leak onto a later waiter for the same run).
+	const detachPending = detachRequests.delete(runId);
+
 	// Fast path: already terminal on disk
 	const loaded = loadRunManifestById(cwd, runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency;
 	if (loaded && isFinishedRunStatus(loaded.manifest.status)) {
 		return loaded;
+	}
+	if (detachPending && loaded) {
+		return { ...loaded, detached: true };
 	}
 
 	// Medium path: foreground promise registered in this process
@@ -107,9 +136,17 @@ export async function waitForRun(
 		}
 	}
 
-	// Slow path: background run — poll with exponential backoff capped at pollIntervalMs
+	// Slow path: background run — poll with exponential backoff capped at pollIntervalMs.
+	// This path is ALSO taken by a foreground run whose executeTeamRun has not
+	// registered its promise yet (the tool calls waitForRun immediately after
+	// starting the run), so it must honour a pending detach request too —
+	// otherwise opening an agent view can never release the parent turn.
 	let attempt = 0;
 	while (Date.now() < deadline) {
+		if (detachRequests.delete(runId)) {
+			const current = loadRunManifestById(cwd, runId);
+			if (current) return { ...current, detached: true };
+		}
 		if (attempt === 0) {
 			// Early exit: if the run directory doesn't exist, don't waste time polling.
 			// Use projectCrewRoot() to honour the .pi/teams/ fallback for .pi-based
@@ -138,6 +175,7 @@ export function hasActiveRunPromise(runId: string): boolean {
 }
 
 export function clearRunPromisesForTest(): void {
+	detachRequests.clear();
 	for (const entry of activeRunPromises.values()) {
 		entry.reject(new Error("Cleared by test"));
 	}

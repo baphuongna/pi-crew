@@ -8654,7 +8654,7 @@
       "format": "esm"
     },
     "src/runtime/run-tracker.ts": {
-      "bytes": 5354,
+      "bytes": 6978,
       "imports": [
         {
           "path": "node:fs",
@@ -19581,7 +19581,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-view-session.ts": {
-      "bytes": 23380,
+      "bytes": 25073,
       "imports": [
         {
           "path": "node:fs",
@@ -20490,7 +20490,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7536816
+      "bytes": 7541149
     },
     "dist/index.mjs": {
       "imports": [
@@ -23427,7 +23427,7 @@
           "bytesInOutput": 9211
         },
         "src/runtime/run-tracker.ts": {
-          "bytesInOutput": 3185
+          "bytesInOutput": 3800
         },
         "src/runtime/crew-hooks.ts": {
           "bytesInOutput": 4057
@@ -24609,7 +24609,7 @@
           "bytesInOutput": 265
         },
         "src/ui/inline-panel/agent-view-session.ts": {
-          "bytesInOutput": 13637
+          "bytesInOutput": 14231
         },
         "src/ui/inline-panel/crew-editor.ts": {
           "bytesInOutput": 6106
@@ -24651,7 +24651,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3227454
+      "bytes": 3228663
     }
   }
 }
