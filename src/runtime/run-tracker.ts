@@ -5,21 +5,26 @@ import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 import { isFinishedRunStatus } from "./process-status.ts";
 
+export interface RunWaitResult {
+	manifest: TeamRunManifest;
+	tasks: TeamTaskState[];
+	/** True when the waiter was released early by `detachRunPromise` while the
+	 *  run itself keeps executing (see that function). */
+	detached?: boolean;
+}
+
 export interface ActiveRunPromise {
-	promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }>;
-	resolve: (value: { manifest: TeamRunManifest; tasks: TeamTaskState[] }) => void;
+	promise: Promise<RunWaitResult>;
+	resolve: (value: RunWaitResult) => void;
 	reject: (reason: unknown) => void;
 }
 
 const activeRunPromises = new Map<string, ActiveRunPromise>();
 
 export function registerRunPromise(runId: string): ActiveRunPromise {
-	let resolve!: (value: { manifest: TeamRunManifest; tasks: TeamTaskState[] }) => void;
+	let resolve!: (value: RunWaitResult) => void;
 	let reject!: (reason: unknown) => void;
-	const promise = new Promise<{
-		manifest: TeamRunManifest;
-		tasks: TeamTaskState[];
-	}>((res, rej) => {
+	const promise = new Promise<RunWaitResult>((res, rej) => {
 		resolve = res;
 		reject = rej;
 	});
@@ -28,7 +33,31 @@ export function registerRunPromise(runId: string): ActiveRunPromise {
 	return entry;
 }
 
-export function resolveRunPromise(runId: string, result: { manifest: TeamRunManifest; tasks: TeamTaskState[] }): void {
+/**
+ * Release a foreground waiter WITHOUT stopping the run.
+ *
+ * A foreground `team run` keeps the parent pi turn streaming for the whole run,
+ * and pi's `switchSession` tears the current session down via
+ * `session.abort()` → `waitForIdle()`. Opening an agent view therefore hung
+ * silently until the run finished. Detaching resolves the tool's `waitForRun`
+ * with the run's current (still-running) state so the tool call returns, the
+ * parent turn can settle, and the session switch lands — `executeTeamRun`
+ * itself keeps going in this process and the async notifier reports completion.
+ *
+ * Returns false when the run has no foreground waiter in this process (already
+ * background/finished) or its state cannot be read.
+ */
+export function detachRunPromise(runId: string, cwd: string): boolean {
+	const entry = activeRunPromises.get(runId);
+	if (!entry) return false;
+	const loaded = loadRunManifestById(cwd, runId);
+	if (!loaded) return false;
+	activeRunPromises.delete(runId);
+	entry.resolve({ ...loaded, detached: true });
+	return true;
+}
+
+export function resolveRunPromise(runId: string, result: RunWaitResult): void {
 	const entry = activeRunPromises.get(runId);
 	if (entry) {
 		entry.resolve(result);
@@ -54,7 +83,7 @@ export async function waitForRun(
 	runId: string,
 	cwd: string,
 	options: { timeoutMs?: number; pollIntervalMs?: number } = {},
-): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+): Promise<RunWaitResult> {
 	const { timeoutMs = 300_000, pollIntervalMs = 500 } = options;
 	const deadline = Date.now() + timeoutMs;
 

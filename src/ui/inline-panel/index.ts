@@ -13,7 +13,6 @@
  */
 
 import { readFileSync } from "node:fs";
-import path from "node:path";
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -114,6 +113,50 @@ function dispatchViewCommand(text: string): void {
 	currentEditor?.dispatchCommandFallback(text);
 }
 
+/** How long to wait for the parent turn to settle after detaching a foreground
+ *  run, before dispatching the switch anyway. */
+const VIEW_SETTLE_TIMEOUT_MS = 8000;
+const VIEW_SETTLE_POLL_MS = 100;
+
+/**
+ * Make the current session switchable.
+ *
+ * pi's `switchSession` tears the current session down through
+ * `session.abort()` → `waitForIdle()`, so it CANNOT land while a FOREGROUND
+ * team run keeps the parent turn streaming — the switch just hung until the
+ * run finished, which is the "view opened but the screen still shows main"
+ * report. Detaching the run releases the tool's waiter (the run itself keeps
+ * executing and notifies on completion), the turn settles, and the switch
+ * lands within a second.
+ *
+ * No-op when the session is already idle or the run has no foreground waiter
+ * in this process (async run / already finished).
+ */
+async function settleSessionForViewSwitch(ctx: ExtensionContext, runId: string): Promise<void> {
+	const isIdle = (): boolean => {
+		try {
+			return ctx.isIdle?.() !== false;
+		} catch {
+			return true; // stale ctx — let the switch decide
+		}
+	};
+	if (isIdle()) return;
+	try {
+		// LAZY: run-tracker is runtime state, not a UI dependency.
+		const { detachRunPromise } = await import("../../runtime/run-tracker.ts");
+		if (!detachRunPromise(runId, ctx.cwd)) return;
+	} catch (error) {
+		logInternalError("view.detachForegroundRun", error, runId);
+		return;
+	}
+	ctx.ui.notify("Team run detached to background so the agent view can open — it keeps running.", "info");
+	const deadline = Date.now() + VIEW_SETTLE_TIMEOUT_MS;
+	while (Date.now() < deadline) {
+		if (isIdle()) return;
+		await new Promise((resolve) => setTimeout(resolve, VIEW_SETTLE_POLL_MS));
+	}
+}
+
 /**
  * Open an agent "view" — a REAL pi session, whole-screen. No custom UI.
  *
@@ -188,6 +231,9 @@ function openPane(ctx: ExtensionContext, target: PanelTarget): void {
 				sessionRoot: mainSessionRoot(),
 			});
 			if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
+			// A streaming parent turn blocks switchSession — settle it first
+			// (detaches a foreground run; the run keeps executing).
+			await settleSessionForViewSwitch(ctx, target.runId);
 			// Switch AFTER the current input tick unwinds: `switchSession`
 			// tears the current session down, which would invalidate the
 			// editor while we are still inside its key handler otherwise.
@@ -309,6 +355,10 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 		// stopSessionBoundSubagents). Cleared when the switch lands (next
 		// session_start) or cancels.
 		markViewSwitchInFlight();
+		// Typed `/crew-view` runs INSIDE the streaming turn of a foreground run
+		// (pi executes extension commands immediately). switchSession would then
+		// block on waitForIdle for the whole run — settle first.
+		await settleSessionForViewSwitch(ctx, runId);
 		let result: { cancelled?: boolean } | undefined;
 		try {
 			result = await ctx.switchSession(viewPath);

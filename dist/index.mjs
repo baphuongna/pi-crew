@@ -26802,6 +26802,16 @@ var init_i18n = __esm({
 });
 
 // src/runtime/run-tracker.ts
+var run_tracker_exports = {};
+__export(run_tracker_exports, {
+  clearRunPromisesForTest: () => clearRunPromisesForTest,
+  detachRunPromise: () => detachRunPromise,
+  hasActiveRunPromise: () => hasActiveRunPromise,
+  registerRunPromise: () => registerRunPromise,
+  rejectRunPromise: () => rejectRunPromise,
+  resolveRunPromise: () => resolveRunPromise,
+  waitForRun: () => waitForRun
+});
 import * as fs43 from "node:fs";
 import * as path33 from "node:path";
 function registerRunPromise(runId) {
@@ -26814,6 +26824,15 @@ function registerRunPromise(runId) {
   const entry = { promise, resolve: resolve26, reject };
   activeRunPromises.set(runId, entry);
   return entry;
+}
+function detachRunPromise(runId, cwd) {
+  const entry = activeRunPromises.get(runId);
+  if (!entry) return false;
+  const loaded = loadRunManifestById(cwd, runId);
+  if (!loaded) return false;
+  activeRunPromises.delete(runId);
+  entry.resolve({ ...loaded, detached: true });
+  return true;
 }
 function resolveRunPromise(runId, result4) {
   const entry = activeRunPromises.get(runId);
@@ -26865,6 +26884,15 @@ async function waitForRun(runId, cwd, options = {}) {
     attempt++;
   }
   throw new Error(`waitForRun timed out after ${timeoutMs}ms`);
+}
+function hasActiveRunPromise(runId) {
+  return activeRunPromises.has(runId);
+}
+function clearRunPromisesForTest() {
+  for (const entry of activeRunPromises.values()) {
+    entry.reject(new Error("Cleared by test"));
+  }
+  activeRunPromises.clear();
 }
 var activeRunPromises;
 var init_run_tracker = __esm({
@@ -68320,6 +68348,25 @@ ${dwfResult.manifest.summary ?? ""}`,
     }, updatedManifest.runId);
     try {
       const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: fgDeadline.deadlineMs });
+      if (completed.detached) {
+        return result(
+          [
+            `pi-crew run detached to background: ${updatedManifest.runId}`,
+            `Team: ${team.name}`,
+            `Workflow: ${workflow.name}`,
+            `Goal: ${goal}`,
+            "",
+            "The run keeps executing \u2014 you will be notified when it finishes.",
+            `Check status with: team status runId=${updatedManifest.runId}`
+          ].join("\n"),
+          {
+            action: "run",
+            status: "ok",
+            runId: updatedManifest.runId,
+            artifactsRoot: updatedManifest.artifactsRoot
+          }
+        );
+      }
       return formatRunResult(completed.manifest, {
         tasks: completed.tasks,
         metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
@@ -83324,10 +83371,10 @@ init_state_store();
 init_heartbeat_aggregator();
 
 // src/ui/inline-panel/index.ts
-import { readFileSync as readFileSync93 } from "node:fs";
 init_tool_result();
 init_internal_error();
 init_pi_ui_compat();
+import { readFileSync as readFileSync93 } from "node:fs";
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
@@ -83909,6 +83956,31 @@ function dispatchViewCommand(text) {
   }
   currentEditor?.dispatchCommandFallback(text);
 }
+var VIEW_SETTLE_TIMEOUT_MS = 8e3;
+var VIEW_SETTLE_POLL_MS = 100;
+async function settleSessionForViewSwitch(ctx, runId) {
+  const isIdle = () => {
+    try {
+      return ctx.isIdle?.() !== false;
+    } catch {
+      return true;
+    }
+  };
+  if (isIdle()) return;
+  try {
+    const { detachRunPromise: detachRunPromise2 } = await Promise.resolve().then(() => (init_run_tracker(), run_tracker_exports));
+    if (!detachRunPromise2(runId, ctx.cwd)) return;
+  } catch (error) {
+    logInternalError("view.detachForegroundRun", error, runId);
+    return;
+  }
+  ctx.ui.notify("Team run detached to background so the agent view can open \u2014 it keeps running.", "info");
+  const deadline = Date.now() + VIEW_SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (isIdle()) return;
+    await new Promise((resolve26) => setTimeout(resolve26, VIEW_SETTLE_POLL_MS));
+  }
+}
 var VIEW_BUILD_RETRY_MS = 500;
 var VIEW_BUILD_MAX_RETRIES = 40;
 function mainSessionRoot() {
@@ -83943,6 +84015,7 @@ function openPane(ctx, target) {
         sessionRoot: mainSessionRoot()
       });
       if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
+      await settleSessionForViewSwitch(ctx, target.runId);
       setTimeout(() => {
         dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
       }, 0);
@@ -84022,6 +84095,7 @@ async function handleCrewViewCommand(args, ctx) {
       mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId
     });
     markViewSwitchInFlight();
+    await settleSessionForViewSwitch(ctx, runId);
     let result4;
     try {
       result4 = await ctx.switchSession(viewPath);

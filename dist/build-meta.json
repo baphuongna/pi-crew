@@ -8654,7 +8654,7 @@
       "format": "esm"
     },
     "src/runtime/run-tracker.ts": {
-      "bytes": 4296,
+      "bytes": 5354,
       "imports": [
         {
           "path": "node:fs",
@@ -17010,7 +17010,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 35515,
+      "bytes": 36193,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -19664,15 +19664,10 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 24491,
+      "bytes": 26632,
       "imports": [
         {
           "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -19720,6 +19715,11 @@
           "path": "src/extension/team-tool.ts",
           "kind": "dynamic-import",
           "original": "../../extension/team-tool.ts"
+        },
+        {
+          "path": "src/runtime/run-tracker.ts",
+          "kind": "dynamic-import",
+          "original": "../../runtime/run-tracker.ts"
         },
         {
           "path": "src/state/stores/state-store.ts",
@@ -20490,7 +20490,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7531211
+      "bytes": 7536816
     },
     "dist/index.mjs": {
       "imports": [
@@ -23427,7 +23427,7 @@
           "bytesInOutput": 9211
         },
         "src/runtime/run-tracker.ts": {
-          "bytesInOutput": 2254
+          "bytesInOutput": 3185
         },
         "src/runtime/crew-hooks.ts": {
           "bytesInOutput": 4057
@@ -24339,7 +24339,7 @@
           "bytesInOutput": 7083
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 26032
+          "bytesInOutput": 26676
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 26980
@@ -24603,7 +24603,7 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 12216
+          "bytesInOutput": 13195
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 265
@@ -24651,7 +24651,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3224900
+      "bytes": 3227454
     }
   }
 }

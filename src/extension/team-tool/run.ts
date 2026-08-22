@@ -774,6 +774,27 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// Wait for the foreground run to complete and return actual results.
 		try {
 			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: fgDeadline.deadlineMs });
+			if (completed.detached) {
+				// The waiter was released so this turn can settle (agent view
+				// switch); the run keeps executing and reports on completion.
+				return result(
+					[
+						`pi-crew run detached to background: ${updatedManifest.runId}`,
+						`Team: ${team.name}`,
+						`Workflow: ${workflow.name}`,
+						`Goal: ${goal}`,
+						"",
+						"The run keeps executing — you will be notified when it finishes.",
+						`Check status with: team status runId=${updatedManifest.runId}`,
+					].join("\n"),
+					{
+						action: "run",
+						status: "ok",
+						runId: updatedManifest.runId,
+						artifactsRoot: updatedManifest.artifactsRoot,
+					},
+				);
+			}
 			return formatRunResult(completed.manifest, {
 				tasks: completed.tasks,
 				metrics: collectRunMetrics(resolvedCtx.cwd, completed.manifest.runId),
