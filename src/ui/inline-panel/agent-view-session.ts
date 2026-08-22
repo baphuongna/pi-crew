@@ -59,8 +59,8 @@ const WORKER_SESSION_WINDOW_TRAIL_MS = 15_000;
 const WORKER_SESSION_MATCH_READ_BYTES = 32 * 1024;
 
 /**
- * Path of px's session directory for a given cwd — the same layout pi uses
- * (`~/.pi/agent/sessions/--home-bom-source-my-pi--` for
+ * Path of pi's session directory for a given cwd — the same layout pi uses
+ * (`~/.pi/agent/sessions/--home-bom-source-my_pi--` for
  * `/home/bom/source/my_pi`). The worker pi processes write their sessions
  * here, keyed by THEIR cwd (the run workspace).
  */
@@ -68,6 +68,20 @@ function workerSessionDirFor(cwd: string, sessionRoot?: string): string {
 	const root = sessionRoot ?? path.join(os.homedir(), ".pi", "agent", "sessions");
 	const stem = `--${cwd.replace(/^\/+/, "").replace(/[\\/]/g, "-")}--`;
 	return path.join(root, stem);
+}
+
+/**
+ * Map a session FILE to pi's sessions ROOT. Pi nests session files under a
+ * cwd-stem subdir: `~/.pi/agent/sessions/--<cwd-stem>--/<file>.jsonl`, so the
+ * root is the PARENT of the file's own directory — passing the file's dirname
+ * as the "root" would make `workerSessionDirFor` re-join the stem
+ * (`--stem--/--stem--`) and never match the worker's file. Files that sit
+ * directly in a root (no stem dir) map to that root unchanged.
+ */
+export function sessionsRootFromFile(sessionFile: string | undefined): string | undefined {
+	if (!sessionFile) return undefined;
+	const dir = path.dirname(sessionFile);
+	return /^--.+--$/.test(path.basename(dir)) ? path.dirname(dir) : dir;
 }
 
 /** A short distinctive fragment of the task's own text, for disambiguation. */

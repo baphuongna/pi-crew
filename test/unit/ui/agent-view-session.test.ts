@@ -15,7 +15,11 @@ import { test } from "node:test";
 import { agentEventsPath } from "../../../src/runtime/crew-agent-records.ts";
 import { __test__clearManifestCache, createRunManifest } from "../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
-import { buildAgentViewSessionFile, workerSessionSourceStamp } from "../../../src/ui/inline-panel/agent-view-session.ts";
+import {
+	buildAgentViewSessionFile,
+	sessionsRootFromFile,
+	workerSessionSourceStamp,
+} from "../../../src/ui/inline-panel/agent-view-session.ts";
 import { CREW_VIEW_SESSION_BASENAME } from "../../../src/ui/inline-panel/view-session-store.ts";
 import type { WorkflowConfig } from "../../../src/workflows/workflow-config.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
@@ -407,6 +411,52 @@ function writeWorkerSession(fixture: Fixture, opts: { startedAt?: string; text?:
 	fs.utimesSync(workerFile, mtime, mtime);
 	return workerFile;
 }
+
+test("sessionsRootFromFile: a stem-nested session file maps to the sessions ROOT (pi's real layout)", () => {
+	const root = path.join(createTrackedTempDir("pi-crew-sroot-"), "sessions");
+	try {
+		const stem = "--home-bom-source-my-pi--";
+		const mainFile = path.join(root, stem, "2026-01-01T00-00-00-000Z_main.jsonl");
+		assert.equal(sessionsRootFromFile(mainFile), root, "stem-nested file → parent dir (the root)");
+		const flatFile = path.join(root, "flat-session.jsonl");
+		assert.equal(sessionsRootFromFile(flatFile), root, "flat file → its own dir (no stem to unwrap)");
+		assert.equal(sessionsRootFromFile(undefined), undefined);
+	} finally {
+		removeTrackedTempDir(path.dirname(root));
+	}
+});
+
+test("real-caller derivation: parentSessionFile inside the stem dir still resolves the worker copy", () => {
+	// Regression: the callers derived the session root as dirname(main file),
+	// which IS the `--<cwd-stem>--` dir; workerSessionDirFor then re-joined the
+	// stem (`--stem--/--stem--`) and the copy path silently fell back to the
+	// events synthesis in every real pi shell.
+	const fixture = makeFixture("Stem root goal");
+	try {
+		writeEvents(fixture, [{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "ignored" }] } }]);
+		const root = path.join(path.dirname(fixture.cwd), "sessions-root");
+		const workerFile = writeWorkerSession(fixture, { sessionRoot: () => root });
+		// The MAIN session file lives in the same stem dir as the worker's
+		// (pi's layout): root/--stem--/<main>.jsonl.
+		const stem = `--${fixture.cwd.replace(/^\/+/, "").replace(/[\\/]/g, "-")}--`;
+		const mainFile = path.join(root, stem, "main-session.jsonl");
+		fs.writeFileSync(mainFile, JSON.stringify({ type: "session", version: 3, id: "main", timestamp: new Date().toISOString() }) + "\n");
+		void workerFile;
+
+		const viewPath = buildAgentViewSessionFile({
+			cwd: fixture.cwd,
+			runId: fixture.runId,
+			taskId: fixture.taskId,
+			parentSessionFile: mainFile,
+			sessionRoot: sessionsRootFromFile(mainFile),
+		});
+		assert.ok(viewPath, "copy path resolves with the real caller derivation");
+		const records = readView(fixture);
+		assert.equal(String(records[0]?.id), "worker-session-01", "worker session copied, not the synthesized lead-in");
+	} finally {
+		removeTrackedTempDir(fixture.cwd);
+	}
+});
 
 test("view copies the worker's own session file (real session, header gets parentSession)", () => {
 	const fixture = makeFixture("Worker copy goal");

@@ -22,7 +22,7 @@ import { isToolError, type PiTeamsToolResult, textFromToolResult } from "../../e
 import { logInternalError } from "../../utils/internal-error.ts";
 import { requestRender, setExtensionWidget } from "../pi-ui-compat.ts";
 import { resetAllAgentTranscriptCursors } from "./agent-transcript.ts";
-import { buildAgentViewSessionFile, workerSessionSourceStamp } from "./agent-view-session.ts";
+import { buildAgentViewSessionFile, sessionsRootFromFile, workerSessionSourceStamp } from "./agent-view-session.ts";
 import { CrewInlineEditor } from "./crew-editor.ts";
 import type { PanelTarget } from "./panel-selection.ts";
 import { resetPanelStore, setViewedAgent } from "./panel-store.ts";
@@ -140,12 +140,15 @@ function dispatchViewCommand(text: string): void {
 const VIEW_BUILD_RETRY_MS = 500;
 const VIEW_BUILD_MAX_RETRIES = 40;
 
-/** The main session file's directory = pi's sessions root (the view build +
- *  refresh locate the worker's own session file under it). */
+/** pi's sessions ROOT from the main session file (the view build + refresh
+ *  locate the worker's own session file under it). Pi nests session files in
+ *  `~/.pi/agent/sessions/--<cwd-stem>--/`, so the root is derived by walking
+ *  up past the stem dir — the file's own dirname would re-join the stem and
+ *  never match (regression: worker-copy silently fell back to synthesis). */
 function mainSessionRoot(): string | undefined {
 	const state = getCrewViewSessionState();
 	const file = state.mainSessionFile ?? lastCtx?.sessionManager.getSessionFile();
-	return file ? path.dirname(file) : undefined;
+	return sessionsRootFromFile(file ?? undefined);
 }
 
 /** Build the view file, retrying while the agent's event file appears.
@@ -282,7 +285,7 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 			runId,
 			taskId,
 			parentSessionFile: mainSessionFile ?? prev.mainSessionFile,
-			sessionRoot: path.dirname(mainSessionFile ?? currentFile ?? ""),
+			sessionRoot: sessionsRootFromFile(mainSessionFile ?? currentFile ?? undefined),
 		});
 		if (!viewPath) {
 			ctx.ui.notify(`No transcript for agent ${taskId} in run ${runId}.`, "error");

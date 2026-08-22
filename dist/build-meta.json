@@ -19581,7 +19581,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-view-session.ts": {
-      "bytes": 22687,
+      "bytes": 23380,
       "imports": [
         {
           "path": "node:fs",
@@ -19664,7 +19664,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 24203,
+      "bytes": 24491,
       "imports": [
         {
           "path": "node:fs",
@@ -20490,7 +20490,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7530095
+      "bytes": 7531211
     },
     "dist/index.mjs": {
       "imports": [
@@ -22276,11 +22276,6 @@
         },
         {
           "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -24581,7 +24576,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 28627
+          "bytesInOutput": 28624
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 62642
@@ -24608,13 +24603,13 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 12238
+          "bytesInOutput": 12216
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 265
         },
         "src/ui/inline-panel/agent-view-session.ts": {
-          "bytesInOutput": 13436
+          "bytesInOutput": 13637
         },
         "src/ui/inline-panel/crew-editor.ts": {
           "bytesInOutput": 6106
@@ -24656,7 +24651,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3224724
+      "bytes": 3224900
     }
   }
 }
