@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { createRunManifest } from "../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
 import { getFooterDockProvider, resetFooterDockRegistry, setFooterDockSinkActive } from "../../../src/ui/dock-footer.ts";
-import { resetCrewViewSessionState, setCrewViewSessionState } from "../../../src/ui/inline-panel/view-session-store.ts";
+import { resetCrewViewSessionState } from "../../../src/ui/inline-panel/view-session-store.ts";
 import { stopCrewWidget, updateCrewWidget } from "../../../src/ui/widget/index.ts";
 import type { CrewWidgetState } from "../../../src/ui/widget/widget-types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
@@ -186,30 +186,6 @@ test("bottom + sink: switching to a no-run state unregisters the provider", () =
 	} finally {
 		setFooterDockSinkActive(false);
 		resetFooterDockRegistry();
-		removeTrackedTempDir(cwd);
-	}
-});
-
-test("view mode: dock hint advertises esc→back while the view session is active", () => {
-	const cwd = createTrackedTempDir("pi-crew-bottom-view-");
-	resetFooterDockRegistry();
-	resetCrewViewSessionState();
-	try {
-		const { manifest } = makeRunWithAgent(cwd);
-		const harness = makeHarness(cwd);
-		setFooterDockSinkActive(true);
-		setCrewViewSessionState({ active: true, runId: manifest.runId, taskId: "task_1", mainSessionFile: "/tmp/main.jsonl" });
-
-		updateCrewWidget(harness.ctx, newState(), { widgetPlacement: "bottom" }, undefined, undefined, [manifest]);
-		const lines = getFooterDockProvider()?.(100) ?? [];
-		assert.ok(
-			lines.some((line) => line.includes("agent view — esc back to main")),
-			`view hint present:\n${lines.join("\n")}`,
-		);
-	} finally {
-		setFooterDockSinkActive(false);
-		resetFooterDockRegistry();
-		resetCrewViewSessionState();
 		removeTrackedTempDir(cwd);
 	}
 });

@@ -90,9 +90,11 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 		scratchpad: true,
 	},
 
-	// Test Engineer - Can write tests (F1: hyphenated key)
+	// Test Engineer - Can write tests (F1: hyphenated key). Tool list mirrors
+	// agents/test-engineer.md frontmatter (T3 binding, commit c25dfbe2):
+	// search tools + delegate for spawning depth-1 helpers.
 	"test-engineer": {
-		tools: ["read", "edit", "write", "bash", "ls", "scratchpad", "ask"],
+		tools: ["read", "edit", "write", "bash", "ls", "glob", "grep", "find", "scratchpad", "ask", "delegate"],
 		excludeTools: ["web"],
 		// Phase 1 scratchpad: build/run test suites with state across cells.
 		scratchpad: true,

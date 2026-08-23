@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { captureCommandCtx } from "../../../ui/inline-panel/view-session-store.ts";
 import { printTimings, time } from "../../../utils/timings.ts";
 import { registerDashboardCommands } from "./dashboard.ts";
 import { registerManageCommands } from "./manage.ts";
@@ -7,29 +6,6 @@ import { registerRunCommands } from "./run.ts";
 import type { RegisterTeamCommandsDeps } from "./shared.ts";
 import { setTeamCommandsDeps } from "./shared.ts";
 import { registerStatusCommands } from "./status.ts";
-
-/**
- * Wrap pi.registerCommand so EVERY crew command handler captures its command
- * context on invocation (captureCommandCtx). Command contexts are the only
- * extension surface exposing switchSession; the inline agent panel reuses the
- * latest one to open agent views directly instead of submitting "/crew-view"
- * as text — which pi queues as a pending input while a foreground team run's
- * tool call is mid-flight, delaying the view until the whole turn ends.
- */
-function withCtxCapture(pi: ExtensionAPI): ExtensionAPI {
-	const register = pi.registerCommand.bind(pi);
-	(pi as { registerCommand: typeof pi.registerCommand }).registerCommand = (name, options) => {
-		const handler = options.handler;
-		register(name, {
-			...options,
-			handler: (args: string, ctx: Parameters<typeof handler>[1]) => {
-				captureCommandCtx(ctx);
-				return handler(args, ctx);
-			},
-		});
-	};
-	return pi;
-}
 
 /**
  * Register every pi-crew slash command on the ExtensionAPI.
@@ -42,7 +18,6 @@ function withCtxCapture(pi: ExtensionAPI): ExtensionAPI {
  */
 export function registerTeamCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
 	setTeamCommandsDeps(deps);
-	pi = withCtxCapture(pi);
 	registerStatusCommands(pi, deps);
 	registerRunCommands(pi, deps);
 	registerManageCommands(pi, deps);

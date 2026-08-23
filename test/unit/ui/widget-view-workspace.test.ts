@@ -13,7 +13,7 @@ import { test } from "node:test";
 import { createRunManifest } from "../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
 import { getFooterDockProvider, resetFooterDockRegistry, setFooterDockSinkActive } from "../../../src/ui/dock-footer.ts";
-import { resetCrewViewSessionState, setCrewViewSessionState } from "../../../src/ui/inline-panel/view-session-store.ts";
+import { resetCrewViewSessionState } from "../../../src/ui/inline-panel/view-session-store.ts";
 import { updateCrewWidget } from "../../../src/ui/widget/index.ts";
 import type { CrewWidgetState } from "../../../src/ui/widget/widget-types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../fixtures/test-tempdir.ts";
@@ -80,66 +80,6 @@ function newState(): CrewWidgetState {
 		notificationCount: 0,
 	};
 }
-
-test("view open: dock lists the run when mainSessionId matches the run owner", () => {
-	const cwd = createTrackedTempDir("pi-crew-vw-");
-	resetFooterDockRegistry();
-	resetCrewViewSessionState();
-	try {
-		const manifest = makeRunWithAgent(cwd, "main-session-id");
-		const harness = makeHarness(cwd, "view-session-id"); // the VIEW session's own id
-		setFooterDockSinkActive(true);
-		// View active; return path points at the MAIN session.
-		setCrewViewSessionState({
-			active: true,
-			runId: manifest.runId,
-			taskId: "task_executor_1",
-			mainSessionFile: "/tmp/main.jsonl",
-			mainSessionId: "main-session-id",
-		});
-
-		updateCrewWidget(harness.ctx, newState(), { widgetPlacement: "bottom" }, undefined, undefined, [manifest]);
-
-		const provider = getFooterDockProvider();
-		assert.ok(provider, "dock provider registered");
-		const joined = (provider(100) ?? []).join("\n");
-		assert.ok(joined.includes("main"), `dock shows rows despite the view session's own id:\n${joined}`);
-	} finally {
-		setFooterDockSinkActive(false);
-		resetFooterDockRegistry();
-		resetCrewViewSessionState();
-		removeTrackedTempDir(cwd);
-	}
-});
-
-test("view open: dock hides the run when mainSessionId is missing or mismatched", () => {
-	const cwd = createTrackedTempDir("pi-crew-vw-miss-");
-	resetFooterDockRegistry();
-	resetCrewViewSessionState();
-	try {
-		const manifest = makeRunWithAgent(cwd, "other-session-id");
-		const harness = makeHarness(cwd, "view-session-id");
-		setFooterDockSinkActive(true);
-		setCrewViewSessionState({
-			active: true,
-			runId: manifest.runId,
-			taskId: "task_executor_1",
-			mainSessionFile: "/tmp/main.jsonl",
-			mainSessionId: "main-session-id",
-		});
-
-		updateCrewWidget(harness.ctx, newState(), { widgetPlacement: "bottom" }, undefined, undefined, [manifest]);
-
-		const provider = getFooterDockProvider();
-		const joined = provider ? (provider(100) ?? []).join("\n") : "";
-		assert.ok(!joined.includes("executor"), `foreign run filtered out while viewing:\n${joined}`);
-	} finally {
-		setFooterDockSinkActive(false);
-		resetFooterDockRegistry();
-		resetCrewViewSessionState();
-		removeTrackedTempDir(cwd);
-	}
-});
 
 test("not viewing: filter uses the ctx session id as before", () => {
 	const cwd = createTrackedTempDir("pi-crew-vw-main-");

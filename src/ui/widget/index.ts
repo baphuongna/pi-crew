@@ -14,7 +14,6 @@ import { truncate } from "../../utils/visual.ts";
 import { isFooterDockSinkActive, setFooterDockProvider } from "../dock-footer.ts";
 import { panelRowsFromRuns } from "../inline-panel/panel-rows.ts";
 import { panelDisplayState, setPanelRowsProvider, subscribePanelChange } from "../inline-panel/panel-store.ts";
-import { getCrewViewSessionState } from "../inline-panel/view-session-store.ts";
 import { requestRender, requestRenderTarget, setExtensionWidget } from "../pi-ui-compat.ts";
 import type { OverlaySchedulerHandle } from "../shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "../shared-overlay-scheduler.ts";
@@ -309,11 +308,9 @@ class CrewWidgetComponent implements WidgetComponent {
 		const runningGlyph = spinnerFrame("widget-header");
 
 		// Panel cursor/pane state is part of the rendered output, so it belongs in
-		// the cache key — otherwise moving the cursor would not repaint. View-mode
-		// (the active session IS an agent view) changes the dock's hint line too.
+		// the cache key — otherwise moving the cursor would not repaint.
 		const panel = panelDisplayState();
-		const viewBack = getCrewViewSessionState().active;
-		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}/${viewBack ? 1 : 0}`;
+		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
 
 		// The spinner-frame swap only belongs on the LEGACY header, whose line 0
 		// already starts with a glyph position (`<frame> Crew agents …`). The
@@ -328,7 +325,7 @@ class CrewWidgetComponent implements WidgetComponent {
 				runs,
 				this.model.notificationCount ?? 0,
 				width,
-				{ rowStyle: this.model.rowStyle, ...panel, viewBack },
+				{ rowStyle: this.model.rowStyle, ...panel },
 			).map((line, index) => {
 				if (!compactDock && index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
 				return line;
@@ -404,10 +401,7 @@ export function updateCrewWidget(
 	state.frame += 1;
 	const maxLines = config?.widgetMaxLines ?? MAX_LINES_DEFAULT;
 
-	// While an agent session view is open, run-scoped surfaces must filter by
-	// the MAIN session's id (the view's own id would hide the run being viewed).
-	const viewState = getCrewViewSessionState();
-	let workspaceId = viewState.active ? viewState.mainSessionId : ctx.sessionManager?.getSessionId?.();
+	let workspaceId = ctx.sessionManager?.getSessionId?.();
 	if (!workspaceId && manifestCache) {
 		const runs = manifestCache.list(20);
 		const active = runs.find((r) => r.status === "running" || r.status === "queued");

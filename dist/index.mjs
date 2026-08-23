@@ -680,8 +680,8 @@ import * as path from "node:path";
 import { Worker } from "node:worker_threads";
 function getWorker() {
   if (worker) return worker;
-  const os20 = require2("node:os");
-  const tmpPath = path.join(fs.mkdtempSync(path.join(os20.tmpdir(), "pi-crew-waw-")), "worker.cjs");
+  const os19 = require2("node:os");
+  const tmpPath = path.join(fs.mkdtempSync(path.join(os19.tmpdir(), "pi-crew-waw-")), "worker.cjs");
   fs.writeFileSync(tmpPath, WORKER_SOURCE, "utf-8");
   worker = new Worker(tmpPath);
   worker.on("message", (msg) => {
@@ -7266,32 +7266,32 @@ function EscapeKey(key) {
 function IsDefined2(value) {
   return value !== void 0;
 }
-function Create(errorType, schema, path100, value, errors2 = []) {
+function Create(errorType, schema, path99, value, errors2 = []) {
   return {
     type: errorType,
     schema,
-    path: path100,
+    path: path99,
     value,
-    message: GetErrorFunction()({ errorType, path: path100, schema, value, errors: errors2 }),
+    message: GetErrorFunction()({ errorType, path: path99, schema, value, errors: errors2 }),
     errors: errors2
   };
 }
-function* FromAny3(schema, references, path100, value) {
+function* FromAny3(schema, references, path99, value) {
 }
-function* FromArgument3(schema, references, path100, value) {
+function* FromArgument3(schema, references, path99, value) {
 }
-function* FromArray8(schema, references, path100, value) {
+function* FromArray8(schema, references, path99, value) {
   if (!IsArray2(value)) {
-    return yield Create(ValueErrorType.Array, schema, path100, value);
+    return yield Create(ValueErrorType.Array, schema, path99, value);
   }
   if (IsDefined2(schema.minItems) && !(value.length >= schema.minItems)) {
-    yield Create(ValueErrorType.ArrayMinItems, schema, path100, value);
+    yield Create(ValueErrorType.ArrayMinItems, schema, path99, value);
   }
   if (IsDefined2(schema.maxItems) && !(value.length <= schema.maxItems)) {
-    yield Create(ValueErrorType.ArrayMaxItems, schema, path100, value);
+    yield Create(ValueErrorType.ArrayMaxItems, schema, path99, value);
   }
   for (let i = 0; i < value.length; i++) {
-    yield* Visit6(schema.items, references, `${path100}/${i}`, value[i]);
+    yield* Visit6(schema.items, references, `${path99}/${i}`, value[i]);
   }
   if (schema.uniqueItems === true && !(function() {
     const set = /* @__PURE__ */ new Set();
@@ -7305,116 +7305,116 @@ function* FromArray8(schema, references, path100, value) {
     }
     return true;
   })()) {
-    yield Create(ValueErrorType.ArrayUniqueItems, schema, path100, value);
+    yield Create(ValueErrorType.ArrayUniqueItems, schema, path99, value);
   }
   if (!(IsDefined2(schema.contains) || IsDefined2(schema.minContains) || IsDefined2(schema.maxContains))) {
     return;
   }
   const containsSchema = IsDefined2(schema.contains) ? schema.contains : Never();
-  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path100}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
+  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path99}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
   if (containsCount === 0) {
-    yield Create(ValueErrorType.ArrayContains, schema, path100, value);
+    yield Create(ValueErrorType.ArrayContains, schema, path99, value);
   }
   if (IsNumber2(schema.minContains) && containsCount < schema.minContains) {
-    yield Create(ValueErrorType.ArrayMinContains, schema, path100, value);
+    yield Create(ValueErrorType.ArrayMinContains, schema, path99, value);
   }
   if (IsNumber2(schema.maxContains) && containsCount > schema.maxContains) {
-    yield Create(ValueErrorType.ArrayMaxContains, schema, path100, value);
+    yield Create(ValueErrorType.ArrayMaxContains, schema, path99, value);
   }
 }
-function* FromAsyncIterator5(schema, references, path100, value) {
+function* FromAsyncIterator5(schema, references, path99, value) {
   if (!IsAsyncIterator2(value))
-    yield Create(ValueErrorType.AsyncIterator, schema, path100, value);
+    yield Create(ValueErrorType.AsyncIterator, schema, path99, value);
 }
-function* FromBigInt3(schema, references, path100, value) {
+function* FromBigInt3(schema, references, path99, value) {
   if (!IsBigInt2(value))
-    return yield Create(ValueErrorType.BigInt, schema, path100, value);
+    return yield Create(ValueErrorType.BigInt, schema, path99, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path100, value);
+    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path99, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path100, value);
+    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path99, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.BigIntMaximum, schema, path100, value);
+    yield Create(ValueErrorType.BigIntMaximum, schema, path99, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.BigIntMinimum, schema, path100, value);
+    yield Create(ValueErrorType.BigIntMinimum, schema, path99, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === BigInt(0))) {
-    yield Create(ValueErrorType.BigIntMultipleOf, schema, path100, value);
+    yield Create(ValueErrorType.BigIntMultipleOf, schema, path99, value);
   }
 }
-function* FromBoolean3(schema, references, path100, value) {
+function* FromBoolean3(schema, references, path99, value) {
   if (!IsBoolean2(value))
-    yield Create(ValueErrorType.Boolean, schema, path100, value);
+    yield Create(ValueErrorType.Boolean, schema, path99, value);
 }
-function* FromConstructor5(schema, references, path100, value) {
-  yield* Visit6(schema.returns, references, path100, value.prototype);
+function* FromConstructor5(schema, references, path99, value) {
+  yield* Visit6(schema.returns, references, path99, value.prototype);
 }
-function* FromDate3(schema, references, path100, value) {
+function* FromDate3(schema, references, path99, value) {
   if (!IsDate2(value))
-    return yield Create(ValueErrorType.Date, schema, path100, value);
+    return yield Create(ValueErrorType.Date, schema, path99, value);
   if (IsDefined2(schema.exclusiveMaximumTimestamp) && !(value.getTime() < schema.exclusiveMaximumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path100, value);
+    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path99, value);
   }
   if (IsDefined2(schema.exclusiveMinimumTimestamp) && !(value.getTime() > schema.exclusiveMinimumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path100, value);
+    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path99, value);
   }
   if (IsDefined2(schema.maximumTimestamp) && !(value.getTime() <= schema.maximumTimestamp)) {
-    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path100, value);
+    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path99, value);
   }
   if (IsDefined2(schema.minimumTimestamp) && !(value.getTime() >= schema.minimumTimestamp)) {
-    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path100, value);
+    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path99, value);
   }
   if (IsDefined2(schema.multipleOfTimestamp) && !(value.getTime() % schema.multipleOfTimestamp === 0)) {
-    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path100, value);
+    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path99, value);
   }
 }
-function* FromFunction5(schema, references, path100, value) {
+function* FromFunction5(schema, references, path99, value) {
   if (!IsFunction2(value))
-    yield Create(ValueErrorType.Function, schema, path100, value);
+    yield Create(ValueErrorType.Function, schema, path99, value);
 }
-function* FromImport2(schema, references, path100, value) {
+function* FromImport2(schema, references, path99, value) {
   const definitions = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  yield* Visit6(target, [...references, ...definitions], path100, value);
+  yield* Visit6(target, [...references, ...definitions], path99, value);
 }
-function* FromInteger3(schema, references, path100, value) {
+function* FromInteger3(schema, references, path99, value) {
   if (!IsInteger(value))
-    return yield Create(ValueErrorType.Integer, schema, path100, value);
+    return yield Create(ValueErrorType.Integer, schema, path99, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path100, value);
+    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path99, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path100, value);
+    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path99, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.IntegerMaximum, schema, path100, value);
+    yield Create(ValueErrorType.IntegerMaximum, schema, path99, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.IntegerMinimum, schema, path100, value);
+    yield Create(ValueErrorType.IntegerMinimum, schema, path99, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.IntegerMultipleOf, schema, path100, value);
+    yield Create(ValueErrorType.IntegerMultipleOf, schema, path99, value);
   }
 }
-function* FromIntersect10(schema, references, path100, value) {
+function* FromIntersect10(schema, references, path99, value) {
   let hasError = false;
   for (const inner of schema.allOf) {
-    for (const error of Visit6(inner, references, path100, value)) {
+    for (const error of Visit6(inner, references, path99, value)) {
       hasError = true;
       yield error;
     }
   }
   if (hasError) {
-    return yield Create(ValueErrorType.Intersect, schema, path100, value);
+    return yield Create(ValueErrorType.Intersect, schema, path99, value);
   }
   if (schema.unevaluatedProperties === false) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path100}/${valueKey}`, value);
+        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path99}/${valueKey}`, value);
       }
     }
   }
@@ -7422,59 +7422,59 @@ function* FromIntersect10(schema, references, path100, value) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        const next = Visit6(schema.unevaluatedProperties, references, `${path100}/${valueKey}`, value[valueKey]).next();
+        const next = Visit6(schema.unevaluatedProperties, references, `${path99}/${valueKey}`, value[valueKey]).next();
         if (!next.done)
           yield next.value;
       }
     }
   }
 }
-function* FromIterator5(schema, references, path100, value) {
+function* FromIterator5(schema, references, path99, value) {
   if (!IsIterator2(value))
-    yield Create(ValueErrorType.Iterator, schema, path100, value);
+    yield Create(ValueErrorType.Iterator, schema, path99, value);
 }
-function* FromLiteral4(schema, references, path100, value) {
+function* FromLiteral4(schema, references, path99, value) {
   if (!(value === schema.const))
-    yield Create(ValueErrorType.Literal, schema, path100, value);
+    yield Create(ValueErrorType.Literal, schema, path99, value);
 }
-function* FromNever3(schema, references, path100, value) {
-  yield Create(ValueErrorType.Never, schema, path100, value);
+function* FromNever3(schema, references, path99, value) {
+  yield Create(ValueErrorType.Never, schema, path99, value);
 }
-function* FromNot3(schema, references, path100, value) {
-  if (Visit6(schema.not, references, path100, value).next().done === true)
-    yield Create(ValueErrorType.Not, schema, path100, value);
+function* FromNot3(schema, references, path99, value) {
+  if (Visit6(schema.not, references, path99, value).next().done === true)
+    yield Create(ValueErrorType.Not, schema, path99, value);
 }
-function* FromNull3(schema, references, path100, value) {
+function* FromNull3(schema, references, path99, value) {
   if (!IsNull2(value))
-    yield Create(ValueErrorType.Null, schema, path100, value);
+    yield Create(ValueErrorType.Null, schema, path99, value);
 }
-function* FromNumber3(schema, references, path100, value) {
+function* FromNumber3(schema, references, path99, value) {
   if (!TypeSystemPolicy.IsNumberLike(value))
-    return yield Create(ValueErrorType.Number, schema, path100, value);
+    return yield Create(ValueErrorType.Number, schema, path99, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path100, value);
+    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path99, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path100, value);
+    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path99, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.NumberMaximum, schema, path100, value);
+    yield Create(ValueErrorType.NumberMaximum, schema, path99, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.NumberMinimum, schema, path100, value);
+    yield Create(ValueErrorType.NumberMinimum, schema, path99, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.NumberMultipleOf, schema, path100, value);
+    yield Create(ValueErrorType.NumberMultipleOf, schema, path99, value);
   }
 }
-function* FromObject9(schema, references, path100, value) {
+function* FromObject9(schema, references, path99, value) {
   if (!TypeSystemPolicy.IsObjectLike(value))
-    return yield Create(ValueErrorType.Object, schema, path100, value);
+    return yield Create(ValueErrorType.Object, schema, path99, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path100, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path99, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path100, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path99, value);
   }
   const requiredKeys = Array.isArray(schema.required) ? schema.required : [];
   const knownKeys = Object.getOwnPropertyNames(schema.properties);
@@ -7482,12 +7482,12 @@ function* FromObject9(schema, references, path100, value) {
   for (const requiredKey of requiredKeys) {
     if (unknownKeys.includes(requiredKey))
       continue;
-    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path100}/${EscapeKey(requiredKey)}`, void 0);
+    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path99}/${EscapeKey(requiredKey)}`, void 0);
   }
   if (schema.additionalProperties === false) {
     for (const valueKey of unknownKeys) {
       if (!knownKeys.includes(valueKey)) {
-        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path100}/${EscapeKey(valueKey)}`, value[valueKey]);
+        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path99}/${EscapeKey(valueKey)}`, value[valueKey]);
       }
     }
   }
@@ -7495,235 +7495,235 @@ function* FromObject9(schema, references, path100, value) {
     for (const valueKey of unknownKeys) {
       if (knownKeys.includes(valueKey))
         continue;
-      yield* Visit6(schema.additionalProperties, references, `${path100}/${EscapeKey(valueKey)}`, value[valueKey]);
+      yield* Visit6(schema.additionalProperties, references, `${path99}/${EscapeKey(valueKey)}`, value[valueKey]);
     }
   }
   for (const knownKey of knownKeys) {
     const property = schema.properties[knownKey];
     if (schema.required && schema.required.includes(knownKey)) {
-      yield* Visit6(property, references, `${path100}/${EscapeKey(knownKey)}`, value[knownKey]);
+      yield* Visit6(property, references, `${path99}/${EscapeKey(knownKey)}`, value[knownKey]);
       if (ExtendsUndefinedCheck(schema) && !(knownKey in value)) {
-        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path100}/${EscapeKey(knownKey)}`, void 0);
+        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path99}/${EscapeKey(knownKey)}`, void 0);
       }
     } else {
       if (TypeSystemPolicy.IsExactOptionalProperty(value, knownKey)) {
-        yield* Visit6(property, references, `${path100}/${EscapeKey(knownKey)}`, value[knownKey]);
+        yield* Visit6(property, references, `${path99}/${EscapeKey(knownKey)}`, value[knownKey]);
       }
     }
   }
 }
-function* FromPromise5(schema, references, path100, value) {
+function* FromPromise5(schema, references, path99, value) {
   if (!IsPromise(value))
-    yield Create(ValueErrorType.Promise, schema, path100, value);
+    yield Create(ValueErrorType.Promise, schema, path99, value);
 }
-function* FromRecord5(schema, references, path100, value) {
+function* FromRecord5(schema, references, path99, value) {
   if (!TypeSystemPolicy.IsRecordLike(value))
-    return yield Create(ValueErrorType.Object, schema, path100, value);
+    return yield Create(ValueErrorType.Object, schema, path99, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path100, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path99, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path100, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path99, value);
   }
   const [patternKey, patternSchema] = Object.entries(schema.patternProperties)[0];
   const regex = new RegExp(patternKey);
   for (const [propertyKey, propertyValue] of Object.entries(value)) {
     if (regex.test(propertyKey))
-      yield* Visit6(patternSchema, references, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
+      yield* Visit6(patternSchema, references, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
   }
   if (typeof schema.additionalProperties === "object") {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (!regex.test(propertyKey))
-        yield* Visit6(schema.additionalProperties, references, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
+        yield* Visit6(schema.additionalProperties, references, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
   if (schema.additionalProperties === false) {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (regex.test(propertyKey))
         continue;
-      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
+      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
 }
-function* FromRef6(schema, references, path100, value) {
-  yield* Visit6(Deref(schema, references), references, path100, value);
+function* FromRef6(schema, references, path99, value) {
+  yield* Visit6(Deref(schema, references), references, path99, value);
 }
-function* FromRegExp3(schema, references, path100, value) {
+function* FromRegExp3(schema, references, path99, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path100, value);
+    return yield Create(ValueErrorType.String, schema, path99, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path100, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path99, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path100, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path99, value);
   }
   const regex = new RegExp(schema.source, schema.flags);
   if (!regex.test(value)) {
-    return yield Create(ValueErrorType.RegExp, schema, path100, value);
+    return yield Create(ValueErrorType.RegExp, schema, path99, value);
   }
 }
-function* FromString3(schema, references, path100, value) {
+function* FromString3(schema, references, path99, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path100, value);
+    return yield Create(ValueErrorType.String, schema, path99, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path100, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path99, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path100, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path99, value);
   }
   if (IsString2(schema.pattern)) {
     const regex = new RegExp(schema.pattern);
     if (!regex.test(value)) {
-      yield Create(ValueErrorType.StringPattern, schema, path100, value);
+      yield Create(ValueErrorType.StringPattern, schema, path99, value);
     }
   }
   if (IsString2(schema.format)) {
     if (!format_exports.Has(schema.format)) {
-      yield Create(ValueErrorType.StringFormatUnknown, schema, path100, value);
+      yield Create(ValueErrorType.StringFormatUnknown, schema, path99, value);
     } else {
       const format2 = format_exports.Get(schema.format);
       if (!format2(value)) {
-        yield Create(ValueErrorType.StringFormat, schema, path100, value);
+        yield Create(ValueErrorType.StringFormat, schema, path99, value);
       }
     }
   }
 }
-function* FromSymbol3(schema, references, path100, value) {
+function* FromSymbol3(schema, references, path99, value) {
   if (!IsSymbol2(value))
-    yield Create(ValueErrorType.Symbol, schema, path100, value);
+    yield Create(ValueErrorType.Symbol, schema, path99, value);
 }
-function* FromTemplateLiteral5(schema, references, path100, value) {
+function* FromTemplateLiteral5(schema, references, path99, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path100, value);
+    return yield Create(ValueErrorType.String, schema, path99, value);
   const regex = new RegExp(schema.pattern);
   if (!regex.test(value)) {
-    yield Create(ValueErrorType.StringPattern, schema, path100, value);
+    yield Create(ValueErrorType.StringPattern, schema, path99, value);
   }
 }
-function* FromThis2(schema, references, path100, value) {
-  yield* Visit6(Deref(schema, references), references, path100, value);
+function* FromThis2(schema, references, path99, value) {
+  yield* Visit6(Deref(schema, references), references, path99, value);
 }
-function* FromTuple7(schema, references, path100, value) {
+function* FromTuple7(schema, references, path99, value) {
   if (!IsArray2(value))
-    return yield Create(ValueErrorType.Tuple, schema, path100, value);
+    return yield Create(ValueErrorType.Tuple, schema, path99, value);
   if (schema.items === void 0 && !(value.length === 0)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path100, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path99, value);
   }
   if (!(value.length === schema.maxItems)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path100, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path99, value);
   }
   if (!schema.items) {
     return;
   }
   for (let i = 0; i < schema.items.length; i++) {
-    yield* Visit6(schema.items[i], references, `${path100}/${i}`, value[i]);
+    yield* Visit6(schema.items[i], references, `${path99}/${i}`, value[i]);
   }
 }
-function* FromUndefined3(schema, references, path100, value) {
+function* FromUndefined3(schema, references, path99, value) {
   if (!IsUndefined2(value))
-    yield Create(ValueErrorType.Undefined, schema, path100, value);
+    yield Create(ValueErrorType.Undefined, schema, path99, value);
 }
-function* FromUnion12(schema, references, path100, value) {
+function* FromUnion12(schema, references, path99, value) {
   if (Check(schema, references, value))
     return;
-  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path100, value)));
-  yield Create(ValueErrorType.Union, schema, path100, value, errors2);
+  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path99, value)));
+  yield Create(ValueErrorType.Union, schema, path99, value, errors2);
 }
-function* FromUint8Array3(schema, references, path100, value) {
+function* FromUint8Array3(schema, references, path99, value) {
   if (!IsUint8Array2(value))
-    return yield Create(ValueErrorType.Uint8Array, schema, path100, value);
+    return yield Create(ValueErrorType.Uint8Array, schema, path99, value);
   if (IsDefined2(schema.maxByteLength) && !(value.length <= schema.maxByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path100, value);
+    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path99, value);
   }
   if (IsDefined2(schema.minByteLength) && !(value.length >= schema.minByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path100, value);
+    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path99, value);
   }
 }
-function* FromUnknown3(schema, references, path100, value) {
+function* FromUnknown3(schema, references, path99, value) {
 }
-function* FromVoid3(schema, references, path100, value) {
+function* FromVoid3(schema, references, path99, value) {
   if (!TypeSystemPolicy.IsVoidLike(value))
-    yield Create(ValueErrorType.Void, schema, path100, value);
+    yield Create(ValueErrorType.Void, schema, path99, value);
 }
-function* FromKind2(schema, references, path100, value) {
+function* FromKind2(schema, references, path99, value) {
   const check = type_exports2.Get(schema[Kind]);
   if (!check(schema, value))
-    yield Create(ValueErrorType.Kind, schema, path100, value);
+    yield Create(ValueErrorType.Kind, schema, path99, value);
 }
-function* Visit6(schema, references, path100, value) {
+function* Visit6(schema, references, path99, value) {
   const references_ = IsDefined2(schema.$id) ? [...references, schema] : references;
   const schema_ = schema;
   switch (schema_[Kind]) {
     case "Any":
-      return yield* FromAny3(schema_, references_, path100, value);
+      return yield* FromAny3(schema_, references_, path99, value);
     case "Argument":
-      return yield* FromArgument3(schema_, references_, path100, value);
+      return yield* FromArgument3(schema_, references_, path99, value);
     case "Array":
-      return yield* FromArray8(schema_, references_, path100, value);
+      return yield* FromArray8(schema_, references_, path99, value);
     case "AsyncIterator":
-      return yield* FromAsyncIterator5(schema_, references_, path100, value);
+      return yield* FromAsyncIterator5(schema_, references_, path99, value);
     case "BigInt":
-      return yield* FromBigInt3(schema_, references_, path100, value);
+      return yield* FromBigInt3(schema_, references_, path99, value);
     case "Boolean":
-      return yield* FromBoolean3(schema_, references_, path100, value);
+      return yield* FromBoolean3(schema_, references_, path99, value);
     case "Constructor":
-      return yield* FromConstructor5(schema_, references_, path100, value);
+      return yield* FromConstructor5(schema_, references_, path99, value);
     case "Date":
-      return yield* FromDate3(schema_, references_, path100, value);
+      return yield* FromDate3(schema_, references_, path99, value);
     case "Function":
-      return yield* FromFunction5(schema_, references_, path100, value);
+      return yield* FromFunction5(schema_, references_, path99, value);
     case "Import":
-      return yield* FromImport2(schema_, references_, path100, value);
+      return yield* FromImport2(schema_, references_, path99, value);
     case "Integer":
-      return yield* FromInteger3(schema_, references_, path100, value);
+      return yield* FromInteger3(schema_, references_, path99, value);
     case "Intersect":
-      return yield* FromIntersect10(schema_, references_, path100, value);
+      return yield* FromIntersect10(schema_, references_, path99, value);
     case "Iterator":
-      return yield* FromIterator5(schema_, references_, path100, value);
+      return yield* FromIterator5(schema_, references_, path99, value);
     case "Literal":
-      return yield* FromLiteral4(schema_, references_, path100, value);
+      return yield* FromLiteral4(schema_, references_, path99, value);
     case "Never":
-      return yield* FromNever3(schema_, references_, path100, value);
+      return yield* FromNever3(schema_, references_, path99, value);
     case "Not":
-      return yield* FromNot3(schema_, references_, path100, value);
+      return yield* FromNot3(schema_, references_, path99, value);
     case "Null":
-      return yield* FromNull3(schema_, references_, path100, value);
+      return yield* FromNull3(schema_, references_, path99, value);
     case "Number":
-      return yield* FromNumber3(schema_, references_, path100, value);
+      return yield* FromNumber3(schema_, references_, path99, value);
     case "Object":
-      return yield* FromObject9(schema_, references_, path100, value);
+      return yield* FromObject9(schema_, references_, path99, value);
     case "Promise":
-      return yield* FromPromise5(schema_, references_, path100, value);
+      return yield* FromPromise5(schema_, references_, path99, value);
     case "Record":
-      return yield* FromRecord5(schema_, references_, path100, value);
+      return yield* FromRecord5(schema_, references_, path99, value);
     case "Ref":
-      return yield* FromRef6(schema_, references_, path100, value);
+      return yield* FromRef6(schema_, references_, path99, value);
     case "RegExp":
-      return yield* FromRegExp3(schema_, references_, path100, value);
+      return yield* FromRegExp3(schema_, references_, path99, value);
     case "String":
-      return yield* FromString3(schema_, references_, path100, value);
+      return yield* FromString3(schema_, references_, path99, value);
     case "Symbol":
-      return yield* FromSymbol3(schema_, references_, path100, value);
+      return yield* FromSymbol3(schema_, references_, path99, value);
     case "TemplateLiteral":
-      return yield* FromTemplateLiteral5(schema_, references_, path100, value);
+      return yield* FromTemplateLiteral5(schema_, references_, path99, value);
     case "This":
-      return yield* FromThis2(schema_, references_, path100, value);
+      return yield* FromThis2(schema_, references_, path99, value);
     case "Tuple":
-      return yield* FromTuple7(schema_, references_, path100, value);
+      return yield* FromTuple7(schema_, references_, path99, value);
     case "Undefined":
-      return yield* FromUndefined3(schema_, references_, path100, value);
+      return yield* FromUndefined3(schema_, references_, path99, value);
     case "Union":
-      return yield* FromUnion12(schema_, references_, path100, value);
+      return yield* FromUnion12(schema_, references_, path99, value);
     case "Uint8Array":
-      return yield* FromUint8Array3(schema_, references_, path100, value);
+      return yield* FromUint8Array3(schema_, references_, path99, value);
     case "Unknown":
-      return yield* FromUnknown3(schema_, references_, path100, value);
+      return yield* FromUnknown3(schema_, references_, path99, value);
     case "Void":
-      return yield* FromVoid3(schema_, references_, path100, value);
+      return yield* FromVoid3(schema_, references_, path99, value);
     default:
       if (!type_exports2.Has(schema_[Kind]))
         throw new ValueErrorsUnknownTypeError(schema);
-      return yield* FromKind2(schema_, references_, path100, value);
+      return yield* FromKind2(schema_, references_, path99, value);
   }
 }
 function Errors(...args) {
@@ -7856,16 +7856,16 @@ var init_assert = __esm({
     init_errors2();
     init_error();
     init_check();
-    __classPrivateFieldSet = function(receiver, state3, value, kind, f) {
+    __classPrivateFieldSet = function(receiver, state2, value, kind, f) {
       if (kind === "m") throw new TypeError("Private method is not writable");
       if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-      if (typeof state3 === "function" ? receiver !== state3 || !f : !state3.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-      return kind === "a" ? f.call(receiver, value) : f ? f.value = value : state3.set(receiver, value), value;
+      if (typeof state2 === "function" ? receiver !== state2 || !f : !state2.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+      return kind === "a" ? f.call(receiver, value) : f ? f.value = value : state2.set(receiver, value), value;
     };
-    __classPrivateFieldGet = function(receiver, state3, kind, f) {
+    __classPrivateFieldGet = function(receiver, state2, kind, f) {
       if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-      if (typeof state3 === "function" ? receiver !== state3 || !f : !state3.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-      return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state3.get(receiver);
+      if (typeof state2 === "function" ? receiver !== state2 || !f : !state2.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+      return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state2.get(receiver);
     };
     AssertError = class extends TypeBoxError {
       constructor(iterator) {
@@ -8964,50 +8964,50 @@ var init_convert2 = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/decode.mjs
-function Default3(schema, path100, value) {
+function Default3(schema, path99, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Decode(value) : value;
   } catch (error) {
-    throw new TransformDecodeError(schema, path100, value, error);
+    throw new TransformDecodeError(schema, path99, value, error);
   }
 }
-function FromArray14(schema, references, path100, value) {
-  return IsArray2(value) ? Default3(schema, path100, value.map((value2, index) => Visit11(schema.items, references, `${path100}/${index}`, value2))) : Default3(schema, path100, value);
+function FromArray14(schema, references, path99, value) {
+  return IsArray2(value) ? Default3(schema, path99, value.map((value2, index) => Visit11(schema.items, references, `${path99}/${index}`, value2))) : Default3(schema, path99, value);
 }
-function FromIntersect15(schema, references, path100, value) {
+function FromIntersect15(schema, references, path99, value) {
   if (!IsObject2(value) || IsValueType(value))
-    return Default3(schema, path100, value);
+    return Default3(schema, path99, value);
   const knownEntries = KeyOfPropertyEntries(schema);
   const knownKeys = knownEntries.map((entry) => entry[0]);
   const knownProperties = { ...value };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit11(knownSchema, references, `${path100}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit11(knownSchema, references, `${path99}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
-    return Default3(schema, path100, knownProperties);
+    return Default3(schema, path99, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const unevaluatedProperties = schema.unevaluatedProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(unevaluatedProperties, `${path100}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(unevaluatedProperties, `${path99}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path100, unknownProperties);
+  return Default3(schema, path99, unknownProperties);
 }
-function FromImport7(schema, references, path100, value) {
+function FromImport7(schema, references, path99, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Visit11(target, [...references, ...additional], path100, value);
-  return Default3(schema, path100, result4);
+  const result4 = Visit11(target, [...references, ...additional], path99, value);
+  return Default3(schema, path99, result4);
 }
-function FromNot5(schema, references, path100, value) {
-  return Default3(schema, path100, Visit11(schema.not, references, path100, value));
+function FromNot5(schema, references, path99, value) {
+  return Default3(schema, path99, Visit11(schema.not, references, path99, value));
 }
-function FromObject15(schema, references, path100, value) {
+function FromObject15(schema, references, path99, value) {
   if (!IsObject2(value))
-    return Default3(schema, path100, value);
+    return Default3(schema, path99, value);
   const knownKeys = KeyOfPropertyKeys(schema);
   const knownProperties = { ...value };
   for (const key of knownKeys) {
@@ -9015,90 +9015,90 @@ function FromObject15(schema, references, path100, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit11(schema.properties[key], references, `${path100}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit11(schema.properties[key], references, `${path99}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path100, knownProperties);
+    return Default3(schema, path99, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path100}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path99}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path100, unknownProperties);
+  return Default3(schema, path99, unknownProperties);
 }
-function FromRecord10(schema, references, path100, value) {
+function FromRecord10(schema, references, path99, value) {
   if (!IsObject2(value))
-    return Default3(schema, path100, value);
+    return Default3(schema, path99, value);
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
   const knownKeys = new RegExp(pattern);
   const knownProperties = { ...value };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path100}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path99}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path100, knownProperties);
+    return Default3(schema, path99, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path100}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path99}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path100, unknownProperties);
+  return Default3(schema, path99, unknownProperties);
 }
-function FromRef11(schema, references, path100, value) {
+function FromRef11(schema, references, path99, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path100, Visit11(target, references, path100, value));
+  return Default3(schema, path99, Visit11(target, references, path99, value));
 }
-function FromThis7(schema, references, path100, value) {
+function FromThis7(schema, references, path99, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path100, Visit11(target, references, path100, value));
+  return Default3(schema, path99, Visit11(target, references, path99, value));
 }
-function FromTuple12(schema, references, path100, value) {
-  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path100, schema.items.map((schema2, index) => Visit11(schema2, references, `${path100}/${index}`, value[index]))) : Default3(schema, path100, value);
+function FromTuple12(schema, references, path99, value) {
+  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path99, schema.items.map((schema2, index) => Visit11(schema2, references, `${path99}/${index}`, value[index]))) : Default3(schema, path99, value);
 }
-function FromUnion17(schema, references, path100, value) {
+function FromUnion17(schema, references, path99, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const decoded = Visit11(subschema, references, path100, value);
-    return Default3(schema, path100, decoded);
+    const decoded = Visit11(subschema, references, path99, value);
+    return Default3(schema, path99, decoded);
   }
-  return Default3(schema, path100, value);
+  return Default3(schema, path99, value);
 }
-function Visit11(schema, references, path100, value) {
+function Visit11(schema, references, path99, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray14(schema_, references_, path100, value);
+      return FromArray14(schema_, references_, path99, value);
     case "Import":
-      return FromImport7(schema_, references_, path100, value);
+      return FromImport7(schema_, references_, path99, value);
     case "Intersect":
-      return FromIntersect15(schema_, references_, path100, value);
+      return FromIntersect15(schema_, references_, path99, value);
     case "Not":
-      return FromNot5(schema_, references_, path100, value);
+      return FromNot5(schema_, references_, path99, value);
     case "Object":
-      return FromObject15(schema_, references_, path100, value);
+      return FromObject15(schema_, references_, path99, value);
     case "Record":
-      return FromRecord10(schema_, references_, path100, value);
+      return FromRecord10(schema_, references_, path99, value);
     case "Ref":
-      return FromRef11(schema_, references_, path100, value);
+      return FromRef11(schema_, references_, path99, value);
     case "Symbol":
-      return Default3(schema_, path100, value);
+      return Default3(schema_, path99, value);
     case "This":
-      return FromThis7(schema_, references_, path100, value);
+      return FromThis7(schema_, references_, path99, value);
     case "Tuple":
-      return FromTuple12(schema_, references_, path100, value);
+      return FromTuple12(schema_, references_, path99, value);
     case "Union":
-      return FromUnion17(schema_, references_, path100, value);
+      return FromUnion17(schema_, references_, path99, value);
     default:
-      return Default3(schema_, path100, value);
+      return Default3(schema_, path99, value);
   }
 }
 function TransformDecode(schema, references, value) {
@@ -9124,10 +9124,10 @@ var init_decode = __esm({
       }
     };
     TransformDecodeError = class extends TypeBoxError {
-      constructor(schema, path100, value, error) {
+      constructor(schema, path99, value, error) {
         super(error instanceof Error ? error.message : "Unknown error");
         this.schema = schema;
-        this.path = path100;
+        this.path = path99;
         this.value = value;
         this.error = error;
       }
@@ -9136,25 +9136,25 @@ var init_decode = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/encode.mjs
-function Default4(schema, path100, value) {
+function Default4(schema, path99, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Encode(value) : value;
   } catch (error) {
-    throw new TransformEncodeError(schema, path100, value, error);
+    throw new TransformEncodeError(schema, path99, value, error);
   }
 }
-function FromArray15(schema, references, path100, value) {
-  const defaulted = Default4(schema, path100, value);
-  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path100}/${index}`, value2)) : defaulted;
+function FromArray15(schema, references, path99, value) {
+  const defaulted = Default4(schema, path99, value);
+  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path99}/${index}`, value2)) : defaulted;
 }
-function FromImport8(schema, references, path100, value) {
+function FromImport8(schema, references, path99, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Default4(schema, path100, value);
-  return Visit12(target, [...references, ...additional], path100, result4);
+  const result4 = Default4(schema, path99, value);
+  return Visit12(target, [...references, ...additional], path99, result4);
 }
-function FromIntersect16(schema, references, path100, value) {
-  const defaulted = Default4(schema, path100, value);
+function FromIntersect16(schema, references, path99, value) {
+  const defaulted = Default4(schema, path99, value);
   if (!IsObject2(value) || IsValueType(value))
     return defaulted;
   const knownEntries = KeyOfPropertyEntries(schema);
@@ -9162,7 +9162,7 @@ function FromIntersect16(schema, references, path100, value) {
   const knownProperties = { ...defaulted };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit12(knownSchema, references, `${path100}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit12(knownSchema, references, `${path99}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
     return knownProperties;
@@ -9172,15 +9172,15 @@ function FromIntersect16(schema, references, path100, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(unevaluatedProperties, `${path100}/${key}`, properties[key]);
+      properties[key] = Default4(unevaluatedProperties, `${path99}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromNot6(schema, references, path100, value) {
-  return Default4(schema.not, path100, Default4(schema, path100, value));
+function FromNot6(schema, references, path99, value) {
+  return Default4(schema.not, path99, Default4(schema, path99, value));
 }
-function FromObject16(schema, references, path100, value) {
-  const defaulted = Default4(schema, path100, value);
+function FromObject16(schema, references, path99, value) {
+  const defaulted = Default4(schema, path99, value);
   if (!IsObject2(defaulted))
     return defaulted;
   const knownKeys = KeyOfPropertyKeys(schema);
@@ -9190,7 +9190,7 @@ function FromObject16(schema, references, path100, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit12(schema.properties[key], references, `${path100}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit12(schema.properties[key], references, `${path99}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9200,12 +9200,12 @@ function FromObject16(schema, references, path100, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(additionalProperties, `${path100}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path99}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRecord11(schema, references, path100, value) {
-  const defaulted = Default4(schema, path100, value);
+function FromRecord11(schema, references, path99, value) {
+  const defaulted = Default4(schema, path99, value);
   if (!IsObject2(value))
     return defaulted;
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
@@ -9213,7 +9213,7 @@ function FromRecord11(schema, references, path100, value) {
   const knownProperties = { ...defaulted };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path100}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path99}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9223,65 +9223,65 @@ function FromRecord11(schema, references, path100, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      properties[key] = Default4(additionalProperties, `${path100}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path99}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRef12(schema, references, path100, value) {
+function FromRef12(schema, references, path99, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path100, value);
-  return Default4(schema, path100, resolved);
+  const resolved = Visit12(target, references, path99, value);
+  return Default4(schema, path99, resolved);
 }
-function FromThis8(schema, references, path100, value) {
+function FromThis8(schema, references, path99, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path100, value);
-  return Default4(schema, path100, resolved);
+  const resolved = Visit12(target, references, path99, value);
+  return Default4(schema, path99, resolved);
 }
-function FromTuple13(schema, references, path100, value) {
-  const value1 = Default4(schema, path100, value);
-  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path100}/${index}`, value1[index])) : [];
+function FromTuple13(schema, references, path99, value) {
+  const value1 = Default4(schema, path99, value);
+  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path99}/${index}`, value1[index])) : [];
 }
-function FromUnion18(schema, references, path100, value) {
+function FromUnion18(schema, references, path99, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const value1 = Visit12(subschema, references, path100, value);
-    return Default4(schema, path100, value1);
+    const value1 = Visit12(subschema, references, path99, value);
+    return Default4(schema, path99, value1);
   }
   for (const subschema of schema.anyOf) {
-    const value1 = Visit12(subschema, references, path100, value);
+    const value1 = Visit12(subschema, references, path99, value);
     if (!Check(schema, references, value1))
       continue;
-    return Default4(schema, path100, value1);
+    return Default4(schema, path99, value1);
   }
-  return Default4(schema, path100, value);
+  return Default4(schema, path99, value);
 }
-function Visit12(schema, references, path100, value) {
+function Visit12(schema, references, path99, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray15(schema_, references_, path100, value);
+      return FromArray15(schema_, references_, path99, value);
     case "Import":
-      return FromImport8(schema_, references_, path100, value);
+      return FromImport8(schema_, references_, path99, value);
     case "Intersect":
-      return FromIntersect16(schema_, references_, path100, value);
+      return FromIntersect16(schema_, references_, path99, value);
     case "Not":
-      return FromNot6(schema_, references_, path100, value);
+      return FromNot6(schema_, references_, path99, value);
     case "Object":
-      return FromObject16(schema_, references_, path100, value);
+      return FromObject16(schema_, references_, path99, value);
     case "Record":
-      return FromRecord11(schema_, references_, path100, value);
+      return FromRecord11(schema_, references_, path99, value);
     case "Ref":
-      return FromRef12(schema_, references_, path100, value);
+      return FromRef12(schema_, references_, path99, value);
     case "This":
-      return FromThis8(schema_, references_, path100, value);
+      return FromThis8(schema_, references_, path99, value);
     case "Tuple":
-      return FromTuple13(schema_, references_, path100, value);
+      return FromTuple13(schema_, references_, path99, value);
     case "Union":
-      return FromUnion18(schema_, references_, path100, value);
+      return FromUnion18(schema_, references_, path99, value);
     default:
-      return Default4(schema_, path100, value);
+      return Default4(schema_, path99, value);
   }
 }
 function TransformEncode(schema, references, value) {
@@ -9307,10 +9307,10 @@ var init_encode = __esm({
       }
     };
     TransformEncodeError = class extends TypeBoxError {
-      constructor(schema, path100, value, error) {
+      constructor(schema, path99, value, error) {
         super(`${error instanceof Error ? error.message : "Unknown error"}`);
         this.schema = schema;
-        this.path = path100;
+        this.path = path99;
         this.value = value;
         this.error = error;
       }
@@ -9710,18 +9710,18 @@ var init_pointer = __esm({
   "node_modules/@sinclair/typebox/build/esm/value/pointer/pointer.mjs"() {
     init_error2();
     ValuePointerRootSetError = class extends TypeBoxError {
-      constructor(value, path100, update) {
+      constructor(value, path99, update) {
         super("Cannot set root value");
         this.value = value;
-        this.path = path100;
+        this.path = path99;
         this.update = update;
       }
     };
     ValuePointerRootDeleteError = class extends TypeBoxError {
-      constructor(value, path100) {
+      constructor(value, path99) {
         super("Cannot delete root value");
         this.value = value;
-        this.path = path100;
+        this.path = path99;
       }
     };
   }
@@ -9780,82 +9780,82 @@ var init_equal = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/delta/delta.mjs
-function CreateUpdate(path100, value) {
-  return { type: "update", path: path100, value };
+function CreateUpdate(path99, value) {
+  return { type: "update", path: path99, value };
 }
-function CreateInsert(path100, value) {
-  return { type: "insert", path: path100, value };
+function CreateInsert(path99, value) {
+  return { type: "insert", path: path99, value };
 }
-function CreateDelete(path100) {
-  return { type: "delete", path: path100 };
+function CreateDelete(path99) {
+  return { type: "delete", path: path99 };
 }
 function AssertDiffable(value) {
   if (globalThis.Object.getOwnPropertySymbols(value).length > 0)
     throw new ValueDiffError(value, "Cannot diff objects with symbols");
 }
-function* ObjectType4(path100, current, next) {
+function* ObjectType4(path99, current, next) {
   AssertDiffable(current);
   AssertDiffable(next);
   if (!IsStandardObject(next))
-    return yield CreateUpdate(path100, next);
+    return yield CreateUpdate(path99, next);
   const currentKeys = globalThis.Object.getOwnPropertyNames(current);
   const nextKeys = globalThis.Object.getOwnPropertyNames(next);
   for (const key of nextKeys) {
     if (HasPropertyKey2(current, key))
       continue;
-    yield CreateInsert(`${path100}/${key}`, next[key]);
+    yield CreateInsert(`${path99}/${key}`, next[key]);
   }
   for (const key of currentKeys) {
     if (!HasPropertyKey2(next, key))
       continue;
     if (Equal(current, next))
       continue;
-    yield* Visit15(`${path100}/${key}`, current[key], next[key]);
+    yield* Visit15(`${path99}/${key}`, current[key], next[key]);
   }
   for (const key of currentKeys) {
     if (HasPropertyKey2(next, key))
       continue;
-    yield CreateDelete(`${path100}/${key}`);
+    yield CreateDelete(`${path99}/${key}`);
   }
 }
-function* ArrayType4(path100, current, next) {
+function* ArrayType4(path99, current, next) {
   if (!IsArray2(next))
-    return yield CreateUpdate(path100, next);
+    return yield CreateUpdate(path99, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path100}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path99}/${i}`, current[i], next[i]);
   }
   for (let i = 0; i < next.length; i++) {
     if (i < current.length)
       continue;
-    yield CreateInsert(`${path100}/${i}`, next[i]);
+    yield CreateInsert(`${path99}/${i}`, next[i]);
   }
   for (let i = current.length - 1; i >= 0; i--) {
     if (i < next.length)
       continue;
-    yield CreateDelete(`${path100}/${i}`);
+    yield CreateDelete(`${path99}/${i}`);
   }
 }
-function* TypedArrayType2(path100, current, next) {
+function* TypedArrayType2(path99, current, next) {
   if (!IsTypedArray(next) || current.length !== next.length || globalThis.Object.getPrototypeOf(current).constructor.name !== globalThis.Object.getPrototypeOf(next).constructor.name)
-    return yield CreateUpdate(path100, next);
+    return yield CreateUpdate(path99, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path100}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path99}/${i}`, current[i], next[i]);
   }
 }
-function* ValueType2(path100, current, next) {
+function* ValueType2(path99, current, next) {
   if (current === next)
     return;
-  yield CreateUpdate(path100, next);
+  yield CreateUpdate(path99, next);
 }
-function* Visit15(path100, current, next) {
+function* Visit15(path99, current, next) {
   if (IsStandardObject(current))
-    return yield* ObjectType4(path100, current, next);
+    return yield* ObjectType4(path99, current, next);
   if (IsArray2(current))
-    return yield* ArrayType4(path100, current, next);
+    return yield* ArrayType4(path99, current, next);
   if (IsTypedArray(current))
-    return yield* TypedArrayType2(path100, current, next);
+    return yield* TypedArrayType2(path99, current, next);
   if (IsValueType(current))
-    return yield* ValueType2(path100, current, next);
+    return yield* ValueType2(path99, current, next);
   throw new ValueDiffError(current, "Unable to diff value");
 }
 function Diff(current, next) {
@@ -9971,9 +9971,9 @@ var init_equal2 = __esm({
 function IsStandardObject2(value) {
   return IsObject2(value) && !IsArray2(value);
 }
-function ObjectType5(root, path100, current, next) {
+function ObjectType5(root, path99, current, next) {
   if (!IsStandardObject2(current)) {
-    pointer_exports.Set(root, path100, Clone2(next));
+    pointer_exports.Set(root, path99, Clone2(next));
   } else {
     const currentKeys = Object.getOwnPropertyNames(current);
     const nextKeys = Object.getOwnPropertyNames(next);
@@ -9988,43 +9988,43 @@ function ObjectType5(root, path100, current, next) {
       }
     }
     for (const nextKey of nextKeys) {
-      Visit16(root, `${path100}/${nextKey}`, current[nextKey], next[nextKey]);
+      Visit16(root, `${path99}/${nextKey}`, current[nextKey], next[nextKey]);
     }
   }
 }
-function ArrayType5(root, path100, current, next) {
+function ArrayType5(root, path99, current, next) {
   if (!IsArray2(current)) {
-    pointer_exports.Set(root, path100, Clone2(next));
+    pointer_exports.Set(root, path99, Clone2(next));
   } else {
     for (let index = 0; index < next.length; index++) {
-      Visit16(root, `${path100}/${index}`, current[index], next[index]);
+      Visit16(root, `${path99}/${index}`, current[index], next[index]);
     }
     current.splice(next.length);
   }
 }
-function TypedArrayType3(root, path100, current, next) {
+function TypedArrayType3(root, path99, current, next) {
   if (IsTypedArray(current) && current.length === next.length) {
     for (let i = 0; i < current.length; i++) {
       current[i] = next[i];
     }
   } else {
-    pointer_exports.Set(root, path100, Clone2(next));
+    pointer_exports.Set(root, path99, Clone2(next));
   }
 }
-function ValueType3(root, path100, current, next) {
+function ValueType3(root, path99, current, next) {
   if (current === next)
     return;
-  pointer_exports.Set(root, path100, next);
+  pointer_exports.Set(root, path99, next);
 }
-function Visit16(root, path100, current, next) {
+function Visit16(root, path99, current, next) {
   if (IsArray2(next))
-    return ArrayType5(root, path100, current, next);
+    return ArrayType5(root, path99, current, next);
   if (IsTypedArray(next))
-    return TypedArrayType3(root, path100, current, next);
+    return TypedArrayType3(root, path99, current, next);
   if (IsStandardObject2(next))
-    return ObjectType5(root, path100, current, next);
+    return ObjectType5(root, path99, current, next);
   if (IsValueType(next))
-    return ValueType3(root, path100, current, next);
+    return ValueType3(root, path99, current, next);
 }
 function IsNonMutableValue(value) {
   return IsTypedArray(value) || IsValueType(value);
@@ -10623,14 +10623,14 @@ function errorPathFromValidation(error) {
 function validateConfigWithWarnings(raw) {
   if (!value_exports2.Check(PiTeamsConfigSchema, raw)) {
     return [...value_exports2.Errors(PiTeamsConfigSchema, raw)].map((error) => {
-      const path100 = errorPathFromValidation(error);
+      const path99 = errorPathFromValidation(error);
       const message = error.message ?? "invalid value";
       if (error.keyword === "additionalProperties") {
-        const offendingKey = path100.split("/").pop() ?? path100;
+        const offendingKey = path99.split("/").pop() ?? path99;
         const suggestion = suggestConfigKey(offendingKey, KNOWN_TOP_LEVEL_KEYS);
-        if (suggestion) return `${path100}: ${message} (did you mean '${suggestion}'?)`;
+        if (suggestion) return `${path99}: ${message} (did you mean '${suggestion}'?)`;
       }
-      return `${path100}: ${message}`;
+      return `${path99}: ${message}`;
     });
   }
   return [];
@@ -13099,16 +13099,16 @@ function parseGenericGitUrl(url) {
   const { repo: repoWithoutRef, ref } = splitRef(url);
   let repo = repoWithoutRef;
   let host = "";
-  let path100 = "";
+  let path99 = "";
   const scpLikeMatch = repoWithoutRef.match(/^git@([^:]+):(.+)$/);
   if (scpLikeMatch) {
     host = scpLikeMatch[1] ?? "";
-    path100 = scpLikeMatch[2] ?? "";
+    path99 = scpLikeMatch[2] ?? "";
   } else if (repoWithoutRef.startsWith("https://") || repoWithoutRef.startsWith("http://") || repoWithoutRef.startsWith("ssh://") || repoWithoutRef.startsWith("git://")) {
     try {
       const parsed = new URL(repoWithoutRef);
       host = parsed.hostname;
-      path100 = parsed.pathname.replace(/^\/+/, "");
+      path99 = parsed.pathname.replace(/^\/+/, "");
     } catch {
       return null;
     }
@@ -13118,13 +13118,13 @@ function parseGenericGitUrl(url) {
       return null;
     }
     host = repoWithoutRef.slice(0, slashIndex);
-    path100 = repoWithoutRef.slice(slashIndex + 1);
+    path99 = repoWithoutRef.slice(slashIndex + 1);
     if (!host.includes(".") && host !== "localhost") {
       return null;
     }
     repo = `https://${repoWithoutRef}`;
   }
-  const normalizedPath = path100.replace(/\.git$/, "").replace(/^\/+/, "");
+  const normalizedPath = path99.replace(/\.git$/, "").replace(/^\/+/, "");
   if (!host || !normalizedPath || normalizedPath.split("/").length < 2) {
     return null;
   }
@@ -13946,9 +13946,9 @@ var init_cancellation_token = __esm({
         this.throwIfCancelled();
         this.#lastHeartbeatAt = this.#now().toISOString();
         this.#lastHeartbeatStage = stage;
-        const state3 = this.state();
-        this.#onHeartbeat?.(state3);
-        return state3;
+        const state2 = this.state();
+        this.#onHeartbeat?.(state2);
+        return state2;
       }
       throwIfCancelled() {
         if (this.aborted) throw new CrewCancellationError(this.#reason ?? cancellationReasonFromUnknown(this.#controller.signal.reason));
@@ -15120,16 +15120,6 @@ var init_pi_args = __esm({
 });
 
 // src/ui/inline-panel/view-session-store.ts
-import { closeSync as closeSync5, openSync as openSync5, readSync } from "node:fs";
-function markViewSwitchInFlight() {
-  viewSwitchInFlight = true;
-}
-function clearViewSwitchInFlight() {
-  viewSwitchInFlight = false;
-}
-function isViewSwitchInFlight() {
-  return viewSwitchInFlight;
-}
 function markSessionSwitchInFlight() {
   sessionSwitchInFlight = true;
 }
@@ -15139,67 +15129,10 @@ function clearSessionSwitchInFlight() {
 function isSessionSwitchInFlight() {
   return sessionSwitchInFlight;
 }
-function getCrewViewSessionState() {
-  return state;
-}
-function captureCommandCtx(ctx) {
-  let sessionId;
-  try {
-    const id = ctx?.sessionManager?.getSessionId?.();
-    if (typeof id === "string" && id) sessionId = id;
-  } catch {
-  }
-  capturedCommandCtx = { ctx, sessionId };
-}
-function currentCommandCtx(currentSessionId) {
-  if (!capturedCommandCtx) return void 0;
-  if (typeof currentSessionId !== "string" || !currentSessionId) return void 0;
-  return capturedCommandCtx.sessionId === currentSessionId ? capturedCommandCtx.ctx : void 0;
-}
-function setCrewViewSessionState(next) {
-  state = next;
-}
-function isCrewViewSessionFile(file) {
-  if (!file) return false;
-  const base = file.split(/[\\/]/).pop() ?? "";
-  return base === CREW_VIEW_SESSION_BASENAME;
-}
-function readViewParentSessionFile(viewSessionFile) {
-  let fd;
-  try {
-    fd = openSync5(viewSessionFile, "r");
-    const buf = Buffer.alloc(4096);
-    const bytesRead = readSync(fd, buf, 0, buf.length, 0);
-    if (bytesRead <= 0) return void 0;
-    const firstLine = buf.toString("utf8", 0, bytesRead).split("\n", 1)[0];
-    if (!firstLine) return void 0;
-    const header = JSON.parse(firstLine);
-    return typeof header.parentSession === "string" && header.parentSession ? header.parentSession : void 0;
-  } catch {
-    return void 0;
-  } finally {
-    if (fd !== void 0) {
-      try {
-        closeSync5(fd);
-      } catch {
-      }
-    }
-  }
-}
-function resolveReturnSessionFile(currentSessionFile, prev) {
-  if (isCrewViewSessionFile(currentSessionFile)) {
-    const fromHeader = readViewParentSessionFile(currentSessionFile);
-    if (fromHeader) return fromHeader;
-  }
-  return prev.mainSessionFile;
-}
-var CREW_VIEW_SESSION_BASENAME, state, viewSwitchInFlight, sessionSwitchInFlight, capturedCommandCtx;
+var sessionSwitchInFlight;
 var init_view_session_store = __esm({
   "src/ui/inline-panel/view-session-store.ts"() {
     "use strict";
-    CREW_VIEW_SESSION_BASENAME = "view-session.jsonl";
-    state = { active: false };
-    viewSwitchInFlight = false;
     sessionSwitchInFlight = false;
   }
 });
@@ -17848,7 +17781,7 @@ function registerCleanupHandler(pi, opts) {
   pi.on("session_shutdown", async () => {
     console.log("[pi-crew] Session shutdown - cleaning up resources");
     try {
-      if (isViewSwitchInFlight() || isSessionSwitchInFlight()) return;
+      if (isSessionSwitchInFlight()) return;
       await cleanupChildProcesses();
       await cleanupTempDirectories();
       console.log("[pi-crew] Cleanup complete");
@@ -18002,39 +17935,6 @@ var init_crew_agent_runtime = __esm({
 });
 
 // src/runtime/crew-agent-records.ts
-var crew_agent_records_exports = {};
-__export(crew_agent_records_exports, {
-  __test__agentRecordBufferCount: () => __test__agentRecordBufferCount,
-  __test_agentPathCacheStats: () => __test_agentPathCacheStats,
-  __test_clearAgentPathCache: () => __test_clearAgentPathCache,
-  agentEventsPath: () => agentEventsPath,
-  agentOutputPath: () => agentOutputPath,
-  agentStateDir: () => agentStateDir,
-  agentStateFile: () => agentStateFile,
-  agentStatusPath: () => agentStatusPath,
-  agentsPath: () => agentsPath,
-  agentsRoot: () => agentsRoot,
-  appendCrewAgentEvent: () => appendCrewAgentEvent,
-  appendCrewAgentEventBuffered: () => appendCrewAgentEventBuffered,
-  appendCrewAgentOutput: () => appendCrewAgentOutput,
-  appendCrewAgentOutputBuffered: () => appendCrewAgentOutputBuffered,
-  emptyCrewAgentProgress: () => emptyCrewAgentProgress,
-  ensureAgentStateDir: () => ensureAgentStateDir,
-  flushAllCrewAgentRecordBuffers: () => flushAllCrewAgentRecordBuffers,
-  flushCrewAgentRecordBuffer: () => flushCrewAgentRecordBuffer,
-  readCrewAgentEventsCursor: () => readCrewAgentEventsCursor,
-  readCrewAgentStatus: () => readCrewAgentStatus,
-  readCrewAgents: () => readCrewAgents,
-  readCrewAgentsAsync: () => readCrewAgentsAsync,
-  recordFromTask: () => recordFromTask,
-  removeCrewAgent: () => removeCrewAgent,
-  saveCrewAgents: () => saveCrewAgents,
-  saveCrewAgentsCoalesced: () => saveCrewAgentsCoalesced,
-  shouldDeleteCrewAgentOnTerminalStatus: () => shouldDeleteCrewAgentOnTerminalStatus,
-  upsertCrewAgent: () => upsertCrewAgent,
-  writeCrewAgentStatus: () => writeCrewAgentStatus,
-  writeCrewAgentStatusCoalesced: () => writeCrewAgentStatusCoalesced
-});
 import { randomUUID as randomUUID4 } from "node:crypto";
 import * as fs24 from "node:fs";
 import * as path20 from "node:path";
@@ -18090,13 +17990,6 @@ function agentStateFile(manifest, taskId, fileName) {
   resolvedAgentFiles.set(cacheKey2, resolved);
   bumpAgentPathCache();
   return resolved;
-}
-function __test_clearAgentPathCache() {
-  ensuredAgentDirs.clear();
-  resolvedAgentFiles.clear();
-}
-function __test_agentPathCacheStats() {
-  return { dirs: ensuredAgentDirs.size, files: resolvedAgentFiles.size };
 }
 function agentStatusPath(manifest, taskId) {
   return path20.join(agentStateDir(manifest, taskId), "status.json");
@@ -18601,9 +18494,6 @@ function scheduleAgentRecordBufferFlush(buffer) {
     buffer.timer.unref();
   }
 }
-function __test__agentRecordBufferCount() {
-  return agentRecordBuffers.size;
-}
 function emptyCrewAgentProgress() {
   return { recentTools: [], recentOutput: [], toolCount: 0 };
 }
@@ -18750,13 +18640,13 @@ var init_errors3 = __esm({
       }
     };
     errors = {
-      fileRead(path100, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path100}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileRead(path99, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path99}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system read operation"
         );
       },
-      fileWrite(path100, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path100}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileWrite(path99, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path99}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system write operation"
         );
       },
@@ -19702,45 +19592,45 @@ function readJsonlTail(filePath, tailBytes) {
     }
   }
 }
-function readLinesSince(filePath, state3) {
+function readLinesSince(filePath, state2) {
   let fd;
   try {
     fd = fs27.openSync(filePath, "r");
   } catch {
     return {
       lines: [],
-      state: { byteOffset: state3.byteOffset, lineCount: state3.lineCount },
+      state: { byteOffset: state2.byteOffset, lineCount: state2.lineCount },
       eof: true
     };
   }
   try {
     const stat2 = fs27.fstatSync(fd);
     const fileSize = stat2.size;
-    if (fileSize <= state3.byteOffset) {
+    if (fileSize <= state2.byteOffset) {
       return {
         lines: [],
-        state: { byteOffset: fileSize, lineCount: state3.lineCount },
+        state: { byteOffset: fileSize, lineCount: state2.lineCount },
         eof: true
       };
     }
-    const bytesToRead = fileSize - state3.byteOffset;
+    const bytesToRead = fileSize - state2.byteOffset;
     const buf = Buffer.alloc(bytesToRead);
     let totalRead = 0;
     while (totalRead < bytesToRead) {
       const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
-      const bytesRead = fs27.readSync(fd, buf, totalRead, chunkSize, state3.byteOffset + totalRead);
+      const bytesRead = fs27.readSync(fd, buf, totalRead, chunkSize, state2.byteOffset + totalRead);
       if (bytesRead === 0) break;
       totalRead += bytesRead;
     }
     const content = buf.toString("utf-8", 0, totalRead);
     const lines = [];
-    let lineCount = state3.lineCount;
-    let committedOffset = state3.byteOffset;
+    let lineCount = state2.lineCount;
+    let committedOffset = state2.byteOffset;
     let searchFrom = 0;
     let newlineIdx;
     while ((newlineIdx = content.indexOf("\n", searchFrom)) !== -1) {
       const lineText = content.slice(searchFrom, newlineIdx);
-      committedOffset = state3.byteOffset + newlineIdx + 1;
+      committedOffset = state2.byteOffset + newlineIdx + 1;
       searchFrom = newlineIdx + 1;
       if (lineText.length > 0) {
         lines.push(lineText);
@@ -19762,8 +19652,8 @@ function readLinesSince(filePath, state3) {
     }
   }
 }
-function readJsonlSince(filePath, state3) {
-  const result4 = readLinesSince(filePath, state3);
+function readJsonlSince(filePath, state2) {
+  const result4 = readLinesSince(filePath, state2);
   const items = [];
   for (const line4 of result4.lines) {
     try {
@@ -23166,26 +23056,26 @@ var init_syntax_highlight = __esm({
 
 // src/ui/transcript-cache.ts
 import * as fs33 from "node:fs";
-function cacheKey(path100, options) {
-  return `${path100}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
+function cacheKey(path99, options) {
+  return `${path99}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
-function getTranscriptCacheEntry(path100, options = {}) {
+function getTranscriptCacheEntry(path99, options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: options.maxTailBytes ?? DEFAULT_TAIL_BYTES
   };
-  return transcriptCache.get(cacheKey(path100, normalized)) ?? transcriptCache.get(path100);
+  return transcriptCache.get(cacheKey(path99, normalized)) ?? transcriptCache.get(path99);
 }
-function readTranscriptText(path100, stat2, options) {
+function readTranscriptText(path99, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
     return {
-      text: fs33.readFileSync(path100, "utf-8"),
+      text: fs33.readFileSync(path99, "utf-8"),
       bytesRead: stat2.size,
       truncated: false
     };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs33.openSync(path100, "r");
+  const fd = fs33.openSync(path99, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
     fs33.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -23197,16 +23087,16 @@ function readTranscriptText(path100, stat2, options) {
     fs33.closeSync(fd);
   }
 }
-function readTranscriptLinesCached(path100, parse4, now = Date.now(), options = {}) {
+function readTranscriptLinesCached(path99, parse4, now = Date.now(), options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: Math.max(1024, options.maxTailBytes ?? DEFAULT_TAIL_BYTES)
   };
-  const key = cacheKey(path100, normalized);
+  const key = cacheKey(path99, normalized);
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs33.statSync(path100);
+    stat2 = fs33.statSync(path99);
   } catch {
     return previous?.lines ?? [];
   }
@@ -23215,10 +23105,10 @@ function readTranscriptLinesCached(path100, parse4, now = Date.now(), options = 
     return previous.lines;
   }
   try {
-    const read = readTranscriptText(path100, stat2, normalized);
+    const read = readTranscriptText(path99, stat2, normalized);
     const lines = parse4(read.text);
     const entry = {
-      path: path100,
+      path: path99,
       mtimeMs: stat2.mtimeMs,
       size: stat2.size,
       lines,
@@ -23418,16 +23308,16 @@ function readRunTranscript(manifest, taskId, options = {}) {
   readRunTranscriptCache.set(cacheKey2, { parsedAt: now, result: result4 });
   return result4;
 }
-function renderViewerBase(state3, width, lines, title, subtitle) {
+function renderViewerBase(state2, width, lines, title, subtitle) {
   const inner = Math.max(20, width - 4);
   const bodyText = lines.join("\n");
-  const { visualLines, skippedCount } = truncateToVisualLines(bodyText, state3.lastHeight, inner);
-  const maxScroll = Math.max(0, visualLines.length - state3.lastHeight);
-  if (state3.autoScroll) state3.scroll = maxScroll;
-  state3.scroll = Math.min(state3.scroll, maxScroll);
-  const visible = visualLines.slice(state3.scroll, state3.scroll + state3.lastHeight);
-  const statusLine = `${visualLines.length} lines \xB7 ${visualLines.length ? Math.round((state3.scroll + visible.length) / visualLines.length * 100) : 100}% \xB7 auto-scroll ${state3.autoScroll ? "on" : "off"}`;
-  const fg = (color, text) => state3.theme.fg(color, text);
+  const { visualLines, skippedCount } = truncateToVisualLines(bodyText, state2.lastHeight, inner);
+  const maxScroll = Math.max(0, visualLines.length - state2.lastHeight);
+  if (state2.autoScroll) state2.scroll = maxScroll;
+  state2.scroll = Math.min(state2.scroll, maxScroll);
+  const visible = visualLines.slice(state2.scroll, state2.scroll + state2.lastHeight);
+  const statusLine = `${visualLines.length} lines \xB7 ${visualLines.length ? Math.round((state2.scroll + visible.length) / visualLines.length * 100) : 100}% \xB7 auto-scroll ${state2.autoScroll ? "on" : "off"}`;
+  const fg = (color, text) => state2.theme.fg(color, text);
   const row = (text) => `${fg("border", "\u2502")} ${pad(truncate(text, inner), inner)} ${fg("border", "\u2502")}`;
   const linesOut = [
     fg("border", `\u256D${"\u2500".repeat(inner + 2)}\u256E`),
@@ -25089,12 +24979,12 @@ function readDeliveryState(manifest) {
     if (obj.messages && typeof obj.messages === "object" && !Array.isArray(obj.messages)) {
       for (const [id, status] of Object.entries(obj.messages)) if (isStatus(status)) messages[id] = status;
     }
-    const state3 = {
+    const state2 = {
       messages,
       updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : (/* @__PURE__ */ new Date()).toISOString()
     };
-    setDeliveryCacheEntry(filePath, { mtimeMs: stat2.mtimeMs, state: state3 });
-    return state3;
+    setDeliveryCacheEntry(filePath, { mtimeMs: stat2.mtimeMs, state: state2 });
+    return state2;
   } catch (error) {
     const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
     try {
@@ -25112,25 +25002,25 @@ function readDeliveryState(manifest) {
     return { messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
   }
 }
-function writeDeliveryState(manifest, state3, options) {
+function writeDeliveryState(manifest, state2, options) {
   ensureRunMailbox(manifest);
   const MAX_DELIVERY_MESSAGES = 1e4;
-  if (Object.keys(state3.messages).length > MAX_DELIVERY_MESSAGES) {
-    const sorted = Object.entries(state3.messages).sort(([, a], [, b]) => {
+  if (Object.keys(state2.messages).length > MAX_DELIVERY_MESSAGES) {
+    const sorted = Object.entries(state2.messages).sort(([, a], [, b]) => {
       const order = { queued: 0, delivered: 1, acknowledged: 2 };
       return (order[a] ?? 3) - (order[b] ?? 3);
     });
     const trimmed = sorted.slice(0, MAX_DELIVERY_MESSAGES);
-    state3.messages = Object.fromEntries(trimmed);
+    state2.messages = Object.fromEntries(trimmed);
   }
   const filePath = deliveryFile(manifest, true);
-  atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(state3), null, 2)}
+  atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(state2), null, 2)}
 `, {
     durability: options?.durability ?? "best-effort"
   });
   try {
     const postStat = fs40.statSync(filePath);
-    setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state: state3 });
+    setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state: state2 });
   } catch {
     deliveryCache.delete(filePath);
   }
@@ -26459,24 +26349,24 @@ function resolveProviderForResponse() {
 function noteSessionModel(model, source = "model_select") {
   const normalized = modelRefToString(model);
   if (!normalized) return;
-  if (source === "session_start" && state2.source === "model_select") return;
-  state2.model = normalized;
-  state2.source = source;
-  state2.updatedAt = Date.now();
+  if (source === "session_start" && state.source === "model_select") return;
+  state.model = normalized;
+  state.source = source;
+  state.updatedAt = Date.now();
 }
 function noteSessionThinking(level) {
   if (typeof level !== "string") return;
   const value = level.trim();
-  state2.thinking = value && value !== "off" ? value : void 0;
+  state.thinking = value && value !== "off" ? value : void 0;
 }
 function currentSessionModel() {
-  return state2.model;
+  return state.model;
 }
 function currentSessionThinking() {
-  return state2.thinking;
+  return state.thinking;
 }
 function resolveParentModel(ctxModel) {
-  return state2.model ?? modelRefToString(ctxModel);
+  return state.model ?? modelRefToString(ctxModel);
 }
 function captureRunModelContext(ctx, override) {
   const parentModel = resolveParentModel(ctx.model);
@@ -26493,15 +26383,15 @@ function captureRunModelContext(ctx, override) {
   };
 }
 function sessionModelSnapshot() {
-  return { ...state2 };
+  return { ...state };
 }
-var state2, liveAgentContext, liveAgentModels, MAX_LIVE_AGENT_MODELS;
+var state, liveAgentContext, liveAgentModels, MAX_LIVE_AGENT_MODELS;
 var init_session_model = __esm({
   "src/runtime/model/session-model.ts"() {
     "use strict";
     init_internal_error();
     init_model_fallback();
-    state2 = { source: "none" };
+    state = { source: "none" };
     liveAgentContext = new AsyncLocalStorage2();
     liveAgentModels = /* @__PURE__ */ new Map();
     MAX_LIVE_AGENT_MODELS = 5e3;
@@ -26816,17 +26706,6 @@ var init_i18n = __esm({
 });
 
 // src/runtime/run-tracker.ts
-var run_tracker_exports = {};
-__export(run_tracker_exports, {
-  clearRunPromisesForTest: () => clearRunPromisesForTest,
-  detachRunPromise: () => detachRunPromise,
-  hasActiveRunPromise: () => hasActiveRunPromise,
-  hasPendingRunDetach: () => hasPendingRunDetach,
-  registerRunPromise: () => registerRunPromise,
-  rejectRunPromise: () => rejectRunPromise,
-  resolveRunPromise: () => resolveRunPromise,
-  waitForRun: () => waitForRun
-});
 import * as fs43 from "node:fs";
 import * as path33 from "node:path";
 function registerRunPromise(runId) {
@@ -26840,22 +26719,6 @@ function registerRunPromise(runId) {
   const entry = { promise, resolve: resolve26, reject };
   activeRunPromises.set(runId, entry);
   return entry;
-}
-function detachRunPromise(runId, cwd) {
-  const loaded = loadRunManifestById(cwd, runId);
-  if (!loaded) return false;
-  const entry = activeRunPromises.get(runId);
-  if (entry) {
-    activeRunPromises.delete(runId);
-    detachRequests.delete(runId);
-    entry.resolve({ ...loaded, detached: true });
-    return true;
-  }
-  detachRequests.add(runId);
-  return true;
-}
-function hasPendingRunDetach(runId) {
-  return detachRequests.has(runId);
 }
 function resolveRunPromise(runId, result4) {
   const entry = activeRunPromises.get(runId);
@@ -26915,16 +26778,6 @@ async function waitForRun(runId, cwd, options = {}) {
     attempt++;
   }
   throw new Error(`waitForRun timed out after ${timeoutMs}ms`);
-}
-function hasActiveRunPromise(runId) {
-  return activeRunPromises.has(runId);
-}
-function clearRunPromisesForTest() {
-  detachRequests.clear();
-  for (const entry of activeRunPromises.values()) {
-    entry.reject(new Error("Cleared by test"));
-  }
-  activeRunPromises.clear();
 }
 var activeRunPromises, detachRequests;
 var init_run_tracker = __esm({
@@ -27116,17 +26969,17 @@ function confidenceToThreshold(confidence) {
 }
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
-  const path100 = getSkillActivationsPath(cwd, activation.runId);
+  const path99 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync4(path100, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync4(path99, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
-  const path100 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync27(path100)) {
+  const path99 = getSkillActivationsPath(cwd, runId);
+  if (!existsSync27(path99)) {
     return [];
   }
-  const content = readFileSync30(path100, "utf-8");
+  const content = readFileSync30(path99, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -29573,11 +29426,11 @@ function parseSkillFrontmatter(content) {
     };
   }
 }
-function hard(path100, field, reason) {
-  return { path: path100, field, reason, severity: "error" };
+function hard(path99, field, reason) {
+  return { path: path99, field, reason, severity: "error" };
 }
-function warn(path100, field, reason) {
-  return { path: path100, field, reason, severity: "warn" };
+function warn(path99, field, reason) {
+  return { path: path99, field, reason, severity: "warn" };
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
@@ -33749,8 +33602,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path100) {
-      let input = path100;
+    function removeDotSegments(path99) {
+      let input = path99;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -34002,8 +33855,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path100, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path100 && path100 !== "/" ? path100 : void 0;
+        const [path99, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path99 && path99 !== "/" ? path99 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -40831,11 +40684,11 @@ function resolveSchemaKey(schema, key) {
     childSchema: childSchemas[0]
   };
 }
-function findUnknownConfigKeyPaths(value, schema, depth = 0, path100 = []) {
+function findUnknownConfigKeyPaths(value, schema, depth = 0, path99 = []) {
   if (!isRecord2(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
   const unknownPaths = [];
   for (const [key, childValue] of Object.entries(value)) {
-    const childPath = [...path100, key];
+    const childPath = [...path99, key];
     const resolution = resolveSchemaKey(schema, key);
     if (!resolution.allowed) {
       unknownPaths.push(childPath);
@@ -40847,8 +40700,8 @@ function findUnknownConfigKeyPaths(value, schema, depth = 0, path100 = []) {
   }
   return unknownPaths;
 }
-function isAgentOverrideKeyPath(path100) {
-  return path100.length === 4 && path100[0] === "agents" && path100[1] === "overrides";
+function isAgentOverrideKeyPath(path99) {
+  return path99.length === 4 && path99[0] === "agents" && path99[1] === "overrides";
 }
 function extractConfigReferences(config) {
   const agents = /* @__PURE__ */ new Set();
@@ -53136,8 +52989,8 @@ var init_theme_discovery = __esm({
 });
 
 // src/extension/team-tool/handle-settings.ts
-function setNested(obj, path100, value) {
-  const keys = path100.split(".");
+function setNested(obj, path99, value) {
+  const keys = path99.split(".");
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
@@ -53147,8 +53000,8 @@ function setNested(obj, path100, value) {
   }
   target[keys[keys.length - 1]] = value;
 }
-function getNested(obj, path100) {
-  const keys = path100.split(".");
+function getNested(obj, path99) {
+  const keys = path99.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -54465,7 +54318,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync13, existsSync as existsSync57, mkdirSync as mkdirSync35, openSync as openSync13, readdirSync as readdirSync24, readFileSync as readFileSync62, statSync as statSync41, unlinkSync as unlinkSync8 } from "node:fs";
+import { closeSync as closeSync12, existsSync as existsSync57, mkdirSync as mkdirSync35, openSync as openSync12, readdirSync as readdirSync24, readFileSync as readFileSync62, statSync as statSync41, unlinkSync as unlinkSync8 } from "node:fs";
 import { dirname as dirname37 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -54496,10 +54349,10 @@ var init_goal_state_store = __esm({
       }
       /** Load a goal by id. Returns undefined if missing/corrupt. Throws on unsafe goalId (§0c C10). */
       load(goalId) {
-        const path100 = goalFilePath(this.cwd, goalId);
+        const path99 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync57(path100)) return void 0;
-          const raw = readFileSync62(path100, "utf-8");
+          if (!existsSync57(path99)) return void 0;
+          const raw = readFileSync62(path99, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -54508,22 +54361,22 @@ var init_goal_state_store = __esm({
         }
       }
       /** Atomically persist a goal state. Emits a goal.state_changed event if eventsPath given. */
-      save(state3, eventsPath) {
-        assertSafePathId("goalId", state3.goalId);
-        const path100 = goalFilePath(this.cwd, state3.goalId);
-        const next = { ...state3, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      save(state2, eventsPath) {
+        assertSafePathId("goalId", state2.goalId);
+        const path99 = goalFilePath(this.cwd, state2.goalId);
+        const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync35(dirname37(path100), { recursive: true });
-          atomicWriteJson(path100, next);
+          mkdirSync35(dirname37(path99), { recursive: true });
+          atomicWriteJson(path99, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
               type: "goal.state_changed",
-              runId: state3.goalId,
-              data: { goalId: state3.goalId, state: state3.state }
+              runId: state2.goalId,
+              data: { goalId: state2.goalId, state: state2.state }
             });
           }
         } catch (error) {
-          logInternalError("goal-state-store.save", error, `goalId=${state3.goalId}`);
+          logInternalError("goal-state-store.save", error, `goalId=${state2.goalId}`);
           throw error;
         }
       }
@@ -54541,8 +54394,8 @@ var init_goal_state_store = __esm({
         return next;
       }
       /** Convenience: transition state with optional event emission. */
-      setStatus(goalId, state3, eventsPath) {
-        return this.patch(goalId, { state: state3 }, eventsPath);
+      setStatus(goalId, state2, eventsPath) {
+        return this.patch(goalId, { state: state2 }, eventsPath);
       }
       /**
        * Compare-And-Set status for atomic stuck↔resume transitions (P1b, RFC v0.5 §P1b).
@@ -54589,8 +54442,8 @@ var init_goal_state_store = __esm({
       /** Acquire an O_EXCL lockfile for CAS, with stale-lock recovery (5s age guard). */
       acquireCasLock(lockPath2) {
         try {
-          const fd = openSync13(lockPath2, "wx");
-          closeSync13(fd);
+          const fd = openSync12(lockPath2, "wx");
+          closeSync12(fd);
           return true;
         } catch (error) {
           const code = error.code;
@@ -54599,8 +54452,8 @@ var init_goal_state_store = __esm({
             const stat2 = statSync41(lockPath2);
             if (Date.now() - stat2.mtimeMs > 5e3) {
               unlinkSync8(lockPath2);
-              const fd = openSync13(lockPath2, "wx");
-              closeSync13(fd);
+              const fd = openSync12(lockPath2, "wx");
+              closeSync12(fd);
               return true;
             }
           } catch {
@@ -54611,9 +54464,9 @@ var init_goal_state_store = __esm({
       /** Remove a goal file (used by `goal clear`). Returns true if deleted. */
       remove(goalId) {
         try {
-          const path100 = goalFilePath(this.cwd, goalId);
-          if (!existsSync57(path100)) return false;
-          unlinkSync8(path100);
+          const path99 = goalFilePath(this.cwd, goalId);
+          if (!existsSync57(path99)) return false;
+          unlinkSync8(path99);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -54689,7 +54542,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash10 } from "node:crypto";
-import { closeSync as closeSync14, existsSync as existsSync58, mkdirSync as mkdirSync36, openSync as openSync14, readdirSync as readdirSync25, readFileSync as readFileSync64, statSync as statSync43, unlinkSync as unlinkSync9, writeFileSync as writeFileSync10 } from "node:fs";
+import { closeSync as closeSync13, existsSync as existsSync58, mkdirSync as mkdirSync36, openSync as openSync13, readdirSync as readdirSync25, readFileSync as readFileSync64, statSync as statSync43, unlinkSync as unlinkSync9, writeFileSync as writeFileSync10 } from "node:fs";
 import * as path68 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path68.resolve(cwd);
@@ -55968,7 +55821,6 @@ var init_powerbar_publisher = __esm({
     init_internal_error();
     init_session_utils();
     init_discover_workflows();
-    init_view_session_store();
     init_render_coalescer();
     init_widget_formatters();
     TASK_READ_TTL_MS = 200;
@@ -56000,8 +55852,7 @@ var init_powerbar_publisher = __esm({
       update(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests, workspaceId) {
         if (config?.powerbar === false) return;
         const useStatusFallback = !hasPowerbarConsumer(events);
-        const viewState = getCrewViewSessionState();
-        const effectiveWorkspaceId = workspaceId ?? (viewState.active ? viewState.mainSessionId : void 0) ?? extractSessionId(ctx);
+        const effectiveWorkspaceId = workspaceId ?? extractSessionId(ctx);
         const allRuns = preloadedManifests ?? (manifestCache2 ? manifestCache2.list(20) : listRecentRuns(cwd, 20));
         const runs = effectiveWorkspaceId ? allRuns.filter((run) => !run.ownerSessionId || run.ownerSessionId === effectiveWorkspaceId) : allRuns;
         const active = runs.map((run) => {
@@ -58038,9 +57889,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
     }, 0);
     if (agentCount > 0) {
       let hint;
-      if (options.viewBack) {
-        hint = "agent view \u2014 esc back to main \xB7 \u2193 switch";
-      } else if (options.viewedTaskId) {
+      if (options.viewedTaskId) {
         const viewedName = runs.flatMap((entry) => entry.agents).find((a) => a.taskId === options.viewedTaskId)?.agent ?? "agent";
         hint = `viewing @${viewedName} \u2014 typing goes to the agent \xB7 \u2193 switch \xB7 esc back`;
       } else if (options.focused) {
@@ -58599,19 +58448,19 @@ function ensureShared() {
   return shared;
 }
 function registerOverlayScheduler(render, onInvalidate) {
-  const state3 = ensureShared();
-  state3.renderers.add(render);
-  if (onInvalidate) state3.invalidators.add(onInvalidate);
+  const state2 = ensureShared();
+  state2.renderers.add(render);
+  if (onInvalidate) state2.invalidators.add(onInvalidate);
   return {
     schedule: () => {
-      state3.scheduler.schedule();
+      state2.scheduler.schedule();
     },
     dispose: () => {
-      state3.renderers.delete(render);
-      if (onInvalidate) state3.invalidators.delete(onInvalidate);
-      if (state3.renderers.size === 0) {
-        state3.scheduler.dispose();
-        if (shared === state3) shared = void 0;
+      state2.renderers.delete(render);
+      if (onInvalidate) state2.invalidators.delete(onInvalidate);
+      if (state2.renderers.size === 0) {
+        state2.scheduler.dispose();
+        if (shared === state2) shared = void 0;
       }
     }
   };
@@ -58673,12 +58522,11 @@ function uninstallResizeListener() {
     process.stdout.removeListener("resize", onResize);
   }
 }
-function updateCrewWidget(ctx, state3, config, manifestCache2, snapshotCache, preloadedManifests) {
+function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, preloadedManifests) {
   if (!ctx.hasUI) return;
-  state3.frame += 1;
+  state2.frame += 1;
   const maxLines = config?.widgetMaxLines ?? MAX_LINES_DEFAULT;
-  const viewState = getCrewViewSessionState();
-  let workspaceId = viewState.active ? viewState.mainSessionId : ctx.sessionManager?.getSessionId?.();
+  let workspaceId = ctx.sessionManager?.getSessionId?.();
   if (!workspaceId && manifestCache2) {
     const runs2 = manifestCache2.list(20);
     const active = runs2.find((r) => r.status === "running" || r.status === "queued");
@@ -58687,7 +58535,7 @@ function updateCrewWidget(ctx, state3, config, manifestCache2, snapshotCache, pr
   const runs = activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId);
   const rowStyle = config?.widgetRowStyle ?? DEFAULT_UI.widgetRowStyle;
   setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId)));
-  const lines = buildWidgetLines(ctx.cwd, state3.frame, maxLines, runs, state3.notificationCount ?? 0, getRenderWidth(), {
+  const lines = buildWidgetLines(ctx.cwd, state2.frame, maxLines, runs, state2.notificationCount ?? 0, getRenderWidth(), {
     rowStyle,
     ...panelDisplayState()
   });
@@ -58696,34 +58544,34 @@ function updateCrewWidget(ctx, state3, config, manifestCache2, snapshotCache, pr
   const dockInFooter = bottomMode && isFooterDockSinkActive();
   const piPlacement = bottomMode ? "belowEditor" : placement;
   ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : void 0);
-  const shouldClearLegacy = state3.legacyCleared !== true || state3.lastPlacement !== placement;
+  const shouldClearLegacy = state2.legacyCleared !== true || state2.lastPlacement !== placement;
   if (shouldClearLegacy) {
     setExtensionWidget(ctx, LEGACY_WIDGET_KEY, void 0, { placement: piPlacement });
-    state3.legacyCleared = true;
+    state2.legacyCleared = true;
   }
   if (!lines.length) {
-    if (state3.lastVisibility !== "hidden" || state3.lastPlacement !== placement) {
+    if (state2.lastVisibility !== "hidden" || state2.lastPlacement !== placement) {
       setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
-      state3.footerDock?.dispose();
-      state3.footerDock = void 0;
+      state2.footerDock?.dispose();
+      state2.footerDock = void 0;
       setFooterDockProvider(void 0);
-      state3.lastVisibility = "hidden";
-      state3.lastPlacement = placement;
-      state3.lastKey = WIDGET_KEY;
-      state3.lastMaxLines = maxLines;
-      state3.lastCwd = ctx.cwd;
-      state3.model = void 0;
+      state2.lastVisibility = "hidden";
+      state2.lastPlacement = placement;
+      state2.lastKey = WIDGET_KEY;
+      state2.lastMaxLines = maxLines;
+      state2.lastCwd = ctx.cwd;
+      state2.model = void 0;
     }
     requestRender(ctx);
     return;
   }
-  const needsWidgetInstall = state3.lastVisibility !== "visible" || state3.lastPlacement !== placement || state3.lastKey !== WIDGET_KEY || state3.lastMaxLines !== maxLines || state3.lastCwd !== ctx.cwd || !state3.model;
-  if (!state3.model)
-    state3.model = {
+  const needsWidgetInstall = state2.lastVisibility !== "visible" || state2.lastPlacement !== placement || state2.lastKey !== WIDGET_KEY || state2.lastMaxLines !== maxLines || state2.lastCwd !== ctx.cwd || !state2.model;
+  if (!state2.model)
+    state2.model = {
       cwd: ctx.cwd,
-      frame: state3.frame,
+      frame: state2.frame,
       maxLines,
-      notificationCount: state3.notificationCount ?? 0,
+      notificationCount: state2.notificationCount ?? 0,
       manifestCache: manifestCache2,
       snapshotCache,
       preloadManifests: preloadedManifests,
@@ -58731,50 +58579,50 @@ function updateCrewWidget(ctx, state3, config, manifestCache2, snapshotCache, pr
       rowStyle
     };
   else {
-    state3.model.cwd = ctx.cwd;
-    state3.model.frame = state3.frame;
-    state3.model.maxLines = maxLines;
-    state3.model.notificationCount = state3.notificationCount ?? 0;
-    state3.model.manifestCache = manifestCache2;
-    state3.model.snapshotCache = snapshotCache;
-    state3.model.preloadManifests = preloadedManifests;
-    state3.model.workspaceId = workspaceId;
-    state3.model.rowStyle = rowStyle;
+    state2.model.cwd = ctx.cwd;
+    state2.model.frame = state2.frame;
+    state2.model.maxLines = maxLines;
+    state2.model.notificationCount = state2.notificationCount ?? 0;
+    state2.model.manifestCache = manifestCache2;
+    state2.model.snapshotCache = snapshotCache;
+    state2.model.preloadManifests = preloadedManifests;
+    state2.model.workspaceId = workspaceId;
+    state2.model.rowStyle = rowStyle;
   }
   if (dockInFooter) {
-    if (needsWidgetInstall && state3.lastKey === WIDGET_KEY) {
+    if (needsWidgetInstall && state2.lastKey === WIDGET_KEY) {
       setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
     }
-    if (!state3.footerDock) state3.footerDock = new FooterDockHost(state3.model);
-    setFooterDockProvider((width) => state3.footerDock.render(width));
+    if (!state2.footerDock) state2.footerDock = new FooterDockHost(state2.model);
+    setFooterDockProvider((width) => state2.footerDock.render(width));
   } else {
-    if (state3.footerDock) {
-      state3.footerDock.dispose();
-      state3.footerDock = void 0;
+    if (state2.footerDock) {
+      state2.footerDock.dispose();
+      state2.footerDock = void 0;
     }
     setFooterDockProvider(void 0);
   }
   if (needsWidgetInstall && !dockInFooter) {
-    const model = state3.model;
+    const model = state2.model;
     setExtensionWidget(ctx, WIDGET_KEY, ((_tui, theme) => new CrewWidgetComponent(model, theme, _tui)), {
       placement: piPlacement,
       persist: true
     });
-    state3.lastVisibility = "visible";
-    state3.lastPlacement = placement;
-    state3.lastKey = WIDGET_KEY;
-    state3.lastMaxLines = maxLines;
-    state3.lastCwd = ctx.cwd;
+    state2.lastVisibility = "visible";
+    state2.lastPlacement = placement;
+    state2.lastKey = WIDGET_KEY;
+    state2.lastMaxLines = maxLines;
+    state2.lastCwd = ctx.cwd;
   } else if (dockInFooter) {
-    state3.lastVisibility = "visible";
-    state3.lastPlacement = placement;
-    state3.lastKey = WIDGET_KEY;
-    state3.lastMaxLines = maxLines;
-    state3.lastCwd = ctx.cwd;
+    state2.lastVisibility = "visible";
+    state2.lastPlacement = placement;
+    state2.lastKey = WIDGET_KEY;
+    state2.lastMaxLines = maxLines;
+    state2.lastCwd = ctx.cwd;
   }
   requestRender(ctx);
 }
-function stopCrewWidget(ctx, state3, config) {
+function stopCrewWidget(ctx, state2, config) {
   uninstallResizeListener();
   if (ctx?.hasUI) {
     const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
@@ -58782,14 +58630,14 @@ function stopCrewWidget(ctx, state3, config) {
     ctx.ui.setStatus(STATUS_KEY, void 0);
     setExtensionWidget(ctx, LEGACY_WIDGET_KEY, void 0, { placement: piPlacement });
     setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
-    state3.footerDock?.dispose();
-    state3.footerDock = void 0;
+    state2.footerDock?.dispose();
+    state2.footerDock = void 0;
     setFooterDockProvider(void 0);
-    state3.lastVisibility = "hidden";
-    state3.lastPlacement = placement;
-    state3.lastKey = WIDGET_KEY;
-    state3.model = void 0;
-    state3.legacyCleared = true;
+    state2.lastVisibility = "hidden";
+    state2.lastPlacement = placement;
+    state2.lastKey = WIDGET_KEY;
+    state2.model = void 0;
+    state2.legacyCleared = true;
     requestRender(ctx);
   }
 }
@@ -58802,7 +58650,6 @@ var init_widget = __esm({
     init_dock_footer();
     init_panel_rows();
     init_panel_store();
-    init_view_session_store();
     init_pi_ui_compat();
     init_shared_overlay_scheduler();
     init_spinner();
@@ -58927,8 +58774,7 @@ var init_widget = __esm({
         const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
         const runningGlyph = spinnerFrame("widget-header");
         const panel = panelDisplayState();
-        const viewBack = getCrewViewSessionState().active;
-        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}/${viewBack ? 1 : 0}`;
+        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
         const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
@@ -58938,7 +58784,7 @@ var init_widget = __esm({
             runs,
             this.model.notificationCount ?? 0,
             width,
-            { rowStyle: this.model.rowStyle, ...panel, viewBack }
+            { rowStyle: this.model.rowStyle, ...panel }
           ).map((line4, index) => {
             if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
@@ -66801,10 +66647,10 @@ var init_dwf_state_store = __esm({
       }
       /** Load the checkpoint for this run's stateRoot. Returns undefined if missing or corrupt (fresh run). */
       load() {
-        const path100 = this.path;
+        const path99 = this.path;
         try {
-          if (!existsSync74(path100)) return void 0;
-          const raw = readFileSync78(path100, "utf-8");
+          if (!existsSync74(path99)) return void 0;
+          const raw = readFileSync78(path99, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -66813,23 +66659,23 @@ var init_dwf_state_store = __esm({
         }
       }
       /** Atomically persist a checkpoint state. Stamps `updatedAt` (callers need not set it). */
-      save(state3) {
-        const path100 = this.path;
-        const next = { ...state3, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      save(state2) {
+        const path99 = this.path;
+        const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync42(dirname42(path100), { recursive: true });
-          atomicWriteJson(path100, next);
+          mkdirSync42(dirname42(path99), { recursive: true });
+          atomicWriteJson(path99, next);
         } catch (error) {
-          logInternalError("dwf-state-store.save", error, `runId=${state3.runId}`);
+          logInternalError("dwf-state-store.save", error, `runId=${state2.runId}`);
           throw error;
         }
       }
       /** Remove the checkpoint file (after a clean completion). Best-effort; never throws. */
       delete() {
-        const path100 = this.path;
+        const path99 = this.path;
         try {
-          if (!existsSync74(path100)) return;
-          unlinkSync13(path100);
+          if (!existsSync74(path99)) return;
+          unlinkSync13(path99);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
         }
@@ -67719,9 +67565,9 @@ async function runDynamicWorkflow(input) {
     resumedState,
     // round-18 P2-3: checkpoint after each ctx.agent() call so a crash between calls
     // leaves durable state. onCheckpoint captures the closure values at call time.
-    onCheckpoint: (state3) => {
+    onCheckpoint: (state2) => {
       try {
-        dwfStore.save(state3);
+        dwfStore.save(state2);
       } catch (error) {
         logInternalError("dynamic-workflow-runner.checkpoint-save", error, `runId=${manifest.runId}`);
       }
@@ -69696,11 +69542,11 @@ function extractDwfPhaseState(events) {
   });
   return { phases, currentPhase };
 }
-function renderDwfPhaseLines(state3, options) {
+function renderDwfPhaseLines(state2, options) {
   const ascii = options?.ascii === true;
   const lines = [];
-  if (state3.phases.length > 1) lines.push(DWF_PHASE_HEADER);
-  for (const entry of state3.phases) {
+  if (state2.phases.length > 1) lines.push(DWF_PHASE_HEADER);
+  for (const entry of state2.phases) {
     lines.push(`  ${markerFor(entry.status, ascii)} Phase: ${entry.name}`);
   }
   return lines;
@@ -71427,24 +71273,24 @@ var init_mascot = __esm({
         }
       }
       tickTypewriter() {
-        const state3 = this.effectState;
-        if (state3.pos === void 0) return true;
+        const state2 = this.effectState;
+        if (state2.pos === void 0) return true;
         for (let i = 0; i < 18; i++) {
-          const row = Math.floor(state3.pos / ARMIN_WIDTH);
-          const x = state3.pos % ARMIN_WIDTH;
+          const row = Math.floor(state2.pos / ARMIN_WIDTH);
+          const x = state2.pos % ARMIN_WIDTH;
           if (row >= ARMIN_DISPLAY_HEIGHT) return true;
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
-          state3.pos++;
+          state2.pos++;
         }
         return false;
       }
       tickScanline() {
-        const state3 = this.effectState;
-        if (state3.row === void 0) return true;
+        const state2 = this.effectState;
+        if (state2.row === void 0) return true;
         for (let step = 0; step < 3; step++) {
-          if (state3.row >= ARMIN_DISPLAY_HEIGHT) return true;
-          for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state3.row][x] = this.finalArminGrid[state3.row][x];
-          state3.row++;
+          if (state2.row >= ARMIN_DISPLAY_HEIGHT) return true;
+          for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[state2.row][x] = this.finalArminGrid[state2.row][x];
+          state2.row++;
         }
         return false;
       }
@@ -71480,33 +71326,33 @@ var init_mascot = __esm({
         return allSettled;
       }
       tickFade() {
-        const state3 = this.effectState;
-        if (!state3.positions || state3.idx === void 0) return true;
+        const state2 = this.effectState;
+        if (!state2.positions || state2.idx === void 0) return true;
         for (let i = 0; i < 54; i++) {
-          if (state3.idx >= state3.positions.length) return true;
-          const [row, x] = state3.positions[state3.idx];
+          if (state2.idx >= state2.positions.length) return true;
+          const [row, x] = state2.positions[state2.idx];
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
-          state3.idx++;
+          state2.idx++;
         }
         return false;
       }
       tickCrt() {
-        const state3 = this.effectState;
-        if (state3.expansion === void 0) return true;
+        const state2 = this.effectState;
+        if (state2.expansion === void 0) return true;
         const midRow = Math.floor(ARMIN_DISPLAY_HEIGHT / 2);
         this.currentArminGrid = emptyArminGrid();
-        const top = midRow - state3.expansion;
-        const bottom = midRow + state3.expansion;
+        const top = midRow - state2.expansion;
+        const bottom = midRow + state2.expansion;
         for (let row = Math.max(0, top); row <= Math.min(ARMIN_DISPLAY_HEIGHT - 1, bottom); row++) {
           for (let x = 0; x < ARMIN_WIDTH; x++) this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
         }
-        state3.expansion += 3;
-        return state3.expansion > ARMIN_DISPLAY_HEIGHT;
+        state2.expansion += 3;
+        return state2.expansion > ARMIN_DISPLAY_HEIGHT;
       }
       tickGlitch() {
-        const state3 = this.effectState;
-        if (state3.phase === void 0 || state3.glitchFrames === void 0) return true;
-        if (state3.phase < state3.glitchFrames) {
+        const state2 = this.effectState;
+        if (state2.phase === void 0 || state2.glitchFrames === void 0) return true;
+        if (state2.phase < state2.glitchFrames) {
           const offset = Math.floor(Math.random() * 7) - 3;
           const swapRow = Math.floor(Math.random() * ARMIN_DISPLAY_HEIGHT);
           const doShift = Math.random() < 0.3;
@@ -71521,7 +71367,7 @@ var init_mascot = __esm({
               }
             }
           }
-          state3.phase += 3;
+          state2.phase += 3;
           return false;
         }
         for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
@@ -71532,13 +71378,13 @@ var init_mascot = __esm({
         return true;
       }
       tickDissolve() {
-        const state3 = this.effectState;
-        if (!state3.positions || state3.idx === void 0) return true;
+        const state2 = this.effectState;
+        if (!state2.positions || state2.idx === void 0) return true;
         for (let i = 0; i < 66; i++) {
-          if (state3.idx >= state3.positions.length) return true;
-          const [row, x] = state3.positions[state3.idx];
+          if (state2.idx >= state2.positions.length) return true;
+          const [row, x] = state2.positions[state2.idx];
           this.currentArminGrid[row][x] = this.finalArminGrid[row][x];
-          state3.idx++;
+          state2.idx++;
         }
         return false;
       }
@@ -71641,8 +71487,8 @@ function formatValue2(value, id) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function getNestedValue(obj, path100) {
-  const keys = path100.split(".");
+function getNestedValue(obj, path99) {
+  const keys = path99.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -74128,23 +73974,8 @@ var init_status3 = __esm({
 });
 
 // src/extension/registration/commands/index.ts
-function withCtxCapture(pi) {
-  const register = pi.registerCommand.bind(pi);
-  pi.registerCommand = (name, options) => {
-    const handler = options.handler;
-    register(name, {
-      ...options,
-      handler: (args, ctx) => {
-        captureCommandCtx(ctx);
-        return handler(args, ctx);
-      }
-    });
-  };
-  return pi;
-}
 function registerTeamCommands(pi, deps) {
   setTeamCommandsDeps(deps);
-  pi = withCtxCapture(pi);
   registerStatusCommands(pi, deps);
   registerRunCommands(pi, deps);
   registerManageCommands(pi, deps);
@@ -74155,7 +73986,6 @@ function registerTeamCommands(pi, deps) {
 var init_commands = __esm({
   "src/extension/registration/commands/index.ts"() {
     "use strict";
-    init_view_session_store();
     init_timings();
     init_dashboard();
     init_manage2();
@@ -74746,13 +74576,13 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks2(path100) {
+function readTasks2(path99) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs113.readFileSync(path100, "utf-8"));
+    const parsed = JSON.parse(fs113.readFileSync(path99, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
-    return readJsonFileCoalesced(path100, TASK_READ_TTL_MS3, parse4);
+    return readJsonFileCoalesced(path99, TASK_READ_TTL_MS3, parse4);
   } catch {
     return [];
   }
@@ -74983,16 +74813,16 @@ async function importLiveRunSidebar() {
   }
   return _cachedLiveRunSidebar;
 }
-async function installLiveSidebar(ctx, runId, state3, deps) {
+async function installLiveSidebar(ctx, runId, state2, deps) {
   const uiConfig = loadConfig(ctx.cwd).config.ui;
   const autoOpen = uiConfig?.autoOpenDashboard === true;
   const foregroundAutoOpen = uiConfig?.autoOpenDashboardForForegroundRuns ?? DEFAULT_UI.autoOpenDashboardForForegroundRuns;
   if (!ctx.hasUI || !autoOpen || !foregroundAutoOpen || (uiConfig?.dashboardPlacement ?? DEFAULT_UI.dashboardPlacement) !== "right") {
     return false;
   }
-  if (state3.liveSidebarRunId === runId) return true;
-  state3.liveSidebarRunId = runId;
-  state3.dashboardOpened = true;
+  if (state2.liveSidebarRunId === runId) return true;
+  state2.liveSidebarRunId = runId;
+  state2.dashboardOpened = true;
   const widgetPlacement = uiConfig?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
   const placement = toPiWidgetPlacement(widgetPlacement);
   setExtensionWidget(ctx, "pi-crew", void 0, { placement });
@@ -75029,7 +74859,7 @@ async function installLiveSidebar(ctx, runId, state3, deps) {
         }
       }
     ).finally(() => {
-      if (state3.liveSidebarRunId === runId) state3.liveSidebarRunId = void 0;
+      if (state2.liveSidebarRunId === runId) state2.liveSidebarRunId = void 0;
       const c = deps.getCurrentCtx();
       if (!c) return;
       updateCrewWidget(
@@ -75046,12 +74876,12 @@ async function installLiveSidebar(ctx, runId, state3, deps) {
     return false;
   }
 }
-function clearDashboardPowerbar(state3, deps) {
+function clearDashboardPowerbar(state2, deps) {
   const c = deps.getCurrentCtx();
   if (c) stopCrewWidget(c, deps.widgetState, loadConfig(c.cwd).config.ui);
   clearPiCrewPowerbar(deps.pi.events);
   resetPowerbarDedupState();
-  state3.dashboardOpened = false;
+  state2.dashboardOpened = false;
 }
 function registerPowerbarSegments(deps, uiConfig) {
   registerPiCrewPowerbarSegments(deps.pi.events, uiConfig);
@@ -75185,12 +75015,12 @@ __export(async_notifier_exports, {
 function isFinished2(status) {
   return status === "completed" || status === "failed" || status === "cancelled" || status === "blocked";
 }
-function addSeenFinishedRunId(state3, runId) {
-  state3.seenFinishedRunIds.add(runId);
-  while (state3.seenFinishedRunIds.size > MAX_SEEN_FINISHED_RUN_IDS) {
-    const oldest = state3.seenFinishedRunIds.values().next().value;
+function addSeenFinishedRunId(state2, runId) {
+  state2.seenFinishedRunIds.add(runId);
+  while (state2.seenFinishedRunIds.size > MAX_SEEN_FINISHED_RUN_IDS) {
+    const oldest = state2.seenFinishedRunIds.values().next().value;
     if (oldest === void 0) break;
-    state3.seenFinishedRunIds.delete(oldest);
+    state2.seenFinishedRunIds.delete(oldest);
   }
 }
 function isAsyncTerminalEvent(event) {
@@ -75265,32 +75095,32 @@ function markDeadAsyncRunIfNeeded(run, now = Date.now(), quietMs = 3e4) {
     return failed;
   });
 }
-function startAsyncRunNotifier(ctx, state3, intervalMs = 5e3, options = {}) {
-  if (state3.interval) clearInterval(state3.interval);
-  const generation = options.generation ?? (state3.generation ?? 0) + 1;
-  state3.generation = generation;
+function startAsyncRunNotifier(ctx, state2, intervalMs = 5e3, options = {}) {
+  if (state2.interval) clearInterval(state2.interval);
+  const generation = options.generation ?? (state2.generation ?? 0) + 1;
+  state2.generation = generation;
   const startedAtMs = Date.now();
-  const staleBeforeMs = state3.lastStoppedAtMs ?? startedAtMs;
+  const staleBeforeMs = state2.lastStoppedAtMs ?? startedAtMs;
   const sid = extractSessionId(ctx);
   const ownsRun = (run) => !sid || !run.ownerSessionId || run.ownerSessionId === sid;
   for (const run of listRuns(ctx.cwd).filter(ownsRun)) {
-    if (state3.seenFinishedRunIds.size >= MAX_SEEN_FINISHED_RUN_IDS) break;
+    if (state2.seenFinishedRunIds.size >= MAX_SEEN_FINISHED_RUN_IDS) break;
     const updatedAtMs = timeMs(run.updatedAt) ?? 0;
-    if (isFinished2(run.status) && updatedAtMs < staleBeforeMs) addSeenFinishedRunId(state3, run.runId);
+    if (isFinished2(run.status) && updatedAtMs < staleBeforeMs) addSeenFinishedRunId(state2, run.runId);
   }
   let cachedRuns;
-  state3.interval = setInterval(() => {
+  state2.interval = setInterval(() => {
     try {
       if (options.isCurrent && !options.isCurrent(generation)) return;
       const nowMs3 = Date.now();
-      if (cachedRuns === void 0 || nowMs3 - (state3.lastListRunsMs ?? 0) > LIST_RUNS_DEBOUNCE_MS) {
+      if (cachedRuns === void 0 || nowMs3 - (state2.lastListRunsMs ?? 0) > LIST_RUNS_DEBOUNCE_MS) {
         cachedRuns = listRuns(ctx.cwd).filter(ownsRun).slice(0, 20);
-        state3.lastListRunsMs = nowMs3;
+        state2.lastListRunsMs = nowMs3;
       }
       for (const run of cachedRuns) {
         const current = markDeadAsyncRunIfNeeded(run) ?? run;
-        if (!isFinished2(current.status) || state3.seenFinishedRunIds.has(current.runId)) continue;
-        addSeenFinishedRunId(state3, current.runId);
+        if (!isFinished2(current.status) || state2.seenFinishedRunIds.has(current.runId)) continue;
+        addSeenFinishedRunId(state2, current.runId);
         if (current.workflow === "goal-turn" && current.team.startsWith("goal-")) continue;
         const level = current.status === "completed" ? "info" : current.status === "cancelled" ? "warning" : "error";
         ctx.ui.notify(`pi-crew run ${current.status}: ${current.runId} (${current.team}/${current.workflow ?? "none"})`, level);
@@ -75303,14 +75133,14 @@ function startAsyncRunNotifier(ctx, state3, intervalMs = 5e3, options = {}) {
       logInternalError("async-notifier", error, `interval=${intervalMs}`);
     }
   }, intervalMs);
-  if (typeof state3.interval.unref === "function") state3.interval.unref();
+  if (typeof state2.interval.unref === "function") state2.interval.unref();
 }
-function stopAsyncRunNotifier(state3) {
-  if (state3.interval) clearInterval(state3.interval);
-  state3.interval = void 0;
-  state3.seenFinishedRunIds.clear();
-  state3.generation = (state3.generation ?? 0) + 1;
-  state3.lastStoppedAtMs = Date.now();
+function stopAsyncRunNotifier(state2) {
+  if (state2.interval) clearInterval(state2.interval);
+  state2.interval = void 0;
+  state2.seenFinishedRunIds.clear();
+  state2.generation = (state2.generation ?? 0) + 1;
+  state2.lastStoppedAtMs = Date.now();
 }
 var MAX_SEEN_FINISHED_RUN_IDS, LIST_RUNS_DEBOUNCE_MS;
 var init_async_notifier = __esm({
@@ -75780,7 +75610,7 @@ var init_overflow_recovery = __esm({
           default:
             break;
         }
-        const state3 = {
+        const state2 = {
           taskId,
           runId,
           phase,
@@ -75789,14 +75619,14 @@ var init_overflow_recovery = __esm({
           compactionCount,
           retryCount
         };
-        this.states.set(key, state3);
+        this.states.set(key, state2);
         this.resetTimeout(key);
         if (this.states.size > MAX_TRACKED_STATES) {
           this.evictOldestTerminalState();
         }
         if (previousPhase !== phase && this.callbacks.onPhaseChange) {
           try {
-            this.callbacks.onPhaseChange(state3, previousPhase);
+            this.callbacks.onPhaseChange(state2, previousPhase);
           } catch (error) {
             logInternalError("overflow-recovery.onPhaseChange", error, `taskId=${taskId}`);
           }
@@ -75805,13 +75635,13 @@ var init_overflow_recovery = __esm({
       }
       getState(taskId, runId) {
         if (runId) return this.states.get(this.keyFor(taskId, runId));
-        return [...this.states.values()].find((state3) => state3.taskId === taskId);
+        return [...this.states.values()].find((state2) => state2.taskId === taskId);
       }
       getPhase(taskId, runId) {
         return this.getState(taskId, runId)?.phase ?? "none";
       }
       removeTask(taskId, runId) {
-        const keys = runId ? [this.keyFor(taskId, runId)] : [...this.states.entries()].filter(([, state3]) => state3.taskId === taskId).map(([key]) => key);
+        const keys = runId ? [this.keyFor(taskId, runId)] : [...this.states.entries()].filter(([, state2]) => state2.taskId === taskId).map(([key]) => key);
         for (const key of keys) this.removeKey(key);
       }
       /**
@@ -75823,10 +75653,10 @@ var init_overflow_recovery = __esm({
       evictOldestTerminalState() {
         let oldestKey;
         let oldestTimestamp = Infinity;
-        for (const [key, state3] of this.states) {
-          const isTerminal = state3.phase === "recovered" || state3.phase === "failed" || state3.phase === "none";
-          if (isTerminal && state3.lastEventAt < oldestTimestamp) {
-            oldestTimestamp = state3.lastEventAt;
+        for (const [key, state2] of this.states) {
+          const isTerminal = state2.phase === "recovered" || state2.phase === "failed" || state2.phase === "none";
+          if (isTerminal && state2.lastEventAt < oldestTimestamp) {
+            oldestTimestamp = state2.lastEventAt;
             oldestKey = key;
           }
         }
@@ -75855,27 +75685,27 @@ var init_overflow_recovery = __esm({
         const timeoutMs = current?.phase === "recovered" || current?.phase === "failed" || current?.phase === "none" ? TERMINAL_STATE_TTL_MS : PHASE_TIMEOUT_MS;
         const timer = setTimeout(() => {
           this.timers.delete(key);
-          const state3 = this.states.get(key);
-          if (!state3) return;
-          if (state3.phase === "recovered" || state3.phase === "failed" || state3.phase === "none") {
+          const state2 = this.states.get(key);
+          if (!state2) return;
+          if (state2.phase === "recovered" || state2.phase === "failed" || state2.phase === "none") {
             this.states.delete(key);
             return;
           }
-          const previousPhase = state3.phase;
-          state3.phase = "failed";
-          state3.lastEventAt = Date.now();
+          const previousPhase = state2.phase;
+          state2.phase = "failed";
+          state2.lastEventAt = Date.now();
           if (this.callbacks.onTimeout) {
             try {
-              this.callbacks.onTimeout(state3);
+              this.callbacks.onTimeout(state2);
             } catch (error) {
-              logInternalError("overflow-recovery.onTimeout", error, `taskId=${state3.taskId}`);
+              logInternalError("overflow-recovery.onTimeout", error, `taskId=${state2.taskId}`);
             }
           }
           if (this.callbacks.onPhaseChange) {
             try {
-              this.callbacks.onPhaseChange(state3, previousPhase);
+              this.callbacks.onPhaseChange(state2, previousPhase);
             } catch (error) {
-              logInternalError("overflow-recovery.onPhaseChange-timeout", error, `taskId=${state3.taskId}`);
+              logInternalError("overflow-recovery.onPhaseChange-timeout", error, `taskId=${state2.taskId}`);
             }
           }
         }, timeoutMs);
@@ -75896,10 +75726,10 @@ __export(lifecycle_exports, {
   startLifecycleWatchers: () => startLifecycleWatchers,
   stopLifecycleWatchers: () => stopLifecycleWatchers
 });
-function startLifecycleWatchers(ctx, state3, deps) {
-  if (state3.notifierStarted) return false;
+function startLifecycleWatchers(ctx, state2, deps) {
+  if (state2.notifierStarted) return false;
   const loadedConfig = loadConfig(ctx.cwd);
-  state3.notifierStarted = true;
+  state2.notifierStarted = true;
   try {
     void Promise.resolve().then(() => (init_async_notifier(), async_notifier_exports)).then(({ startAsyncRunNotifier: startAsyncRunNotifier2 }) => {
       if (deps.isCleanedUp()) return;
@@ -75910,14 +75740,14 @@ function startLifecycleWatchers(ctx, state3, deps) {
     });
     return true;
   } catch (error) {
-    state3.notifierStarted = false;
+    state2.notifierStarted = false;
     logInternalError("register.startLifecycleWatchers", error);
     return false;
   }
 }
-function stopLifecycleWatchers(state3, deps) {
-  if (!state3.notifierStarted) return;
-  state3.notifierStarted = false;
+function stopLifecycleWatchers(state2, deps) {
+  if (!state2.notifierStarted) return;
+  state2.notifierStarted = false;
   try {
     void Promise.resolve().then(() => (init_async_notifier(), async_notifier_exports)).then(({ stopAsyncRunNotifier: stopAsyncRunNotifier2 }) => {
       stopAsyncRunNotifier2(deps.notifierState);
@@ -75926,11 +75756,11 @@ function stopLifecycleWatchers(state3, deps) {
     logInternalError("register.stopLifecycleWatchers", error);
   }
 }
-async function configureNotifications(ctx, state3, deps) {
-  state3.notificationRouter?.dispose();
-  state3.notificationSink?.dispose();
-  state3.notificationRouter = void 0;
-  state3.notificationSink = void 0;
+async function configureNotifications(ctx, state2, deps) {
+  state2.notificationRouter?.dispose();
+  state2.notificationSink?.dispose();
+  state2.notificationRouter = void 0;
+  state2.notificationSink = void 0;
   const config = loadConfig(ctx.cwd).config;
   if (config.notifications?.enabled === false) return;
   const { NotificationRouter: NotificationRouter2 } = await Promise.resolve().then(() => (init_notification_router(), notification_router_exports));
@@ -75938,18 +75768,18 @@ async function configureNotifications(ctx, state3, deps) {
   const { sendFollowUp: sendFollowUp2 } = await Promise.resolve().then(() => (init_subagent_helpers(), subagent_helpers_exports));
   const { updateCrewWidget: updateCrewWidget2 } = await Promise.resolve().then(() => (init_widget(), widget_exports));
   if (config.telemetry?.enabled !== false) {
-    state3.notificationSink = createJsonlSink2(
+    state2.notificationSink = createJsonlSink2(
       projectCrewRoot(ctx.cwd),
       config.notifications?.sinkRetentionDays ?? DEFAULT_NOTIFICATIONS.sinkRetentionDays
     );
   }
-  state3.notificationRouter = new NotificationRouter2(
+  state2.notificationRouter = new NotificationRouter2(
     {
       dedupWindowMs: config.notifications?.dedupWindowMs ?? DEFAULT_NOTIFICATIONS.dedupWindowMs,
       batchWindowMs: config.notifications?.batchWindowMs ?? DEFAULT_NOTIFICATIONS.batchWindowMs,
       quietHours: config.notifications?.quietHours,
       severityFilter: config.notifications?.severityFilter ?? [...DEFAULT_NOTIFICATIONS.severityFilter],
-      sink: (notification) => state3.notificationSink?.write(notification)
+      sink: (notification) => state2.notificationSink?.write(notification)
     },
     (notification) => {
       if (notification.clear) {
@@ -75984,20 +75814,20 @@ async function configureNotifications(ctx, state3, deps) {
     }
   );
 }
-function disposeNotifications(state3) {
-  state3.notificationRouter?.dispose();
-  state3.notificationRouter = void 0;
-  state3.notificationSink?.dispose();
-  state3.notificationSink = void 0;
+function disposeNotifications(state2) {
+  state2.notificationRouter?.dispose();
+  state2.notificationRouter = void 0;
+  state2.notificationSink?.dispose();
+  state2.notificationSink = void 0;
 }
-async function configureDeliveryCoordinator(state3, deps) {
-  state3.deliveryCoordinator?.dispose();
-  state3.deliveryCoordinator = void 0;
-  state3.overflowTracker?.dispose();
-  state3.overflowTracker = void 0;
+async function configureDeliveryCoordinator(state2, deps) {
+  state2.deliveryCoordinator?.dispose();
+  state2.deliveryCoordinator = void 0;
+  state2.overflowTracker?.dispose();
+  state2.overflowTracker = void 0;
   const { DeliveryCoordinator: DeliveryCoordinator2 } = await Promise.resolve().then(() => (init_delivery_coordinator(), delivery_coordinator_exports));
   const { OverflowRecoveryTracker: OverflowRecoveryTracker2 } = await Promise.resolve().then(() => (init_overflow_recovery(), overflow_recovery_exports));
-  state3.deliveryCoordinator = new DeliveryCoordinator2({
+  state2.deliveryCoordinator = new DeliveryCoordinator2({
     emit: (event, data) => {
       deps.pi.events?.emit?.(event, data);
     },
@@ -76008,7 +75838,7 @@ async function configureDeliveryCoordinator(state3, deps) {
       deps.sendAgentWakeUp(deps.pi, message);
     }
   });
-  state3.overflowTracker = new OverflowRecoveryTracker2({
+  state2.overflowTracker = new OverflowRecoveryTracker2({
     onPhaseChange: (phaseState, previousPhase) => {
       if (deps.observabilityState.metricRegistry) {
         deps.observabilityState.metricRegistry.counter("crew.task.overflow_recovery_total", "Overflow recovery phase transitions").inc({
@@ -76035,11 +75865,11 @@ async function configureDeliveryCoordinator(state3, deps) {
     }
   });
 }
-function disposeDeliveryCoordinator(state3) {
-  state3.deliveryCoordinator?.dispose();
-  state3.deliveryCoordinator = void 0;
-  state3.overflowTracker?.dispose();
-  state3.overflowTracker = void 0;
+function disposeDeliveryCoordinator(state2) {
+  state2.deliveryCoordinator?.dispose();
+  state2.deliveryCoordinator = void 0;
+  state2.overflowTracker?.dispose();
+  state2.overflowTracker = void 0;
 }
 var init_lifecycle = __esm({
   "src/extension/registration/lifecycle.ts"() {
@@ -77044,21 +76874,21 @@ async function importOTLPExporter() {
   }
   return _cachedOTLPExporter;
 }
-async function configureObservability(ctx, state3, deps) {
-  await disposeObservability(state3, deps.isCleanedUp());
+async function configureObservability(ctx, state2, deps) {
+  await disposeObservability(state2, deps.isCleanedUp());
   const config = loadConfig(ctx.cwd).config;
   if (config.observability?.enabled === false) return;
   const { createMetricRegistry: createMetricRegistry2 } = await Promise.resolve().then(() => (init_metric_registry(), metric_registry_exports));
   const { wireEventToMetrics: wireEventToMetrics2 } = await Promise.resolve().then(() => (init_event_to_metric(), event_to_metric_exports));
   const { createMetricFileSink: createMetricFileSink2 } = await Promise.resolve().then(() => (init_metric_sink(), metric_sink_exports));
-  state3.metricRegistry = createMetricRegistry2();
+  state2.metricRegistry = createMetricRegistry2();
   if (deps.pi.events) {
-    state3.eventMetricSub = wireEventToMetrics2(deps.pi.events, state3.metricRegistry);
+    state2.eventMetricSub = wireEventToMetrics2(deps.pi.events, state2.metricRegistry);
   }
   if (config.telemetry?.enabled !== false) {
-    state3.metricSink = createMetricFileSink2({
+    state2.metricSink = createMetricFileSink2({
       crewRoot: projectCrewRoot(ctx.cwd),
-      registry: state3.metricRegistry,
+      registry: state2.metricRegistry,
       retentionDays: config.observability?.metricRetentionDays ?? 7
     });
   }
@@ -77066,10 +76896,10 @@ async function configureObservability(ctx, state3, deps) {
     const otlpEndpoint = config.otlp.endpoint;
     const otlpHeaders = config.otlp.headers;
     const otlpInterval = config.otlp.intervalMs;
-    const owningRegistry = state3.metricRegistry;
+    const owningRegistry = state2.metricRegistry;
     void importOTLPExporter().then((Ctor) => {
-      if (deps.isCleanedUp() || state3.metricRegistry !== owningRegistry || !owningRegistry) return;
-      state3.otlpExporter = new Ctor(
+      if (deps.isCleanedUp() || state2.metricRegistry !== owningRegistry || !owningRegistry) return;
+      state2.otlpExporter = new Ctor(
         {
           endpoint: otlpEndpoint,
           headers: otlpHeaders,
@@ -77077,15 +76907,15 @@ async function configureObservability(ctx, state3, deps) {
         },
         owningRegistry
       );
-      state3.otlpExporter?.start();
+      state2.otlpExporter?.start();
     }).catch((error) => logInternalError("register.otlp-lazy-import", error));
   }
   const { HeartbeatWatcher: HeartbeatWatcher2 } = await Promise.resolve().then(() => (init_heartbeat_watcher(), heartbeat_watcher_exports));
-  state3.heartbeatWatcher = new HeartbeatWatcher2({
+  state2.heartbeatWatcher = new HeartbeatWatcher2({
     cwd: ctx.cwd,
     pollIntervalMs: config.observability?.pollIntervalMs ?? 5e3,
     manifestCache: deps.getManifestCache(ctx.cwd),
-    registry: state3.metricRegistry,
+    registry: state2.metricRegistry,
     router: {
       enqueue: (notification) => {
         deps.notifyOperator(notification);
@@ -77101,7 +76931,7 @@ async function configureObservability(ctx, state3, deps) {
         attempts: 0,
         timestamp: (/* @__PURE__ */ new Date()).toISOString()
       });
-      state3.metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "heartbeat-dead" });
+      state2.metricRegistry?.counter("crew.task.deadletter_total", "Deadletter triggers by reason").inc({ reason: "heartbeat-dead" });
       deps.pi.events?.emit?.("crew.task.deadletter", {
         runId: manifest.runId,
         taskId,
@@ -77109,7 +76939,7 @@ async function configureObservability(ctx, state3, deps) {
       });
     }
   });
-  state3.heartbeatWatcher.start();
+  state2.heartbeatWatcher.start();
   try {
     deps.pi.on?.("before_agent_start", () => {
       if (deps.isCleanedUp()) return;
@@ -77123,7 +76953,7 @@ async function configureObservability(ctx, state3, deps) {
   }
   const autoRepairIntervalMs = config.reliability?.autoRepairIntervalMs ?? 3e5;
   if (autoRepairIntervalMs > 0) {
-    state3.autoRepairTimer = setInterval(() => {
+    state2.autoRepairTimer = setInterval(() => {
       if (deps.isCleanedUp()) return;
       try {
         const staleResults = deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd), extractSessionId(ctx));
@@ -77146,8 +76976,8 @@ async function configureObservability(ctx, state3, deps) {
         logInternalError("register.autoRepair", error);
       }
     }, autoRepairIntervalMs);
-    state3.autoRepairTimer.unref();
-    state3.tempReconcileTimer = setInterval(() => {
+    state2.autoRepairTimer.unref();
+    state2.tempReconcileTimer = setInterval(() => {
       if (deps.isCleanedUp()) return;
       try {
         deps.reconcileOrphanedTempWorkspaces(Date.now(), {
@@ -77177,7 +77007,7 @@ async function configureObservability(ctx, state3, deps) {
         logInternalError("register.tempAutoRepair", error);
       }
     }, autoRepairIntervalMs * 5);
-    state3.tempReconcileTimer.unref();
+    state2.tempReconcileTimer.unref();
   }
   if (config.reliability?.autoRecover === true) {
     const cwdSnapshot = ctx.cwd;
@@ -77198,25 +77028,25 @@ async function configureObservability(ctx, state3, deps) {
     }).catch((error) => logInternalError("register.crash-recovery-lazy-import", error));
   }
 }
-async function disposeObservability(state3, _isCleanedUp) {
-  state3.heartbeatWatcher?.dispose();
-  state3.heartbeatWatcher = void 0;
-  if (state3.autoRepairTimer) {
-    clearInterval(state3.autoRepairTimer);
-    state3.autoRepairTimer = void 0;
+async function disposeObservability(state2, _isCleanedUp) {
+  state2.heartbeatWatcher?.dispose();
+  state2.heartbeatWatcher = void 0;
+  if (state2.autoRepairTimer) {
+    clearInterval(state2.autoRepairTimer);
+    state2.autoRepairTimer = void 0;
   }
-  if (state3.tempReconcileTimer) {
-    clearInterval(state3.tempReconcileTimer);
-    state3.tempReconcileTimer = void 0;
+  if (state2.tempReconcileTimer) {
+    clearInterval(state2.tempReconcileTimer);
+    state2.tempReconcileTimer = void 0;
   }
-  state3.metricSink?.dispose();
-  state3.metricSink = void 0;
-  state3.eventMetricSub?.dispose();
-  state3.eventMetricSub = void 0;
-  await state3.otlpExporter?.dispose();
-  state3.otlpExporter = void 0;
-  state3.metricRegistry?.dispose();
-  state3.metricRegistry = void 0;
+  state2.metricSink?.dispose();
+  state2.metricSink = void 0;
+  state2.eventMetricSub?.dispose();
+  state2.eventMetricSub = void 0;
+  await state2.otlpExporter?.dispose();
+  state2.otlpExporter = void 0;
+  state2.metricRegistry?.dispose();
+  state2.metricRegistry = void 0;
 }
 var _cachedOTLPExporter;
 var init_observability = __esm({
@@ -77226,71 +77056,6 @@ var init_observability = __esm({
     init_internal_error();
     init_paths();
     init_session_utils();
-  }
-});
-
-// src/runtime/detached-run-results.ts
-var detached_run_results_exports = {};
-__export(detached_run_results_exports, {
-  clearDetachedRunsForTest: () => clearDetachedRunsForTest,
-  forgetDetachedRun: () => forgetDetachedRun,
-  formatDetachedRunResult: () => formatDetachedRunResult,
-  hasDetachedRuns: () => hasDetachedRuns,
-  markRunDetached: () => markRunDetached,
-  peekFinishedDetachedRunResults: () => peekFinishedDetachedRunResults
-});
-function markRunDetached(runId, cwd) {
-  if (!runId || !cwd) return;
-  detachedRuns.set(runId, { runId, cwd });
-}
-function hasDetachedRuns() {
-  return detachedRuns.size > 0;
-}
-function forgetDetachedRun(runId) {
-  detachedRuns.delete(runId);
-}
-function clearDetachedRunsForTest() {
-  detachedRuns.clear();
-}
-function formatDetachedRunResult(manifest, tasks) {
-  const lines = [
-    `pi-crew run ${manifest.status}: ${manifest.runId} (${manifest.team}/${manifest.workflow ?? "none"})`,
-    `Goal: ${manifest.goal}`,
-    "",
-    "This run was detached when you opened an agent view; it finished in the background."
-  ];
-  if (tasks.length > 0) {
-    lines.push("", "Tasks:");
-    for (const task of tasks) {
-      const detail = task.error ? ` \u2014 ${task.error}` : "";
-      lines.push(`  \u2022 ${task.id} (${task.role ?? "?"}): ${task.status}${detail}`);
-    }
-  }
-  if (manifest.artifactsRoot) lines.push("", `Artifacts: ${manifest.artifactsRoot}`);
-  lines.push(`State: ${manifest.stateRoot}`);
-  return lines.join("\n");
-}
-function peekFinishedDetachedRunResults(options = {}) {
-  if (detachedRuns.size === 0 || options.inViewSession) return [];
-  const ready = [];
-  for (const entry of [...detachedRuns.values()]) {
-    const loaded = loadRunManifestById(entry.cwd, entry.runId);
-    if (!loaded) {
-      detachedRuns.delete(entry.runId);
-      continue;
-    }
-    if (!isFinishedRunStatus(loaded.manifest.status)) continue;
-    ready.push({ runId: entry.runId, text: formatDetachedRunResult(loaded.manifest, loaded.tasks) });
-  }
-  return ready;
-}
-var detachedRuns;
-var init_detached_run_results = __esm({
-  "src/runtime/detached-run-results.ts"() {
-    "use strict";
-    init_state_store();
-    init_process_status();
-    detachedRuns = /* @__PURE__ */ new Map();
   }
 });
 
@@ -78177,11 +77942,11 @@ import { existsSync as existsSync77, readFileSync as readFileSync83 } from "node
 import { homedir as homedir12, platform } from "node:os";
 import { join as join86 } from "node:path";
 function fontPath() {
-  const os20 = platform();
+  const os19 = platform();
   const home = homedir12();
-  if (os20 === "darwin") return join86(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os20 === "linux") return join86(home, ".local", "share", "fonts", "crew-vibes.ttf");
-  if (os20 === "win32") {
+  if (os19 === "darwin") return join86(home, "Library", "Fonts", "crew-vibes.ttf");
+  if (os19 === "linux") return join86(home, ".local", "share", "fonts", "crew-vibes.ttf");
+  if (os19 === "win32") {
     const local = process.env.LOCALAPPDATA ?? join86(home, "AppData", "Local");
     return join86(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
   }
@@ -78345,17 +78110,17 @@ function normalizeConfig(raw) {
 }
 function loadConfig2() {
   try {
-    const path100 = configPath2();
-    if (!existsSync78(path100)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync84(path100, "utf8")));
+    const path99 = configPath2();
+    if (!existsSync78(path99)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync84(path99, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
 }
 function saveConfig(config) {
-  const path100 = configPath2();
-  mkdirSync45(dirname44(path100), { recursive: true });
-  writeFileSync11(path100, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  const path99 = configPath2();
+  mkdirSync45(dirname44(path99), { recursive: true });
+  writeFileSync11(path99, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -79677,9 +79442,9 @@ function closeWatcher(watcher) {
   } catch {
   }
 }
-function watchWithErrorHandler(path100, listener, onError) {
+function watchWithErrorHandler(path99, listener, onError) {
   try {
-    const watcher = fs108.watch(path100, listener);
+    const watcher = fs108.watch(path99, listener);
     watcher.on("error", onError);
     return watcher;
   } catch (error) {
@@ -81195,9 +80960,9 @@ function validateJson(content, _filePath) {
 var DEFAULT_VALIDATORS = /* @__PURE__ */ new Map([["json", validateJson]]);
 var MAX_DEDUP_ENTRIES = 256;
 var seenContent = /* @__PURE__ */ new Map();
-function rememberSeen(path100, content) {
-  if (seenContent.has(path100)) seenContent.delete(path100);
-  seenContent.set(path100, content);
+function rememberSeen(path99, content) {
+  if (seenContent.has(path99)) seenContent.delete(path99);
+  seenContent.set(path99, content);
   while (seenContent.size > MAX_DEDUP_ENTRIES) {
     const oldest = seenContent.keys().next().value;
     if (oldest === void 0) break;
@@ -81403,7 +81168,7 @@ init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
 import * as fs121 from "node:fs";
-import * as path99 from "node:path";
+import * as path98 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
 init_locks();
@@ -83437,7 +83202,51 @@ function parseWaitResolveParams(value) {
 
 // src/extension/registration/lifecycle-handlers.ts
 init_child_pi();
-init_detached_run_results();
+
+// src/runtime/detached-run-results.ts
+init_state_store();
+init_process_status();
+var detachedRuns = /* @__PURE__ */ new Map();
+function hasDetachedRuns() {
+  return detachedRuns.size > 0;
+}
+function forgetDetachedRun(runId) {
+  detachedRuns.delete(runId);
+}
+function formatDetachedRunResult(manifest, tasks) {
+  const lines = [
+    `pi-crew run ${manifest.status}: ${manifest.runId} (${manifest.team}/${manifest.workflow ?? "none"})`,
+    `Goal: ${manifest.goal}`,
+    "",
+    "This run was detached when you opened an agent view; it finished in the background."
+  ];
+  if (tasks.length > 0) {
+    lines.push("", "Tasks:");
+    for (const task of tasks) {
+      const detail = task.error ? ` \u2014 ${task.error}` : "";
+      lines.push(`  \u2022 ${task.id} (${task.role ?? "?"}): ${task.status}${detail}`);
+    }
+  }
+  if (manifest.artifactsRoot) lines.push("", `Artifacts: ${manifest.artifactsRoot}`);
+  lines.push(`State: ${manifest.stateRoot}`);
+  return lines.join("\n");
+}
+function peekFinishedDetachedRunResults(options = {}) {
+  if (detachedRuns.size === 0 || options.inViewSession) return [];
+  const ready = [];
+  for (const entry of [...detachedRuns.values()]) {
+    const loaded = loadRunManifestById(entry.cwd, entry.runId);
+    if (!loaded) {
+      detachedRuns.delete(entry.runId);
+      continue;
+    }
+    if (!isFinishedRunStatus(loaded.manifest.status)) continue;
+    ready.push({ runId: entry.runId, text: formatDetachedRunResult(loaded.manifest, loaded.tasks) });
+  }
+  return ready;
+}
+
+// src/extension/registration/lifecycle-handlers.ts
 init_live_agent_manager();
 init_model_fallback();
 init_pi_args();
@@ -83489,263 +83298,27 @@ init_heartbeat_aggregator();
 init_tool_result();
 init_internal_error();
 init_pi_ui_compat();
-import { existsSync as existsSync85, readFileSync as readFileSync93 } from "node:fs";
+
+// src/ui/inline-panel/agent-pane.ts
+init_state_store();
+init_theme_adapter();
+import {
+  AssistantMessageComponent,
+  DynamicBorder,
+  getMarkdownTheme,
+  ToolExecutionComponent,
+  UserMessageComponent
+} from "@earendil-works/pi-coding-agent";
+import { Markdown, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
-
-// src/ui/inline-panel/agent-view-session.ts
-init_crew_agent_records();
-init_state_store();
-init_view_session_store();
-import { closeSync as closeSync19, existsSync as existsSync84, mkdirSync as mkdirSync50, openSync as openSync19, readdirSync as readdirSync39, readFileSync as readFileSync92, readSync as readSync9, statSync as statSync57, writeFileSync as writeFileSync12 } from "node:fs";
-import * as os19 from "node:os";
-import path97 from "node:path";
-var MAX_VIEW_MESSAGE_ENTRIES = 1e3;
-var MAX_LEADIN_CHARS = 240;
-var MAX_WORKER_SESSION_COPY_BYTES = 16 * 1024 * 1024;
-var WORKER_SESSION_WINDOW_LEAD_MS = 5e3;
-var WORKER_SESSION_WINDOW_TRAIL_MS = 15e3;
-var WORKER_SESSION_MATCH_READ_BYTES = 32 * 1024;
-function workerSessionDirFor(cwd, sessionRoot) {
-  const root = sessionRoot ?? path97.join(os19.homedir(), ".pi", "agent", "sessions");
-  const stem = `--${cwd.replace(/^\/+/, "").replace(/[\\/]/g, "-")}--`;
-  return path97.join(root, stem);
-}
-function sessionsRootFromFile(sessionFile) {
-  if (!sessionFile) return void 0;
-  const dir = path97.dirname(sessionFile);
-  return /^--.+--$/.test(path97.basename(dir)) ? path97.dirname(dir) : dir;
-}
-function taskMatchFragment(manifest, task) {
-  const raw = (task?.title ?? "").replace(/\s+/g, " ").trim();
-  if (!raw) return void 0;
-  const goal = (manifest.goal ?? "").replace(/\s+/g, " ").trim();
-  if (goal && (raw === goal || goal.includes(raw))) return void 0;
-  return raw.slice(0, 80);
-}
-function sessionFileStartMs(name) {
-  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z_/.exec(name);
-  if (!match) return void 0;
-  const parsed = Date.parse(`${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z`);
-  return Number.isFinite(parsed) ? parsed : void 0;
-}
-function fileContainsFragment(file, fragment) {
-  try {
-    const fd = openSync19(file, "r");
-    try {
-      const buf = Buffer.alloc(WORKER_SESSION_MATCH_READ_BYTES);
-      const n = readSync9(fd, buf, 0, buf.length, 0);
-      return buf.toString("utf8", 0, n).toLowerCase().includes(fragment.toLowerCase());
-    } finally {
-      closeSync19(fd);
-    }
-  } catch {
-    return false;
-  }
-}
-function resolveWorkerSessionFile(options, manifest, task) {
-  const dir = workerSessionDirFor(options.cwd, options.sessionRoot);
-  let files = [];
-  try {
-    if (!existsSync84(dir)) return void 0;
-    files = readdirSync39(dir);
-  } catch {
-    return void 0;
-  }
-  const now = Date.now();
-  const started = task?.startedAt ? Date.parse(task.startedAt) : void 0;
-  const finished = task?.finishedAt ? Date.parse(task.finishedAt) : void 0;
-  const windowStart = Number.isFinite(started) ? started - WORKER_SESSION_WINDOW_LEAD_MS : now - 10 * 6e4;
-  const windowEnd = (Number.isFinite(finished) ? finished : now) + WORKER_SESSION_WINDOW_TRAIL_MS;
-  const mainFile = options.parentSessionFile ? path97.resolve(options.parentSessionFile) : void 0;
-  const candidates = [];
-  for (const name of files) {
-    if (!name.endsWith(".jsonl")) continue;
-    const full = path97.join(dir, name);
-    if (mainFile && path97.resolve(full) === mainFile) continue;
-    try {
-      const st = statSync57(full);
-      if (!st.isFile()) continue;
-      const createdMs = sessionFileStartMs(name) ?? st.mtimeMs;
-      if (createdMs < windowStart || createdMs > windowEnd) continue;
-      candidates.push({ file: full, createdMs });
-    } catch {
-    }
-  }
-  if (candidates.length === 0) return void 0;
-  const knownStart = Number.isFinite(started);
-  candidates.sort((a, b) => knownStart ? a.createdMs - b.createdMs : b.createdMs - a.createdMs);
-  if (candidates.length === 1) return candidates[0].file;
-  const fragment = taskMatchFragment(manifest, task);
-  if (fragment) {
-    const matches = candidates.filter((candidate) => fileContainsFragment(candidate.file, fragment));
-    if (matches.length === 1) return matches[0].file;
-  }
-  return candidates[0].file;
-}
-function buildViewFromWorkerSession(options, loaded) {
-  const task = loaded.tasks.find((candidate) => candidate.id === options.taskId);
-  const source = resolveWorkerSessionFile(options, loaded.manifest, task);
-  if (!source) return void 0;
-  try {
-    const st = statSync57(source);
-    if (st.size <= 0 || st.size > MAX_WORKER_SESSION_COPY_BYTES) return void 0;
-    const text = readFileSync92(source, "utf8");
-    const nl = text.indexOf("\n");
-    const firstLine = nl >= 0 ? text.slice(0, nl) : text;
-    const rest = nl >= 0 ? text.slice(nl) : "";
-    let header;
-    try {
-      header = JSON.parse(firstLine);
-    } catch {
-      return void 0;
-    }
-    if (header.type !== "session") return void 0;
-    header = { ...header, parentSession: options.parentSessionFile ?? header.parentSession };
-    const outDir = agentStateDir(loaded.manifest, options.taskId);
-    mkdirSync50(outDir, { recursive: true });
-    const outPath = path97.join(outDir, CREW_VIEW_SESSION_BASENAME);
-    writeFileSync12(outPath, `${JSON.stringify(header)}${rest}`, "utf8");
-    return outPath;
-  } catch {
-    return void 0;
-  }
-}
-function workerSessionSourceStamp(options) {
-  const loaded = loadRunManifestById(options.cwd, options.runId);
-  if (!loaded) return void 0;
-  const task = loaded.tasks.find((candidate) => candidate.id === options.taskId);
-  const source = resolveWorkerSessionFile(options, loaded.manifest, task);
-  if (!source) return void 0;
-  try {
-    const st = statSync57(source);
-    if (st.size <= 0) return void 0;
-    return { mtimeMs: st.mtimeMs, size: st.size };
-  } catch {
-    return void 0;
-  }
-}
-function asRecord13(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  return value;
-}
-function asContentParts(message) {
-  if (!message) return [];
-  const content = message.content;
-  if (!Array.isArray(content)) return [];
-  return content.map(asRecord13).filter((part) => part !== void 0);
-}
-function foldToolResultPart(part, pendingCalls, callNamesById, callSeq) {
-  const name = typeof part.name === "string" ? part.name : "tool";
-  let id;
-  for (let i = pendingCalls.length - 1; i >= 0; i--) {
-    const candidate = pendingCalls[i];
-    if (callNamesById.get(candidate) === name) {
-      pendingCalls.splice(i, 1);
-      id = candidate;
-      break;
-    }
-  }
-  if (!id) {
-    id = `crew-call-${++callSeq.n}`;
-  }
-  const folded = {
-    type: "toolResult",
-    id,
-    name
-  };
-  if (part.content !== void 0) folded.content = part.content;
-  if (part.isError !== void 0) folded.isError = part.isError;
-  return folded;
-}
-function recordsToSessionEntries(records, headerTimestamp) {
-  const entries = [];
-  const pendingCalls = [];
-  const callNamesById = /* @__PURE__ */ new Map();
-  const callSeq = { n: 0 };
-  let entrySeq = 0;
-  let pendingMessage;
-  let prevId = "crew-view-intro";
-  const emitAssistant = (message, timestamp) => {
-    const parts = asContentParts(message);
-    const content = [];
-    let hasText = false;
-    for (const part of parts) {
-      if (part.type === "text") {
-        const text = typeof part.text === "string" ? part.text : "";
-        hasText = hasText || text.length > 0;
-        content.push({ type: "text", text });
-      } else if (part.type === "thinking") {
-        const thinking = typeof part.thinking === "string" ? part.thinking : "";
-        if (thinking) content.push({ type: "thinking", thinking });
-      } else if (part.type === "toolCall") {
-        const id2 = `crew-call-${++callSeq.n}`;
-        pendingCalls.push(id2);
-        callNamesById.set(id2, typeof part.name === "string" ? part.name : "tool");
-        const call = { type: "toolCall", id: id2, name: part.name };
-        if (part.input !== void 0) call.input = part.input;
-        content.push(call);
-      } else if (part.type === "toolResult") {
-        const folded = foldToolResultPart(part, pendingCalls, callNamesById, callSeq);
-        if (folded) content.push(folded);
-      }
-    }
-    if (!hasText && content.length === 0) return;
-    if (entrySeq >= MAX_VIEW_MESSAGE_ENTRIES) return;
-    entrySeq += 1;
-    const id = `crew-ev-${entrySeq}`;
-    const entryMessage = {
-      role: "assistant",
-      content,
-      // ALWAYS present: pi's interactive footer calls addUsageToTotals
-      // unconditionally for assistant entries (usage-totals.js reads
-      // usage.input / usage.cost.total), so a missing or non-pi-shaped
-      // usage on a synthesized entry crashes the whole TUI. The worker
-      // event log is compacted and may carry usage at the RECORD level
-      // ({input, output, cost: number}) or inside the message; both are
-      // normalized to pi's shape here.
-      usage: normalizeUsage(message.usage)
-    };
-    if (message.model !== void 0) entryMessage.model = message.model;
-    if (message.stopReason !== void 0) entryMessage.stopReason = message.stopReason;
-    if (message.errorMessage !== void 0) entryMessage.errorMessage = message.errorMessage;
-    entries.push({ type: "message", id, parentId: prevId, timestamp, message: entryMessage });
-    prevId = id;
-  };
-  for (const record of records) {
-    const event = asRecord13(record.event) ?? {};
-    const type = typeof event.type === "string" ? event.type : "";
-    const timestamp = typeof record.time === "string" && record.time ? record.time : headerTimestamp;
-    if (type === "message") {
-      const message = asRecord13(event.message);
-      if (message && message.role === "assistant") pendingMessage = { record, timestamp };
-      continue;
-    }
-    if (type === "message_end") {
-      const eventUsageRecord = asRecord13(event.usage ?? asRecord13(event.message)?.usage);
-      const message = asRecord13(event.message);
-      const pendingAggregate = pendingMessage ? asRecord13(asRecord13(pendingMessage.record.event)?.message) : void 0;
-      pendingMessage = void 0;
-      if (message && message.role === "assistant" && asContentParts(message).length > 0) {
-        emitAssistant({ ...message, usage: eventUsageRecord ?? message.usage }, timestamp);
-      } else if (pendingAggregate && pendingAggregate.role === "assistant") {
-        emitAssistant({ ...pendingAggregate, usage: eventUsageRecord ?? pendingAggregate.usage }, timestamp);
-      }
-    }
-  }
-  if (pendingMessage) {
-    const event = asRecord13(pendingMessage.record.event);
-    const message = asRecord13(event?.message);
-    if (message && message.role === "assistant") emitAssistant(message, pendingMessage.timestamp);
-  }
-  return entries;
-}
+var MAX_TRANSCRIPT_ITEMS = 500;
 function normalizeUsage(raw) {
-  const usage = asRecord13(raw);
+  const usage = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : void 0;
   const toNum = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
   const costRaw = usage ? usage.cost : void 0;
-  const costRecord = asRecord13(costRaw);
+  const costRecord = costRaw && typeof costRaw === "object" && !Array.isArray(costRaw) ? costRaw : void 0;
   return {
     input: toNum(usage?.input),
     output: toNum(usage?.output),
@@ -83754,124 +83327,358 @@ function normalizeUsage(raw) {
     cost: { total: toNum(costRecord?.total ?? costRaw) }
   };
 }
-function leadInText(manifest, taskId, role) {
-  const goal = (manifest.goal || "").replace(/\s+/g, " ").trim();
-  const label = role ? `${role} agent` : "agent";
-  const body = goal ? `${label} \xB7 ${taskId} \u2014 ${goal}` : `${label} \xB7 ${taskId}`;
-  const trimmed = body.slice(0, MAX_LEADIN_CHARS);
-  return trimmed.length < body.length ? `${trimmed}\u2026` : trimmed;
-}
-function buildAgentViewSessionFile(options) {
-  const loaded = loadRunManifestById(options.cwd, options.runId);
-  if (!loaded) return void 0;
-  const { manifest, tasks } = loaded;
-  {
-    const workerPath = buildViewFromWorkerSession(options, loaded);
-    if (workerPath) return workerPath;
-  }
-  const eventsPath = agentEventsPath(manifest, options.taskId);
-  if (!existsSync84(eventsPath)) return void 0;
-  let raw;
-  try {
-    raw = readFileSync92(eventsPath, "utf8");
-  } catch {
-    return void 0;
-  }
-  const records = [];
-  for (const line4 of raw.split("\n")) {
-    if (!line4.trim()) continue;
-    try {
-      records.push(JSON.parse(line4));
-    } catch {
-    }
-  }
-  const headerTimestamp = (/* @__PURE__ */ new Date()).toISOString();
-  const entries = recordsToSessionEntries(records, headerTimestamp);
-  const task = tasks.find((t2) => t2.id === options.taskId);
-  const lines = [];
-  lines.push(
-    JSON.stringify({
-      type: "session",
-      version: 3,
-      id: `crew-view-${options.taskId}`,
-      timestamp: headerTimestamp,
-      cwd: manifest.cwd || options.cwd,
-      ...options.parentSessionFile ? { parentSession: options.parentSessionFile } : {}
-    })
-  );
-  const leadIn = {
-    type: "message",
-    id: "crew-view-intro",
-    parentId: null,
-    timestamp: headerTimestamp,
-    message: { role: "user", content: [{ type: "text", text: `[crew view] ${leadInText(manifest, options.taskId, task?.role)}` }] }
-  };
-  lines.push(JSON.stringify(leadIn));
-  for (const entry of entries) lines.push(JSON.stringify(entry));
-  if (entries.length === 0) {
-    lines.push(
-      JSON.stringify({
-        type: "message",
-        id: "crew-ev-init",
-        parentId: "crew-view-intro",
-        timestamp: headerTimestamp,
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text: `(${task?.role ?? "agent"} is still starting \u2014 no transcript yet)` }],
-          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }
-        }
-      })
-    );
-  }
-  const outDir = agentStateDir(manifest, options.taskId);
-  const outPath = path97.join(outDir, CREW_VIEW_SESSION_BASENAME);
-  try {
-    mkdirSync50(outDir, { recursive: true });
-    const previousLines = existsSync84(outPath) ? readFileSync92(outPath, "utf8").split("\n").filter(Boolean) : [];
-    const knownIds = /* @__PURE__ */ new Set();
-    for (const line4 of lines) {
-      try {
-        const entry = JSON.parse(line4);
-        if (entry && typeof entry.id === "string") knownIds.add(entry.id);
-      } catch {
-      }
-    }
-    const extras = [];
-    for (const line4 of previousLines) {
-      try {
-        const entry = JSON.parse(line4);
-        const id = entry && typeof entry.id === "string" ? entry.id : "";
-        if (id && !id.startsWith("crew-") && !knownIds.has(id)) {
-          extras.push(line4);
-          knownIds.add(id);
-        }
-      } catch {
-      }
-    }
-    writeFileSync12(outPath, `${[...lines, ...extras].join("\n")}
-`, "utf8");
-  } catch {
-    return void 0;
-  }
-  return outPath;
-}
-
-// src/ui/inline-panel/agent-transcript.ts
 var buffers = /* @__PURE__ */ new Map();
 var pendingByTask = /* @__PURE__ */ new Map();
 var cursors = /* @__PURE__ */ new Map();
+function asRecord13(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  return value;
+}
+function textFromContent5(content) {
+  if (!Array.isArray(content)) return "";
+  return content.flatMap((part) => {
+    const item = asRecord13(part);
+    if (!item) return [];
+    if (item.type === "text" && typeof item.text === "string") return [item.text];
+    return [];
+  }).join("\n").trim();
+}
+function parseEventRecord(record, pending2) {
+  const seq = typeof record.seq === "number" ? record.seq : 0;
+  const event = asRecord13(record.event) ?? record;
+  const type = typeof event.type === "string" ? event.type : "";
+  const items = [];
+  if (type === "tool_execution_start") {
+    const name = typeof event.toolName === "string" ? event.toolName : "tool";
+    const args = event.args ?? {};
+    const id = `${name}#${seq}`;
+    const item = { type: "tool", name, toolCallId: id, args, seq };
+    pending2.set(id, item);
+    items.push(item);
+    return items;
+  }
+  if (type === "tool_execution_end") {
+    return items;
+  }
+  if (type === "message_end" || type === "message" || type === "tool_result_end") {
+    const message = asRecord13(event.message);
+    if (!message) return items;
+    if (message.role === "assistant") {
+      const content = Array.isArray(message.content) ? message.content : [];
+      const text = textFromContent5(content);
+      if (text) {
+        const recordUsage = asRecord13(event.usage);
+        const messageUsage = asRecord13(message.usage);
+        let merged = message;
+        if (recordUsage) {
+          merged = { ...message, usage: messageUsage ? { ...messageUsage, ...recordUsage } : recordUsage };
+        }
+        items.push({ type: "assistant", text, seq, message: merged, usage: normalizeUsage(merged.usage) });
+      }
+      for (const part of content) {
+        const item = asRecord13(part);
+        if (item?.type !== "toolResult") continue;
+        const name = typeof item.name === "string" ? item.name : "tool";
+        matchPending(pending2, name, item.content, item.isError === true);
+      }
+      return items;
+    }
+    if (message.role === "user") {
+      const text = textFromContent5(message.content);
+      if (text) items.push({ type: "user", text, seq });
+      return items;
+    }
+  }
+  if (type && type !== "message_update") {
+    const text = typeof event.text === "string" ? event.text : "";
+    if (text) items.push({ type: "system", text, seq });
+  }
+  return items;
+}
+function matchPending(pending2, name, result4, isError) {
+  for (const [id, item] of [...pending2.entries()].reverse()) {
+    if (item.name !== name) continue;
+    pending2.delete(id);
+    if (result4 !== void 0) item.result = result4;
+    if (isError !== void 0) item.isError = isError;
+    return;
+  }
+}
+function readAgentTranscript(manifest, taskId) {
+  const sinceSeq = cursors.get(taskId) ?? 0;
+  const { events, nextSeq } = readCrewAgentEventsCursor(manifest, taskId, { sinceSeq });
+  if (nextSeq > sinceSeq) cursors.set(taskId, nextSeq);
+  if (events.length === 0) return buffers.get(taskId) ?? [];
+  const pending2 = pendingByTask.get(taskId) ?? /* @__PURE__ */ new Map();
+  pendingByTask.set(taskId, pending2);
+  let buffer = buffers.get(taskId) ?? [];
+  for (const record of events) {
+    const parsed = asRecord13(record);
+    if (!parsed) continue;
+    buffer.push(...parseEventRecord(parsed, pending2));
+  }
+  if (buffer.length > MAX_TRANSCRIPT_ITEMS) {
+    buffer = buffer.slice(buffer.length - MAX_TRANSCRIPT_ITEMS);
+  }
+  buffers.set(taskId, buffer);
+  return buffer;
+}
+function resetAgentTranscriptCursor(taskId) {
+  cursors.delete(taskId);
+  buffers.delete(taskId);
+  pendingByTask.delete(taskId);
+}
 function resetAllAgentTranscriptCursors() {
   cursors.clear();
   buffers.clear();
   pendingByTask.clear();
 }
 
+// src/ui/inline-panel/agent-pane.ts
+init_panel_store();
+var MAX_BODY_FRACTION = 14;
+var TRANSCRIPT_READ_THROTTLE_MS = 500;
+var MANIFEST_REFRESH_MS = 1500;
+var TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
+function formatTokenCount(count2) {
+  if (count2 < 1e3) return String(count2);
+  if (count2 < 1e6) return `${Math.round(count2 / 1e3)}k`;
+  return `${(count2 / 1e6).toFixed(1)}M`;
+}
+function usageFooterLine(usage) {
+  const parts = [];
+  if (usage.input) parts.push(`\u2191${formatTokenCount(usage.input)}`);
+  if (usage.output) parts.push(`\u2193${formatTokenCount(usage.output)}`);
+  if (usage.cacheRead) parts.push(`R${formatTokenCount(usage.cacheRead)}`);
+  const promptTokens = usage.input + usage.cacheRead;
+  if (usage.cacheRead && promptTokens > 0) {
+    parts.push(`CH${(usage.cacheRead / promptTokens * 100).toFixed(1)}%`);
+  }
+  if (usage.cost.total) parts.push(`$${usage.cost.total.toFixed(4)}`);
+  return parts.join(" ");
+}
+var CrewAgentPane = class {
+  disposed = false;
+  /** Wrapped-line offset from the END of the transcript; 0 = tailing. */
+  scrollBack = 0;
+  tui;
+  theme;
+  cwd;
+  /** Current agent target, read fresh from the panel store each render. */
+  currentTaskId;
+  /** Cached manifest for the current run, to avoid re-reading on every tick. */
+  cachedRunId;
+  cachedManifest;
+  /** Tasks for the cached run (header shows the agent's real name/status). */
+  cachedTasks = [];
+  /** Last time the manifest was re-read for header freshness. */
+  lastManifestRefreshAt = 0;
+  componentCache = /* @__PURE__ */ new WeakMap();
+  /** Last disk read, so the open pane does not re-parse the JSONL every tick. */
+  lastTranscriptReadAt = 0;
+  /** Most recent parsed items; kept alive because componentCache holds weak refs to them. */
+  lastItems = [];
+  /**
+   * Rendered-body cache. Rebuilding the pane re-parses every Markdown item,
+   * which on a 500-item transcript is the bulk of each ~160ms host tick.
+   * The fingerprint covers identity-relevant bits (seq, type, text length,
+   * result presence) so tool-result folds still refresh the pane.
+   */
+  bodyKey = 0;
+  cachedBody = [];
+  unsubscribePanel;
+  constructor(tui, theme, cwd) {
+    this.tui = tui;
+    this.theme = asCrewTheme(theme);
+    this.cwd = cwd;
+    this.unsubscribePanel = subscribePanelChange(() => {
+      if (!this.disposed) this.tui.requestRender();
+    });
+  }
+  requestRender() {
+    if (!this.disposed) this.tui.requestRender();
+  }
+  scrollBy(delta) {
+    this.scrollBack = Math.max(0, this.scrollBack + delta);
+    this.tui.requestRender();
+  }
+  resolveManifest(runId) {
+    const stale = Date.now() - this.lastManifestRefreshAt >= MANIFEST_REFRESH_MS;
+    if (this.cachedRunId === runId && this.cachedManifest) {
+      if (stale) {
+        this.lastManifestRefreshAt = Date.now();
+        const refreshed = loadRunManifestById(this.cwd, runId);
+        if (refreshed) {
+          this.cachedManifest = refreshed.manifest;
+          this.cachedTasks = refreshed.tasks ?? [];
+        }
+      }
+      return this.cachedManifest;
+    }
+    const loaded = loadRunManifestById(this.cwd, runId);
+    if (!loaded) return void 0;
+    this.cachedRunId = runId;
+    this.cachedManifest = loaded.manifest;
+    this.cachedTasks = loaded.tasks ?? [];
+    this.lastManifestRefreshAt = Date.now();
+    return loaded.manifest;
+  }
+  itemComponent(item) {
+    const cached2 = this.componentCache.get(item);
+    if (cached2) return cached2;
+    let comp;
+    if (item.type === "user") {
+      comp = new UserMessageComponent(item.text);
+    } else if (item.type === "assistant") {
+      comp = item.message ? new AssistantMessageComponent(item.message) : new Markdown(item.text.trim(), 0, 0, getMarkdownTheme());
+    } else if (item.type === "system") {
+      comp = {
+        render: () => [this.theme.fg("dim", truncateToWidth2(item.text, 200, "\u2026"))]
+      };
+    } else {
+      const tool = new ToolExecutionComponent(item.name, item.toolCallId, item.args, {}, void 0, this.tui, this.cwd);
+      tool.markExecutionStarted();
+      if (item.result !== void 0) {
+        tool.updateResult(item.result);
+      }
+      comp = tool;
+    }
+    this.componentCache.set(item, comp);
+    return comp;
+  }
+  /**
+   * Render one transcript item to lines, degrading to a dim text line when
+   * the item's shape confuses a pi component (the JSONL is worker-written
+   * and unvalidated — a once-bad record must never kill the pane render).
+   */
+  renderItem(item, width) {
+    try {
+      return this.itemComponent(item).render(width);
+    } catch {
+      const label = item.type === "tool" ? item.name : "text";
+      return [this.theme.fg("dim", truncateToWidth2(`(unrenderable ${label} item)`, width, "\u2026"))];
+    }
+  }
+  /** FNV-1a over the parts that change pane output; 32-bit is plenty for a
+   * 500-item cache key (a collision only delays a repaint by one tick). */
+  bodyFingerprint(items, width) {
+    let h = (2166136261 ^ width) >>> 0;
+    for (const item of items) {
+      h ^= item.seq;
+      h = Math.imul(h, 16777619) >>> 0;
+      h ^= item.type.length;
+      h = Math.imul(h, 16777619) >>> 0;
+      if (item.type === "tool") {
+        h ^= item.result !== void 0 ? 7 : 3;
+      } else {
+        h ^= item.text.length;
+      }
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h;
+  }
+  buildBody(items, width) {
+    const body = [];
+    for (const item of items) {
+      for (const line4 of this.renderItem(item, width)) body.push(line4);
+      if (item.type === "assistant" && item.usage) {
+        const footer = usageFooterLine(item.usage);
+        if (footer) body.push(this.theme.fg("dim", footer));
+      }
+    }
+    return body;
+  }
+  /** Session-style header: agent name · task · run · model · state. */
+  headerLines(manifest, width) {
+    const t2 = this.theme;
+    const task = this.cachedTasks.find((candidate) => candidate.id === this.currentTaskId);
+    const name = task?.displayName ?? task?.title ?? this.currentTaskId ?? "agent";
+    const model = manifest.modelContext?.parentModel ?? manifest.modelContext?.override;
+    const parts = [
+      t2.fg("accent", t2.bold(name)),
+      t2.fg("dim", `\xB7 ${this.currentTaskId ?? ""}`),
+      t2.fg("dim", `\xB7 \u2026${manifest.runId.slice(-12)}`)
+    ];
+    if (model) parts.push(t2.fg("dim", `\xB7 ${model}`));
+    const status = task?.status ?? manifest.status;
+    let stateText = "";
+    if (status === "completed") stateText = t2.fg("success", "\u2713 completed");
+    else if (status === "failed") stateText = t2.fg("error", "\u2717 failed");
+    else if (status === "cancelled") stateText = t2.fg("warning", "\u25A0 cancelled");
+    else if (status === "running") stateText = t2.fg("success", "\u25CF running");
+    else if (status) stateText = t2.fg("dim", status);
+    const line4 = truncateToWidth2(`${parts.join(" ")}${stateText ? `   ${stateText}` : ""}`, width, "\u2026");
+    const lines = [line4];
+    if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
+      lines.push(t2.fg("dim", truncateToWidth2(`\xB7 finished \u2014 full log: /team-dashboard or artifacts/${manifest.runId}`, width, "\u2026")));
+    }
+    return lines;
+  }
+  render(width) {
+    if (this.disposed) return [];
+    const viewed2 = getViewedAgent();
+    if (!viewed2) return [];
+    if (this.currentTaskId !== viewed2.taskId) {
+      resetAgentTranscriptCursor(viewed2.taskId);
+      this.currentTaskId = viewed2.taskId;
+      this.scrollBack = 0;
+      this.lastItems = [];
+      this.lastTranscriptReadAt = 0;
+      this.bodyKey = 0;
+      this.cachedBody = [];
+    }
+    const manifest = this.resolveManifest(viewed2.runId);
+    if (!manifest) return [this.theme.fg("dim", "(run manifest unavailable)")];
+    if (Date.now() - this.lastTranscriptReadAt >= TRANSCRIPT_READ_THROTTLE_MS) {
+      this.lastItems = readAgentTranscript(manifest, viewed2.taskId);
+      this.lastTranscriptReadAt = Date.now();
+    }
+    const items = this.lastItems;
+    const fingerprint = this.bodyFingerprint(items, width);
+    if (fingerprint !== this.bodyKey) {
+      this.cachedBody = this.buildBody(items, width);
+      this.bodyKey = fingerprint;
+    }
+    const body = this.cachedBody;
+    const header = this.headerLines(manifest, width);
+    const rows = this.tui.terminal.rows;
+    const maxBody = Math.max(6, rows - MAX_BODY_FRACTION - header.length);
+    const visibleCount = Math.min(maxBody, Math.max(1, body.length));
+    this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
+    const end = body.length - this.scrollBack;
+    const visible = body.slice(Math.max(0, end - visibleCount), end);
+    const lines = [];
+    for (const line4 of header) lines.push(line4);
+    lines.push(...new DynamicBorder((str) => this.theme.fg("border", str)).render(width));
+    if (end - visibleCount > 0) {
+      lines.push(this.theme.fg("dim", ` \u2191 ${Math.max(0, end - visibleCount)} more line(s) (pageUp)`));
+    } else {
+      lines.push("");
+    }
+    for (const line4 of visible) lines.push(line4);
+    if (this.scrollBack > 0) {
+      lines.push(this.theme.fg("dim", ` \u2193 ${this.scrollBack} more line(s) (pageDown)`));
+    }
+    return lines;
+  }
+  invalidate() {
+    this.componentCache = /* @__PURE__ */ new WeakMap();
+    this.bodyKey = 0;
+    this.cachedBody = [];
+  }
+  dispose() {
+    this.disposed = true;
+    this.unsubscribePanel();
+    this.cachedManifest = void 0;
+    this.cachedRunId = void 0;
+  }
+};
+
 // src/ui/inline-panel/crew-editor.ts
 init_panel_selection();
 init_panel_store();
-init_view_session_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth2, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth3, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
 var CrewInlineEditor = class extends CustomEditor {
   options;
@@ -83890,8 +83697,7 @@ var CrewInlineEditor = class extends CustomEditor {
   }
   /**
    * Apply a dispatch result. `closePaneOnMain` is true while the pane is open:
-   * `enter` on the main row then returns to the conversation instead of doing
-   * nothing.
+   * `enter` on the main row then closes the pane instead of doing nothing.
    */
   applyDispatch(data, rows, keys, closePaneOnMain) {
     const selection2 = getPanelSelection();
@@ -83910,7 +83716,6 @@ var CrewInlineEditor = class extends CustomEditor {
         setPanelSelection(null);
         const target = result4.action.target;
         if (target) this.options.onOpenPane(target);
-        else if (getCrewViewSessionState().active) this.dispatchCommand("/crew-back");
         else if (closePaneOnMain) this.options.onClosePane();
         return;
       }
@@ -83923,54 +83728,9 @@ var CrewInlineEditor = class extends CustomEditor {
       }
     }
   }
-  /**
-   * Route a slash command (crew-view / crew-back) to the host's immediate
-   * dispatch (sendUserMessage + expandPromptTemplates — pi executes "/"
-   * commands synchronously through session.prompt in ALL session states).
-   * Falls back to the legacy editor submit path if no dispatcher is wired.
-   *
-   * Do NOT setText here: the legacy submit path would leave the command
-   * text sitting in the input when queued, and the new path does not touch
-   * the editor at all (the user's draft must survive).
-   */
-  dispatchCommand(text) {
-    setPanelSelection(null);
-    setViewedAgent(void 0);
-    if (this.options.onDispatchCommand) {
-      this.options.onDispatchCommand(text);
-      return;
-    }
-    this.dispatchCommandFallback(text);
-  }
-  /** Legacy submit path (setText + onSubmit) — used only when the host
-   *  dispatcher is unavailable (very old pi without sendUserMessage). */
-  dispatchCommandFallback(text) {
-    setPanelSelection(null);
-    setViewedAgent(void 0);
-    this.setText(text);
-    super.handleInput("\r");
-    if (this.getText() === text) this.setText("");
-  }
   handleInput(data) {
     const rows = panelRows();
     const viewed2 = getViewedAgent();
-    if (getCrewViewSessionState().active && !viewed2) {
-      if (getPanelSelection() !== null) {
-        this.applyDispatch(data, rows, this.panelKeys(data), true);
-        return;
-      }
-      if (matchesKey3(data, "down") && this.getText() === "" && rows.length > 0) {
-        const result4 = dispatchPanelKey(this.panelKeys(data), rows, null);
-        setPanelSelection(result4.selection);
-        return;
-      }
-      if (matchesKey3(data, "escape")) {
-        this.dispatchCommand("/crew-back");
-        return;
-      }
-      super.handleInput(data);
-      return;
-    }
     if (viewed2) {
       if (getPanelSelection() !== null) {
         this.applyDispatch(data, rows, this.panelKeys(data), true);
@@ -84027,20 +83787,15 @@ var CrewInlineEditor = class extends CustomEditor {
   render(width) {
     const lines = super.render(width);
     const viewed2 = getViewedAgent();
-    const viewState = getCrewViewSessionState();
-    let name;
-    if (viewed2) {
-      const rows = panelRows();
-      const row = rows.find((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId);
-      name = row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX);
-    } else if (viewState.active) {
-      name = `${viewState.taskId ?? "agent"} \xB7 view`;
-    }
+    if (!viewed2) return lines;
+    const rows = panelRows();
+    const row = rows.find((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId);
+    const name = row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX);
     if (name && lines.length > 0) {
-      const label = ` @${truncateToWidth2(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
+      const label = ` @${truncateToWidth3(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
       const labelWidth = visibleWidth4(label);
       if (visibleWidth4(lines[0]) >= labelWidth + 4) {
-        lines[0] = truncateToWidth2(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
+        lines[0] = truncateToWidth3(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
       }
     }
     return lines;
@@ -84049,18 +83804,25 @@ var CrewInlineEditor = class extends CustomEditor {
 
 // src/ui/inline-panel/index.ts
 init_panel_store();
-init_view_session_store();
 var PANE_WIDGET_KEY = "pi-crew-agent-view";
 var PANE_PLACEMENT = "aboveEditor";
-var VIEW_REFRESH_MS = 3e3;
-var currentEditor;
-var lastCtx;
-var lastPi;
-var viewRefreshTimer;
-var viewRefreshBaseline;
-var lastViewRefreshAt = 0;
+var PANE_LIVE_TICK_MS = 700;
+var livePane;
+var paneTickTimer;
 var editorInstalled = false;
 var hooksRegistered2 = false;
+function startPaneTicker() {
+  if (paneTickTimer) return;
+  paneTickTimer = setInterval(() => livePane?.requestRender(), PANE_LIVE_TICK_MS);
+  paneTickTimer.unref?.();
+}
+function stopPaneTicker() {
+  if (paneTickTimer) {
+    clearInterval(paneTickTimer);
+    paneTickTimer = void 0;
+  }
+  livePane = void 0;
+}
 async function runTeamTool(params, ctx) {
   const { handleTeamTool: handleTeamTool8 } = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
   return handleTeamTool8(params, ctx);
@@ -84069,185 +83831,36 @@ function notifyResult2(ctx, result4) {
   const text = textFromToolResult(result4);
   ctx.ui.notify(isToolError(result4) ? `panel: ${text}` : text, isToolError(result4) ? "error" : "info");
 }
-function ctxAlive(ctx) {
-  try {
-    void ctx.ui;
-    return true;
-  } catch {
-    return false;
-  }
-}
-function safeNotify(ctx, text, level) {
-  if (!ctxAlive(ctx)) return;
-  try {
-    ctx.ui.notify(text, level);
-  } catch {
-  }
-}
-function invokeViewHandler(run, label) {
-  run.catch((error) => {
-    logInternalError(label, error);
-  });
-}
-var pendingViewOpen;
-var VIEW_OPEN_PENDING_TTL_MS = 3e4;
-function clearPendingViewOpen() {
-  pendingViewOpen = void 0;
-}
-function dispatchViewCommand(text) {
-  const cmdCtx = liveCommandCtx();
-  if (cmdCtx) {
-    if (text === "/crew-back") {
-      invokeViewHandler(handleCrewBackCommand("", cmdCtx), "view.dispatch.back");
-      return;
-    }
-    const viewMatch = /^\/crew-view (\S+) (\S+)$/.exec(text);
-    if (viewMatch) {
-      invokeViewHandler(handleCrewViewCommand(`${viewMatch[1]} ${viewMatch[2]}`, cmdCtx), "view.dispatch.view");
-      return;
-    }
-  }
-  dispatchViewCommandWith(currentEditor, lastPi, text);
-}
-function liveCommandCtx() {
-  try {
-    const currentId = lastCtx?.sessionManager?.getSessionId();
-    return currentCommandCtx(currentId);
-  } catch {
-    return void 0;
-  }
-}
-function dispatchViewCommandWith(editor, pi, text) {
-  if (editor) {
-    try {
-      editor.dispatchCommandFallback(text);
-    } catch (error) {
-      logInternalError("view.dispatch.editor", error, text);
-    }
-    return;
-  }
-  const sendUserMessage = pi?.sendUserMessage;
-  if (typeof sendUserMessage === "function") {
-    try {
-      sendUserMessage.call(pi, text);
-    } catch (error) {
-      logInternalError("view.dispatch", error, text);
-    }
-  }
-}
-var VIEW_SETTLE_TIMEOUT_MS = 8e3;
-var VIEW_SETTLE_POLL_MS = 100;
-async function settleSessionForViewSwitch(ctx, runId) {
-  const isIdle = () => {
-    try {
-      return ctx.isIdle?.() !== false;
-    } catch {
-      return true;
-    }
-  };
-  if (isIdle()) return mainSessionIsOnDisk(ctx);
-  try {
-    const { detachRunPromise: detachRunPromise2 } = await Promise.resolve().then(() => (init_run_tracker(), run_tracker_exports));
-    if (!detachRunPromise2(runId, ctx.cwd)) return mainSessionIsOnDisk(ctx);
-    const { markRunDetached: markRunDetached2 } = await Promise.resolve().then(() => (init_detached_run_results(), detached_run_results_exports));
-    markRunDetached2(runId, ctx.cwd);
-  } catch (error) {
-    logInternalError("view.detachForegroundRun", error, runId);
-    return false;
-  }
-  if (!ctxAlive(ctx)) return false;
-  safeNotify(ctx, "Team run detached to background so the agent view can open \u2014 its result arrives here when it finishes.", "info");
-  const deadline = Date.now() + VIEW_SETTLE_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (isIdle() && mainSessionIsOnDisk(ctx)) return true;
-    await new Promise((resolve26) => setTimeout(resolve26, VIEW_SETTLE_POLL_MS));
-  }
-  return mainSessionIsOnDisk(ctx);
-}
-function mainSessionIsOnDisk(ctx) {
-  try {
-    const file = ctx.sessionManager.getSessionFile();
-    return Boolean(file) && existsSync85(file);
-  } catch {
-    return false;
-  }
-}
-var VIEW_BUILD_RETRY_MS = 500;
-var VIEW_BUILD_MAX_RETRIES = 40;
-function mainSessionRoot() {
-  const state3 = getCrewViewSessionState();
-  const file = state3.mainSessionFile ?? lastCtx?.sessionManager.getSessionFile();
-  return sessionsRootFromFile(file ?? void 0);
-}
-async function buildViewPath(ctx, target) {
-  const mainFile = ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile;
-  for (let attempt = 0; ; attempt += 1) {
-    const viewPath = buildAgentViewSessionFile({
-      cwd: ctx.cwd,
-      runId: target.runId,
-      taskId: target.taskId,
-      parentSessionFile: mainFile,
-      sessionRoot: mainSessionRoot()
-    });
-    if (viewPath) return viewPath;
-    if (attempt >= VIEW_BUILD_MAX_RETRIES) return void 0;
-    await new Promise((resolve26) => setTimeout(resolve26, VIEW_BUILD_RETRY_MS));
-  }
-}
 function openPane(ctx, target) {
-  if (pendingViewOpen && Date.now() - pendingViewOpen.at < VIEW_OPEN_PENDING_TTL_MS) {
-    safeNotify(ctx, "Already opening an agent view \u2014 one moment.", "info");
-    return;
+  setViewedAgent(target);
+  try {
+    setExtensionWidget(
+      ctx,
+      PANE_WIDGET_KEY,
+      (tui, theme) => {
+        const pane = new CrewAgentPane(tui, theme, ctx.cwd);
+        livePane = pane;
+        return pane;
+      },
+      { placement: PANE_PLACEMENT }
+    );
+  } catch (error) {
+    logInternalError("view.openPane", error, target.taskId);
   }
-  pendingViewOpen = { runId: target.runId, taskId: target.taskId, at: Date.now() };
-  void (async () => {
-    try {
-      const viewPath = await buildViewPath(ctx, target);
-      if (!ctxAlive(ctx)) return;
-      if (viewPath) {
-        const stamp = workerSessionSourceStamp({
-          cwd: ctx.cwd,
-          runId: target.runId,
-          taskId: target.taskId,
-          parentSessionFile: ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile,
-          sessionRoot: mainSessionRoot()
-        });
-        if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
-        if (!await settleSessionForViewSwitch(ctx, target.runId)) {
-          clearPendingViewOpen();
-          safeNotify(
-            ctx,
-            "Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then press Enter again.",
-            "error"
-          );
-          return;
-        }
-        if (!ctxAlive(ctx)) return;
-        setTimeout(() => {
-          const cmdCtx = liveCommandCtx();
-          if (cmdCtx) {
-            invokeViewHandler(handleCrewViewCommand(`${target.runId} ${target.taskId}`, cmdCtx), "view.open.dispatch");
-            return;
-          }
-          dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
-        }, 0);
-        return;
-      }
-      clearPendingViewOpen();
-      safeNotify(ctx, `Could not open a view for ${target.taskId} \u2014 no transcript yet. Try again in a moment.`, "error");
-    } catch (error) {
-      clearPendingViewOpen();
-      logInternalError("view.openPane", error, target.taskId);
-    }
-  })();
+  startPaneTicker();
+  try {
+    requestRender(ctx);
+  } catch {
+  }
 }
 function closePane(ctx) {
   setViewedAgent(void 0);
+  stopPaneTicker();
   try {
     setExtensionWidget(ctx, PANE_WIDGET_KEY, void 0, { placement: PANE_PLACEMENT });
+    requestRender(ctx);
   } catch {
   }
-  requestRender(ctx);
 }
 async function steerAgent(ctx, target, message) {
   try {
@@ -84277,250 +83890,59 @@ async function actOnAgent(ctx, target, finished) {
   }
 }
 async function handleCrewViewCommand(args, ctx) {
-  captureCommandCtx(ctx);
-  clearPendingViewOpen();
   const tokens = args.trim().split(/\s+/).filter(Boolean);
   if (tokens.length < 2) {
     ctx.ui.notify("Usage: /crew-view <runId> <taskId>", "error");
     return;
   }
-  if (typeof ctx.switchSession !== "function") {
-    ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
+  const [runId, taskId] = tokens;
+  const { loadRunManifestById: loadRunManifestById2 } = await Promise.resolve().then(() => (init_state_store(), state_store_exports));
+  if (!loadRunManifestById2(ctx.cwd, runId)) {
+    ctx.ui.notify(`No run ${runId} in this project.`, "error");
     return;
   }
-  const [runId, taskId] = tokens;
-  const prev = getCrewViewSessionState();
-  const currentFile = ctx.sessionManager.getSessionFile();
-  const alreadyViewing = isCrewViewSessionFile(currentFile);
-  const mainSessionFile = alreadyViewing ? prev.mainSessionFile : currentFile;
-  try {
-    const viewPath = buildAgentViewSessionFile({
-      cwd: ctx.cwd,
-      runId,
-      taskId,
-      parentSessionFile: mainSessionFile ?? prev.mainSessionFile,
-      sessionRoot: sessionsRootFromFile(mainSessionFile ?? currentFile ?? void 0)
-    });
-    if (!viewPath) {
-      ctx.ui.notify(`No transcript for agent ${taskId} in run ${runId}.`, "error");
-      return;
-    }
-    const sessionId = alreadyViewing ? prev.mainSessionId : typeof ctx.sessionManager?.getSessionId === "function" ? ctx.sessionManager.getSessionId() : void 0;
-    setCrewViewSessionState({
-      active: true,
-      runId,
-      taskId,
-      mainSessionFile: mainSessionFile ?? prev.mainSessionFile,
-      mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId
-    });
-    markViewSwitchInFlight();
-    if (!(alreadyViewing || await settleSessionForViewSwitch(ctx, runId))) {
-      clearViewSwitchInFlight();
-      setCrewViewSessionState({ ...prev, active: false });
-      safeNotify(
-        ctx,
-        "Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then try again.",
-        "error"
-      );
-      return;
-    }
-    let result4;
-    try {
-      result4 = await ctx.switchSession(viewPath, {
-        // Pin the VIEW session's command ctx as the live one, so
-        // escape / ↓-navigation can invoke /crew-back DIRECTLY. The
-        // editor submit path parks text in pendingUserInputs until
-        // pi's input loop returns to getUserInput(), which a
-        // live-refreshing view session rarely does — a submitted
-        // "/crew-back" would strand there indefinitely.
-        withSession: async (viewCtx) => {
-          captureCommandCtx(viewCtx);
-        }
-      });
-    } catch (error) {
-      clearViewSwitchInFlight();
-      setCrewViewSessionState({ ...prev, active: false });
-      safeNotify(ctx, `crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
-      return;
-    }
-    if (result4?.cancelled) clearViewSwitchInFlight();
-  } catch (error) {
-    clearViewSwitchInFlight();
-    setCrewViewSessionState({ ...prev, active: false });
-    safeNotify(ctx, `crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
-  }
+  openPane(ctx, { runId, taskId });
 }
 async function handleCrewBackCommand(_args, ctx) {
-  captureCommandCtx(ctx);
-  clearPendingViewOpen();
-  const prev = getCrewViewSessionState();
-  const currentFile = ctx.sessionManager.getSessionFile();
-  const mainSessionFile = resolveReturnSessionFile(currentFile, prev);
-  if (!prev.active && !isCrewViewSessionFile(currentFile)) {
-    ctx.ui.notify("Not viewing an agent session.", "info");
-    return;
-  }
-  if (!mainSessionFile) {
-    ctx.ui.notify("Not viewing an agent session.", "info");
-    return;
-  }
-  if (typeof ctx.switchSession !== "function") {
-    ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
-    return;
-  }
-  markViewSwitchInFlight();
-  try {
-    const result4 = await ctx.switchSession(mainSessionFile, {
-      // Same pinning as /crew-view: after returning to main, escape and
-      // panel actions must keep a live ctx for the MAIN session.
-      withSession: async (mainCtx) => {
-        captureCommandCtx(mainCtx);
-      }
-    });
-    if (result4?.cancelled) clearViewSwitchInFlight();
-  } catch (error) {
-    clearViewSwitchInFlight();
-    safeNotify(ctx, `crew-back failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
-  }
-}
-function stopViewAutoRefresh() {
-  if (viewRefreshTimer) {
-    clearInterval(viewRefreshTimer);
-    viewRefreshTimer = void 0;
-  }
-  viewRefreshBaseline = void 0;
-  lastViewRefreshAt = 0;
-}
-async function viewRefreshTick() {
-  const ctx = lastCtx;
-  const state3 = getCrewViewSessionState();
-  if (!ctx || !state3.active || !state3.runId || !state3.taskId) return stopViewAutoRefresh();
-  if (isViewSwitchInFlight()) return;
-  const now = Date.now();
-  if (now - lastViewRefreshAt < VIEW_REFRESH_MS - 500) return;
-  if (typeof currentEditor?.getText === "function" && currentEditor.getText() !== "") return;
-  try {
-    const [{ loadRunManifestById: loadRunManifestById2 }, { agentEventsPath: agentEventsPath2 }] = await Promise.all([
-      Promise.resolve().then(() => (init_state_store(), state_store_exports)),
-      Promise.resolve().then(() => (init_crew_agent_records(), crew_agent_records_exports))
-    ]);
-    const loaded = loadRunManifestById2(ctx.cwd, state3.runId);
-    if (!loaded) return stopViewAutoRefresh();
-    const task = loaded.tasks.find((candidate) => candidate.id === state3.taskId);
-    if (task && (task.status === "completed" || task.status === "failed" || task.status === "cancelled")) return stopViewAutoRefresh();
-    const stamp = workerSessionSourceStamp({
-      cwd: ctx.cwd,
-      runId: state3.runId,
-      taskId: state3.taskId,
-      parentSessionFile: state3.mainSessionFile,
-      sessionRoot: mainSessionRoot()
-    });
-    if (stamp) {
-      const stampKey = `${stamp.mtimeMs}:${stamp.size}`;
-      if (stampKey === viewRefreshBaseline) return;
-      viewRefreshBaseline = stampKey;
-      lastViewRefreshAt = now;
-      const refreshed = buildAgentViewSessionFile({
-        cwd: ctx.cwd,
-        runId: state3.runId,
-        taskId: state3.taskId,
-        parentSessionFile: state3.mainSessionFile,
-        sessionRoot: mainSessionRoot()
-      });
-      if (refreshed) dispatchViewCommand(`/crew-view ${state3.runId} ${state3.taskId}`);
-      return;
-    }
-    const viewPath = buildAgentViewSessionFile({
-      cwd: ctx.cwd,
-      runId: state3.runId,
-      taskId: state3.taskId,
-      parentSessionFile: state3.mainSessionFile,
-      sessionRoot: mainSessionRoot()
-    });
-    if (!viewPath) return;
-    const fresh = readFileSync93(viewPath, "utf8");
-    if (viewRefreshBaseline === void 0) {
-      viewRefreshBaseline = fresh;
-      lastViewRefreshAt = now;
-      return;
-    }
-    if (fresh === viewRefreshBaseline) return;
-    viewRefreshBaseline = fresh;
-    lastViewRefreshAt = now;
-    dispatchViewCommand(`/crew-view ${state3.runId} ${state3.taskId}`);
-  } catch {
-  }
-}
-function startViewAutoRefresh() {
-  if (viewRefreshTimer) return;
-  viewRefreshTimer = setInterval(() => void viewRefreshTick(), VIEW_REFRESH_MS);
-  viewRefreshTimer.unref?.();
-}
-function reconcileViewSessionState(ctx) {
-  const file = ctx.sessionManager.getSessionFile();
-  clearViewSwitchInFlight();
-  clearPendingViewOpen();
-  if (!file) return;
-  const nextActive = isCrewViewSessionFile(file);
-  const prev = getCrewViewSessionState();
-  if (nextActive) {
-    setCrewViewSessionState(prev);
-    return;
-  }
-  setCrewViewSessionState({
-    active: false,
-    // Keep the last known main file (a view that was abandoned via /new
-    // still has a return path; a fresh session keeps its own file).
-    mainSessionFile: file ?? prev.mainSessionFile
-  });
+  closePane(ctx);
 }
 function installInlinePanel(pi, ctx, uiConfig) {
-  lastCtx = ctx;
-  lastPi = pi;
   if (!ctx.hasUI) return;
-  reconcileViewSessionState(ctx);
-  if (getCrewViewSessionState().active && isCrewViewSessionFile(ctx.sessionManager.getSessionFile())) {
-    startViewAutoRefresh();
-  } else {
-    stopViewAutoRefresh();
-  }
   const enabled = uiConfig?.inlinePanel !== false;
   try {
     if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
       ctx.ui.setEditorComponent((tui, theme, kb) => {
-        const editor = new CrewInlineEditor(tui, theme, kb, {
+        return new CrewInlineEditor(tui, theme, kb, {
           onOpenPane: (target) => openPane(ctx, target),
           onClosePane: () => closePane(ctx),
-          onScrollPane: () => void 0,
+          onScrollPane: (delta) => livePane?.scrollBy(delta),
           onSteer: (target, message) => void steerAgent(ctx, target, message),
-          onAct: (target, finished) => void actOnAgent(ctx, target, finished),
-          onDispatchCommand: (text) => void dispatchViewCommand(text)
+          onAct: (target, finished) => void actOnAgent(ctx, target, finished)
         });
-        currentEditor = editor;
-        return editor;
       });
       editorInstalled = true;
     }
   } catch {
   }
   pi.registerCommand("crew-view", {
-    description: "Open a real pi session view of a crew agent (usage: crew-view <runId> <taskId>)",
+    description: "Open an agent's live transcript pane (usage: crew-view <runId> <taskId>)",
     handler: handleCrewViewCommand
   });
   pi.registerCommand("crew-back", {
-    description: "Return from an agent session view to the main session",
+    description: "Close the agent transcript pane and return to the main conversation",
     handler: handleCrewBackCommand
   });
   if (!hooksRegistered2) {
     hooksRegistered2 = true;
     pi.on("session_shutdown", () => {
-      stopViewAutoRefresh();
-      if (lastCtx) closePane(lastCtx);
+      stopPaneTicker();
+      livePane = void 0;
       resetPanelStore();
       resetAllAgentTranscriptCursors();
     });
     pi.on("session_start", () => {
       editorInstalled = false;
+      stopPaneTicker();
     });
   }
 }
@@ -84725,7 +84147,7 @@ init_artifact_store();
 init_internal_error();
 init_paths();
 import * as fs120 from "node:fs";
-import * as path98 from "node:path";
+import * as path97 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
@@ -84736,7 +84158,7 @@ function collectArtifactDescriptors(runsDir) {
   }
   for (const dir of dirs) {
     if (!dir.isDirectory()) continue;
-    const manifestPath = path98.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
+    const manifestPath = path97.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
       const manifest = JSON.parse(fs120.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
@@ -84749,8 +84171,8 @@ function collectArtifactDescriptors(runsDir) {
 }
 function runArtifactCleanup(cwd) {
   try {
-    const userArtifactsRoot = path98.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
-    const projectArtifactsRoot = path98.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
+    const userArtifactsRoot = path97.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
+    const projectArtifactsRoot = path97.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
     cleanupOldArtifacts(userArtifactsRoot, {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
@@ -84759,8 +84181,8 @@ function runArtifactCleanup(cwd) {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
-    pruneExpiredArtifacts(collectArtifactDescriptors(path98.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
-    pruneExpiredArtifacts(collectArtifactDescriptors(path98.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path97.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path97.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
   } catch (error) {
     logInternalError("register.artifact-cleanup", error, `cwd=${cwd}`);
   }
@@ -84776,7 +84198,7 @@ function installSessionLifecycleHandlers(pi, ctx) {
 function deliverDetachedRunResults(pi, extensionCtx) {
   if (!hasDetachedRuns()) return;
   try {
-    const inViewSession = isCrewViewSessionFile(extensionCtx.sessionManager?.getSessionFile?.());
+    const inViewSession = false;
     for (const { runId, text } of peekFinishedDetachedRunResults({ inViewSession })) {
       pi.sendMessage({ customType: "pi-crew-run-result", content: text, display: true });
       forgetDetachedRun(runId);
@@ -85344,7 +84766,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
-    const crewRunsDir = path99.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
+    const crewRunsDir = path98.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
     if (fs121.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -85355,7 +84777,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
-    const userRunsDir = path99.join(userCrewRoot(), "state", "runs");
+    const userRunsDir = path98.join(userCrewRoot(), "state", "runs");
     if (fs121.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
@@ -85502,7 +84924,6 @@ function installCrewBrokerLifecycleController(_pi, _ctx) {
 init_config();
 init_registry2();
 init_foreground_watchdog();
-init_view_session_store();
 init_powerbar_publisher();
 init_widget();
 init_internal_error();
@@ -85632,7 +85053,6 @@ function buildDisposeRenderSchedulerSubscriptions(ctx) {
 }
 function buildStopSessionBoundSubagents(ctx) {
   return () => {
-    if (isViewSwitchInFlight()) return;
     safeAbortAll(ctx.foregroundControllers.values(), "stop-session-bound.foreground");
     ctx.foregroundControllers.clear();
     try {

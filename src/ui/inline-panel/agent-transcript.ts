@@ -24,9 +24,30 @@
 
 import { readCrewAgentEventsCursor } from "../../runtime/crew-agent-records.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
-import { normalizeUsage } from "./agent-view-session.ts";
 
 const MAX_TRANSCRIPT_ITEMS = 500;
+
+/** Normalize a raw usage record to pi's shape (footer/dashboard consumers
+ *  read usage.input / usage.cost.total unconditionally). */
+export function normalizeUsage(raw: unknown): {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: { total: number };
+} {
+	const usage = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+	const toNum = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+	const costRaw = usage ? usage.cost : undefined;
+	const costRecord = costRaw && typeof costRaw === "object" && !Array.isArray(costRaw) ? (costRaw as Record<string, unknown>) : undefined;
+	return {
+		input: toNum(usage?.input),
+		output: toNum(usage?.output),
+		cacheRead: toNum(usage?.cacheRead),
+		cacheWrite: toNum(usage?.cacheWrite),
+		cost: { total: toNum(costRecord?.total ?? costRaw) },
+	};
+}
 
 export type CrewTranscriptItem =
 	| { type: "user"; text: string; seq: number }

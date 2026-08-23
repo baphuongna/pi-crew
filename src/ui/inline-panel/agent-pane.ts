@@ -246,12 +246,7 @@ export class CrewAgentPane {
 		const line = truncateToWidth(`${parts.join(" ")}${stateText ? `   ${stateText}` : ""}`, width, "…");
 		const lines = [line];
 		if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
-			lines.push(
-				t.fg(
-					"dim",
-					truncateToWidth(`· finished — /crew-view ${manifest.runId} ${this.currentTaskId} opens the full session`, width, "…"),
-				),
-			);
+			lines.push(t.fg("dim", truncateToWidth(`· finished — full log: /team-dashboard or artifacts/${manifest.runId}`, width, "…")));
 		}
 		return lines;
 	}

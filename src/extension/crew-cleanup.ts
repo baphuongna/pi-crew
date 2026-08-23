@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { cleanupAllTrackedTempDirs } from "../runtime/model/pi-args.ts";
-import { isSessionSwitchInFlight, isViewSwitchInFlight } from "../ui/inline-panel/view-session-store.ts";
+import { isSessionSwitchInFlight } from "../ui/inline-panel/view-session-store.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
 // NOTE: globalProgressTracker import kept for documentation but not directly used
@@ -68,19 +68,18 @@ export function registerCleanupHandler(pi: ExtensionAPI, opts?: { disposeTermina
 		console.log("[pi-crew] Session shutdown - cleaning up resources");
 
 		try {
-			// Navigational switches (/crew-view, /crew-back, and pi's own
-			// resume/new/fork) tear the session down on purpose — the user is
-			// only LOOKING at another session (a crew worker's view, or a
-			// different pi session); foreground team runs + their workers share
-			// this process and must keep running (P0: "jumping into any session
-			// stops the run" — exit 143 signature). Killing them here bypasses
-			// child-pi's abort flags, so the worker exit reads as an "unexpected
+			// Navigational switches (pi's own resume/new/fork) tear the session
+			// down on purpose — the user is only LOOKING at a different pi
+			// session; foreground team runs + their workers share this process
+			// and must keep running (P0: "jumping into any session stops the
+			// run" — exit 143 signature). Killing them here bypasses child-pi's
+			// abort flags, so the worker exit reads as an "unexpected
 			// code=143 signal=null" and the run is cancelled. Same contract as
 			// stopSessionBoundSubagents and the run-deadline caller-abort
-			// suppression; on REAL shutdowns (quit/reload) the flags are unset
+			// suppression; on REAL shutdowns (quit/reload) the flag is unset
 			// and this cleanup still drains the registry, as does the
 			// process-exit hook (tryRegisterSessionCleanup) when pi dies.
-			if (isViewSwitchInFlight() || isSessionSwitchInFlight()) return;
+			if (isSessionSwitchInFlight()) return;
 			// Kill all child-pi processes
 			await cleanupChildProcesses();
 

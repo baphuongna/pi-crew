@@ -21,7 +21,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { clearHooksScoped } from "../../hooks/registry.ts";
 import { stopAllWatchdogs } from "../../runtime/foreground-watchdog.ts";
-import { isViewSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
 import { clearPiCrewPowerbar, disposePowerbarCoalescer } from "../../ui/powerbar-publisher.ts";
 import { stopCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -219,15 +218,6 @@ function buildDisposeRenderSchedulerSubscriptions(ctx: RegistrationContext): () 
  */
 function buildStopSessionBoundSubagents(ctx: RegistrationContext): () => void {
 	return (): void => {
-		// A `/crew-view` / `/crew-back` switch is NAVIGATIONAL: the user is
-		// only looking at a worker's session, so the run + its workers must
-		// keep running. Skipping here is safe on real shutdowns too — a
-		// quit/reload still aborts the run via cleanupRuntime, and pi's
-		// session-end hook (tryRegisterSessionCleanup) terminates child pi
-		// processes when the process actually exits.
-		// Regression: entering the view killed the child workers (exit 143)
-		// and cancelled the run 9.9s into it.
-		if (isViewSwitchInFlight()) return;
 		// Only abort subagent controllers — NOT foreground team runs.
 		// Foreground team runs are bound to the session lifecycle; they will be aborted
 		// by cleanupRuntime during session_shutdown.
@@ -235,7 +225,6 @@ function buildStopSessionBoundSubagents(ctx: RegistrationContext): () => void {
 		// them into spawn options.signal); aborting after a child exited makes Node's
 		// child_process listener throw AbortError synchronously — inside a session
 		// event handler that would surface as uncaughtException and kill pi.
-		// Regression: /crew-view session switch mid-foreground-run crashed the host.
 		safeAbortAll(ctx.foregroundControllers.values(), "stop-session-bound.foreground");
 		ctx.foregroundControllers.clear();
 		try {
@@ -246,12 +235,9 @@ function buildStopSessionBoundSubagents(ctx: RegistrationContext): () => void {
 		// Deliberately NOT terminateActiveChildPiProcesses() here: the active
 		// child registry holds EVERY child pi spawned in this process —
 		// including foreground team-run workers. Killing them on a session
-		// switch (resume/new/fork, or /crew-view) is exactly the regression
-		// "jumping into any session stops the run" (exit 143). The gate above
-		// (isViewSwitchInFlight) only covers the in-window case; pi can emit
-		// switch teardown events AFTER session_start clears the flag, which
-		// bypasses the gate and SIGTERMs the workers. Session-bound subagents
-		// are cancelled above via their own controllers; foreground runs must
+		// switch (resume/new/fork) is exactly the regression "jumping into any
+		// session stops the run" (exit 143). Session-bound subagents are
+		// cancelled above via their own controllers; foreground runs must
 		// survive switches (P0) and are aborted only by cleanupRuntime on real
 		// shutdown; the process-exit hook (tryRegisterSessionCleanup) drains
 		// the registry when pi actually exits.

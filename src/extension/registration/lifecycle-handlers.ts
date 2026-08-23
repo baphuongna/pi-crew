@@ -41,7 +41,7 @@ import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
-import { clearSessionSwitchInFlight, isCrewViewSessionFile, markSessionSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
+import { clearSessionSwitchInFlight, markSessionSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
 import { requestRender, setExtensionWidget, toPiWidgetPlacement } from "../../ui/pi-ui-compat.ts";
 import {
 	registerPiCrewPowerbarSegments,
@@ -90,7 +90,9 @@ export function installSessionLifecycleHandlers(pi: ExtensionAPI, ctx: Registrat
 function deliverDetachedRunResults(pi: ExtensionAPI, extensionCtx: ExtensionContext): void {
 	if (!hasDetachedRuns()) return;
 	try {
-		const inViewSession = isCrewViewSessionFile(extensionCtx.sessionManager?.getSessionFile?.());
+		// Agent views are in-document panes now, never sessions: the current
+		// session is always the main one, so detached results always deliver.
+		const inViewSession = false;
 		for (const { runId, text } of peekFinishedDetachedRunResults({ inViewSession })) {
 			pi.sendMessage({ customType: "pi-crew-run-result", content: text, display: true });
 			forgetDetachedRun(runId);

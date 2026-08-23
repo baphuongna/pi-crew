@@ -3,13 +3,14 @@
  *
  * A `CustomEditor` wrapper (pi-subtask's `SubtaskEditor` pattern): pressing
  * `↓` on an empty prompt moves the cursor into the agent rows rendered by the
- * crew widget; `↑`/`↓` navigate, `enter` opens the agent's transcript pane,
- * `x` cancels/dismisses, `escape` returns to typing.
+ * crew widget; `↑`/`↓` navigate, `enter` opens the agent's live transcript
+ * pane, `x` cancels/dismisses, `escape` returns to typing.
  *
- * The pane is an in-document widget, NOT an overlay, so this editor keeps pi's
- * real focus: while the pane is open, typed text goes to the viewed agent
- * (Claude Code's `@name` convention — the editor border is relabeled) and the
- * main conversation's editor stays functional underneath.
+ * While a pane is open, typed text goes to the viewed agent (Claude Code's
+ * `@name` convention — the editor border is relabeled), pageUp/pageDown
+ * scroll the pane, and `enter` steers. The pane is an in-document widget,
+ * NOT a session switch: the main conversation's editor keeps pi's real focus
+ * the whole time.
  *
  * Every unhandled key falls through to `super.handleInput`, so the user is
  * never trapped in a mode. All state lives in panel-store (shared with the
@@ -23,8 +24,7 @@ import { type EditorTheme, matchesKey, type TUI, truncateToWidth, visibleWidth }
 
 import type { PanelKeys, PanelTarget } from "./panel-selection.ts";
 import { dispatchPanelKey } from "./panel-selection.ts";
-import { getPanelSelection, getViewedAgent, panelRows, setPanelSelection, setViewedAgent } from "./panel-store.ts";
-import { getCrewViewSessionState } from "./view-session-store.ts";
+import { getPanelSelection, getViewedAgent, panelRows, setPanelSelection } from "./panel-store.ts";
 
 export const AGENT_LABEL_MAX = 24;
 
@@ -39,13 +39,6 @@ export interface CrewEditorOptions {
 	onSteer: (target: PanelTarget, message: string) => void;
 	/** `x`: cancel a running agent's run, or dismiss a finished one. */
 	onAct: (target: PanelTarget, finished: boolean) => void;
-	/**
-	 * Dispatch a slash command (crew-view / crew-back) through the host's view
-	 * dispatcher, which routes it to pi's extension-command executor via the
-	 * editor submit path (the only route that runs "/" commands immediately in
-	 * every session state — see dispatchViewCommandWith in index.ts).
-	 */
-	onDispatchCommand?: (text: string) => void;
 }
 
 export class CrewInlineEditor extends CustomEditor {
@@ -68,8 +61,7 @@ export class CrewInlineEditor extends CustomEditor {
 
 	/**
 	 * Apply a dispatch result. `closePaneOnMain` is true while the pane is open:
-	 * `enter` on the main row then returns to the conversation instead of doing
-	 * nothing.
+	 * `enter` on the main row then closes the pane instead of doing nothing.
 	 */
 	private applyDispatch(data: string, rows: ReturnType<typeof panelRows>, keys: PanelKeys, closePaneOnMain: boolean): void {
 		const selection = getPanelSelection();
@@ -90,7 +82,6 @@ export class CrewInlineEditor extends CustomEditor {
 				setPanelSelection(null);
 				const target = result.action.target;
 				if (target) this.options.onOpenPane(target);
-				else if (getCrewViewSessionState().active) this.dispatchCommand("/crew-back");
 				else if (closePaneOnMain) this.options.onClosePane();
 				return;
 			}
@@ -104,79 +95,15 @@ export class CrewInlineEditor extends CustomEditor {
 		}
 	}
 
-	/**
-	 * Route a slash command (crew-view / crew-back) to the host's immediate
-	 * dispatch (sendUserMessage + expandPromptTemplates — pi executes "/"
-	 * commands synchronously through session.prompt in ALL session states).
-	 * Falls back to the legacy editor submit path if no dispatcher is wired.
-	 *
-	 * Do NOT setText here: the legacy submit path would leave the command
-	 * text sitting in the input when queued, and the new path does not touch
-	 * the editor at all (the user's draft must survive).
-	 */
-	dispatchCommand(text: string): void {
-		setPanelSelection(null);
-		setViewedAgent(undefined);
-		if (this.options.onDispatchCommand) {
-			this.options.onDispatchCommand(text);
-			return;
-		}
-		this.dispatchCommandFallback(text);
-	}
-
-	/** Legacy submit path (setText + onSubmit) — used only when the host
-	 *  dispatcher is unavailable (very old pi without sendUserMessage). */
-	dispatchCommandFallback(text: string): void {
-		setPanelSelection(null);
-		setViewedAgent(undefined);
-		this.setText(text);
-		// Submit through the REAL Enter key: Editor's own submit pipeline
-		// (submitValue) is the exact path a manual Enter takes — autocomplete
-		// teardown, state clear, then the host's submit handler. Calling
-		// onSubmit directly from a REPLACED editor proved unreliable (the
-		// command never reached pi's extension-command executor and leaked
-		// into the conversation as a user message).
-		super.handleInput("\r");
-		// The command may switch sessions before the submit pipeline clears
-		// the editor, and pi copies leftover text into the replacement
-		// editor — a stray "/crew-back" would follow the user back into
-		// main. Clear once the handler returns (only when still untouched).
-		if (this.getText() === text) this.setText("");
-	}
-
 	handleInput(data: string): void {
 		const rows = panelRows();
 		const viewed = getViewedAgent();
 
-		// ── Agent session view: the active session IS the agent's own ──────
-		// session (opened via /crew-view). The dock still navigates the run
-		// rows (↓/enter switch agent, enter on main returns); escape returns
-		// to the main session; plain typing stays a REAL pi turn in the view
-		// session — exactly like a normal conversation.
-		if (getCrewViewSessionState().active && !viewed) {
-			if (getPanelSelection() !== null) {
-				this.applyDispatch(data, rows, this.panelKeys(data), true);
-				return;
-			}
-			if (matchesKey(data, "down") && this.getText() === "" && rows.length > 0) {
-				// Same entry as the main session: `↓` on an empty prompt moves
-				// into the dock rows, so "↓ switch agent" works while viewing.
-				const result = dispatchPanelKey(this.panelKeys(data), rows, null);
-				setPanelSelection(result.selection);
-				return;
-			}
-			if (matchesKey(data, "escape")) {
-				this.dispatchCommand("/crew-back");
-				return;
-			}
-			super.handleInput(data);
-			return;
-		}
-
 		// ── Pane open: typing goes to the viewed agent ─────────────────────
+		// Navigation still works inside the pane: move the cursor over the
+		// rows and `enter` switches the pane to another agent (or closes it
+		// on the main row) — in place, no session involved.
 		if (viewed) {
-			// Navigation still works inside the pane: move the cursor over the
-			// rows and `enter` switches the pane to another agent (or to main).
 			if (getPanelSelection() !== null) {
 				this.applyDispatch(data, rows, this.panelKeys(data), true);
 				return;
@@ -206,7 +133,8 @@ export class CrewInlineEditor extends CustomEditor {
 					return;
 				}
 				if (text.startsWith("/")) {
-					// Built-in commands still act on the main session.
+					// Slash commands still act on the main session's command
+					// executor, like Claude Code's transcript view.
 					super.handleInput(data);
 					return;
 				}
@@ -245,16 +173,10 @@ export class CrewInlineEditor extends CustomEditor {
 	render(width: number): string[] {
 		const lines = super.render(width);
 		const viewed = getViewedAgent();
-		const viewState = getCrewViewSessionState();
-		let name: string | undefined;
-		if (viewed) {
-			const rows = panelRows();
-			const row = rows.find((r) => r.runId === viewed.runId && r.taskId === viewed.taskId);
-			name = row?.name ?? viewed.taskId.slice(-AGENT_LABEL_MAX);
-		} else if (viewState.active) {
-			// The editor belongs to the agent's own session now.
-			name = `${viewState.taskId ?? "agent"} · view`;
-		}
+		if (!viewed) return lines;
+		const rows = panelRows();
+		const row = rows.find((r) => r.runId === viewed.runId && r.taskId === viewed.taskId);
+		const name = row?.name ?? viewed.taskId.slice(-AGENT_LABEL_MAX);
 		if (name && lines.length > 0) {
 			const label = ` @${truncateToWidth(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
 			const labelWidth = visibleWidth(label);
