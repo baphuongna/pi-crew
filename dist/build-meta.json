@@ -6984,7 +6984,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/view-session-store.ts": {
-      "bytes": 6155,
+      "bytes": 8317,
       "imports": [
         {
           "path": "node:fs",
@@ -18177,8 +18177,13 @@
       "format": "esm"
     },
     "src/extension/registration/commands/index.ts": {
-      "bytes": 1707,
+      "bytes": 2716,
       "imports": [
+        {
+          "path": "src/ui/inline-panel/view-session-store.ts",
+          "kind": "import-statement",
+          "original": "../../../ui/inline-panel/view-session-store.ts"
+        },
         {
           "path": "src/utils/timings.ts",
           "kind": "import-statement",
@@ -19564,6 +19569,22 @@
       ],
       "format": "esm"
     },
+    "src/runtime/detached-run-results.ts": {
+      "bytes": 3652,
+      "imports": [
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/runtime/process-status.ts",
+          "kind": "import-statement",
+          "original": "./process-status.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/session-resources.ts": {
       "bytes": 1023,
       "imports": [
@@ -19633,7 +19654,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/crew-editor.ts": {
-      "bytes": 9753,
+      "bytes": 10417,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -19664,7 +19685,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 26632,
+      "bytes": 32230,
       "imports": [
         {
           "path": "node:fs",
@@ -19720,6 +19741,11 @@
           "path": "src/runtime/run-tracker.ts",
           "kind": "dynamic-import",
           "original": "../../runtime/run-tracker.ts"
+        },
+        {
+          "path": "src/runtime/detached-run-results.ts",
+          "kind": "dynamic-import",
+          "original": "../../runtime/detached-run-results.ts"
         },
         {
           "path": "src/state/stores/state-store.ts",
@@ -19819,7 +19845,7 @@
       "format": "esm"
     },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 48052,
+      "bytes": 49649,
       "imports": [
         {
           "path": "node:fs",
@@ -19865,6 +19891,11 @@
           "path": "src/runtime/child-pi/child-pi.ts",
           "kind": "import-statement",
           "original": "../../runtime/child-pi/child-pi.ts"
+        },
+        {
+          "path": "src/runtime/detached-run-results.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/detached-run-results.ts"
         },
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -20490,7 +20521,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7541149
+      "bytes": 7560805
     },
     "dist/index.mjs": {
       "imports": [
@@ -23187,7 +23218,7 @@
           "bytesInOutput": 15494
         },
         "src/ui/inline-panel/view-session-store.ts": {
-          "bytesInOutput": 2040
+          "bytesInOutput": 2553
         },
         "src/utils/redaction.ts": {
           "bytesInOutput": 9094
@@ -24426,7 +24457,7 @@
           "bytesInOutput": 2153
         },
         "src/extension/registration/commands/index.ts": {
-          "bytesInOutput": 508
+          "bytesInOutput": 899
         },
         "src/extension/registration/commands.ts": {
           "bytesInOutput": 400
@@ -24484,6 +24515,9 @@
         },
         "src/extension/registration/observability.ts": {
           "bytesInOutput": 7989
+        },
+        "src/runtime/detached-run-results.ts": {
+          "bytesInOutput": 2186
         },
         "src/runtime/replace.ts": {
           "bytesInOutput": 11635
@@ -24576,7 +24610,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 28624
+          "bytesInOutput": 29382
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 62642
@@ -24603,7 +24637,7 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 13195
+          "bytesInOutput": 16145
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 265
@@ -24612,7 +24646,7 @@
           "bytesInOutput": 14231
         },
         "src/ui/inline-panel/crew-editor.ts": {
-          "bytesInOutput": 6106
+          "bytesInOutput": 6159
         },
         "src/utils/run-watcher-registry.ts": {
           "bytesInOutput": 3309
@@ -24651,7 +24685,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3228663
+      "bytes": 3235554
     }
   }
 }

@@ -10,7 +10,9 @@ import { test } from "node:test";
 
 import {
 	CREW_VIEW_SESSION_BASENAME,
+	captureCommandCtx,
 	clearSessionSwitchInFlight,
+	currentCommandCtx,
 	clearViewSwitchInFlight,
 	getCrewViewSessionState,
 	isCrewViewSessionFile,
@@ -131,4 +133,33 @@ test("readViewParentSessionFile tolerates a missing or headerless file", () => {
 	} finally {
 		removeTrackedTempDir(dir);
 	}
+});
+
+// ── captured command context (direct view invocation) ──────────────────
+
+test("currentCommandCtx returns the captured ctx only while the session id matches", () => {
+	resetCrewViewSessionState();
+	const ctxA = { sessionManager: { getSessionId: () => "sess-a" } };
+	const ctxB = { sessionManager: { getSessionId: () => "sess-b" } };
+	// No capture yet → undefined even with a valid current id.
+	assert.equal(currentCommandCtx("sess-a"), undefined);
+	captureCommandCtx(ctxA);
+	// Matching id → the ctx itself.
+	assert.equal(currentCommandCtx("sess-a"), ctxA);
+	// Different session (a switch happened) → refuse the stale ctx.
+	assert.equal(currentCommandCtx("sess-b"), undefined);
+	captureCommandCtx(ctxB);
+	assert.equal(currentCommandCtx("sess-b"), ctxB);
+	// Unknown current id → fail closed.
+	assert.equal(currentCommandCtx(undefined), undefined);
+	resetCrewViewSessionState();
+});
+
+test("captureCommandCtx tolerates a ctx without a readable session id", () => {
+	resetCrewViewSessionState();
+	const opaque = {};
+	captureCommandCtx(opaque);
+	// No id pinned → never handed out (callers fall back to editor dispatch).
+	assert.equal(currentCommandCtx(undefined), undefined);
+	resetCrewViewSessionState();
 });

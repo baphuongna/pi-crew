@@ -99,6 +99,54 @@ export function getCrewViewSessionState(): CrewViewSessionState {
 	return state;
 }
 
+// ── Captured command context ───────────────────────────────────────────
+//
+// Command contexts are the ONLY extension surface exposing `switchSession` /
+// `waitForIdle`. Any crew command the user runs hands its handler a fresh
+// one; capturing the latest lets the inline panel invoke view commands
+// DIRECTLY (no text submission), which matters while a foreground team run
+// is mid-tool-call: pi queues editor submits as pending inputs in that
+// state, so a submitted "/crew-view …" only executed after the whole turn
+// ended. A captured ctx dies with its session (assertActive throws), so it
+// is only reused while the session id still matches.
+
+export interface CapturedCommandCtx {
+	/** The command context (ExtensionCommandContext-shaped; kept opaque here). */
+	ctx: unknown;
+	/** Session id the ctx belonged to, when available. */
+	sessionId?: string;
+}
+
+let capturedCommandCtx: CapturedCommandCtx | undefined;
+
+/** Remember the most recent command context handed to a crew command. */
+export function captureCommandCtx(ctx: unknown): void {
+	let sessionId: string | undefined;
+	try {
+		const id = (ctx as { sessionManager?: { getSessionId?: () => unknown } } | undefined)?.sessionManager?.getSessionId?.();
+		if (typeof id === "string" && id) sessionId = id;
+	} catch {
+		/* stale ctx already — nothing durable to pin */
+	}
+	capturedCommandCtx = { ctx, sessionId };
+}
+
+/**
+ * The captured command context, but ONLY while it still belongs to the given
+ * (current) session id. Unavailable/unknown ids make the check fail closed —
+ * callers fall back to the editor dispatch, which is always safe.
+ */
+export function currentCommandCtx(currentSessionId: string | undefined): unknown {
+	if (!capturedCommandCtx) return undefined;
+	if (typeof currentSessionId !== "string" || !currentSessionId) return undefined;
+	return capturedCommandCtx.sessionId === currentSessionId ? capturedCommandCtx.ctx : undefined;
+}
+
+/** Test isolation. */
+export function resetCapturedCommandCtx(): void {
+	capturedCommandCtx = undefined;
+}
+
 export function isCrewViewActive(): boolean {
 	return state.active;
 }
@@ -164,4 +212,5 @@ export function resetCrewViewSessionState(): void {
 	state = { active: false };
 	viewSwitchInFlight = false;
 	sessionSwitchInFlight = false;
+	capturedCommandCtx = undefined;
 }

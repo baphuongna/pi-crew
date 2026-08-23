@@ -24,6 +24,7 @@ import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maint
 import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker/broker-issuer.ts";
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
+import { forgetDetachedRun, hasDetachedRuns, peekFinishedDetachedRunResults } from "../../runtime/detached-run-results.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
 import { configuredModelInfosFromPiConfig } from "../../runtime/model/model-fallback.ts";
@@ -40,7 +41,7 @@ import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
-import { clearSessionSwitchInFlight, markSessionSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
+import { clearSessionSwitchInFlight, isCrewViewSessionFile, markSessionSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
 import { requestRender, setExtensionWidget, toPiWidgetPlacement } from "../../ui/pi-ui-compat.ts";
 import {
 	registerPiCrewPowerbarSegments,
@@ -75,6 +76,34 @@ export function installSessionLifecycleHandlers(pi: ExtensionAPI, ctx: Registrat
 	installSessionStartHandler(pi, ctx);
 	installSessionBeforeSwitchHandler(pi, ctx);
 	installModelTrackingHandlers(pi);
+}
+
+/**
+ * Hand over the outcome of runs detached by an agent-view switch.
+ *
+ * Delivered as a DISPLAYED session entry (not a follow-up queue item): an idle
+ * session never flushes a follow-up, so the queued variant left the result
+ * invisible. Each result is dropped from the registry only after its send
+ * succeeded, and only while the owning session is current — a worker's view
+ * session must never receive the parent run's report.
+ */
+function deliverDetachedRunResults(pi: ExtensionAPI, extensionCtx: ExtensionContext): void {
+	if (!hasDetachedRuns()) return;
+	try {
+		const inViewSession = isCrewViewSessionFile(extensionCtx.sessionManager?.getSessionFile?.());
+		for (const { runId, text } of peekFinishedDetachedRunResults({ inViewSession })) {
+			pi.sendMessage({ customType: "pi-crew-run-result", content: text, display: true });
+			forgetDetachedRun(runId);
+			try {
+				extensionCtx.ui.notify(text.split("\n")[0] ?? `pi-crew run finished: ${runId}`, "info");
+			} catch {
+				/* toast is secondary to the session entry */
+			}
+		}
+	} catch (error) {
+		// Keep the entry: the next tick retries rather than losing the outcome.
+		logInternalError("register.detachedRunResults", error);
+	}
 }
 
 /**
@@ -288,6 +317,9 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		// transcript pane. Installed after the widget so the row projection sees
 		// the same caches the widget paint uses.
 		installInlinePanel(pi, extensionCtx, loadedConfig.config.ui);
+		// Returning from an agent view lands here: report any detached run that
+		// finished while the view was open, without waiting for a render tick.
+		deliverDetachedRunResults(pi, extensionCtx);
 		updatePiCrewPowerbar(
 			pi.events,
 			extensionCtx.cwd,
@@ -696,6 +728,7 @@ function setupRenderLoop(
 
 	const renderTick = (): void => {
 		if (!ctx.currentCtx) return;
+		deliverDetachedRunResults(pi, ctx.currentCtx);
 		const config = lastPreloadedConfig?.config.ui;
 		const activeCache = lastFrameManifestCache ?? ctx.getManifestCache(ctx.currentCtx.cwd);
 		const snapshotCache = lastFrameSnapshotCache ?? ctx.getRunSnapshotCache(ctx.currentCtx.cwd);

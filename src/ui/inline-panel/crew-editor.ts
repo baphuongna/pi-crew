@@ -40,11 +40,10 @@ export interface CrewEditorOptions {
 	/** `x`: cancel a running agent's run, or dismiss a finished one. */
 	onAct: (target: PanelTarget, finished: boolean) => void;
 	/**
-	 * Dispatch a slash command (crew-view / crew-back) through pi's IMMEDIATE
-	 * command-execution path (sendUserMessage + expandPromptTemplates). The
-	 * legacy editor submit path queues input while a turn is busy — a
-	 * foreground team run keeps the main turn busy for its whole lifetime, so
-	 * a queued /crew-view only ran after the run ended (or never).
+	 * Dispatch a slash command (crew-view / crew-back) through the host's view
+	 * dispatcher, which routes it to pi's extension-command executor via the
+	 * editor submit path (the only route that runs "/" commands immediately in
+	 * every session state — see dispatchViewCommandWith in index.ts).
 	 */
 	onDispatchCommand?: (text: string) => void;
 }
@@ -131,7 +130,18 @@ export class CrewInlineEditor extends CustomEditor {
 		setPanelSelection(null);
 		setViewedAgent(undefined);
 		this.setText(text);
-		this.onSubmit?.(text);
+		// Submit through the REAL Enter key: Editor's own submit pipeline
+		// (submitValue) is the exact path a manual Enter takes — autocomplete
+		// teardown, state clear, then the host's submit handler. Calling
+		// onSubmit directly from a REPLACED editor proved unreliable (the
+		// command never reached pi's extension-command executor and leaked
+		// into the conversation as a user message).
+		super.handleInput("\r");
+		// The command may switch sessions before the submit pipeline clears
+		// the editor, and pi copies leftover text into the replacement
+		// editor — a stray "/crew-back" would follow the user back into
+		// main. Clear once the handler returns (only when still untouched).
+		if (this.getText() === text) this.setText("");
 	}
 
 	handleInput(data: string): void {

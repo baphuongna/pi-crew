@@ -15142,6 +15142,20 @@ function isSessionSwitchInFlight() {
 function getCrewViewSessionState() {
   return state;
 }
+function captureCommandCtx(ctx) {
+  let sessionId;
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    if (typeof id === "string" && id) sessionId = id;
+  } catch {
+  }
+  capturedCommandCtx = { ctx, sessionId };
+}
+function currentCommandCtx(currentSessionId) {
+  if (!capturedCommandCtx) return void 0;
+  if (typeof currentSessionId !== "string" || !currentSessionId) return void 0;
+  return capturedCommandCtx.sessionId === currentSessionId ? capturedCommandCtx.ctx : void 0;
+}
 function setCrewViewSessionState(next) {
   state = next;
 }
@@ -15179,7 +15193,7 @@ function resolveReturnSessionFile(currentSessionFile, prev) {
   }
   return prev.mainSessionFile;
 }
-var CREW_VIEW_SESSION_BASENAME, state, viewSwitchInFlight, sessionSwitchInFlight;
+var CREW_VIEW_SESSION_BASENAME, state, viewSwitchInFlight, sessionSwitchInFlight, capturedCommandCtx;
 var init_view_session_store = __esm({
   "src/ui/inline-panel/view-session-store.ts"() {
     "use strict";
@@ -74114,8 +74128,23 @@ var init_status3 = __esm({
 });
 
 // src/extension/registration/commands/index.ts
+function withCtxCapture(pi) {
+  const register = pi.registerCommand.bind(pi);
+  pi.registerCommand = (name, options) => {
+    const handler = options.handler;
+    register(name, {
+      ...options,
+      handler: (args, ctx) => {
+        captureCommandCtx(ctx);
+        return handler(args, ctx);
+      }
+    });
+  };
+  return pi;
+}
 function registerTeamCommands(pi, deps) {
   setTeamCommandsDeps(deps);
+  pi = withCtxCapture(pi);
   registerStatusCommands(pi, deps);
   registerRunCommands(pi, deps);
   registerManageCommands(pi, deps);
@@ -74126,6 +74155,7 @@ function registerTeamCommands(pi, deps) {
 var init_commands = __esm({
   "src/extension/registration/commands/index.ts"() {
     "use strict";
+    init_view_session_store();
     init_timings();
     init_dashboard();
     init_manage2();
@@ -77196,6 +77226,71 @@ var init_observability = __esm({
     init_internal_error();
     init_paths();
     init_session_utils();
+  }
+});
+
+// src/runtime/detached-run-results.ts
+var detached_run_results_exports = {};
+__export(detached_run_results_exports, {
+  clearDetachedRunsForTest: () => clearDetachedRunsForTest,
+  forgetDetachedRun: () => forgetDetachedRun,
+  formatDetachedRunResult: () => formatDetachedRunResult,
+  hasDetachedRuns: () => hasDetachedRuns,
+  markRunDetached: () => markRunDetached,
+  peekFinishedDetachedRunResults: () => peekFinishedDetachedRunResults
+});
+function markRunDetached(runId, cwd) {
+  if (!runId || !cwd) return;
+  detachedRuns.set(runId, { runId, cwd });
+}
+function hasDetachedRuns() {
+  return detachedRuns.size > 0;
+}
+function forgetDetachedRun(runId) {
+  detachedRuns.delete(runId);
+}
+function clearDetachedRunsForTest() {
+  detachedRuns.clear();
+}
+function formatDetachedRunResult(manifest, tasks) {
+  const lines = [
+    `pi-crew run ${manifest.status}: ${manifest.runId} (${manifest.team}/${manifest.workflow ?? "none"})`,
+    `Goal: ${manifest.goal}`,
+    "",
+    "This run was detached when you opened an agent view; it finished in the background."
+  ];
+  if (tasks.length > 0) {
+    lines.push("", "Tasks:");
+    for (const task of tasks) {
+      const detail = task.error ? ` \u2014 ${task.error}` : "";
+      lines.push(`  \u2022 ${task.id} (${task.role ?? "?"}): ${task.status}${detail}`);
+    }
+  }
+  if (manifest.artifactsRoot) lines.push("", `Artifacts: ${manifest.artifactsRoot}`);
+  lines.push(`State: ${manifest.stateRoot}`);
+  return lines.join("\n");
+}
+function peekFinishedDetachedRunResults(options = {}) {
+  if (detachedRuns.size === 0 || options.inViewSession) return [];
+  const ready = [];
+  for (const entry of [...detachedRuns.values()]) {
+    const loaded = loadRunManifestById(entry.cwd, entry.runId);
+    if (!loaded) {
+      detachedRuns.delete(entry.runId);
+      continue;
+    }
+    if (!isFinishedRunStatus(loaded.manifest.status)) continue;
+    ready.push({ runId: entry.runId, text: formatDetachedRunResult(loaded.manifest, loaded.tasks) });
+  }
+  return ready;
+}
+var detachedRuns;
+var init_detached_run_results = __esm({
+  "src/runtime/detached-run-results.ts"() {
+    "use strict";
+    init_state_store();
+    init_process_status();
+    detachedRuns = /* @__PURE__ */ new Map();
   }
 });
 
@@ -83342,6 +83437,7 @@ function parseWaitResolveParams(value) {
 
 // src/extension/registration/lifecycle-handlers.ts
 init_child_pi();
+init_detached_run_results();
 init_live_agent_manager();
 init_model_fallback();
 init_pi_args();
@@ -83393,7 +83489,7 @@ init_heartbeat_aggregator();
 init_tool_result();
 init_internal_error();
 init_pi_ui_compat();
-import { readFileSync as readFileSync93 } from "node:fs";
+import { existsSync as existsSync85, readFileSync as readFileSync93 } from "node:fs";
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
@@ -83852,7 +83948,8 @@ var CrewInlineEditor = class extends CustomEditor {
     setPanelSelection(null);
     setViewedAgent(void 0);
     this.setText(text);
-    this.onSubmit?.(text);
+    super.handleInput("\r");
+    if (this.getText() === text) this.setText("");
   }
   handleInput(data) {
     const rows = panelRows();
@@ -83973,17 +84070,45 @@ function notifyResult2(ctx, result4) {
   ctx.ui.notify(isToolError(result4) ? `panel: ${text}` : text, isToolError(result4) ? "error" : "info");
 }
 function dispatchViewCommand(text) {
-  const pi = lastPi;
-  const sendUserMessage = pi?.sendUserMessage;
-  if (typeof sendUserMessage === "function") {
+  const cmdCtx = liveCommandCtx();
+  if (cmdCtx) {
+    if (text === "/crew-back") {
+      void handleCrewBackCommand("", cmdCtx);
+      return;
+    }
+    const viewMatch = /^\/crew-view (\S+) (\S+)$/.exec(text);
+    if (viewMatch) {
+      void handleCrewViewCommand(`${viewMatch[1]} ${viewMatch[2]}`, cmdCtx);
+      return;
+    }
+  }
+  dispatchViewCommandWith(currentEditor, lastPi, text);
+}
+function liveCommandCtx() {
+  try {
+    const currentId = lastCtx?.sessionManager?.getSessionId();
+    return currentCommandCtx(currentId);
+  } catch {
+    return void 0;
+  }
+}
+function dispatchViewCommandWith(editor, pi, text) {
+  if (editor) {
     try {
-      sendUserMessage.call(pi, text, { expandPromptTemplates: true });
+      editor.dispatchCommandFallback(text);
     } catch (error) {
-      logInternalError("view.dispatch", error, text);
+      logInternalError("view.dispatch.editor", error, text);
     }
     return;
   }
-  currentEditor?.dispatchCommandFallback(text);
+  const sendUserMessage = pi?.sendUserMessage;
+  if (typeof sendUserMessage === "function") {
+    try {
+      sendUserMessage.call(pi, text);
+    } catch (error) {
+      logInternalError("view.dispatch", error, text);
+    }
+  }
 }
 var VIEW_SETTLE_TIMEOUT_MS = 8e3;
 var VIEW_SETTLE_POLL_MS = 100;
@@ -83995,19 +84120,30 @@ async function settleSessionForViewSwitch(ctx, runId) {
       return true;
     }
   };
-  if (isIdle()) return;
+  if (isIdle()) return mainSessionIsOnDisk(ctx);
   try {
     const { detachRunPromise: detachRunPromise2 } = await Promise.resolve().then(() => (init_run_tracker(), run_tracker_exports));
-    if (!detachRunPromise2(runId, ctx.cwd)) return;
+    if (!detachRunPromise2(runId, ctx.cwd)) return mainSessionIsOnDisk(ctx);
+    const { markRunDetached: markRunDetached2 } = await Promise.resolve().then(() => (init_detached_run_results(), detached_run_results_exports));
+    markRunDetached2(runId, ctx.cwd);
   } catch (error) {
     logInternalError("view.detachForegroundRun", error, runId);
-    return;
+    return false;
   }
-  ctx.ui.notify("Team run detached to background so the agent view can open \u2014 it keeps running.", "info");
+  ctx.ui.notify("Team run detached to background so the agent view can open \u2014 its result arrives here when it finishes.", "info");
   const deadline = Date.now() + VIEW_SETTLE_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (isIdle()) return;
+    if (isIdle() && mainSessionIsOnDisk(ctx)) return true;
     await new Promise((resolve26) => setTimeout(resolve26, VIEW_SETTLE_POLL_MS));
+  }
+  return mainSessionIsOnDisk(ctx);
+}
+function mainSessionIsOnDisk(ctx) {
+  try {
+    const file = ctx.sessionManager.getSessionFile();
+    return Boolean(file) && existsSync85(file);
+  } catch {
+    return false;
   }
 }
 var VIEW_BUILD_RETRY_MS = 500;
@@ -84044,8 +84180,19 @@ function openPane(ctx, target) {
         sessionRoot: mainSessionRoot()
       });
       if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
-      await settleSessionForViewSwitch(ctx, target.runId);
+      if (!await settleSessionForViewSwitch(ctx, target.runId)) {
+        ctx.ui.notify(
+          "Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then press Enter again.",
+          "error"
+        );
+        return;
+      }
       setTimeout(() => {
+        const cmdCtx = liveCommandCtx();
+        if (cmdCtx) {
+          void handleCrewViewCommand(`${target.runId} ${target.taskId}`, cmdCtx);
+          return;
+        }
         dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
       }, 0);
       return;
@@ -84089,6 +84236,7 @@ async function actOnAgent(ctx, target, finished) {
   }
 }
 async function handleCrewViewCommand(args, ctx) {
+  captureCommandCtx(ctx);
   const tokens = args.trim().split(/\s+/).filter(Boolean);
   if (tokens.length < 2) {
     ctx.ui.notify("Usage: /crew-view <runId> <taskId>", "error");
@@ -84124,10 +84272,28 @@ async function handleCrewViewCommand(args, ctx) {
       mainSessionId: typeof sessionId === "string" && sessionId ? sessionId : prev.mainSessionId
     });
     markViewSwitchInFlight();
-    await settleSessionForViewSwitch(ctx, runId);
+    if (!(alreadyViewing || await settleSessionForViewSwitch(ctx, runId))) {
+      clearViewSwitchInFlight();
+      setCrewViewSessionState({ ...prev, active: false });
+      ctx.ui.notify(
+        "Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then try again.",
+        "error"
+      );
+      return;
+    }
     let result4;
     try {
-      result4 = await ctx.switchSession(viewPath);
+      result4 = await ctx.switchSession(viewPath, {
+        // Pin the VIEW session's command ctx as the live one, so
+        // escape / ↓-navigation can invoke /crew-back DIRECTLY. The
+        // editor submit path parks text in pendingUserInputs until
+        // pi's input loop returns to getUserInput(), which a
+        // live-refreshing view session rarely does — a submitted
+        // "/crew-back" would strand there indefinitely.
+        withSession: async (viewCtx) => {
+          captureCommandCtx(viewCtx);
+        }
+      });
     } catch (error) {
       clearViewSwitchInFlight();
       setCrewViewSessionState({ ...prev, active: false });
@@ -84142,6 +84308,7 @@ async function handleCrewViewCommand(args, ctx) {
   }
 }
 async function handleCrewBackCommand(_args, ctx) {
+  captureCommandCtx(ctx);
   const prev = getCrewViewSessionState();
   const currentFile = ctx.sessionManager.getSessionFile();
   const mainSessionFile = resolveReturnSessionFile(currentFile, prev);
@@ -84157,10 +84324,15 @@ async function handleCrewBackCommand(_args, ctx) {
     ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
     return;
   }
-  setCrewViewSessionState({ active: false });
   markViewSwitchInFlight();
   try {
-    const result4 = await ctx.switchSession(mainSessionFile);
+    const result4 = await ctx.switchSession(mainSessionFile, {
+      // Same pinning as /crew-view: after returning to main, escape and
+      // panel actions must keep a live ctx for the MAIN session.
+      withSession: async (mainCtx) => {
+        captureCommandCtx(mainCtx);
+      }
+    });
     if (result4?.cancelled) clearViewSwitchInFlight();
   } catch (error) {
     clearViewSwitchInFlight();
@@ -84179,6 +84351,7 @@ async function viewRefreshTick() {
   const ctx = lastCtx;
   const state3 = getCrewViewSessionState();
   if (!ctx || !state3.active || !state3.runId || !state3.taskId) return stopViewAutoRefresh();
+  if (isViewSwitchInFlight()) return;
   const now = Date.now();
   if (now - lastViewRefreshAt < VIEW_REFRESH_MS - 500) return;
   if (typeof currentEditor?.getText === "function" && currentEditor.getText() !== "") return;
@@ -84268,6 +84441,9 @@ function installInlinePanel(pi, ctx, uiConfig) {
   }
   const enabled = uiConfig?.inlinePanel !== false;
   try {
+    console.error(
+      `[crew-debug] installInlinePanel: hasUI=${ctx.hasUI} enabled=${enabled} installed=${editorInstalled} ownerExists=${Boolean(ctx.ui.getEditorComponent())}`
+    );
     if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
       ctx.ui.setEditorComponent((tui, theme, kb) => {
         const editor = new CrewInlineEditor(tui, theme, kb, {
@@ -84555,6 +84731,22 @@ function installSessionLifecycleHandlers(pi, ctx) {
   installSessionBeforeSwitchHandler(pi, ctx);
   installModelTrackingHandlers(pi);
 }
+function deliverDetachedRunResults(pi, extensionCtx) {
+  if (!hasDetachedRuns()) return;
+  try {
+    const inViewSession = isCrewViewSessionFile(extensionCtx.sessionManager?.getSessionFile?.());
+    for (const { runId, text } of peekFinishedDetachedRunResults({ inViewSession })) {
+      pi.sendMessage({ customType: "pi-crew-run-result", content: text, display: true });
+      forgetDetachedRun(runId);
+      try {
+        extensionCtx.ui.notify(text.split("\n")[0] ?? `pi-crew run finished: ${runId}`, "info");
+      } catch {
+      }
+    }
+  } catch (error) {
+    logInternalError("register.detachedRunResults", error);
+  }
+}
 function installModelTrackingHandlers(pi) {
   pi.on("model_select", (event) => {
     noteSessionModel(event.model);
@@ -84662,6 +84854,7 @@ function installSessionStartHandler(pi, ctx) {
     const cache3 = ctx.getManifestCache(extensionCtx.cwd);
     updateCrewWidget(extensionCtx, ctx.widgetState, loadedConfig.config.ui, cache3, ctx.getRunSnapshotCache(extensionCtx.cwd));
     installInlinePanel(pi, extensionCtx, loadedConfig.config.ui);
+    deliverDetachedRunResults(pi, extensionCtx);
     updatePiCrewPowerbar(
       pi.events,
       extensionCtx.cwd,
@@ -84949,6 +85142,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   };
   const renderTick = () => {
     if (!ctx.currentCtx) return;
+    deliverDetachedRunResults(pi, ctx.currentCtx);
     const config = lastPreloadedConfig?.config.ui;
     const activeCache = lastFrameManifestCache ?? ctx.getManifestCache(ctx.currentCtx.cwd);
     const snapshotCache = lastFrameSnapshotCache ?? ctx.getRunSnapshotCache(ctx.currentCtx.cwd);

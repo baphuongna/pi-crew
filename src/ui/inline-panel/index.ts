@@ -12,7 +12,7 @@
  * module never pulls the runtime chain at startup (AGENTS.md lazy boundary).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -26,9 +26,12 @@ import { CrewInlineEditor } from "./crew-editor.ts";
 import type { PanelTarget } from "./panel-selection.ts";
 import { resetPanelStore, setViewedAgent } from "./panel-store.ts";
 import {
+	captureCommandCtx,
 	clearViewSwitchInFlight,
+	currentCommandCtx,
 	getCrewViewSessionState,
 	isCrewViewSessionFile,
+	isViewSwitchInFlight,
 	markViewSwitchInFlight,
 	resolveReturnSessionFile,
 	setCrewViewSessionState,
@@ -65,6 +68,7 @@ let hooksRegistered = false;
 async function runTeamTool(params: Record<string, unknown>, ctx: ExtensionContext): Promise<PiTeamsToolResult> {
 	// LAZY: team-tool.ts pulls in the entire runtime chain (same boundary as
 	// run-action-dispatcher.ts).
+	// LAZY: (marker on the import line's previous line, per check-lazy-imports)
 	const { handleTeamTool } = await import("../../extension/team-tool.ts");
 	return handleTeamTool(params as never, ctx);
 }
@@ -75,26 +79,79 @@ function notifyResult(ctx: ExtensionContext, result: PiTeamsToolResult): void {
 }
 
 /**
- * Dispatch a session-level slash command (crew-view / crew-back) through pi's
- * IMMEDIATE command-execution path: `sendUserMessage(text, { expandPromptTemplates:
- * true })` → session.prompt → extension commands execute synchronously in ALL
- * session states (streaming, tool-executing, idle).
+ * Dispatch a session-level slash command (crew-view / crew-back) so it runs
+ * through pi's extension-command executor — the ONLY route that executes "/"
+ * commands immediately in every session state (streaming, tool-executing,
+ * idle): `prompt()` expands commands first and `_tryExecuteExtensionCommand`
+ * runs BEFORE the streaming check.
  *
- * The legacy editor submit path was unreliable for this: a FOREGROUND team run
- * keeps the main turn busy for its whole lifetime, so the submitted text was
- * queued as a plain user input and only ran after the run ended — or never,
- * leaving "/crew-view …" sitting in the input (regression: "view won't open,
- * only the input changes").
+ * The editor submit path reaches that route: pi wires our editor's `onSubmit`
+ * to the default editor's (`setCustomEditorComponent`), whose submit handler
+ * calls `prompt(text)` — expansion on, command executed synchronously.
+ *
+ * pi's `sendUserMessage` CANNOT be used for this: it forces
+ * `expandPromptTemplates: false` ("skip command handling" — agent-session's
+ * sendUserMessage), so a "/crew-view …" sent through it never ran: while
+ * streaming the inner `prompt()` threw ("Agent is already processing") with
+ * the rejection swallowed, and when idle the text became a REAL user message
+ * in the main session. That was the regression where "the view only changed
+ * the input, everything else stayed the main session".
+ *
+ * Test seam: the pure routing half is exported (`dispatchViewCommandWith`).
  */
 function dispatchViewCommand(text: string): void {
-	const pi = lastPi;
+	// DIRECT handler invocation whenever a live command ctx is captured for
+	// the CURRENT session (crew commands capture one on every run; the
+	// switch helpers re-pin it via withSession). The editor submit path
+	// parks text in pendingUserInputs until pi's input loop returns to
+	// getUserInput() — which a live-refreshing view session rarely does —
+	// stranding the command (escape then never returned to main).
+	const cmdCtx = liveCommandCtx();
+	if (cmdCtx) {
+		if (text === "/crew-back") {
+			void handleCrewBackCommand("", cmdCtx);
+			return;
+		}
+		const viewMatch = /^\/crew-view (\S+) (\S+)$/.exec(text);
+		if (viewMatch) {
+			void handleCrewViewCommand(`${viewMatch[1]} ${viewMatch[2]}`, cmdCtx);
+			return;
+		}
+	}
+	dispatchViewCommandWith(currentEditor, lastPi, text);
+}
+
+/** The captured command ctx when it still belongs to the current session —
+ *  the only live handle exposing switchSession for a DIRECT view invocation.
+ *  Fails closed (undefined) whenever the match cannot be established. */
+function liveCommandCtx(): ExtensionCommandContext | undefined {
+	try {
+		const currentId = lastCtx?.sessionManager?.getSessionId();
+		return currentCommandCtx(currentId) as ExtensionCommandContext | undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Route a view command: editor submit when mounted, sendUserMessage only as
+ *  a headless fallback (it cannot execute commands — informational only). */
+export function dispatchViewCommandWith(
+	editor: { dispatchCommandFallback: (text: string) => void } | undefined,
+	pi: unknown,
+	text: string,
+): void {
+	if (editor) {
+		try {
+			editor.dispatchCommandFallback(text);
+		} catch (error) {
+			logInternalError("view.dispatch.editor", error, text);
+		}
+		return;
+	}
 	const sendUserMessage = (
 		pi as
 			| {
-					sendUserMessage?: (
-						content: string,
-						options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean },
-					) => Promise<void>;
+					sendUserMessage?: (content: string, options?: { deliverAs?: "steer" | "followUp" }) => Promise<void>;
 			  }
 			| undefined
 	)?.sendUserMessage;
@@ -103,14 +160,11 @@ function dispatchViewCommand(text: string): void {
 			// The extension API is FIRE-AND-FORGET: it returns void (rejections
 			// are routed to the runner's error channel) — never chain on the
 			// return value.
-			sendUserMessage.call(pi, text, { expandPromptTemplates: true });
+			sendUserMessage.call(pi, text);
 		} catch (error) {
 			logInternalError("view.dispatch", error, text);
 		}
-		return;
 	}
-	// Very old pi without sendUserMessage — legacy editor submit path.
-	currentEditor?.dispatchCommandFallback(text);
 }
 
 /** How long to wait for the parent turn to settle after detaching a foreground
@@ -129,10 +183,16 @@ const VIEW_SETTLE_POLL_MS = 100;
  * executing and notifies on completion), the turn settles, and the switch
  * lands within a second.
  *
- * No-op when the session is already idle or the run has no foreground waiter
- * in this process (async run / already finished).
+ * Returns false when switching would DESTROY the main conversation: pi writes
+ * a session file only once the session holds an assistant message
+ * (`SessionManager._persist`), and `switchSession` disposes the outgoing
+ * session, so a still-unflushed main session (team run as the very first turn)
+ * would vanish and `/crew-back` would fail on the missing file.
+ *
+ * The detach itself is kept when we refuse: the run continues in the
+ * background and reports into the main session, which is where we stay.
  */
-async function settleSessionForViewSwitch(ctx: ExtensionContext, runId: string): Promise<void> {
+async function settleSessionForViewSwitch(ctx: ExtensionContext, runId: string): Promise<boolean> {
 	const isIdle = (): boolean => {
 		try {
 			return ctx.isIdle?.() !== false;
@@ -140,20 +200,38 @@ async function settleSessionForViewSwitch(ctx: ExtensionContext, runId: string):
 			return true; // stale ctx — let the switch decide
 		}
 	};
-	if (isIdle()) return;
+	if (isIdle()) return mainSessionIsOnDisk(ctx);
 	try {
 		// LAZY: run-tracker is runtime state, not a UI dependency.
 		const { detachRunPromise } = await import("../../runtime/run-tracker.ts");
-		if (!detachRunPromise(runId, ctx.cwd)) return;
+		if (!detachRunPromise(runId, ctx.cwd)) return mainSessionIsOnDisk(ctx);
+		// The detached tool call no longer reports the run's outcome, so the
+		// result is delivered to THIS (main) session when the run finishes.
+		// LAZY: detached-run-results is runtime state, not a UI dependency.
+		const { markRunDetached } = await import("../../runtime/detached-run-results.ts");
+		markRunDetached(runId, ctx.cwd);
 	} catch (error) {
 		logInternalError("view.detachForegroundRun", error, runId);
-		return;
+		return false;
 	}
-	ctx.ui.notify("Team run detached to background so the agent view can open — it keeps running.", "info");
+	ctx.ui.notify("Team run detached to background so the agent view can open — its result arrives here when it finishes.", "info");
 	const deadline = Date.now() + VIEW_SETTLE_TIMEOUT_MS;
 	while (Date.now() < deadline) {
-		if (isIdle()) return;
+		// The settling turn also writes its assistant message, which is what
+		// finally puts the main session on disk.
+		if (isIdle() && mainSessionIsOnDisk(ctx)) return true;
 		await new Promise((resolve) => setTimeout(resolve, VIEW_SETTLE_POLL_MS));
+	}
+	return mainSessionIsOnDisk(ctx);
+}
+
+/** Whether the main session already has a file pi can resume from. */
+function mainSessionIsOnDisk(ctx: ExtensionContext): boolean {
+	try {
+		const file = ctx.sessionManager.getSessionFile();
+		return Boolean(file) && existsSync(file as string);
+	} catch {
+		return false;
 	}
 }
 
@@ -233,11 +311,26 @@ function openPane(ctx: ExtensionContext, target: PanelTarget): void {
 			if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
 			// A streaming parent turn blocks switchSession — settle it first
 			// (detaches a foreground run; the run keeps executing).
-			await settleSessionForViewSwitch(ctx, target.runId);
+			if (!(await settleSessionForViewSwitch(ctx, target.runId))) {
+				ctx.ui.notify(
+					"Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then press Enter again.",
+					"error",
+				);
+				return;
+			}
 			// Switch AFTER the current input tick unwinds: `switchSession`
 			// tears the current session down, which would invalidate the
 			// editor while we are still inside its key handler otherwise.
 			setTimeout(() => {
+				// DIRECT handler invocation when we hold a live command ctx:
+				// the editor submit path queues the command as a pending
+				// input while a tool call is mid-flight (a foreground team
+				// run), delaying the view by the whole turn.
+				const cmdCtx = liveCommandCtx();
+				if (cmdCtx) {
+					void handleCrewViewCommand(`${target.runId} ${target.taskId}`, cmdCtx);
+					return;
+				}
 				dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
 			}, 0);
 			return;
@@ -308,6 +401,7 @@ async function actOnAgent(ctx: ExtensionContext, target: PanelTarget, finished: 
 // pi directly.
 
 async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
+	captureCommandCtx(ctx);
 	const tokens = args.trim().split(/\s+/).filter(Boolean);
 	if (tokens.length < 2) {
 		ctx.ui.notify("Usage: /crew-view <runId> <taskId>", "error");
@@ -358,10 +452,28 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 		// Typed `/crew-view` runs INSIDE the streaming turn of a foreground run
 		// (pi executes extension commands immediately). switchSession would then
 		// block on waitForIdle for the whole run — settle first.
-		await settleSessionForViewSwitch(ctx, runId);
+		if (!(alreadyViewing || (await settleSessionForViewSwitch(ctx, runId)))) {
+			clearViewSwitchInFlight();
+			setCrewViewSessionState({ ...prev, active: false });
+			ctx.ui.notify(
+				"Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then try again.",
+				"error",
+			);
+			return;
+		}
 		let result: { cancelled?: boolean } | undefined;
 		try {
-			result = await ctx.switchSession(viewPath);
+			result = await ctx.switchSession(viewPath, {
+				// Pin the VIEW session's command ctx as the live one, so
+				// escape / ↓-navigation can invoke /crew-back DIRECTLY. The
+				// editor submit path parks text in pendingUserInputs until
+				// pi's input loop returns to getUserInput(), which a
+				// live-refreshing view session rarely does — a submitted
+				// "/crew-back" would strand there indefinitely.
+				withSession: async (viewCtx) => {
+					captureCommandCtx(viewCtx);
+				},
+			});
 		} catch (error) {
 			clearViewSwitchInFlight();
 			setCrewViewSessionState({ ...prev, active: false });
@@ -377,6 +489,7 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 }
 
 async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext): Promise<void> {
+	captureCommandCtx(ctx);
 	const prev = getCrewViewSessionState();
 	// Self-healing return path: when the CURRENT session is a crew view, the
 	// view file's header records the main session even if the store was reset
@@ -396,15 +509,21 @@ async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext
 		ctx.ui.notify("This pi version does not support session views (needs switchSession).", "error");
 		return;
 	}
-	// Clear BEFORE switching: session_start reconciles the store against the
-	// file that ends up active, and a stale `active` flag would relabel the
-	// main session as a view.
-	setCrewViewSessionState({ active: false });
-	// Same navigational guarantee as /crew-view: the run's workers survive
-	// the return switch.
+	// Do NOT clear the view state before the switch: a cancelled switch
+	// (e.g. the live-refresh re-switch racing this one) would then leave the
+	// user stranded IN the view with escape dead — `active` is what routes
+	// escape back to /crew-back. The session_start reconcile clears it once
+	// the MAIN session actually lands, which is also what prevents a stale
+	// `active` flag from relabeling main as a view.
 	markViewSwitchInFlight();
 	try {
-		const result = await ctx.switchSession(mainSessionFile);
+		const result = await ctx.switchSession(mainSessionFile, {
+			// Same pinning as /crew-view: after returning to main, escape and
+			// panel actions must keep a live ctx for the MAIN session.
+			withSession: async (mainCtx) => {
+				captureCommandCtx(mainCtx);
+			},
+		});
 		if (result?.cancelled) clearViewSwitchInFlight();
 	} catch (error) {
 		clearViewSwitchInFlight();
@@ -437,6 +556,10 @@ async function viewRefreshTick(): Promise<void> {
 	const ctx = lastCtx;
 	const state = getCrewViewSessionState();
 	if (!ctx || !state.active || !state.runId || !state.taskId) return stopViewAutoRefresh();
+	// A view/back switch is still landing — starting ANOTHER switch now is
+	// what cancels the in-flight one (escape then strands the user in the
+	// view). The next tick retries.
+	if (isViewSwitchInFlight()) return;
 	const now = Date.now();
 	if (now - lastViewRefreshAt < VIEW_REFRESH_MS - 500) return;
 	// Never yank the screen away while the user is composing in the view.
@@ -566,6 +689,9 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 
 	const enabled = uiConfig?.inlinePanel !== false;
 	try {
+		console.error(
+			`[crew-debug] installInlinePanel: hasUI=${ctx.hasUI} enabled=${enabled} installed=${editorInstalled} ownerExists=${Boolean(ctx.ui.getEditorComponent())}`,
+		);
 		if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
 			ctx.ui.setEditorComponent((tui, theme, kb) => {
 				// Fresh instance per session; options close over the current ctx.
