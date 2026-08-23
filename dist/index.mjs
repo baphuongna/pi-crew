@@ -84069,16 +84069,41 @@ function notifyResult2(ctx, result4) {
   const text = textFromToolResult(result4);
   ctx.ui.notify(isToolError(result4) ? `panel: ${text}` : text, isToolError(result4) ? "error" : "info");
 }
+function ctxAlive(ctx) {
+  try {
+    void ctx.ui;
+    return true;
+  } catch {
+    return false;
+  }
+}
+function safeNotify(ctx, text, level) {
+  if (!ctxAlive(ctx)) return;
+  try {
+    ctx.ui.notify(text, level);
+  } catch {
+  }
+}
+function invokeViewHandler(run, label) {
+  run.catch((error) => {
+    logInternalError(label, error);
+  });
+}
+var pendingViewOpen;
+var VIEW_OPEN_PENDING_TTL_MS = 3e4;
+function clearPendingViewOpen() {
+  pendingViewOpen = void 0;
+}
 function dispatchViewCommand(text) {
   const cmdCtx = liveCommandCtx();
   if (cmdCtx) {
     if (text === "/crew-back") {
-      void handleCrewBackCommand("", cmdCtx);
+      invokeViewHandler(handleCrewBackCommand("", cmdCtx), "view.dispatch.back");
       return;
     }
     const viewMatch = /^\/crew-view (\S+) (\S+)$/.exec(text);
     if (viewMatch) {
-      void handleCrewViewCommand(`${viewMatch[1]} ${viewMatch[2]}`, cmdCtx);
+      invokeViewHandler(handleCrewViewCommand(`${viewMatch[1]} ${viewMatch[2]}`, cmdCtx), "view.dispatch.view");
       return;
     }
   }
@@ -84130,7 +84155,8 @@ async function settleSessionForViewSwitch(ctx, runId) {
     logInternalError("view.detachForegroundRun", error, runId);
     return false;
   }
-  ctx.ui.notify("Team run detached to background so the agent view can open \u2014 its result arrives here when it finishes.", "info");
+  if (!ctxAlive(ctx)) return false;
+  safeNotify(ctx, "Team run detached to background so the agent view can open \u2014 its result arrives here when it finishes.", "info");
   const deadline = Date.now() + VIEW_SETTLE_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (isIdle() && mainSessionIsOnDisk(ctx)) return true;
@@ -84169,35 +84195,50 @@ async function buildViewPath(ctx, target) {
   }
 }
 function openPane(ctx, target) {
+  if (pendingViewOpen && Date.now() - pendingViewOpen.at < VIEW_OPEN_PENDING_TTL_MS) {
+    safeNotify(ctx, "Already opening an agent view \u2014 one moment.", "info");
+    return;
+  }
+  pendingViewOpen = { runId: target.runId, taskId: target.taskId, at: Date.now() };
   void (async () => {
-    const viewPath = await buildViewPath(ctx, target);
-    if (viewPath) {
-      const stamp = workerSessionSourceStamp({
-        cwd: ctx.cwd,
-        runId: target.runId,
-        taskId: target.taskId,
-        parentSessionFile: ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile,
-        sessionRoot: mainSessionRoot()
-      });
-      if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
-      if (!await settleSessionForViewSwitch(ctx, target.runId)) {
-        ctx.ui.notify(
-          "Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then press Enter again.",
-          "error"
-        );
-        return;
-      }
-      setTimeout(() => {
-        const cmdCtx = liveCommandCtx();
-        if (cmdCtx) {
-          void handleCrewViewCommand(`${target.runId} ${target.taskId}`, cmdCtx);
+    try {
+      const viewPath = await buildViewPath(ctx, target);
+      if (!ctxAlive(ctx)) return;
+      if (viewPath) {
+        const stamp = workerSessionSourceStamp({
+          cwd: ctx.cwd,
+          runId: target.runId,
+          taskId: target.taskId,
+          parentSessionFile: ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile,
+          sessionRoot: mainSessionRoot()
+        });
+        if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
+        if (!await settleSessionForViewSwitch(ctx, target.runId)) {
+          clearPendingViewOpen();
+          safeNotify(
+            ctx,
+            "Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then press Enter again.",
+            "error"
+          );
           return;
         }
-        dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
-      }, 0);
-      return;
+        if (!ctxAlive(ctx)) return;
+        setTimeout(() => {
+          const cmdCtx = liveCommandCtx();
+          if (cmdCtx) {
+            invokeViewHandler(handleCrewViewCommand(`${target.runId} ${target.taskId}`, cmdCtx), "view.open.dispatch");
+            return;
+          }
+          dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
+        }, 0);
+        return;
+      }
+      clearPendingViewOpen();
+      safeNotify(ctx, `Could not open a view for ${target.taskId} \u2014 no transcript yet. Try again in a moment.`, "error");
+    } catch (error) {
+      clearPendingViewOpen();
+      logInternalError("view.openPane", error, target.taskId);
     }
-    ctx.ui.notify(`Could not open a view for ${target.taskId} \u2014 no transcript yet. Try again in a moment.`, "error");
   })();
 }
 function closePane(ctx) {
@@ -84237,6 +84278,7 @@ async function actOnAgent(ctx, target, finished) {
 }
 async function handleCrewViewCommand(args, ctx) {
   captureCommandCtx(ctx);
+  clearPendingViewOpen();
   const tokens = args.trim().split(/\s+/).filter(Boolean);
   if (tokens.length < 2) {
     ctx.ui.notify("Usage: /crew-view <runId> <taskId>", "error");
@@ -84275,7 +84317,8 @@ async function handleCrewViewCommand(args, ctx) {
     if (!(alreadyViewing || await settleSessionForViewSwitch(ctx, runId))) {
       clearViewSwitchInFlight();
       setCrewViewSessionState({ ...prev, active: false });
-      ctx.ui.notify(
+      safeNotify(
+        ctx,
         "Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then try again.",
         "error"
       );
@@ -84297,18 +84340,19 @@ async function handleCrewViewCommand(args, ctx) {
     } catch (error) {
       clearViewSwitchInFlight();
       setCrewViewSessionState({ ...prev, active: false });
-      ctx.ui.notify(`crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+      safeNotify(ctx, `crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
       return;
     }
     if (result4?.cancelled) clearViewSwitchInFlight();
   } catch (error) {
     clearViewSwitchInFlight();
     setCrewViewSessionState({ ...prev, active: false });
-    ctx.ui.notify(`crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+    safeNotify(ctx, `crew-view failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 async function handleCrewBackCommand(_args, ctx) {
   captureCommandCtx(ctx);
+  clearPendingViewOpen();
   const prev = getCrewViewSessionState();
   const currentFile = ctx.sessionManager.getSessionFile();
   const mainSessionFile = resolveReturnSessionFile(currentFile, prev);
@@ -84336,7 +84380,7 @@ async function handleCrewBackCommand(_args, ctx) {
     if (result4?.cancelled) clearViewSwitchInFlight();
   } catch (error) {
     clearViewSwitchInFlight();
-    ctx.ui.notify(`crew-back failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
+    safeNotify(ctx, `crew-back failed \u2014 ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 function stopViewAutoRefresh() {
@@ -84415,6 +84459,7 @@ function startViewAutoRefresh() {
 function reconcileViewSessionState(ctx) {
   const file = ctx.sessionManager.getSessionFile();
   clearViewSwitchInFlight();
+  clearPendingViewOpen();
   if (!file) return;
   const nextActive = isCrewViewSessionFile(file);
   const prev = getCrewViewSessionState();
@@ -84441,9 +84486,6 @@ function installInlinePanel(pi, ctx, uiConfig) {
   }
   const enabled = uiConfig?.inlinePanel !== false;
   try {
-    console.error(
-      `[crew-debug] installInlinePanel: hasUI=${ctx.hasUI} enabled=${enabled} installed=${editorInstalled} ownerExists=${Boolean(ctx.ui.getEditorComponent())}`
-    );
     if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
       ctx.ui.setEditorComponent((tui, theme, kb) => {
         const editor = new CrewInlineEditor(tui, theme, kb, {

@@ -78,6 +78,73 @@ function notifyResult(ctx: ExtensionContext, result: PiTeamsToolResult): void {
 	ctx.ui.notify(isToolError(result) ? `panel: ${text}` : text, isToolError(result) ? "error" : "info");
 }
 
+// ── Stale-ctx hardening ────────────────────────────────────────────────
+//
+// A pi extension ctx throws on ANY property access once its session is
+// replaced or reloaded (`ExtensionRunner.assertActive` guards every getter —
+// `ui`, `cwd`, `sessionManager`, …). View-opening flows AWAIT across the
+// session's lifetime (build retries, settle polling, switchSession), so a
+// continuation can resume AFTER its ctx went stale. An unguarded `ctx.ui.*`
+// there rejected the async flow uncaught and killed the whole process
+// ("pi exiting due to uncaughtException: This extension ctx is stale…").
+
+/** Whether the ctx's session is still the live one (probe, never throw). */
+function ctxAlive(ctx: ExtensionContext | ExtensionCommandContext): boolean {
+	try {
+		void (ctx as { ui?: unknown }).ui;
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** ctx.ui.notify that cannot reject the caller: on a stale ctx the target
+ *  session is gone — the message would both crash and land nowhere. */
+function safeNotify(ctx: ExtensionContext | ExtensionCommandContext, text: string, level: "info" | "error"): void {
+	if (!ctxAlive(ctx)) return;
+	try {
+		ctx.ui.notify(text, level);
+	} catch {
+		/* raced stale between probe and call */
+	}
+}
+
+/** Invoke a view command handler without leaking a rejection: these are
+ *  fire-and-forget (`void …`) call sites, and a rejection there is an
+ *  unhandled one — the same crash class as the stale-ctx notify. */
+function invokeViewHandler(run: Promise<void>, label: string): void {
+	run.catch((error) => {
+		logInternalError(label, error);
+	});
+}
+
+// ── One view-open at a time ────────────────────────────────────────────
+//
+// Enter on an agent row can dispatch through the editor submit fallback
+// (no captured command ctx yet — a run started via the team TOOL never ran a
+// crew slash command). While a tool call is mid-flight pi parks that submit
+// in pendingUserInputs until the turn ends, so NOTHING appears to happen —
+// and every extra Enter queued ANOTHER "/crew-view". When the turn finished
+// they all executed back-to-back: each switchSession tore the just-created
+// session down again, the abort cascades cancelled live work, and the
+// openPane continuations resumed on dead ctxs (the crash above). One
+// in-flight open, with feedback, until the command actually runs.
+
+interface PendingViewOpen {
+	runId: string;
+	taskId: string;
+	at: number;
+}
+
+let pendingViewOpen: PendingViewOpen | undefined;
+/** Safety valve so a dropped queued command can never wedge Enter forever
+ *  (the settle path itself is bounded at ~8s). */
+const VIEW_OPEN_PENDING_TTL_MS = 30_000;
+
+function clearPendingViewOpen(): void {
+	pendingViewOpen = undefined;
+}
+
 /**
  * Dispatch a session-level slash command (crew-view / crew-back) so it runs
  * through pi's extension-command executor — the ONLY route that executes "/"
@@ -109,12 +176,12 @@ function dispatchViewCommand(text: string): void {
 	const cmdCtx = liveCommandCtx();
 	if (cmdCtx) {
 		if (text === "/crew-back") {
-			void handleCrewBackCommand("", cmdCtx);
+			invokeViewHandler(handleCrewBackCommand("", cmdCtx), "view.dispatch.back");
 			return;
 		}
 		const viewMatch = /^\/crew-view (\S+) (\S+)$/.exec(text);
 		if (viewMatch) {
-			void handleCrewViewCommand(`${viewMatch[1]} ${viewMatch[2]}`, cmdCtx);
+			invokeViewHandler(handleCrewViewCommand(`${viewMatch[1]} ${viewMatch[2]}`, cmdCtx), "view.dispatch.view");
 			return;
 		}
 	}
@@ -214,7 +281,11 @@ async function settleSessionForViewSwitch(ctx: ExtensionContext, runId: string):
 		logInternalError("view.detachForegroundRun", error, runId);
 		return false;
 	}
-	ctx.ui.notify("Team run detached to background so the agent view can open — its result arrives here when it finishes.", "info");
+	// The awaits above (lazy imports) can straddle a session switch: the
+	// session this settle started in may already be gone — the switch target
+	// no longer exists, so the open is moot.
+	if (!ctxAlive(ctx)) return false;
+	safeNotify(ctx, "Team run detached to background so the agent view can open — its result arrives here when it finishes.", "info");
 	const deadline = Date.now() + VIEW_SETTLE_TIMEOUT_MS;
 	while (Date.now() < deadline) {
 		// The settling turn also writes its assistant message, which is what
@@ -295,47 +366,71 @@ async function buildViewPath(ctx: ExtensionContext, target: PanelTarget): Promis
 }
 
 function openPane(ctx: ExtensionContext, target: PanelTarget): void {
+	// One in-flight open at a time (see PendingViewOpen above): repeats get
+	// feedback instead of queueing another parked "/crew-view" command.
+	if (pendingViewOpen && Date.now() - pendingViewOpen.at < VIEW_OPEN_PENDING_TTL_MS) {
+		safeNotify(ctx, "Already opening an agent view — one moment.", "info");
+		return;
+	}
+	pendingViewOpen = { runId: target.runId, taskId: target.taskId, at: Date.now() };
 	void (async () => {
-		const viewPath = await buildViewPath(ctx, target);
-		if (viewPath) {
-			// Baseline the worker-session stamp right after the build so the
-			// first refresh tick only dispatches when the worker has actually
-			// produced NEW content since the copy was taken.
-			const stamp = workerSessionSourceStamp({
-				cwd: ctx.cwd,
-				runId: target.runId,
-				taskId: target.taskId,
-				parentSessionFile: ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile,
-				sessionRoot: mainSessionRoot(),
-			});
-			if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
-			// A streaming parent turn blocks switchSession — settle it first
-			// (detaches a foreground run; the run keeps executing).
-			if (!(await settleSessionForViewSwitch(ctx, target.runId))) {
-				ctx.ui.notify(
-					"Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then press Enter again.",
-					"error",
-				);
-				return;
-			}
-			// Switch AFTER the current input tick unwinds: `switchSession`
-			// tears the current session down, which would invalidate the
-			// editor while we are still inside its key handler otherwise.
-			setTimeout(() => {
-				// DIRECT handler invocation when we hold a live command ctx:
-				// the editor submit path queues the command as a pending
-				// input while a tool call is mid-flight (a foreground team
-				// run), delaying the view by the whole turn.
-				const cmdCtx = liveCommandCtx();
-				if (cmdCtx) {
-					void handleCrewViewCommand(`${target.runId} ${target.taskId}`, cmdCtx);
+		try {
+			const viewPath = await buildViewPath(ctx, target);
+			// The awaits above can straddle a session switch (a previously
+			// parked command landing, /new, resume…): every ctx access from
+			// here on must be guarded — see the stale-ctx section.
+			if (!ctxAlive(ctx)) return;
+			if (viewPath) {
+				// Baseline the worker-session stamp right after the build so the
+				// first refresh tick only dispatches when the worker has actually
+				// produced NEW content since the copy was taken.
+				const stamp = workerSessionSourceStamp({
+					cwd: ctx.cwd,
+					runId: target.runId,
+					taskId: target.taskId,
+					parentSessionFile: ctx.sessionManager.getSessionFile() ?? getCrewViewSessionState().mainSessionFile,
+					sessionRoot: mainSessionRoot(),
+				});
+				if (stamp) viewRefreshBaseline = `${stamp.mtimeMs}:${stamp.size}`;
+				// A streaming parent turn blocks switchSession — settle it first
+				// (detaches a foreground run; the run keeps executing).
+				if (!(await settleSessionForViewSwitch(ctx, target.runId))) {
+					clearPendingViewOpen();
+					safeNotify(
+						ctx,
+						"Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then press Enter again.",
+						"error",
+					);
 					return;
 				}
-				dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
-			}, 0);
-			return;
+				if (!ctxAlive(ctx)) return;
+				// Switch AFTER the current input tick unwinds: `switchSession`
+				// tears the current session down, which would invalidate the
+				// editor while we are still inside its key handler otherwise.
+				setTimeout(() => {
+					// DIRECT handler invocation when we hold a live command ctx:
+					// the editor submit path queues the command as a pending
+					// input while a tool call is mid-flight (a foreground team
+					// run), delaying the view by the whole turn. The pending
+					// mark STAYS set in the fallback case — it is what keeps
+					// further Enters from queueing more commands — and is
+					// cleared when the command actually runs (its handler's
+					// entry), on session_start, or by the TTL.
+					const cmdCtx = liveCommandCtx();
+					if (cmdCtx) {
+						invokeViewHandler(handleCrewViewCommand(`${target.runId} ${target.taskId}`, cmdCtx), "view.open.dispatch");
+						return;
+					}
+					dispatchViewCommand(`/crew-view ${target.runId} ${target.taskId}`);
+				}, 0);
+				return;
+			}
+			clearPendingViewOpen();
+			safeNotify(ctx, `Could not open a view for ${target.taskId} — no transcript yet. Try again in a moment.`, "error");
+		} catch (error) {
+			clearPendingViewOpen();
+			logInternalError("view.openPane", error, target.taskId);
 		}
-		ctx.ui.notify(`Could not open a view for ${target.taskId} — no transcript yet. Try again in a moment.`, "error");
 	})();
 }
 
@@ -402,6 +497,10 @@ async function actOnAgent(ctx: ExtensionContext, target: PanelTarget, finished: 
 
 async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
 	captureCommandCtx(ctx);
+	// The command finally RUNNING is what ends an in-flight open (a parked
+	// fallback submit executes here) — release the Enter guard. Failure paths
+	// below also release it, so a refused view can be retried immediately.
+	clearPendingViewOpen();
 	const tokens = args.trim().split(/\s+/).filter(Boolean);
 	if (tokens.length < 2) {
 		ctx.ui.notify("Usage: /crew-view <runId> <taskId>", "error");
@@ -455,7 +554,8 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 		if (!(alreadyViewing || (await settleSessionForViewSwitch(ctx, runId)))) {
 			clearViewSwitchInFlight();
 			setCrewViewSessionState({ ...prev, active: false });
-			ctx.ui.notify(
+			safeNotify(
+				ctx,
 				"Cannot open the agent view yet: this session has not been saved to disk (the team run is its first turn). Wait for the first reply, then try again.",
 				"error",
 			);
@@ -477,19 +577,21 @@ async function handleCrewViewCommand(args: string, ctx: ExtensionCommandContext)
 		} catch (error) {
 			clearViewSwitchInFlight();
 			setCrewViewSessionState({ ...prev, active: false });
-			ctx.ui.notify(`crew-view failed — ${error instanceof Error ? error.message : String(error)}`, "error");
+			safeNotify(ctx, `crew-view failed — ${error instanceof Error ? error.message : String(error)}`, "error");
 			return;
 		}
 		if (result?.cancelled) clearViewSwitchInFlight();
 	} catch (error) {
 		clearViewSwitchInFlight();
 		setCrewViewSessionState({ ...prev, active: false });
-		ctx.ui.notify(`crew-view failed — ${error instanceof Error ? error.message : String(error)}`, "error");
+		safeNotify(ctx, `crew-view failed — ${error instanceof Error ? error.message : String(error)}`, "error");
 	}
 }
 
 async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext): Promise<void> {
 	captureCommandCtx(ctx);
+	// Leaving (or trying to leave) a view ends any in-flight open too.
+	clearPendingViewOpen();
 	const prev = getCrewViewSessionState();
 	// Self-healing return path: when the CURRENT session is a crew view, the
 	// view file's header records the main session even if the store was reset
@@ -527,7 +629,7 @@ async function handleCrewBackCommand(_args: string, ctx: ExtensionCommandContext
 		if (result?.cancelled) clearViewSwitchInFlight();
 	} catch (error) {
 		clearViewSwitchInFlight();
-		ctx.ui.notify(`crew-back failed — ${error instanceof Error ? error.message : String(error)}`, "error");
+		safeNotify(ctx, `crew-back failed — ${error instanceof Error ? error.message : String(error)}`, "error");
 	}
 }
 
@@ -645,6 +747,8 @@ function reconcileViewSessionState(ctx: ExtensionContext): void {
 	// Any session start means a pending view switch has landed (or aborted) —
 	// the destructive-cleanup suppression window for that switch is over.
 	clearViewSwitchInFlight();
+	// …and any in-flight open is moot: its session is gone or its command ran.
+	clearPendingViewOpen();
 	// The session file may not be bound yet when session_start fires right
 	// after a switchSession — never clear the view state based on a missing
 	// file (that race would silently disable escape-to-back).
@@ -689,9 +793,6 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 
 	const enabled = uiConfig?.inlinePanel !== false;
 	try {
-		console.error(
-			`[crew-debug] installInlinePanel: hasUI=${ctx.hasUI} enabled=${enabled} installed=${editorInstalled} ownerExists=${Boolean(ctx.ui.getEditorComponent())}`,
-		);
 		if (enabled && !editorInstalled && !ctx.ui.getEditorComponent()) {
 			ctx.ui.setEditorComponent((tui, theme, kb) => {
 				// Fresh instance per session; options close over the current ctx.
@@ -749,4 +850,14 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 export function __resetInlinePanelForTest(): void {
 	editorInstalled = false;
 	currentEditor = undefined;
+}
+
+/** Test seam for openPane (the panel wires it as the dock's Enter action). */
+export { openPane as __test__openPane };
+
+/** Test isolation: clear the one-open-at-a-time mark + refresh baseline. */
+export function __test__resetViewOpenState(): void {
+	clearPendingViewOpen();
+	viewRefreshBaseline = undefined;
+	lastViewRefreshAt = 0;
 }
