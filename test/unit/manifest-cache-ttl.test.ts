@@ -139,6 +139,12 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 function makeTempProject(): string {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-manifest-cache-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
+	// getCrewEnv("PI_CREW_HOME") resolves the mirror pair with "teams"
+	// precedence (PI_TEAMS_HOME ?? PI_CREW_HOME — see src/config/env-vars.ts),
+	// so an ambient PI_TEAMS_HOME would override our fixture root and point
+	// every cache scan at the user's real crew home. Delete the winning name
+	// too; the afterEach env snapshot restores it.
+	delete process.env.PI_TEAMS_HOME;
 	process.env.PI_CREW_HOME = path.join(cwd, ".crew");
 	return cwd;
 }

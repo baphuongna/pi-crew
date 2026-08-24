@@ -195,6 +195,50 @@ test("saveRunTasksCoalesced keeps the manifest cache entry with zeroed tasks sta
 	}
 });
 
+test("load after a coalesced save reuses the cached manifest object — manifest.json is not re-parsed", () => {
+	__test__clearManifestCache();
+	__test__clearArtifactsVerdictCache();
+	const cwd = makeProjectTempDir("pi-crew-coalesced-reuse-");
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "coalesced manifest reuse" });
+		const stateRoot = created.paths.stateRoot;
+		const loaded1 = loadRunManifestById(cwd, created.manifest.runId);
+		assert.ok(loaded1, "initial load must succeed");
+		const cachedAfterLoad = __test__getManifestCacheEntry(stateRoot);
+		assert.ok(cachedAfterLoad, "initial load populates the cache");
+		assert.ok(cachedAfterLoad.manifest === loaded1.manifest, "cache stores the returned manifest object (identity baseline)");
+
+		const updatedTasks = loaded1.tasks.map((item, index) =>
+			index === 0 ? { ...item, status: "running" as const } : item,
+		);
+		// Buffered coalesced save (the persistSingleTaskUpdate shape), then land
+		// the pending write exactly like its pre-read flush does.
+		saveRunTasksCoalesced(created.manifest, updatedTasks);
+		flushPendingAtomicWrites();
+
+		const loaded2 = loadRunManifestById(cwd, created.manifest.runId);
+		assert.ok(loaded2, "reload must succeed");
+		assert.equal(loaded2.tasks[0]?.status, "running", "reload returns the merged tasks read from disk");
+		// Task 12 realization: the zeroed tasks stamps force the slow path (tasks
+		// re-read), but the retained manifest half must be REUSED. Object
+		// identity is the proof — a re-read + re-parse of manifest.json would
+		// produce a fresh object and === would fail.
+		assert.ok(
+			loaded2.manifest === loaded1.manifest,
+			"reload must reuse the cached manifest object — manifest.json not re-read + re-parsed",
+		);
+		const restamped = __test__getManifestCacheEntry(stateRoot);
+		assert.ok(restamped, "reload re-populates the entry");
+		assert.ok(restamped.manifest === loaded1.manifest, "re-populated entry keeps the same manifest object");
+		assert.notEqual(restamped.tasksMtimeMs, 0, "reload re-stamps the real tasks mtime");
+	} finally {
+		__test__clearManifestCache();
+		__test__clearArtifactsVerdictCache();
+		flushPendingAtomicWrites();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("buffered coalesced save keeps the entry; next load re-reads disk, not the buffered array", () => {
 	__test__clearManifestCache();
 	__test__clearArtifactsVerdictCache();

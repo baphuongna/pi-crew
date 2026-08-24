@@ -550,10 +550,12 @@ function normalizeOptions(arg: unknown): { expectedHash?: string; durability: Wr
 }
 
 // PERF (2026-08-24): every atomic write ran mkdirSync(recursive) on a parent
-// that exists for the lifetime of a run. Memoize known-existing dirs; the memo
-// is invalidated on ENOENT at temp-open so a deleted-then-recreated tree is
-// handled (and recreated dirs are re-validated by isSymlinkSafeDirCached on
-// the NEXT write, which re-runs whenever the path was not seen before).
+// that exists for the lifetime of a run. Memoize known-existing dirs; on the
+// ENOENT retry at temp-open (memoized dir deleted underneath us) BOTH the dir
+// memo AND the symlink-safety caches for that dir are dropped (forgetDir +
+// invalidateSymlinkSafeCache) so a deleted-then-recreated tree re-runs the
+// full symlink walk on the next write — without the invalidation the stale
+// dir verdict would be trusted for up to the 10s symlinkSafeCache TTL.
 const knownDirs = new Set<string>();
 const KNOWN_DIRS_MAX = 512;
 export function ensureDirSync(dirPath: string): void {
@@ -640,6 +642,11 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 		} catch (openError) {
 			if ((openError as NodeJS.ErrnoException).code !== "ENOENT") throw openError;
 			forgetDir(dirPath);
+			// Parity hardening: drop the symlink-safety verdict for this dir too —
+			// the memoized dir may have been deleted and RECREATED (possibly as a
+			// symlink or with symlinked ancestors), and the cached verdict would
+			// otherwise stay trusted for up to the 10s TTL.
+			invalidateSymlinkSafeCache(dirPath);
 			ensureDirSync(dirPath);
 			fd = fs.openSync(
 				tempPath,
@@ -792,6 +799,10 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 		} catch (openError) {
 			if ((openError as NodeJS.ErrnoException).code !== "ENOENT") throw openError;
 			forgetDir(path.dirname(filePath));
+			// Parity hardening (async twin of the sync path): drop the cached
+			// symlink-safety verdict alongside the dir memo so a recreated dir
+			// re-runs the walk on the next write.
+			invalidateSymlinkSafeCache(path.dirname(filePath));
 			ensureDirSync(path.dirname(filePath));
 			fd = await fs.promises.open(
 				tempPath,

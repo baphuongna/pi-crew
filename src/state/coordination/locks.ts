@@ -415,14 +415,6 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 	if (fileLockHeldByUs.get(lockFile)) {
 		return fn();
 	}
-	// Round 26 (BUG 2): REMOVED the pre-acquisition target-file-existence check.
-	// It was racy — between statSync(target) and acquire, a concurrent process
-	// could acquire the lock to CREATE the target, and we'd delete its active
-	// lock. It was also actively wrong for callers that pass a path already
-	// ending in `.flock` (config.ts: the checked "target" never exists, so the
-	// cleanup ALWAYS fired, deleting a fresh concurrent holder's lock). Genuine
-	// orphan locks (crashed holder) are reclaimed by acquireLockWithRetry's
-	// staleMs-based steal logic after at most `staleMs`.
 	// PERF (2026-08-24): pre-loop check uses the 10s-TTL cached verdict (same
 	// tradeoff atomic writes already make). The RETRY loop below keeps the
 	// UNCACHED re-validation — TOCTOU rigor is preserved exactly where a race

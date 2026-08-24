@@ -41,14 +41,15 @@ export function persistSingleTaskUpdate(
 	checkpointPhase?: TaskCheckpointState["phase"],
 	skipCoalesce: boolean = false,
 ): TeamTaskState[] {
-	// H5 (2026-08-10): lowered from 100 → 10. Each retry does
-	// flushPendingAtomicWrites (global) + loadRunManifestById (stat + parse)
-	// + statSync, ~5ms each. Every attempt now loads from disk (BUG-028);
-	// retries only fire under real contention from best-effort writers that
-	// don't hold the run lock (async-notifier, crash-recovery). If 10 retries
-	// cannot converge, the system is in a pathological state where 100 would
-	// not help either — the explicit error below surfaces it instead of
-	// blocking the event loop for 500ms.
+	// H5 (2026-08-10): lowered from 100 → 10. Each retry does a scoped
+	// flushPendingAtomicWrites(tasksPath) + loadRunManifestById (stat + parse;
+	// the manifest half is typically served from the manifest cache after the
+	// Task 12 reuse) + statSync, ~5ms each. Every attempt now loads from disk
+	// (BUG-028); retries only fire under real contention from best-effort
+	// writers that don't hold the run lock (async-notifier, crash-recovery).
+	// If 10 retries cannot converge, the system is in a pathological state
+	// where 100 would not help either — the explicit error below surfaces it
+	// instead of blocking the event loop for 500ms.
 	const MAX_CAS_ATTEMPTS = 10;
 
 	let merged: TeamTaskState[] | undefined;
@@ -98,8 +99,9 @@ export function persistSingleTaskUpdate(
 				// (siblings still "running") over disk where siblings were already
 				// terminal — resurrecting them and blocking finalize ("task is
 				// still running"). The mtime CAS below cannot catch this: it only
-				// detects writers between the entry stat and the in-lock stat,
-				// i.e. staleness acquired AFTER function entry — not fallback
+				// detects writers between the in-lock baseline stat (captured
+				// after the flush, immediately before the load) and the pre-write
+				// stat, i.e. staleness acquired AFTER that baseline — not fallback
 				// staleness that predates it. Loading disk here makes sibling
 				// state authoritative (matching mergeUnitResult / bug-027 policy)
 				// while `updated` still wins for THIS task via updateTask.

@@ -665,16 +665,22 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
 export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTaskState[], skipCoalesce: boolean = false): void {
 	// ST-4: refuse to persist [] over a previously-non-empty tasks file.
 	if (!shouldPersistTasks(manifest, tasks)) return;
-	// PERF (2026-08-24): invalidating the WHOLE entry made every
+	// PERF (2026-08-24, Task 12): invalidating the WHOLE entry made every
 	// loadRunManifestById after a coalesced save re-read + re-parse
 	// manifest.json (24KB+) even though the manifest file did not change —
 	// persistSingleTaskUpdate's next call (~500ms later) always paid it. Keep
-	// the manifest half of the entry (mtime/size still verified on read) and
-	// zero only the tasks stamps, which is the exact pre-existing signal for
-	// "tasks on disk may be stale" (coalesced write not landed yet). Crash
-	// safety is unchanged: a zeroed tasks stamp can only cause a miss, never a
-	// stale hit. Generation semantics unchanged — setManifestCache stamps the
-	// CURRENT generation, so a concurrent writer's bump still invalidates us.
+	// the manifest half of the entry and zero only the tasks stamps, which is
+	// the exact pre-existing signal for "tasks on disk may be stale" (coalesced
+	// write not landed yet). The load path cooperates: the zeroed tasks stamps
+	// force the slow path (tasks are always re-read from disk), but when the
+	// retained manifest stamps still match a fresh stat of manifest.json — the
+	// same mtime/size verification the fast path performs — the retry loop
+	// reuses the cached manifest object and skips the re-read + re-parse.
+	// Crash safety is unchanged: a zeroed tasks stamp can only cause a miss,
+	// never a stale hit, and a concurrent manifest rewrite changes mtime/size
+	// so the manifest reuse never serves stale content. Generation semantics
+	// unchanged — setManifestCache stamps the CURRENT generation, so a
+	// concurrent writer's bump still invalidates us.
 	const cached = manifestCache.get(manifest.stateRoot);
 	if (cached) {
 		setManifestCache(manifest.stateRoot, { ...cached, tasks, tasksMtimeMs: 0, tasksSize: 0 });
@@ -993,7 +999,19 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 	let tasks: TeamTaskState[] | undefined;
 	while (attempts < LOAD_MANIFEST_RETRY_LIMIT) {
 		const freshStat = fs.statSync(manifestPath);
-		manifest = readJsonFile<TeamRunManifest>(manifestPath);
+		// PERF (2026-08-24, Task 12 realized): after saveRunTasksCoalesced the
+		// cache keeps the manifest half of the entry while zeroing only the
+		// tasks stamps, so this slow path runs solely to refresh tasks. When the
+		// retained manifest stamps still match the fresh stat — the exact
+		// mtime/size verification the fast path performs — reuse the cached
+		// manifest object instead of re-reading + re-parsing manifest.json.
+		// Stamp verification is NOT bypassed: any manifest.json rewrite changes
+		// mtime/size and falls back to the disk read. The tasks re-read below
+		// still always happens — zeroed tasks stamps must force it.
+		manifest =
+			cached && cached.manifestMtimeMs === freshStat.mtimeMs && cached.manifestSize === freshStat.size
+				? cached.manifest
+				: readJsonFile<TeamRunManifest>(manifestPath);
 		const freshTasksStat = fs.existsSync(tasksPath) ? fs.statSync(tasksPath) : undefined;
 		tasks = loadTasksWithRecovery(tasksPath, manifest?.eventsPath ?? path.join(stateRoot, "events.jsonl"), manifest?.runId ?? runId);
 		// If size/mtime didn't change between stat and read, we're consistent.
@@ -1135,7 +1153,17 @@ export async function loadRunManifestByIdAsync(
 	let attempts = 0;
 	while (attempts < LOAD_MANIFEST_RETRY_LIMIT) {
 		const freshStat = await fs.promises.stat(manifestPath);
-		manifest = await readJsonFileAsync<TeamRunManifest>(manifestPath);
+		// PERF (2026-08-24, Task 12 realized): async twin of the sync reuse —
+		// after saveRunTasksCoalesced only the tasks stamps are zeroed, so when
+		// the retained manifest stamps match the fresh stat (same verification
+		// the fast path performs), reuse the cached manifest object instead of
+		// re-reading + re-parsing manifest.json. A manifest.json rewrite changes
+		// mtime/size and falls back to the disk read; the tasks re-read below
+		// always happens.
+		manifest =
+			cached && cached.manifestMtimeMs === freshStat.mtimeMs && cached.manifestSize === freshStat.size
+				? cached.manifest
+				: await readJsonFileAsync<TeamRunManifest>(manifestPath);
 		const freshTasksStat = await fs.promises.stat(tasksPath).catch(() => undefined);
 		tasks = await loadTasksWithRecoveryAsync(
 			tasksPath,

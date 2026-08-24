@@ -24,9 +24,13 @@ export function handleEvents(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	// whole live file) and exposes no limit option, and the events action params
 	// carry no full-history flag — so read the bounded cursor tail (4 MB /
 	// 5000-event cap) and display the last 500 events by default.
-	const events = readEventsCursor(loaded.manifest.eventsPath).events.slice(-500);
+	const cursor = readEventsCursor(loaded.manifest.eventsPath);
+	const events = cursor.events.slice(-500);
 	const lines = [
 		`Events for ${loaded.manifest.runId}:`,
+		// Truncation indicator: `total` is the cursor's event count before the
+		// display slice — surface it whenever the slice dropped events.
+		...(cursor.total > events.length ? [`(showing last ${events.length} of ${cursor.total} events)`] : []),
 		...(events.length
 			? events.map(
 					(event) =>

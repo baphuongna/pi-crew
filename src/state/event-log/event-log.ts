@@ -691,11 +691,13 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 /**
  * Batch variant used by the buffered flush path. Computes metadata for each
  * event, writes the whole batch in a single appendFileSync + fsync, persists
- * the sequence sidecar once with the last seq, and updates the sequence cache
- * once. Resolves each item with its finalized event (carrying the assigned
- * seq). This collapses N fsyncs into 1 for the buffered write path, which is
- * the entire point of buffering — the previous per-event fsync made buffer
- * coalescing useless and added ~30ms/event on tmpfs.
+ * the sequence sidecar once with the last seq (no per-append sequenceCache
+ * upkeep — that cache no longer exists on the append paths; see the PERF
+ * 2026-08-24 note in appendEventAsync). Resolves each item with its finalized
+ * event (carrying the assigned seq). This collapses N fsyncs into 1 for the
+ * buffered write path, which is the entire point of buffering — the previous
+ * per-event fsync made buffer coalescing useless and added ~30ms/event on
+ * tmpfs.
  */
 async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedAppend[]): Promise<void> {
 	if (queue.length === 0) return;
@@ -750,8 +752,8 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	// then increment locally for each subsequent event in the batch. Calling
 	// nextSequence() per-event would re-read file stat/sidecar with no writes
 	// in between — every call would see the same file state and return the same
-	// seq, breaking the "unique monotonic seq" contract. The cache update +
-	// persistSequence at the end refreshes the sidecar to the last assigned seq.
+	// seq, breaking the "unique monotonic seq" contract. persistSequenceMonotonic
+	// at the end refreshes the sidecar to the last assigned seq.
 	// B7: use reserveSequence for atomic seq assignment across all paths.
 	// R16-B1 (Phase 3.6): reserve the WHOLE batch range (count = queue.length)
 	// under the .seqlock in one acquire — the locally incremented nextSeq below
@@ -955,7 +957,8 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 	} catch (error) {
 		logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
 	}
-	// seq is already computed above via reserveSequence — reuse it for persist/cache.
+	// seq is already computed above via reserveSequence — reuse it for the
+	// explicit-seq persist below (no sequenceCache upkeep on append paths).
 	// const seq declaration removed (B7: seq is now computed before metadata object).
 	if (!skippedDueToSize) {
 		fs.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}\n`, "utf-8");

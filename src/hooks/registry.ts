@@ -43,7 +43,7 @@ export function getHooks(name: HookName): HookDefinition[] {
 }
 
 // PERF (2026-08-24): constant sanitizer state hoisted to module scope — it was
-// rebuilt (13 normalize+toLowerCase + Set + 3 closures) on EVERY hook execution.
+// rebuilt (12 normalize+toLowerCase + Set + 3 closures) on EVERY hook execution.
 const POLLUTED_KEYS = new Set(
 	[
 		"__proto__",
