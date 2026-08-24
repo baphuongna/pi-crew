@@ -21,6 +21,7 @@ import type { RunSnapshotCache } from "../snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "../theme-adapter.ts";
+import { buildTaskListLines } from "./task-list.ts";
 import { activeWidgetRuns, statusSummary } from "./widget-model.ts";
 import { buildWidgetLines, colorWidgetLine, DEFAULT_WIDGET_WIDTH, renderLines } from "./widget-renderer.ts";
 import type { CrewWidgetModel, CrewWidgetState, WidgetRun } from "./widget-types.ts";
@@ -65,6 +66,8 @@ export {
 const MAX_LINES_DEFAULT = DEFAULT_UI.widgetMaxLines;
 const LEGACY_WIDGET_KEY = "pi-crew";
 const WIDGET_KEY = "pi-crew-active";
+/** The run's plan progress, painted ABOVE the editor (task-list.ts). */
+const TASKS_WIDGET_KEY = "pi-crew-tasks";
 const STATUS_KEY = "pi-crew";
 
 /**
@@ -81,11 +84,12 @@ const SIGNATURE_CACHE_TTL_MS = 100;
 // next invalidate; a mid-run resize could briefly paint a frame at the old
 // width. We register ONE debounced process-level listener (guarded so it never
 // accumulates across widget reinstalls) that busts the active widget's cache
-// and pokes Pi to repaint at the new width. The listener references a
-// module-level `activeResizeTarget` (the most-recently-mounted widget) rather
-// than a specific instance, so replaced widgets do not leak listeners.
+// and pokes Pi to repaint at the new width. The listener references the
+// module-level `activeResizeTargets` set (every mounted widget) rather than
+// specific instances, so replaced widgets do not leak listeners.
 let resizeListenerInstalled = false;
-let activeResizeTarget: { invalidate(): void; requestRepaint(): void } | undefined;
+/** All mounted widgets (dock + task list) — every one gets resize-busted. */
+const activeResizeTargets = new Set<{ invalidate(): void; requestRepaint(): void }>();
 let resizeTimer: ReturnType<typeof setTimeout> | undefined;
 
 /**
@@ -98,8 +102,10 @@ const onResize = (): void => {
 	// Debounce (~120ms) so a drag-resize doesn't thrash renders.
 	resizeTimer = setTimeout(() => {
 		resizeTimer = undefined;
-		activeResizeTarget?.invalidate();
-		activeResizeTarget?.requestRepaint();
+		for (const target of activeResizeTargets) {
+			target.invalidate();
+			target.requestRepaint();
+		}
 	}, 120);
 };
 
@@ -137,7 +143,7 @@ export function uninstallResizeListener(): void {
 		clearTimeout(resizeTimer);
 		resizeTimer = undefined;
 	}
-	activeResizeTarget = undefined;
+	activeResizeTargets.clear();
 	process.off("SIGWINCH", onResize);
 	// Windows has no SIGWINCH; Node emits "resize" on stdout instead.
 	// Remove via whichever API is present. The listener was only registered
@@ -162,6 +168,8 @@ interface WidgetComponent extends CrewComponent {}
 class CrewWidgetComponent implements WidgetComponent {
 	private readonly model: CrewWidgetModel;
 	private theme: CrewTheme;
+	/** Which surface this instance paints: the agent dock, or the task list. */
+	private readonly variant: "dock" | "tasks";
 	private cacheSignature = "";
 	/** C4 — invalidate-on-write cache for the buildSignature() result. */
 	private cachedBuildSignature = "";
@@ -175,8 +183,9 @@ class CrewWidgetComponent implements WidgetComponent {
 	private readonly unsubscribePanel: () => void;
 	private readonly schedulerHandle: OverlaySchedulerHandle;
 
-	constructor(model: CrewWidgetModel, themeLike: unknown, tui?: unknown) {
+	constructor(model: CrewWidgetModel, themeLike: unknown, tui?: unknown, variant: "dock" | "tasks" = "dock") {
 		this.model = model;
+		this.variant = variant;
 		this.theme = asCrewTheme(themeLike);
 		this.cachedTheme = this.theme;
 		this.tui = tui;
@@ -184,7 +193,7 @@ class CrewWidgetComponent implements WidgetComponent {
 		// terminal-resize listener is installed. On a resize the cached width
 		// goes stale; busting the cache + requesting a repaint refreshes the
 		// widget at the new width without waiting for the next event tick (T-2).
-		activeResizeTarget = this;
+		activeResizeTargets.add(this);
 		installResizeListener();
 		this.unsubscribeTheme = subscribeThemeChange(themeLike, () => this.invalidate());
 		// Cursor movement is a keypress, not a run event, so it never reaches the
@@ -278,7 +287,7 @@ class CrewWidgetComponent implements WidgetComponent {
 		this.unsubscribeTheme();
 		this.unsubscribePanel();
 		this.schedulerHandle.dispose();
-		if (activeResizeTarget === this) activeResizeTarget = undefined;
+		activeResizeTargets.delete(this);
 	}
 
 	render(width: number): string[] {
@@ -306,6 +315,24 @@ class CrewWidgetComponent implements WidgetComponent {
 		}
 		const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
 		const runningGlyph = spinnerFrame("widget-header");
+
+		// Task-list variant: the run's plan above the editor (task-list.ts).
+		// No panel state, no spinner glyph — the list changes only on task
+		// transitions, which the run signature already covers.
+		if (this.variant === "tasks") {
+			if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
+				this.cachedBaseLines = buildTaskListLines(runs, width);
+				this.cachedLines = this.colorize(this.cachedBaseLines, width);
+				this.cachedWidth = width;
+				this.cachedTheme = this.theme;
+				this.cacheSignature = signature;
+			}
+			if (runs.length === 0) {
+				this.invalidate();
+				return [];
+			}
+			return this.cachedLines.map((line) => truncate(line, width));
+		}
 
 		// Panel cursor/pane state is part of the rendered output, so it belongs in
 		// the cache key — otherwise moving the cursor would not repaint.
@@ -437,6 +464,8 @@ export function updateCrewWidget(
 	if (!lines.length) {
 		if (state.lastVisibility !== "hidden" || state.lastPlacement !== placement) {
 			setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
+			setExtensionWidget(ctx, TASKS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+			state.lastTasksVisibility = "hidden";
 			state.footerDock?.dispose();
 			state.footerDock = undefined;
 			setFooterDockProvider(undefined);
@@ -522,6 +551,26 @@ export function updateCrewWidget(
 		state.lastCwd = ctx.cwd;
 	}
 
+	// Task list (aboveEditor): the run's plan progress — Claude Code / droid
+	// style, independent of the dock's placement (so it also shows when the
+	// dock renders in the crew-vibes footer). Installed once while any
+	// display-active run exists; the component paints nothing until a run
+	// carries a tasks slice.
+	const tasksVisible = runs.length > 0 && Boolean(state.model);
+	if (tasksVisible && state.lastTasksVisibility !== "visible") {
+		const model = state.model;
+		setExtensionWidget(
+			ctx,
+			TASKS_WIDGET_KEY,
+			((_tui: unknown, theme: unknown) => new CrewWidgetComponent(model, theme, _tui, "tasks")) as never,
+			{ placement: "aboveEditor" },
+		);
+		state.lastTasksVisibility = "visible";
+	} else if (!tasksVisible && state.lastTasksVisibility === "visible") {
+		setExtensionWidget(ctx, TASKS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+		state.lastTasksVisibility = "hidden";
+	}
+
 	requestRender(ctx);
 }
 
@@ -539,6 +588,8 @@ export function stopCrewWidget(
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		setExtensionWidget(ctx, LEGACY_WIDGET_KEY, undefined, { placement: piPlacement });
 		setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
+		setExtensionWidget(ctx, TASKS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+		state.lastTasksVisibility = "hidden";
 		state.footerDock?.dispose();
 		state.footerDock = undefined;
 		setFooterDockProvider(undefined);

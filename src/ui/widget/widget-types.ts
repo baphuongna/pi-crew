@@ -32,6 +32,8 @@ export interface CrewWidgetState {
 	frame: number;
 	lastPlacement?: string;
 	lastVisibility?: "hidden" | "visible";
+	/** Whether the aboveEditor task-list widget (pi-crew-tasks) is mounted. */
+	lastTasksVisibility?: "hidden" | "visible";
 	lastKey?: string;
 	lastMaxLines?: number;
 	lastCwd?: string;
