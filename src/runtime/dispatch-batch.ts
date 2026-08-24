@@ -118,7 +118,16 @@ export async function sweepExpiredWaitingTasks(
 	cwd: string,
 	runId: string,
 	now = Date.now(),
+	// PERF (2026-08-24): callers in the scheduler loop already hold a task view
+	// loaded this tick. Check the cheap expiry predicate against it BEFORE
+	// paying stat+parse of manifest.json + tasks.json — the sweep fires on every
+	// unit settle/dispatch and almost always finds nothing expired.
+	hintTasks?: TeamTaskState[],
 ): Promise<WaitingDeadlineSweepResult | undefined> {
+	if (hintTasks) {
+		const hintExpired = hintTasks.some((t) => t.status === "waiting" && t.waiting !== undefined && t.waiting.deadline <= now);
+		if (!hintExpired) return undefined;
+	}
 	const initial = loadRunManifestById(cwd, runId);
 	if (!initial) return undefined;
 	const hasExpired = initial.tasks.some((t) => t.status === "waiting" && t.waiting !== undefined && t.waiting.deadline <= now);
@@ -375,7 +384,9 @@ function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): str
  * Mutates ctx.manifest/ctx.tasks from the sweeps' disk-reloaded results.
  */
 export async function runSchedulerSweeps(ctx: { manifest: TeamRunManifest; tasks: TeamTaskState[] }): Promise<void> {
-	const sweep = await sweepExpiredWaitingTasks(ctx.manifest.cwd, ctx.manifest.runId);
+	// PERF (2026-08-24): pass this tick's task view as the expiry hint — the
+	// sweep then skips the manifest load entirely when nothing is expired.
+	const sweep = await sweepExpiredWaitingTasks(ctx.manifest.cwd, ctx.manifest.runId, Date.now(), ctx.tasks);
 	if (sweep) {
 		ctx.manifest = sweep.manifest;
 		ctx.tasks = sweep.tasks;
