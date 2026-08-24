@@ -55,6 +55,7 @@ function taskRow(task: TeamTaskState, width: number): string {
  * tasks keep their single line (the dock stays compact).
  */
 function taskDetail(task: TeamTaskState, width: number): string | undefined {
+	const title = taskTitle(task);
 	const detail = (task.description ?? "")
 		.split("\n")
 		.filter((line) => !line.trim().startsWith("#"))
@@ -62,6 +63,9 @@ function taskDetail(task: TeamTaskState, width: number): string | undefined {
 		.replace(/\s+/g, " ")
 		.trim();
 	if (!detail) return undefined;
+	// Runs persisted before the title/description split quoted the run goal in
+	// both — don't paint the same sentence twice under its own row.
+	if (title.length >= 20 && detail.startsWith(title.slice(0, 40).replace(/\s+/g, " "))) return undefined;
 	return truncate(`      ${detail}`, width);
 }
 

@@ -509,13 +509,14 @@ test("createTasksFromWorkflow derives title and description from the step body",
 		const tasks = createTasksFromWorkflow("run_123", detailedWorkflow, team, cwd);
 		// Heading wins, and it is the heading text without the '#'.
 		assert.equal(tasks[0].title, "Probe the workspace layout");
-		// The full body survives as the detailed description.
-		assert.match(tasks[0].description ?? "", /^# Probe the workspace layout/);
+		// The body BEYOND the heading survives as the description (the heading
+		// is the title now — it must not repeat inside the description).
 		assert.ok((tasks[0].description ?? "").includes("list the top-level files"));
+		assert.ok(!(tasks[0].description ?? "").includes("# Probe"));
 		// No heading → first content line, single-line body has no description.
 		assert.equal(tasks[1].title, "Plain first line is the title");
 		assert.equal(tasks[1].description, undefined);
-		// Placeholder body falls back to the step id with no description.
+		// Placeholder-only body with no goal falls back to the step id.
 		assert.equal(tasks[2].title, "verify");
 		assert.equal(tasks[2].description, undefined);
 	} finally {
@@ -523,7 +524,7 @@ test("createTasksFromWorkflow derives title and description from the step body",
 	}
 });
 
-test("createTasksFromWorkflow substitutes {goal} into titles and descriptions", () => {
+test("createTasksFromWorkflow names templated steps after the template, not the goal", () => {
 	const cwd = makeResolvedTempDir("pi-crew-state-tasks-goal-");
 	try {
 		const templatedWorkflow: WorkflowConfig = {
@@ -534,16 +535,20 @@ test("createTasksFromWorkflow substitutes {goal} into titles and descriptions", 
 					role: "planner",
 					task: "Explore the codebase for the goal: {goal}\n\nSweep src/ for every mention of {goal}.",
 				},
+				{ id: "direct", role: "planner", task: "{goal}" },
 			],
 		};
-		// Without a goal the template text is kept verbatim (legacy callers).
+		// Without a goal the placeholder still never reaches the title.
 		const raw = createTasksFromWorkflow("run_123", templatedWorkflow, team, cwd);
-		assert.equal(raw[0].title, "Explore the codebase for the goal: {goal}");
-		// With the run's goal the persisted plan reads as the plan, not the template.
+		assert.equal(raw[0].title, "Explore the codebase");
+		// With the goal: the template prefix names the task, the goal stays
+		// run-level context — it must NOT be quoted after every row.
 		const substituted = createTasksFromWorkflow("run_123", templatedWorkflow, team, cwd, "wire the dock scroll window");
-		assert.equal(substituted[0].title, "Explore the codebase for the goal: wire the dock scroll window");
+		assert.equal(substituted[0].title, "Explore the codebase");
 		assert.ok((substituted[0].description ?? "").includes("every mention of wire the dock scroll window"));
 		assert.ok(!JSON.stringify(substituted[0]).includes("{goal}"), "no literal {goal} survives in the task state");
+		// Placeholder-only body (direct-run) adopts the goal itself as title.
+		assert.equal(substituted[1].title, "wire the dock scroll window");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

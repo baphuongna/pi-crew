@@ -260,6 +260,35 @@ export function createRunPaths(cwd: string, runId = createRunId()): RunPaths {
 	};
 }
 
+/**
+ * Trailing phrases a step template leaves in front of `{goal}` — "Explore
+ * the codebase for the goal: {goal}" should name the task ("Explore the
+ * codebase"), not quote the whole run goal after every verb. The run goal is
+ * run-level context (statusline shows it once); a task list that repeats it
+ * per row reads like a roster of workers, not a list of work.
+ */
+const GOAL_TAILS = ["for the goal", "for goal", "the goal", "goal", "cho mục tiêu", "của mục tiêu", "mục tiêu", "for", "of", "cho", "của"];
+
+function stripGoalTail(prefix: string): string {
+	let name = prefix.replace(/[\s:—-]+$/, "").trim();
+	let changed = true;
+	while (changed) {
+		changed = false;
+		const lowered = name.toLowerCase();
+		for (const tail of GOAL_TAILS) {
+			if (lowered.endsWith(tail) && lowered.length > tail.length) {
+				name = name
+					.slice(0, name.length - tail.length)
+					.replace(/[\s:—-]+$/, "")
+					.trim();
+				changed = true;
+				break;
+			}
+		}
+	}
+	return name;
+}
+
 export function createTasksFromWorkflow(
 	runId: string,
 	workflow: WorkflowConfig,
@@ -277,32 +306,46 @@ export function createTasksFromWorkflow(
 			.map((candidate) => stepToTaskId.get(candidate.id))
 			.filter((childId): childId is string => childId !== undefined);
 		// The plan's own words become the task's display identity: a heading
-		// from the step body if present, else its first content line; the full
-		// body is kept as `description` for detail surfaces (task list, view).
-		// Falls back to the step id when the body carries no text of its own —
-		// `task` is optional on literal WorkflowStep objects, and `{goal}` is
-		// the goal-injection placeholder, not plan prose.
+		// from the step body if present, else its first content line; the
+		// remaining body is kept as `description` for detail surfaces (task
+		// list detail line, view). Falls back to the step id when the body
+		// carries no text of its own — `task` is optional on literal
+		// WorkflowStep objects.
 		//
-		// The placeholder is substituted HERE (display identity carries the
-		// real goal) as well as at prompt-build time — persisted titles must
-		// read as the plan, not as the template that produced them.
+		// `{goal}` in the title line is the RUN's goal, context for every
+		// task, not this task's name. The template prefix before the
+		// placeholder names the task; a placeholder-only body ("{goal}",
+		// direct-run) adopts the goal itself as the title. `description`
+		// lines substitute the placeholder (the prompt path substitutes
+		// separately — unchanged).
 		const bodyLines =
-			typeof step.task === "string" && step.task !== "{goal}"
-				? (goal ? step.task.replaceAll("{goal}", goal) : step.task)
+			typeof step.task === "string" && step.task.trim()
+				? step.task
 						.split("\n")
 						.map((line) => line.trim())
 						.filter(Boolean)
 				: [];
 		const heading = bodyLines.find((line) => line.startsWith("#"));
-		const title = (heading?.replace(/^#+\s*/, "") ?? bodyLines[0] ?? step.id).slice(0, 120);
-		const description = bodyLines.join("\n");
+		const titleLine = heading ?? bodyLines[0];
+		const substitute = (text: string): string => (goal ? text.replaceAll("{goal}", goal) : text);
+		let title: string;
+		let restLines: string[];
+		const placeholderAt = titleLine?.indexOf("{goal}") ?? -1;
+		if (titleLine && placeholderAt >= 0) {
+			title = stripGoalTail(titleLine.slice(0, placeholderAt)) || goal || step.id;
+			restLines = bodyLines.filter((line) => line !== titleLine);
+		} else {
+			title = (titleLine ?? step.id).replace(/^#+\s*/, "");
+			restLines = heading ? bodyLines.filter((line) => line !== titleLine) : bodyLines.slice(1);
+		}
+		const description = restLines.map(substitute).join("\n");
 		return {
 			id,
 			runId,
 			stepId: step.id,
 			role: step.role,
 			agent: role?.agent ?? step.role,
-			title,
+			title: title.slice(0, 120),
 			description: description && description !== title ? description : undefined,
 			status: "queued",
 			dependsOn: dependencies,
