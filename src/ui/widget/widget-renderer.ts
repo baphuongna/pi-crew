@@ -8,6 +8,7 @@ import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
+import type { TeamRunManifest } from "../../state/types.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
 import { spinnerFrame } from "../spinner.ts";
@@ -74,10 +75,17 @@ function isActiveStatus(status: string): boolean {
  * One function, one order.
  */
 export function orderWidgetAgents(entry: WidgetRun, now = Date.now()): { active: CrewAgentRecord[]; finished: CrewAgentRecord[] } {
+	const runDone = isFinishedRunStatus(entry.run.status);
 	const active = entry.agents.filter((agent) => isActiveStatus(agent.status));
 	const finished = entry.agents.filter((agent) => {
 		if (isActiveStatus(agent.status)) return false;
 		if (!agent.completedAt) return false;
+		// Mid-run, finished agents are the run's HISTORY: they must stay in
+		// the dock until the RUN itself is done, not age out after a minute
+		// while later phases are still working. The linger windows below only
+		// apply once the run reached a terminal status (and the run-level
+		// visibility grace then decides how much longer the dock shows at all).
+		if (!runDone) return true;
 		const maxAgeMs = (ERROR_STATUSES.has(agent.status) ? ERROR_LINGER_MAX_AGE : FINISHED_LINGER_MAX_AGE) * 60_000;
 		const age = now - new Date(agent.completedAt).getTime();
 		return Number.isFinite(age) && age < maxAgeMs;
@@ -113,6 +121,122 @@ export interface WidgetRenderOptions {
 	focused?: boolean;
 }
 
+/** Short display form of a model id: `zai/glm-5.3` → `glm-5.3`. */
+function shortModelLabel(agent: CrewAgentRecord, run: TeamRunManifest): string | undefined {
+	const model = agent.model ?? run.modelContext?.parentModel ?? run.modelContext?.override;
+	if (typeof model !== "string" || !model) return undefined;
+	return model.split("/").at(-1) ?? model;
+}
+
+/** One flat dock row (pi-subtask style) for an agent — active or finished. */
+function compactAgentRow(
+	run: TeamRunManifest,
+	agent: CrewAgentRecord,
+	finished: boolean,
+	runs: readonly WidgetRun[],
+	options: WidgetRenderOptions,
+	width: number,
+	liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined,
+): string {
+	const marker = options.selectedTaskId === agent.taskId ? "❯" : " ";
+	const dockGlyph = options.viewedTaskId === agent.taskId ? "⏺" : dockStatusIcon(agent.status);
+	const name = liveHandle?.agent ?? agent.agent;
+	const label = liveHandle?.description ?? agent.role ?? "";
+	// With multiple runs, prefix each row with its run label so the flat dock
+	// still says which run an agent belongs to.
+	const runTag = runs.length > 1 ? `${shortRunLabel(run)} · ` : "";
+	const nameText = runTag + (label ? `${name} · ${label}` : name);
+	// pi-subtask activity: the worker's latest line while running, otherwise
+	// the status word.
+	const liveLine = liveHandle?.activity?.responseText
+		?.split("\n")
+		.find((line) => line.trim())
+		?.trim();
+	const activity =
+		!finished && liveHandle?.status === "running" && liveLine
+			? liveLine.length > 60
+				? `${liveLine.slice(0, 60)}…`
+				: liveLine
+			: finished
+				? dockStatusLabel(agent.status)
+				: agentActivity(agent, liveHandle);
+	const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+	const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
+	const model = shortModelLabel(agent, run);
+	// Stats tail: `· glm-5.3 · ↑1.2k ↓350 · 41s` — the model the worker is
+	// actually on first, then usage, then elapsed.
+	const suffix = `${model ? ` · ${model}` : ""}${usage ? ` · ${usage}` : ""}${ageText ? ` · ${ageText}` : ""}`;
+	return budgetedRow({ lead: `${marker} ${dockGlyph} `, name: nameText, activity, suffix }, width);
+}
+
+/**
+ * The compact dock: hint line, the `main` conversation row, then a
+ * MAX_AGENTS_DISPLAY-row SCROLL WINDOW over the flat agent list (exactly the
+ * order the inline panel navigates — `panelRowsFromRuns` parity). The window
+ * follows the panel selection bottom-pinned: moving the cursor past the
+ * window scrolls one row at a time and the ❯ marker is always painted; idle
+ * (no selection) shows the top of the list, which the shared ordering puts at
+ * the highest-priority live agents. Hidden rows surface as `… ↑N earlier` /
+ * `… +N more` indicators.
+ */
+function compactDockLines(
+	runs: WidgetRun[],
+	options: WidgetRenderOptions,
+	width: number,
+	maxLines: number,
+	notificationCount: number,
+	runningGlyph: string,
+): string[] {
+	const now = Date.now();
+	const flat: Array<{
+		run: TeamRunManifest;
+		agent: CrewAgentRecord;
+		finished: boolean;
+		liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined;
+	}> = [];
+	for (const entry of runs) {
+		const { active, finished } = orderWidgetAgents(entry, now);
+		const liveForRun = listLiveAgents().filter((a) => a.runId === entry.run.runId);
+		for (const agent of active) {
+			flat.push({ run: entry.run, agent, finished: false, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
+		}
+		for (const agent of finished) {
+			flat.push({ run: entry.run, agent, finished: true, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
+		}
+	}
+
+	// No agents at all: fall back to the legacy header so the space under the
+	// editor is never just blank.
+	if (flat.length === 0) return [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
+
+	const lines: string[] = [];
+	let hint: string;
+	if (options.viewedTaskId) {
+		const viewedName = flat.find((row) => row.agent.taskId === options.viewedTaskId)?.agent.agent ?? "agent";
+		hint = `viewing @${viewedName} — typing goes to the agent · ↓ switch · esc back`;
+	} else if (options.focused) {
+		hint = "enter to view · x to stop/cancel · esc back";
+	} else {
+		hint = `agents (${flat.length}) — ↓ to select`;
+	}
+	lines.push(truncate(hint, width));
+	// Filled ● = you're on the main conversation; hollow ◯ = an agent view is
+	// open (same convention as pi-subtask's main row).
+	const mainMarker = options.focused && !options.selectedTaskId ? "❯" : " ";
+	const mainIcon = options.viewedTaskId ? "◯" : "●";
+	lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
+
+	const selectedIndex = options.selectedTaskId ? flat.findIndex((row) => row.agent.taskId === options.selectedTaskId) : -1;
+	const windowStart = selectedIndex >= 0 ? Math.max(0, selectedIndex - MAX_AGENTS_DISPLAY + 1) : 0;
+	const windowEnd = Math.min(flat.length, windowStart + MAX_AGENTS_DISPLAY);
+	if (windowStart > 0) lines.push(truncate(`  … ↑${windowStart} earlier (↑ to scroll)`, width));
+	for (const row of flat.slice(windowStart, windowEnd)) {
+		lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle));
+	}
+	if (windowEnd < flat.length) lines.push(truncate(`  … +${flat.length - windowEnd} more (↓ to scroll)`, width));
+	return lines;
+}
+
 export function buildWidgetLines(
 	cwd: string,
 	frame = 0,
@@ -132,45 +256,18 @@ export function buildWidgetLines(
 	if (!runs.length) return [];
 
 	const runningGlyph = spinnerFrame("widget-header");
-	const lines: string[] = [];
 
-	// Compact = pi-subtask's dock (lines ~590-640): NO "Crew agents" header,
-	// NO tree — just a hint line, the `main` conversation row, then one flat
-	// row per agent. The hint labels the current mode so the first ↓ press is
-	// discoverable, and `main` is what ↓ selects first with its own marker.
-	// Detailed keeps the legacy header + tree.
+	// Compact = pi-subtask's dock: NO "Crew agents" header, NO tree — hint
+	// line, `main` row, then a 3-row scroll window over the flat agent list.
 	if (rowStyle === "compact") {
-		const agentCount = runs.reduce((n, entry) => {
-			const { active, finished } = orderWidgetAgents(entry);
-			return n + active.length + finished.length;
-		}, 0);
-		if (agentCount > 0) {
-			let hint: string;
-			if (options.viewedTaskId) {
-				const viewedName = runs.flatMap((entry) => entry.agents).find((a) => a.taskId === options.viewedTaskId)?.agent ?? "agent";
-				hint = `viewing @${viewedName} — typing goes to the agent · ↓ switch · esc back`;
-			} else if (options.focused) {
-				hint = "enter to view · x to stop/cancel · esc back";
-			} else {
-				hint = `agents (${agentCount}) — ↓ to select`;
-			}
-			lines.push(truncate(hint, width));
-			// Filled ● = you're on the main conversation; hollow ◯ = the pane
-			// is open on an agent (same convention as pi-subtask's main row).
-			const mainMarker = options.focused && !options.selectedTaskId ? "❯" : " ";
-			const mainIcon = options.viewedTaskId ? "◯" : "●";
-			lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
-		} else {
-			// No agents at all: fall back to the legacy header so the space
-			// under the editor is never just blank.
-			lines.push(widgetHeader(runs, runningGlyph, maxLines, notificationCount));
-		}
-	} else {
-		lines.push(widgetHeader(runs, runningGlyph, maxLines, notificationCount));
+		const lines = compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph);
+		return focused ? lines : lines.slice(0, maxLines);
 	}
 
+	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
+
 	for (const entry of runs) {
-		const { run, agents, snapshot } = entry;
+		const { run, agents } = entry;
 		const now = Date.now();
 		const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, now);
 		const completed = agents.filter((a) => a.status === "completed").length;
@@ -190,11 +287,6 @@ export function buildWidgetLines(
 		// activity line) and is GUARANTEED stable across ticks:
 		//   - agents count — from `agents` array, always populated, never empty.
 		//   - run elapsed   — from `run.createdAt`, always set on manifest.
-		// Both come from sources with no race window — `agents` is read from
-		// snapshot.agents OR agentsFor(run) (both always return same length
-		// for a healthy run), and `run.createdAt` is immutable. The format
-		// shape `"X/Y agents · Ns"` is therefore truly invariant: same number
-		// of `·`-separated fields, same field meanings, every render tick.
 		//
 		// Bug 022 (timer-fix + label): for TERMINAL runs (failed/cancelled/
 		// completed) the elapsed counter previously kept ticking up forever
@@ -208,11 +300,7 @@ export function buildWidgetLines(
 		const runElapsedText = `${Math.floor(runElapsedMs / 1000)}s`;
 		const statusLabel = isTerminal ? ` · ${run.status}` : "";
 		const progressPart = `${agentCountText} · ${runElapsedText}${statusLabel}`;
-		// The run progress line is part of the LEGACY tree; the compact dock is
-		// flat (pi-subtask has no per-run line — the row name carries it).
-		if (rowStyle !== "compact") {
-			lines.push(truncate(`├─ ${runGlyph} ${shortRunLabel(run)} · ${progressPart} · ${run.runId.slice(-8)}`, width));
-		}
+		lines.push(truncate(`├─ ${runGlyph} ${shortRunLabel(run)} · ${progressPart} · ${run.runId.slice(-8)}`, width));
 
 		const liveForRun = listLiveAgents().filter((a) => a.runId === run.runId);
 
@@ -232,50 +320,10 @@ export function buildWidgetLines(
 			const last = index === visibleAgents.length - 1 && activeAgents.length <= activeCap && finishedSlots === 0;
 			const branch = last ? "└─" : "├─";
 			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-			// Compact dock: pi-subtask glyphs — fixed status icon (never spins)
-			// + ⏺ while the agent's pane is open. Detailed keeps the legacy
-			// spinner + ◉ viewed marker.
-			const dockGlyph = options.viewedTaskId === agent.taskId ? "⏺" : dockStatusIcon(agent.status);
 			const legacyGlyph = options.viewedTaskId === agent.taskId ? "◉" : iconForStatus(agent.status, { runningGlyph });
 			const stats = agentStats(agent, liveHandle);
 			const name = liveHandle?.agent ?? agent.agent;
 			const activity = agentActivity(agent, liveHandle);
-			if (rowStyle === "compact") {
-				const label = liveHandle?.description ?? agent.role ?? "";
-				// With multiple runs, prefix each row with its run label so the
-				// flat dock still says which run an agent belongs to.
-				const runTag = runs.length > 1 ? `${shortRunLabel(run)} · ` : "";
-				const nameText = runTag + (label ? `${name} · ${label}` : name);
-				// pi-subtask activity: the worker's latest line while running,
-				// otherwise the status word.
-				const liveLine = liveHandle?.activity?.responseText
-					?.split("\n")
-					.find((l) => l.trim())
-					?.trim();
-				const dockActivity =
-					liveHandle?.status === "running" && liveLine
-						? liveLine.length > 60
-							? `${liveLine.slice(0, 60)}…`
-							: liveLine
-						: activity;
-				// pi-subtask stats + always-on elapsed tail:
-				//   `· ↑1.2k ↓350 $0.0010 · 41s`
-				const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
-				const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
-				const suffix = `${usage ? ` · ${usage}` : ""}${ageText ? ` · ${ageText}` : ""}`;
-				lines.push(
-					budgetedRow(
-						{
-							lead: `${markerFor(agent.taskId)} ${dockGlyph} `,
-							name: nameText,
-							activity: dockActivity,
-							suffix,
-						},
-						width,
-					),
-				);
-				continue;
-			}
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
 			const _activeMain = truncate(`│  ${branch} ${legacyGlyph} ${name}${desc ? ` · ${desc}` : ` · ${agent.role}`}`, width);
 			lines.push(_activeMain);
@@ -284,43 +332,15 @@ export function buildWidgetLines(
 		}
 
 		if (activeAgents.length > activeCap) {
-			lines.push(
-				truncate(
-					rowStyle === "compact"
-						? `… +${activeAgents.length - activeCap} more agents`
-						: `│  └─ … +${activeAgents.length - activeCap} more agents`,
-					width,
-				),
-			);
+			lines.push(truncate(`│  └─ … +${activeAgents.length - activeCap} more agents`, width));
 		}
 
 		for (const [index, agent] of finishedAgents.slice(0, finishedSlots).entries()) {
 			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
 			const name = liveHandle?.agent ?? agent.agent;
-			const dockIcon = dockStatusIcon(agent.status);
 			const legacyIcon =
 				agent.status === "completed" ? "✓" : agent.status === "failed" ? "✗" : agent.status === "needs_attention" ? "⚠" : "▪";
 			const stats = agentStats(agent, liveHandle);
-			if (rowStyle === "compact") {
-				const label = liveHandle?.description ?? agent.role ?? "";
-				const runTag = runs.length > 1 ? `${shortRunLabel(run)} · ` : "";
-				const nameText = runTag + (label ? `${name} · ${label}` : name);
-				const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
-				const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
-				const suffix = `${usage ? ` · ${usage}` : ""}${ageText ? ` · ${ageText}` : ""}`;
-				lines.push(
-					budgetedRow(
-						{
-							lead: `${markerFor(agent.taskId)} ${dockIcon} `,
-							name: nameText,
-							activity: dockStatusLabel(agent.status),
-							suffix,
-						},
-						width,
-					),
-				);
-				continue;
-			}
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
 			const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
 			const branch = isLastFinished ? "└─" : "├─";

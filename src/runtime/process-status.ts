@@ -25,6 +25,12 @@ const ERROR_VISIBILITY_GRACE_MS = 10 * 60 * 1000;
 /** Maximum age (ms) for an active run before it's considered stale.
  * After this time, PID-only liveness is unreliable due to PID recycling. */
 const STALE_ACTIVE_RUN_MS = 30 * 60 * 1000;
+/** Window (ms) during which an active run whose agents are all
+ * completed/queued-without-evidence still counts as display-active: the
+ * runner just wrote the manifest (task transition) and the next worker has
+ * not recorded progress yet. Without this the dock flickers off between
+ * phases of a healthy run. */
+const SPAWN_GAP_VISIBILITY_MS = 60 * 1000;
 
 export function checkProcessLiveness(pid: number | undefined): ProcessLiveness {
 	if (pid === undefined || !Number.isInteger(pid) || pid <= 0) {
@@ -150,5 +156,14 @@ export function isDisplayActiveRun(run: TeamRunManifest, agents: CrewAgentRecord
 	// runs, or from cross-cwd registry history; showing them causes noisy 0/0 rows and
 	// needless spinner redraws. The full dashboard can still list historical runs.
 	if (agents.length === 0) return false;
-	return agents.some(hasDurableActiveAgentEvidence);
+	if (agents.some(hasDurableActiveAgentEvidence)) return true;
+	// Spawn gap between phases: an active run whose manifest was JUST written
+	// and whose next agents are queued/waiting without evidence yet stays
+	// visible — the runner is alive and about to spawn them. Stale manifests
+	// (zombies) fall through and stay hidden.
+	if (agents.some((agent) => agent.status === "queued" || agent.status === "waiting")) {
+		const updatedAt = new Date(run.updatedAt).getTime();
+		if (Number.isFinite(updatedAt) && now - updatedAt < SPAWN_GAP_VISIBILITY_MS) return true;
+	}
+	return false;
 }
