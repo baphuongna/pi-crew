@@ -1,5 +1,3 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { resolveToolPolicy } from "../../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../../config/config.ts";
@@ -14,6 +12,7 @@ import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
 import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
+import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import {
 	availableModelInfosFromRegistry,
 	buildConfiguredModelRouting,
@@ -28,7 +27,13 @@ import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
 import { awaitRuntimeWarmup } from "../model/runtime-warmup.ts";
 import { liveAgentContext, registerLiveAgentModel, unregisterLiveAgentModel } from "../model/session-model.ts";
-import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "../output/sidechain-output.ts";
+import {
+	appendBatchedJsonlLine,
+	eventToSidechainType,
+	flushPendingSidechainWrites,
+	sidechainOutputPath,
+	writeSidechainEntry,
+} from "../output/sidechain-output.ts";
 // NOTE: buildMemoryBlock is intentionally NOT imported here. The agent memory
 // block is injected via renderTaskPrompt().full (the USER prompt), which is
 // shared by both the child-pi path (no system prompt) and the live-session
@@ -60,7 +65,7 @@ import {
 	trackLiveAgentTurnEnd,
 	updateLiveAgentStatus,
 } from "./live-agent-manager.ts";
-import { subscribeLiveControlRealtime } from "./live-control-realtime.ts";
+import { hasLiveControlRealtimeListeners, subscribeLiveControlRealtime } from "./live-control-realtime.ts";
 import { buildExtensionBridge } from "./live-extension-bridge.ts";
 import { collectLiveSessionHealth, formatLiveSessionDiagnostics } from "./live-session-health.ts";
 
@@ -178,20 +183,13 @@ type LiveSessionLike = {
 
 function appendTranscript(filePath: string | undefined, event: unknown): void {
 	if (!filePath) return;
-	// Fire-and-forget async write to avoid blocking the event loop.
-	// Transcript writes are best-effort telemetry — callers do not need to await.
-	void appendTranscriptAsync(filePath, event);
-}
-
-/** Async version of appendTranscript — fire-and-forget for non-blocking writes. */
-async function appendTranscriptAsync(filePath: string, event: unknown): Promise<void> {
-	try {
-		await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-		const content = `${JSON.stringify(redactSecrets(event))}\n`;
-		await fs.promises.appendFile(filePath, content, "utf-8");
-	} catch (error) {
-		logInternalError("live-session.transcript-write-failed", error as Error, `path=${filePath}`);
-	}
+	// Task 26 (2026-08-24): serialize + redact at queue time, then route
+	// through the shared 50ms batched JSONL writer (one mkdir + appendFileSync
+	// per path per window instead of one async mkdir+appendFile PER streaming
+	// event). child-pi-transcript's batched writer is not generic over plain
+	// paths (ChildPiRunInput + artifactsRoot containment + re-redaction), so
+	// the identical map lives in sidechain-output.ts.
+	appendBatchedJsonlLine(filePath, `${JSON.stringify(redactSecrets(event))}\n`);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -630,6 +628,9 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			message: event,
 			cwd: input.task.cwd,
 		});
+		// Task 26: the mock path returns before the try/finally below, so drain
+		// the batched writers here — tests read these files right after return.
+		flushPendingSidechainWrites();
 		if (isCurrent()) input.onEvent?.(event);
 		const stdout = `Mock live-session success for ${input.agent.name}${inherited}`;
 		if (isCurrent()) input.onOutput?.(stdout);
@@ -678,7 +679,13 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 	let unsubscribe: (() => void) | undefined;
 	let unsubscribeControlRealtime: (() => void) | undefined;
 	let controlTimer: ReturnType<typeof setInterval> | undefined;
-	let stdout = "";
+	// PERF (2026-08-24): unbounded string concat re-copies the whole transcript
+	// on every chunk; bounded tail keeps whatever the consumer actually reads.
+	// Consumer sizing: stdout becomes parsedOutput.finalText + the
+	// results/{taskId}.txt artifact — the same downstream consumers the
+	// child-pi path already caps at maxCaptureBytes (512 KiB) via BoundedTail,
+	// so we match that cap for parity (this is NOT a tail-only preview).
+	const stdoutTail = new BoundedTail();
 	let jsonEvents = 0;
 	const collectedJsonEvents: Record<string, unknown>[] | undefined = yieldEnabled ? [] : undefined;
 	const maxCollectedJsonEvents = 1000;
@@ -898,9 +905,18 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			});
 		});
 		await pollControl();
-		controlTimer = setInterval(() => {
-			if (isCurrent()) void pollControl();
-		}, 500);
+		// PERF (2026-08-24): each poll does existsSync + readFileSync + JSON.parse
+		// of the whole control JSONL. With a realtime subscription active for this
+		// agent, in-process control requests (team-tool / cross-extension RPC
+		// publish) are delivered immediately and the poll only covers cross-process
+		// writers → 1000ms. Without realtime, the file poll is the sole delivery
+		// path → keep the faster 500ms cadence.
+		controlTimer = setInterval(
+			() => {
+				if (isCurrent()) void pollControl();
+			},
+			hasLiveControlRealtimeListeners() ? 1000 : 500,
+		);
 		let turnCount = 0;
 		let softLimitReached = false;
 		const maxTurns = input.runtimeConfig?.maxTurns;
@@ -953,7 +969,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 					input.onEvent?.(event);
 					const text = [...eventText(event), ...finalAssistantText(event)].join("\n");
 					if (text.trim()) {
-						stdout += `${text}\n`;
+						stdoutTail.push(`${text}\n`);
 						streamOut?.write(text + "\n");
 						trackLiveAgentResponseText(agentId, text);
 						input.onOutput?.(text);
@@ -1034,7 +1050,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				return {
 					available: true,
 					exitCode: 1,
-					stdout: stdout.trim(),
+					stdout: stdoutTail.value().trim(),
 					stderr: msg,
 					jsonEvents,
 					error: msg,
@@ -1050,7 +1066,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			data: {
 				elapsedMs: Date.now() - promptStart,
 				jsonEvents,
-				outputLength: stdout.length,
+				outputLength: stdoutTail.value().length,
 			},
 		});
 
@@ -1171,7 +1187,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		return {
 			available: true,
 			exitCode: 0,
-			stdout: stdout.trim(),
+			stdout: stdoutTail.value().trim(),
 			stderr: created.modelFallbackMessage ?? "",
 			jsonEvents,
 			usage,
@@ -1205,7 +1221,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		return {
 			available: true,
 			exitCode: 1,
-			stdout: stdout.trim(),
+			stdout: stdoutTail.value().trim(),
 			stderr: message,
 			jsonEvents,
 			error: message,
@@ -1220,6 +1236,10 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		// H6: Unsubscribe listeners FIRST before clearing timer to prevent race
 		unsubscribe?.();
 		unsubscribeControlRealtime?.();
+		// Task 26 (2026-08-24): drain the batched sidechain/transcript writers
+		// now that no more session events can enqueue, so callers that read the
+		// files right after this task settles see complete content.
+		flushPendingSidechainWrites();
 		// Round 27 (BUG 4): remove the named abort listener to avoid leaking it
 		// on the shared AbortSignal across many live-session tasks.
 		if (onSignalAbort) input.signal?.removeEventListener("abort", onSignalAbort);

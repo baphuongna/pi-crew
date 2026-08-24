@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { eventToSidechainType, sidechainOutputPath, writeSidechainEntry } from "../../src/runtime/output/sidechain-output.ts";
+import {
+	eventToSidechainType,
+	flushPendingSidechainWrites,
+	sidechainOutputPath,
+	writeSidechainEntry,
+} from "../../src/runtime/output/sidechain-output.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
 // ── eventToSidechainType ──
@@ -77,6 +82,9 @@ describe("sidechainOutputPath", () => {
 });
 
 // ── writeSidechainEntry ──
+// Task 26 (2026-08-24): writeSidechainEntry batches per path on a 50ms timer,
+// so these tests call flushPendingSidechainWrites() before reading (the
+// runtime does the same at session teardown).
 
 describe("writeSidechainEntry", () => {
 	it("writes a JSONL entry to the specified file", () => {
@@ -89,6 +97,7 @@ describe("writeSidechainEntry", () => {
 				message: { text: "hello" },
 				cwd: "/tmp/test",
 			});
+			flushPendingSidechainWrites();
 
 			assert.ok(fs.existsSync(filePath));
 			const lines = fs.readFileSync(filePath, "utf-8").trim().split("\n");
@@ -119,6 +128,7 @@ describe("writeSidechainEntry", () => {
 				message: "second",
 				cwd: "/tmp",
 			});
+			flushPendingSidechainWrites();
 
 			const lines = fs.readFileSync(filePath, "utf-8").trim().split("\n");
 			assert.strictEqual(lines.length, 2);
@@ -139,6 +149,7 @@ describe("writeSidechainEntry", () => {
 				message: "test",
 				cwd: "/tmp",
 			});
+			flushPendingSidechainWrites();
 			assert.ok(fs.existsSync(filePath));
 		} finally {
 			removeTrackedTempDir(dir);
@@ -155,6 +166,7 @@ describe("writeSidechainEntry", () => {
 				message: { apiKey: "secret-key-12345" },
 				cwd: "/tmp",
 			});
+			flushPendingSidechainWrites();
 			const entry = JSON.parse(fs.readFileSync(filePath, "utf-8").trim());
 			// The message object should have the apiKey redacted
 			assert.ok(entry.message);

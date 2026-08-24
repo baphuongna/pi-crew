@@ -270,8 +270,8 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 	PI_CREW_INTERRUPT_GUARD_INTERVAL_MS: {
 		name: "PI_CREW_INTERRUPT_GUARD_INTERVAL_MS",
 		parser: "int",
-		default: 250,
-		doc: "interrupt-guard poll interval; default 250ms (background-runner.ts:217)",
+		default: 1000,
+		doc: "interrupt-guard poll interval; default 1000ms (background-runner.ts:217)",
 	},
 	PI_CREW_MAX_RUN_MS: {
 		name: "PI_CREW_MAX_RUN_MS",

@@ -19,6 +19,16 @@ export function subscribeLiveControlRealtime(listener: Listener): () => void {
 	return () => listeners.delete(listener);
 }
 
+/**
+ * Task 26 (2026-08-24): poll-interval gate for live-session control polling.
+ * True while at least one realtime listener is registered — in that mode
+ * in-process control requests are delivered immediately and the file poll is
+ * only a cross-process fallback, so the poller can run slower.
+ */
+export function hasLiveControlRealtimeListeners(): boolean {
+	return listeners.size > 0;
+}
+
 export function liveControlRealtimeMessage(request: LiveAgentControlRequest): LiveControlRealtimeMessage {
 	return { type: "live-control", version: 1, request };
 }

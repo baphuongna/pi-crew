@@ -214,13 +214,19 @@ export function startInterruptGuard(
 ): () => void {
 	const controlPath = path.join(manifest.stateRoot, "foreground-control.json");
 	// FIX: Made configurable via PI_CREW_INTERRUPT_GUARD_INTERVAL_MS env var.
-	// Default 250ms balances fast SIGINT response against filesystem overhead.
-	const interruptGuardInterval = Number(getCrewEnv("PI_CREW_INTERRUPT_GUARD_INTERVAL_MS")) || 250;
+	// PERF (2026-08-24): default 1000ms. Each tick does existsSync + readFileSync
+	// + JSON.parse for the whole background run, and the guard is best-effort
+	// interrupt LATENCY, not a correctness deadline — verified by reading the
+	// trigger body below: a late trigger merely delays the SIGTERM (children are
+	// SIGKILLed after HARD_KILL_MS=3s regardless) and no state machine aborts on
+	// a deadline when the guard fires late. Nothing downstream requires the old
+	// 250ms cadence, so trade up to 4×/s of fs+parse churn for 1×/s.
+	const interruptGuardInterval = Number(getCrewEnv("PI_CREW_INTERRUPT_GUARD_INTERVAL_MS")) || 1000;
 	// RT-4 FIX: Module-local gate so the interrupt body runs only once per
 	// interrupt request. Without this, the guard re-fires every
-	// interruptGuardInterval (250ms) — each tick does a full
-	// terminateActiveChildPiProcesses sweep + sync appendEvent = ~4×/s steady
-	// state. The ack write stops the re-fire; this gate is defense-in-depth if
+	// interruptGuardInterval — each tick does a full
+	// terminateActiveChildPiProcesses sweep + sync appendEvent. The ack write
+	// stops the re-fire; this gate is defense-in-depth if
 	// the ack write fails (e.g. transient fs error).
 	let interruptHandled = false;
 	const interval = setInterval(() => {
@@ -238,8 +244,8 @@ export function startInterruptGuard(
 
 				// RT-4 FIX: Write acknowledged:true back to foreground-control.json
 				// SYNCHRONOUSLY. This stops the guard from re-firing on the next tick
-				// (250ms). Must be sync because this is a setInterval polling callback
-				// — we cannot await in a polling callback.
+				// (interruptGuardInterval). Must be sync because this is a setInterval
+				// polling callback — we cannot await in a polling callback.
 				try {
 					const reqs = parsed.requests ?? [];
 					if (reqs.length > 0) {
