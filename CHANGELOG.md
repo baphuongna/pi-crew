@@ -2,6 +2,76 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — perf: fix 2026-08-24 performance review findings (state persistence syscall ceremony, UI sync I/O storms, mailbox/event-log hot paths, broker fan-out, worktree git-spawn memoization)
+
+28 commits after `v0.10.2` (53 files, +4,718/−433). Implements the plan at
+`docs/superpowers/plans/2026-08-24-perf-review-fixes.md`: all Critical (C1–C3) and
+High (H1–H6) findings from the 2026-08-24 performance review, plus the Medium sweep.
+Validation evidence: `.superpowers/sdd/2026-08-24-perf-review-fixes/task-27-report.md`.
+
+### What changed (by area)
+
+- **State persistence syscall ceremony** — `persistSingleTaskUpdate` does a scoped
+  flush + in-lock CAS baseline (only the file being read is drained, not the whole
+  process); atomic-write coalescer gains a dir-exists memo and lazy stringify;
+  `saveRunTasksCoalesced` keeps the manifest half of the run cache across coalesced
+  saves (only tasks stamps are zeroed); artifacts containment verdict memoized 10s
+  (positives only); event-log lock pid files written ceremony-free (no fsync'd
+  tmp+rename for pid files) and the redundant post-reserve monotonic seq persist is
+  skipped (R16-B1 advance-on-reserve untouched); pre-append stat hoisted and
+  reader-less sequenceCache upkeep dropped; lock acquire pre-check caches the
+  symlink verdict; mailbox reads go through a stat-gated parse cache.
+- **UI sync I/O storms** — widget refresh is coalesced on the `fs.watch` path
+  (scheduleRefresh, one async refresh per tick); transcripts render through a
+  tail-windowed wrap + incremental byte-offset reads (no full-file re-read per
+  frame); the dashboard resolves run snapshots once per frame; the widget cache is
+  truncate-once; `visibleWidth` gets a short-string cache; render-diff does a
+  single `diffWords` pass per changed line pair; `listLiveAgents` memoizes its sort
+  with a plain string compare; worker events channel tail is a 1-byte read;
+  config store path does a single `readCacheMtimes` pass.
+- **Broker fan-out / worktree / live-session** — `msg.send` fan-out is chunked
+  over concurrent recipients; sync git probes in the worktree path are memoized
+  (cleanLeader verdict, rev-parse) with throttled per-repo prune; live-session
+  sidechain/transcript writers are batched per 50ms window with bounded (512 KiB)
+  stdout capture and a gated control poll.
+
+### Bench results (Linux x86_64, Node v22.23.1, `npm run bench`)
+
+Pre-fix = same-machine capture 2026-08-24 before the branch; post = this branch.
+Fsync-dominated wall clocks drift ±10-25% day-to-day on this machine — a
+same-day control run on `main` (see report) shows the b4 drift below is
+environmental, not a regression. fsync intentionally remains in the durable path.
+
+| Metric | Pre-fix (2026-08-24) | Post-fix (branch) | Δ |
+|---|---|---|---|
+| `atomic-write-json` warm p50 | 13.01 ms | 13.21 ms | ~flat (fsync floor; control-on-main 13.09 ms) |
+| `b3.state-store-jsonl` n10 `atomicWriteMs` | 14.83 ms | 15.00 ms | ~flat vs yesterday; **25% faster than same-day main control (20.03 ms)** |
+| `b4.event-log` n100 sync append | 1409 ms (70.96/s) | 1518 ms (65.89/s) | environmental drift (control-on-main 1503 ms, 66.53/s) |
+| `b4.event-log` n100 async append | 156 ms (640.86/s) | 198 ms (506/s) | environmental drift (control-on-main 179 ms, 558.30/s); hoped-for async p50 drop did not materialize on wall clock |
+| `b4.event-log` n100 buffered append | — | 261-263 ms (380/s) | new visibility |
+| `snapshot-cache` cold / warm p50 | 1.12 / 1.13 ms | 0.79 / 0.79 ms | **−30%** |
+| `render-flush` p50 | 0.10 ms | 0.10 ms | flat (already sub-budget) |
+| `register-startup` import p50 | 1861.28 ms | 1739.55 ms | −6.5% (cold-cache import, high variance) |
+| `event-append` serial p50 | 15.52 ms | 14.61 ms | −6% |
+| `b2.broker-roundtrip` n1000 | — | 10,049 msgs/s | new visibility |
+| `b7.startup` bundle load (warm avg) | — | 419.89 ms | new visibility |
+
+The structural wins (syscall counts, stat storms, fan-out chunking, batched
+writers) are mostly invisible to these wall-clock benches by design — they remove
+kernel calls whose latency is dominated by the remaining fsync. See the task-27
+report for run-to-run variance data, the same-day main control runs behind the
+"environmental drift" rows, and the b5/b11 bench-infra notes.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | pass |
+| `npm run lint` | pass (2 branch-introduced import-sort errors fixed in `src/state/event-log/event-log.ts`, `src/runtime/live-session/live-session-runtime.ts`) |
+| `npm run test:unit` | 7115-7117 pass / 0-1 fail / 3 skipped — the 1 fail (run 1 of 2) is a pre-existing environmental flake (`session-summary-cov` vector #11 reads the real user-level `~/.pi/.../state/runs`; reproduced identically on `main`; run 2 fully green) |
+| `npm run test:integration` | 189 pass / 0 fail / 4 skipped (env-gated real-model + placeholders), 238.8 s |
+| `npm run bench` | legacy suite green; perf suite requires per-bench invocation until b11 emits NDJSON (pre-existing, see report) |
+
 ## [0.10.2] — UI rewrite + adaptive default team (2026-08-24)
 
 40 commits after `v0.10.1` (≈3,500 LOC, 54 files). Headline: the UI surface
