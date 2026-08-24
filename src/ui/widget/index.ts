@@ -441,10 +441,6 @@ export function updateCrewWidget(
 	// the only place already holding the manifest/snapshot caches — so the row
 	// projection is registered here instead of re-reading state on every keypress.
 	setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache, snapshotCache, preloadedManifests, workspaceId)));
-	const lines = buildWidgetLines(ctx.cwd, state.frame, maxLines, runs, state.notificationCount ?? 0, getRenderWidth(), {
-		rowStyle,
-		...panelDisplayState(),
-	});
 	const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
 	// `bottom` is not a pi widget slot: the dock then renders inside the
 	// crew-vibes footer (dock-footer registry). pi's slot calls always use a
@@ -453,7 +449,9 @@ export function updateCrewWidget(
 	const dockInFooter = bottomMode && isFooterDockSinkActive();
 	const piPlacement: "aboveEditor" | "belowEditor" = bottomMode ? "belowEditor" : placement;
 
-	ctx.ui.setStatus(STATUS_KEY, lines.length ? statusSummary(runs) : undefined);
+	// PERF (2026-08-24): the persistent CrewWidgetComponent renders itself from
+	// state.frame; the built line set was only ever used for its .length.
+	ctx.ui.setStatus(STATUS_KEY, runs.length > 0 ? statusSummary(runs) : undefined);
 
 	const shouldClearLegacy = state.legacyCleared !== true || state.lastPlacement !== placement;
 	if (shouldClearLegacy) {
@@ -461,7 +459,7 @@ export function updateCrewWidget(
 		state.legacyCleared = true;
 	}
 
-	if (!lines.length) {
+	if (runs.length === 0) {
 		if (state.lastVisibility !== "hidden" || state.lastPlacement !== placement) {
 			setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
 			setExtensionWidget(ctx, TASKS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
