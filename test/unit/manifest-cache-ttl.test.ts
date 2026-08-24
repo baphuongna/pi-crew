@@ -15,7 +15,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import test from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 import { createManifestCache } from "../../src/runtime/manifest-cache.ts";
 import type { ManifestCacheEntry } from "../../src/state/stores/state-store.ts";
 import {
@@ -29,6 +29,25 @@ import {
 } from "../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
+
+/**
+ * Global env isolation: snapshot process.env before each test and restore it after.
+ * Ensures PI_CREW_HOME mutations (or any env var leaks) cannot spread between tests.
+ */
+const envBackup = new Map<string, string | undefined>();
+beforeEach(() => {
+	envBackup.clear();
+	for (const key of Object.keys(process.env)) envBackup.set(key, process.env[key]);
+});
+afterEach(() => {
+	for (const key of Object.keys(process.env)) {
+		if (!envBackup.has(key)) delete process.env[key];
+	}
+	for (const [key, value] of envBackup) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+});
 
 function makeEntry(cachedAt: number): ManifestCacheEntry {
 	return {
@@ -120,6 +139,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 function makeTempProject(): string {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-manifest-cache-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
+	process.env.PI_CREW_HOME = path.join(cwd, ".crew");
 	return cwd;
 }
 
