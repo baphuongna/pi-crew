@@ -6,6 +6,7 @@
 
 - Primary design and Pi-extension implementation inspiration: `pi-subagents` by Nico Bailon, MIT license.
 - Team orchestration, state, and worktree contract inspiration: `oh-my-claudecode` by Yeachan Heo, MIT license.
+- Task-list-above-the-editor rendering (numbered plan rows, dependency hints, one-line-per-task) draws on `pi-tasks` (tintinweb, MIT) and Claude Code's plan header convention; no code copied — the pi-crew implementation lives in `src/ui/widget/task-list.ts` and is original work informed by those surfaces.
 - Conceptual inspiration only: `oh-my-openagent` / `oh-my-opencode`, SUL-1.0. No source code from this project should be copied into `pi-crew` unless explicitly reviewed for license compatibility and documented here.
 - Built-in skill topics are original pi-crew guidance informed by common agent-skill patterns in `Source/awesome-agent-skills`, `Source/oh-my-claudecode`, and related local references; no verbatim skill text was copied.
 

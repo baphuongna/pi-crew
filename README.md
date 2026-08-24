@@ -53,7 +53,9 @@ repo: https://github.com/baphuongna/pi-crew
 - **Durable state** — manifest, tasks, events, artifacts all persisted to disk
 - **Async/background runs** — detached runs survive session switches with completion notifications
 - **Worktree isolation** — opt-in git worktrees per task for safe parallel edits
-- **Rich UI** — live widget, dashboard, progress tracking, model/token display
+- **Rich UI** — task list above the editor (pi-tasks style: numbered plan rows, dependency hints, `… and N more` overflow), dock at the very bottom (static icons, per-row model, footer usage), and an inline agent panel (open a worker's transcript with `↓` from the empty prompt — never a session switch). Live widget, dashboard, and progress tracking unchanged.
+- **Inline agent panel** (`src/ui/inline-panel/`) — status rows at the bottom, transcript in-document with pi's native components, `CustomEditor` overlay for steering (rides the existing `team steer` channel). Adapted from `pi-subtask` v0.7.4 (MIT) — attribution `NOTICE.md` §"Inline agent panel"; no code copied verbatim.
+- **Adaptive default team** (`workflows/default.workflow.md`) — the built-in default is now a single `assess` → adaptive-DAG step instead of a fixed `explore → plan → execute → verify` chain. The planner inspects the repo and emits a JSON plan; independent tasks run in parallel; the verifier closes the loop. Workflow files are runtime data — the change is live without a rebuild. Pin to `workflow='plan-execute'` if you need the old fixed DAG.
 - **Observability** — metrics registry, Prometheus/OTLP exporters, heartbeat watching, deadletter queue
 - **Resource management** — create/update/delete agents, teams, workflows with validation
 - **Import/export** — portable run bundles for sharing and archiving
@@ -288,6 +290,46 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 - `test/functional/pi-crew-live.test.ts` + `test/functional/pi-crew-live-broad.test.ts` — 16 live integration tests run against the **real pi binary + real LLM provider** (verified after v0.9.42 audit, ~26 commits). Use these when you want to confirm end-to-end behavior, not just unit-level invariants.
 
 ## Recent changes
+
+### Unreleased: UI rewrite + adaptive default team (post-v0.10.1)
+
+40 commits after `v0.10.1` (≈3,500 LOC, 54 files). Headline: the UI surface
+goes from "two modal overlays + status widget" to a proper in-document
+panel — task list above the editor, dock at the very bottom, and an inline
+agent transcript that opens with `↓` from the empty prompt. The default
+team also moves from a fixed 4-step chain to a single adaptive `assess` →
+parallel-execute → verify DAG.
+
+- **Task list above the editor** — pi-tasks style numbered plan rows
+  (`#1`, `#2`, …) instead of `01_explore` ids; completed rows dim and
+  strike through; running row shows spinner + elapsed time + token
+  counts; queued rows name dependencies (`› blocked by #2`). Header
+  is Claude-Code style (`● 4 tasks (1 done, 1 in progress, 2 open)`).
+  Role/agent/model identity moved to the dock — the list is the *plan*,
+  not a worker report. 10-row cap with `… and N more` overflow.
+- **Inline agent panel** (`src/ui/inline-panel/`, ~1,761 LOC, 10 files) —
+  `↓` from the empty prompt opens the dock; Enter drops into the worker's
+  full transcript rendered in-document with pi's native components;
+  steering rides the existing `team steer` channel (no stdin pipe).
+  Worker view is a *byte-copy* of the worker's own session log, polled
+  for live refresh, and Enter on the dock row always opens a real Pi
+  session (the worker-143 kill on switches and the `AbortError`
+  post-exit crash are both fixed). Full-screen overlay preserved for
+  end-of-run review.
+- **Dock survives until the run is done** — rows no longer disappear at
+  "completed"; 3-row scroll window keeps the in-progress task visible;
+  per-row model display.
+- **Adaptive default team** (`workflows/default.workflow.md`, runtime
+  data — no rebuild needed) — old fixed `explore → plan → execute →
+  verify` replaced by a single `assess` step (planner role) that emits
+  an `ADAPTIVE_PLAN_JSON` block. Independent tasks go into the SAME
+  phase so they run in parallel; verifier still closes the loop.
+  **Pin to `workflow='plan-execute'` if you need the old fixed DAG.**
+- **Model-routing passthrough muted** + Biome 2.5.3 lint/format sync.
+- Real-test re-run on the released v0.10.1 bundle: test:critical 102/102,
+  typecheck clean, 9a 10/10, 9b 5/5, chain 306.8s observation.
+  See `CHANGELOG.md` §Unreleased for full notes and `NOTICE.md` for
+  pi-subtask / pi-tasks attributions.
 
 ### v0.9.65: team-tool schema empty-string guard + effectiveness empty-result guard (2026-08-10)
 

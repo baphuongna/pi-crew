@@ -2,6 +2,104 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — UI rewrite + adaptive default team (post-v0.10.1)
+
+40 commits after `v0.10.1` (≈3,500 LOC, 54 files). Headline: the UI surface
+goes from "two modal overlays + status widget" to a proper in-document
+panel — task list above the editor, dock at the very bottom, and an inline
+agent transcript that opens with `↓` from the empty prompt. The default
+team also moves from a fixed 4-step chain to a single adaptive `assess` →
+parallel-execute → verify DAG.
+
+### UI: task list above the editor (`src/ui/widget/task-list.ts`)
+
+- **Pi-tasks style plan rows** (commits `3d930579`, `7434afd7`, `f37619c0`,
+  `54e638ef`). One numbered row per task painted in plan order: `#1`, `#2`,
+  … — no more `01_explore` style technical ids leaking into the user view.
+  Completed rows dim and strike through; the running row carries a spinner
+  frame with elapsed time and live token counts; queued rows name the open
+  dependencies they wait on (`› blocked by #2`).
+- **Header is Claude-Code style**: `● 4 tasks (1 done, 1 in progress, 2 open)` —
+  plain counts, no agent/role identity (those belong to the dock).
+- **Role/agent/model visibility removed from the row** — they live in the dock
+  below the editor. The list above the editor is the *plan*, not a worker
+  report.
+- **10-row cap with `… and N more`** — unfinished work never falls out of the
+  cap; finished rows collapse behind the overflow marker.
+- **Templated titles / descriptions** (commit `f51f7095`) — the task packet
+  emits `title` + `description` fields, `{goal}` substitution lands in the
+  persisted task record (not the run goal), so the list reflects what was
+  actually scoped per phase.
+
+### UI: inline agent panel (`src/ui/inline-panel/`)
+
+A new module (1,761 LOC across 10 files) that replaces the modal-only agent
+surface with an in-document path. Design rationale: `docs/design/2026-08-20-inline-agent-panel.md`.
+Attribution: `NOTICE.md` §"Inline agent panel" — adapted from `pi-subtask`
+v0.7.4 (Victor Mustar, MIT); no code copied verbatim; steering rides
+pi-crew's existing `team steer` channel rather than pi-subtask's stdin pipe.
+
+- **`↓` from the empty prompt opens the dock** (commits `cfcad621`, `cf4895e8`,
+  `bff74c4f`). Static-icon flat rows, footer usage meter, `belowEditor`
+  placement. Enter on a row drops you into the worker's transcript.
+- **Worker view is an in-document pane, never a session switch** (commits
+  `11c6649a`, `21ff211d`, `87497bd5`, `de3d44a0`, `50f41f30`, `5526c279`,
+  `402bb2a5`, `3dd68cc8`, `2b3e899d`, `9ee89866`, `ec8efd0a`, `e1708b20`,
+  `27c5c402`, `56279b00`, `c16cb332`). A sequence of fixes that landed
+  together: a) the `/crew-view` dispatch was routed through pi's immediate
+  command path (not a custom overlay), b) the agent view is a *byte-copy*
+  of the worker's own session log via a derived sessions ROOT, c) live
+  refresh polls the worker transcript and re-renders, d) `Enter` always
+  opens a real Pi session (no broken overlay), e) the worker-143 kill on
+  switches is root-caused (stale `ctx` was being passed around) and the
+  `AbortError` post-exit crash is fixed (`9db66cda`).
+- **Dock survives until the run is done** (commit `67fa202a`) — rows no
+  longer disappear at "completed", the 3-row scroll window keeps the
+  in-progress task visible, and each row remembers its model.
+- **Full-screen overlay still works for end-of-run review** (commit `c16cb332`)
+  — transcripts are complete; `Escape` returns to the dock.
+
+### Workflow: default is now adaptive (BREAKING for templates)
+
+`workflows/default.workflow.md` was rewritten (commit `fff4b98d`) — old
+sequential `explore → plan → execute → verify` was too rigid for the
+common case of "small goal, fast turnaround". The new default is a
+single-`assess` adaptive plan:
+
+- Topology: `complex-dag` (was `sequential`).
+- Frontmatter: `adaptive: true`.
+- The `assess` step (planner role) inspects the repo and emits an
+  `ADAPTIVE_PLAN_JSON` block with the concrete phases + tasks. Independent
+  tasks go into the SAME phase so they run in parallel; the verifier still
+  closes the loop at the end of any implementation plan.
+- Hard cap: 12 tasks per phase. A simple goal may produce 1-2 phases with
+  1-2 tasks; broader goals fan out.
+- Workflow file is **runtime data** (no rebuild needed) — the change is live
+  the next time a worker loads it.
+- Migration: anyone pinning the old `explore/plan/execute/verify` chain
+  should switch to `workflow='plan-execute'` (still ships the fixed DAG).
+
+### Misc
+
+- **Model-routing transparency**: `console.warn` per-model passthrough
+  muted (`273c4f83`) + test pins the muted behaviour (`b019e645`).
+- **Biome 2.5.3 lint + format sync** (commit `69a0460e`, no logic changes).
+- 5 `docs/real-test/reports/real-test-2026-08-2{0..4}-*.md` reports landed
+  alongside the B5 real-test battery (the subagent-v2 release was
+  end-to-end verified before this UI batch).
+- Real-test re-run on the released bundle (`b0cf3a3a` onward): test:critical
+  102/102, typecheck clean, 9a 10/10, 9b 5/5, chain 306.8s observation;
+  opportunistic finding #5 (SPEC-EVIDENCE marker format mismatch `===` vs
+  `:`) filed separately.
+
+### See also
+- `NOTICE.md` §"Inline agent panel" — pi-subtask attribution.
+- `NOTICE.md` §"Source inspiration" — pi-tasks attribution for task list rendering.
+- `docs/design/2026-08-20-inline-agent-panel.md` — inline panel design rationale.
+- `workflows/default.workflow.md` — adaptive default workflow (runtime data).
+- `docs/real-test/reports/real-test-2026-08-11-full-battery.md` — full 9-tier
+  battery on the post-v0.10.1 HEAD (`54e638ef`).
+
 ## [0.10.1] — subagent v2: governed delegation, plan objects, spec system, transparency (2026-08-20)
 
 The full subagent-v2 effort (design `docs/design/subagent-v2-design.md`, plan
