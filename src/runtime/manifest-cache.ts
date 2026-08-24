@@ -29,6 +29,16 @@ interface CachedManifest {
 	mtimeMs: number;
 	size: number;
 	loadedAtMs: number;
+	/**
+	 * PERF (task-23a): timestamp of the last real statSync of this manifest.
+	 * parseManifestIfChanged() skips the stat entirely while the entry is
+	 * younger than the stat TTL (default 250ms), so back-to-back list() /
+	 * listActive() scans do not re-stat every manifest on every 500ms list
+	 * TTL expiry. Bounded staleness: a manifest change is picked up at most
+	 * statTtlMs late on the scan path (watcher-driven refreshes bypass this
+	 * with forceStat).
+	 */
+	statCheckedAtMs: number;
 }
 
 interface CachedList {
@@ -41,9 +51,16 @@ export interface ManifestCacheOptions {
 	debounceMs?: number;
 	watch?: boolean;
 	maxEntries?: number;
+	/**
+	 * PERF (task-23a): how long a cached manifest skips re-statting on scan
+	 * (default 250ms). Exposed mainly so tests can pin the window
+	 * deterministically.
+	 */
+	statTtlMs?: number;
 }
 
 const DEFAULT_TTL_MS = 500;
+const DEFAULT_STAT_TTL_MS = 250;
 
 interface ParsedEntry {
 	runId: string;
@@ -101,12 +118,29 @@ function validateManifestForRoot(root: string, runId: string, manifest: TeamRunM
 	}
 }
 
-function parseManifestIfChanged(root: string, runId: string, filePath: string, previous?: CachedManifest): CachedManifest | undefined {
+function parseManifestIfChanged(
+	root: string,
+	runId: string,
+	filePath: string,
+	previous?: CachedManifest,
+	forceStat = false,
+	statTtlMs = DEFAULT_STAT_TTL_MS,
+): CachedManifest | undefined {
+	if (!forceStat && previous && Date.now() - previous.statCheckedAtMs < statTtlMs) {
+		// PERF (task-23a): stat'ed very recently and not forcibly invalidated —
+		// the stat (and any parse behind it) cannot have changed the verdict.
+		// This bounds per-scan stat cost to ~1/statTtlMs per manifest instead
+		// of one per list() TTL expiry.
+		return previous;
+	}
 	let stat: fs.Stats;
 	try {
 		stat = fs.statSync(filePath);
 	} catch {
 		return undefined;
+	}
+	if (previous) {
+		previous.statCheckedAtMs = Date.now();
 	}
 	if (previous && previous.mtimeMs === stat.mtimeMs && previous.size === stat.size) {
 		// P1-9: the manifest file is unchanged, so its recorded paths and their
@@ -123,6 +157,7 @@ function parseManifestIfChanged(root: string, runId: string, filePath: string, p
 		mtimeMs: stat.mtimeMs,
 		size: stat.size,
 		loadedAtMs: Date.now(),
+		statCheckedAtMs: Date.now(),
 	};
 }
 
@@ -135,25 +170,54 @@ function listRunRoots(cwd: string): string[] {
 	return [...roots];
 }
 
+// PERF (2026-08-24, task-23b): list()/listActive() re-readdir'd every run
+// root on each 500ms TTL expiry. A runs root's own mtimeMs only changes when
+// direct entries (run dirs) are added/removed/renamed — exactly and only when
+// the listing must refresh — so the fully-mapped ParsedEntry[] is cached
+// against it. Manifest rewrites happen one level down (inside a run dir) and
+// never touch the root's mtime; they are picked up by the per-run stat in
+// parseManifestIfChanged. Caching the MAPPED entries (not just the raw names)
+// also skips the manifestPathForRun resolution (realpath + O_NOFOLLOW
+// ancestor walk, ~10 syscalls per run) for unchanged listings: an unchanged
+// root now costs a single statSync instead of existsSync + readdir + N walks.
+const DIR_LIST_CACHE_MAX_ROOTS = 64;
+const dirListCache = new Map<string, { mtimeMs: number; entries: ParsedEntry[] }>();
+
 function collectRoots(root: string): ParsedEntry[] {
-	if (!fs.existsSync(root)) return [];
+	let mtimeMs: number;
+	try {
+		mtimeMs = fs.statSync(root).mtimeMs;
+	} catch {
+		return [];
+	}
+	const cached = dirListCache.get(root);
+	if (cached && cached.mtimeMs === mtimeMs) {
+		return cached.entries;
+	}
 	let entries: string[];
 	try {
 		entries = fs.readdirSync(root);
 	} catch {
 		return [];
 	}
-	return entries
+	const mapped = entries
 		.filter((entry) => entry.length > 0 && isSafePathId(entry))
 		.map((entry) => ({
 			runId: entry,
 			path: manifestPathForRun(root, entry),
 		}))
 		.filter((entry): entry is ParsedEntry => entry.path !== undefined);
+	// Bounded growth: the map is module-scoped and shared across cache
+	// instances (tests, multi-project sessions); roots are few, but stale
+	// tempdir roots from finished tests would otherwise linger forever.
+	if (dirListCache.size >= DIR_LIST_CACHE_MAX_ROOTS) dirListCache.clear();
+	dirListCache.set(root, { mtimeMs, entries: mapped });
+	return mapped;
 }
 
 export function createManifestCache(cwd: string, options: ManifestCacheOptions = {}): ManifestCache {
 	const ttlMs = options.debounceMs ?? DEFAULT_TTL_MS;
+	const statTtlMs = options.statTtlMs ?? DEFAULT_STAT_TTL_MS;
 	const maxEntries = options.maxEntries ?? DEFAULT_CACHE.manifestMaxEntries;
 	const roots = listRunRoots(cwd);
 	const manifestIndex = new Map<string, CachedManifest>();
@@ -198,7 +262,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		const activeEntry = activeRunEntries().find((entry) => entry.runId === runId);
 		if (activeEntry) {
 			const activeRoot = path.dirname(activeEntry.stateRoot);
-			const parsed = parseManifestIfChanged(activeRoot, runId, activeEntry.manifestPath, cached);
+			const parsed = parseManifestIfChanged(activeRoot, runId, activeEntry.manifestPath, cached, false, statTtlMs);
 			if (parsed) {
 				manifestIndex.set(runId, parsed);
 				return parsed;
@@ -207,7 +271,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		for (const root of rootsToCheck) {
 			const manifestPath = manifestPathForRun(root, runId);
 			if (!manifestPath) continue;
-			const parsed = parseManifestIfChanged(root, runId, manifestPath, cached);
+			const parsed = parseManifestIfChanged(root, runId, manifestPath, cached, false, statTtlMs);
 			if (parsed) {
 				if (!cached || parsed.mtimeMs !== cached.mtimeMs || parsed.size !== cached.size) {
 					manifestIndex.set(runId, parsed);
@@ -223,13 +287,21 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 	}
 
 	/**
-	 * NOTE (RT-F10): This function performs a full FS scan + JSON.parse of all
-	 * manifests on every TTL expiry (default 500ms). This is a known performance
-	 * tradeoff: fs.watch provides real-time invalidation (see constructor above)
-	 * so the TTL cache is only consulted when the watcher fires, but the list()
-	 * call itself still re-reads all entries to pick up changes. Incremental
-	 * updates via fs.watch-driven delta tracking are planned for a future
-	 * iteration to avoid the full scan on each expiry.
+	 * NOTE (RT-F10, updated 2026-08-24): the original "full FS scan +
+	 * JSON.parse on every TTL expiry" cost is now layered:
+	 *   1. collectRoots() reuses a cached dir listing keyed by the runs root's
+	 *      own mtimeMs — one statSync per root replaces existsSync + readdir +
+	 *      the per-run manifestPathForRun resolution when no run dir was
+	 *      added/removed/renamed.
+	 *   2. parseManifestIfChanged() skips the per-manifest stat for statTtlMs
+	 *      (default 250ms) after the last check, so scans re-stat each run at
+	 *      most ~4x/sec regardless of how often the list TTL lapses.
+	 *   3. JSON.parse only happens when mtime+size actually changed.
+	 * What remains per 500ms expiry: one stat per runs root, one stat per run
+	 * whose stat TTL lapsed, and the in-memory merge + sort. fs.watch events
+	 * that carry a filename refresh just that run (forceStat) and expire the
+	 * list caches immediately instead of triggering a wholesale refresh (see
+	 * handleWatchEvent below).
 	 */
 	function list(limit = DEFAULT_CACHE.manifestMaxEntries): TeamRunManifest[] {
 		const now = Date.now();
@@ -249,7 +321,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 			if (entry.runId.length === 0) continue;
 			let cached = manifestIndex.get(entry.runId);
 			const root = path.dirname(path.dirname(entry.path));
-			const parsed = parseManifestIfChanged(root, entry.runId, entry.path, cached);
+			const parsed = parseManifestIfChanged(root, entry.runId, entry.path, cached, false, statTtlMs);
 			if (parsed) {
 				cached = parsed;
 				manifestIndex.set(entry.runId, cached);
@@ -258,7 +330,9 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		}
 
 		const runs = [...unique.values()].filter((value): value is CachedManifest => value !== undefined).map((value) => value.manifest);
-		const sorted = runs.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+		// PERF (task-23d): ISO-8601 createdAt strings are fixed-width and sort
+		// correctly with plain comparison — no locale machinery per compare.
+		const sorted = runs.sort((a, b) => ((b.createdAt ?? "") < (a.createdAt ?? "") ? -1 : (b.createdAt ?? "") > (a.createdAt ?? "") ? 1 : 0));
 		const limited = sorted.slice(0, Math.max(0, limit));
 		if (manifestIndex.size > maxEntries) {
 			const removeCount = manifestIndex.size - maxEntries;
@@ -324,7 +398,7 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 			if (entry.runId.length === 0) continue;
 			let cached = manifestIndex.get(entry.runId);
 			const root = path.dirname(path.dirname(entry.path));
-			const parsed = parseManifestIfChanged(root, entry.runId, entry.path, cached);
+			const parsed = parseManifestIfChanged(root, entry.runId, entry.path, cached, false, statTtlMs);
 			if (parsed) {
 				cached = parsed;
 				manifestIndex.set(entry.runId, cached);
@@ -339,12 +413,40 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		return running.slice(0, cap);
 	}
 
+	// PERF (task-23c): the runs-root watcher reports the direct child that
+	// changed in `filename` (a run dir added/removed/renamed — the watcher is
+	// non-recursive, so manifest rewrites one level down never reach it).
+	// Refresh ONLY that run — forceStat bypasses the statTtlMs skip so a
+	// just-checked run still re-stats — and expire the list caches so the
+	// next list()/listActive() re-collects roots and re-sorts. Events without
+	// a usable filename (null, Buffer, non-run-id names like ".DS_Store")
+	// fall back to the wholesale debounced refresh.
+	function handleWatchEvent(root: string, filename: string | Buffer | null): void {
+		if (typeof filename !== "string" || !isSafePathId(filename)) {
+			scheduleListRefresh();
+			return;
+		}
+		const manifestPath = manifestPathForRun(root, filename);
+		if (manifestPath) {
+			const parsed = parseManifestIfChanged(root, filename, manifestPath, manifestIndex.get(filename), /* forceStat */ true, statTtlMs);
+			if (parsed) {
+				manifestIndex.set(filename, parsed);
+			} else {
+				// Run dir (or its manifest) is gone — drop the cached entry so
+				// the next scan does not serve a stale manifest.
+				manifestIndex.delete(filename);
+			}
+		}
+		listCache.clear();
+		invalidateListActive();
+	}
+
 	if (options.watch ?? true) {
 		for (const root of roots) {
 			const watcher = watchWithErrorHandler(
 				root,
-				() => {
-					scheduleListRefresh();
+				(_eventType, filename) => {
+					handleWatchEvent(root, filename);
 				},
 				() => {
 					scheduleListRefresh();
