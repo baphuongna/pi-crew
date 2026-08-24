@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import { agentOutputPath, readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { pad, truncate, truncateToVisualLines } from "../utils/visual.ts";
+import { pad, truncate, truncateToVisualLines, truncateToVisualLinesTail } from "../utils/visual.ts";
 import type { InteractiveComponent } from "./component.ts";
 import { renderDiff } from "./render-diff.ts";
 import { colorForStatus, iconForStatus, type RunStatus } from "./status-colors.ts";
@@ -234,17 +234,60 @@ interface ViewerState {
 	autoScroll: boolean;
 	lastHeight: number;
 	scroll: number;
+	// PERF (2026-08-24): full-wrap cache for the scroll-up path. ViewerState is
+	// built per render, so these are per-render scratch: the tail branch is the
+	// hot path (bottom-pinned ~500ms re-render) and never needs the full wrap;
+	// renders that fall to the else branch pay one full wrap each — the same
+	// price the pre-optimization code paid on EVERY render.
+	fullVisual: string[] | null;
+	sourceLen: number;
 }
 
 function renderViewerBase(state: ViewerState, width: number, lines: string[], title: string, subtitle: string): string[] {
 	const inner = Math.max(20, width - 4);
+	// PERF (2026-08-24): transcripts grow to thousands of lines; wrapping every
+	// grapheme of the whole tail to display 16 rows was the largest CPU sink in
+	// the UI. Bottom-pinned (autoScroll) renders use the tail window — O(visible
+	// rows); scrolling up pays one full wrap per render (what the old code paid
+	// on EVERY render) and can page through the whole transcript.
 	const bodyText = lines.join("\n");
-	const { visualLines, skippedCount } = truncateToVisualLines(bodyText, state.lastHeight, inner);
-	const maxScroll = Math.max(0, visualLines.length - state.lastHeight);
+	let visualLines: string[];
+	let skippedCount: number;
+	let maxScroll: number;
+	let tailWindow = false;
+	if (state.autoScroll && (state.fullVisual === null || state.sourceLen !== lines.length)) {
+		const tail = truncateToVisualLinesTail(bodyText, state.lastHeight, inner);
+		visualLines = tail.visualLines;
+		skippedCount = tail.skippedCount;
+		maxScroll = skippedCount; // bottom-pinned: everything above the window
+		state.fullVisual = null;
+		state.sourceLen = lines.length;
+		tailWindow = true;
+	} else {
+		if (state.fullVisual === null || state.sourceLen !== lines.length) {
+			// MAX_SAFE_INTEGER is never a real allocation: truncateToVisualLines
+			// returns early while visualLines.length <= limit (always true), so
+			// slice(-limit) never runs — this is just "wrap everything".
+			const full = truncateToVisualLines(bodyText, Number.MAX_SAFE_INTEGER, inner);
+			state.fullVisual = full.visualLines;
+			state.sourceLen = lines.length;
+		}
+		visualLines = state.fullVisual!;
+		skippedCount = 0;
+		maxScroll = Math.max(0, visualLines.length - state.lastHeight);
+	}
 	if (state.autoScroll) state.scroll = maxScroll;
 	state.scroll = Math.min(state.scroll, maxScroll);
-	const visible = visualLines.slice(state.scroll, state.scroll + state.lastHeight);
-	const statusLine = `${visualLines.length} lines · ${visualLines.length ? Math.round(((state.scroll + visible.length) / visualLines.length) * 100) : 100}% · auto-scroll ${state.autoScroll ? "on" : "off"}`;
+	// The tail window IS the bottom-pinned view: state.scroll holds the offset
+	// into the FULL wrap (skippedCount lines above), so slicing the ≤ lastHeight
+	// window at it would render an empty body. Display the window directly.
+	const visible = tailWindow ? visualLines : visualLines.slice(state.scroll, state.scroll + state.lastHeight);
+	// Tail-branch total is a lower bound: skippedCount counts SOURCE lines and
+	// each may wrap to several visual lines. "≥" flags that (short transcripts
+	// and the full-wrap branch keep the exact count).
+	const totalLines = tailWindow ? skippedCount + visible.length : visualLines.length;
+	const totalLabel = tailWindow && skippedCount > 0 ? `≥ ${totalLines}` : `${totalLines}`;
+	const statusLine = `${totalLabel} lines · ${totalLines ? Math.round(((state.scroll + visible.length) / totalLines) * 100) : 100}% · auto-scroll ${state.autoScroll ? "on" : "off"}`;
 	const fg = (color: Parameters<TranscriptTheme["fg"]>[0], text: string) => state.theme.fg(color, text);
 	const row = (text: string) => `${fg("border", "│")} ${pad(truncate(text, inner), inner)} ${fg("border", "│")}`;
 	const linesOut: string[] = [
@@ -267,6 +310,11 @@ export class DurableTextViewer implements Component {
 	private scroll = 0;
 	private lastHeight = 16;
 	private autoScroll = true;
+	// PERF (2026-08-24): whether the PREVIOUS render was bottom-pinned. The
+	// tail branch tracks `scroll` in source-line units, which is not a valid
+	// index into the full wrap — the first manual render after a pinned one
+	// clamps to the exact visual bottom instead of slicing at that stale value.
+	private prevAutoScroll = true;
 	private title: string;
 	private subtitle: string;
 	private lines: string[];
@@ -312,6 +360,7 @@ export class DurableTextViewer implements Component {
 		} else if (data === "g" || data === "\u001b[H") {
 			this.scroll = 0;
 			this.autoScroll = false;
+			this.prevAutoScroll = false; // explicit top — do not pin to bottom
 		} else if (data === "G" || data === "\u001b[F") {
 			this.scroll = maxScroll;
 			this.autoScroll = true;
@@ -321,18 +370,23 @@ export class DurableTextViewer implements Component {
 	}
 
 	render(width: number): string[] {
-		return renderViewerBase(
-			{
-				theme: this.theme,
-				autoScroll: this.autoScroll,
-				lastHeight: this.lastHeight,
-				scroll: this.scroll,
-			},
-			width,
-			this.lines,
-			this.title,
-			this.subtitle,
-		);
+		// Leaving the pinned state (k/PgUp/a): the stale source-unit scroll
+		// would slice the full wrap in the wrong place — clamp to its bottom.
+		if (!this.autoScroll && this.prevAutoScroll) this.scroll = Number.MAX_SAFE_INTEGER;
+		const state: ViewerState = {
+			theme: this.theme,
+			autoScroll: this.autoScroll,
+			lastHeight: this.lastHeight,
+			scroll: this.scroll,
+			fullVisual: null,
+			sourceLen: 0,
+		};
+		const rendered = renderViewerBase(state, width, this.lines, this.title, this.subtitle);
+		// Write the clamped/updated scroll back so handleInput's scroll math
+		// starts from the position the user actually saw.
+		this.scroll = state.scroll;
+		this.prevAutoScroll = this.autoScroll;
+		return rendered;
 	}
 }
 
@@ -340,6 +394,8 @@ export class DurableTranscriptViewer implements Component {
 	private scroll = 0;
 	private lastHeight = 16;
 	private autoScroll = true;
+	// See DurableTextViewer.prevAutoScroll — same pinned→manual transition guard.
+	private prevAutoScroll = true;
 	private manifest: TeamRunManifest;
 	private theme: TranscriptTheme;
 	private done: (result: undefined) => void;
@@ -406,6 +462,7 @@ export class DurableTranscriptViewer implements Component {
 		} else if (data === "g" || data === "\u001b[H") {
 			this.scroll = 0;
 			this.autoScroll = false;
+			this.prevAutoScroll = false; // explicit top — do not pin to bottom
 		} else if (data === "G" || data === "\u001b[F") {
 			this.scroll = maxScroll;
 			this.autoScroll = true;
@@ -415,6 +472,7 @@ export class DurableTranscriptViewer implements Component {
 			this.fullTranscript = !this.fullTranscript;
 			this.scroll = 0;
 			this.autoScroll = !this.fullTranscript;
+			this.prevAutoScroll = this.autoScroll; // explicit reset — no bottom pin
 			// The full/tail toggle changes the read options, so refresh the cache
 			// with a single explicit read rather than per keystroke.
 			this.cached = this.readTranscript(this.manifest, this.taskId, {
@@ -432,17 +490,21 @@ export class DurableTranscriptViewer implements Component {
 		// Keep the per-keypress cache in sync with the latest rendered content
 		// (the read is TTL-cached at ~500ms, so this stays cheap on each tick).
 		this.cached = data;
-		return renderViewerBase(
-			{
-				theme: this.theme,
-				autoScroll: this.autoScroll,
-				lastHeight: this.lastHeight,
-				scroll: this.scroll,
-			},
-			width,
-			data.lines,
-			"pi-crew transcript",
-			`${data.title} · ${data.truncated ? `tail ${Math.round(data.bytesRead / 1024)}KB/${Math.round(data.size / 1024)}KB` : `full ${Math.round(data.size / 1024)}KB`} · f ${this.fullTranscript ? "tail" : "full"}`,
-		);
+		// Leaving the pinned state (k/PgUp/a): the stale source-unit scroll
+		// would slice the full wrap in the wrong place — clamp to its bottom.
+		if (!this.autoScroll && this.prevAutoScroll) this.scroll = Number.MAX_SAFE_INTEGER;
+		const state: ViewerState = {
+			theme: this.theme,
+			autoScroll: this.autoScroll,
+			lastHeight: this.lastHeight,
+			scroll: this.scroll,
+			fullVisual: null,
+			sourceLen: 0,
+		};
+		const rendered = renderViewerBase(state, width, data.lines, "pi-crew transcript", `${data.title} · ${data.truncated ? `tail ${Math.round(data.bytesRead / 1024)}KB/${Math.round(data.size / 1024)}KB` : `full ${Math.round(data.size / 1024)}KB`} · f ${this.fullTranscript ? "tail" : "full"}`);
+		// Write the clamped/updated scroll back (see DurableTextViewer.render).
+		this.scroll = state.scroll;
+		this.prevAutoScroll = this.autoScroll;
+		return rendered;
 	}
 }

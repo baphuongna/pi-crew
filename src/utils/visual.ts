@@ -223,3 +223,28 @@ export function truncateToVisualLines(text: string, maxVisualLines: number, widt
 	const truncated = visualLines.slice(-limit);
 	return { visualLines: truncated, skippedCount: visualLines.length - limit };
 }
+
+/**
+ * PERF (2026-08-24): tail-windowed twin of truncateToVisualLines. Wraps lines
+ * from the END backwards and stops as soon as `maxVisualLines` visual lines
+ * exist — O(visible window) instead of O(whole transcript). `skippedCount`
+ * counts skipped SOURCE lines (a lower bound on skipped visual lines; the
+ * caller's total display therefore reads "≥ N lines" when scrolled to bottom).
+ */
+export function truncateToVisualLinesTail(text: string, maxVisualLines: number, width: number, paddingX = 0): VisualTruncateResult {
+	if (!text) return { visualLines: [], skippedCount: 0 };
+	const effectiveWidth = Math.max(1, width - paddingX * 2);
+	const limit = Math.max(1, maxVisualLines);
+	const sourceLines = text.split("\n");
+	const wrapped: string[][] = [];
+	let collected = 0;
+	let index = sourceLines.length - 1;
+	while (index >= 0 && collected < limit) {
+		const w = wrapHard(pad(sourceLines[index]!, Math.max(0, effectiveWidth)).trimEnd(), effectiveWidth);
+		wrapped.push(w);
+		collected += w.length;
+		index -= 1;
+	}
+	const visualLines = wrapped.reverse().flat().slice(-limit);
+	return { visualLines, skippedCount: index + 1 };
+}
