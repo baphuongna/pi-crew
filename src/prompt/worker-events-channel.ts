@@ -26,7 +26,7 @@
  * informational only — the scheduler never derives liveness from them.
  */
 
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, fstatSync, openSync, readSync } from "node:fs";
 
 export const WORKER_EVENT_TYPE_PATTERN = /^worker\.[a-z0-9_.-]{1,63}$/;
 
@@ -67,8 +67,21 @@ export function createWorkerEventsChannel(options: WorkerEventsChannelOptions = 
 			// which the orchestrator reader skips).
 			let prefix = "";
 			try {
-				const buf = readFileSync(eventsPath);
-				if (buf.length > 0 && buf[buf.length - 1] !== 0x0a) prefix = "\n";
+				// PERF (2026-08-24): 1-byte tail read (the comment above always
+				// described this; the implementation used to readFileSync the
+				// WHOLE file — O(file) reads up to 300x/min per worker for a
+				// single byte of information).
+				const fd = openSync(eventsPath, "r");
+				try {
+					const size = fstatSync(fd).size;
+					if (size > 0) {
+						const tail = Buffer.alloc(1);
+						readSync(fd, tail, 0, 1, size - 1);
+						if (tail[0] !== 0x0a) prefix = "\n";
+					}
+				} finally {
+					closeSync(fd);
+				}
 			} catch {
 				/* absent file — nothing to separate */
 			}
