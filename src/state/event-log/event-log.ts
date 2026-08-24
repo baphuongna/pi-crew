@@ -11,13 +11,10 @@ import { atomicWriteFile } from "../atomic-write.ts";
 import { applyCompactionUnlocked, needsRotation, prepareCompaction, rotateEventLogUnlocked } from "./event-log-rotation.ts";
 import {
 	advanceSequenceCounter,
-	evictOldestSequenceCacheEntries,
-	MAX_SEQUENCE_CACHE_ENTRIES,
 	persistSequenceMonotonic,
 	reserveSequence,
 	reservedSequenceEnd,
 	reserveSequenceUnderLockAsync,
-	sequenceCache,
 } from "./sequence-cache.ts";
 import { appendFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
 
@@ -577,9 +574,6 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
 		}
 
-		// FIND-10: post-append stat captured from the same fd (non-worker path)
-		// for reuse in the cache update below, avoiding a redundant path stat.
-		let postAppendStat: fs.Stats | undefined;
 		if (!skippedDueToSize) {
 			const line = JSON.stringify(redactSecrets(fullEvent)) + "\n";
 			// Phase 1.5: when worker atomic writer is enabled, append via worker.
@@ -606,16 +600,6 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 					await fd.appendFile(line, "utf-8");
 					// P0-4 (F3a mirror): skip the data fsync for non-terminal events.
 					if (isTerminal) await fd.sync();
-					// FIND-10 R1 fix: the cache-optimization fd.stat() must NOT sit in the
-					// seq-durability critical path. If it threw (rare — fd invalidated),
-					// it would skip persistSequence below and reopen the seq-reuse
-					// window the fsync just closed. Guard it; fall back to undefined
-					// (the later cache-update takes a path stat instead).
-					try {
-						postAppendStat = await fd.stat();
-					} catch {
-						postAppendStat = undefined;
-					}
 				} finally {
 					await fd.close();
 				}
@@ -629,11 +613,7 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			// can never roll the sidecar back either.
 			if (baseMetadata?.seq !== undefined) persistSequenceMonotonic(eventsPath, seq);
 		}
-		// FIND-10: track whether compaction happened after the append so the
-		// cache-update stat can safely reuse postAppendStat (file unchanged).
-		let compactedAfterAppend = false;
 		if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
-			compactedAfterAppend = true;
 			try {
 				const prepared = prepareCompaction(eventsPath);
 				if (prepared) applyCompactionUnlocked(eventsPath, prepared);
@@ -652,39 +632,13 @@ export async function appendEventAsync(eventsPath: string, event: AppendTeamEven
 			}
 		}
 
-		// FIX: Sequence was persisted AFTER appendFile in the append block above.
-		// Only update the cache here (the sidecar persist is already done).
-		const finalSeq = fullEvent.metadata?.seq ?? 0;
-		try {
-			// FIND-10: reuse post-append fd stat when available and no compaction
-			// happened after the append (file unchanged). Falls back to path stat
-			// for the worker path, skipped events, or post-compaction cases.
-			let statResult: fs.Stats | undefined;
-			if (postAppendStat && !compactedAfterAppend) {
-				statResult = postAppendStat;
-			} else {
-				try {
-					statResult = await fs.promises.stat(eventsPath).catch(() => undefined);
-				} catch {
-					/* file may not exist */
-				}
-			}
-			if (statResult) {
-				if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
-					evictOldestSequenceCacheEntries();
-				}
-				sequenceCache.set(eventsPath, {
-					size: statResult.size,
-					mtimeMs: statResult.mtimeMs,
-					seq: finalSeq,
-					lastAccessMs: Date.now(),
-				});
-			}
-			// Note: persistSequence is NOT called here again - it was already called
-			// after the append to ensure the sidecar is current after the event is written.
-		} catch (error) {
-			logInternalError("event-log.persist-sequence", error, `eventsPath=${eventsPath}`);
-		}
+		// PERF (2026-08-24): the per-append sequenceCache upkeep that lived here
+		// (post-append stat + Map set + occasional O(n log n) evict sort) fed no
+		// hot reader — sequenceCache is read only by nextSequence, which is
+		// consulted solely by seeding/test helpers (see the ST-12 note in
+		// sequence-cache.ts); all three append paths allocate seqs via
+		// reserveSequence, which reads the .seq sidecar + seqCounters instead.
+		// nextSequence() re-seeds via its sidecar/scan fallback when called.
 		return fullEvent;
 	};
 	// C-01: Two-tier lock — asyncQueues (in-process serialize) →
@@ -749,12 +703,23 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	tickAppendCounter(eventsPath, queue.length);
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
 
+	// PERF (2026-08-24): one hoisted pre-append stat replaces the pre-flight
+	// existsSync+statSync pair below. The after-compaction re-checks further
+	// down keep their own fresh stats — compaction/rotation may have changed
+	// the file since preStat was taken, so they must not see a stale
+	// (pre-compaction) size.
+	let preStat: fs.Stats | undefined;
+	try {
+		preStat = fs.statSync(eventsPath);
+	} catch {
+		/* log absent — first append */
+	}
+
 	// Pre-flight size check (mirrors appendEventInsideLock). We do it once for
 	// the batch instead of once per event.
 	try {
-		if (fs.existsSync(eventsPath)) {
-			const stat = fs.statSync(eventsPath);
-			if (stat.size > MAX_EVENTS_BYTES) {
+		if (preStat) {
+			if (preStat.size > MAX_EVENTS_BYTES) {
 				try {
 					const prepared = prepareCompaction(eventsPath);
 					if (prepared) applyCompactionUnlocked(eventsPath, prepared);
@@ -878,27 +843,25 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 		persistSequenceMonotonic(eventsPath, lastSeq);
 	}
 
-	// Phase 3: cache update + resolve all promises.
-	try {
-		const stat = fs.statSync(eventsPath);
-		if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
-			evictOldestSequenceCacheEntries();
-		}
-		sequenceCache.set(eventsPath, {
-			size: stat.size,
-			mtimeMs: stat.mtimeMs,
-			seq: lastSeq,
-			lastAccessMs: Date.now(),
-		});
-	} catch (error) {
-		logInternalError("event-log.batch-cache-update", error, `eventsPath=${eventsPath}`);
-	}
-
+	// Phase 3: resolve all promises. (PERF 2026-08-24: the sequenceCache upkeep
+	// that used to live here fed no hot reader — see the note in
+	// appendEventAsync; nextSequence re-seeds via its sidecar/scan fallback.)
 	for (const { item, fullEvent } of finalized) item.resolve(fullEvent);
 }
 
 function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): TeamEvent {
 	fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
+	// PERF (2026-08-24): one hoisted pre-append stat replaces the overflow
+	// existsSync+statSync pair below. The after-compaction re-checks further
+	// down keep their own fresh stats — compaction/rotation may have changed
+	// the file since preStat was taken, so they must not see a stale
+	// (pre-compaction) size.
+	let preStat: fs.Stats | undefined;
+	try {
+		preStat = fs.statSync(eventsPath);
+	} catch {
+		/* log absent — first append */
+	}
 	const baseMetadata = event.metadata;
 	// B7: use reserveSequence for atomic seq assignment across all paths.
 	const explicitSeq = baseMetadata?.seq;
@@ -935,9 +898,8 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 	// 3. After compact, if still over limit, rotate.
 	const isTerminal = TERMINAL_EVENT_TYPES.has(fullEvent.type);
 	let skippedDueToSize = false;
-	if (!isTerminal && fs.existsSync(eventsPath)) {
-		const stat = fs.statSync(eventsPath);
-		if (stat.size > MAX_EVENTS_BYTES) {
+	if (!isTerminal && preStat) {
+		if (preStat.size > MAX_EVENTS_BYTES) {
 			// Try immediate compact (not waiting for counter % 100).
 			// Round 24 (BUG 1): we are INSIDE withEventLogLockSync. Use the unlocked
 			// apply/rotate cores — the locked variants would deadlock (mkdir lock
@@ -1023,24 +985,11 @@ function appendEventInsideLock(eventsPath: string, event: AppendTeamEvent): Team
 		// Only EXPLICIT (pre-assigned) seqs bypassed the reservation — persist
 		// those, monotonically and under the .seqlock.
 		if (explicitSeq !== undefined) persistSequenceMonotonic(eventsPath, seq);
-		// FIX: Update cache AFTER append so cache and log are consistent with each other.
-		// This matches the async path behavior where cache is updated after the append.
-		// If a crash occurs after append but before cache update, the .seq file is
-		// already correct and nextSequence() will return the correct value on restart.
-		try {
-			const stat = fs.statSync(eventsPath);
-			if (sequenceCache.size >= MAX_SEQUENCE_CACHE_ENTRIES) {
-				evictOldestSequenceCacheEntries();
-			}
-			sequenceCache.set(eventsPath, {
-				size: stat.size,
-				mtimeMs: stat.mtimeMs,
-				seq,
-				lastAccessMs: Date.now(),
-			});
-		} catch (error) {
-			logInternalError("event-log.persist-sequence", error, `eventsPath=${eventsPath}`);
-		}
+		// PERF (2026-08-24): the per-append sequenceCache upkeep that lived here
+		// (post-append stat + Map set + occasional evict sort) fed no hot reader —
+		// see the note in appendEventAsync. The .seq sidecar is already current
+		// (advance-on-reserve / persistSequenceMonotonic above), and nextSequence()
+		// re-seeds via its sidecar/scan fallback when called.
 	}
 	if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
 		// Round 24 (BUG 1): we are INSIDE withEventLogLockSync here (called via
