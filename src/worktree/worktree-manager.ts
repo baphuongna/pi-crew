@@ -129,18 +129,58 @@ function sanitizeBranchPart(value: string): string {
 	);
 }
 
+// PERF (2026-08-24): the sync path (prepareTaskWorkspace — per task!) ran
+// findGitRoot (rev-parse spawn) + assertCleanLeader (status --porcelain spawn)
+// on every call, and the reuse path ran assertCleanLeader twice. Mirror the
+// async caches below (_gitRootCache/_cleanLeaderCache): same repoRoot → same
+// answer within a run.
+//
+// Mirrored invalidation semantics (from the async caches below):
+// - gitRoot: plain Map, NO TTL — the async _gitRootCache is process-lifetime with
+//   a FIFO cap; a cwd's repo root cannot change without moving .git itself.
+// - cleanLeader: ONLY clean verdicts are cached — the async _cleanLeaderCache is
+//   a Set of verified-clean repoRoots and a dirty verdict throws BEFORE caching,
+//   so every call while dirty re-probes (mirrored here). The async cache has NO
+//   TTL (a clean verdict is trusted for the whole process), so the 30s TTL below
+//   is strictly MORE conservative than the async path: a leader dirtied after a
+//   cached clean verdict can slip through for at most 30s here vs. forever on
+//   the async path. The reuse-path re-check in prepareTaskWorkspace deletes the
+//   entry first, mirroring `_cleanLeaderCache.delete(repoRoot)` in the async variant.
+const SYNC_WT_CACHE_TTL_MS = 30_000;
+const MAX_SYNC_GIT_ROOT_CACHE = 256;
+const MAX_SYNC_CLEAN_LEADER_CACHE = 256;
+const syncGitRootCache = new Map<string, string>();
+const syncCleanLeaderCache = new Map<string, { clean: boolean; expiresAt: number }>();
+
 export function findGitRoot(cwd: string): string {
-	return git(cwd, ["rev-parse", "--show-toplevel"]);
+	const cached = syncGitRootCache.get(cwd);
+	if (cached) return cached;
+	const root = git(cwd, ["rev-parse", "--show-toplevel"]);
+	syncGitRootCache.set(cwd, root);
+	if (syncGitRootCache.size > MAX_SYNC_GIT_ROOT_CACHE) {
+		const oldest = syncGitRootCache.keys().next().value;
+		if (oldest !== undefined) syncGitRootCache.delete(oldest);
+	}
+	return root;
 }
 
 export function assertCleanLeader(repoRoot: string): void {
+	const cached = syncCleanLeaderCache.get(repoRoot);
+	if (cached && cached.clean && Date.now() < cached.expiresAt) return;
 	// H-7 follow-up: --untracked-files=no so pi-crew's own auto-created .gitignore
 	// (and any other untracked files the user hasn't staged) doesn't block worktree mode.
 	// The worktree contract is "no tracked changes" — untracked files are safe since
 	// they're either in .gitignore or the user can decide later.
 	const status = git(repoRoot, ["status", "--porcelain", "--untracked-files=no"]);
 	if (status.trim()) {
+		// Dirty verdicts are never cached (async mirror): the user may commit/stash
+		// seconds later, so the next call must re-probe.
 		throw new Error("Worktree mode requires a clean leader repository. Commit/stash changes or use workspaceMode: 'single'.");
+	}
+	syncCleanLeaderCache.set(repoRoot, { clean: true, expiresAt: Date.now() + SYNC_WT_CACHE_TTL_MS });
+	if (syncCleanLeaderCache.size > MAX_SYNC_CLEAN_LEADER_CACHE) {
+		const oldest = syncCleanLeaderCache.keys().next().value;
+		if (oldest !== undefined) syncCleanLeaderCache.delete(oldest);
 	}
 }
 
@@ -451,6 +491,25 @@ function pruneStaleWorktrees(repoRoot: string): void {
 	} catch {
 		/* best-effort */
 	}
+}
+
+// PERF (2026-08-24): worktree prune is a repo-level write; running it per
+// task in a 50-task run is 50 prunes. At most once per repoRoot per minute.
+// (The async variant memoizes at-most-once per process — see P1-11 above —
+// so a 60s window prunes strictly more often than the async path already does.)
+// R5-L2 mirror: FIFO-cap the key set so the map cannot grow unbounded.
+const PRUNE_MIN_INTERVAL_MS = 60_000;
+const MAX_PRUNE_THROTTLE_KEYS = 128;
+const lastPruneAt = new Map<string, number>();
+function pruneStaleWorktreesThrottled(repoRoot: string): void {
+	const last = lastPruneAt.get(repoRoot) ?? 0;
+	if (Date.now() - last < PRUNE_MIN_INTERVAL_MS) return;
+	lastPruneAt.set(repoRoot, Date.now());
+	if (lastPruneAt.size > MAX_PRUNE_THROTTLE_KEYS) {
+		const oldest = lastPruneAt.keys().next().value;
+		if (oldest !== undefined) lastPruneAt.delete(oldest);
+	}
+	pruneStaleWorktrees(repoRoot); // original body — best-effort, failures swallowed
 }
 
 async function branchExistsAsync(repoRoot: string, branch: string): Promise<{ local: boolean; remoteOnly: boolean }> {
@@ -818,11 +877,13 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 		if (mergedReused.length > 0) {
 			overlaySeedPaths(repoRoot, worktreePath, mergedReused);
 		}
-		// Re-validate leader is still clean before reusing — leader state may have changed since first preparation
+		// Re-validate leader is still clean before reusing — leader state may have changed since first preparation.
+		// Mirrors prepareTaskWorkspaceAsync: delete the cached verdict so this re-check probes live state.
+		syncCleanLeaderCache.delete(repoRoot);
 		assertCleanLeader(repoRoot);
 		return { cwd: worktreePath, worktreePath, branch, reused: true };
 	}
-	pruneStaleWorktrees(repoRoot);
+	pruneStaleWorktreesThrottled(repoRoot);
 	const exists = branchExists(repoRoot, branch);
 	let worktreeCreated = false;
 	try {
@@ -1141,7 +1202,7 @@ export function prepareAgentWorktree(manifest: TeamRunManifest, agentId: string)
 	const stamp = `${Date.now()}-${randomBytes(4).toString("hex")}`;
 	const worktreePath = path.join(worktreeRoot, `${sanitizedAgentId}-${stamp}`);
 	const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}-${stamp}`;
-	pruneStaleWorktrees(repoRoot);
+	pruneStaleWorktreesThrottled(repoRoot);
 	git(repoRoot, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
 	const nodeModulesLinked =
 		loadedConfig.config.worktree?.linkNodeModules === true ? linkNodeModulesIfPresent(repoRoot, worktreePath) : false;
