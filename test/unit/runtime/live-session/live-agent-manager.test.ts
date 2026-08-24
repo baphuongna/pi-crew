@@ -8,6 +8,7 @@ import {
 	listLiveAgents,
 	registerLiveAgent,
 	terminateLiveAgent,
+	updateLiveAgentStatus,
 } from "../../../../src/runtime/live-session/live-agent-manager.ts";
 
 const TEST_WORKSPACE = "workspace:///test/cleanup";
@@ -144,4 +145,60 @@ test("listActiveLiveAgents returns only non-terminal statuses", () => {
 test("terminateLiveAgent with non-existent handle returns undefined", async () => {
 	const result = await terminateLiveAgent("non-existent-agent");
 	assert.equal(result, undefined);
+});
+
+test("listLiveAgents sorts by updatedAt descending and invalidates memo on update and unregister", async () => {
+	clearLiveAgentsForTest();
+	const base = `sort-test-${Date.now()}`;
+	const oldest = registerLiveAgent({
+		agentId: `${base}-oldest`,
+		taskId: "t1",
+		runId: "run",
+		status: "running",
+		session: {},
+		workspaceId: TEST_WORKSPACE,
+	});
+	const middle = registerLiveAgent({
+		agentId: `${base}-middle`,
+		taskId: "t2",
+		runId: "run",
+		status: "running",
+		session: {},
+		workspaceId: TEST_WORKSPACE,
+	});
+	const newest = registerLiveAgent({
+		agentId: `${base}-newest`,
+		taskId: "t3",
+		runId: "run",
+		status: "running",
+		session: {},
+		workspaceId: TEST_WORKSPACE,
+	});
+	// Stagger updatedAt BEFORE the first listLiveAgents() call so the memoized
+	// sort starts from a deterministic order (fake 2020 stamps are always older
+	// than the real "now" written by updateLiveAgentStatus below).
+	oldest.updatedAt = "2020-01-01T00:00:01.000Z";
+	middle.updatedAt = "2020-01-02T00:00:01.000Z";
+	newest.updatedAt = "2020-01-03T00:00:01.000Z";
+	assert.deepEqual(
+		listLiveAgents().map((a) => a.agentId),
+		[`${base}-newest`, `${base}-middle`, `${base}-oldest`],
+	);
+
+	// Bumping updatedAt through the API must invalidate the memoized order.
+	updateLiveAgentStatus(`${base}-oldest`, "running");
+	assert.deepEqual(
+		listLiveAgents().map((a) => a.agentId),
+		[`${base}-oldest`, `${base}-newest`, `${base}-middle`],
+	);
+
+	// Unregistering must invalidate the memoized membership.
+	await terminateLiveAgent(`${base}-middle`);
+	assert.deepEqual(
+		listLiveAgents().map((a) => a.agentId),
+		[`${base}-oldest`, `${base}-newest`],
+	);
+
+	await terminateLiveAgent(`${base}-oldest`);
+	await terminateLiveAgent(`${base}-newest`);
 });

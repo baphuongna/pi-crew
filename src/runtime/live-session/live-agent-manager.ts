@@ -119,15 +119,18 @@ export function registerLiveAgent(
 		const completed = [...liveAgents.entries()].find(([, h]) => h.activity.completedAtMs > 0);
 		if (completed) {
 			liveAgents.delete(completed[0]);
+			invalidateSortedLiveAgents();
 		} else {
 			const oldestKey = liveAgents.keys().next().value;
 			if (oldestKey !== undefined) {
 				logInternalError("live-agent-manager.cap", new Error(`liveAgents at cap ${MAX_LIVE_AGENTS}; evicting oldest ${oldestKey}`));
 				liveAgents.delete(oldestKey);
+				invalidateSortedLiveAgents();
 			}
 		}
 	}
 	liveAgents.set(input.agentId, handle);
+	invalidateSortedLiveAgents();
 	try {
 		if (eventLogFn && eventsPath)
 			eventLogFn(eventsPath, {
@@ -172,6 +175,7 @@ export function updateLiveAgentStatus(agentId: string, status: CrewAgentRecord["
 	if (!handle) return;
 	handle.status = status;
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 }
 
 function safeDisposeLiveSession(handle: LiveAgentHandle): void {
@@ -198,6 +202,7 @@ export async function terminateLiveAgent(
 	if (!handle) return undefined;
 	handle.status = status;
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 	try {
 		if (eventLogFn && eventsPath)
 			eventLogFn(eventsPath, {
@@ -220,6 +225,7 @@ export async function terminateLiveAgent(
 	} finally {
 		safeDisposeLiveSession(handle);
 		liveAgents.delete(handle.agentId); // Move AFTER abort completes to prevent race
+		invalidateSortedLiveAgents();
 	}
 	return handle;
 }
@@ -260,6 +266,7 @@ export function evictStaleLiveAgentHandles(now = Date.now()): number {
 			// Terminal handle — evict after grace period
 			if (age > STALE_HANDLE_MS) {
 				liveAgents.delete(agentId);
+				invalidateSortedLiveAgents();
 				safeDisposeLiveSession(handle);
 				evicted++;
 			}
@@ -289,6 +296,7 @@ export function evictStaleLiveAgentHandles(now = Date.now()): number {
 			const liveness = checkProcessLiveness(sessionPid);
 			if (!liveness.alive) {
 				liveAgents.delete(agentId);
+				invalidateSortedLiveAgents();
 				safeDisposeLiveSession(handle);
 				evicted++;
 			}
@@ -297,8 +305,24 @@ export function evictStaleLiveAgentHandles(now = Date.now()): number {
 	return evicted;
 }
 
+// PERF (2026-08-24): listLiveAgents is called 4-6x per render frame and used to
+// copy + sort with ICU localeCompare every call. ISO-8601 strings are fixed-width
+// and sort correctly with plain operators; the sorted array is memoized and
+// invalidated at every map mutation. NOTE: callers receive the SHARED memoized
+// array — never sort or mutate it in place; copy (slice/spread) first.
+let sortedLiveAgents: LiveAgentHandle[] | undefined;
+function invalidateSortedLiveAgents(): void {
+	sortedLiveAgents = undefined;
+}
 export function listLiveAgents(): LiveAgentHandle[] {
-	return [...liveAgents.values()].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+	if (!sortedLiveAgents) {
+		sortedLiveAgents = [...liveAgents.values()].sort((a, b) => {
+			const au = a.updatedAt ?? "";
+			const bu = b.updatedAt ?? "";
+			return au < bu ? 1 : au > bu ? -1 : 0;
+		});
+	}
+	return sortedLiveAgents;
 }
 
 export function listActiveLiveAgents(): LiveAgentHandle[] {
@@ -324,6 +348,7 @@ export async function steerLiveAgent(agentIdOrTaskId: string, message: string): 
 	}
 	await handle.session.steer(message);
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 	return handle;
 }
 
@@ -339,6 +364,7 @@ export async function followUpLiveAgent(agentIdOrTaskId: string, prompt: string)
 		expandPromptTemplates: false,
 	});
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 	return handle;
 }
 
@@ -359,6 +385,7 @@ export async function resumeLiveAgent(agentIdOrTaskId: string, prompt: string): 
 	});
 	handle.status = "completed";
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 	return handle;
 }
 
@@ -377,6 +404,7 @@ export function trackLiveAgentToolStart(agentIdOrTaskId: string, toolName: strin
 	handle.activity.activeTools.set(toolName, toolName);
 	handle.activity.toolUses++;
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 }
 
 /** G2: Track tool end for a live agent. */
@@ -394,6 +422,7 @@ export function trackLiveAgentTurnEnd(agentIdOrTaskId: string, compaction = fals
 	if (compaction) handle.activity.compactionCount++;
 	handle.activity.activeTools.clear();
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 }
 
 /** G2: Track assistant response text. */
@@ -413,6 +442,7 @@ export function markLiveAgentCompleted(agentIdOrTaskId: string): void {
 
 export function clearLiveAgentsForTest(): void {
 	liveAgents.clear();
+	invalidateSortedLiveAgents();
 }
 
 /** Phase 7/G4: Send an IRC message to a specific live agent (DM).
@@ -427,6 +457,7 @@ export function sendIrcMessage(targetAgentId: string, message: IrcMessage): void
 	}
 	handle.pendingMessages.push(message);
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 	// G4: Try non-blocking delivery via sendCustomMessage
 	const session = handle.session as Record<string, unknown>;
 	if (typeof session.sendCustomMessage === "function") {
@@ -467,6 +498,7 @@ export function broadcastIrcMessage(fromAgentId: string, message: IrcMessage): s
 		}
 		handle.pendingMessages.push(message);
 		handle.updatedAt = new Date().toISOString();
+		invalidateSortedLiveAgents();
 		// G4: Try non-blocking delivery
 		const session = handle.session as Record<string, unknown>;
 		if (typeof session.sendCustomMessage === "function") {
@@ -600,6 +632,7 @@ export async function respondAsBackground(
 			error: `Target '${targetAgentId}' has no message channel.`,
 		};
 	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
 
 	if (!awaitReply) return { ok: true, corrId };
 
