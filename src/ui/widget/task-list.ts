@@ -7,16 +7,18 @@
  * Example:
  * ```
  * Plan · 2/6 done · 1 failed
- *   ✻ 04_execute: wire the overlay scroll
- *   ○ 05_verify: run the suite
- *   ✓ 01_explore: map the view stack
- *   ✓ 02_plan: design the overlay
+ *   ✻ 04_execute — wire the overlay scroll
+ *   ○ 05_verify — run the suite
+ *   ✓ 01_explore — map the view stack
+ *   ✓ 02_plan — design the overlay
  *   … +2 completed
  * ```
  *
- * Pure display — the interactive surface stays the agent dock below the
- * editor (↑/↓ select, enter views). Rows come from the run snapshot's
- * `tasks` slice, so the list repaints on task transitions only.
+ * Pure plan surface: one row per thing to do, no agent/role info — which
+ * worker runs a task is the dock's story below the editor. Pure display —
+ * the interactive surface stays that dock (↑/↓ select, enter views). Rows
+ * come from the run snapshot's `tasks` slice, so the list repaints on task
+ * transitions only.
  */
 
 import type { TeamTaskState } from "../../state/types.ts";
@@ -40,11 +42,10 @@ function taskTitle(task: TeamTaskState): string {
 	return (task.displayName ?? task.title ?? "").replace(/\s+/g, " ").trim();
 }
 
-/** One line per task: `id · role — plan title`. */
+/** One line per task: `id — plan title`. Pure plan — roles/agents are the
+ *  dock's story (below the editor), not the plan's. */
 function taskRow(task: TeamTaskState, width: number): string {
-	const label = taskTitle(task);
-	const role = task.role && task.role !== label ? `${task.role} — ` : "";
-	return truncate(`  ${dockStatusIcon(task.status)} ${task.id} · ${role}${label}`, width);
+	return truncate(`  ${dockStatusIcon(task.status)} ${task.id} — ${taskTitle(task)}`, width);
 }
 
 /**

@@ -60,14 +60,14 @@ test("rows paint active tasks first in plan order, then finished", () => {
 		120,
 	);
 	const joined = lines.join("\n");
-	assert.ok(joined.includes("✻ 03_execute · wire the overlay"), "running task row with its title");
+	assert.ok(joined.includes("✻ 03_execute — wire the overlay"), "running task row with its title");
 	assert.ok(joined.includes("○ 04_verify"), "queued task row");
 	assert.ok(joined.includes("✓ 01_explore"), "finished task row");
 	// Active section before the finished section.
 	assert.ok(joined.indexOf("03_execute") < joined.indexOf("01_explore"), "active precedes finished");
 });
 
-test("running task carries its role and indented plan description", () => {
+test("running task carries its plan description, never role noise", () => {
 	const lines = buildTaskListLines(
 		runWith([
 			task("01_explore", "running", "Map the view stack", {
@@ -82,7 +82,8 @@ test("running task carries its role and indented plan description", () => {
 		120,
 	);
 	const joined = lines.join("\n");
-	assert.ok(joined.includes("✻ 01_explore · explorer — Map the view stack"), "running row shows role then plan title");
+	assert.ok(joined.includes("✻ 01_explore — Map the view stack"), "running row shows id then plan title");
+	assert.ok(!joined.includes("explorer") && !joined.includes("planner"), "no role names — agents are the dock's story, not the plan's");
 	assert.ok(joined.includes("      Sweep src/ui for the widget stack"), "running task gets an indented description line");
 	assert.ok(!joined.includes("# Map"), "heading lines are dropped from the detail — the title already carries them");
 	assert.ok(!joined.includes("Pick the overlay approach"), "queued tasks stay single-line — no description noise");
