@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { DEFAULT_LOCKS } from "../../config/defaults.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { sleepSync } from "../../utils/sleep.ts";
-import { isSymlinkSafePath } from "../atomic-write.ts";
+import { ensureDirSync, isSymlinkSafeDirCached, isSymlinkSafePath } from "../atomic-write.ts";
 import type { TeamRunManifest } from "../types.ts";
 
 export interface RunLockOptions {
@@ -415,10 +415,20 @@ export function withFileLockSync<T>(filePath: string, fn: () => T, options: RunL
 	if (fileLockHeldByUs.get(lockFile)) {
 		return fn();
 	}
-	// FIX: Validate the parent directory is not a symlink BEFORE calling mkdirSync.
-	// Between mkdir and lock acquisition, an attacker could plant a symlink.
-	if (!isSymlinkSafePath(path.dirname(lockFile))) throw new Error("Refusing: parent of lock directory is a symlink");
-	fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+	// Round 26 (BUG 2): REMOVED the pre-acquisition target-file-existence check.
+	// It was racy — between statSync(target) and acquire, a concurrent process
+	// could acquire the lock to CREATE the target, and we'd delete its active
+	// lock. It was also actively wrong for callers that pass a path already
+	// ending in `.flock` (config.ts: the checked "target" never exists, so the
+	// cleanup ALWAYS fired, deleting a fresh concurrent holder's lock). Genuine
+	// orphan locks (crashed holder) are reclaimed by acquireLockWithRetry's
+	// staleMs-based steal logic after at most `staleMs`.
+	// PERF (2026-08-24): pre-loop check uses the 10s-TTL cached verdict (same
+	// tradeoff atomic writes already make). The RETRY loop below keeps the
+	// UNCACHED re-validation — TOCTOU rigor is preserved exactly where a race
+	// is actually being retried.
+	if (!isSymlinkSafeDirCached(path.dirname(lockFile))) throw new Error("Refusing: parent of lock directory is a symlink");
+	ensureDirSync(path.dirname(lockFile));
 	// Round 26 (BUG 2): REMOVED the pre-acquisition target-file-existence check.
 	// It was racy — between statSync(target) and acquire, a concurrent process
 	// could acquire the lock to CREATE the target, and we'd delete its active

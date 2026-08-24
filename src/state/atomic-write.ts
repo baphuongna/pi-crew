@@ -267,7 +267,7 @@ function isTargetNotSymlink(filePath: string): boolean {
  * entry is correctly reusable for every file written into that dir (no
  * cross-file cache poisoning).
  */
-function isSymlinkSafeDirCached(filePath: string): boolean {
+export function isSymlinkSafeDirCached(filePath: string): boolean {
 	const now = Date.now();
 	const dir = path.dirname(filePath);
 	// Always re-check the target file (uncached) before trusting the dir verdict.
