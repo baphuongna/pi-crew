@@ -36,10 +36,10 @@ const WORD_DIFF_MIN_SIM = 0.15;
  * characters relative to the longer of the two strings, using word-level
  * diff to identify the common (unchanged) parts. Returns a value in [0, 1].
  */
-function computeSimilarity(oldContent: string, newContent: string): number {
-	const wordDiff = Diff.diffWords(oldContent, newContent);
+function computeSimilarity(oldContent: string, newContent: string, wordDiff?: Diff.Change[]): number {
+	const parts = wordDiff ?? Diff.diffWords(oldContent, newContent);
 	let commonChars = 0;
-	for (const part of wordDiff) {
+	for (const part of parts) {
 		if (!part.removed && !part.added) {
 			commonChars += part.value.length;
 		}
@@ -49,14 +49,19 @@ function computeSimilarity(oldContent: string, newContent: string): number {
 	return commonChars / maxLen;
 }
 
-function renderIntraLineDiff(theme: CrewTheme, oldContent: string, newContent: string): { removedLine: string; addedLine: string } {
-	const wordDiff = Diff.diffWords(oldContent, newContent);
+function renderIntraLineDiff(
+	theme: CrewTheme,
+	oldContent: string,
+	newContent: string,
+	wordDiff?: Diff.Change[],
+): { removedLine: string; addedLine: string } {
+	const parts = wordDiff ?? Diff.diffWords(oldContent, newContent);
 	let removedLine = "";
 	let addedLine = "";
 	let isFirstRemoved = true;
 	let isFirstAdded = true;
 
-	for (const part of wordDiff) {
+	for (const part of parts) {
 		if (part.removed) {
 			let value = part.value;
 			if (isFirstRemoved) {
@@ -130,9 +135,12 @@ export function renderDiff(diffText: string, options: RenderDiffOptions = {}): s
 			if (removedLines.length === 1 && addedLines.length === 1) {
 				const oldContent = replaceTabs(removedLines[0]!.content);
 				const newContent = replaceTabs(addedLines[0]!.content);
-				const similarity = computeSimilarity(oldContent, newContent);
+				// PERF (2026-08-24): diffWords is the expensive call and was run
+				// TWICE on identical inputs (similarity + render). One pass, shared.
+				const wordDiff = Diff.diffWords(oldContent, newContent);
+				const similarity = computeSimilarity(oldContent, newContent, wordDiff);
 				if (similarity >= WORD_DIFF_MIN_SIM) {
-					const { removedLine, addedLine } = renderIntraLineDiff(theme, oldContent, newContent);
+					const { removedLine, addedLine } = renderIntraLineDiff(theme, oldContent, newContent, wordDiff);
 					result.push(theme.fg("toolDiffRemoved", `-${removedLines[0]!.lineNum} ${removedLine}`));
 					result.push(theme.fg("toolDiffAdded", `+${addedLines[0]!.lineNum} ${addedLine}`));
 				} else {
