@@ -63,8 +63,13 @@ test("crew widget renders installed-style run and agent summary lines", async ()
 			},
 			state,
 		);
-		assert.equal(calls.at(-1)?.key, "pi-crew-active");
-		assert.ok(calls.at(-1)?.content?.length);
+		// With the aboveEditor task list (e58f648b) the calls end with the tasks
+		// widget; the agent dock is still installed with content alongside it.
+		assert.ok(
+			calls.some((call) => call.key === "pi-crew-active" && call.content?.length),
+			"agent dock installed with content",
+		);
+		assert.ok(calls.at(-1)?.key === "pi-crew-tasks" && calls.at(-1)?.content?.length, "task list installed after the dock");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

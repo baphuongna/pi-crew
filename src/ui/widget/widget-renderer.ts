@@ -142,10 +142,13 @@ function compactAgentRow(
 	const dockGlyph = options.viewedTaskId === agent.taskId ? "⏺" : dockStatusIcon(agent.status);
 	const name = liveHandle?.agent ?? agent.agent;
 	const label = liveHandle?.description ?? agent.role ?? "";
-	// With multiple runs, prefix each row with its run label so the flat dock
-	// still says which run an agent belongs to.
+	// Task-first: the agent exists to run its task, so the row names the task
+	// right after the agent. With multiple runs, prefix each row with its run
+	// label so the flat dock still says which run an agent belongs to.
 	const runTag = runs.length > 1 ? `${shortRunLabel(run)} · ` : "";
-	const nameText = runTag + (label ? `${name} · ${label}` : name);
+	const taskTag = agent.taskId ? ` · ${agent.taskId}` : "";
+	const roleTag = label && label !== agent.taskId && label !== name ? ` · ${label}` : "";
+	const nameText = runTag + name + taskTag + roleTag;
 	// pi-subtask activity: the worker's latest line while running, otherwise
 	// the status word.
 	const liveLine = liveHandle?.activity?.responseText

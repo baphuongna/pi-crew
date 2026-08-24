@@ -270,13 +270,30 @@ export function createTasksFromWorkflow(runId: string, workflow: WorkflowConfig,
 			.filter((candidate) => candidate.dependsOn?.includes(step.id))
 			.map((candidate) => stepToTaskId.get(candidate.id))
 			.filter((childId): childId is string => childId !== undefined);
+		// The plan's own words become the task's display identity: a heading
+		// from the step body if present, else its first content line; the full
+		// body is kept as `description` for detail surfaces (task list, view).
+		// Falls back to the step id when the body carries no text of its own —
+		// `task` is optional on literal WorkflowStep objects, and `{goal}` is
+		// the goal-injection placeholder, not plan prose.
+		const bodyLines =
+			typeof step.task === "string" && step.task !== "{goal}"
+				? step.task
+						.split("\n")
+						.map((line) => line.trim())
+						.filter(Boolean)
+				: [];
+		const heading = bodyLines.find((line) => line.startsWith("#"));
+		const title = (heading?.replace(/^#+\s*/, "") ?? bodyLines[0] ?? step.id).slice(0, 120);
+		const description = bodyLines.join("\n");
 		return {
 			id,
 			runId,
 			stepId: step.id,
 			role: step.role,
 			agent: role?.agent ?? step.role,
-			title: step.id,
+			title,
+			description: description && description !== title ? description : undefined,
 			status: "queued",
 			dependsOn: dependencies,
 			cwd,

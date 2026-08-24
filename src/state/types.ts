@@ -554,6 +554,8 @@ export interface TeamTaskState {
 	role: string;
 	agent: string;
 	title: string;
+	/** Full step body (the detailed plan text behind `title`). */
+	description?: string;
 	displayName?: string;
 	status: TeamTaskStatus;
 	dependsOn: string[];

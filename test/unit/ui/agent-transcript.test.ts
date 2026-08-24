@@ -341,20 +341,14 @@ test("worker prompt artifact seeds the opening user message (session parity)", (
 	try {
 		fs.mkdirSync(path.join(fixture.dir, "prompts"), { recursive: true });
 		fs.writeFileSync(path.join(fixture.dir, "prompts", `${TASK}.md`), "# Worker prompt\ndo the thing", "utf-8");
-		writeEvents(fixture, [
-			{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "working" }] } },
-		]);
+		writeEvents(fixture, [{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "working" }] } }]);
 
 		const items = readAgentTranscript(fixture.manifest, TASK);
 		assert.equal(items[0]?.type, "user", "the child's initial prompt opens the transcript");
 		if (items[0]?.type === "user") assert.match(items[0].text, /do the thing/);
 
 		// A later read (new events) must not seed a second copy.
-		writeEvents(
-			fixture,
-			[{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }],
-			2,
-		);
+		writeEvents(fixture, [{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }], 2);
 		const again = readAgentTranscript(fixture.manifest, TASK);
 		assert.equal(again.filter((item) => item.type === "user").length, 1, "seeded exactly once");
 	} finally {
@@ -365,11 +359,13 @@ test("worker prompt artifact seeds the opening user message (session parity)", (
 test("missing prompt artifact is skipped without poisoning later reads", () => {
 	const fixture = makeFixture();
 	try {
-		writeEvents(fixture, [
-			{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "working" }] } },
-		]);
+		writeEvents(fixture, [{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "working" }] } }]);
 		let items = readAgentTranscript(fixture.manifest, TASK);
-		assert.equal(items.every((item) => item.type !== "user"), true, "no seed without the artifact");
+		assert.equal(
+			items.every((item) => item.type !== "user"),
+			true,
+			"no seed without the artifact",
+		);
 
 		// Artifact appears late (e.g. written after the first peek): the next
 		// read seeds it.

@@ -491,6 +491,38 @@ test("createTasksFromWorkflow builds tasks for each step", () => {
 	}
 });
 
+test("createTasksFromWorkflow derives title and description from the step body", () => {
+	const cwd = makeResolvedTempDir("pi-crew-state-tasks-title-");
+	try {
+		const detailedWorkflow: WorkflowConfig = {
+			...workflow,
+			steps: [
+				{
+					id: "explore",
+					role: "planner",
+					task: "# Probe the workspace layout\n\nSleep, then list the top-level files.\nThis task exists so the task list paints a plan row.",
+				},
+				{ id: "execute", role: "planner", task: "Plain first line is the title" },
+				{ id: "verify", role: "planner", task: "{goal}" },
+			],
+		};
+		const tasks = createTasksFromWorkflow("run_123", detailedWorkflow, team, cwd);
+		// Heading wins, and it is the heading text without the '#'.
+		assert.equal(tasks[0].title, "Probe the workspace layout");
+		// The full body survives as the detailed description.
+		assert.match(tasks[0].description ?? "", /^# Probe the workspace layout/);
+		assert.ok((tasks[0].description ?? "").includes("list the top-level files"));
+		// No heading → first content line, single-line body has no description.
+		assert.equal(tasks[1].title, "Plain first line is the title");
+		assert.equal(tasks[1].description, undefined);
+		// Placeholder body falls back to the step id with no description.
+		assert.equal(tasks[2].title, "verify");
+		assert.equal(tasks[2].description, undefined);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("createTasksFromWorkflow uses agent from team roles", () => {
 	const cwd = makeResolvedTempDir("pi-crew-state-tasks-agent-");
 	try {

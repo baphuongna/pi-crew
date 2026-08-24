@@ -40,10 +40,28 @@ function taskTitle(task: TeamTaskState): string {
 	return (task.displayName ?? task.title ?? "").replace(/\s+/g, " ").trim();
 }
 
+/** One line per task: `id · role — plan title`. */
 function taskRow(task: TeamTaskState, width: number): string {
 	const label = taskTitle(task);
-	const head = `${task.id}:${label ? ` ${label}` : ""}`;
-	return truncate(`  ${dockStatusIcon(task.status)} ${head}`, width);
+	const role = task.role && task.role !== label ? `${task.role} — ` : "";
+	return truncate(`  ${dockStatusIcon(task.status)} ${task.id} · ${role}${label}`, width);
+}
+
+/**
+ * The RUNNING task's detailed plan text, one indented line under its row —
+ * the plan stays readable without opening the full view. Heading lines are
+ * dropped: the row already carries the heading as its title. Queued/finished
+ * tasks keep their single line (the dock stays compact).
+ */
+function taskDetail(task: TeamTaskState, width: number): string | undefined {
+	const detail = (task.description ?? "")
+		.split("\n")
+		.filter((line) => !line.trim().startsWith("#"))
+		.join(" ")
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!detail) return undefined;
+	return truncate(`      ${detail}`, width);
 }
 
 /** The run whose plan is shown: the first with unfinished work, else the first. */
@@ -73,7 +91,13 @@ export function buildTaskListLines(runs: readonly WidgetRun[], width: number): s
 	const lines = [truncate(headerParts.join(" · "), width)];
 
 	const visibleActive = active.slice(0, MAX_ACTIVE_ROWS);
-	for (const task of visibleActive) lines.push(taskRow(task, width));
+	for (const task of visibleActive) {
+		lines.push(taskRow(task, width));
+		if (task.status === "running" || task.status === "needs_attention") {
+			const detail = taskDetail(task, width);
+			if (detail) lines.push(detail);
+		}
+	}
 	if (active.length > visibleActive.length) {
 		lines.push(truncate(`  … +${active.length - visibleActive.length} open`, width));
 	}

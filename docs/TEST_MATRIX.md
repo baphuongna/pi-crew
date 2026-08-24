@@ -30,7 +30,7 @@ Maps pi-crew behavior to proof. Every row must have real validation evidence.
 | Effectiveness guard | `docs/product/effectiveness.md` | yes | no | yes 3/3 | implemented | effectiveness-guard.test.ts |
 | Windows EBUSY | `docs/product/platform.md` | yes | yes | yes 3/3 | implemented | phase6-runtime-hardening.test.ts |
 | Depth guard | `docs/product/runtime-safety.md` | yes | no | yes 3/3 | implemented | subagent-depth.test.ts, completion-guard.test.ts |
-| Inline agent panel | `docs/design/2026-08-20-inline-agent-panel.md` | yes | no | pending | in_progress | inline-panel-selection.test.ts, widget-budgeted-row.test.ts, agent-transcript.test.ts |
+| Inline agent panel | `docs/design/2026-08-20-inline-agent-panel.md` | yes | no | pending | in_progress | inline-panel-selection.test.ts, widget-budgeted-row.test.ts, agent-transcript.test.ts, inline-panel-openpane.test.ts, widget-focused.test.ts, task-list.test.ts |
 
 ## Evidence Rules
 
