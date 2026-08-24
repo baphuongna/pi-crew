@@ -258,7 +258,7 @@ export {
 // Re-export the test-only helpers so existing test imports still resolve.
 export { __test__mergeTaskUpdates, __test__shouldMergeTaskUpdate } from "./merge-gate.ts";
 
-import { injectAdaptivePlanIfReady } from "./goal-workflow/adaptive-plan.ts";
+import { injectAdaptivePlanIfReady, isAdaptiveWorkflow } from "./goal-workflow/adaptive-plan.ts";
 
 // formatTaskProgress / runEffectivenessLines / scratchpadSummaryLines /
 // lastProgressContentHash / writeProgress moved to ./finalize-run.ts (2026-08
@@ -769,7 +769,7 @@ async function executeTeamRunCore(
 	}
 	let tasks = refreshTaskGraphQueues(input.tasks);
 	let queueIndex = buildTaskGraphIndex(tasks);
-	const canInjectAdaptivePlan = workflow.name === "implementation";
+	const canInjectAdaptivePlan = isAdaptiveWorkflow(workflow);
 	let adaptivePlanInjected = false;
 	let adaptivePlanMissing = false;
 	const attemptAdaptivePlan = async () => {
@@ -779,6 +779,7 @@ async function executeTeamRunCore(
 			tasks,
 			workflow,
 			team: input.team,
+			executeWorkers: input.executeWorkers,
 		});
 		adaptivePlanInjected = adaptivePlanInjected || adaptivePlan.injected;
 		adaptivePlanMissing = adaptivePlan.missingPlan;

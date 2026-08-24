@@ -1,31 +1,41 @@
 ---
 name: default
-description: Explore, plan, execute, and verify
-topology: sequential
+description: Plan the goal into concrete tasks, execute them in parallel phases, verify
+topology: complex-dag
+adaptive: true
 ---
 
-## explore
-role: explorer
-
-Explore the codebase for the goal: {goal}
-
-## plan
+## assess
 role: planner
-dependsOn: explore
-output: plan.md
+output: adaptive-plan.json
 
-Create a concise implementation plan for: {goal}
+Plan the concrete task list for: {goal}
 
-## execute
-role: executor
-dependsOn: plan
+You are the orchestration planner. Inspect the repository enough to break the goal into specific, executable tasks; do not use a fixed template. Small tasks may need one executor plus one verifier; broader tasks may need parallel explorers, executors, and a verification phase.
 
-Implement the plan for: {goal}
+Return a concise rationale, then include exactly one JSON block between these markers:
 
-## verify
-role: verifier
-dependsOn: execute
-verify: true
+ADAPTIVE_PLAN_JSON_START
+{
+  "phases": [
+    {
+      "name": "short-phase-name",
+      "tasks": [
+        {
+          "role": "explorer|executor|verifier",
+          "title": "short task title",
+          "task": "specific autonomous task prompt for this subagent"
+        }
+      ]
+    }
+  ]
+}
+ADAPTIVE_PLAN_JSON_END
 
-Verify completion for: {goal}
-Run FAST checks ONCE (cache output to .crew/cache/): `npm run test:critical && npx tsc --noEmit` (completes in <60s). Do NOT run `npm run test:unit` or `npm test` — too slow (642 files, >4 min). Cross-reference cached output with the changes. Do NOT re-run tests. Give PASS or FAIL with specific test evidence.
+Rules:
+- **MAXIMIZE PARALLELISM**: Put independent tasks in the SAME phase so they run concurrently. Never create sequential phases when tasks are independent.
+- Task titles name the concrete piece of work — they become the task list the user watches.
+- Choose the smallest effective number of tasks per phase; a simple goal may have 1-2 phases with 1-2 tasks.
+- End implementation plans with a verification phase (`verifier` role): run FAST targeted checks only (e.g. the affected test files), never the full suite.
+- Tasks within the same phase run in parallel; phases run sequentially.
+- Do not include more than 12 tasks per phase; split or summarize oversized plans instead.

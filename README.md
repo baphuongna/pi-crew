@@ -212,7 +212,7 @@ When unsure which team/workflow fits:
 
 | Team | Workflow | Purpose |
 |------|----------|----------|
-| `default` | explore → plan → execute → verify | Balanced, general-purpose |
+| `default` | adaptive: planner derives concrete tasks from the goal, parallel phases, verify | Balanced, general-purpose |
 | `fast-fix` | explore → execute → verify | Quick bug fixes |
 | `implementation` | Adaptive planner decides fanout | Multi-file implementation |
 | `review` | explore → code-review → security-review → verify | Code review + security audit |

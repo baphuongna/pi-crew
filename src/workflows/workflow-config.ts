@@ -75,6 +75,13 @@ export interface WorkflowConfig {
 	 *  Requires a verifier-role step (reject-start, §5) and fails the write-gate
 	 *  on coverage gaps or machine-check failures (§4). */
 	specStrict?: boolean;
+	/** Frontmatter `adaptive: true` — the workflow's `assess` step (planner role)
+	 *  emits an ADAPTIVE_PLAN_JSON block that the runtime parses and injects as
+	 *  concrete tasks, so the plan painted in the task list is derived from the
+	 *  goal, not from fixed phase templates. The `implementation` workflow is
+	 *  adaptive by name (backward compat); this flag extends the mechanism to
+	 *  any workflow. See src/runtime/goal-workflow/adaptive-plan.ts. */
+	adaptive?: boolean;
 }
 
 /** A dynamic workflow (runtime === "dynamic"). steps is empty — the script is the source of truth. */

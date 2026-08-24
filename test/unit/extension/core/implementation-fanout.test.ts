@@ -166,3 +166,46 @@ test("implementation run injects planner-selected multi-agent ready batches", as
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+test("default workflow is adaptive — the plan comes from the goal, not phase templates", async () => {
+	const builtinCwd = process.cwd();
+	const team = allTeams(discoverTeams(builtinCwd)).find((item) => item.name === "default");
+	const workflow = allWorkflows(discoverWorkflows(builtinCwd)).find((item) => item.name === "default");
+	assert.ok(team);
+	assert.ok(workflow);
+	assert.equal(workflow.adaptive, true, "frontmatter adaptive: true");
+	assert.deepEqual(
+		workflow.steps.map((step) => step.id),
+		["assess"],
+		"one planner step; the rest of the plan is derived from the goal",
+	);
+	assert.deepEqual(validateWorkflowForTeam(workflow, team), []);
+
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-default-adaptive-"));
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
+	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
+	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "adaptive-plan";
+	__test_resetCap(8);
+	let runId: string | undefined;
+	try {
+		const run = await handleTeamTool({ action: "run", team: "default", goal: "adaptive default smoke" }, { cwd });
+		assert.equal(run.isError, false);
+		runId = run.details.runId;
+		assert.ok(runId);
+		const loaded = loadRunManifestById(cwd, runId);
+		// The mock plan's analyst role is not on the default team — the repair
+		// path drops that task and keeps the rest; injection must still happen.
+		const adaptiveTasks = (loaded?.tasks ?? []).filter((task) => task.stepId?.startsWith("adaptive-"));
+		assert.ok(adaptiveTasks.length > 0, "planner output injected as concrete goal-derived tasks");
+		const events = readEvents(loaded!.manifest.eventsPath);
+		assert.ok(events.some((event) => event.type === "adaptive.plan_injected"));
+	} finally {
+		if (runId) unregisterActiveRun(runId);
+		restoreEnv("PI_TEAMS_EXECUTE_WORKERS", previousExecute);
+		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});

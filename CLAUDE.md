@@ -100,7 +100,7 @@ State layer
 
 ### Built-in Teams
 
-- `default` — explore → plan → execute → verify
+- `default` — adaptive: planner breaks the goal into concrete tasks, executes them in parallel phases, verifies
 - `fast-fix` — explore → execute → verify (bug fixes)
 - `implementation` — adaptive planner fanout for multi-file work
 - `review` — explore → code-review → security-review → verify

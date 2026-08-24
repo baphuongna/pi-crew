@@ -34,7 +34,9 @@ test("team run creates durable artifacts and status", async () => {
 		assert.ok(fs.existsSync(path.join(stateRoot, "tasks.json")));
 		assert.ok(fs.existsSync(path.join(stateRoot, "events.jsonl")));
 		assert.ok(fs.existsSync(path.join(artifactsRoot, "goal.md")));
-		assert.ok(fs.existsSync(path.join(artifactsRoot, "prompts", "01_explore.md")));
+		// The default workflow is adaptive: its one static step is the planner
+		// (`assess`); the rest of the plan is goal-derived at runtime.
+		assert.ok(fs.existsSync(path.join(artifactsRoot, "prompts", "01_assess.md")));
 
 		const loaded = loadRunManifestById(cwd, runId!);
 		assert.equal(loaded?.manifest.runtimeResolution?.kind, "scaffold");

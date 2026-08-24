@@ -368,6 +368,11 @@ export interface InjectAdaptivePlanInput {
 	tasks: TeamTaskState[];
 	workflow: WorkflowConfig;
 	team: TeamConfig;
+	/** False for scaffold (dry-run) runs: the planner never executes, so there
+	 *  is no plan to inject — and no plan to be missing. Reports neutral
+	 *  (neither injected nor missing) so the preview completes instead of
+	 *  blocking on a plan a dry-run can never produce. */
+	executeWorkers?: boolean;
 }
 
 export interface InjectAdaptivePlanResult {
@@ -377,8 +382,18 @@ export interface InjectAdaptivePlanResult {
 	missingPlan: boolean;
 }
 
+/**
+ * True for workflows whose `assess` step emits a plan the runtime injects as
+ * concrete tasks. The `implementation` workflow is adaptive by name (historic
+ * hard-code, kept for backward compat); any other workflow opts in via
+ * frontmatter `adaptive: true`.
+ */
+export function isAdaptiveWorkflow(workflow: WorkflowConfig): boolean {
+	return workflow.adaptive === true || workflow.name === "implementation";
+}
+
 export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput): Promise<InjectAdaptivePlanResult> {
-	if (input.workflow.name !== "implementation")
+	if (!isAdaptiveWorkflow(input.workflow) || input.executeWorkers === false)
 		return {
 			tasks: input.tasks,
 			workflow: input.workflow,
@@ -504,11 +519,22 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 			const itemId = `adaptive-p${phaseIndex + 1}-t${taskIndex + 1}`;
 			const stepId = `adaptive-${phaseIndex + 1}-${taskIndex + 1}-${slug(planned.role)}`;
 			const taskId = `adaptive-${String(counter).padStart(2, "0")}-${slug(planned.role)}`;
+			// Same display contract as static workflow steps: the planner's
+			// title (or the task text's first line) names the task; the full
+			// task text is the description for detail surfaces. Never the bare
+			// stepId — the task list is the plan, not an id roster.
+			const firstLine =
+				planned.task
+					.split("\n")
+					.map((line) => line.trim())
+					.filter(Boolean)
+					.find((line) => !line.startsWith("#")) ?? "";
+			const title = (planned.title ?? firstLine ?? stepId).slice(0, 120);
 			phaseItemIds.push(itemId);
 			planItems.push({
 				id: itemId,
 				ref: stepId,
-				title: planned.title ?? planned.task.slice(0, 80),
+				title,
 				taskIds: [],
 				specIds: [],
 				acceptance: [],
@@ -527,7 +553,8 @@ export async function injectAdaptivePlanIfReady(input: InjectAdaptivePlanInput):
 				stepId,
 				role: planned.role,
 				agent: input.team.roles.find((role) => role.name === planned.role)?.agent ?? planned.role,
-				title: planned.title ?? stepId,
+				title,
+				description: planned.task !== title ? planned.task : undefined,
 				status: "queued",
 				dependsOn: previousStepIds,
 				cwd: input.manifest.cwd,

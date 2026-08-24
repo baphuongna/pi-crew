@@ -191,6 +191,7 @@ function parseWorkflowFile(filePath: string, source: ResourceSource): WorkflowCo
 			topology: parseTopology(frontmatter.topology),
 			coalesceMicroTasks: parseOptionalBoolean(frontmatter.coalesceMicroTasks),
 			specStrict: parseOptionalBoolean(frontmatter.specStrict),
+			adaptive: parseOptionalBoolean(frontmatter.adaptive),
 			steps,
 		};
 	} catch {
