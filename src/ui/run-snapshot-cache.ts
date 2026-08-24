@@ -193,9 +193,18 @@ function sameStamps(a: SnapshotStamps, b: SnapshotStamps): boolean {
 	);
 }
 
-/** Tail-read JSONL lines from a file, returning parsed objects (limited). */
-function tailJsonlLines<T>(filePath: string, limit: number, parse: (line: string) => T | undefined): T[] {
-	if (limit <= 0) return [];
+/** Raw tail-window of a file: split lines plus whether the window clipped content. */
+interface TailContent {
+	lines: string[];
+	approximate: boolean;
+}
+
+/**
+ * PERF (2026-08-24): single tail read of a file, shareable across consumers.
+ * `approximate` mirrors the old tailApproximate() stat (size > MAX_TAIL_BYTES)
+ * so callers keep reporting clipped mailboxes without re-statting.
+ */
+function readTailContent(filePath: string): TailContent {
 	try {
 		const stat = fs.statSync(filePath);
 		const bytesToRead = Math.min(stat.size, MAX_TAIL_BYTES);
@@ -203,19 +212,33 @@ function tailJsonlLines<T>(filePath: string, limit: number, parse: (line: string
 		try {
 			const buffer = Buffer.alloc(bytesToRead);
 			fs.readSync(fd, buffer, 0, bytesToRead, stat.size - bytesToRead);
-			const lines = buffer.toString("utf-8").split(/\r?\n/).filter(Boolean);
-			return lines
-				.flatMap((line) => {
-					const item = parse(line);
-					return item ? [item] : [];
-				})
-				.slice(-limit);
+			return {
+				lines: buffer.toString("utf-8").split(/\r?\n/).filter(Boolean),
+				approximate: stat.size > MAX_TAIL_BYTES,
+			};
 		} finally {
 			fs.closeSync(fd);
 		}
 	} catch {
-		return [];
+		return { lines: [], approximate: false };
 	}
+}
+
+/** Parse pre-read tail lines, keeping the last `limit` parseable items. */
+function parseTailLines<T>(lines: string[], limit: number, parse: (line: string) => T | undefined): T[] {
+	if (limit <= 0) return [];
+	return lines
+		.flatMap((line) => {
+			const item = parse(line);
+			return item ? [item] : [];
+		})
+		.slice(-limit);
+}
+
+/** Tail-read JSONL lines from a file, returning parsed objects (limited). */
+function tailJsonlLines<T>(filePath: string, limit: number, parse: (line: string) => T | undefined): T[] {
+	if (limit <= 0) return [];
+	return parseTailLines(readTailContent(filePath).lines, limit, parse);
 }
 
 /** Async tail-read JSONL lines from a file, returning parsed objects (limited). */
@@ -408,8 +431,9 @@ async function readDeliveryMessagesAsync(filePath: string): Promise<Record<strin
 	}
 }
 
-function readGroupJoinMailbox(filePath: string, delivery: Record<string, MailboxMessageStatus>): RunUiGroupJoin[] {
-	return tailJsonlLines(filePath, MAX_TAIL_LINES, (line) => {
+/** Parse pre-read outbox lines into group-join records (ack status from `delivery`). */
+function parseGroupJoinLines(lines: string[], delivery: Record<string, MailboxMessageStatus>): RunUiGroupJoin[] {
+	return parseTailLines(lines, MAX_TAIL_LINES, (line) => {
 		try {
 			const parsed = JSON.parse(line) as unknown;
 			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
@@ -466,14 +490,6 @@ interface MailboxKindCount extends MailboxCount {
 	message: number;
 }
 
-function tailApproximate(filePath: string): boolean {
-	try {
-		return fs.statSync(filePath).size > MAX_TAIL_BYTES;
-	} catch {
-		return false;
-	}
-}
-
 async function tailApproximateAsync(filePath: string): Promise<boolean> {
 	try {
 		return (await fs.promises.stat(filePath)).size > MAX_TAIL_BYTES;
@@ -483,8 +499,13 @@ async function tailApproximateAsync(filePath: string): Promise<boolean> {
 }
 
 function readMailboxCounts(filePath: string, delivery: Record<string, MailboxMessageStatus>): MailboxKindCount {
+	return mailboxCountsFrom(readTailContent(filePath), delivery);
+}
+
+/** Count unread/pending by kind from a pre-read tail window (shared outbox read). */
+function mailboxCountsFrom(tail: TailContent, delivery: Record<string, MailboxMessageStatus>): MailboxKindCount {
 	const kindCounts = { steer: 0, followUp: 0, response: 0, message: 0 };
-	const items = tailJsonlLines(filePath, MAX_TAIL_LINES, (line) => {
+	const items = parseTailLines(tail.lines, MAX_TAIL_LINES, (line) => {
 		try {
 			const parsed = JSON.parse(line) as unknown;
 			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return 0;
@@ -516,7 +537,7 @@ function readMailboxCounts(filePath: string, delivery: Record<string, MailboxMes
 	const count = items.reduce((sum, val) => sum + val, 0);
 	return {
 		count,
-		approximate: tailApproximate(filePath),
+		approximate: tail.approximate,
 		steer: kindCounts.steer,
 		followUp: kindCounts.followUp,
 		response: kindCounts.response,
@@ -566,10 +587,12 @@ async function readMailboxCountsAsync(filePath: string, delivery: Record<string,
 	};
 }
 
-function groupJoinsFrom(manifest: TeamRunManifest): RunUiGroupJoin[] {
-	const root = path.join(manifest.stateRoot, "mailbox");
-	const delivery = readDeliveryMessages(path.join(root, "delivery.json"));
-	return readGroupJoinMailbox(path.join(root, "outbox.jsonl"), delivery).slice(-5);
+function groupJoinsFrom(
+	manifest: TeamRunManifest,
+	delivery: Record<string, MailboxMessageStatus>,
+	outboxTail: TailContent,
+): RunUiGroupJoin[] {
+	return parseGroupJoinLines(outboxTail.lines, delivery).slice(-5);
 }
 
 async function groupJoinsFromAsync(manifest: TeamRunManifest): Promise<RunUiGroupJoin[]> {
@@ -589,11 +612,15 @@ function mergeKindCounts(a: MailboxKindCount, b: MailboxKindCount): MailboxKindC
 	};
 }
 
-function mailboxFrom(manifest: TeamRunManifest, agents: CrewAgentRecord[]): RunUiMailbox {
+function mailboxFrom(
+	manifest: TeamRunManifest,
+	agents: CrewAgentRecord[],
+	delivery: Record<string, MailboxMessageStatus>,
+	outboxTail: TailContent,
+): RunUiMailbox {
 	const root = path.join(manifest.stateRoot, "mailbox");
-	const delivery = readDeliveryMessages(path.join(root, "delivery.json"));
 	let inbox = readMailboxCounts(path.join(root, "inbox.jsonl"), delivery);
-	let outbox = readMailboxCounts(path.join(root, "outbox.jsonl"), delivery);
+	let outbox = mailboxCountsFrom(outboxTail, delivery);
 	const tasksRoot = path.join(root, "tasks");
 	try {
 		for (const entry of fs.readdirSync(tasksRoot, {
@@ -867,8 +894,14 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			if (previous) return previous;
 			throw new Error(`Run '${runId}' could not be parsed.`);
 		}
-		const mailbox = mailboxFrom(loaded.manifest, agents);
-		const groupJoins = groupJoinsFrom(loaded.manifest);
+		// PERF (2026-08-24): mailboxFrom and groupJoinsFrom each parsed
+		// delivery.json and tailed outbox.jsonl — read both once here and
+		// thread the results into both consumers.
+		const mailboxRoot = path.join(loaded.manifest.stateRoot, "mailbox");
+		const delivery = readDeliveryMessages(path.join(mailboxRoot, "delivery.json"));
+		const outboxTail = readTailContent(path.join(mailboxRoot, "outbox.jsonl"));
+		const mailbox = mailboxFrom(loaded.manifest, agents, delivery, outboxTail);
+		const groupJoins = groupJoinsFrom(loaded.manifest, delivery, outboxTail);
 		const recentEvents = safeRecentEvents(loaded.manifest.eventsPath, recentEventsLimit);
 		const base = {
 			runId: loaded.manifest.runId,

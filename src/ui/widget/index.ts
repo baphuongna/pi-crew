@@ -177,6 +177,14 @@ class CrewWidgetComponent implements WidgetComponent {
 	private cachedWidth = 0;
 	private cachedLines: string[] = [];
 	private cachedBaseLines: string[] = [];
+	/**
+	 * PERF (2026-08-24): truncate at build time, re-truncate only on width
+	 * change — cache hits returned a fresh array + ANSI-aware width measurement
+	 * per line on every frame. `cachedLines` stays raw (unclipped) so a width
+	 * change can re-clip without a full rebuild; -1 marks "not truncated yet".
+	 */
+	private truncatedLines: string[] = [];
+	private lastTruncateWidth = -1;
 	private cachedTheme: CrewTheme;
 	private readonly tui: unknown;
 	private readonly unsubscribeTheme: () => void;
@@ -274,8 +282,21 @@ class CrewWidgetComponent implements WidgetComponent {
 		this.cacheSignature = "";
 		this.cachedBaseLines = [];
 		this.cachedLines = [];
+		this.truncatedLines = [];
+		this.lastTruncateWidth = -1;
 		this.cachedBuildSignature = "";
 		this.cachedBuildSignatureAt = 0;
+	}
+
+	/**
+	 * PERF (2026-08-24): clip `cachedLines` to `width` only when the width
+	 * changed since the last clip — the raw lines are stored unclipped so a
+	 * resize re-clips them without rebuilding the whole cache.
+	 */
+	private ensureTruncated(width: number): void {
+		if (width === this.lastTruncateWidth) return;
+		this.truncatedLines = this.cachedLines.map((line) => truncate(line, width));
+		this.lastTruncateWidth = width;
 	}
 
 	/** Poke the host TUI to repaint immediately (defensive: no-op if unavailable). */
@@ -326,12 +347,14 @@ class CrewWidgetComponent implements WidgetComponent {
 				this.cachedWidth = width;
 				this.cachedTheme = this.theme;
 				this.cacheSignature = signature;
+				this.lastTruncateWidth = -1;
 			}
 			if (runs.length === 0) {
 				this.invalidate();
 				return [];
 			}
-			return this.cachedLines.map((line) => truncate(line, width));
+			this.ensureTruncated(width);
+			return this.truncatedLines;
 		}
 
 		// Panel cursor/pane state is part of the rendered output, so it belongs in
@@ -361,6 +384,7 @@ class CrewWidgetComponent implements WidgetComponent {
 			this.cachedWidth = width;
 			this.cachedTheme = this.theme;
 			this.cacheSignature = signatureWithPanel;
+			this.lastTruncateWidth = -1;
 		}
 
 		if (runs.length === 0) {
@@ -373,11 +397,13 @@ class CrewWidgetComponent implements WidgetComponent {
 			return [];
 		}
 
+		this.ensureTruncated(width);
 		if (!compactDock) {
 			const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
 			this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
+			this.truncatedLines[0] = truncate(this.cachedLines[0], width);
 		}
-		return this.cachedLines.map((line) => truncate(line, width));
+		return this.truncatedLines;
 	}
 }
 

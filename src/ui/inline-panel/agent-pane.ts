@@ -371,5 +371,8 @@ export class CrewAgentPane {
 		this.unsubscribePanel();
 		this.cachedManifest = undefined;
 		this.cachedRunId = undefined;
+		// Free the per-task transcript ring buffer (≤500 items with full
+		// message bodies) instead of retaining it for process lifetime.
+		if (this.currentTaskId) resetAgentTranscriptCursor(this.currentTaskId);
 	}
 }

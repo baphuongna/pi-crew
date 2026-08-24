@@ -676,7 +676,11 @@ export class RunDashboard implements DashboardComponent {
 			const innerWidth = Math.max(20, width - 4);
 			const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
 			const fg = (color: Parameters<CrewTheme["fg"]>[0], text: string) => this.theme.fg(color, text);
-			const borderFill = (count: number) => new DynamicCrewBorder(this.theme).render(count)[0];
+			// PERF (2026-08-24): DynamicCrewBorder caches the rendered fill per
+			// instance — a new instance per line defeated it. One per render
+			// pass; every border()/sep() call below reuses the cached line.
+			const crewBorder = new DynamicCrewBorder(this.theme);
+			const borderFill = (count: number) => crewBorder.render(count)[0];
 			const border = (left: string, right: string) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
 			const row = (text: string) => `│ ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}│`;
 			const sep = () => border("├", "┤");
