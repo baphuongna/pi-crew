@@ -869,19 +869,31 @@ export class CrewBroker {
 		const fromField = conn.taskId ?? conn.runId;
 		let durable = false;
 		try {
-			for (const recipient of recipients) {
-				await appendMailboxMessageAsync(manifest, {
-					id: `${messageId}_${recipient}`,
-					direction: "inbox",
-					from: fromField,
-					to: recipient,
-					taskId: recipient,
-					body: bodyJson,
-					kind: parsed.kind ?? "message",
-					priority: parsed.priority ?? "normal",
-					deliveryMode: "next_turn",
-					replyTo: parsed.replyTo,
-				});
+			// PERF (2026-08-24): to:"all" with 50 tasks used to run 50 sequential
+			// awaited locked appends (~70 syscalls + 2 fsync each) while the
+			// connection's frames queued behind it. Chunked fan-out — independent
+			// mailbox files append concurrently; delivery.json stays serialized by
+			// its own lock.
+			const CHUNK = 8;
+			for (let i = 0; i < recipients.length; i += CHUNK) {
+				const results = await Promise.allSettled(
+					recipients.slice(i, i + CHUNK).map((recipient) =>
+						appendMailboxMessageAsync(manifest, {
+							id: `${messageId}_${recipient}`,
+							direction: "inbox",
+							from: fromField,
+							to: recipient,
+							taskId: recipient,
+							body: bodyJson,
+							kind: parsed.kind ?? "message",
+							priority: parsed.priority ?? "normal",
+							deliveryMode: "next_turn",
+							replyTo: parsed.replyTo,
+						}),
+					),
+				);
+				const failure = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+				if (failure) throw failure.reason;
 			}
 			durable = true;
 		} catch (err) {

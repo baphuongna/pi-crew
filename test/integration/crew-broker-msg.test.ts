@@ -264,3 +264,54 @@ test("messaging: broadcast 'all' reaches every task recipient", async () => {
 		await fx.cleanup();
 	}
 });
+
+test("messaging: msg.send to:[a,b,c] — all three task inboxes get the message with distinct ids", async () => {
+	const fx = await makeMsgFixture();
+	try {
+		const taskIdA = fx.taskIds[0];
+		const a = await connectClient({ runId: fx.runId, taskId: taskIdA, token: fx.token, socketPath: fx.broker.socketPath });
+		try {
+			const recipients = ["worker-a", "worker-b", "worker-c"];
+			const result = await a.request("msg.send", { to: recipients, body: { fanout: true } });
+			assert.equal(result.ok, true, "msg.send fan-out should succeed: " + JSON.stringify(result));
+			let messageId = "";
+			if (result.ok === true) {
+				const v = result.value as { messageId: string; recipientCount: number; durableStatus: string };
+				assert.equal(v.recipientCount, 3);
+				assert.equal(v.durableStatus, "ok");
+				assert.ok(v.messageId.startsWith("msg_"));
+				messageId = v.messageId;
+			}
+			// Every recipient task inbox file holds exactly the one message,
+			// keyed by messageId + recipient suffix (distinct per recipient).
+			const loaded = loadRunManifestById(fx.cwd, fx.runId)!;
+			const stateRoot = loaded.manifest.stateRoot;
+			const ids: string[] = [];
+			for (const recipient of recipients) {
+				const inboxPath = path.join(stateRoot, "mailbox", "tasks", recipient, "inbox.jsonl");
+				assert.ok(fs.existsSync(inboxPath), `expected inbox.jsonl for ${recipient} at ${inboxPath}`);
+				const lines = fs.readFileSync(inboxPath, "utf-8").split("\n").filter(Boolean);
+				assert.equal(lines.length, 1, `expected exactly 1 message in ${recipient}'s inbox`);
+				const msg = JSON.parse(lines[0]) as { id: string; to: string; taskId: string; body: string };
+				assert.equal(msg.id, `${messageId}_${recipient}`, `id should be messageId + recipient suffix`);
+				assert.equal(msg.to, recipient);
+				assert.equal(msg.taskId, recipient);
+				assert.equal(msg.body, JSON.stringify({ fanout: true }));
+				ids.push(msg.id);
+			}
+			assert.equal(new Set(ids).size, 3, "per-recipient ids must be distinct");
+			// The shared delivery.json RMW must hold all three entries — proves no
+			// lost update under the chunked concurrent fan-out.
+			const delivery = JSON.parse(fs.readFileSync(path.join(stateRoot, "mailbox", "delivery.json"), "utf-8")) as {
+				messages: Record<string, string>;
+			};
+			for (const id of ids) {
+				assert.equal(delivery.messages[id], "queued", `delivery.json should record ${id} as queued`);
+			}
+		} finally {
+			await a.close();
+		}
+	} finally {
+		await fx.cleanup();
+	}
+});
