@@ -4,6 +4,12 @@ export const ANSI_PATTERN = /\u001b\[[0-?]*[ -/]*[@-~]/g;
 
 const WIDTH_CACHE_LIMIT = 256;
 const widthCache = new Map<string, number>();
+// PERF (2026-08-24): truncateToWidth/wrapHard measure ONE codepoint at a time;
+// those 1-2 char keys thrashed the 256-entry LRU, evicting every long-string
+// entry that could actually hit. Short keys get their own cache (bounded
+// alphabet — hit rate ~100%) so the LRU serves only whole lines/segments.
+const SHORT_WIDTH_CACHE_LIMIT = 1024;
+const shortWidthCache = new Map<string, number>();
 
 // NOTE: width measurement is delegated to pi-tui's `visibleWidth` (see below).
 // pi-tui is the renderer that HARD-ABORTS the session if any line exceeds the
@@ -20,6 +26,17 @@ export function visibleWidth(value: string): number {
 	// LRU cache on top (pi-tui caches too, but this avoids repeated calls for the
 	// hot render path).
 	if (value.length > 4096) return tuiVisibleWidth(value);
+	if (value.length <= 2) {
+		const s = shortWidthCache.get(value);
+		if (s !== undefined) return s;
+		const w = tuiVisibleWidth(value);
+		if (shortWidthCache.size >= SHORT_WIDTH_CACHE_LIMIT) {
+			const first = shortWidthCache.keys().next().value;
+			if (first !== undefined) shortWidthCache.delete(first);
+		}
+		shortWidthCache.set(value, w);
+		return w;
+	}
 	const cached = widthCache.get(value);
 	if (cached !== undefined) return cached;
 	const length = tuiVisibleWidth(value);
@@ -33,6 +50,7 @@ export function visibleWidth(value: string): number {
 
 export function __test__clearVisibleWidthCache(): void {
 	widthCache.clear();
+	shortWidthCache.clear();
 }
 
 export function __test__visibleWidthCacheSize(): number {

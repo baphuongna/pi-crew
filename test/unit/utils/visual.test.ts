@@ -67,3 +67,12 @@ test("truncate yields a line whose visibleWidth fits the cap when the line conta
 	const t = truncate(padded, 159);
 	assert.ok(visibleWidth(t) <= 159, `truncate must fit the cap, got visibleWidth=${visibleWidth(t)}`);
 });
+
+test("short segments use a dedicated cache and do not evict long-string entries", () => {
+	__test__clearVisibleWidthCache();
+	visibleWidth("a"); // short cache
+	visibleWidth("some long string used for the long entry cache");
+	assert.equal(__test__visibleWidthCacheSize(), 1); // only the long entry
+	assert.equal(visibleWidth("⏳"), 2); // matches pi-tui width model
+	assert.equal(visibleWidth("a"), 1); // still correct on repeat
+});
