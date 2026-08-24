@@ -2,7 +2,7 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
-## [Unreleased] — UI rewrite + adaptive default team (post-v0.10.1)
+## [0.10.2] — UI rewrite + adaptive default team (2026-08-24)
 
 40 commits after `v0.10.1` (≈3,500 LOC, 54 files). Headline: the UI surface
 goes from "two modal overlays + status widget" to a proper in-document

@@ -291,7 +291,7 @@ The advisory is **informational only** — there is no `force:true` flag needed 
 
 ## Recent changes
 
-### Unreleased: UI rewrite + adaptive default team (post-v0.10.1)
+### v0.10.2: UI rewrite + adaptive default team (2026-08-24)
 
 40 commits after `v0.10.1` (≈3,500 LOC, 54 files). Headline: the UI surface
 goes from "two modal overlays + status widget" to a proper in-document
