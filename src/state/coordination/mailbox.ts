@@ -309,8 +309,9 @@ function parseMailboxMessage(raw: unknown, expectedDirection: MailboxDirection):
 	};
 }
 
-function readMailboxFile(filePath: string, direction: MailboxDirection): MailboxMessage[] {
-	if (!fs.existsSync(filePath)) return [];
+/** Raw read+parse of one mailbox JSONL file (extracted verbatim from the old
+ *  readMailboxFile body). Callers go through cachedMailboxRead instead. */
+function parseMailboxFile(filePath: string, direction: MailboxDirection): MailboxMessage[] {
 	const messages: MailboxMessage[] = [];
 	const raw = fs.readFileSync(filePath, "utf-8");
 	for (const line of raw.split(/\r?\n/).filter(Boolean)) {
@@ -324,18 +325,50 @@ function readMailboxFile(filePath: string, direction: MailboxDirection): Mailbox
 	return messages;
 }
 
+// PERF (2026-08-24): parked workers poll all mailboxes every 500ms and used to
+// read+parse every file each tick. Parse results are now memoized per file by
+// (mtime, size); append/rotate change mtime so invalidation is automatic.
+// Entries hold the parsed array; readers get a shallow copy (array of refs) —
+// 100x cheaper than re-reading, and callers never mutate message objects.
+const mailboxParseCache = new Map<string, { mtimeMs: number; size: number; messages: MailboxMessage[] }>();
+const MAILBOX_PARSE_CACHE_MAX = 128;
+function cachedMailboxRead(filePath: string, direction: MailboxDirection): MailboxMessage[] {
+	let stat: fs.Stats;
+	try {
+		stat = fs.statSync(filePath);
+	} catch {
+		// Missing (or vanished, e.g. pruned archive) → drop any stale entry.
+		mailboxParseCache.delete(filePath);
+		return [];
+	}
+	const hit = mailboxParseCache.get(filePath);
+	if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.messages.slice();
+	const messages = parseMailboxFile(filePath, direction);
+	if (mailboxParseCache.size >= MAILBOX_PARSE_CACHE_MAX) {
+		const oldest = mailboxParseCache.keys().next().value;
+		if (oldest !== undefined) mailboxParseCache.delete(oldest);
+	}
+	mailboxParseCache.set(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, messages });
+	return messages.slice();
+}
+
 function safeReadMailboxFile(filePath: string, direction: MailboxDirection): MailboxMessage[] {
-	if (!fs.existsSync(filePath)) return [];
-	const messages: MailboxMessage[] = readMailboxFile(filePath, direction);
+	// PERF: stat-gated primary read — ENOENT is handled inside cachedMailboxRead.
+	const messages = cachedMailboxRead(filePath, direction);
 	// 3.3 — also include any rotated archive files alongside the live file.
 	// Archive naming: `<filename>.<isoTimestamp>.archive.jsonl`.
+	// PERF: archives are immutable once written (rotation only ever creates
+	// new ones — see rotateMailboxFileIfNeeded's rename + atomicWriteFile
+	// sequence), so they route through cachedMailboxRead too and permanently
+	// hit after the first parse. pruneOldMailboxArchives deleting an archive
+	// is covered by cachedMailboxRead's ENOENT → cache-delete branch.
 	try {
 		const dir = path.dirname(filePath);
 		const base = path.basename(filePath);
 		for (const entry of fs.readdirSync(dir)) {
 			if (!entry.startsWith(`${base}.`) || !entry.endsWith(".archive.jsonl")) continue;
 			const archivePath = path.join(dir, entry);
-			messages.push(...readMailboxFile(archivePath, direction));
+			messages.push(...cachedMailboxRead(archivePath, direction));
 		}
 	} catch {
 		// Directory missing — nothing to read.
