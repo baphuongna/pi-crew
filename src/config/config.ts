@@ -380,12 +380,15 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 		},
 		warnings: warnings.length > 0 ? warnings : undefined,
 	};
+	// PERF (2026-08-24): readCacheMtimes stats up to 4 files per call and ran
+	// twice back-to-back here (guard + store). Compute once.
+	const storeMtimes = readCacheMtimes(cacheParts);
 	// Only cache when at least one of the watched paths exists — this avoids
 	// pinning stale empty results when a user later creates one of these files
 	// in the cache window. mtime stat below picks up the new file (it appears
 	// in currentMtimes but not in cached.mtimes) and triggers a re-parse.
-	if (Object.keys(readCacheMtimes(cacheParts)).length > 0) {
-		setConfigCache(cacheKey, result, readCacheMtimes(cacheParts));
+	if (Object.keys(storeMtimes).length > 0) {
+		setConfigCache(cacheKey, result, storeMtimes);
 	}
 	return result;
 }
