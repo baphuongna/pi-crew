@@ -9,10 +9,10 @@ import type { TeamRunManifest, TeamTaskState, UsageState } from "../../state/typ
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";
 import type { WorkflowStep } from "../../workflows/workflow-config.ts";
+import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
 import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
-import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import {
 	availableModelInfosFromRegistry,
 	buildConfiguredModelRouting,

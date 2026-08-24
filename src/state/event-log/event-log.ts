@@ -12,8 +12,8 @@ import { applyCompactionUnlocked, needsRotation, prepareCompaction, rotateEventL
 import {
 	advanceSequenceCounter,
 	persistSequenceMonotonic,
-	reserveSequence,
 	reservedSequenceEnd,
+	reserveSequence,
 	reserveSequenceUnderLockAsync,
 } from "./sequence-cache.ts";
 import { appendFileViaWorker, isWorkerAtomicWriterEnabled } from "./worker-atomic-writer.ts";
