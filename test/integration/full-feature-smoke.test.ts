@@ -805,6 +805,13 @@ test("G8: scheduled lists scheduled jobs", async () => {
 
 test("G9: run with default team", async () => {
 	setup();
+	// The post-v0.10.1 default workflow is adaptive (single `assess` step →
+	// ADAPTIVE_PLAN_JSON). The default `json-success` mock emits only plain
+	// text, so the planner task stays un-progressed and the run ends in
+	// `blocked`. Switch the mock to `adaptive-plan` for this test only —
+	// the planner emits a valid plan and the downstream mock workers emit
+	// the plain json-success text, so the run reaches `completed`.
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "adaptive-plan";
 	try {
 		const res = await tool({
 			action: "run",
