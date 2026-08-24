@@ -50,13 +50,6 @@ export function persistSingleTaskUpdate(
 	// not help either — the explicit error below surfaces it instead of
 	// blocking the event loop for 500ms.
 	const MAX_CAS_ATTEMPTS = 10;
-	let baseMtime = 0;
-	try {
-		baseMtime = fs.statSync(manifest.tasksPath).mtimeMs;
-	} catch {
-		// File doesn't exist yet — baseMtime=0 means "anything is fine"
-		baseMtime = 0;
-	}
 
 	let merged: TeamTaskState[] | undefined;
 
@@ -74,15 +67,25 @@ export function persistSingleTaskUpdate(
 	try {
 		return withRunLockSync(manifest, () => {
 			for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
-				// F4: persistSingleTaskUpdate now uses saveRunTasksCoalesced below
-				// (50ms debounce window). Read-modify-write loops are unsafe under
-				// coalescing — a parallel writer's buffered write is invisible to
-				// loadRunManifestById until it actually lands. Force any pending
-				// coalesced writes to flush first so this read sees the latest
-				// durable state. Without this guard, a parallel writer could
-				// overwrite our buffered write between our load and our (async)
-				// fsync, silently losing the intermediate update.
-				flushPendingAtomicWrites();
+				// PERF (2026-08-24): scoped flush — only force OUR tasks.json pending
+				// write to land. The old argument-less call drained every pending
+				// coalesced write process-wide (other runs, agents.json 250ms window)
+				// on every persist (~30x/s), defeating coalescing globally. The F4
+				// invariant only needs tasks.json durable before this read.
+				flushPendingAtomicWrites(manifest.tasksPath);
+				// PERF (2026-08-24): capture the CAS baseline INSIDE the lock, after
+				// the flush, immediately before the load. The old pre-lock stat almost
+				// always disagreed with the in-lock stat under 10 parallel writers
+				// (mtime moved between function entry and lock acquisition), forcing
+				// 2+ full flush+load cycles per call. In-lock capture makes retry mean
+				// exactly: "a cross-process writer committed between our load and our
+				// pre-write stat" — the only race the CAS can actually catch.
+				let baseMtime: number;
+				try {
+					baseMtime = fs.statSync(manifest.tasksPath).mtimeMs;
+				} catch {
+					baseMtime = 0;
+				}
 				// BUG-028 (2026-08-16): ALWAYS load the committed tasks from disk
 				// inside the lock — never trust fallbackTasks on attempt 0. The
 				// old F4 perf shortcut assumed "the caller already obtained the
@@ -121,8 +124,8 @@ export function persistSingleTaskUpdate(
 				}
 
 				if (currentMtime !== baseMtime) {
-					// Another writer committed — their update is in latest, re-merge on top
-					baseMtime = currentMtime;
+					// Another writer committed between our in-lock baseline and this
+					// stat — retry; the next iteration recaptures the baseline fresh.
 					continue;
 				}
 

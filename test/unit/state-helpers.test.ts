@@ -15,7 +15,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { persistSingleTaskUpdate } from "../../src/runtime/task-runner/state-helpers.ts";
-import { flushPendingAtomicWrites } from "../../src/state/atomic-write.ts";
+import { atomicWriteJsonCoalesced, flushPendingAtomicWrites } from "../../src/state/atomic-write.ts";
 import { __test__clearManifestCache, createRunManifest, loadRunManifestById } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
@@ -138,4 +138,21 @@ test("FIX-01b: persistSingleTaskUpdate logInternalError calls upgraded to severi
 		errorSeverityCount >= 3,
 		`expected at least 3 logInternalError calls with severity='error' in persistSingleTaskUpdate, found ${errorSeverityCount}`,
 	);
+});
+
+test("persistSingleTaskUpdate does not drain unrelated coalesced writes (scoped flush)", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-scoped-flush-"));
+	try {
+		fs.mkdirSync(path.join(dir, ".git"), { recursive: true });
+		const created = createRunManifest({ cwd: dir, team, workflow, goal: "test scoped flush" });
+		const baseTask = created.tasks[0];
+		const unrelated = path.join(dir, "agents.json");
+		atomicWriteJsonCoalesced(unrelated, { hello: 1 }, 10_000); // long coalesce window
+		persistSingleTaskUpdate(created.manifest, [], { ...baseTask, id: "t1", status: "running" });
+		assert.equal(fs.existsSync(unrelated), false, "unrelated coalesced write must still be buffered, not flushed");
+		flushPendingAtomicWrites(unrelated);
+		assert.equal(JSON.parse(fs.readFileSync(unrelated, "utf-8")).hello, 1);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
 });
