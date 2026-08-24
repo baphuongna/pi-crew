@@ -42,6 +42,65 @@ export function getHooks(name: HookName): HookDefinition[] {
 	return registry.get(name) ?? [];
 }
 
+// PERF (2026-08-24): constant sanitizer state hoisted to module scope — it was
+// rebuilt (13 normalize+toLowerCase + Set + 3 closures) on EVERY hook execution.
+const POLLUTED_KEYS = new Set(
+	[
+		"__proto__",
+		"constructor",
+		"prototype",
+		"hasOwnProperty",
+		"toString",
+		"valueOf",
+		"isPrototypeOf",
+		"propertyIsEnumerable",
+		"__defineGetter__",
+		"__defineSetter__",
+		"__lookupGetter__",
+		"__lookupSetter__",
+	].map((k) => k.toLowerCase().normalize("NFKC")),
+);
+function sanitizeMergeData(data: Record<string, unknown>): Record<string, unknown> {
+	const clean: Record<string, unknown> = {};
+	for (const [k, v] of Object.entries(data)) {
+		if (!POLLUTED_KEYS.has(k.toLowerCase().normalize("NFKC"))) {
+			if (v !== null && typeof v === "object") {
+				if (Array.isArray(v)) {
+					// Sanitize array elements that are objects
+					clean[k] = v.map((item) =>
+						item !== null && typeof item === "object" && !Array.isArray(item)
+							? sanitizeMergeData(item as Record<string, unknown>)
+							: item,
+					);
+				} else {
+					clean[k] = sanitizeMergeData(v as Record<string, unknown>);
+				}
+			} else {
+				clean[k] = v;
+			}
+		}
+	}
+	return clean;
+}
+// Sanitize ctx by stripping dangerous property names before passing to handlers.
+// Hook authors must NOT set these keys directly on ctx: [...POLLUTED_KEYS]
+// This sanitization runs at the start of executeHook to prevent prototype pollution attacks.
+function sanitizeContext(ctx: HookContext): HookContext {
+	for (const key of Object.keys(ctx)) {
+		if (POLLUTED_KEYS.has(key.toLowerCase().normalize("NFKC"))) {
+			delete ctx[key];
+		}
+	}
+	return ctx;
+}
+function sanitizeErrorMessage(message: string): string {
+	// Remove file paths, environment variable references, and other potentially sensitive data
+	return message
+		.replace(/\/[^:\s]+/g, "[path]")
+		.replace(/\b[A-Z_0-9]+\s*=/g, "[env]")
+		.replace(/\b\d+\.\d+\.\d+\.\d+\b/g, "[ip]");
+}
+
 export async function executeHook(name: HookName, ctx: HookContext): Promise<HookExecutionReport> {
 	const hooks = getHooks(name);
 	if (hooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
@@ -62,62 +121,6 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 		return ctx.includeGlobalHooks !== false;
 	});
 	if (scopedHooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
-	const POLLUTED_KEYS = new Set(
-		[
-			"__proto__",
-			"constructor",
-			"prototype",
-			"hasOwnProperty",
-			"toString",
-			"valueOf",
-			"isPrototypeOf",
-			"propertyIsEnumerable",
-			"__defineGetter__",
-			"__defineSetter__",
-			"__lookupGetter__",
-			"__lookupSetter__",
-		].map((k) => k.toLowerCase().normalize("NFKC")),
-	);
-	function sanitizeMergeData(data: Record<string, unknown>): Record<string, unknown> {
-		const clean: Record<string, unknown> = {};
-		for (const [k, v] of Object.entries(data)) {
-			if (!POLLUTED_KEYS.has(k.toLowerCase().normalize("NFKC"))) {
-				if (v !== null && typeof v === "object") {
-					if (Array.isArray(v)) {
-						// Sanitize array elements that are objects
-						clean[k] = v.map((item) =>
-							item !== null && typeof item === "object" && !Array.isArray(item)
-								? sanitizeMergeData(item as Record<string, unknown>)
-								: item,
-						);
-					} else {
-						clean[k] = sanitizeMergeData(v as Record<string, unknown>);
-					}
-				} else {
-					clean[k] = v;
-				}
-			}
-		}
-		return clean;
-	}
-	// Sanitize ctx by stripping dangerous property names before passing to handlers.
-	// Hook authors must NOT set these keys directly on ctx: [...POLLUTED_KEYS]
-	// This sanitization runs at the start of executeHook to prevent prototype pollution attacks.
-	function sanitizeContext(ctx: HookContext): HookContext {
-		for (const key of Object.keys(ctx)) {
-			if (POLLUTED_KEYS.has(key.toLowerCase().normalize("NFKC"))) {
-				delete ctx[key];
-			}
-		}
-		return ctx;
-	}
-	function sanitizeErrorMessage(message: string): string {
-		// Remove file paths, environment variable references, and other potentially sensitive data
-		return message
-			.replace(/\/[^:\s]+/g, "[path]")
-			.replace(/\b[A-Z_0-9]+\s*=/g, "[env]")
-			.replace(/\b\d+\.\d+\.\d+\.\d+\b/g, "[ip]");
-	}
 	const start = Date.now();
 	const diagnostics: string[] = [];
 	let capturedModifications: Record<string, unknown> | undefined;
