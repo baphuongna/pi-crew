@@ -88,3 +88,56 @@ test("appendEvent and appendEventBuffered share the same seq sequence (2.2)", as
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("buffered append leaves .seq sidecar at the flushed last seq (2026-08-24 perf)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-event-sidecar-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	try {
+		// Long buffer so the batch flushes only via flushEventLogBuffer.
+		const promises = [
+			appendEventBuffered(eventsPath, { type: "task.progress", runId: "run-sidecar", taskId: "t0" }, 60_000),
+			appendEventBuffered(eventsPath, { type: "task.progress", runId: "run-sidecar", taskId: "t1" }, 60_000),
+			appendEventBuffered(eventsPath, { type: "task.progress", runId: "run-sidecar", taskId: "t2" }, 60_000),
+		];
+		await flushEventLogBuffer();
+		const results = await Promise.all(promises);
+		const seqs = results.map((r) => r.metadata?.seq ?? -1);
+		const lastSeq = Math.max(...seqs);
+		// The flush's skip-guard (lastSeq covered by reservation → skip the
+		// seqlock round-trip) must still leave the sidecar at the flushed end:
+		// R16-B1 advance-on-reserve persisted it inside the .seqlock.
+		const sidecar = fs.readFileSync(`${eventsPath}.seq`, "utf-8").trim();
+		assert.equal(sidecar, String(lastSeq), `.seq sidecar must equal flushed last seq ${lastSeq}, got ${sidecar}`);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("buffered append with explicit seq beyond the reservation still advances the .seq sidecar (2026-08-24 perf)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-event-sidecar-explicit-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	try {
+		// First item is auto → the batch reserves queue.length slots (1..2);
+		// the second item carries an explicit seq far beyond that range.
+		const promises = [
+			appendEventBuffered(eventsPath, { type: "task.progress", runId: "run-explicit", taskId: "t0" }, 60_000),
+			appendEventBuffered(
+				eventsPath,
+				{ type: "task.progress", runId: "run-explicit", taskId: "t1", metadata: { seq: 5000 } },
+				60_000,
+			),
+		];
+		await flushEventLogBuffer();
+		const results = await Promise.all(promises);
+		const lastSeq = Math.max(...results.map((r) => r.metadata?.seq ?? -1));
+		assert.equal(lastSeq, 5000);
+		// The skip-guard compares against the RESERVATION snapshot (taken before
+		// advanceSequenceCounter raises the in-process counter), so an explicit
+		// seq beyond the reserved range must still persist monotonic — otherwise
+		// a fresh process would re-reserve inside the file's true seq range.
+		const sidecar = fs.readFileSync(`${eventsPath}.seq`, "utf-8").trim();
+		assert.equal(sidecar, "5000", `.seq sidecar must advance to explicit seq 5000, got ${sidecar}`);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});

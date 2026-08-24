@@ -221,10 +221,20 @@ function withSeqLock<T>(eventsPath: string, fn: () => T): T {
 		try {
 			fs.mkdirSync(lockDir);
 			try {
-				// P0-4: the lock pid file is disposable stale-lock state; best-effort.
-				atomicWriteFile(pidFile, String(process.pid), { durability: "best-effort" });
+				// PERF (2026-08-24): "wx" (O_CREAT|O_EXCL) — fails rather than
+				// following a planted symlink, so no O_NOFOLLOW/temp/rename
+				// ceremony needed for this disposable, mtime-stale-detected
+				// 4-byte file. We own the lock dir (we just mkdir'd it), so
+				// EEXIST means a crashed holder's leftover under OUR fresh dir
+				// or an attack — either way, skip: the dir itself is the mutex.
+				const fd = fs.openSync(pidFile, "wx");
+				try {
+					fs.writeSync(fd, String(process.pid));
+				} finally {
+					fs.closeSync(fd);
+				}
 			} catch {
-				/* best-effort */
+				/* best-effort — see withEventLogLockAsync note */
 			}
 			acquired = true;
 		} catch {
@@ -284,6 +294,14 @@ export function persistSequenceMonotonic(eventsPath: string, seq: number): void 
 		const value = Math.max(stored, inProcess, seq);
 		if (value !== stored) persistSequence(eventsPath, value);
 	});
+}
+
+/** PERF (2026-08-24): callers that just reserved a range can skip the lock+read
+ * sidecar round-trip in persistSequenceMonotonic when their value is already
+ * covered by the in-process reservation (R16-B1 advance-on-reserve persisted it
+ * inside the .seqlock at reservation time). */
+export function reservedSequenceEnd(eventsPath: string): number {
+	return seqCounters.get(eventsPath) ?? 0;
 }
 
 // B7: single in-process monotonic sequence counter per eventsPath. The three

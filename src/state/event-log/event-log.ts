@@ -15,6 +15,7 @@ import {
 	MAX_SEQUENCE_CACHE_ENTRIES,
 	persistSequenceMonotonic,
 	reserveSequence,
+	reservedSequenceEnd,
 	reserveSequenceUnderLockAsync,
 	sequenceCache,
 } from "./sequence-cache.ts";
@@ -330,8 +331,18 @@ async function withEventLogLockAsync<T>(
 			try {
 				await fs.promises.mkdir(lockDir);
 				try {
-					// P0-4: the lock pid file is disposable stale-lock state; best-effort.
-					atomicWriteFile(pidFile, String(process.pid), { durability: "best-effort" });
+					// PERF (2026-08-24): "wx" (O_CREAT|O_EXCL) — fails rather than
+					// following a planted symlink, so no O_NOFOLLOW/temp/rename
+					// ceremony needed for this disposable, mtime-stale-detected
+					// 4-byte file. We own the lock dir (we just mkdir'd it), so
+					// EEXIST means a crashed holder's leftover under OUR fresh dir
+					// or an attack — either way, skip: the dir itself is the mutex.
+					const fh = await fs.promises.open(pidFile, "wx");
+					try {
+						await fh.write(String(process.pid));
+					} finally {
+						await fh.close();
+					}
 				} catch {
 					/* best-effort */
 				}
@@ -816,6 +827,13 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 		finalized.push({ item, line: `${JSON.stringify(redactSecrets(fullEvent))}\n`, fullEvent });
 		lastSeq = seq;
 	}
+	// PERF (2026-08-24): snapshot the in-process reservation end BEFORE the B7
+	// advance below — seqCounters is about to be raised to lastSeq, so reading
+	// reservedSequenceEnd() at the persist site would ALWAYS see lastSeq ≤
+	// counter and skip the persist even for explicit seqs the reservation never
+	// covered (sidecar would lag the file → cross-process re-reservation inside
+	// the file's true range — the exact R16-B1 duplicate-seq race).
+	const reservedEnd = reservedSequenceEnd(eventsPath);
 	// B7: advance counter past the entire batch so next reserveSequence returns the correct value.
 	advanceSequenceCounter(eventsPath, lastSeq);
 
@@ -850,7 +868,15 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	// already persisted the batch range end; this covers explicit (pre-assigned)
 	// seqs that may exceed it and can never REGRESS the sidecar (the old bare
 	// persistSequence could write a lower lastSeq over a higher reserved value).
-	persistSequenceMonotonic(eventsPath, lastSeq);
+	// PERF (2026-08-24): R16-B1 advance-on-reserve already persisted the
+	// reserved end inside the .seqlock at reservation time. Re-acquiring
+	// the seqlock (~12 syscalls) to conclude "no write needed" is pure
+	// overhead in the single-writer common case — skip when lastSeq is
+	// covered by the reservation snapshot above; explicit seqs beyond the
+	// reserved range still persist.
+	if (lastSeq > reservedEnd) {
+		persistSequenceMonotonic(eventsPath, lastSeq);
+	}
 
 	// Phase 3: cache update + resolve all promises.
 	try {
