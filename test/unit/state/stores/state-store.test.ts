@@ -20,6 +20,7 @@ import {
 	saveRunManifestAsync,
 	saveRunTasks,
 	saveRunTasksAsync,
+	saveRunTasksCoalesced,
 	unloadRun,
 	updateRunStatus,
 } from "../../../../src/state/stores/state-store.ts";
@@ -336,6 +337,46 @@ test("loadRunManifestById cache invalidates after task save", () => {
 		const loaded2 = loadRunManifestById(cwd, created.manifest.runId);
 		assert.equal(loaded2?.tasks[0]?.status, "running");
 	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+// PERF (2026-08-24): the coalesced save KEEPS the manifest half of the cache
+// entry and zeroes only the tasks stamps. A zeroed stamp can only cause a
+// miss (real on-disk mtime is never 0), so the next load re-reads tasks from
+// disk — never a stale tasks hit — while the manifest half stays stat-verified.
+test("saveRunTasksCoalesced keeps the cache entry and the next load reads the saved tasks", () => {
+	__test__clearManifestCache();
+	const cwd = makeResolvedTempDir("pi-crew-state-cache-keep-");
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		const created = createRunManifest({
+			cwd,
+			team,
+			workflow,
+			goal: "cache keep",
+		});
+		const loaded1 = loadRunManifestById(cwd, created.manifest.runId);
+		assert.equal(loaded1?.tasks[0]?.status, "queued");
+		assert.ok(__test__getManifestCacheEntry(created.paths.stateRoot), "initial load populates the cache");
+
+		const updatedTasks = loaded1?.tasks.map((item) =>
+			item.id === loaded1.tasks[0]?.id ? { ...item, status: "running" as const } : item,
+		);
+		// skipCoalesce=true so the write lands on disk immediately and the
+		// reload below is deterministic.
+		saveRunTasksCoalesced(created.manifest, updatedTasks ?? [], true);
+
+		const kept = __test__getManifestCacheEntry(created.paths.stateRoot);
+		assert.ok(kept, "coalesced save must KEEP the cache entry (was deleted before this fix)");
+		assert.equal(kept.tasksMtimeMs, 0, "tasks stamps zeroed — miss on next read, never a stale hit");
+		assert.equal(kept.tasksSize, 0);
+		assert.equal(kept.tasks[0]?.status, "running", "kept entry carries the freshly saved tasks array");
+
+		const loaded2 = loadRunManifestById(cwd, created.manifest.runId);
+		assert.equal(loaded2?.tasks[0]?.status, "running", "zeroed stamps force a disk re-read that sees the new tasks");
+	} finally {
+		__test__clearManifestCache();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

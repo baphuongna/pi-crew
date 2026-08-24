@@ -207,6 +207,26 @@ function resolveRunStateRoot(cwd: string, runId: string): string | undefined {
 	return scopedPath;
 }
 
+// PERF (2026-08-24): the artifacts containment verdict (existsSync + lstat +
+// resolveRealContainedPath ≈ 10-25 syscalls) cannot change for a run dir that
+// is not replaced — mirror the P1-12 runStateRootCache tradeoff: positive
+// verdicts cached 10s, negatives never cached (a newly created artifacts dir
+// must be found promptly). A stale positive is safe the same way P1-12 is:
+// downstream manifest stat catches deleted runs, and any write through
+// atomic-write re-runs isSymlinkSafeDirCached independently.
+const artifactsVerdictCache = new Map<string, { expiresAt: number }>();
+const ARTIFACTS_VERDICT_TTL_MS = 10_000;
+const ARTIFACTS_VERDICT_CACHE_MAX = 256;
+
+/** @internal — artifacts verdict cache introspection for unit tests. */
+export function __test__artifactsVerdictCacheSize(): number {
+	return artifactsVerdictCache.size;
+}
+/** @internal */
+export function __test__clearArtifactsVerdictCache(): void {
+	artifactsVerdictCache.clear();
+}
+
 function validateRunManifestPaths(cwd: string, runId: string, manifest: TeamRunManifest, stateRoot: string, tasksPath: string): boolean {
 	// Issue 2 fix: Reject manifests missing status field to prevent undefined
 	// behavior in callers like canTransitionRunStatus(manifest.status, newStatus).
@@ -221,6 +241,12 @@ function validateRunManifestPaths(cwd: string, runId: string, manifest: TeamRunM
 	const artifactsParent = path.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
 	const expectedArtifactsRoot = resolveContainedRelativePath(artifactsParent, runId, "runId");
 	if (manifest.artifactsRoot !== expectedArtifactsRoot) return false;
+	// PERF (2026-08-24): memoized verdict — see artifactsVerdictCache above.
+	// Hit only after the cheap manifest-identity checks above, so a tampered
+	// manifest (wrong paths/status) is still rejected without touching the memo.
+	const verdictKey = `${cwd}\0${runId}`;
+	const cachedVerdict = artifactsVerdictCache.get(verdictKey);
+	if (cachedVerdict && cachedVerdict.expiresAt > Date.now()) return true;
 	// Always validate artifactsRoot is not a symlink, even when manifest has
 	// no artifacts entries. A symlinked artifactsRoot pointing outside the
 	// artifacts parent is a security violation (could write to attacker-
@@ -237,8 +263,18 @@ function validateRunManifestPaths(cwd: string, runId: string, manifest: TeamRunM
 	} else if (manifest.artifacts && manifest.artifacts.length > 0) {
 		// Has artifacts entries but directory doesn't exist - benign state for
 		// runs still in progress.
+		if (artifactsVerdictCache.size >= ARTIFACTS_VERDICT_CACHE_MAX) {
+			const oldest = artifactsVerdictCache.keys().next().value;
+			if (oldest !== undefined) artifactsVerdictCache.delete(oldest);
+		}
+		artifactsVerdictCache.set(verdictKey, { expiresAt: Date.now() + ARTIFACTS_VERDICT_TTL_MS });
 		return true;
 	}
+	if (artifactsVerdictCache.size >= ARTIFACTS_VERDICT_CACHE_MAX) {
+		const oldest = artifactsVerdictCache.keys().next().value;
+		if (oldest !== undefined) artifactsVerdictCache.delete(oldest);
+	}
+	artifactsVerdictCache.set(verdictKey, { expiresAt: Date.now() + ARTIFACTS_VERDICT_TTL_MS });
 	return true;
 }
 
@@ -629,8 +665,22 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
 export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTaskState[], skipCoalesce: boolean = false): void {
 	// ST-4: refuse to persist [] over a previously-non-empty tasks file.
 	if (!shouldPersistTasks(manifest, tasks)) return;
-	// FIX: Invalidate cache BEFORE atomic write to prevent stale cache serving.
-	invalidateRunCache(manifest.stateRoot);
+	// PERF (2026-08-24): invalidating the WHOLE entry made every
+	// loadRunManifestById after a coalesced save re-read + re-parse
+	// manifest.json (24KB+) even though the manifest file did not change —
+	// persistSingleTaskUpdate's next call (~500ms later) always paid it. Keep
+	// the manifest half of the entry (mtime/size still verified on read) and
+	// zero only the tasks stamps, which is the exact pre-existing signal for
+	// "tasks on disk may be stale" (coalesced write not landed yet). Crash
+	// safety is unchanged: a zeroed tasks stamp can only cause a miss, never a
+	// stale hit. Generation semantics unchanged — setManifestCache stamps the
+	// CURRENT generation, so a concurrent writer's bump still invalidates us.
+	const cached = manifestCache.get(manifest.stateRoot);
+	if (cached) {
+		setManifestCache(manifest.stateRoot, { ...cached, tasks, tasksMtimeMs: 0, tasksSize: 0 });
+	} else {
+		invalidateRunCache(manifest.stateRoot);
+	}
 	try {
 		fs.statSync(manifest.stateRoot);
 	} catch {
