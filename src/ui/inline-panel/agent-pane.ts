@@ -1,10 +1,11 @@
 /**
  * agent-pane.ts — full-width transcript pane for a single agent.
  *
- * Registered as widget key `pi-crew-agent-view` with `placement: "aboveEditor"`,
- * so it lives inside pi's document and pi handles layout — the same reason
- * pi-subtask migrated away from an overlay (overlays are positioned against
- * the viewport and bury the editor on tall terminals).
+ * The rendering core behind the agent view: it tails the agent's on-disk
+ * event log and paints a session-shaped transcript. The FULL-SCREEN view
+ * (agent-view-overlay.ts) embeds it with `maxBodyLines` computed from the
+ * terminal size; a widget-mode instantiation keeps the historical
+ * `aboveEditor` layout formula (terminal minus a fixed reserve).
  *
  * Items render through pi's own transcript components (UserMessageComponent,
  * ToolExecutionComponent, Markdown) so the pane has visual parity with the
@@ -63,6 +64,14 @@ interface Renderable {
 	render(width: number): string[];
 }
 
+export interface CrewAgentPaneOptions {
+	/** Overlay mode: compute the body's max lines from the terminal size,
+	 *  instead of the widget formula (which reserves room for the transcript
+	 *  above the editor). Evaluated on every render so live chrome (the
+	 *  overlay's input row) is accounted for. */
+	maxBodyLines?: (headerLines: number) => number;
+}
+
 /**
  * The pane is a window onto the run, never its owner: closing it must not
  * touch worker state. `dispose()` detaches only.
@@ -74,6 +83,7 @@ export class CrewAgentPane {
 	private tui: TUI;
 	private theme: CrewTheme;
 	private cwd: string;
+	private readonly paneOptions: CrewAgentPaneOptions | undefined;
 	/** Current agent target, read fresh from the panel store each render. */
 	private currentTaskId: string | undefined;
 	/** Cached manifest for the current run, to avoid re-reading on every tick. */
@@ -99,10 +109,11 @@ export class CrewAgentPane {
 	private cachedBody: string[] = [];
 	private unsubscribePanel: () => void;
 
-	constructor(tui: TUI, theme: Theme, cwd: string) {
+	constructor(tui: TUI, theme: Theme, cwd: string, options?: CrewAgentPaneOptions) {
 		this.tui = tui;
 		this.theme = asCrewTheme(theme);
 		this.cwd = cwd;
+		this.paneOptions = options;
 		// Pane open/close/switch is a panel-store change; repaint immediately
 		// instead of waiting for the next host tick, so the overlay swap is
 		// instant even when the underlying run state is idle.
@@ -117,6 +128,18 @@ export class CrewAgentPane {
 
 	scrollBy(delta: number): void {
 		this.scrollBack = Math.max(0, this.scrollBack + delta);
+		this.tui.requestRender();
+	}
+
+	/** Jump to the top of the buffered transcript (clamped on next render). */
+	scrollHome(): void {
+		this.scrollBack = Number.MAX_SAFE_INTEGER;
+		this.tui.requestRender();
+	}
+
+	/** Jump back to tailing the live transcript. */
+	scrollEnd(): void {
+		this.scrollBack = 0;
 		this.tui.requestRender();
 	}
 
@@ -144,7 +167,21 @@ export class CrewAgentPane {
 
 	private itemComponent(item: CrewTranscriptItem): Renderable {
 		const cached = this.componentCache.get(item);
-		if (cached) return cached;
+		if (cached) {
+			// Tool results land by MUTATING the pending item in place (the
+			// parser folds role:"toolResult" records into it), so a card
+			// cached while "started" must pick the result up here — otherwise
+			// it stays a running card forever. Re-updating an already-resulted
+			// card is a no-op render refresh.
+			if (item.type === "tool" && item.result !== undefined) {
+				try {
+					(cached as ToolExecutionComponent).updateResult(item.result);
+				} catch {
+					/* shape drift across pi versions — keep the started card */
+				}
+			}
+			return cached;
+		}
 
 		let comp: Renderable;
 		if (item.type === "user") {
@@ -292,11 +329,15 @@ export class CrewAgentPane {
 		}
 		const body = this.cachedBody;
 
-		// Height: size to content, capped so the transcript above and the
-		// editor/footer below stay reachable on small terminals.
+		// Height: in widget mode, size to content capped so the transcript
+		// above and the editor/footer below stay reachable on small terminals.
+		// In overlay mode the pane is the whole screen: the caller computes
+		// the body budget from the terminal size minus its own chrome.
 		const header = this.headerLines(manifest, width);
 		const rows = this.tui.terminal.rows;
-		const maxBody = Math.max(6, rows - MAX_BODY_FRACTION - header.length);
+		const maxBody = this.paneOptions?.maxBodyLines
+			? Math.max(4, this.paneOptions.maxBodyLines(header.length))
+			: Math.max(6, rows - MAX_BODY_FRACTION - header.length);
 		const visibleCount = Math.min(maxBody, Math.max(1, body.length));
 		this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
 		const end = body.length - this.scrollBack;

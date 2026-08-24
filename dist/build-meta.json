@@ -6574,7 +6574,7 @@
       "format": "esm"
     },
     "src/config/role-tools.ts": {
-      "bytes": 6912,
+      "bytes": 7096,
       "imports": [
         {
           "path": "src/runtime/role-permission.ts",
@@ -19581,8 +19581,18 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-transcript.ts": {
-      "bytes": 9453,
+      "bytes": 12745,
       "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/runtime/crew-agent-records.ts",
           "kind": "import-statement",
@@ -19592,7 +19602,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/agent-pane.ts": {
-      "bytes": 13477,
+      "bytes": 15128,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -19618,6 +19628,32 @@
           "path": "src/ui/inline-panel/agent-transcript.ts",
           "kind": "import-statement",
           "original": "./agent-transcript.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/panel-store.ts",
+          "kind": "import-statement",
+          "original": "./panel-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/inline-panel/agent-view-overlay.ts": {
+      "bytes": 7579,
+      "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/ui/theme-adapter.ts",
+          "kind": "import-statement",
+          "original": "../theme-adapter.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/agent-pane.ts",
+          "kind": "import-statement",
+          "original": "./agent-pane.ts"
         },
         {
           "path": "src/ui/inline-panel/panel-store.ts",
@@ -19654,7 +19690,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 10521,
+      "bytes": 11628,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -19672,14 +19708,14 @@
           "original": "../pi-ui-compat.ts"
         },
         {
-          "path": "src/ui/inline-panel/agent-pane.ts",
-          "kind": "import-statement",
-          "original": "./agent-pane.ts"
-        },
-        {
           "path": "src/ui/inline-panel/agent-transcript.ts",
           "kind": "import-statement",
           "original": "./agent-transcript.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/agent-view-overlay.ts",
+          "kind": "import-statement",
+          "original": "./agent-view-overlay.ts"
         },
         {
           "path": "src/ui/inline-panel/crew-editor.ts",
@@ -20460,7 +20496,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 7500710
+      "bytes": 7521943
     },
     "dist/index.mjs": {
       "imports": [
@@ -22240,6 +22276,21 @@
           "external": true
         },
         {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "@earendil-works/pi-coding-agent",
           "kind": "import-statement",
           "external": true
@@ -22941,7 +22992,7 @@
           "bytesInOutput": 123
         },
         "node_modules/@sinclair/typebox/build/esm/errors/errors.mjs": {
-          "bytesInOutput": 26863
+          "bytesInOutput": 27026
         },
         "node_modules/@sinclair/typebox/build/esm/errors/index.mjs": {
           "bytesInOutput": 142
@@ -22983,10 +23034,10 @@
           "bytesInOutput": 129
         },
         "node_modules/@sinclair/typebox/build/esm/value/transform/decode.mjs": {
-          "bytesInOutput": 7168
+          "bytesInOutput": 7227
         },
         "node_modules/@sinclair/typebox/build/esm/value/transform/encode.mjs": {
-          "bytesInOutput": 7217
+          "bytesInOutput": 7269
         },
         "node_modules/@sinclair/typebox/build/esm/value/transform/has.mjs": {
           "bytesInOutput": 4276
@@ -23007,7 +23058,7 @@
           "bytesInOutput": 129
         },
         "node_modules/@sinclair/typebox/build/esm/value/pointer/pointer.mjs": {
-          "bytesInOutput": 2972
+          "bytesInOutput": 2976
         },
         "node_modules/@sinclair/typebox/build/esm/value/pointer/index.mjs": {
           "bytesInOutput": 129
@@ -23016,7 +23067,7 @@
           "bytesInOutput": 1510
         },
         "node_modules/@sinclair/typebox/build/esm/value/delta/delta.mjs": {
-          "bytesInOutput": 4404
+          "bytesInOutput": 4430
         },
         "node_modules/@sinclair/typebox/build/esm/value/delta/index.mjs": {
           "bytesInOutput": 123
@@ -23031,7 +23082,7 @@
           "bytesInOutput": 123
         },
         "node_modules/@sinclair/typebox/build/esm/value/mutate/mutate.mjs": {
-          "bytesInOutput": 2762
+          "bytesInOutput": 2777
         },
         "node_modules/@sinclair/typebox/build/esm/value/mutate/index.mjs": {
           "bytesInOutput": 126
@@ -23061,7 +23112,7 @@
           "bytesInOutput": 1325
         },
         "src/config/config-validation.ts": {
-          "bytesInOutput": 26261
+          "bytesInOutput": 26266
         },
         "src/config/config-merge.ts": {
           "bytesInOutput": 4554
@@ -23097,7 +23148,7 @@
           "bytesInOutput": 1050
         },
         "src/config/role-tools.ts": {
-          "bytesInOutput": 4228
+          "bytesInOutput": 4422
         },
         "src/agents/agent-config.ts": {
           "bytesInOutput": 1721
@@ -23106,7 +23157,7 @@
           "bytesInOutput": 18082
         },
         "src/utils/git.ts": {
-          "bytesInOutput": 5951
+          "bytesInOutput": 5956
         },
         "src/teams/discover-teams.ts": {
           "bytesInOutput": 6355
@@ -23223,7 +23274,7 @@
           "bytesInOutput": 22476
         },
         "src/errors.ts": {
-          "bytesInOutput": 8105
+          "bytesInOutput": 8109
         },
         "src/utils/task-name-generator.ts": {
           "bytesInOutput": 106
@@ -23307,7 +23358,7 @@
           "bytesInOutput": 2442
         },
         "src/ui/transcript-cache.ts": {
-          "bytesInOutput": 2955
+          "bytesInOutput": 2968
         },
         "src/ui/transcript-viewer.ts": {
           "bytesInOutput": 14929
@@ -23388,7 +23439,7 @@
           "bytesInOutput": 4057
         },
         "src/runtime/skill-effectiveness.ts": {
-          "bytesInOutput": 8697
+          "bytesInOutput": 8702
         },
         "src/runtime/skill-instructions.ts": {
           "bytesInOutput": 12471
@@ -23436,7 +23487,7 @@
           "bytesInOutput": 4436
         },
         "src/skills/validate.ts": {
-          "bytesInOutput": 6627
+          "bytesInOutput": 6631
         },
         "src/skills/discover-skills.ts": {
           "bytesInOutput": 4302
@@ -23538,10 +23589,10 @@
           "bytesInOutput": 561
         },
         "node_modules/fast-uri/lib/utils.js": {
-          "bytesInOutput": 9476
+          "bytesInOutput": 9478
         },
         "node_modules/fast-uri/lib/schemes.js": {
-          "bytesInOutput": 6363
+          "bytesInOutput": 6367
         },
         "node_modules/fast-uri/index.js": {
           "bytesInOutput": 10960
@@ -23733,7 +23784,7 @@
           "bytesInOutput": 13591
         },
         "src/config/drift-detector.ts": {
-          "bytesInOutput": 5777
+          "bytesInOutput": 5783
         },
         "src/runtime/process/zombie-scanner.ts": {
           "bytesInOutput": 6432
@@ -24027,7 +24078,7 @@
           "bytesInOutput": 4557
         },
         "src/extension/team-tool/handle-settings.ts": {
-          "bytesInOutput": 16038
+          "bytesInOutput": 16042
         },
         "src/extension/team-tool/workflow-manage.ts": {
           "bytesInOutput": 8636
@@ -24042,7 +24093,7 @@
           "bytesInOutput": 9318
         },
         "src/runtime/goal-workflow/goal-state-store.ts": {
-          "bytesInOutput": 6983
+          "bytesInOutput": 6992
         },
         "src/runtime/verification/verification-integrity.ts": {
           "bytesInOutput": 1037
@@ -24279,7 +24330,7 @@
           "bytesInOutput": 3776
         },
         "src/runtime/dwf-state-store.ts": {
-          "bytesInOutput": 1930
+          "bytesInOutput": 1939
         },
         "src/runtime/output/result-extractor.ts": {
           "bytesInOutput": 4253
@@ -24357,7 +24408,7 @@
           "bytesInOutput": 15969
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 30115
+          "bytesInOutput": 30117
         },
         "src/extension/registration/commands/shared.ts": {
           "bytesInOutput": 16624
@@ -24393,7 +24444,7 @@
           "bytesInOutput": 4573
         },
         "src/ui/live-run-sidebar.ts": {
-          "bytesInOutput": 9642
+          "bytesInOutput": 9645
         },
         "src/extension/registration/ui.ts": {
           "bytesInOutput": 4303
@@ -24471,7 +24522,7 @@
           "bytesInOutput": 11663
         },
         "src/extension/crew-vibes/config.ts": {
-          "bytesInOutput": 5239
+          "bytesInOutput": 5245
         },
         "src/extension/crew-vibes/font-detect.ts": {
           "bytesInOutput": 1694
@@ -24504,7 +24555,7 @@
           "bytesInOutput": 8889
         },
         "src/utils/fs-watch.ts": {
-          "bytesInOutput": 384
+          "bytesInOutput": 386
         },
         "src/runtime/scheduling/batch-barrier.ts": {
           "bytesInOutput": 3062
@@ -24522,7 +24573,7 @@
           "bytesInOutput": 2139
         },
         "src/runtime/per-write-validator.ts": {
-          "bytesInOutput": 2205
+          "bytesInOutput": 2209
         },
         "src/extension/team-tool/destructive-gate.ts": {
           "bytesInOutput": 714
@@ -24561,13 +24612,16 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 4745
-        },
-        "src/ui/inline-panel/agent-pane.ts": {
-          "bytesInOutput": 9734
+          "bytesInOutput": 5431
         },
         "src/ui/inline-panel/agent-transcript.ts": {
-          "bytesInOutput": 4583
+          "bytesInOutput": 6316
+        },
+        "src/ui/inline-panel/agent-view-overlay.ts": {
+          "bytesInOutput": 5264
+        },
+        "src/ui/inline-panel/agent-pane.ts": {
+          "bytesInOutput": 10354
         },
         "src/ui/inline-panel/crew-editor.ts": {
           "bytesInOutput": 4198
@@ -24609,7 +24663,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3214602
+      "bytes": 3223559
     }
   }
 }

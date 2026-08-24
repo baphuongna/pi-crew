@@ -5,18 +5,19 @@
  *  - the `CrewInlineEditor` wrapper (installed via `setEditorComponent` when no
  *    other extension owns the editor), which translates ↓/↑/enter/x/escape
  *    into panel-store changes and host calls;
- *  - the `pi-crew-agent-view` widget (placement `aboveEditor`), the LIVE
- *    transcript pane for the viewed agent.
+ *  - the FULL-SCREEN agent view overlay (`ctx.ui.custom` with `overlay:
+ *    true`, width "100%"), the LIVE transcript of the viewed agent.
  *
- * Entering an agent row opens that agent's live transcript as an IN-DOCUMENT
- * pane — pi-subtask's pattern: the pane tails the agent's on-disk event log
- * (events.jsonl, appended in real time by the running child pi worker) and
- * renders through pi's own transcript components. The main session is never
- * switched, resumed, or torn down to look at an agent, so viewing can never
- * kill a run or strand the editor. (The previous design — copy the worker's
- * session file and `switchSession` to it, re-switching every few seconds —
- * cancelled live runs on teardown, froze at the copy timestamp, and crashed
- * on stale extension ctxs; see the "fix(view)" chain in git history.)
+ * Entering an agent row takes over the whole terminal with that agent's live
+ * transcript — a separate view, not content appended under the main session.
+ * The overlay tails the agent's on-disk event log (events.jsonl, appended in
+ * real time by the running child pi worker) and renders through pi's own
+ * transcript components. The main session is never switched, resumed, or torn
+ * down to look at an agent, so viewing can never kill a run or strand the
+ * editor. (The previous design — copy the worker's session file and
+ * `switchSession` to it, re-switching every few seconds — cancelled live runs
+ * on teardown, froze at the copy timestamp, and crashed on stale extension
+ * ctxs; see the "fix(view)" chain in git history.)
  *
  * All heavy team-tool interaction (steer, cancel) is lazy-imported so this
  * module never pulls the runtime chain at startup (AGENTS.md lazy boundary).
@@ -27,19 +28,16 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { CrewUiConfig } from "../../config/types.ts";
 import { isToolError, type PiTeamsToolResult, textFromToolResult } from "../../extension/tool-result.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { requestRender, setExtensionWidget } from "../pi-ui-compat.ts";
-import { CrewAgentPane } from "./agent-pane.ts";
+import { requestRender } from "../pi-ui-compat.ts";
+import type { CrewAgentPane } from "./agent-pane.ts";
 import { resetAllAgentTranscriptCursors } from "./agent-transcript.ts";
+import { CrewAgentOverlay } from "./agent-view-overlay.ts";
 import { CrewInlineEditor } from "./crew-editor.ts";
 import type { PanelTarget } from "./panel-selection.ts";
 import { resetPanelStore, setViewedAgent } from "./panel-store.ts";
 
-/** Widget key for the live transcript pane. */
-export const PANE_WIDGET_KEY = "pi-crew-agent-view";
-const PANE_PLACEMENT = "aboveEditor" as const;
-
 /**
- * Live repaint cadence while the pane is open. The pane re-reads the agent's
+ * Live repaint cadence while the view is open. The pane re-reads the agent's
  * event log during render() (throttled internally), so a periodic
  * requestRender keeps it following the worker even when pi's own repaints
  * are idle (no spinner, no typing). pi-subtask drives this from child RPC
@@ -48,6 +46,7 @@ const PANE_PLACEMENT = "aboveEditor" as const;
 const PANE_LIVE_TICK_MS = 700;
 
 let livePane: CrewAgentPane | undefined;
+let liveOverlay: CrewAgentOverlay | undefined;
 let paneTickTimer: ReturnType<typeof setInterval> | undefined;
 let editorInstalled = false;
 /** Guards the one-time per-process event hooks. */
@@ -81,28 +80,57 @@ function notifyResult(ctx: ExtensionContext, result: PiTeamsToolResult): void {
 }
 
 /**
- * Open the viewed agent's LIVE transcript pane (or switch it to another
- * agent). Pure widget wiring — no session is touched, so there is nothing to
- * settle, detach, or guard: the pane works in every session state, for
- * foreground and async runs alike, and closing it never affects the run.
+ * Open the viewed agent's LIVE transcript as a FULL-SCREEN overlay (or, when
+ * one is already open, just re-target it — the pane follows the panel store).
+ * Pure overlay wiring — no session is touched, so there is nothing to settle,
+ * detach, or guard: the view works in every session state, for foreground and
+ * async runs alike, and closing it never affects the run.
  */
 function openPane(ctx: ExtensionContext, target: PanelTarget): void {
 	setViewedAgent(target);
-	try {
-		setExtensionWidget(
-			ctx,
-			PANE_WIDGET_KEY,
-			(tui, theme) => {
-				const pane = new CrewAgentPane(tui as never, theme as never, ctx.cwd);
-				livePane = pane;
-				return pane as never;
-			},
-			{ placement: PANE_PLACEMENT },
-		);
-	} catch (error) {
-		// A stale ctx (session replaced between keypress and here) drops the
-		// widget registration; the next session_start install re-registers.
-		logInternalError("view.openPane", error, target.taskId);
+	if (!liveOverlay) {
+		try {
+			void ctx.ui
+				.custom(
+					(tui, theme, _keybindings, done) => {
+						const overlay = new CrewAgentOverlay(tui as never, theme as never, ctx.cwd, {
+							close: () => {
+								liveOverlay = undefined;
+								livePane = undefined;
+								setViewedAgent(undefined);
+								stopPaneTicker();
+								try {
+									done(undefined);
+								} catch {
+									/* already closed by the host */
+								}
+							},
+							steer: (steerTarget, message) => void steerAgent(ctx, steerTarget, message),
+						});
+						liveOverlay = overlay;
+						livePane = overlay.pane;
+						return overlay as never;
+					},
+					{
+						overlay: true,
+						overlayOptions: { width: "100%", margin: 0, maxHeight: "100%", anchor: "top-left" },
+					},
+				)
+				.catch((error) => {
+					// Factory throw or the host tearing the overlay down: drop the
+					// view state so the dock does not point at a view that no
+					// longer exists.
+					liveOverlay = undefined;
+					livePane = undefined;
+					setViewedAgent(undefined);
+					stopPaneTicker();
+					logInternalError("view.openOverlay", error, target.taskId);
+				});
+		} catch (error) {
+			// A stale ctx (session replaced between keypress and here) drops the
+			// overlay spawn; the fallback editor path still closes cleanly.
+			logInternalError("view.openPane", error, target.taskId);
+		}
 	}
 	startPaneTicker();
 	try {
@@ -112,16 +140,16 @@ function openPane(ctx: ExtensionContext, target: PanelTarget): void {
 	}
 }
 
-/** Close the pane and return to the main conversation. Never touches the run. */
-function closePane(ctx: ExtensionContext): void {
+/** Close the view and return to the main conversation. Never touches the run. */
+function closePane(_ctx: ExtensionContext): void {
+	if (liveOverlay) {
+		// The overlay owns its teardown (state reset + host `done()`); the
+		// requestClose path is idempotent.
+		liveOverlay.requestClose();
+		return;
+	}
 	setViewedAgent(undefined);
 	stopPaneTicker();
-	try {
-		setExtensionWidget(ctx, PANE_WIDGET_KEY, undefined, { placement: PANE_PLACEMENT });
-		requestRender(ctx);
-	} catch {
-		/* stale ctx — the pane dies with its session anyway */
-	}
 }
 
 async function steerAgent(ctx: ExtensionContext, target: PanelTarget, message: string): Promise<void> {
@@ -221,11 +249,11 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 	// extension command table on session replacement. registerCommand is
 	// idempotent on the current session's runner.
 	pi.registerCommand("crew-view", {
-		description: "Open an agent's live transcript pane (usage: crew-view <runId> <taskId>)",
+		description: "Open an agent's live full-screen transcript view (usage: crew-view <runId> <taskId>)",
 		handler: handleCrewViewCommand,
 	});
 	pi.registerCommand("crew-back", {
-		description: "Close the agent transcript pane and return to the main conversation",
+		description: "Close the agent transcript view and return to the main conversation",
 		handler: handleCrewBackCommand,
 	});
 
@@ -234,14 +262,16 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 		pi.on("session_shutdown", () => {
 			stopPaneTicker();
 			livePane = undefined;
+			liveOverlay = undefined;
 			resetPanelStore();
 			resetAllAgentTranscriptCursors();
 		});
 		pi.on("session_start", () => {
 			// pi may have replaced or dropped its editor between sessions; the
 			// "installed" flag is reset so the next install re-registers the
-			// factory. An open pane belongs to the old session's document —
-			// stop ticking it (its ctx is gone with the session).
+			// factory. The open overlay outlives the session swap (it belongs
+			// to the interactive-mode UI, not the session's ctx) — keep it, but
+			// stop ticking until it is re-targeted.
 			editorInstalled = false;
 			stopPaneTicker();
 		});
@@ -251,6 +281,7 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 /** Test hook: force the next install to re-attempt the editor. */
 export function __resetInlinePanelForTest(): void {
 	editorInstalled = false;
+	liveOverlay = undefined;
 	stopPaneTicker();
 }
 

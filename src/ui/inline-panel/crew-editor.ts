@@ -6,11 +6,14 @@
  * crew widget; `↑`/`↓` navigate, `enter` opens the agent's live transcript
  * pane, `x` cancels/dismisses, `escape` returns to typing.
  *
- * While a pane is open, typed text goes to the viewed agent (Claude Code's
- * `@name` convention — the editor border is relabeled), pageUp/pageDown
- * scroll the pane, and `enter` steers. The pane is an in-document widget,
- * NOT a session switch: the main conversation's editor keeps pi's real focus
- * the whole time.
+ * While an agent is viewed, typed text goes to the viewed agent (Claude
+ * Code's `@name` convention — the editor border is relabeled), pageUp/
+ * pageDown scroll, and `enter` steers. Normally the FULL-SCREEN overlay
+ * (agent-view-overlay.ts) owns the keyboard while open; this branch is the
+ * fallback for when the overlay could not spawn (e.g. a stale ctx between
+ * keypress and open), so the user is never stuck viewing an agent neither
+ * surface controls. Neither path is a session switch: the main conversation
+ * is never torn down to look at an agent.
  *
  * Every unhandled key falls through to `super.handleInput`, so the user is
  * never trapped in a mode. All state lives in panel-store (shared with the

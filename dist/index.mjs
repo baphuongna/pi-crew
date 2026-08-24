@@ -7266,32 +7266,32 @@ function EscapeKey(key) {
 function IsDefined2(value) {
   return value !== void 0;
 }
-function Create(errorType, schema, path99, value, errors2 = []) {
+function Create(errorType, schema, path100, value, errors2 = []) {
   return {
     type: errorType,
     schema,
-    path: path99,
+    path: path100,
     value,
-    message: GetErrorFunction()({ errorType, path: path99, schema, value, errors: errors2 }),
+    message: GetErrorFunction()({ errorType, path: path100, schema, value, errors: errors2 }),
     errors: errors2
   };
 }
-function* FromAny3(schema, references, path99, value) {
+function* FromAny3(schema, references, path100, value) {
 }
-function* FromArgument3(schema, references, path99, value) {
+function* FromArgument3(schema, references, path100, value) {
 }
-function* FromArray8(schema, references, path99, value) {
+function* FromArray8(schema, references, path100, value) {
   if (!IsArray2(value)) {
-    return yield Create(ValueErrorType.Array, schema, path99, value);
+    return yield Create(ValueErrorType.Array, schema, path100, value);
   }
   if (IsDefined2(schema.minItems) && !(value.length >= schema.minItems)) {
-    yield Create(ValueErrorType.ArrayMinItems, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMinItems, schema, path100, value);
   }
   if (IsDefined2(schema.maxItems) && !(value.length <= schema.maxItems)) {
-    yield Create(ValueErrorType.ArrayMaxItems, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMaxItems, schema, path100, value);
   }
   for (let i = 0; i < value.length; i++) {
-    yield* Visit6(schema.items, references, `${path99}/${i}`, value[i]);
+    yield* Visit6(schema.items, references, `${path100}/${i}`, value[i]);
   }
   if (schema.uniqueItems === true && !(function() {
     const set = /* @__PURE__ */ new Set();
@@ -7305,116 +7305,116 @@ function* FromArray8(schema, references, path99, value) {
     }
     return true;
   })()) {
-    yield Create(ValueErrorType.ArrayUniqueItems, schema, path99, value);
+    yield Create(ValueErrorType.ArrayUniqueItems, schema, path100, value);
   }
   if (!(IsDefined2(schema.contains) || IsDefined2(schema.minContains) || IsDefined2(schema.maxContains))) {
     return;
   }
   const containsSchema = IsDefined2(schema.contains) ? schema.contains : Never();
-  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path99}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
+  const containsCount = value.reduce((acc, value2, index) => Visit6(containsSchema, references, `${path100}${index}`, value2).next().done === true ? acc + 1 : acc, 0);
   if (containsCount === 0) {
-    yield Create(ValueErrorType.ArrayContains, schema, path99, value);
+    yield Create(ValueErrorType.ArrayContains, schema, path100, value);
   }
   if (IsNumber2(schema.minContains) && containsCount < schema.minContains) {
-    yield Create(ValueErrorType.ArrayMinContains, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMinContains, schema, path100, value);
   }
   if (IsNumber2(schema.maxContains) && containsCount > schema.maxContains) {
-    yield Create(ValueErrorType.ArrayMaxContains, schema, path99, value);
+    yield Create(ValueErrorType.ArrayMaxContains, schema, path100, value);
   }
 }
-function* FromAsyncIterator5(schema, references, path99, value) {
+function* FromAsyncIterator5(schema, references, path100, value) {
   if (!IsAsyncIterator2(value))
-    yield Create(ValueErrorType.AsyncIterator, schema, path99, value);
+    yield Create(ValueErrorType.AsyncIterator, schema, path100, value);
 }
-function* FromBigInt3(schema, references, path99, value) {
+function* FromBigInt3(schema, references, path100, value) {
   if (!IsBigInt2(value))
-    return yield Create(ValueErrorType.BigInt, schema, path99, value);
+    return yield Create(ValueErrorType.BigInt, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntExclusiveMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntExclusiveMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.BigIntMaximum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.BigIntMinimum, schema, path99, value);
+    yield Create(ValueErrorType.BigIntMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === BigInt(0))) {
-    yield Create(ValueErrorType.BigIntMultipleOf, schema, path99, value);
+    yield Create(ValueErrorType.BigIntMultipleOf, schema, path100, value);
   }
 }
-function* FromBoolean3(schema, references, path99, value) {
+function* FromBoolean3(schema, references, path100, value) {
   if (!IsBoolean2(value))
-    yield Create(ValueErrorType.Boolean, schema, path99, value);
+    yield Create(ValueErrorType.Boolean, schema, path100, value);
 }
-function* FromConstructor5(schema, references, path99, value) {
-  yield* Visit6(schema.returns, references, path99, value.prototype);
+function* FromConstructor5(schema, references, path100, value) {
+  yield* Visit6(schema.returns, references, path100, value.prototype);
 }
-function* FromDate3(schema, references, path99, value) {
+function* FromDate3(schema, references, path100, value) {
   if (!IsDate2(value))
-    return yield Create(ValueErrorType.Date, schema, path99, value);
+    return yield Create(ValueErrorType.Date, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximumTimestamp) && !(value.getTime() < schema.exclusiveMaximumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateExclusiveMaximumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimumTimestamp) && !(value.getTime() > schema.exclusiveMinimumTimestamp)) {
-    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateExclusiveMinimumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.maximumTimestamp) && !(value.getTime() <= schema.maximumTimestamp)) {
-    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateMaximumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.minimumTimestamp) && !(value.getTime() >= schema.minimumTimestamp)) {
-    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateMinimumTimestamp, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOfTimestamp) && !(value.getTime() % schema.multipleOfTimestamp === 0)) {
-    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path99, value);
+    yield Create(ValueErrorType.DateMultipleOfTimestamp, schema, path100, value);
   }
 }
-function* FromFunction5(schema, references, path99, value) {
+function* FromFunction5(schema, references, path100, value) {
   if (!IsFunction2(value))
-    yield Create(ValueErrorType.Function, schema, path99, value);
+    yield Create(ValueErrorType.Function, schema, path100, value);
 }
-function* FromImport2(schema, references, path99, value) {
+function* FromImport2(schema, references, path100, value) {
   const definitions = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  yield* Visit6(target, [...references, ...definitions], path99, value);
+  yield* Visit6(target, [...references, ...definitions], path100, value);
 }
-function* FromInteger3(schema, references, path99, value) {
+function* FromInteger3(schema, references, path100, value) {
   if (!IsInteger(value))
-    return yield Create(ValueErrorType.Integer, schema, path99, value);
+    return yield Create(ValueErrorType.Integer, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerExclusiveMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerExclusiveMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.IntegerMaximum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.IntegerMinimum, schema, path99, value);
+    yield Create(ValueErrorType.IntegerMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.IntegerMultipleOf, schema, path99, value);
+    yield Create(ValueErrorType.IntegerMultipleOf, schema, path100, value);
   }
 }
-function* FromIntersect10(schema, references, path99, value) {
+function* FromIntersect10(schema, references, path100, value) {
   let hasError = false;
   for (const inner of schema.allOf) {
-    for (const error of Visit6(inner, references, path99, value)) {
+    for (const error of Visit6(inner, references, path100, value)) {
       hasError = true;
       yield error;
     }
   }
   if (hasError) {
-    return yield Create(ValueErrorType.Intersect, schema, path99, value);
+    return yield Create(ValueErrorType.Intersect, schema, path100, value);
   }
   if (schema.unevaluatedProperties === false) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path99}/${valueKey}`, value);
+        yield Create(ValueErrorType.IntersectUnevaluatedProperties, schema, `${path100}/${valueKey}`, value);
       }
     }
   }
@@ -7422,59 +7422,59 @@ function* FromIntersect10(schema, references, path99, value) {
     const keyCheck = new RegExp(KeyOfPattern(schema));
     for (const valueKey of Object.getOwnPropertyNames(value)) {
       if (!keyCheck.test(valueKey)) {
-        const next = Visit6(schema.unevaluatedProperties, references, `${path99}/${valueKey}`, value[valueKey]).next();
+        const next = Visit6(schema.unevaluatedProperties, references, `${path100}/${valueKey}`, value[valueKey]).next();
         if (!next.done)
           yield next.value;
       }
     }
   }
 }
-function* FromIterator5(schema, references, path99, value) {
+function* FromIterator5(schema, references, path100, value) {
   if (!IsIterator2(value))
-    yield Create(ValueErrorType.Iterator, schema, path99, value);
+    yield Create(ValueErrorType.Iterator, schema, path100, value);
 }
-function* FromLiteral4(schema, references, path99, value) {
+function* FromLiteral4(schema, references, path100, value) {
   if (!(value === schema.const))
-    yield Create(ValueErrorType.Literal, schema, path99, value);
+    yield Create(ValueErrorType.Literal, schema, path100, value);
 }
-function* FromNever3(schema, references, path99, value) {
-  yield Create(ValueErrorType.Never, schema, path99, value);
+function* FromNever3(schema, references, path100, value) {
+  yield Create(ValueErrorType.Never, schema, path100, value);
 }
-function* FromNot3(schema, references, path99, value) {
-  if (Visit6(schema.not, references, path99, value).next().done === true)
-    yield Create(ValueErrorType.Not, schema, path99, value);
+function* FromNot3(schema, references, path100, value) {
+  if (Visit6(schema.not, references, path100, value).next().done === true)
+    yield Create(ValueErrorType.Not, schema, path100, value);
 }
-function* FromNull3(schema, references, path99, value) {
+function* FromNull3(schema, references, path100, value) {
   if (!IsNull2(value))
-    yield Create(ValueErrorType.Null, schema, path99, value);
+    yield Create(ValueErrorType.Null, schema, path100, value);
 }
-function* FromNumber3(schema, references, path99, value) {
+function* FromNumber3(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsNumberLike(value))
-    return yield Create(ValueErrorType.Number, schema, path99, value);
+    return yield Create(ValueErrorType.Number, schema, path100, value);
   if (IsDefined2(schema.exclusiveMaximum) && !(value < schema.exclusiveMaximum)) {
-    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path99, value);
+    yield Create(ValueErrorType.NumberExclusiveMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.exclusiveMinimum) && !(value > schema.exclusiveMinimum)) {
-    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path99, value);
+    yield Create(ValueErrorType.NumberExclusiveMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.maximum) && !(value <= schema.maximum)) {
-    yield Create(ValueErrorType.NumberMaximum, schema, path99, value);
+    yield Create(ValueErrorType.NumberMaximum, schema, path100, value);
   }
   if (IsDefined2(schema.minimum) && !(value >= schema.minimum)) {
-    yield Create(ValueErrorType.NumberMinimum, schema, path99, value);
+    yield Create(ValueErrorType.NumberMinimum, schema, path100, value);
   }
   if (IsDefined2(schema.multipleOf) && !(value % schema.multipleOf === 0)) {
-    yield Create(ValueErrorType.NumberMultipleOf, schema, path99, value);
+    yield Create(ValueErrorType.NumberMultipleOf, schema, path100, value);
   }
 }
-function* FromObject9(schema, references, path99, value) {
+function* FromObject9(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsObjectLike(value))
-    return yield Create(ValueErrorType.Object, schema, path99, value);
+    return yield Create(ValueErrorType.Object, schema, path100, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path100, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path100, value);
   }
   const requiredKeys = Array.isArray(schema.required) ? schema.required : [];
   const knownKeys = Object.getOwnPropertyNames(schema.properties);
@@ -7482,12 +7482,12 @@ function* FromObject9(schema, references, path99, value) {
   for (const requiredKey of requiredKeys) {
     if (unknownKeys.includes(requiredKey))
       continue;
-    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path99}/${EscapeKey(requiredKey)}`, void 0);
+    yield Create(ValueErrorType.ObjectRequiredProperty, schema.properties[requiredKey], `${path100}/${EscapeKey(requiredKey)}`, void 0);
   }
   if (schema.additionalProperties === false) {
     for (const valueKey of unknownKeys) {
       if (!knownKeys.includes(valueKey)) {
-        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path99}/${EscapeKey(valueKey)}`, value[valueKey]);
+        yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path100}/${EscapeKey(valueKey)}`, value[valueKey]);
       }
     }
   }
@@ -7495,235 +7495,235 @@ function* FromObject9(schema, references, path99, value) {
     for (const valueKey of unknownKeys) {
       if (knownKeys.includes(valueKey))
         continue;
-      yield* Visit6(schema.additionalProperties, references, `${path99}/${EscapeKey(valueKey)}`, value[valueKey]);
+      yield* Visit6(schema.additionalProperties, references, `${path100}/${EscapeKey(valueKey)}`, value[valueKey]);
     }
   }
   for (const knownKey of knownKeys) {
     const property = schema.properties[knownKey];
     if (schema.required && schema.required.includes(knownKey)) {
-      yield* Visit6(property, references, `${path99}/${EscapeKey(knownKey)}`, value[knownKey]);
+      yield* Visit6(property, references, `${path100}/${EscapeKey(knownKey)}`, value[knownKey]);
       if (ExtendsUndefinedCheck(schema) && !(knownKey in value)) {
-        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path99}/${EscapeKey(knownKey)}`, void 0);
+        yield Create(ValueErrorType.ObjectRequiredProperty, property, `${path100}/${EscapeKey(knownKey)}`, void 0);
       }
     } else {
       if (TypeSystemPolicy.IsExactOptionalProperty(value, knownKey)) {
-        yield* Visit6(property, references, `${path99}/${EscapeKey(knownKey)}`, value[knownKey]);
+        yield* Visit6(property, references, `${path100}/${EscapeKey(knownKey)}`, value[knownKey]);
       }
     }
   }
 }
-function* FromPromise5(schema, references, path99, value) {
+function* FromPromise5(schema, references, path100, value) {
   if (!IsPromise(value))
-    yield Create(ValueErrorType.Promise, schema, path99, value);
+    yield Create(ValueErrorType.Promise, schema, path100, value);
 }
-function* FromRecord5(schema, references, path99, value) {
+function* FromRecord5(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsRecordLike(value))
-    return yield Create(ValueErrorType.Object, schema, path99, value);
+    return yield Create(ValueErrorType.Object, schema, path100, value);
   if (IsDefined2(schema.minProperties) && !(Object.getOwnPropertyNames(value).length >= schema.minProperties)) {
-    yield Create(ValueErrorType.ObjectMinProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMinProperties, schema, path100, value);
   }
   if (IsDefined2(schema.maxProperties) && !(Object.getOwnPropertyNames(value).length <= schema.maxProperties)) {
-    yield Create(ValueErrorType.ObjectMaxProperties, schema, path99, value);
+    yield Create(ValueErrorType.ObjectMaxProperties, schema, path100, value);
   }
   const [patternKey, patternSchema] = Object.entries(schema.patternProperties)[0];
   const regex = new RegExp(patternKey);
   for (const [propertyKey, propertyValue] of Object.entries(value)) {
     if (regex.test(propertyKey))
-      yield* Visit6(patternSchema, references, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
+      yield* Visit6(patternSchema, references, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
   }
   if (typeof schema.additionalProperties === "object") {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (!regex.test(propertyKey))
-        yield* Visit6(schema.additionalProperties, references, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
+        yield* Visit6(schema.additionalProperties, references, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
   if (schema.additionalProperties === false) {
     for (const [propertyKey, propertyValue] of Object.entries(value)) {
       if (regex.test(propertyKey))
         continue;
-      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path99}/${EscapeKey(propertyKey)}`, propertyValue);
+      return yield Create(ValueErrorType.ObjectAdditionalProperties, schema, `${path100}/${EscapeKey(propertyKey)}`, propertyValue);
     }
   }
 }
-function* FromRef6(schema, references, path99, value) {
-  yield* Visit6(Deref(schema, references), references, path99, value);
+function* FromRef6(schema, references, path100, value) {
+  yield* Visit6(Deref(schema, references), references, path100, value);
 }
-function* FromRegExp3(schema, references, path99, value) {
+function* FromRegExp3(schema, references, path100, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path99, value);
+    return yield Create(ValueErrorType.String, schema, path100, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path100, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path100, value);
   }
   const regex = new RegExp(schema.source, schema.flags);
   if (!regex.test(value)) {
-    return yield Create(ValueErrorType.RegExp, schema, path99, value);
+    return yield Create(ValueErrorType.RegExp, schema, path100, value);
   }
 }
-function* FromString3(schema, references, path99, value) {
+function* FromString3(schema, references, path100, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path99, value);
+    return yield Create(ValueErrorType.String, schema, path100, value);
   if (IsDefined2(schema.minLength) && !(value.length >= schema.minLength)) {
-    yield Create(ValueErrorType.StringMinLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMinLength, schema, path100, value);
   }
   if (IsDefined2(schema.maxLength) && !(value.length <= schema.maxLength)) {
-    yield Create(ValueErrorType.StringMaxLength, schema, path99, value);
+    yield Create(ValueErrorType.StringMaxLength, schema, path100, value);
   }
   if (IsString2(schema.pattern)) {
     const regex = new RegExp(schema.pattern);
     if (!regex.test(value)) {
-      yield Create(ValueErrorType.StringPattern, schema, path99, value);
+      yield Create(ValueErrorType.StringPattern, schema, path100, value);
     }
   }
   if (IsString2(schema.format)) {
     if (!format_exports.Has(schema.format)) {
-      yield Create(ValueErrorType.StringFormatUnknown, schema, path99, value);
+      yield Create(ValueErrorType.StringFormatUnknown, schema, path100, value);
     } else {
       const format2 = format_exports.Get(schema.format);
       if (!format2(value)) {
-        yield Create(ValueErrorType.StringFormat, schema, path99, value);
+        yield Create(ValueErrorType.StringFormat, schema, path100, value);
       }
     }
   }
 }
-function* FromSymbol3(schema, references, path99, value) {
+function* FromSymbol3(schema, references, path100, value) {
   if (!IsSymbol2(value))
-    yield Create(ValueErrorType.Symbol, schema, path99, value);
+    yield Create(ValueErrorType.Symbol, schema, path100, value);
 }
-function* FromTemplateLiteral5(schema, references, path99, value) {
+function* FromTemplateLiteral5(schema, references, path100, value) {
   if (!IsString2(value))
-    return yield Create(ValueErrorType.String, schema, path99, value);
+    return yield Create(ValueErrorType.String, schema, path100, value);
   const regex = new RegExp(schema.pattern);
   if (!regex.test(value)) {
-    yield Create(ValueErrorType.StringPattern, schema, path99, value);
+    yield Create(ValueErrorType.StringPattern, schema, path100, value);
   }
 }
-function* FromThis2(schema, references, path99, value) {
-  yield* Visit6(Deref(schema, references), references, path99, value);
+function* FromThis2(schema, references, path100, value) {
+  yield* Visit6(Deref(schema, references), references, path100, value);
 }
-function* FromTuple7(schema, references, path99, value) {
+function* FromTuple7(schema, references, path100, value) {
   if (!IsArray2(value))
-    return yield Create(ValueErrorType.Tuple, schema, path99, value);
+    return yield Create(ValueErrorType.Tuple, schema, path100, value);
   if (schema.items === void 0 && !(value.length === 0)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path99, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path100, value);
   }
   if (!(value.length === schema.maxItems)) {
-    return yield Create(ValueErrorType.TupleLength, schema, path99, value);
+    return yield Create(ValueErrorType.TupleLength, schema, path100, value);
   }
   if (!schema.items) {
     return;
   }
   for (let i = 0; i < schema.items.length; i++) {
-    yield* Visit6(schema.items[i], references, `${path99}/${i}`, value[i]);
+    yield* Visit6(schema.items[i], references, `${path100}/${i}`, value[i]);
   }
 }
-function* FromUndefined3(schema, references, path99, value) {
+function* FromUndefined3(schema, references, path100, value) {
   if (!IsUndefined2(value))
-    yield Create(ValueErrorType.Undefined, schema, path99, value);
+    yield Create(ValueErrorType.Undefined, schema, path100, value);
 }
-function* FromUnion12(schema, references, path99, value) {
+function* FromUnion12(schema, references, path100, value) {
   if (Check(schema, references, value))
     return;
-  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path99, value)));
-  yield Create(ValueErrorType.Union, schema, path99, value, errors2);
+  const errors2 = schema.anyOf.map((variant) => new ValueErrorIterator(Visit6(variant, references, path100, value)));
+  yield Create(ValueErrorType.Union, schema, path100, value, errors2);
 }
-function* FromUint8Array3(schema, references, path99, value) {
+function* FromUint8Array3(schema, references, path100, value) {
   if (!IsUint8Array2(value))
-    return yield Create(ValueErrorType.Uint8Array, schema, path99, value);
+    return yield Create(ValueErrorType.Uint8Array, schema, path100, value);
   if (IsDefined2(schema.maxByteLength) && !(value.length <= schema.maxByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path99, value);
+    yield Create(ValueErrorType.Uint8ArrayMaxByteLength, schema, path100, value);
   }
   if (IsDefined2(schema.minByteLength) && !(value.length >= schema.minByteLength)) {
-    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path99, value);
+    yield Create(ValueErrorType.Uint8ArrayMinByteLength, schema, path100, value);
   }
 }
-function* FromUnknown3(schema, references, path99, value) {
+function* FromUnknown3(schema, references, path100, value) {
 }
-function* FromVoid3(schema, references, path99, value) {
+function* FromVoid3(schema, references, path100, value) {
   if (!TypeSystemPolicy.IsVoidLike(value))
-    yield Create(ValueErrorType.Void, schema, path99, value);
+    yield Create(ValueErrorType.Void, schema, path100, value);
 }
-function* FromKind2(schema, references, path99, value) {
+function* FromKind2(schema, references, path100, value) {
   const check = type_exports2.Get(schema[Kind]);
   if (!check(schema, value))
-    yield Create(ValueErrorType.Kind, schema, path99, value);
+    yield Create(ValueErrorType.Kind, schema, path100, value);
 }
-function* Visit6(schema, references, path99, value) {
+function* Visit6(schema, references, path100, value) {
   const references_ = IsDefined2(schema.$id) ? [...references, schema] : references;
   const schema_ = schema;
   switch (schema_[Kind]) {
     case "Any":
-      return yield* FromAny3(schema_, references_, path99, value);
+      return yield* FromAny3(schema_, references_, path100, value);
     case "Argument":
-      return yield* FromArgument3(schema_, references_, path99, value);
+      return yield* FromArgument3(schema_, references_, path100, value);
     case "Array":
-      return yield* FromArray8(schema_, references_, path99, value);
+      return yield* FromArray8(schema_, references_, path100, value);
     case "AsyncIterator":
-      return yield* FromAsyncIterator5(schema_, references_, path99, value);
+      return yield* FromAsyncIterator5(schema_, references_, path100, value);
     case "BigInt":
-      return yield* FromBigInt3(schema_, references_, path99, value);
+      return yield* FromBigInt3(schema_, references_, path100, value);
     case "Boolean":
-      return yield* FromBoolean3(schema_, references_, path99, value);
+      return yield* FromBoolean3(schema_, references_, path100, value);
     case "Constructor":
-      return yield* FromConstructor5(schema_, references_, path99, value);
+      return yield* FromConstructor5(schema_, references_, path100, value);
     case "Date":
-      return yield* FromDate3(schema_, references_, path99, value);
+      return yield* FromDate3(schema_, references_, path100, value);
     case "Function":
-      return yield* FromFunction5(schema_, references_, path99, value);
+      return yield* FromFunction5(schema_, references_, path100, value);
     case "Import":
-      return yield* FromImport2(schema_, references_, path99, value);
+      return yield* FromImport2(schema_, references_, path100, value);
     case "Integer":
-      return yield* FromInteger3(schema_, references_, path99, value);
+      return yield* FromInteger3(schema_, references_, path100, value);
     case "Intersect":
-      return yield* FromIntersect10(schema_, references_, path99, value);
+      return yield* FromIntersect10(schema_, references_, path100, value);
     case "Iterator":
-      return yield* FromIterator5(schema_, references_, path99, value);
+      return yield* FromIterator5(schema_, references_, path100, value);
     case "Literal":
-      return yield* FromLiteral4(schema_, references_, path99, value);
+      return yield* FromLiteral4(schema_, references_, path100, value);
     case "Never":
-      return yield* FromNever3(schema_, references_, path99, value);
+      return yield* FromNever3(schema_, references_, path100, value);
     case "Not":
-      return yield* FromNot3(schema_, references_, path99, value);
+      return yield* FromNot3(schema_, references_, path100, value);
     case "Null":
-      return yield* FromNull3(schema_, references_, path99, value);
+      return yield* FromNull3(schema_, references_, path100, value);
     case "Number":
-      return yield* FromNumber3(schema_, references_, path99, value);
+      return yield* FromNumber3(schema_, references_, path100, value);
     case "Object":
-      return yield* FromObject9(schema_, references_, path99, value);
+      return yield* FromObject9(schema_, references_, path100, value);
     case "Promise":
-      return yield* FromPromise5(schema_, references_, path99, value);
+      return yield* FromPromise5(schema_, references_, path100, value);
     case "Record":
-      return yield* FromRecord5(schema_, references_, path99, value);
+      return yield* FromRecord5(schema_, references_, path100, value);
     case "Ref":
-      return yield* FromRef6(schema_, references_, path99, value);
+      return yield* FromRef6(schema_, references_, path100, value);
     case "RegExp":
-      return yield* FromRegExp3(schema_, references_, path99, value);
+      return yield* FromRegExp3(schema_, references_, path100, value);
     case "String":
-      return yield* FromString3(schema_, references_, path99, value);
+      return yield* FromString3(schema_, references_, path100, value);
     case "Symbol":
-      return yield* FromSymbol3(schema_, references_, path99, value);
+      return yield* FromSymbol3(schema_, references_, path100, value);
     case "TemplateLiteral":
-      return yield* FromTemplateLiteral5(schema_, references_, path99, value);
+      return yield* FromTemplateLiteral5(schema_, references_, path100, value);
     case "This":
-      return yield* FromThis2(schema_, references_, path99, value);
+      return yield* FromThis2(schema_, references_, path100, value);
     case "Tuple":
-      return yield* FromTuple7(schema_, references_, path99, value);
+      return yield* FromTuple7(schema_, references_, path100, value);
     case "Undefined":
-      return yield* FromUndefined3(schema_, references_, path99, value);
+      return yield* FromUndefined3(schema_, references_, path100, value);
     case "Union":
-      return yield* FromUnion12(schema_, references_, path99, value);
+      return yield* FromUnion12(schema_, references_, path100, value);
     case "Uint8Array":
-      return yield* FromUint8Array3(schema_, references_, path99, value);
+      return yield* FromUint8Array3(schema_, references_, path100, value);
     case "Unknown":
-      return yield* FromUnknown3(schema_, references_, path99, value);
+      return yield* FromUnknown3(schema_, references_, path100, value);
     case "Void":
-      return yield* FromVoid3(schema_, references_, path99, value);
+      return yield* FromVoid3(schema_, references_, path100, value);
     default:
       if (!type_exports2.Has(schema_[Kind]))
         throw new ValueErrorsUnknownTypeError(schema);
-      return yield* FromKind2(schema_, references_, path99, value);
+      return yield* FromKind2(schema_, references_, path100, value);
   }
 }
 function Errors(...args) {
@@ -8964,50 +8964,50 @@ var init_convert2 = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/decode.mjs
-function Default3(schema, path99, value) {
+function Default3(schema, path100, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Decode(value) : value;
   } catch (error) {
-    throw new TransformDecodeError(schema, path99, value, error);
+    throw new TransformDecodeError(schema, path100, value, error);
   }
 }
-function FromArray14(schema, references, path99, value) {
-  return IsArray2(value) ? Default3(schema, path99, value.map((value2, index) => Visit11(schema.items, references, `${path99}/${index}`, value2))) : Default3(schema, path99, value);
+function FromArray14(schema, references, path100, value) {
+  return IsArray2(value) ? Default3(schema, path100, value.map((value2, index) => Visit11(schema.items, references, `${path100}/${index}`, value2))) : Default3(schema, path100, value);
 }
-function FromIntersect15(schema, references, path99, value) {
+function FromIntersect15(schema, references, path100, value) {
   if (!IsObject2(value) || IsValueType(value))
-    return Default3(schema, path99, value);
+    return Default3(schema, path100, value);
   const knownEntries = KeyOfPropertyEntries(schema);
   const knownKeys = knownEntries.map((entry) => entry[0]);
   const knownProperties = { ...value };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit11(knownSchema, references, `${path99}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit11(knownSchema, references, `${path100}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
-    return Default3(schema, path99, knownProperties);
+    return Default3(schema, path100, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const unevaluatedProperties = schema.unevaluatedProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(unevaluatedProperties, `${path99}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(unevaluatedProperties, `${path100}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path99, unknownProperties);
+  return Default3(schema, path100, unknownProperties);
 }
-function FromImport7(schema, references, path99, value) {
+function FromImport7(schema, references, path100, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Visit11(target, [...references, ...additional], path99, value);
-  return Default3(schema, path99, result4);
+  const result4 = Visit11(target, [...references, ...additional], path100, value);
+  return Default3(schema, path100, result4);
 }
-function FromNot5(schema, references, path99, value) {
-  return Default3(schema, path99, Visit11(schema.not, references, path99, value));
+function FromNot5(schema, references, path100, value) {
+  return Default3(schema, path100, Visit11(schema.not, references, path100, value));
 }
-function FromObject15(schema, references, path99, value) {
+function FromObject15(schema, references, path100, value) {
   if (!IsObject2(value))
-    return Default3(schema, path99, value);
+    return Default3(schema, path100, value);
   const knownKeys = KeyOfPropertyKeys(schema);
   const knownProperties = { ...value };
   for (const key of knownKeys) {
@@ -9015,90 +9015,90 @@ function FromObject15(schema, references, path99, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit11(schema.properties[key], references, `${path99}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit11(schema.properties[key], references, `${path100}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path99, knownProperties);
+    return Default3(schema, path100, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path99}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path100}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path99, unknownProperties);
+  return Default3(schema, path100, unknownProperties);
 }
-function FromRecord10(schema, references, path99, value) {
+function FromRecord10(schema, references, path100, value) {
   if (!IsObject2(value))
-    return Default3(schema, path99, value);
+    return Default3(schema, path100, value);
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
   const knownKeys = new RegExp(pattern);
   const knownProperties = { ...value };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path99}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit11(schema.patternProperties[pattern], references, `${path100}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
-    return Default3(schema, path99, knownProperties);
+    return Default3(schema, path100, knownProperties);
   }
   const unknownKeys = Object.getOwnPropertyNames(knownProperties);
   const additionalProperties = schema.additionalProperties;
   const unknownProperties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      unknownProperties[key] = Default3(additionalProperties, `${path99}/${key}`, unknownProperties[key]);
+      unknownProperties[key] = Default3(additionalProperties, `${path100}/${key}`, unknownProperties[key]);
     }
-  return Default3(schema, path99, unknownProperties);
+  return Default3(schema, path100, unknownProperties);
 }
-function FromRef11(schema, references, path99, value) {
+function FromRef11(schema, references, path100, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path99, Visit11(target, references, path99, value));
+  return Default3(schema, path100, Visit11(target, references, path100, value));
 }
-function FromThis7(schema, references, path99, value) {
+function FromThis7(schema, references, path100, value) {
   const target = Deref(schema, references);
-  return Default3(schema, path99, Visit11(target, references, path99, value));
+  return Default3(schema, path100, Visit11(target, references, path100, value));
 }
-function FromTuple12(schema, references, path99, value) {
-  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path99, schema.items.map((schema2, index) => Visit11(schema2, references, `${path99}/${index}`, value[index]))) : Default3(schema, path99, value);
+function FromTuple12(schema, references, path100, value) {
+  return IsArray2(value) && IsArray2(schema.items) ? Default3(schema, path100, schema.items.map((schema2, index) => Visit11(schema2, references, `${path100}/${index}`, value[index]))) : Default3(schema, path100, value);
 }
-function FromUnion17(schema, references, path99, value) {
+function FromUnion17(schema, references, path100, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const decoded = Visit11(subschema, references, path99, value);
-    return Default3(schema, path99, decoded);
+    const decoded = Visit11(subschema, references, path100, value);
+    return Default3(schema, path100, decoded);
   }
-  return Default3(schema, path99, value);
+  return Default3(schema, path100, value);
 }
-function Visit11(schema, references, path99, value) {
+function Visit11(schema, references, path100, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray14(schema_, references_, path99, value);
+      return FromArray14(schema_, references_, path100, value);
     case "Import":
-      return FromImport7(schema_, references_, path99, value);
+      return FromImport7(schema_, references_, path100, value);
     case "Intersect":
-      return FromIntersect15(schema_, references_, path99, value);
+      return FromIntersect15(schema_, references_, path100, value);
     case "Not":
-      return FromNot5(schema_, references_, path99, value);
+      return FromNot5(schema_, references_, path100, value);
     case "Object":
-      return FromObject15(schema_, references_, path99, value);
+      return FromObject15(schema_, references_, path100, value);
     case "Record":
-      return FromRecord10(schema_, references_, path99, value);
+      return FromRecord10(schema_, references_, path100, value);
     case "Ref":
-      return FromRef11(schema_, references_, path99, value);
+      return FromRef11(schema_, references_, path100, value);
     case "Symbol":
-      return Default3(schema_, path99, value);
+      return Default3(schema_, path100, value);
     case "This":
-      return FromThis7(schema_, references_, path99, value);
+      return FromThis7(schema_, references_, path100, value);
     case "Tuple":
-      return FromTuple12(schema_, references_, path99, value);
+      return FromTuple12(schema_, references_, path100, value);
     case "Union":
-      return FromUnion17(schema_, references_, path99, value);
+      return FromUnion17(schema_, references_, path100, value);
     default:
-      return Default3(schema_, path99, value);
+      return Default3(schema_, path100, value);
   }
 }
 function TransformDecode(schema, references, value) {
@@ -9124,10 +9124,10 @@ var init_decode = __esm({
       }
     };
     TransformDecodeError = class extends TypeBoxError {
-      constructor(schema, path99, value, error) {
+      constructor(schema, path100, value, error) {
         super(error instanceof Error ? error.message : "Unknown error");
         this.schema = schema;
-        this.path = path99;
+        this.path = path100;
         this.value = value;
         this.error = error;
       }
@@ -9136,25 +9136,25 @@ var init_decode = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/transform/encode.mjs
-function Default4(schema, path99, value) {
+function Default4(schema, path100, value) {
   try {
     return IsTransform(schema) ? schema[TransformKind].Encode(value) : value;
   } catch (error) {
-    throw new TransformEncodeError(schema, path99, value, error);
+    throw new TransformEncodeError(schema, path100, value, error);
   }
 }
-function FromArray15(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
-  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path99}/${index}`, value2)) : defaulted;
+function FromArray15(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
+  return IsArray2(defaulted) ? defaulted.map((value2, index) => Visit12(schema.items, references, `${path100}/${index}`, value2)) : defaulted;
 }
-function FromImport8(schema, references, path99, value) {
+function FromImport8(schema, references, path100, value) {
   const additional = globalThis.Object.values(schema.$defs);
   const target = schema.$defs[schema.$ref];
-  const result4 = Default4(schema, path99, value);
-  return Visit12(target, [...references, ...additional], path99, result4);
+  const result4 = Default4(schema, path100, value);
+  return Visit12(target, [...references, ...additional], path100, result4);
 }
-function FromIntersect16(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
+function FromIntersect16(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
   if (!IsObject2(value) || IsValueType(value))
     return defaulted;
   const knownEntries = KeyOfPropertyEntries(schema);
@@ -9162,7 +9162,7 @@ function FromIntersect16(schema, references, path99, value) {
   const knownProperties = { ...defaulted };
   for (const [knownKey, knownSchema] of knownEntries)
     if (knownKey in knownProperties) {
-      knownProperties[knownKey] = Visit12(knownSchema, references, `${path99}/${knownKey}`, knownProperties[knownKey]);
+      knownProperties[knownKey] = Visit12(knownSchema, references, `${path100}/${knownKey}`, knownProperties[knownKey]);
     }
   if (!IsTransform(schema.unevaluatedProperties)) {
     return knownProperties;
@@ -9172,15 +9172,15 @@ function FromIntersect16(schema, references, path99, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(unevaluatedProperties, `${path99}/${key}`, properties[key]);
+      properties[key] = Default4(unevaluatedProperties, `${path100}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromNot6(schema, references, path99, value) {
-  return Default4(schema.not, path99, Default4(schema, path99, value));
+function FromNot6(schema, references, path100, value) {
+  return Default4(schema.not, path100, Default4(schema, path100, value));
 }
-function FromObject16(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
+function FromObject16(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
   if (!IsObject2(defaulted))
     return defaulted;
   const knownKeys = KeyOfPropertyKeys(schema);
@@ -9190,7 +9190,7 @@ function FromObject16(schema, references, path99, value) {
       continue;
     if (IsUndefined2(knownProperties[key]) && (!IsUndefined3(schema.properties[key]) || TypeSystemPolicy.IsExactOptionalProperty(knownProperties, key)))
       continue;
-    knownProperties[key] = Visit12(schema.properties[key], references, `${path99}/${key}`, knownProperties[key]);
+    knownProperties[key] = Visit12(schema.properties[key], references, `${path100}/${key}`, knownProperties[key]);
   }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9200,12 +9200,12 @@ function FromObject16(schema, references, path99, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.includes(key)) {
-      properties[key] = Default4(additionalProperties, `${path99}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path100}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRecord11(schema, references, path99, value) {
-  const defaulted = Default4(schema, path99, value);
+function FromRecord11(schema, references, path100, value) {
+  const defaulted = Default4(schema, path100, value);
   if (!IsObject2(value))
     return defaulted;
   const pattern = Object.getOwnPropertyNames(schema.patternProperties)[0];
@@ -9213,7 +9213,7 @@ function FromRecord11(schema, references, path99, value) {
   const knownProperties = { ...defaulted };
   for (const key of Object.getOwnPropertyNames(value))
     if (knownKeys.test(key)) {
-      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path99}/${key}`, knownProperties[key]);
+      knownProperties[key] = Visit12(schema.patternProperties[pattern], references, `${path100}/${key}`, knownProperties[key]);
     }
   if (!IsSchema(schema.additionalProperties)) {
     return knownProperties;
@@ -9223,65 +9223,65 @@ function FromRecord11(schema, references, path99, value) {
   const properties = { ...knownProperties };
   for (const key of unknownKeys)
     if (!knownKeys.test(key)) {
-      properties[key] = Default4(additionalProperties, `${path99}/${key}`, properties[key]);
+      properties[key] = Default4(additionalProperties, `${path100}/${key}`, properties[key]);
     }
   return properties;
 }
-function FromRef12(schema, references, path99, value) {
+function FromRef12(schema, references, path100, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path99, value);
-  return Default4(schema, path99, resolved);
+  const resolved = Visit12(target, references, path100, value);
+  return Default4(schema, path100, resolved);
 }
-function FromThis8(schema, references, path99, value) {
+function FromThis8(schema, references, path100, value) {
   const target = Deref(schema, references);
-  const resolved = Visit12(target, references, path99, value);
-  return Default4(schema, path99, resolved);
+  const resolved = Visit12(target, references, path100, value);
+  return Default4(schema, path100, resolved);
 }
-function FromTuple13(schema, references, path99, value) {
-  const value1 = Default4(schema, path99, value);
-  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path99}/${index}`, value1[index])) : [];
+function FromTuple13(schema, references, path100, value) {
+  const value1 = Default4(schema, path100, value);
+  return IsArray2(schema.items) ? schema.items.map((schema2, index) => Visit12(schema2, references, `${path100}/${index}`, value1[index])) : [];
 }
-function FromUnion18(schema, references, path99, value) {
+function FromUnion18(schema, references, path100, value) {
   for (const subschema of schema.anyOf) {
     if (!Check(subschema, references, value))
       continue;
-    const value1 = Visit12(subschema, references, path99, value);
-    return Default4(schema, path99, value1);
+    const value1 = Visit12(subschema, references, path100, value);
+    return Default4(schema, path100, value1);
   }
   for (const subschema of schema.anyOf) {
-    const value1 = Visit12(subschema, references, path99, value);
+    const value1 = Visit12(subschema, references, path100, value);
     if (!Check(schema, references, value1))
       continue;
-    return Default4(schema, path99, value1);
+    return Default4(schema, path100, value1);
   }
-  return Default4(schema, path99, value);
+  return Default4(schema, path100, value);
 }
-function Visit12(schema, references, path99, value) {
+function Visit12(schema, references, path100, value) {
   const references_ = Pushref(schema, references);
   const schema_ = schema;
   switch (schema[Kind]) {
     case "Array":
-      return FromArray15(schema_, references_, path99, value);
+      return FromArray15(schema_, references_, path100, value);
     case "Import":
-      return FromImport8(schema_, references_, path99, value);
+      return FromImport8(schema_, references_, path100, value);
     case "Intersect":
-      return FromIntersect16(schema_, references_, path99, value);
+      return FromIntersect16(schema_, references_, path100, value);
     case "Not":
-      return FromNot6(schema_, references_, path99, value);
+      return FromNot6(schema_, references_, path100, value);
     case "Object":
-      return FromObject16(schema_, references_, path99, value);
+      return FromObject16(schema_, references_, path100, value);
     case "Record":
-      return FromRecord11(schema_, references_, path99, value);
+      return FromRecord11(schema_, references_, path100, value);
     case "Ref":
-      return FromRef12(schema_, references_, path99, value);
+      return FromRef12(schema_, references_, path100, value);
     case "This":
-      return FromThis8(schema_, references_, path99, value);
+      return FromThis8(schema_, references_, path100, value);
     case "Tuple":
-      return FromTuple13(schema_, references_, path99, value);
+      return FromTuple13(schema_, references_, path100, value);
     case "Union":
-      return FromUnion18(schema_, references_, path99, value);
+      return FromUnion18(schema_, references_, path100, value);
     default:
-      return Default4(schema_, path99, value);
+      return Default4(schema_, path100, value);
   }
 }
 function TransformEncode(schema, references, value) {
@@ -9307,10 +9307,10 @@ var init_encode = __esm({
       }
     };
     TransformEncodeError = class extends TypeBoxError {
-      constructor(schema, path99, value, error) {
+      constructor(schema, path100, value, error) {
         super(`${error instanceof Error ? error.message : "Unknown error"}`);
         this.schema = schema;
-        this.path = path99;
+        this.path = path100;
         this.value = value;
         this.error = error;
       }
@@ -9710,18 +9710,18 @@ var init_pointer = __esm({
   "node_modules/@sinclair/typebox/build/esm/value/pointer/pointer.mjs"() {
     init_error2();
     ValuePointerRootSetError = class extends TypeBoxError {
-      constructor(value, path99, update) {
+      constructor(value, path100, update) {
         super("Cannot set root value");
         this.value = value;
-        this.path = path99;
+        this.path = path100;
         this.update = update;
       }
     };
     ValuePointerRootDeleteError = class extends TypeBoxError {
-      constructor(value, path99) {
+      constructor(value, path100) {
         super("Cannot delete root value");
         this.value = value;
-        this.path = path99;
+        this.path = path100;
       }
     };
   }
@@ -9780,82 +9780,82 @@ var init_equal = __esm({
 });
 
 // node_modules/@sinclair/typebox/build/esm/value/delta/delta.mjs
-function CreateUpdate(path99, value) {
-  return { type: "update", path: path99, value };
+function CreateUpdate(path100, value) {
+  return { type: "update", path: path100, value };
 }
-function CreateInsert(path99, value) {
-  return { type: "insert", path: path99, value };
+function CreateInsert(path100, value) {
+  return { type: "insert", path: path100, value };
 }
-function CreateDelete(path99) {
-  return { type: "delete", path: path99 };
+function CreateDelete(path100) {
+  return { type: "delete", path: path100 };
 }
 function AssertDiffable(value) {
   if (globalThis.Object.getOwnPropertySymbols(value).length > 0)
     throw new ValueDiffError(value, "Cannot diff objects with symbols");
 }
-function* ObjectType4(path99, current, next) {
+function* ObjectType4(path100, current, next) {
   AssertDiffable(current);
   AssertDiffable(next);
   if (!IsStandardObject(next))
-    return yield CreateUpdate(path99, next);
+    return yield CreateUpdate(path100, next);
   const currentKeys = globalThis.Object.getOwnPropertyNames(current);
   const nextKeys = globalThis.Object.getOwnPropertyNames(next);
   for (const key of nextKeys) {
     if (HasPropertyKey2(current, key))
       continue;
-    yield CreateInsert(`${path99}/${key}`, next[key]);
+    yield CreateInsert(`${path100}/${key}`, next[key]);
   }
   for (const key of currentKeys) {
     if (!HasPropertyKey2(next, key))
       continue;
     if (Equal(current, next))
       continue;
-    yield* Visit15(`${path99}/${key}`, current[key], next[key]);
+    yield* Visit15(`${path100}/${key}`, current[key], next[key]);
   }
   for (const key of currentKeys) {
     if (HasPropertyKey2(next, key))
       continue;
-    yield CreateDelete(`${path99}/${key}`);
+    yield CreateDelete(`${path100}/${key}`);
   }
 }
-function* ArrayType4(path99, current, next) {
+function* ArrayType4(path100, current, next) {
   if (!IsArray2(next))
-    return yield CreateUpdate(path99, next);
+    return yield CreateUpdate(path100, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path99}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path100}/${i}`, current[i], next[i]);
   }
   for (let i = 0; i < next.length; i++) {
     if (i < current.length)
       continue;
-    yield CreateInsert(`${path99}/${i}`, next[i]);
+    yield CreateInsert(`${path100}/${i}`, next[i]);
   }
   for (let i = current.length - 1; i >= 0; i--) {
     if (i < next.length)
       continue;
-    yield CreateDelete(`${path99}/${i}`);
+    yield CreateDelete(`${path100}/${i}`);
   }
 }
-function* TypedArrayType2(path99, current, next) {
+function* TypedArrayType2(path100, current, next) {
   if (!IsTypedArray(next) || current.length !== next.length || globalThis.Object.getPrototypeOf(current).constructor.name !== globalThis.Object.getPrototypeOf(next).constructor.name)
-    return yield CreateUpdate(path99, next);
+    return yield CreateUpdate(path100, next);
   for (let i = 0; i < Math.min(current.length, next.length); i++) {
-    yield* Visit15(`${path99}/${i}`, current[i], next[i]);
+    yield* Visit15(`${path100}/${i}`, current[i], next[i]);
   }
 }
-function* ValueType2(path99, current, next) {
+function* ValueType2(path100, current, next) {
   if (current === next)
     return;
-  yield CreateUpdate(path99, next);
+  yield CreateUpdate(path100, next);
 }
-function* Visit15(path99, current, next) {
+function* Visit15(path100, current, next) {
   if (IsStandardObject(current))
-    return yield* ObjectType4(path99, current, next);
+    return yield* ObjectType4(path100, current, next);
   if (IsArray2(current))
-    return yield* ArrayType4(path99, current, next);
+    return yield* ArrayType4(path100, current, next);
   if (IsTypedArray(current))
-    return yield* TypedArrayType2(path99, current, next);
+    return yield* TypedArrayType2(path100, current, next);
   if (IsValueType(current))
-    return yield* ValueType2(path99, current, next);
+    return yield* ValueType2(path100, current, next);
   throw new ValueDiffError(current, "Unable to diff value");
 }
 function Diff(current, next) {
@@ -9971,9 +9971,9 @@ var init_equal2 = __esm({
 function IsStandardObject2(value) {
   return IsObject2(value) && !IsArray2(value);
 }
-function ObjectType5(root, path99, current, next) {
+function ObjectType5(root, path100, current, next) {
   if (!IsStandardObject2(current)) {
-    pointer_exports.Set(root, path99, Clone2(next));
+    pointer_exports.Set(root, path100, Clone2(next));
   } else {
     const currentKeys = Object.getOwnPropertyNames(current);
     const nextKeys = Object.getOwnPropertyNames(next);
@@ -9988,43 +9988,43 @@ function ObjectType5(root, path99, current, next) {
       }
     }
     for (const nextKey of nextKeys) {
-      Visit16(root, `${path99}/${nextKey}`, current[nextKey], next[nextKey]);
+      Visit16(root, `${path100}/${nextKey}`, current[nextKey], next[nextKey]);
     }
   }
 }
-function ArrayType5(root, path99, current, next) {
+function ArrayType5(root, path100, current, next) {
   if (!IsArray2(current)) {
-    pointer_exports.Set(root, path99, Clone2(next));
+    pointer_exports.Set(root, path100, Clone2(next));
   } else {
     for (let index = 0; index < next.length; index++) {
-      Visit16(root, `${path99}/${index}`, current[index], next[index]);
+      Visit16(root, `${path100}/${index}`, current[index], next[index]);
     }
     current.splice(next.length);
   }
 }
-function TypedArrayType3(root, path99, current, next) {
+function TypedArrayType3(root, path100, current, next) {
   if (IsTypedArray(current) && current.length === next.length) {
     for (let i = 0; i < current.length; i++) {
       current[i] = next[i];
     }
   } else {
-    pointer_exports.Set(root, path99, Clone2(next));
+    pointer_exports.Set(root, path100, Clone2(next));
   }
 }
-function ValueType3(root, path99, current, next) {
+function ValueType3(root, path100, current, next) {
   if (current === next)
     return;
-  pointer_exports.Set(root, path99, next);
+  pointer_exports.Set(root, path100, next);
 }
-function Visit16(root, path99, current, next) {
+function Visit16(root, path100, current, next) {
   if (IsArray2(next))
-    return ArrayType5(root, path99, current, next);
+    return ArrayType5(root, path100, current, next);
   if (IsTypedArray(next))
-    return TypedArrayType3(root, path99, current, next);
+    return TypedArrayType3(root, path100, current, next);
   if (IsStandardObject2(next))
-    return ObjectType5(root, path99, current, next);
+    return ObjectType5(root, path100, current, next);
   if (IsValueType(next))
-    return ValueType3(root, path99, current, next);
+    return ValueType3(root, path100, current, next);
 }
 function IsNonMutableValue(value) {
   return IsTypedArray(value) || IsValueType(value);
@@ -10623,14 +10623,14 @@ function errorPathFromValidation(error) {
 function validateConfigWithWarnings(raw) {
   if (!value_exports2.Check(PiTeamsConfigSchema, raw)) {
     return [...value_exports2.Errors(PiTeamsConfigSchema, raw)].map((error) => {
-      const path99 = errorPathFromValidation(error);
+      const path100 = errorPathFromValidation(error);
       const message = error.message ?? "invalid value";
       if (error.keyword === "additionalProperties") {
-        const offendingKey = path99.split("/").pop() ?? path99;
+        const offendingKey = path100.split("/").pop() ?? path100;
         const suggestion = suggestConfigKey(offendingKey, KNOWN_TOP_LEVEL_KEYS);
-        if (suggestion) return `${path99}: ${message} (did you mean '${suggestion}'?)`;
+        if (suggestion) return `${path100}: ${message} (did you mean '${suggestion}'?)`;
       }
-      return `${path99}: ${message}`;
+      return `${path100}: ${message}`;
     });
   }
   return [];
@@ -12531,9 +12531,11 @@ var init_role_tools = __esm({
         // Phase 1 scratchpad: multi-cell test/verify flows reuse parsed state.
         scratchpad: true
       },
-      // Test Engineer - Can write tests (F1: hyphenated key)
+      // Test Engineer - Can write tests (F1: hyphenated key). Tool list mirrors
+      // agents/test-engineer.md frontmatter (T3 binding, commit c25dfbe2):
+      // search tools + delegate for spawning depth-1 helpers.
       "test-engineer": {
-        tools: ["read", "edit", "write", "bash", "ls", "scratchpad", "ask"],
+        tools: ["read", "edit", "write", "bash", "ls", "glob", "grep", "find", "scratchpad", "ask", "delegate"],
         excludeTools: ["web"],
         // Phase 1 scratchpad: build/run test suites with state across cells.
         scratchpad: true
@@ -13099,16 +13101,16 @@ function parseGenericGitUrl(url) {
   const { repo: repoWithoutRef, ref } = splitRef(url);
   let repo = repoWithoutRef;
   let host = "";
-  let path99 = "";
+  let path100 = "";
   const scpLikeMatch = repoWithoutRef.match(/^git@([^:]+):(.+)$/);
   if (scpLikeMatch) {
     host = scpLikeMatch[1] ?? "";
-    path99 = scpLikeMatch[2] ?? "";
+    path100 = scpLikeMatch[2] ?? "";
   } else if (repoWithoutRef.startsWith("https://") || repoWithoutRef.startsWith("http://") || repoWithoutRef.startsWith("ssh://") || repoWithoutRef.startsWith("git://")) {
     try {
       const parsed = new URL(repoWithoutRef);
       host = parsed.hostname;
-      path99 = parsed.pathname.replace(/^\/+/, "");
+      path100 = parsed.pathname.replace(/^\/+/, "");
     } catch {
       return null;
     }
@@ -13118,13 +13120,13 @@ function parseGenericGitUrl(url) {
       return null;
     }
     host = repoWithoutRef.slice(0, slashIndex);
-    path99 = repoWithoutRef.slice(slashIndex + 1);
+    path100 = repoWithoutRef.slice(slashIndex + 1);
     if (!host.includes(".") && host !== "localhost") {
       return null;
     }
     repo = `https://${repoWithoutRef}`;
   }
-  const normalizedPath = path99.replace(/\.git$/, "").replace(/^\/+/, "");
+  const normalizedPath = path100.replace(/\.git$/, "").replace(/^\/+/, "");
   if (!host || !normalizedPath || normalizedPath.split("/").length < 2) {
     return null;
   }
@@ -18640,13 +18642,13 @@ var init_errors3 = __esm({
       }
     };
     errors = {
-      fileRead(path99, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path99}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileRead(path100, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path100}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system read operation"
         );
       },
-      fileWrite(path99, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path99}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+      fileWrite(path100, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path100}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
           "file system write operation"
         );
       },
@@ -23056,26 +23058,26 @@ var init_syntax_highlight = __esm({
 
 // src/ui/transcript-cache.ts
 import * as fs33 from "node:fs";
-function cacheKey(path99, options) {
-  return `${path99}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
+function cacheKey(path100, options) {
+  return `${path100}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
-function getTranscriptCacheEntry(path99, options = {}) {
+function getTranscriptCacheEntry(path100, options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: options.maxTailBytes ?? DEFAULT_TAIL_BYTES
   };
-  return transcriptCache.get(cacheKey(path99, normalized)) ?? transcriptCache.get(path99);
+  return transcriptCache.get(cacheKey(path100, normalized)) ?? transcriptCache.get(path100);
 }
-function readTranscriptText(path99, stat2, options) {
+function readTranscriptText(path100, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
     return {
-      text: fs33.readFileSync(path99, "utf-8"),
+      text: fs33.readFileSync(path100, "utf-8"),
       bytesRead: stat2.size,
       truncated: false
     };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs33.openSync(path99, "r");
+  const fd = fs33.openSync(path100, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
     fs33.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -23087,16 +23089,16 @@ function readTranscriptText(path99, stat2, options) {
     fs33.closeSync(fd);
   }
 }
-function readTranscriptLinesCached(path99, parse4, now = Date.now(), options = {}) {
+function readTranscriptLinesCached(path100, parse4, now = Date.now(), options = {}) {
   const normalized = {
     full: options.full === true,
     maxTailBytes: Math.max(1024, options.maxTailBytes ?? DEFAULT_TAIL_BYTES)
   };
-  const key = cacheKey(path99, normalized);
+  const key = cacheKey(path100, normalized);
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs33.statSync(path99);
+    stat2 = fs33.statSync(path100);
   } catch {
     return previous?.lines ?? [];
   }
@@ -23105,10 +23107,10 @@ function readTranscriptLinesCached(path99, parse4, now = Date.now(), options = {
     return previous.lines;
   }
   try {
-    const read = readTranscriptText(path99, stat2, normalized);
+    const read = readTranscriptText(path100, stat2, normalized);
     const lines = parse4(read.text);
     const entry = {
-      path: path99,
+      path: path100,
       mtimeMs: stat2.mtimeMs,
       size: stat2.size,
       lines,
@@ -26969,17 +26971,17 @@ function confidenceToThreshold(confidence) {
 }
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
-  const path99 = getSkillActivationsPath(cwd, activation.runId);
+  const path100 = getSkillActivationsPath(cwd, activation.runId);
   const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync4(path99, line4, { flag: "a", encoding: "utf-8" });
+  writeFileSync4(path100, line4, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
-  const path99 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync27(path99)) {
+  const path100 = getSkillActivationsPath(cwd, runId);
+  if (!existsSync27(path100)) {
     return [];
   }
-  const content = readFileSync30(path99, "utf-8");
+  const content = readFileSync30(path100, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -29426,11 +29428,11 @@ function parseSkillFrontmatter(content) {
     };
   }
 }
-function hard(path99, field, reason) {
-  return { path: path99, field, reason, severity: "error" };
+function hard(path100, field, reason) {
+  return { path: path100, field, reason, severity: "error" };
 }
-function warn(path99, field, reason) {
-  return { path: path99, field, reason, severity: "warn" };
+function warn(path100, field, reason) {
+  return { path: path100, field, reason, severity: "warn" };
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
@@ -33602,8 +33604,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path99) {
-      let input = path99;
+    function removeDotSegments(path100) {
+      let input = path100;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -33855,8 +33857,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path99, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path99 && path99 !== "/" ? path99 : void 0;
+        const [path100, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path100 && path100 !== "/" ? path100 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -40684,11 +40686,11 @@ function resolveSchemaKey(schema, key) {
     childSchema: childSchemas[0]
   };
 }
-function findUnknownConfigKeyPaths(value, schema, depth = 0, path99 = []) {
+function findUnknownConfigKeyPaths(value, schema, depth = 0, path100 = []) {
   if (!isRecord2(value) || depth > MAX_CONFIG_KEY_DEPTH) return [];
   const unknownPaths = [];
   for (const [key, childValue] of Object.entries(value)) {
-    const childPath = [...path99, key];
+    const childPath = [...path100, key];
     const resolution = resolveSchemaKey(schema, key);
     if (!resolution.allowed) {
       unknownPaths.push(childPath);
@@ -40700,8 +40702,8 @@ function findUnknownConfigKeyPaths(value, schema, depth = 0, path99 = []) {
   }
   return unknownPaths;
 }
-function isAgentOverrideKeyPath(path99) {
-  return path99.length === 4 && path99[0] === "agents" && path99[1] === "overrides";
+function isAgentOverrideKeyPath(path100) {
+  return path100.length === 4 && path100[0] === "agents" && path100[1] === "overrides";
 }
 function extractConfigReferences(config) {
   const agents = /* @__PURE__ */ new Set();
@@ -52885,9 +52887,9 @@ function discoverPiThemes() {
   }
   const dir = customThemesDir2();
   try {
-    const fs123 = __require("node:fs");
-    if (dir && fs123.existsSync(dir)) {
-      for (const file of fs123.readdirSync(dir)) {
+    const fs124 = __require("node:fs");
+    if (dir && fs124.existsSync(dir)) {
+      for (const file of fs124.readdirSync(dir)) {
         if (!file.endsWith(".json")) continue;
         const name = file.slice(0, -5);
         if (seen.has(name)) continue;
@@ -52895,7 +52897,7 @@ function discoverPiThemes() {
         let displayName;
         let mode;
         try {
-          const json = JSON.parse(fs123.readFileSync(fullPath, "utf8"));
+          const json = JSON.parse(fs124.readFileSync(fullPath, "utf8"));
           displayName = typeof json.name === "string" ? json.name : void 0;
           mode = detectThemeMode(json);
         } catch {
@@ -52916,29 +52918,29 @@ function discoverPiThemes() {
 }
 function getActivePiTheme() {
   try {
-    const fs123 = __require("node:fs");
+    const fs124 = __require("node:fs");
     const p = settingsPath();
-    if (!p || !fs123.existsSync(p)) return void 0;
-    const json = JSON.parse(fs123.readFileSync(p, "utf8"));
+    if (!p || !fs124.existsSync(p)) return void 0;
+    const json = JSON.parse(fs124.readFileSync(p, "utf8"));
     return typeof json.theme === "string" ? json.theme : void 0;
   } catch {
     return void 0;
   }
 }
 function setPiTheme(name) {
-  const fs123 = __require("node:fs");
+  const fs124 = __require("node:fs");
   const p = settingsPath();
   if (!p) throw new Error("Could not determine settings path (no HOME).");
   let settings = {};
   try {
-    if (fs123.existsSync(p)) {
-      settings = JSON.parse(fs123.readFileSync(p, "utf8"));
+    if (fs124.existsSync(p)) {
+      settings = JSON.parse(fs124.readFileSync(p, "utf8"));
     }
   } catch {
     settings = {};
   }
   settings.theme = name;
-  fs123.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  fs124.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return p;
 }
 function formatThemesListing() {
@@ -52989,8 +52991,8 @@ var init_theme_discovery = __esm({
 });
 
 // src/extension/team-tool/handle-settings.ts
-function setNested(obj, path99, value) {
-  const keys = path99.split(".");
+function setNested(obj, path100, value) {
+  const keys = path100.split(".");
   let target = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (!target[keys[i]] || typeof target[keys[i]] !== "object") {
@@ -53000,8 +53002,8 @@ function setNested(obj, path99, value) {
   }
   target[keys[keys.length - 1]] = value;
 }
-function getNested(obj, path99) {
-  const keys = path99.split(".");
+function getNested(obj, path100) {
+  const keys = path100.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -54349,10 +54351,10 @@ var init_goal_state_store = __esm({
       }
       /** Load a goal by id. Returns undefined if missing/corrupt. Throws on unsafe goalId (§0c C10). */
       load(goalId) {
-        const path99 = goalFilePath(this.cwd, goalId);
+        const path100 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync57(path99)) return void 0;
-          const raw = readFileSync62(path99, "utf-8");
+          if (!existsSync57(path100)) return void 0;
+          const raw = readFileSync62(path100, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -54363,11 +54365,11 @@ var init_goal_state_store = __esm({
       /** Atomically persist a goal state. Emits a goal.state_changed event if eventsPath given. */
       save(state2, eventsPath) {
         assertSafePathId("goalId", state2.goalId);
-        const path99 = goalFilePath(this.cwd, state2.goalId);
+        const path100 = goalFilePath(this.cwd, state2.goalId);
         const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync35(dirname37(path99), { recursive: true });
-          atomicWriteJson(path99, next);
+          mkdirSync35(dirname37(path100), { recursive: true });
+          atomicWriteJson(path100, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
               type: "goal.state_changed",
@@ -54464,9 +54466,9 @@ var init_goal_state_store = __esm({
       /** Remove a goal file (used by `goal clear`). Returns true if deleted. */
       remove(goalId) {
         try {
-          const path99 = goalFilePath(this.cwd, goalId);
-          if (!existsSync57(path99)) return false;
-          unlinkSync8(path99);
+          const path100 = goalFilePath(this.cwd, goalId);
+          if (!existsSync57(path100)) return false;
+          unlinkSync8(path100);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -66647,10 +66649,10 @@ var init_dwf_state_store = __esm({
       }
       /** Load the checkpoint for this run's stateRoot. Returns undefined if missing or corrupt (fresh run). */
       load() {
-        const path99 = this.path;
+        const path100 = this.path;
         try {
-          if (!existsSync74(path99)) return void 0;
-          const raw = readFileSync78(path99, "utf-8");
+          if (!existsSync74(path100)) return void 0;
+          const raw = readFileSync78(path100, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -66660,11 +66662,11 @@ var init_dwf_state_store = __esm({
       }
       /** Atomically persist a checkpoint state. Stamps `updatedAt` (callers need not set it). */
       save(state2) {
-        const path99 = this.path;
+        const path100 = this.path;
         const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync42(dirname42(path99), { recursive: true });
-          atomicWriteJson(path99, next);
+          mkdirSync42(dirname42(path100), { recursive: true });
+          atomicWriteJson(path100, next);
         } catch (error) {
           logInternalError("dwf-state-store.save", error, `runId=${state2.runId}`);
           throw error;
@@ -66672,10 +66674,10 @@ var init_dwf_state_store = __esm({
       }
       /** Remove the checkpoint file (after a clean completion). Best-effort; never throws. */
       delete() {
-        const path99 = this.path;
+        const path100 = this.path;
         try {
-          if (!existsSync74(path99)) return;
-          unlinkSync13(path99);
+          if (!existsSync74(path100)) return;
+          unlinkSync13(path100);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
         }
@@ -71487,8 +71489,8 @@ function formatValue2(value, id) {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
-function getNestedValue(obj, path99) {
-  const keys = path99.split(".");
+function getNestedValue(obj, path100) {
+  const keys = path100.split(".");
   let current = obj;
   for (const key of keys) {
     if (!current || typeof current !== "object") return void 0;
@@ -74576,13 +74578,13 @@ function line3(text, width) {
 function border(left, fill, right, width) {
   return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
 }
-function readTasks2(path99) {
+function readTasks2(path100) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs113.readFileSync(path99, "utf-8"));
+    const parsed = JSON.parse(fs113.readFileSync(path100, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
-    return readJsonFileCoalesced(path99, TASK_READ_TTL_MS3, parse4);
+    return readJsonFileCoalesced(path100, TASK_READ_TTL_MS3, parse4);
   } catch {
     return [];
   }
@@ -77436,10 +77438,10 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!filePath || typeof oldStr !== "string" || typeof newStr !== "string") {
       throw new Error("old_string not found (and resilient retry skipped: missing path/old/new)");
     }
-    const fs123 = await import("node:fs/promises");
+    const fs124 = await import("node:fs/promises");
     let content;
     try {
-      content = await fs123.readFile(filePath, "utf8");
+      content = await fs124.readFile(filePath, "utf8");
     } catch (readErr) {
       throw new Error(`resilient edit: could not read ${filePath}: ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
@@ -77449,7 +77451,7 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!result4.changed) {
       throw new Error(`old_string not found (resilient cascade exhausted, strategy=${result4.strategy})`);
     }
-    await fs123.writeFile(filePath, result4.content, "utf8");
+    await fs124.writeFile(filePath, result4.content, "utf8");
     return {
       content: [
         {
@@ -78110,17 +78112,17 @@ function normalizeConfig(raw) {
 }
 function loadConfig2() {
   try {
-    const path99 = configPath2();
-    if (!existsSync78(path99)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync84(path99, "utf8")));
+    const path100 = configPath2();
+    if (!existsSync78(path100)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync84(path100, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
 }
 function saveConfig(config) {
-  const path99 = configPath2();
-  mkdirSync45(dirname44(path99), { recursive: true });
-  writeFileSync11(path99, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  const path100 = configPath2();
+  mkdirSync45(dirname44(path100), { recursive: true });
+  writeFileSync11(path100, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
@@ -79442,9 +79444,9 @@ function closeWatcher(watcher) {
   } catch {
   }
 }
-function watchWithErrorHandler(path99, listener, onError) {
+function watchWithErrorHandler(path100, listener, onError) {
   try {
-    const watcher = fs108.watch(path99, listener);
+    const watcher = fs108.watch(path100, listener);
     watcher.on("error", onError);
     return watcher;
   } catch (error) {
@@ -80960,9 +80962,9 @@ function validateJson(content, _filePath) {
 var DEFAULT_VALIDATORS = /* @__PURE__ */ new Map([["json", validateJson]]);
 var MAX_DEDUP_ENTRIES = 256;
 var seenContent = /* @__PURE__ */ new Map();
-function rememberSeen(path99, content) {
-  if (seenContent.has(path99)) seenContent.delete(path99);
-  seenContent.set(path99, content);
+function rememberSeen(path100, content) {
+  if (seenContent.has(path100)) seenContent.delete(path100);
+  seenContent.set(path100, content);
   while (seenContent.size > MAX_DEDUP_ENTRIES) {
     const oldest = seenContent.keys().next().value;
     if (oldest === void 0) break;
@@ -81167,8 +81169,8 @@ init_defaults();
 init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
-import * as fs121 from "node:fs";
-import * as path98 from "node:path";
+import * as fs122 from "node:fs";
+import * as path99 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
 init_locks();
@@ -83299,20 +83301,10 @@ init_tool_result();
 init_internal_error();
 init_pi_ui_compat();
 
-// src/ui/inline-panel/agent-pane.ts
-init_state_store();
-init_theme_adapter();
-import {
-  AssistantMessageComponent,
-  DynamicBorder,
-  getMarkdownTheme,
-  ToolExecutionComponent,
-  UserMessageComponent
-} from "@earendil-works/pi-coding-agent";
-import { Markdown, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
-
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
+import * as fs120 from "node:fs";
+import * as path97 from "node:path";
 var MAX_TRANSCRIPT_ITEMS = 500;
 function normalizeUsage(raw) {
   const usage = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : void 0;
@@ -83330,9 +83322,34 @@ function normalizeUsage(raw) {
 var buffers = /* @__PURE__ */ new Map();
 var pendingByTask = /* @__PURE__ */ new Map();
 var cursors = /* @__PURE__ */ new Map();
+var promptSeeded = /* @__PURE__ */ new Set();
+function readWorkerPrompt(manifest, taskId) {
+  try {
+    const file = path97.join(manifest.artifactsRoot, "prompts", `${taskId}.md`);
+    const text = fs120.readFileSync(file, "utf-8").trim();
+    return text || void 0;
+  } catch {
+    return void 0;
+  }
+}
 function asRecord13(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
   return value;
+}
+function normalizeResultContent(raw) {
+  if (typeof raw === "string") return [{ type: "text", text: raw }];
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((part) => {
+    if (typeof part === "string") return [{ type: "text", text: part }];
+    const record = asRecord13(part);
+    if (!record) return [];
+    return [
+      {
+        type: typeof record.type === "string" ? record.type : "text",
+        text: typeof record.text === "string" ? record.text : void 0
+      }
+    ];
+  });
 }
 function textFromContent5(content) {
   if (!Array.isArray(content)) return "";
@@ -83363,6 +83380,20 @@ function parseEventRecord(record, pending2) {
   if (type === "message_end" || type === "message" || type === "tool_result_end") {
     const message = asRecord13(event.message);
     if (!message) return items;
+    if (message.role === "toolResult") {
+      const result4 = {
+        content: normalizeResultContent(message.content),
+        isError: message.isError === true
+      };
+      for (const [id, item] of pending2) {
+        if (item.result !== void 0) continue;
+        item.result = result4;
+        item.isError = result4.isError;
+        pending2.delete(id);
+        break;
+      }
+      return items;
+    }
     if (message.role === "assistant") {
       const content = Array.isArray(message.content) ? message.content : [];
       const text = textFromContent5(content);
@@ -83379,7 +83410,16 @@ function parseEventRecord(record, pending2) {
         const item = asRecord13(part);
         if (item?.type !== "toolResult") continue;
         const name = typeof item.name === "string" ? item.name : "tool";
-        matchPending(pending2, name, item.content, item.isError === true);
+        const isError = item.isError === true;
+        matchPending(
+          pending2,
+          name,
+          {
+            content: normalizeResultContent(item.content),
+            isError
+          },
+          isError
+        );
       }
       return items;
     }
@@ -83408,14 +83448,22 @@ function readAgentTranscript(manifest, taskId) {
   const sinceSeq = cursors.get(taskId) ?? 0;
   const { events, nextSeq } = readCrewAgentEventsCursor(manifest, taskId, { sinceSeq });
   if (nextSeq > sinceSeq) cursors.set(taskId, nextSeq);
-  if (events.length === 0) return buffers.get(taskId) ?? [];
-  const pending2 = pendingByTask.get(taskId) ?? /* @__PURE__ */ new Map();
-  pendingByTask.set(taskId, pending2);
   let buffer = buffers.get(taskId) ?? [];
-  for (const record of events) {
-    const parsed = asRecord13(record);
-    if (!parsed) continue;
-    buffer.push(...parseEventRecord(parsed, pending2));
+  if (events.length > 0) {
+    const pending2 = pendingByTask.get(taskId) ?? /* @__PURE__ */ new Map();
+    pendingByTask.set(taskId, pending2);
+    for (const record of events) {
+      const parsed = asRecord13(record);
+      if (!parsed) continue;
+      buffer.push(...parseEventRecord(parsed, pending2));
+    }
+  }
+  if (buffer.length > 0 && !promptSeeded.has(taskId)) {
+    const prompt = readWorkerPrompt(manifest, taskId);
+    if (prompt !== void 0) {
+      promptSeeded.add(taskId);
+      buffer.unshift({ type: "user", text: prompt, seq: 0 });
+    }
   }
   if (buffer.length > MAX_TRANSCRIPT_ITEMS) {
     buffer = buffer.slice(buffer.length - MAX_TRANSCRIPT_ITEMS);
@@ -83427,14 +83475,30 @@ function resetAgentTranscriptCursor(taskId) {
   cursors.delete(taskId);
   buffers.delete(taskId);
   pendingByTask.delete(taskId);
+  promptSeeded.delete(taskId);
 }
 function resetAllAgentTranscriptCursors() {
   cursors.clear();
   buffers.clear();
   pendingByTask.clear();
+  promptSeeded.clear();
 }
 
+// src/ui/inline-panel/agent-view-overlay.ts
+init_theme_adapter();
+import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
+
 // src/ui/inline-panel/agent-pane.ts
+init_state_store();
+init_theme_adapter();
+import {
+  AssistantMessageComponent,
+  DynamicBorder,
+  getMarkdownTheme,
+  ToolExecutionComponent,
+  UserMessageComponent
+} from "@earendil-works/pi-coding-agent";
+import { Markdown, truncateToWidth as truncateToWidth2 } from "@earendil-works/pi-tui";
 init_panel_store();
 var MAX_BODY_FRACTION = 14;
 var TRANSCRIPT_READ_THROTTLE_MS = 500;
@@ -83464,6 +83528,7 @@ var CrewAgentPane = class {
   tui;
   theme;
   cwd;
+  paneOptions;
   /** Current agent target, read fresh from the panel store each render. */
   currentTaskId;
   /** Cached manifest for the current run, to avoid re-reading on every tick. */
@@ -83487,10 +83552,11 @@ var CrewAgentPane = class {
   bodyKey = 0;
   cachedBody = [];
   unsubscribePanel;
-  constructor(tui, theme, cwd) {
+  constructor(tui, theme, cwd, options) {
     this.tui = tui;
     this.theme = asCrewTheme(theme);
     this.cwd = cwd;
+    this.paneOptions = options;
     this.unsubscribePanel = subscribePanelChange(() => {
       if (!this.disposed) this.tui.requestRender();
     });
@@ -83500,6 +83566,16 @@ var CrewAgentPane = class {
   }
   scrollBy(delta) {
     this.scrollBack = Math.max(0, this.scrollBack + delta);
+    this.tui.requestRender();
+  }
+  /** Jump to the top of the buffered transcript (clamped on next render). */
+  scrollHome() {
+    this.scrollBack = Number.MAX_SAFE_INTEGER;
+    this.tui.requestRender();
+  }
+  /** Jump back to tailing the live transcript. */
+  scrollEnd() {
+    this.scrollBack = 0;
     this.tui.requestRender();
   }
   resolveManifest(runId) {
@@ -83525,7 +83601,15 @@ var CrewAgentPane = class {
   }
   itemComponent(item) {
     const cached2 = this.componentCache.get(item);
-    if (cached2) return cached2;
+    if (cached2) {
+      if (item.type === "tool" && item.result !== void 0) {
+        try {
+          cached2.updateResult(item.result);
+        } catch {
+        }
+      }
+      return cached2;
+    }
     let comp;
     if (item.type === "user") {
       comp = new UserMessageComponent(item.text);
@@ -83642,7 +83726,7 @@ var CrewAgentPane = class {
     const body = this.cachedBody;
     const header = this.headerLines(manifest, width);
     const rows = this.tui.terminal.rows;
-    const maxBody = Math.max(6, rows - MAX_BODY_FRACTION - header.length);
+    const maxBody = this.paneOptions?.maxBodyLines ? Math.max(4, this.paneOptions.maxBodyLines(header.length)) : Math.max(6, rows - MAX_BODY_FRACTION - header.length);
     const visibleCount = Math.min(maxBody, Math.max(1, body.length));
     this.scrollBack = Math.max(0, Math.min(this.scrollBack, Math.max(0, body.length - visibleCount)));
     const end = body.length - this.scrollBack;
@@ -83674,11 +83758,174 @@ var CrewAgentPane = class {
   }
 };
 
+// src/ui/inline-panel/agent-view-overlay.ts
+init_panel_store();
+var INPUT_PROMPT = " \u276F ";
+function isPrintableInput(data) {
+  return data.length > 0 && !data.startsWith("\x1B") && !/[\x00-\x1f\x7f]/.test(data);
+}
+var CrewAgentOverlay = class {
+  /** The transcript core; exposed so the host can wire scroll/steer keys. */
+  pane;
+  disposed = false;
+  inputMode = false;
+  inputText = "";
+  closed = false;
+  tui;
+  theme;
+  options;
+  constructor(tui, theme, cwd, options) {
+    this.tui = tui;
+    this.theme = asCrewTheme(theme);
+    this.options = options;
+    this.pane = new CrewAgentPane(tui, theme, cwd, {
+      // Fill the terminal: overlay chrome (hint + optional input row)
+      // plus the pane's own header/border/indicator lines.
+      maxBodyLines: (headerLines) => this.availableBodyLines(headerLines)
+    });
+  }
+  /** Idempotent: the escape key and the host's close path share this. */
+  requestClose() {
+    if (this.closed) return;
+    this.closed = true;
+    this.options.close();
+  }
+  requestRender() {
+    if (!this.disposed) this.tui.requestRender();
+  }
+  chromeLines() {
+    return 1 + (this.inputMode ? 1 : 0);
+  }
+  availableBodyLines(headerLines) {
+    const rows = this.tui.terminal.rows;
+    return Math.max(4, rows - headerLines - 4 - this.chromeLines());
+  }
+  hintLine(width) {
+    if (this.inputMode) {
+      return this.theme.fg("dim", truncateToWidth3(" enter send \xB7 esc cancel steer", width, "\u2026"));
+    }
+    const viewed2 = getViewedAgent();
+    const rows = panelRows();
+    const row = viewed2 ? rows.find((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId) : void 0;
+    const label = row?.name ? `@${row.name.replace(/\s+/g, " ")}` : "agent";
+    const multi = rows.length > 1 ? " \xB7 tab agent" : "";
+    return this.theme.fg("dim", truncateToWidth3(` viewing ${label}${multi} \xB7 pgup/pgdn scroll \xB7 i steer \xB7 esc back`, width, "\u2026"));
+  }
+  inputLine(width) {
+    const text = `${INPUT_PROMPT}${this.inputText}\u258F`;
+    return this.theme.fg("accent", truncateToWidth3(text, width, "\u2026"));
+  }
+  /** Switch the view to the next (delta=+1) or previous (delta=-1) agent. */
+  cycleAgent(delta) {
+    const rows = panelRows();
+    if (rows.length === 0) return;
+    const viewed2 = getViewedAgent();
+    const index = viewed2 ? rows.findIndex((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId) : -1;
+    const next = rows[((index + delta) % rows.length + rows.length) % rows.length];
+    if (!next) return;
+    if (viewed2 && next.runId === viewed2.runId && next.taskId === viewed2.taskId) return;
+    setViewedAgent({ runId: next.runId, taskId: next.taskId });
+    this.pane.requestRender();
+  }
+  sendSteer() {
+    const text = this.inputText.trim();
+    const viewed2 = getViewedAgent();
+    this.inputMode = false;
+    this.inputText = "";
+    if (!text || !viewed2) return;
+    this.options.steer(viewed2, text);
+  }
+  handleInput(data) {
+    if (this.disposed || this.closed) return;
+    if (this.inputMode) {
+      if (matchesKey3(data, "escape")) {
+        this.inputMode = false;
+        this.inputText = "";
+      } else if (matchesKey3(data, "return")) {
+        this.sendSteer();
+      } else if (matchesKey3(data, "backspace")) {
+        this.inputText = this.inputText.slice(0, -1);
+      } else if (data === "") {
+        this.inputMode = false;
+        this.inputText = "";
+      } else if (isPrintableInput(data)) {
+        this.inputText += data;
+      }
+      this.tui.requestRender();
+      return;
+    }
+    if (matchesKey3(data, "escape") || data === "") {
+      this.requestClose();
+      return;
+    }
+    if (data === "q") {
+      this.requestClose();
+      return;
+    }
+    if (matchesKey3(data, "pageUp")) {
+      this.pane.scrollBy(10);
+      return;
+    }
+    if (matchesKey3(data, "pageDown")) {
+      this.pane.scrollBy(-10);
+      return;
+    }
+    if (matchesKey3(data, "up") || data === "k") {
+      this.pane.scrollBy(1);
+      return;
+    }
+    if (matchesKey3(data, "down") || data === "j") {
+      this.pane.scrollBy(-1);
+      return;
+    }
+    if (data === "g" || matchesKey3(data, "home")) {
+      this.pane.scrollHome();
+      return;
+    }
+    if (data === "G" || matchesKey3(data, "end")) {
+      this.pane.scrollEnd();
+      return;
+    }
+    if (matchesKey3(data, "tab")) {
+      this.cycleAgent(1);
+      return;
+    }
+    if (matchesKey3(data, "shift+tab")) {
+      this.cycleAgent(-1);
+      return;
+    }
+    if (data === "i") {
+      this.inputMode = true;
+      this.inputText = "";
+      this.tui.requestRender();
+      return;
+    }
+  }
+  render(width) {
+    if (this.disposed || this.closed) return [];
+    const rows = this.tui.terminal.rows;
+    const lines = this.pane.render(width);
+    const bodyBudget = rows - this.chromeLines();
+    while (lines.length < bodyBudget) lines.push("");
+    if (lines.length > bodyBudget) lines.length = bodyBudget;
+    if (this.inputMode) lines.push(this.inputLine(width));
+    lines.push(this.hintLine(width));
+    return lines.slice(0, Math.max(1, rows));
+  }
+  invalidate() {
+    this.pane.invalidate();
+  }
+  dispose() {
+    this.disposed = true;
+    this.pane.dispose();
+  }
+};
+
 // src/ui/inline-panel/crew-editor.ts
 init_panel_selection();
 init_panel_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth3, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey4, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
 var CrewInlineEditor = class extends CustomEditor {
   options;
@@ -83688,11 +83935,11 @@ var CrewInlineEditor = class extends CustomEditor {
   }
   panelKeys(data) {
     return {
-      up: matchesKey3(data, "up"),
-      down: matchesKey3(data, "down"),
-      enter: matchesKey3(data, "return"),
-      escape: matchesKey3(data, "escape"),
-      act: matchesKey3(data, "x")
+      up: matchesKey4(data, "up"),
+      down: matchesKey4(data, "down"),
+      enter: matchesKey4(data, "return"),
+      escape: matchesKey4(data, "escape"),
+      act: matchesKey4(data, "x")
     };
   }
   /**
@@ -83736,23 +83983,23 @@ var CrewInlineEditor = class extends CustomEditor {
         this.applyDispatch(data, rows, this.panelKeys(data), true);
         return;
       }
-      if (matchesKey3(data, "down") && this.getText() === "" && rows.length > 0) {
+      if (matchesKey4(data, "down") && this.getText() === "" && rows.length > 0) {
         setPanelSelection("main");
         return;
       }
-      if (matchesKey3(data, "escape")) {
+      if (matchesKey4(data, "escape")) {
         this.options.onClosePane();
         return;
       }
-      if (matchesKey3(data, "pageUp")) {
+      if (matchesKey4(data, "pageUp")) {
         this.options.onScrollPane(10);
         return;
       }
-      if (matchesKey3(data, "pageDown")) {
+      if (matchesKey4(data, "pageDown")) {
         this.options.onScrollPane(-10);
         return;
       }
-      if (matchesKey3(data, "return")) {
+      if (matchesKey4(data, "return")) {
         const text = (this.getExpandedText?.() ?? this.getText()).trim();
         if (!text) {
           super.handleInput(data);
@@ -83770,7 +84017,7 @@ var CrewInlineEditor = class extends CustomEditor {
       return;
     }
     if (getPanelSelection() === null) {
-      if (matchesKey3(data, "down") && this.getText() === "" && rows.length > 0) {
+      if (matchesKey4(data, "down") && this.getText() === "" && rows.length > 0) {
         const result4 = dispatchPanelKey(this.panelKeys(data), rows, null);
         setPanelSelection(result4.selection);
         return;
@@ -83792,10 +84039,10 @@ var CrewInlineEditor = class extends CustomEditor {
     const row = rows.find((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId);
     const name = row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX);
     if (name && lines.length > 0) {
-      const label = ` @${truncateToWidth3(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
+      const label = ` @${truncateToWidth4(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
       const labelWidth = visibleWidth4(label);
       if (visibleWidth4(lines[0]) >= labelWidth + 4) {
-        lines[0] = truncateToWidth3(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
+        lines[0] = truncateToWidth4(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
       }
     }
     return lines;
@@ -83804,10 +84051,9 @@ var CrewInlineEditor = class extends CustomEditor {
 
 // src/ui/inline-panel/index.ts
 init_panel_store();
-var PANE_WIDGET_KEY = "pi-crew-agent-view";
-var PANE_PLACEMENT = "aboveEditor";
 var PANE_LIVE_TICK_MS = 700;
 var livePane;
+var liveOverlay;
 var paneTickTimer;
 var editorInstalled = false;
 var hooksRegistered2 = false;
@@ -83833,19 +84079,41 @@ function notifyResult2(ctx, result4) {
 }
 function openPane(ctx, target) {
   setViewedAgent(target);
-  try {
-    setExtensionWidget(
-      ctx,
-      PANE_WIDGET_KEY,
-      (tui, theme) => {
-        const pane = new CrewAgentPane(tui, theme, ctx.cwd);
-        livePane = pane;
-        return pane;
-      },
-      { placement: PANE_PLACEMENT }
-    );
-  } catch (error) {
-    logInternalError("view.openPane", error, target.taskId);
+  if (!liveOverlay) {
+    try {
+      void ctx.ui.custom(
+        (tui, theme, _keybindings, done) => {
+          const overlay = new CrewAgentOverlay(tui, theme, ctx.cwd, {
+            close: () => {
+              liveOverlay = void 0;
+              livePane = void 0;
+              setViewedAgent(void 0);
+              stopPaneTicker();
+              try {
+                done(void 0);
+              } catch {
+              }
+            },
+            steer: (steerTarget, message) => void steerAgent(ctx, steerTarget, message)
+          });
+          liveOverlay = overlay;
+          livePane = overlay.pane;
+          return overlay;
+        },
+        {
+          overlay: true,
+          overlayOptions: { width: "100%", margin: 0, maxHeight: "100%", anchor: "top-left" }
+        }
+      ).catch((error) => {
+        liveOverlay = void 0;
+        livePane = void 0;
+        setViewedAgent(void 0);
+        stopPaneTicker();
+        logInternalError("view.openOverlay", error, target.taskId);
+      });
+    } catch (error) {
+      logInternalError("view.openPane", error, target.taskId);
+    }
   }
   startPaneTicker();
   try {
@@ -83853,14 +84121,13 @@ function openPane(ctx, target) {
   } catch {
   }
 }
-function closePane(ctx) {
+function closePane(_ctx) {
+  if (liveOverlay) {
+    liveOverlay.requestClose();
+    return;
+  }
   setViewedAgent(void 0);
   stopPaneTicker();
-  try {
-    setExtensionWidget(ctx, PANE_WIDGET_KEY, void 0, { placement: PANE_PLACEMENT });
-    requestRender(ctx);
-  } catch {
-  }
 }
 async function steerAgent(ctx, target, message) {
   try {
@@ -83925,11 +84192,11 @@ function installInlinePanel(pi, ctx, uiConfig) {
   } catch {
   }
   pi.registerCommand("crew-view", {
-    description: "Open an agent's live transcript pane (usage: crew-view <runId> <taskId>)",
+    description: "Open an agent's live full-screen transcript view (usage: crew-view <runId> <taskId>)",
     handler: handleCrewViewCommand
   });
   pi.registerCommand("crew-back", {
-    description: "Close the agent transcript pane and return to the main conversation",
+    description: "Close the agent transcript view and return to the main conversation",
     handler: handleCrewBackCommand
   });
   if (!hooksRegistered2) {
@@ -83937,6 +84204,7 @@ function installInlinePanel(pi, ctx, uiConfig) {
     pi.on("session_shutdown", () => {
       stopPaneTicker();
       livePane = void 0;
+      liveOverlay = void 0;
       resetPanelStore();
       resetAllAgentTranscriptCursors();
     });
@@ -84146,21 +84414,21 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as fs120 from "node:fs";
-import * as path97 from "node:path";
+import * as fs121 from "node:fs";
+import * as path98 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
   try {
-    dirs = fs120.readdirSync(runsDir, { withFileTypes: true });
+    dirs = fs121.readdirSync(runsDir, { withFileTypes: true });
   } catch {
     return descriptors;
   }
   for (const dir of dirs) {
     if (!dir.isDirectory()) continue;
-    const manifestPath = path97.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
+    const manifestPath = path98.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
-      const manifest = JSON.parse(fs120.readFileSync(manifestPath, "utf-8"));
+      const manifest = JSON.parse(fs121.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
         descriptors.push(...manifest.artifacts);
       }
@@ -84171,8 +84439,8 @@ function collectArtifactDescriptors(runsDir) {
 }
 function runArtifactCleanup(cwd) {
   try {
-    const userArtifactsRoot = path97.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
-    const projectArtifactsRoot = path97.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
+    const userArtifactsRoot = path98.join(userCrewRoot(), DEFAULT_PATHS.state.artifactsSubdir);
+    const projectArtifactsRoot = path98.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
     cleanupOldArtifacts(userArtifactsRoot, {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
@@ -84181,8 +84449,8 @@ function runArtifactCleanup(cwd) {
       maxAgeDays: DEFAULT_ARTIFACT_CLEANUP.maxAgeDays,
       markerFile: CLEANUP_MARKER_FILE
     });
-    pruneExpiredArtifacts(collectArtifactDescriptors(path97.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
-    pruneExpiredArtifacts(collectArtifactDescriptors(path97.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path98.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir)));
+    pruneExpiredArtifacts(collectArtifactDescriptors(path98.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir)));
   } catch (error) {
     logInternalError("register.artifact-cleanup", error, `cwd=${cwd}`);
   }
@@ -84766,8 +85034,8 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
-    const crewRunsDir = path98.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
-    if (fs121.existsSync(crewRunsDir)) {
+    const crewRunsDir = path99.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
+    if (fs122.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -84777,8 +85045,8 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
   try {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
-    const userRunsDir = path98.join(userCrewRoot(), "state", "runs");
-    if (fs121.existsSync(userRunsDir)) {
+    const userRunsDir = path99.join(userCrewRoot(), "state", "runs");
+    if (fs122.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -85287,7 +85555,7 @@ init_tool_renderers();
 init_internal_error();
 init_safe_paths();
 init_subagent_helpers();
-import * as fs122 from "node:fs";
+import * as fs123 from "node:fs";
 import { Text as Text5 } from "@earendil-works/pi-tui";
 var _cachedHandleTeamTool5;
 async function handleTeamTool6(params, ctx) {
@@ -85687,12 +85955,12 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
       }
       try {
         const steeringDir = `${artifactsRoot}/steering`;
-        fs122.mkdirSync(steeringDir, { recursive: true });
+        fs123.mkdirSync(steeringDir, { recursive: true });
         const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
         const MAX_STEERING_BYTES = 256 * 1024;
         let existingBytes = 0;
         try {
-          existingBytes = fs122.statSync(safeSteeringPath).size;
+          existingBytes = fs123.statSync(safeSteeringPath).size;
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
@@ -85704,7 +85972,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
             true
           );
         }
-        fs122.appendFileSync(safeSteeringPath, line4);
+        fs123.appendFileSync(safeSteeringPath, line4);
       } catch (err2) {
         logInternalError(
           "subagent-tools.steer-write-failed",

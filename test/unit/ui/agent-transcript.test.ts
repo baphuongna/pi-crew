@@ -35,7 +35,7 @@ function makeFixture(): Fixture {
 	const agentsDir = path.join(dir, "agents", TASK);
 	fs.mkdirSync(agentsDir, { recursive: true });
 	const file = path.join(agentsDir, "events.jsonl");
-	const manifest = { stateRoot: dir } as unknown as TeamRunManifest;
+	const manifest = { stateRoot: dir, artifactsRoot: dir } as unknown as TeamRunManifest;
 	return { manifest, dir, file };
 }
 
@@ -80,11 +80,87 @@ test("tool start → end → message_end folds one tool card with its result", (
 		if (tool.type === "tool") {
 			assert.equal(tool.name, "read");
 			assert.equal(tool.args.file_path, "/tmp/a.ts");
-			assert.equal(tool.result, "<file body>", "toolResult folds into the pending start");
+			assert.deepEqual(
+				tool.result,
+				{ content: [{ type: "text", text: "<file body>" }], isError: false },
+				"toolResult folds into the pending start as an updateResult envelope",
+			);
 			assert.equal(tool.isError, false);
 		}
 		assert.equal(assistant.type, "assistant");
 		if (assistant.type === "assistant") assert.equal(assistant.text, "Saw it.");
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("pi ≥0.84 role:toolResult message_end records fold FIFO into pending starts", () => {
+	// Real-run shape (pi 0.84.2): results are their OWN message_end records
+	// with NO tool name, arriving in the originating message's toolCall order
+	// even when the executions complete out of order (concurrent tools).
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [
+			{
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "need both" },
+						{ type: "text", text: "Checking." },
+						{ type: "toolCall", name: "bash" },
+						{ type: "toolCall", name: "read" },
+					],
+				},
+			},
+			{ type: "tool_execution_start", toolName: "bash", args: { command: "wc -l" } },
+			{ type: "tool_execution_start", toolName: "read", args: { file_path: "/tmp/a.ts" } },
+			{ type: "tool_execution_end", toolName: "read" },
+			{ type: "tool_execution_end", toolName: "bash" },
+			{ type: "message_end", message: { role: "toolResult", content: [{ type: "text", text: "1054 /tmp/a.ts" }] } },
+			{ type: "message_end", message: { role: "toolResult", content: [{ type: "text", text: "file body" }] } },
+		]);
+
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		const tools = items.filter((item) => item.type === "tool");
+		assert.equal(tools.length, 2, "both tool cards present");
+		const bash = tools[0];
+		const read = tools[1];
+		if (bash?.type === "tool" && read?.type === "tool") {
+			assert.equal(bash.name, "bash");
+			assert.equal(read.name, "read");
+			// FIFO: the first result lands on the FIRST-STARTED tool (bash),
+			// not on the one that finished first (read).
+			assert.deepEqual(bash.result, { content: [{ type: "text", text: "1054 /tmp/a.ts" }], isError: false });
+			assert.deepEqual(read.result, { content: [{ type: "text", text: "file body" }], isError: false });
+		}
+		// The role:toolResult records themselves must not become items.
+		assert.equal(items.filter((item) => item.type === "system").length, 0);
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("role:toolResult with isError marks the card and leaves later starts pending", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [
+			{ type: "tool_execution_start", toolName: "bash", args: { command: "false" } },
+			{ type: "tool_execution_start", toolName: "read", args: { file_path: "/tmp/b.ts" } },
+			{ type: "message_end", message: { role: "toolResult", content: [{ type: "text", text: "boom" }], isError: true } },
+		]);
+
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		const tools = items.filter((item) => item.type === "tool");
+		const bash = tools[0];
+		const read = tools[1];
+		if (bash?.type === "tool") {
+			assert.deepEqual(bash.result, { content: [{ type: "text", text: "boom" }], isError: true });
+			assert.equal(bash.isError, true);
+		}
+		if (read?.type === "tool") {
+			assert.equal(read.result, undefined, "second card stays started until its result arrives");
+		}
 	} finally {
 		cleanup(fixture);
 	}
@@ -198,7 +274,11 @@ test("cross-read pairing: a tool start on one read folds with its result on the 
 		const second = readAgentTranscript(fixture.manifest, TASK);
 		assert.equal(second.length, 1, "same tool card, not a duplicate");
 		if (second[0]?.type === "tool") {
-			assert.equal(second[0].result, "ok", "result folds across the read boundary");
+			assert.deepEqual(
+				second[0].result,
+				{ content: [{ type: "text", text: "ok" }], isError: false },
+				"result folds across the read boundary",
+			);
 		}
 	} finally {
 		cleanup(fixture);
@@ -251,6 +331,53 @@ test("malformed JSON lines are skipped, not fatal", () => {
 		const items = readAgentTranscript(fixture.manifest, TASK);
 		assert.equal(items.length, 1);
 		assert.equal(items[0]?.type, "tool");
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("worker prompt artifact seeds the opening user message (session parity)", () => {
+	const fixture = makeFixture();
+	try {
+		fs.mkdirSync(path.join(fixture.dir, "prompts"), { recursive: true });
+		fs.writeFileSync(path.join(fixture.dir, "prompts", `${TASK}.md`), "# Worker prompt\ndo the thing", "utf-8");
+		writeEvents(fixture, [
+			{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "working" }] } },
+		]);
+
+		const items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items[0]?.type, "user", "the child's initial prompt opens the transcript");
+		if (items[0]?.type === "user") assert.match(items[0].text, /do the thing/);
+
+		// A later read (new events) must not seed a second copy.
+		writeEvents(
+			fixture,
+			[{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "done" }] } }],
+			2,
+		);
+		const again = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(again.filter((item) => item.type === "user").length, 1, "seeded exactly once");
+	} finally {
+		cleanup(fixture);
+	}
+});
+
+test("missing prompt artifact is skipped without poisoning later reads", () => {
+	const fixture = makeFixture();
+	try {
+		writeEvents(fixture, [
+			{ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "working" }] } },
+		]);
+		let items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items.every((item) => item.type !== "user"), true, "no seed without the artifact");
+
+		// Artifact appears late (e.g. written after the first peek): the next
+		// read seeds it.
+		fs.mkdirSync(path.join(fixture.dir, "prompts"), { recursive: true });
+		fs.writeFileSync(path.join(fixture.dir, "prompts", `${TASK}.md`), "late prompt", "utf-8");
+		items = readAgentTranscript(fixture.manifest, TASK);
+		assert.equal(items[0]?.type, "user");
+		if (items[0]?.type === "user") assert.equal(items[0].text, "late prompt");
 	} finally {
 		cleanup(fixture);
 	}
