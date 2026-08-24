@@ -149,6 +149,13 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const counts = new Map<string, number>();
 	for (const task of tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
 	const phaseProgress = computePhaseProgress(tasks);
+	// PERF (2026-08-24): intentionally NOT passing `limit` here — readEventsCursor's
+	// limit is a HEAD cap (oldest-first slice for streaming pagination), not a tail
+	// window, so it would hide recent events from the ack-timeout dedupe below and
+	// re-append duplicate ack_timeout events on every poll. The manifest carries no
+	// last-seq anchor for a sinceSeq-based tail either. The reader is already bounded
+	// internally (4 MB / 5000-event tail), and the downstream filters
+	// (ackTimeoutRequestIds, attentionByTask) intentionally operate on that recent window.
 	const { events: allEvents } = readEventsCursor(manifest.eventsPath);
 	const events = allEvents.slice(-8);
 	// P1-8: pre-build the ack-timeout requestId set once (was O(events × messages)

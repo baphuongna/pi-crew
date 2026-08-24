@@ -19,7 +19,7 @@ import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
-import { listRuns } from "./run-index.ts";
+import { listRecentRuns } from "./run-index.ts";
 import type { PiTeamsToolResult } from "./tool-result.ts";
 
 type ExecuteTeamRunFn = typeof _executeTeamRunFn;
@@ -124,7 +124,10 @@ export function handleList(params: TeamToolParamsValue, ctx: TeamContext): PiTea
 		);
 	}
 	if (!resource) {
-		const runs = listRuns(ctx.cwd).slice(0, 10);
+		// PERF (2026-08-24): listRecentRuns caps at source — collectRuns slices the
+		// run-directory listing before reading manifests, instead of parsing every
+		// manifest in scope and discarding all but 10.
+		const runs = listRecentRuns(ctx.cwd, 10);
 		blocks.push(
 			"",
 			"Recent runs:",
@@ -627,7 +630,37 @@ export function handleInvalidate(params: TeamToolParamsValue, ctx: TeamContext):
 const MAX_SCAN_ENTRIES = 1000;
 const SKIP_SCAN_DIRS = new Set(["node_modules", ".git", ".npm", ".cache", ".local", "proc", "sys", "dev", "Library", "Applications"]);
 
+// PERF (2026-08-24): a stale/typo'd runId from a looping LLM caller paid the
+// full 1000-entry directory sweep on EVERY attempt. Resolution results (hits
+// AND misses) are cached briefly; TTL bounds staleness for runs created in a
+// sibling cwd after a cached miss.
+const runCwdCache = new Map<string, { cwd: string | undefined; expiresAt: number }>();
+const RUN_CWD_TTL_MS = 30_000;
+const RUN_CWD_CACHE_MAX = 128;
 export function locateRunCwd(runId: string, baseCwd: string): string | undefined {
+	const key = `${baseCwd}\0${runId}`;
+	const cached = runCwdCache.get(key);
+	if (cached && cached.expiresAt > Date.now()) return cached.cwd;
+	const cwd = locateRunCwdUncached(runId, baseCwd); // original body, renamed
+	if (runCwdCache.size >= RUN_CWD_CACHE_MAX) {
+		const oldest = runCwdCache.keys().next().value;
+		if (oldest !== undefined) runCwdCache.delete(oldest);
+	}
+	runCwdCache.set(key, { cwd, expiresAt: Date.now() + RUN_CWD_TTL_MS });
+	return cwd;
+}
+
+/**
+ * Locate the CWD where a run's state is stored.
+ * Tries ctx.cwd first, then scans immediate child directories for .crew/state/runs/<runId>.
+ *
+ * Defensive bounds (prevent hang on large dirs like /tmp in CI):
+ * - Skips entries that are well-known system/ephemeral dirs (e.g. .npm, node_modules, .git)
+ * - Caps the scan at MAX_SCAN_ENTRIES to avoid pathological scans
+ * - Skips hidden entries (starting with `.`) unless they look like run directories
+ *   (e.g. .crew, .pi, .tmp-crew-runs)
+ */
+export function locateRunCwdUncached(runId: string, baseCwd: string): string | undefined {
 	// Fast path: run is in the current CWD
 	if (loadRunManifestById(baseCwd, runId)) {
 		return baseCwd;

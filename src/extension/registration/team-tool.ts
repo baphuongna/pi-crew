@@ -147,6 +147,52 @@ export function detectUnrecognizedParams(schema: TObject, params: unknown): stri
 	].join("\n");
 }
 
+// PERF (2026-08-24): cheap read actions (status/summary/events/get/list) re-rendered
+// the widget + powerbar after every call; the event bus and render tick already
+// reflect run-state changes. Refresh only on actions that mutate run state
+// outside the watched files. Names mirror the five domain dispatcher tables in
+// src/schema/team-tool-schema.ts (RUN/STATUS/CONTROL/MANAGE/AUTOMATE). Actions
+// whose effect depends on sub-params (api: approve-plan/agent-control/mailbox;
+// plans: approve/reject; anchor/auto-summarize/auto_boomerang: set/clear/toggle;
+// config/autonomy: show vs write) are included — a redundant refresh on their
+// read sub-actions is cheap, a missed refresh after a write leaves stale UI.
+const MUTATING_ACTIONS = new Set([
+	// run domain
+	"run",
+	"parallel",
+	"orchestrate",
+	"resume",
+	"retry",
+	"steer",
+	"goal",
+	"plans",
+	// control domain
+	"cancel",
+	"invalidate",
+	"respond",
+	"cleanup",
+	"prune",
+	"forget",
+	// manage domain
+	"create",
+	"update",
+	"delete",
+	"init",
+	"config",
+	"autonomy",
+	"settings",
+	"workflow-create",
+	"workflow-save",
+	"workflow-delete",
+	"import",
+	// automate domain
+	"schedule",
+	"anchor",
+	"auto-summarize",
+	"auto_boomerang",
+	"api",
+]);
+
 export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): void {
 	const tool: ToolDefinition = {
 		name: "team",
@@ -229,11 +275,13 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 						timestamp: Date.now(),
 					});
 				}
-				const config = loadConfig(toolCtx.cwd).config.ui;
-				const cache = deps.getManifestCache(toolCtx.cwd);
-				const snapshotCache = deps.getRunSnapshotCache?.(toolCtx.cwd);
-				updateCrewWidget(toolCtx, deps.widgetState, config, cache, snapshotCache);
-				updatePiCrewPowerbar(pi.events, toolCtx.cwd, config, cache, snapshotCache, toolCtx);
+				if (MUTATING_ACTIONS.has(resolved.action ?? "list")) {
+					const config = loadConfig(toolCtx.cwd).config.ui;
+					const cache = deps.getManifestCache(toolCtx.cwd);
+					const snapshotCache = deps.getRunSnapshotCache?.(toolCtx.cwd);
+					updateCrewWidget(toolCtx, deps.widgetState, config, cache, snapshotCache);
+					updatePiCrewPowerbar(pi.events, toolCtx.cwd, config, cache, snapshotCache, toolCtx);
+				}
 				return output;
 			} finally {
 				signal?.removeEventListener("abort", abort);

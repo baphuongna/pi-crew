@@ -1,5 +1,5 @@
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
-import { readEvents } from "../../state/event-log/event-log.ts";
+import { readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCostReport, formatUsage } from "../../state/usage.ts";
 import { locateRunCwd } from "../team-tool.ts";
@@ -20,7 +20,11 @@ export function handleEvents(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "events", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "events", status: "error" }, true);
-	const events = readEvents(loaded.manifest.eventsPath);
+	// PERF (2026-08-24): `readEvents` parses full history (every archive + the
+	// whole live file) and exposes no limit option, and the events action params
+	// carry no full-history flag — so read the bounded cursor tail (4 MB /
+	// 5000-event cap) and display the last 500 events by default.
+	const events = readEventsCursor(loaded.manifest.eventsPath).events.slice(-500);
 	const lines = [
 		`Events for ${loaded.manifest.runId}:`,
 		...(events.length
