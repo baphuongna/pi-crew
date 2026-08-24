@@ -10,8 +10,9 @@
  *
  * Fix: never hard-delete from the render path. A no-runId tick is a no-op;
  * a specific runId calls `refreshIfStale` (stale-while-revalidate); the
- * fs.watch change handlers call `refresh` (rebuild-in-place). All three keep
- * the entry populated so `get(runId)` never returns undefined.
+ * fs.watch change handlers call `scheduleRefresh` (coalesced async
+ * rebuild-in-place — perf/review-2026-08-24, was sync `refresh`). All three
+ * keep the entry populated so `get(runId)` never returns undefined.
  *
  * These tests pin the contract the fixed handlers rely on, plus characterize
  * the destructive `invalidate(undefined)` so the trap cannot silently return.

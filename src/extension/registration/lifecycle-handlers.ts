@@ -681,8 +681,13 @@ function setupRenderLoop(
 				// file just changed on disk, so force a fresh snapshot while keeping
 				// the entry populated — deleting it left a window where the widget's
 				// `get()` returned undefined and dropped the run to "(loading…)".
+				// PERF (2026-08-24): route through the coalesced ASYNC refresh —
+				// fs.watch can fire many times per second and the sync rebuild
+				// blocked the UI event loop. The entry stays populated until the
+				// async rebuild re-sets it in place; the render schedule below
+				// repaints while it lands.
 				try {
-					ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).refresh(runId);
+					ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).scheduleRefresh(runId);
 				} catch (error) {
 					logInternalError("register.runWatcher.refresh", error, runId);
 				}
@@ -930,8 +935,11 @@ function setupRenderLoop(
 		// FLICKER FIX: rebuild-in-place instead of deleting the entry (see
 		// onRunChange above). A hard delete left `get()` returning undefined for
 		// a frame, dropping the run to "(loading…)" and causing visible flicker.
+		// PERF (2026-08-24): coalesced ASYNC refresh — fs.watch can fire many
+		// times per second and the sync rebuild blocked the UI event loop; the
+		// render schedule below repaints while the rebuild lands.
 		try {
-			ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).refresh(runId);
+			ctx.getRunSnapshotCache(ctx.currentCtx?.cwd ?? process.cwd()).scheduleRefresh(runId);
 		} catch (error) {
 			logInternalError("register.crewRunWatcher.refresh", error, runId);
 		}

@@ -25,6 +25,8 @@ import type {
 export interface RunSnapshotCache extends RunSnapshotCacheBase {
 	preloadStale(runId: string): Promise<RunUiSnapshot | undefined>;
 	preloadAllStale(runIds: string[]): Promise<void>;
+	/** Task 17 (perf/review-2026-08-24): watcher-facing coalesced async refresh. */
+	scheduleRefresh(runId: string): void;
 }
 
 /** WP-7 (R7): the plans slice + Plan pane load only when this flag is set —
@@ -1048,7 +1050,7 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 	}
 	const pendingRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
 	const INVAL_COALESCE_MS = 80;
-	const scheduleRefresh = (runId: string): void => {
+	const scheduleCoalescedRefresh = (runId: string): void => {
 		const existing = pendingRefreshes.get(runId);
 		if (existing) clearTimeout(existing);
 		const timer = setTimeout(() => {
@@ -1062,10 +1064,10 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		pendingRefreshes.set(runId, timer);
 	};
 	const unsubState = runEventBus.onChannel("run:state", (event) => {
-		if (entries.has(event.runId)) scheduleRefresh(event.runId);
+		if (entries.has(event.runId)) scheduleCoalescedRefresh(event.runId);
 	});
 	const unsubLifecycle = runEventBus.onChannel("worker:lifecycle", (event) => {
-		if (entries.has(event.runId)) scheduleRefresh(event.runId);
+		if (entries.has(event.runId)) scheduleCoalescedRefresh(event.runId);
 	});
 	const unsubscribe = () => {
 		unsubState();
@@ -1084,6 +1086,19 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		},
 		refreshIfStale(runId: string): RunUiSnapshot {
 			return localRefreshIfStale(runId);
+		},
+		/**
+		 * PERF (2026-08-24): watcher-facing refresh. The fs.watch path used to
+		 * call the SYNC refresh() directly on every file event — a full
+		 * snapshot rebuild (manifest+tasks parse, agents.json, mailbox readdir,
+		 * per-agent tail reads, 2x stringify+sha256) many times per second,
+		 * blocking the UI event loop. This routes through the same 80ms
+		 * coalesced → async (preloadStale) pipeline the run event bus uses.
+		 * FLICKER FIX semantics preserved: buildAsync re-sets the entry in
+		 * place; nothing is deleted.
+		 */
+		scheduleRefresh(runId: string): void {
+			scheduleCoalescedRefresh(runId);
 		},
 		preloadStale,
 		preloadAllStale,
