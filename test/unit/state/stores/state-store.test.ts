@@ -523,6 +523,32 @@ test("createTasksFromWorkflow derives title and description from the step body",
 	}
 });
 
+test("createTasksFromWorkflow substitutes {goal} into titles and descriptions", () => {
+	const cwd = makeResolvedTempDir("pi-crew-state-tasks-goal-");
+	try {
+		const templatedWorkflow: WorkflowConfig = {
+			...workflow,
+			steps: [
+				{
+					id: "explore",
+					role: "planner",
+					task: "Explore the codebase for the goal: {goal}\n\nSweep src/ for every mention of {goal}.",
+				},
+			],
+		};
+		// Without a goal the template text is kept verbatim (legacy callers).
+		const raw = createTasksFromWorkflow("run_123", templatedWorkflow, team, cwd);
+		assert.equal(raw[0].title, "Explore the codebase for the goal: {goal}");
+		// With the run's goal the persisted plan reads as the plan, not the template.
+		const substituted = createTasksFromWorkflow("run_123", templatedWorkflow, team, cwd, "wire the dock scroll window");
+		assert.equal(substituted[0].title, "Explore the codebase for the goal: wire the dock scroll window");
+		assert.ok((substituted[0].description ?? "").includes("every mention of wire the dock scroll window"));
+		assert.ok(!JSON.stringify(substituted[0]).includes("{goal}"), "no literal {goal} survives in the task state");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("createTasksFromWorkflow uses agent from team roles", () => {
 	const cwd = makeResolvedTempDir("pi-crew-state-tasks-agent-");
 	try {

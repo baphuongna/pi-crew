@@ -260,7 +260,13 @@ export function createRunPaths(cwd: string, runId = createRunId()): RunPaths {
 	};
 }
 
-export function createTasksFromWorkflow(runId: string, workflow: WorkflowConfig, team: TeamConfig, cwd: string): TeamTaskState[] {
+export function createTasksFromWorkflow(
+	runId: string,
+	workflow: WorkflowConfig,
+	team: TeamConfig,
+	cwd: string,
+	goal?: string,
+): TeamTaskState[] {
 	const stepToTaskId = new Map(workflow.steps.map((step, index) => [step.id, createTaskId(step.id, index)]));
 	return workflow.steps.map((step, index) => {
 		const role = team.roles.find((candidate) => candidate.name === step.role);
@@ -276,9 +282,13 @@ export function createTasksFromWorkflow(runId: string, workflow: WorkflowConfig,
 		// Falls back to the step id when the body carries no text of its own —
 		// `task` is optional on literal WorkflowStep objects, and `{goal}` is
 		// the goal-injection placeholder, not plan prose.
+		//
+		// The placeholder is substituted HERE (display identity carries the
+		// real goal) as well as at prompt-build time — persisted titles must
+		// read as the plan, not as the template that produced them.
 		const bodyLines =
 			typeof step.task === "string" && step.task !== "{goal}"
-				? step.task
+				? (goal ? step.task.replaceAll("{goal}", goal) : step.task)
 						.split("\n")
 						.map((line) => line.trim())
 						.filter(Boolean)
@@ -322,7 +332,7 @@ export function createRunManifest(params: {
 }): { manifest: TeamRunManifest; tasks: TeamTaskState[]; paths: RunPaths } {
 	const paths = createRunPaths(params.cwd);
 	const now = new Date().toISOString();
-	const tasks = params.workflow ? createTasksFromWorkflow(paths.runId, params.workflow, params.team, params.cwd) : [];
+	const tasks = params.workflow ? createTasksFromWorkflow(paths.runId, params.workflow, params.team, params.cwd, params.goal) : [];
 	const manifest: TeamRunManifest = {
 		schemaVersion: CURRENT_SCHEMA_VERSION,
 		runId: paths.runId,
