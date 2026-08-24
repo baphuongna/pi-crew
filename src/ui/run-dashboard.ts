@@ -162,11 +162,16 @@ function formatAge(iso: string | undefined): string | undefined {
 	return `${Math.floor(ms / 3_600_000)}h`;
 }
 
-function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?: RunSnapshotCache): string[] {
+function readProgressPreview(
+	run: TeamRunManifest,
+	maxLines = 5,
+	snapshotCache?: RunSnapshotCache,
+	resolve?: SnapshotResolver,
+): string[] {
 	// P0-6: prefer the snapshot's `recentOutputLines` (no disk I/O) over reading the
 	// progress artifact on every render. The progress artifact content is captured
 	// into the snapshot's recent events / output pipeline upstream.
-	const snapshot = snapshotFor(run, snapshotCache);
+	const snapshot = resolve ? resolve(run) : snapshotFor(run, snapshotCache);
 	if (snapshot?.recentOutputLines?.length) {
 		return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
 	}
@@ -206,8 +211,20 @@ function snapshotFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): Ru
 	}
 }
 
-function readRunTasks(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): TeamTaskState[] {
-	const snapshot = snapshotFor(run, snapshotCache);
+/**
+ * PERF (2026-08-24, task 20) — per-frame snapshot resolver. The render path
+ * used to resolve each run's snapshot 6-8 times per frame (refreshRuns,
+ * buildSignature, groupedRuns, per-row, selected-run), and every
+ * `snapshotFor → refreshIfStale` call can stat several files per run when its
+ * own TTL expires. `renderUnsafe` now builds a frame-local Map keyed by runId
+ * and threads this resolver through every render-path helper. Helpers keep
+ * their plain direct-resolution behavior when no resolver is passed
+ * (keypress handlers and other callers outside a render frame).
+ */
+type SnapshotResolver = (run: TeamRunManifest) => RunUiSnapshot | undefined;
+
+function readRunTasks(run: TeamRunManifest, snapshotCache?: RunSnapshotCache, resolve?: SnapshotResolver): TeamTaskState[] {
+	const snapshot = resolve ? resolve(run) : snapshotFor(run, snapshotCache);
 	if (snapshot) return snapshot.tasks;
 	// P0-6: when a snapshot cache is provided but hasn't populated yet, return
 	// empty (the render loop falls back to the empty pane placeholder) instead
@@ -266,15 +283,20 @@ function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefine
 	);
 }
 
-function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashboardOptions = {}): string[] {
+function readAgentPreview(
+	run: TeamRunManifest,
+	maxLines = 5,
+	options: RunDashboardOptions = {},
+	resolve?: SnapshotResolver,
+): string[] {
 	try {
-		const snapshot = snapshotFor(run, options.snapshotCache);
+		const snapshot = resolve ? resolve(run) : snapshotFor(run, options.snapshotCache);
 		// P0-6: when a snapshot cache is provided but hasn't populated yet, return
 		// the empty-pane placeholder instead of calling `readCrewAgents` (disk I/O)
 		// on every render tick. Legacy callers (no cache) keep the disk-read path
 		// so existing unit tests continue to assert against concrete agent data.
 		const agents = snapshot?.agents ?? (options.snapshotCache ? [] : readCrewAgents(run));
-		const tasks = snapshot?.tasks ?? readRunTasks(run, options.snapshotCache);
+		const tasks = snapshot?.tasks ?? readRunTasks(run, options.snapshotCache, resolve);
 		if (!agents.length) return ["Agents: (none)"];
 		const totals = tasks.reduce(
 			(acc, task) => {
@@ -305,8 +327,8 @@ function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashbo
 	}
 }
 
-function agentsFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): CrewAgentRecord[] {
-	const snapshot = snapshotFor(run, snapshotCache);
+function agentsFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache, resolve?: SnapshotResolver): CrewAgentRecord[] {
+	const snapshot = resolve ? resolve(run) : snapshotFor(run, snapshotCache);
 	if (snapshot) return snapshot.agents;
 	// P0-6: when a snapshot cache is provided but hasn't populated yet, return
 	// empty (callers handle the empty-state placeholder) instead of calling
@@ -319,8 +341,14 @@ function agentsFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): Crew
 	}
 }
 
-function runLabel(run: TeamRunManifest, selected: boolean, snapshotCache?: RunSnapshotCache, maxW?: number): string {
-	const agents = agentsFor(run, snapshotCache);
+function runLabel(
+	run: TeamRunManifest,
+	selected: boolean,
+	snapshotCache?: RunSnapshotCache,
+	maxW?: number,
+	resolve?: SnapshotResolver,
+): string {
+	const agents = agentsFor(run, snapshotCache, resolve);
 	const stale = isLikelyOrphanedActiveRun(run, agents);
 	const running = agents.find((agent) => agent.status === "running");
 	const queued = agents.find((agent) => agent.status === "queued");
@@ -366,11 +394,11 @@ interface ResolvedRun {
 	status: RunStatus;
 }
 
-function resolveRuns(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache): Map<string, ResolvedRun> {
+function resolveRuns(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache, resolve?: SnapshotResolver): Map<string, ResolvedRun> {
 	const map = new Map<string, ResolvedRun>();
 	for (const run of runs) {
-		const snapshot = snapshotFor(run, snapshotCache);
-		const agents = snapshot?.agents ?? agentsFor(run, snapshotCache);
+		const snapshot = resolve ? resolve(run) : snapshotFor(run, snapshotCache);
+		const agents = snapshot?.agents ?? agentsFor(run, snapshotCache, resolve);
 		const displayRun = snapshot?.manifest ?? run;
 		const status: RunStatus = isLikelyOrphanedActiveRun(displayRun, agents) ? "stale" : (displayRun.status as RunStatus);
 		map.set(run.runId, { manifest: run, snapshot, agents, status });
@@ -378,8 +406,12 @@ function resolveRuns(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache):
 	return map;
 }
 
-function groupedRuns(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache): Array<{ label: string; run?: TeamRunManifest }> {
-	const resolved = resolveRuns(runs, snapshotCache);
+function groupedRuns(
+	runs: TeamRunManifest[],
+	snapshotCache?: RunSnapshotCache,
+	resolve?: SnapshotResolver,
+): Array<{ label: string; run?: TeamRunManifest }> {
+	const resolved = resolveRuns(runs, snapshotCache, resolve);
 	const rows: Array<{ label: string; run?: TeamRunManifest }> = [];
 	const active = runs.filter((run) =>
 		isDisplayActiveRun(resolved.get(run.runId)?.snapshot?.manifest ?? run, resolved.get(run.runId)?.agents ?? []),
@@ -392,8 +424,13 @@ function groupedRuns(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache):
 	return rows;
 }
 
-function selectedRunFromGrouped(runs: TeamRunManifest[], selected: number, snapshotCache?: RunSnapshotCache): TeamRunManifest | undefined {
-	return groupedRuns(runs, snapshotCache).filter((row) => row.run)[selected]?.run;
+function selectedRunFromGrouped(
+	runs: TeamRunManifest[],
+	selected: number,
+	snapshotCache?: RunSnapshotCache,
+	resolve?: SnapshotResolver,
+): TeamRunManifest | undefined {
+	return groupedRuns(runs, snapshotCache, resolve).filter((row) => row.run)[selected]?.run;
 }
 
 function countByStatus(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache): string {
@@ -520,9 +557,9 @@ export class RunDashboard implements DashboardComponent {
 		return Math.max(12, Math.min(36, rows - 2));
 	}
 
-	private refreshRuns(): void {
+	private refreshRuns(resolve?: SnapshotResolver): void {
 		if (!this.options.runProvider) return;
-		const selectedRunId = this.selectedRunId();
+		const selectedRunId = this.selectedRunId(resolve);
 		const next = this.options.runProvider();
 		// P3 (#8): re-apply the workspaceId filter on EVERY refresh, not just
 		// the constructor. Without this, runs from other sessions leak back in
@@ -532,7 +569,7 @@ export class RunDashboard implements DashboardComponent {
 			? unfiltered.filter((run) => !run.ownerSessionId || run.ownerSessionId === this.options.workspaceId)
 			: unfiltered;
 		if (selectedRunId) {
-			const nextIndex = groupedRuns(this.runs, this.options.snapshotCache)
+			const nextIndex = groupedRuns(this.runs, this.options.snapshotCache, resolve)
 				.filter((row) => row.run)
 				.findIndex((row) => row.run?.runId === selectedRunId);
 			if (nextIndex >= 0) this.selected = nextIndex;
@@ -564,7 +601,7 @@ export class RunDashboard implements DashboardComponent {
 		}
 	}
 
-	private buildSignature(): string {
+	private buildSignature(resolve?: SnapshotResolver): string {
 		// 1.10 (UI-P1-2) — short-TTL cache so we don't re-read every run's
 		// snapshot on every render tick. `snapshotFor → refreshIfStale` can
 		// stat multiple files per run when its own TTL expires, and the
@@ -579,9 +616,9 @@ export class RunDashboard implements DashboardComponent {
 		let hasRunning = false;
 		const statuses = this.runs
 			.map((run) => {
-				const snapshot = snapshotFor(run, this.options.snapshotCache);
+				const snapshot = resolve ? resolve(run) : snapshotFor(run, this.options.snapshotCache);
 				const displayRun = snapshot?.manifest ?? run;
-				const agents = snapshot?.agents ?? agentsFor(run, this.options.snapshotCache);
+				const agents = snapshot?.agents ?? agentsFor(run, this.options.snapshotCache, resolve);
 				const stale = isLikelyOrphanedActiveRun(displayRun, agents);
 				const status: RunStatus = stale ? "stale" : (displayRun.status as RunStatus);
 				if (status === "running" || agents.some((agent) => agent.status === "running")) hasRunning = true;
@@ -611,8 +648,8 @@ export class RunDashboard implements DashboardComponent {
 		this.schedulerHandle?.dispose();
 	}
 
-	private selectedRunId(): string | undefined {
-		return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache)?.runId;
+	private selectedRunId(resolve?: SnapshotResolver): string | undefined {
+		return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve)?.runId;
 	}
 
 	render(width: number): string[] {
@@ -625,8 +662,16 @@ export class RunDashboard implements DashboardComponent {
 	}
 
 	private renderUnsafe(width: number): string[] {
-		this.refreshRuns();
-		const signature = this.buildSignature();
+		// PERF (2026-08-24): snapshot resolution stat'd 7-8 files per run 6-8
+		// times per frame. Resolve once per frame into a local map and thread
+		// it through every render-path consumer below.
+		const frameSnapshots = new Map<string, RunUiSnapshot | undefined>();
+		const snapshotOnce: SnapshotResolver = (run) => {
+			if (!frameSnapshots.has(run.runId)) frameSnapshots.set(run.runId, snapshotFor(run, this.options.snapshotCache));
+			return frameSnapshots.get(run.runId);
+		};
+		this.refreshRuns(snapshotOnce);
+		const signature = this.buildSignature(snapshotOnce);
 		if (signature !== this.cachedVersion || this.cachedWidth !== width) {
 			const innerWidth = Math.max(20, width - 4);
 			const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
@@ -655,7 +700,7 @@ export class RunDashboard implements DashboardComponent {
 					lines.push(row(fg("dim", "Start one: team action='run' · r reload · Esc close")));
 				} else {
 					// L-1: windowed run list so the selection can never scroll off-screen.
-					const allGrouped = groupedRuns(this.runs, this.options.snapshotCache);
+					const allGrouped = groupedRuns(this.runs, this.options.snapshotCache, snapshotOnce);
 					const selectable = allGrouped.filter((rowItem) => rowItem.run);
 					const selectableCount = selectable.length;
 					if (this.selected > selectableCount - 1) this.selected = Math.max(0, selectableCount - 1);
@@ -668,11 +713,11 @@ export class RunDashboard implements DashboardComponent {
 								continue;
 							}
 							const idx = selectable.findIndex((c) => c.run?.runId === rowItem.run?.runId);
-							const snap = snapshotFor(rowItem.run, this.options.snapshotCache);
+							const snap = snapshotOnce(rowItem.run);
 							const run = snap?.manifest ?? rowItem.run;
-							const agents = snap?.agents ?? agentsFor(rowItem.run, this.options.snapshotCache);
+							const agents = snap?.agents ?? agentsFor(rowItem.run, this.options.snapshotCache, snapshotOnce);
 							const status: RunStatus = isLikelyOrphanedActiveRun(run, agents) ? "stale" : (run.status as RunStatus);
-							const label = runLabel(run, idx === this.selected, this.options.snapshotCache, innerWidth - 2);
+							const label = runLabel(run, idx === this.selected, this.options.snapshotCache, innerWidth - 2, snapshotOnce);
 							lines.push(row(applyStatusColor(this.theme, status, label)));
 						}
 					} else {
@@ -682,25 +727,28 @@ export class RunDashboard implements DashboardComponent {
 						for (let gi = this.runScrollOffset; gi < Math.min(this.runScrollOffset + win.slots, selectableCount); gi++) {
 							const rowItem = selectable[gi];
 							if (!rowItem?.run) continue;
-							const snap = snapshotFor(rowItem.run, this.options.snapshotCache);
+							const snap = snapshotOnce(rowItem.run);
 							const run = snap?.manifest ?? rowItem.run;
-							const agents = snap?.agents ?? agentsFor(rowItem.run, this.options.snapshotCache);
+							const agents = snap?.agents ?? agentsFor(rowItem.run, this.options.snapshotCache, snapshotOnce);
 							const status: RunStatus = isLikelyOrphanedActiveRun(run, agents) ? "stale" : (run.status as RunStatus);
-							const label = runLabel(run, gi === this.selected, this.options.snapshotCache, innerWidth - 2);
+							const label = runLabel(run, gi === this.selected, this.options.snapshotCache, innerWidth - 2, snapshotOnce);
 							lines.push(row(applyStatusColor(this.theme, status, label)));
 						}
 						if (win.hasBottom)
 							lines.push(row(fg("dim", `↓ ${selectableCount - (this.runScrollOffset + win.slots)} more below`)));
 					}
 
-					// Selected run detail — compact
-					const selectedRun = selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache);
+					// Selected run detail — compact. PERF (2026-08-24): reuse the
+					// `selectable` rows already derived from the single groupedRuns()
+					// computation above instead of recomputing grouping a third time
+					// (`selectedRunFromGrouped` is exactly `selectable[selected].run`).
+					const selectedRun = selectable[Math.min(this.selected, selectable.length - 1)]?.run;
 					if (selectedRun) {
-						const snap = snapshotFor(selectedRun, this.options.snapshotCache);
+						const snap = snapshotOnce(selectedRun);
 						const r = snap?.manifest ?? selectedRun;
-						const agents = snap?.agents ?? agentsFor(selectedRun, this.options.snapshotCache);
+						const agents = snap?.agents ?? agentsFor(selectedRun, this.options.snapshotCache, snapshotOnce);
 						const statusStr: RunStatus = isLikelyOrphanedActiveRun(r, agents) ? "stale" : (r.status as RunStatus);
-						const selectedTasks = snap?.tasks ?? readRunTasks(r, this.options.snapshotCache);
+						const selectedTasks = snap?.tasks ?? readRunTasks(r, this.options.snapshotCache, snapshotOnce);
 						lines.push(sep());
 						lines.push(row(`${fg("accent", "▸")} ${truncate(sanitizeLine(r.goal), innerWidth - 6)}`));
 						// L-2: surface the failure/cancellation reason inline for terminal runs.
@@ -741,7 +789,10 @@ export class RunDashboard implements DashboardComponent {
 												: this.activePane === "plan"
 													? safeRenderPane("plan", () => renderPlanPane(snap, { diff: this.planDiff }))
 													: safeRenderPane("transcript", () => renderTranscriptPane(snap))
-							: [...readAgentPreview(r, 4, this.options), ...readProgressPreview(r, 2, this.options.snapshotCache)];
+							: [
+									...readAgentPreview(r, 4, this.options, snapshotOnce),
+									...readProgressPreview(r, 2, this.options.snapshotCache, snapshotOnce),
+								];
 						const filteredPane = paneLines.filter((l) => l && !l.includes("(none)") && l.trim() !== "");
 						if (filteredPane.length > 0) {
 							lines.push(row(fg("dim", `── ${this.activePane} ──`)));
