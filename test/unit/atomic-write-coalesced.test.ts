@@ -134,3 +134,40 @@ test("skipCoalesce=true overrides an in-flight buffered write for the same path 
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+// PERF (2026-08-24): stringify moved to flush time. The same mutable object may
+// be re-queued repeatedly within the coalesce window; the single flushed write
+// must reflect its LATEST state (n=5), proving no eager stringify snapshot.
+test("coalesced write flushed content equals latest value (lazy stringify)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-lazy-"));
+	const filePath = path.join(dir, "tasks.json");
+	try {
+		const obj = { n: 0 };
+		for (let i = 1; i <= 5; i++) {
+			obj.n = i;
+			atomicWriteJsonCoalesced(filePath, obj, 20);
+			await new Promise((r) => setTimeout(r, 5));
+		}
+		await new Promise((r) => setTimeout(r, 60));
+		assert.equal(JSON.parse(fs.readFileSync(filePath, "utf-8")).n, 5);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// PERF (2026-08-24): dir-exists memo. The parent dir is memoized after the
+// first write; deleting it must NOT break the next write — the temp-open ENOENT
+// forgets the memo, re-creates the dir, and retries the open exactly once.
+test("ensureDirSync memo survives and re-creates a deleted dir (ENOENT retry)", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dirmemo-"));
+	const filePath = path.join(dir, "a/b/c/file.json");
+	try {
+		atomicWriteJson(filePath, { x: 1 });
+		assert.ok(fs.existsSync(filePath));
+		fs.rmSync(path.dirname(filePath), { recursive: true, force: true });
+		atomicWriteJson(filePath, { x: 2 }); // must recover via ENOENT retry
+		assert.equal(JSON.parse(fs.readFileSync(filePath, "utf-8")).x, 2);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});

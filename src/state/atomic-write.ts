@@ -549,6 +549,26 @@ function normalizeOptions(arg: unknown): { expectedHash?: string; durability: Wr
 	return { durability: "full", mode: undefined, compact: undefined };
 }
 
+// PERF (2026-08-24): every atomic write ran mkdirSync(recursive) on a parent
+// that exists for the lifetime of a run. Memoize known-existing dirs; the memo
+// is invalidated on ENOENT at temp-open so a deleted-then-recreated tree is
+// handled (and recreated dirs are re-validated by isSymlinkSafeDirCached on
+// the NEXT write, which re-runs whenever the path was not seen before).
+const knownDirs = new Set<string>();
+const KNOWN_DIRS_MAX = 512;
+export function ensureDirSync(dirPath: string): void {
+	if (knownDirs.has(dirPath)) return;
+	fs.mkdirSync(dirPath, { recursive: true });
+	if (knownDirs.size >= KNOWN_DIRS_MAX) {
+		const oldest = knownDirs.keys().next().value;
+		if (oldest !== undefined) knownDirs.delete(oldest);
+	}
+	knownDirs.add(dirPath);
+}
+function forgetDir(dirPath: string): void {
+	knownDirs.delete(dirPath);
+}
+
 export function atomicWriteFile(filePath: string, content: string, options?: AtomicWriteOptions): void {
 	cancelPendingCoalescedWrite(filePath);
 	const { durability, mode } = normalizeOptions(options);
@@ -581,7 +601,9 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 	};
 	const dirPath = path.dirname(filePath);
 	try {
-		fs.mkdirSync(dirPath, { recursive: true });
+		// PERF (2026-08-24): memoized — on a memo hit this cannot throw, so the
+		// EPERM fallback below only ever runs when mkdir actually executed.
+		ensureDirSync(dirPath);
 	} catch (error) {
 		if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") {
 			// mkdir hit a short/long-name alias wall — retry with the canonical
@@ -604,7 +626,27 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 	// removes a leftover instead of being skipped by the stale `fd` guard.
 	let tempNeedsCleanup = false;
 	try {
-		fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, mode ?? 0o600);
+		// PERF (2026-08-24): the memoized parent may have been deleted after
+		// memoization — openSync then fails ENOENT. Forget the memo, re-create
+		// the dir, and retry the open exactly once; a second failure re-throws
+		// (through the outer finally, which has nothing to clean up yet since
+		// the temp never existed).
+		try {
+			fd = fs.openSync(
+				tempPath,
+				fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
+				mode ?? 0o600,
+			);
+		} catch (openError) {
+			if ((openError as NodeJS.ErrnoException).code !== "ENOENT") throw openError;
+			forgetDir(dirPath);
+			ensureDirSync(dirPath);
+			fd = fs.openSync(
+				tempPath,
+				fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
+				mode ?? 0o600,
+			);
+		}
 		tempNeedsCleanup = true; // ST-7: temp file now exists on disk
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file
 		const openedStat = fs.fstatSync(fd);
@@ -731,16 +773,32 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 	}
 	if (!isSymlinkSafeDirCached(filePath))
 		throw new Error(`Refusing to write: target is a symlink or inside untrusted directory: ${filePath}`);
-	await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+	// PERF (2026-08-24): shared dir memo — a sync mkdir on an existing dir is one
+	// cheap syscall; replacing `await fs.promises.mkdir` is fine because the
+	// memoized hit does not throw and does not yield the event loop.
+	ensureDirSync(path.dirname(filePath));
 	const tempPath = `${filePath}.${crypto.randomUUID()}.tmp`;
 	let fd: fs.promises.FileHandle | undefined;
 	try {
 		const O_NOFOLLOW = typeof fs.constants.O_NOFOLLOW === "number" ? fs.constants.O_NOFOLLOW : 0;
-		fd = await fs.promises.open(
-			tempPath,
-			fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
-			mode ?? 0o600,
-		);
+		// PERF (2026-08-24): same ENOENT retry as the sync path — the memoized
+		// dir may have been deleted between memoization and this open.
+		try {
+			fd = await fs.promises.open(
+				tempPath,
+				fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
+				mode ?? 0o600,
+			);
+		} catch (openError) {
+			if ((openError as NodeJS.ErrnoException).code !== "ENOENT") throw openError;
+			forgetDir(path.dirname(filePath));
+			ensureDirSync(path.dirname(filePath));
+			fd = await fs.promises.open(
+				tempPath,
+				fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
+				mode ?? 0o600,
+			);
+		}
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file
 		const openedStat = await fd.stat();
 		if (!openedStat.isFile()) {
@@ -832,7 +890,12 @@ export async function atomicWriteJsonAsync<T>(filePath: string, value: T, option
 // Auto-flush hooks: process exit / SIGTERM / SIGINT, plus an exposed
 // `flushPendingAtomicWrites()` for cleanupRuntime.
 interface CoalescedAtomicWrite {
-	content: string;
+	/** PERF (2026-08-24): the value is stringified at FLUSH time, not queue
+	 *  time (see atomicWriteJsonCoalesced). Flushed content reflects the
+	 *  object's state at flush time. */
+	value: unknown;
+	/** PERF-6: formatting captured at queue time, applied at flush time. */
+	compact: boolean;
 	timer: ReturnType<typeof setTimeout>;
 	coalesceMs: number;
 	retryCount: number;
@@ -880,10 +943,16 @@ export function atomicWriteJsonCoalesced<T>(
 		atomicWriteJson(filePath, value, options);
 		return;
 	}
-	// PERF-6: honor compact — normalize BEFORE serializing so the buffered content
-	// uses the caller's preferred formatting.
+	// PERF-6: honor compact — normalize BEFORE queueing so the buffered entry
+	// carries the caller's preferred formatting for the flush-time stringify.
 	const normalized = normalizeOptions(options);
-	const content = `${normalized.compact ? JSON.stringify(value) : JSON.stringify(value, null, 2)}\n`;
+	// PERF (2026-08-24): stringify moved to FLUSH time. persistSingleTaskUpdate
+	// re-saves every ~500ms per task while the coalesce window is 50ms — callers
+	// that keep writing overwrite the pending entry before it ever flushes, so
+	// eager stringify burned a full-array serialize per save for nothing.
+	// NOTE (semantic): the flushed content reflects the object's state at flush
+	// time. All current callers hand us a freshly built array and drop it; if a
+	// future caller mutates after queueing, that mutation persists.
 	const previous = pendingAtomicWrites.get(filePath);
 	if (previous) clearTimeout(previous.timer);
 	const timer = setTimeout(() => flushOnePendingAtomicWrite(filePath), coalesceMs);
@@ -891,7 +960,8 @@ export function atomicWriteJsonCoalesced<T>(
 	// Issue 2 fix: increment generation for each new entry
 	const generation = ++writeGeneration;
 	pendingAtomicWrites.set(filePath, {
-		content,
+		value,
+		compact: normalized.compact === true,
 		timer,
 		coalesceMs,
 		retryCount: 0,
@@ -909,7 +979,11 @@ function flushOnePendingAtomicWrite(filePath: string): void {
 	const savedGeneration = entry.generation;
 	clearTimeout(entry.timer);
 	try {
-		atomicWriteFile(filePath, entry.content, { durability: entry.durability });
+		// PERF (2026-08-24): stringify happens HERE (flush time), not at queue
+		// time — see the note in atomicWriteJsonCoalesced. No defensive deep-copy
+		// of entry.value: that would reintroduce the cost this change removes.
+		const content = `${entry.compact ? JSON.stringify(entry.value) : JSON.stringify(entry.value, null, 2)}\n`;
+		atomicWriteFile(filePath, content, { durability: entry.durability });
 		// Issue 2 fix: Verify generation hasn't changed before deleting.
 		// A concurrent write may have replaced entry with a newer one during the flush.
 		// Only delete if generation matches (not a newer entry).
