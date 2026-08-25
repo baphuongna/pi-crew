@@ -341,6 +341,16 @@ export const PiTeamsNestingConfigSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+/** State-layer persistence schema (perf round 2, Task 3). Opt-in only.
+ *  Does affect write cost, but never correctness: tasks.json is
+ *  reconstructible from the fsync'd event log, so no privilege surface. */
+export const PiTeamsPersistenceConfigSchema = Type.Object(
+	{
+		skipTasksFsync: Type.Optional(Type.Boolean()),
+	},
+	{ additionalProperties: false },
+);
+
 export const PiTeamsConfigSchema = Type.Object(
 	{
 		asyncByDefault: Type.Optional(Type.Boolean({ sensitive: true })),
@@ -365,6 +375,7 @@ export const PiTeamsConfigSchema = Type.Object(
 		ui: Type.Optional(PiTeamsUiConfigSchema),
 		broker: Type.Optional(CrewBrokerConfigSchema),
 		nesting: Type.Optional(PiTeamsNestingConfigSchema),
+		persistence: Type.Optional(PiTeamsPersistenceConfigSchema),
 	},
 	{ additionalProperties: false },
 );

@@ -313,6 +313,26 @@ export interface PiTeamsConfig {
 	 * `delegate.rejected` event (never silent).
 	 */
 	nesting?: CrewNestingConfig;
+	/** State-layer persistence knobs (perf round 2, Task 3). Opt-in only. */
+	persistence?: PersistenceConfig;
+}
+
+/** State-layer persistence knobs (perf round 2, Task 3). */
+export interface PersistenceConfig {
+	/**
+	 * Opt-in (default `false`): write non-terminal tasks checkpoints with
+	 * `durability:"best-effort"` (no fsync) instead of the coalesced `"full"`
+	 * path, and flush immediately rather than buffering for 50ms. tasks.json
+	 * is fully reconstructible from the fsync'd event log, so a crash loses at
+	 * most the tail of an in-flight checkpoint and recovers from events.jsonl.
+	 * Terminal task transitions (completed/failed/cancelled/needs_attention/
+	 * skipped) ALWAYS stay full-durability regardless of this flag.
+	 * Set via env `PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC` (`"1"`/`"true"`) or
+	 * config `persistence.skipTasksFsync`. Env beats config; default false.
+	 * @see src/state/stores/state-store.ts saveRunTasksCoalesced
+	 * @see src/runtime/task-runner/state-helpers.ts persistSingleTaskUpdate
+	 */
+	skipTasksFsync?: boolean;
 }
 
 /** Governed-nesting config (ADR-5). */

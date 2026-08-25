@@ -10,6 +10,7 @@ import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../../utils/paths.t
 import { assertSafePathId, resolveContainedRelativePath, resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { toPiSessionId } from "../../utils/session-utils.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
+import type { WriteDurability } from "../atomic-write.ts";
 import {
 	atomicWriteJson,
 	atomicWriteJsonAsync,
@@ -660,9 +661,22 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
  * tasks.json stale (showing "running") while events.jsonl already shows
  * the terminal event, causing false zombie detection / double-execution
  * on crash recovery.
+ *
+ * PERF round 2, Task 3: optional `durability` (default "full") overrides the
+ * coalesced entry's durability. When the caller wants a non-terminal checkpoint
+ * written without fsync (persistence.skipTasksFsync opt-in), pass
+ * `durability: "best-effort"` — the coalesced entry stores it and the flush
+ * forwards it to atomicWriteFile (see atomic-write.ts:997). Terminal
+ * transitions (skipCoalesce=true) always fall to atomicWriteJson with full
+ * durability regardless of this param.
  */
 /** @internal */
-export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTaskState[], skipCoalesce: boolean = false): void {
+export function saveRunTasksCoalesced(
+	manifest: TeamRunManifest,
+	tasks: TeamTaskState[],
+	skipCoalesce: boolean = false,
+	durability: WriteDurability = "full",
+): void {
 	// ST-4: refuse to persist [] over a previously-non-empty tasks file.
 	if (!shouldPersistTasks(manifest, tasks)) return;
 	// PERF (2026-08-24, Task 12): invalidating the WHOLE entry made every
@@ -692,7 +706,7 @@ export function saveRunTasksCoalesced(manifest: TeamRunManifest, tasks: TeamTask
 	} catch {
 		return;
 	}
-	atomicWriteJsonCoalesced(manifest.tasksPath, tasks, undefined, { compact: true }, skipCoalesce);
+	atomicWriteJsonCoalesced(manifest.tasksPath, tasks, undefined, { compact: true, durability }, skipCoalesce);
 }
 
 export async function saveRunTasksAsync(manifest: TeamRunManifest, tasks: TeamTaskState[]): Promise<void> {

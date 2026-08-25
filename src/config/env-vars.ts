@@ -323,6 +323,11 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_PLAN_UI",
 		doc: "'1' enables the Plan dashboard pane (7) + plans snapshot slice (WP-7/R7)",
 	},
+	PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC: {
+		name: "PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC",
+		parser: "boolean",
+		doc: "'1'/'true' writes non-terminal tasks checkpoints best-effort (no fsync, flush immediately); terminal transitions stay full (defaults.ts, config.ts persistence.skipTasksFsync)",
+	},
 	PI_CREW_TRUST_PROJECT_DWF: {
 		name: "PI_CREW_TRUST_PROJECT_DWF",
 		doc: "'1' allows project-sourced .dwf.ts workflows (dynamic-workflow-runner.ts:154)",

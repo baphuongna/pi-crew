@@ -670,6 +670,17 @@
           "description": "Max crew depth for delegate-driven nesting. Default 2 (mirrors PI_CREW_MAX_DEPTH clamp)."
         }
       }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "State-layer persistence knobs (perf round 2, Task 3). Opt-in only.",
+      "properties": {
+        "skipTasksFsync": {
+          "type": "boolean",
+          "description": "Opt-in (default false): write non-terminal tasks checkpoints best-effort (no fsync, flush immediately). Terminal transitions stay full-durability. Env PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC beats this."
+        }
+      }
     }
   }
 }

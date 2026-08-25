@@ -215,6 +215,19 @@ export const DEFAULT_NESTING = {
 } as const;
 
 /**
+ * State-layer persistence defaults (perf round 2, Task 3).
+ * `skipTasksFsync` is DEFAULT FALSE — opt-in only. Because the flag is
+ * consumed at the save site in the state layer, `loadConfig` must READ it
+ * (not default-on-borrow): the flag affects the cost of every non-terminal
+ * tasks checkpoint, so it must never silently flip from "fsync" to "no
+ * fsync" due to a config default alone. Env `PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC`
+ * ("1"/"true") beats config; config beats this default.
+ */
+export const DEFAULT_PERSISTENCE = {
+	skipTasksFsync: false,
+} as const;
+
+/**
  * Apply `PI_CREW_BROKER` env override to a parsed broker config.
  * - `"1"` forces `enabled: true` (beats a config of `false` AND the
  *   default of `false` when no broker block is configured).

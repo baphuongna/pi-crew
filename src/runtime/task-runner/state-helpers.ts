@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { loadConfig } from "../../config/config.ts";
 import { flushPendingAtomicWrites } from "../../state/atomic-write.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { loadRunManifestById, saveRunTasksCoalesced } from "../../state/stores/state-store.ts";
@@ -30,7 +31,11 @@ export function updateTask(tasks: TeamTaskState[], updated: TeamTaskState): Team
  * SIGKILL in that window loses the terminal update and crash recovery
  * would see "running" in tasks.json while events.jsonl already shows
  * "completed". For non-terminal transitions (heartbeat, progress) the
- * default buffered write is fine and matches prior behavior.
+ * default buffered write is fine and matches prior behavior. With the
+ * opt-in `persistence.skipTasksFsync` flag (default off), non-terminal
+ * checkpoints bypass the coalesce buffer and write immediately with
+ * durability "best-effort" (no fsync) — tasks.json is reconstructible from
+ * the fsync'd event log, so best-effort loses at most the in-flight tail.
  *
  * @param checkpointPhase - Optional checkpoint phase to include in the task state alongside the update.
  */
@@ -153,7 +158,21 @@ export function persistSingleTaskUpdate(
 				// ST-7: terminal transitions (skipCoalesce=true) bypass the 50ms
 				// coalesce window so a SIGKILL after the persist completes cannot
 				// leave tasks.json stale with a non-terminal status.
-				saveRunTasksCoalesced(manifest, merged, skipCoalesce);
+				// PERF round 2, Task 3 (opt-in, default off): for NON-terminal
+				// checkpoints — and ONLY when persistence.skipTasksFsync is true —
+				// route through the skipCoalesce bypass with durability
+				// "best-effort" (no fsync) + a synchronous flush instead of the
+				// 50ms coalesced queue. tasks.json is reconstructible from the
+				// fsync'd event log, so a crash loses at most the tail of a
+				// checkpoint. Terminal transitions (skipCoalesce=true) MUST remain
+				// full-durability — the flag never touches that path.
+				const skipTasksFsync = !skipCoalesce && loadConfig().config.persistence?.skipTasksFsync === true;
+				if (skipTasksFsync) {
+					saveRunTasksCoalesced(manifest, merged, true, "best-effort");
+					flushPendingAtomicWrites(manifest.tasksPath);
+				} else {
+					saveRunTasksCoalesced(manifest, merged, skipCoalesce);
+				}
 			} catch (err) {
 				logInternalError("persistSingleTaskUpdate", err, undefined, "error");
 				throw err;

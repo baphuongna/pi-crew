@@ -7,8 +7,8 @@ import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, projectPiRoot } from "../utils/paths.ts";
 import { mergeConfig } from "./config-merge.ts";
 import { parseConfig, parseConfigWithWarnings } from "./config-validation.ts";
-import { DEFAULT_BROKER, DEFAULT_NESTING, resolveBrokerEnvOverride } from "./defaults.ts";
-import { getCrewEnv } from "./env-vars.ts";
+import { DEFAULT_BROKER, DEFAULT_NESTING, DEFAULT_PERSISTENCE, resolveBrokerEnvOverride } from "./defaults.ts";
+import { getCrewEnv, getCrewEnvBool } from "./env-vars.ts";
 import { sanitizeProjectConfig } from "./sanitize-project-config.ts";
 
 // 2.9: interface types extracted to ./types.ts; re-export for back-compat.
@@ -45,6 +45,7 @@ import type {
 	CrewBrokerConfig,
 	CrewNestingConfig,
 	LoadedPiTeamsConfig,
+	PersistenceConfig,
 	PiTeamsAutonomousConfig,
 	PiTeamsConfig,
 	SavedPiTeamsConfig,
@@ -235,6 +236,21 @@ function applyBrokerEnvOverrideAndDefaults(parsed: CrewBrokerConfig | undefined)
 	return { ...DEFAULT_BROKER, ...envOverridden };
 }
 
+/**
+ * Resolve the persistence section (perf round 2, Task 3).
+ * Precedence: env `PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC` ("1"/"true") BEATS a
+ * config `persistence.skipTasksFsync`; config beats the DEFAULT_PERSISTENCE
+ * default (false). Mirrors resolveBrokerEnvOverride's env-beats-config shape.
+ */
+function resolvePersistenceEnvOverrideAndDefaults(parsed: PersistenceConfig | undefined): PersistenceConfig {
+	const envOverride = getCrewEnvBool("PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC");
+	return {
+		...DEFAULT_PERSISTENCE,
+		...parsed,
+		...(envOverride === undefined ? {} : { skipTasksFsync: envOverride }),
+	};
+}
+
 function unsetPath(record: Record<string, unknown>, dottedPath: string): void {
 	const parts = dottedPath.split(".").filter(Boolean);
 	if (parts.length === 0) return;
@@ -377,6 +393,8 @@ export function loadConfig(cwd?: string): LoadedPiTeamsConfig {
 			// the enabled flag even when no broker block is configured.
 			broker: applyBrokerEnvOverrideAndDefaults(config.broker),
 			nesting: applyNestingDefaults(config.nesting),
+			// PERF round 2, Task 3: env beats config, config beats the default.
+			persistence: resolvePersistenceEnvOverrideAndDefaults(config.persistence),
 		},
 		warnings: warnings.length > 0 ? warnings : undefined,
 	};

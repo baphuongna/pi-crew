@@ -38,6 +38,7 @@ const PI_TEAMS_CONFIG_KEYS: readonly string[] = [
 	"ui",
 	"broker",
 	"nesting",
+	"persistence",
 ];
 
 describe("config-schema sync (CFG-2)", () => {

@@ -23,6 +23,7 @@ import type {
 	CrewUiConfig,
 	CrewWorktreeConfig,
 	GoalWrapWorkflowConfig,
+	PersistenceConfig,
 	PiTeamsAutonomousConfig,
 	PiTeamsAutonomyProfile,
 	PiTeamsConfig,
@@ -384,6 +385,18 @@ function parseBrokerConfig(value: unknown): CrewBrokerConfig | undefined {
 	return Object.values(broker).some((entry) => entry !== undefined) ? broker : undefined;
 }
 
+/** PERF round 2, Task 3: state-layer persistence parser. Opt-in only;
+ *  the default (false) is layered in loadConfig via DEFAULT_PERSISTENCE,
+ *  so a missing block here means "not set", never "false" by default. */
+function parsePersistenceConfig(value: unknown): PersistenceConfig | undefined {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const persistence: PersistenceConfig = {
+		skipTasksFsync: parseWithSchema(Type.Boolean(), obj.skipTasksFsync),
+	};
+	return Object.values(persistence).some((entry) => entry !== undefined) ? persistence : undefined;
+}
+
 function parseWorktreeConfig(value: unknown): CrewWorktreeConfig | undefined {
 	const obj = asRecord(value);
 	if (!obj) return undefined;
@@ -676,6 +689,7 @@ export function parseConfig(raw: unknown): PiTeamsConfig {
 		otlp: parseOtlpConfig(obj.otlp),
 		ui: parseUiConfig(obj.ui),
 		broker: parseBrokerConfig(obj.broker),
+		persistence: parsePersistenceConfig(obj.persistence),
 	};
 }
 
