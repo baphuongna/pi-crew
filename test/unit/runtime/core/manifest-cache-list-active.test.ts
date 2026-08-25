@@ -16,6 +16,34 @@ import { createRunManifest, updateRunStatus } from "../../../../src/state/stores
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 
+/**
+ * Global env isolation (pattern: test/unit/manifest-cache-ttl.test.ts).
+ *
+ * listActive() scans EVERY run root by design (RT-F3 crash-recovery) —
+ * including the REAL user root (`userCrewRoot()`, honor of PI_CREW_HOME).
+ * On a machine with live pi sessions the user root carries genuinely
+ * "running" manifests, which leak into listActive() results and break the
+ * exact-membership assertions below. Snapshot env, then point PI_CREW_HOME
+ * at an empty temp home per test; delete the mirror pair's winning name
+ * (PI_TEAMS_HOME has precedence — see src/config/env-vars.ts).
+ */
+const envBackup = new Map<string, string | undefined>();
+test.beforeEach(() => {
+	envBackup.clear();
+	for (const key of Object.keys(process.env)) envBackup.set(key, process.env[key]);
+	delete process.env.PI_TEAMS_HOME;
+	process.env.PI_CREW_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-list-active-home-"));
+});
+test.afterEach(() => {
+	for (const key of Object.keys(process.env)) {
+		if (!envBackup.has(key)) delete process.env[key];
+	}
+	for (const [key, value] of envBackup) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+});
+
 const team: TeamConfig = {
 	name: "act",
 	description: "act",
