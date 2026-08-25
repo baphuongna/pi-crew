@@ -6,6 +6,7 @@ import { getCrewEnv } from "../config/env-vars.ts";
 import { defineTool, type ToolDefinition } from "../extension/pi-api.ts";
 import { startChildBrokerClient } from "../runtime/broker/crew-broker-child.ts";
 import { CrewBrokerClient } from "../runtime/broker/crew-broker-client.ts";
+import { hasLiveControlRealtimeListeners } from "../runtime/live-session/live-control-realtime.ts";
 import { type MailboxMessage, readAllMailboxMessages } from "../state/coordination/mailbox.ts";
 import { appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
@@ -244,10 +245,36 @@ const PI_CREW_BROKER_SOCKET_ASK_ENV = "PI_CREW_BROKER_SOCKET";
 const PI_CREW_BROKER_TOKEN_ASK_ENV = "PI_CREW_BROKER_TOKEN";
 const PI_CREW_BROKER_RUN_ID_ASK_ENV = "PI_CREW_BROKER_RUN_ID";
 
-/** ADR item 4: poll cadence while parked (bounded cost — poll only while a
- *  question is actually outstanding). */
-const ASK_POLL_INTERVAL_MS = 500;
-/** ADR item 1: default + client-side mirror of the server clamp (P2-7). */
+// ── Perf Round 2 (task 5): adaptive poll latency under live-session ────────
+// The 0–500ms latency term for `ask`/`delegate` answers and mailbox `steer`s
+// is bounded by the fixed 500ms `setInterval`/`sleep` cadence. Under
+// live-session realtime (in-process producer/consumer pairs), the durable
+// file-poll is only a fallback — the producer can also walk the mailbox/bus
+// instantly — so a short poll cadence while a request is in flight removes the
+// latency term without changing the durable/fallback semantics.
+const STEER_POLL_ACTIVE_MS = 50;
+const STEER_POLL_IDLE_MS = 500;
+
+/**
+ * Effective poll interval for the mailbox steering / ask / delegate file
+ * polls. Adaptive:
+ *   - `realtimeActive` (live-session realtime listeners registered) OR a
+ *     `requestInFlight` (an ask/delegate/steer is outstanding) → the short
+ *     50ms cadence, so an answer that lands on the durable channel is picked
+ *     up within ~50ms instead of up to 500ms;
+ *   - otherwise (idle, nothing outstanding) → relax back to the prior 500ms
+ *     bounded-cost cadence.
+ *
+ * The broker-push path (Feature 2b) is unaffected — it delivers immediately
+ * regardless of interval; this helper only governs the FILE-POLL fallback.
+ */
+export function effectiveSteeringInterval(options: {
+	realtimeActive: boolean;
+	requestInFlight: boolean;
+}): number {
+	return options.realtimeActive || options.requestInFlight ? STEER_POLL_ACTIVE_MS : STEER_POLL_IDLE_MS;
+}
+
 const ASK_TIMEOUT_SEC_DEFAULT = 600;
 const ASK_TIMEOUT_SEC_MAX = 3600;
 /** Client-side mirrors of the broker's parseWaitRequestParams bounds — the
@@ -325,7 +352,6 @@ export function shouldRegisterAskTool(env: NodeJS.ProcessEnv = process.env): boo
 
 const PI_CREW_DELEGATE_ENABLED_ENV = "PI_CREW_DELEGATE_ENABLED";
 export const DELEGATE_TIMED_OUT_RESULT = "[delegate timed out]";
-const DELEGATE_POLL_INTERVAL_MS = 500;
 /** P3-11: poll slack past the server deadline — the server timer fires first
  *  and writes the fenced (timed out) result; the client checks a bit longer
  *  so the outcome lands in-tool instead of lingering unread in the inbox. */
@@ -475,7 +501,9 @@ export function createDelegateTool(deps: DelegateToolDeps = {}): DelegateToolDef
 						break;
 					}
 					if (now() >= deadline) break;
-					await sleep(DELEGATE_POLL_INTERVAL_MS);
+					await sleep(
+						effectiveSteeringInterval({ realtimeActive: hasLiveControlRealtimeListeners(), requestInFlight: true }),
+					);
 				}
 				const waitedMs = now() - startedAt;
 				if (terminal === "completed" && result) {
@@ -669,7 +697,10 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 				// depend on the parent cwd's .crew marker / path validation.
 				const manifest = { stateRoot, runId } as unknown as TeamRunManifest;
 				// Poll, bounded by the broker-issued deadline (epoch ms). No unbounded
-				// loop: every iteration checks signal + deadline; sleeps are 500ms.
+				// loop: every iteration checks signal + deadline; sleeps use the
+				// adaptive cadence (50ms while this request is in flight under
+				// live-session realtime, so an answer lands within ~50ms rather than
+				// incurring the old fixed 0–500ms latency term).
 				let terminal: "answered" | "timed-out" | "aborted" = "timed-out";
 				let answer: MailboxMessage | undefined;
 				while (true) {
@@ -683,7 +714,9 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 						break;
 					}
 					if (now() >= value.deadline) break;
-					await sleep(ASK_POLL_INTERVAL_MS);
+					await sleep(
+						effectiveSteeringInterval({ realtimeActive: hasLiveControlRealtimeListeners(), requestInFlight: true }),
+					);
 				}
 				const waitedMs = now() - startedAt;
 				// Terminal report (ADR item 8): best-effort un-park on EVERY path.
@@ -829,8 +862,34 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 					// File doesn't exist yet or read error — will retry next tick
 				}
 			};
-			const timer = setInterval(pollSteering, 500);
-			timer.unref?.();
+			// PERF R2 (task 5): event-driven + adaptive cadence. Instead of a
+			// fixed 500ms setInterval, re-derive the interval from the realtime
+			// state on every tick: while live-session realtime is active the
+			// file poll runs at 50ms (a steer/answer lands within ~50ms instead
+			// of incurring the 0–500ms latency term); when idle it relaxes back
+			// to the prior 500ms bounded-cost cadence. The recursive setTimeout
+			// also guarantees the poll never overlaps a previous (synchronous,
+			// short) pollSteering pass. The broker-push path (Feature 2b below)
+			// is unchanged and still delivers immediately.
+			let pollTimer: ReturnType<typeof setTimeout> | undefined;
+			const armSteeringPoll = (): void => {
+				pollTimer = setTimeout(
+					() => {
+						pollSteering();
+						armSteeringPoll();
+					},
+					effectiveSteeringInterval({
+						realtimeActive: hasLiveControlRealtimeListeners(),
+						requestInFlight: false,
+					}),
+				);
+				pollTimer.unref?.();
+			};
+			// Immediate wake: if realtime is already active at registration
+			// (live-session boot), catch the file up NOW rather than waiting for
+			// the first 50ms tick.
+			if (hasLiveControlRealtimeListeners()) pollSteering();
+			armSteeringPoll();
 		}
 	}
 
