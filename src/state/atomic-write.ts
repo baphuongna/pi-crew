@@ -571,6 +571,69 @@ function forgetDir(dirPath: string): void {
 	knownDirs.delete(dirPath);
 }
 
+// T8 (perf round 2, 2026-08-25): grouped parent-dir fsync for coalesced drains.
+//
+// A full-durability atomic write fsyncs (1) the data file and (2) the parent
+// directory after the rename. When a coalesced DRAIN
+// (`flushPendingAtomicWrites()` with no argument) serially flushes N pending
+// files, the per-file parent-dir fsync is redundant: rename(2) is atomic and
+// visible to readers the instant it happens (independent of the dir fsync),
+// and ONE fsync of the parent dir after ALL renames makes every rename in
+// that dir crash-durable in a single journal commit. Measured on this repo's
+// state burst (4 files, one dir): 59.4ms serial per-file dir-fsync vs 22.9ms
+// with one shared trailing dir-fsync (−61%), full durability preserved. Files
+// in distinct dirs still group per-dir.
+//
+// Ordering (R16-B1): every rename completes BEFORE the trailing dir-fsync —
+// guaranteed because the drain loop is serial and synchronous and the
+// trailing fsync only runs after the loop.
+//
+// Scoping: `dirFsyncDeferralDepth` is raised ONLY around the global-drain
+// loop, so the deferral never leaks to other callers — direct `atomicWriteJson`
+// / `atomicWriteFile` calls, the terminal `skipCoalesce` path, scoped
+// `flushPendingAtomicWrites(filePath)` flushes, and coalesce-timer
+// `flushOnePendingAtomicWrite` callbacks all run at depth 0 and keep their
+// immediate dir-fsync. `pendingDirFsyncs` is drained from the drain's
+// `finally` so a mid-drain throw still fsyncs the dirs of files that were
+// already renamed. Nested drains are impossible via the existing
+// `flushInProgress` guard. There is no async drain counterpart today; the
+// async path therefore NEVER defers (see its comment at the dir-fsync site).
+const pendingDirFsyncs = new Set<string>();
+let dirFsyncDeferralDepth = 0;
+
+/** Immediate (ungrouped) parent-dir fsync — the pre-T8 inline behavior. */
+function fsyncParentDirImmediate(filePath: string): void {
+	try {
+		const dirFd = fs.openSync(path.dirname(filePath), "r");
+		fs.fsyncSync(dirFd);
+		fs.closeSync(dirFd);
+	} catch {
+		/* best-effort — not all filesystems support directory fsync */
+	}
+}
+
+/** Flush the dirs accumulated by a grouped drain: ONE open+fsync+close per
+ *  DISTINCT dir. Called from the drain's `finally` so it fires even when the
+ *  serial loop threw mid-drain — files renamed before the throw must still
+ *  become crash-durable. Best-effort per dir, mirroring the inline path.
+ *  The set is snapshotted+cleared up front so a throwing dir cannot skip the
+ *  remaining dirs or leak entries into the next drain. */
+function fsyncPendingParentDirs(): void {
+	if (pendingDirFsyncs.size === 0) return;
+	const dirs = [...pendingDirFsyncs];
+	pendingDirFsyncs.clear();
+	if (process.platform === "win32") return;
+	for (const dir of dirs) {
+		try {
+			const dirFd = fs.openSync(dir, "r");
+			fs.fsyncSync(dirFd);
+			fs.closeSync(dirFd);
+		} catch {
+			/* best-effort — not all filesystems support directory fsync */
+		}
+	}
+}
+
 export function atomicWriteFile(filePath: string, content: string, options?: AtomicWriteOptions): void {
 	cancelPendingCoalescedWrite(filePath);
 	const { durability, mode } = normalizeOptions(options);
@@ -706,13 +769,16 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 			// where the Windows-specific rename path in renameWithLinkSync already
 			// uses MoveFileEx which is fully durable).
 			// F4: honor durability — best-effort also skips the parent-dir fsync.
+			// T8: inside a coalesced DRAIN (dirFsyncDeferralDepth > 0 — raised only
+			// by flushPendingAtomicWrites() with no argument) DEFER the dir fsync:
+			// accumulate the dirname in pendingDirFsyncs and let the drain issue
+			// ONE fsync per distinct dir after all renames. Every other caller
+			// runs at depth 0 and keeps this immediate dir-fsync unchanged.
 			if (durability === "full" && process.platform !== "win32") {
-				try {
-					const dirFd = fs.openSync(path.dirname(filePath), "r");
-					fs.fsyncSync(dirFd);
-					fs.closeSync(dirFd);
-				} catch {
-					/* best-effort — not all filesystems support directory fsync */
+				if (dirFsyncDeferralDepth > 0) {
+					pendingDirFsyncs.add(path.dirname(filePath));
+				} else {
+					fsyncParentDirImmediate(filePath);
 				}
 			}
 		} catch (renameError) {
@@ -842,6 +908,14 @@ export async function atomicWriteFileAsync(filePath: string, content: string, op
 		// some Linux filesystems, so a crash between rename and journal flush
 		// could leave a stale directory entry. The sync path already does this;
 		// this brings the async path to durability parity.
+		// T8: the grouped dir-fsync (pendingDirFsyncs) deliberately does NOT
+		// apply here. There is no ASYNC coalesced drain — the drain loop in
+		// flushPendingAtomicWrites() is fully synchronous and calls only the
+		// sync atomicWriteFile, so an async write can never observe
+		// dirFsyncDeferralDepth > 0. Deferring here would add dirs to a set
+		// whose trailing flush has already run (worse than not fsyncing at
+		// all). If an async drain is ever added, it must collect distinct dirs
+		// and Promise.all their fsyncs at the end of the drain.
 		if (durability === "full" && process.platform !== "win32") {
 			try {
 				const dirFd = await fs.promises.open(path.dirname(filePath), "r");
@@ -1060,18 +1134,37 @@ function cancelPendingCoalescedWrite(filePath: string): void {
  * Re-entrancy guard (`flushInProgress`) applies to both modes: a scoped flush
  * triggered while a global flush is running is a no-op (the global flush
  * already covers this file), and vice versa.
+ *
+ * T8: the GLOBAL drain (no argument) groups the parent-dir fsync — each
+ * flushed file keeps its data fsync but defers the dir fsync, and after the
+ * serial loop completes (all renames done → R16-B1 ordering) ONE fsync is
+ * issued per distinct pending dir. The trailing fsync lives in the `finally`
+ * so a mid-drain throw (a flush that exhausted MAX_FLUSH_RETRIES) still
+ * makes the already-renamed files crash-durable. Scoped flushes and
+ * coalesce-timer flushes keep the immediate per-file dir fsync.
  */
 export function flushPendingAtomicWrites(filePath?: string): void {
 	if (flushInProgress > 0) return;
 	flushInProgress++;
+	const drainAll = filePath === undefined;
+	if (drainAll) dirFsyncDeferralDepth++;
 	try {
-		if (filePath === undefined) {
+		if (drainAll) {
 			for (const pending of [...pendingAtomicWrites.keys()]) flushOnePendingAtomicWrite(pending);
 		} else if (pendingAtomicWrites.has(filePath)) {
 			flushOnePendingAtomicWrite(filePath);
 		}
 	} finally {
-		flushInProgress--;
+		try {
+			if (drainAll) {
+				// Decrement BEFORE flushing the deferred dirs so nothing inside
+				// the trailing fsync could observe a deferral scope.
+				dirFsyncDeferralDepth--;
+				fsyncPendingParentDirs();
+			}
+		} finally {
+			flushInProgress--;
+		}
 	}
 }
 

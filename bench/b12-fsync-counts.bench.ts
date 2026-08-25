@@ -16,6 +16,10 @@
  *     env PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC=1 (driven end-to-end through
  *     persistSingleTaskUpdate → loadConfig, exactly like production).
  *   - T4: mailbox delivery.json marks default to best-effort.
+ *   - T8: a coalesced GLOBAL drain (4 tasks-like files in one dir) groups the
+ *     parent-dir fsync — each file keeps its data fsync (4) but the drain
+ *     issues ONE trailing dir fsync for the shared parent: 5 fsyncs total,
+ *     down from the per-file 2-fsync pattern's 8.
  *
  * SPY DESIGN: the unit-test suite (test/unit/state/state-store-tasks-fsync
  * .test.ts) spies via the CJS-default swap with fd→path attribution; that is
@@ -63,7 +67,7 @@ nodeModule.syncBuiltinESMExports();
 // Modules under test — imported AFTER the spy is live.
 const { appendEvent, appendEventBuffered, flushEventLogBuffer } = await import("../src/state/event-log/event-log.ts");
 const { appendMailboxMessage } = await import("../src/state/coordination/mailbox.ts");
-const { flushPendingAtomicWrites } = await import("../src/state/atomic-write.ts");
+const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import("../src/state/atomic-write.ts");
 const { createRunManifest, loadRunManifestById } = await import("../src/state/stores/state-store.ts");
 const { persistSingleTaskUpdate } = await import("../src/runtime/task-runner/state-helpers.ts");
 const { invalidateConfigCache } = await import("../src/config/config.ts");
@@ -276,6 +280,35 @@ async function main(): Promise<void> {
 		});
 		const calls = count();
 		recordCase("appendMailboxMessageDeliveryMark", "==0 (T4 best-effort mark; was 2)", calls, calls === 0, performance.now() - start);
+	}
+
+	// --- Case 7: coalesced GLOBAL drain, 4 files in ONE dir (T8) -----------
+	// The drain groups the parent-dir fsync: 4 data fsyncs + ONE trailing
+	// dir fsync for the shared parent = 5 (win32 skips the dir fsync → 4),
+	// down from the per-file 2-fsync pattern's 8. Content must still land.
+	{
+		const stateRoot = path.join(tmpRoot, "drain", "state");
+		const files = [0, 1, 2, 3].map((i) => path.join(stateRoot, `task-${i}.json`));
+		await settle();
+		reset();
+		const start = performance.now();
+		for (const [i, file] of files.entries()) {
+			atomicWriteJsonCoalesced(file, { runId: "b12-drain", task: i, status: "running" }, 50, { compact: true });
+		}
+		flushPendingAtomicWrites(); // global drain → grouped trailing dir fsync
+		const calls = count();
+		const expected = process.platform === "win32" ? 4 : 5;
+		recordCase(
+			"coalescedDrain4FilesOneDir",
+			`==${expected} (4 data + 1 grouped dir; was 8)`,
+			calls,
+			calls === expected,
+			performance.now() - start,
+		);
+		for (const [i, file] of files.entries()) {
+			const onDisk = JSON.parse(fs.readFileSync(file, "utf-8")) as { task: number };
+			if (onDisk.task !== i) throw new Error(`b12: drained file ${file} landed wrong content (${onDisk.task} ≠ ${i})`);
+		}
 	}
 }
 
