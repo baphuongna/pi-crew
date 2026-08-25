@@ -19,6 +19,14 @@
  * === 0). Every branch here is pinned by deepEqual against a full-file
  * ground-truth parse with the exact cursor ordering (5000-event tail cap
  * BEFORE the sinceSeq filter, then limit as a HEAD cap).
+ *
+ * Fix round 2: the stamps now include inode identity (stat.ino + stat.dev).
+ * A same-path rewrite — compaction (atomicWriteFile temp+rename), rotation
+ * (renameSync + 'wx' create), forget+import — produces a NEW inode, so a
+ * rewrite followed by regrowth past the old size (size > previous.size,
+ * mtimeMs >= previous.mtimeMs) can no longer be mistaken for append growth
+ * and read from a dead watermark's offset. The wide path also drops the
+ * entry so sinceSeq=0 / no-limit calls cannot keep stale stamps alive.
  */
 
 import assert from "node:assert/strict";
@@ -129,6 +137,37 @@ function appendEvents(eventsPath: string, seqs: number[]): number {
 	const chunk = seqs.map(eventLine).join("");
 	fs.appendFileSync(eventsPath, chunk, "utf-8");
 	return Buffer.byteLength(chunk, "utf-8");
+}
+
+/** Rewrite the events file via temp+rename — the atomicWriteFile shape used
+ *  by compaction (and rotation's rename side): the path ends up naming a
+ *  NEW inode, unlike a writeFileSync truncation which reuses it. */
+function rewriteViaAtomicRename(eventsPath: string, seqs: number[]): void {
+	const tmp = `${eventsPath}.rewrite-tmp`;
+	fs.writeFileSync(tmp, seqs.map(eventLine).join(""), "utf-8");
+	fs.renameSync(tmp, eventsPath);
+}
+
+/** eventLine variant padded to an EXACT total byte length, so a rewrite can
+ *  preserve the primed size bit-for-bit (isolates the inode signal from the
+ *  size signal; "x" padding never needs JSON escaping). */
+function fixedLengthEventLine(seq: number, totalBytes: number): string {
+	const bare = JSON.stringify({
+		type: "task.progress",
+		runId: "r1",
+		taskId: `t${seq}`,
+		message: "",
+		metadata: { seq, provenance: "test" },
+	});
+	const overhead = Buffer.byteLength(bare, "utf-8") + 1; // + "\n"
+	const line = JSON.stringify({
+		type: "task.progress",
+		runId: "r1",
+		taskId: `t${seq}`,
+		message: "x".repeat(totalBytes - overhead),
+		metadata: { seq, provenance: "test" },
+	});
+	return `${line}\n`;
 }
 
 function appendRawLines(eventsPath: string, lines: string[]): number {
@@ -424,6 +463,149 @@ test("no-limit call still full-reads the file via the wide tail window", () => {
 			assert.equal(cursor.events[0]?.metadata?.seq, 5001);
 			assert.ok(spy.readSyncBytes >= fileSize, `no-limit must still read the whole ${fileSize}B file, got ${spy.readSyncBytes}B`);
 			assert.equal(spy.readFileSyncCalls, 0, "no readFileSync on the events file");
+		} finally {
+			spy.restore();
+		}
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("repro (fix round 2): rewrite keeping the tail + regrow past the old size equals the full parse", () => {
+	const dir = tmpDir("pi-crew-cursor-regrow-");
+	try {
+		const eventsPath = writeEventsFixture(dir, 10);
+		const primedStat = fs.statSync(eventsPath);
+		const primed = readEventsCursor(eventsPath, { sinceSeq: 5, limit: 100 });
+		assert.deepEqual(
+			primed.events.map((event) => event.metadata?.seq),
+			[6, 7, 8, 9, 10],
+			"priming read must see seqs 6..10",
+		);
+
+		// Same-path rewrite keeping [9,10] — the atomicWriteFile shape
+		// (temp+rename, new inode), exactly what applyCompactionUnlocked does.
+		rewriteViaAtomicRename(eventsPath, [9, 10]);
+		assert.notEqual(fs.statSync(eventsPath).ino, primedStat.ino, "rewrite must produce a new inode");
+		// Regrow past the primed size: the stamp-only delta check of the
+		// previous round (size > previous.size && mtimeMs >= previous.mtimeMs)
+		// passes from here on — the exact trap of the fix-round-2 Critical.
+		appendEvents(eventsPath, Array.from({ length: 10 }, (_, i) => 11 + i));
+		const regrownStat = fs.statSync(eventsPath);
+		assert.ok(regrownStat.size > primedStat.size, `precondition: regrown size ${regrownStat.size} must exceed primed ${primedStat.size}`);
+		assert.ok(regrownStat.mtimeMs >= primedStat.mtimeMs, "precondition: mtimeMs >= primed mtimeMs");
+
+		const expected = parseGroundTruth(eventsPath, 5, 100);
+		assert.deepEqual(
+			expected.map((event) => event.metadata?.seq),
+			[9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+			"ground truth must be [9,10,11..20]",
+		);
+
+		const cursor = readEventsCursor(eventsPath, { sinceSeq: 5, limit: 100 });
+		// The pre-inode-stamp code served [6,7,8,9,10,19,20] here — 8 events
+		// permanently dropped, 3 deleted phantom events served.
+		assert.deepEqual(
+			cursor.events.map((event) => event.metadata?.seq),
+			[9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
+			"rewrite+regrow must rebuild from a full parse, not read from the dead watermark offset",
+		);
+		assert.equal(cursor.total, 12);
+		assert.equal(cursor.nextSeq, 20);
+
+		// The rebuilt watermark keeps answering exactly on repeats.
+		const again = readEventsCursor(eventsPath, { sinceSeq: 5, limit: 100 });
+		assert.deepEqual(again.events, cursor.events, "repeat read after the rebuild must stay exact");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("inode change forces a full re-read even when size and mtimeMs are byte-identical", () => {
+	const dir = tmpDir("pi-crew-cursor-inode-");
+	try {
+		const lineBytes = 200;
+		const eventsPath = path.join(dir, "events.jsonl");
+		fs.writeFileSync(
+			eventsPath,
+			[fixedLengthEventLine(1, lineBytes), fixedLengthEventLine(2, lineBytes), fixedLengthEventLine(3, lineBytes)].join(""),
+			"utf-8",
+		);
+		// Pin mtime to a whole-second value on BOTH sides: utimesSync only
+		// carries millisecond precision, so a sub-ms original timestamp
+		// would not round-trip and the isolation precondition would be
+		// unprovable.
+		const pinnedTime = new Date(Math.floor(Date.now() / 1000) * 1000);
+		fs.utimesSync(eventsPath, pinnedTime, pinnedTime);
+		const primed = readEventsCursor(eventsPath, { sinceSeq: 1, limit: 10 });
+		assert.deepEqual(
+			primed.events.map((event) => event.metadata?.seq),
+			[2, 3],
+		);
+		const primedStat = fs.statSync(eventsPath);
+
+		// Same-size rewrite via the real rewriter shape (temp+rename): the
+		// last event changes (seq 3 -> 14), the total byte size is IDENTICAL,
+		// and utimesSync pins mtime back to the primed value — the ONLY
+		// differing stamp is the inode. A stamps-only check takes the
+		// unchanged branch and serves the stale ring [2,3]; inode identity
+		// must rebuild instead.
+		const tmp = `${eventsPath}.rewrite-tmp`;
+		fs.writeFileSync(
+			tmp,
+			[fixedLengthEventLine(1, lineBytes), fixedLengthEventLine(2, lineBytes), fixedLengthEventLine(14, lineBytes)].join(""),
+			"utf-8",
+		);
+		fs.renameSync(tmp, eventsPath);
+		fs.utimesSync(eventsPath, pinnedTime, pinnedTime);
+		const rewrittenStat = fs.statSync(eventsPath);
+		assert.notEqual(rewrittenStat.ino, primedStat.ino, "temp+rename must produce a new inode");
+		assert.equal(rewrittenStat.size, primedStat.size, "precondition: byte-identical size");
+		assert.equal(rewrittenStat.mtimeMs, primedStat.mtimeMs, "precondition: identical mtimeMs (only the inode differs)");
+
+		const cursor = readEventsCursor(eventsPath, { sinceSeq: 1, limit: 10 });
+		assert.deepEqual(
+			cursor.events.map((event) => event.metadata?.seq),
+			[2, 14],
+			"an inode swap with recycled size+mtime must be re-read, not served from the stale ring",
+		);
+		assert.equal(cursor.total, 2);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("wide-path call drops the watermark entry (mixed call patterns cannot keep stale stamps)", () => {
+	const dir = tmpDir("pi-crew-cursor-widedrop-");
+	try {
+		const eventsPath = writeEventsFixture(dir, 10_000);
+		const fileSize = fs.statSync(eventsPath).size;
+		readEventsCursor(eventsPath, { sinceSeq: 9900, limit: 50 }); // prime
+		// A sinceSeq=0 / no-limit call bypasses the cache entirely — it must
+		// DROP the entry rather than leave its stamps behind for later cached
+		// calls (a rewrite landing between wide calls would otherwise keep
+		// stale stamps alive until some cached call re-validated them).
+		readEventsCursor(eventsPath);
+		const appendedBytes = appendEvents(eventsPath, [10_001, 10_002]);
+
+		const expected = parseGroundTruth(eventsPath, 9900, 50);
+		assert.deepEqual(
+			expected.map((event) => event.metadata?.seq),
+			Array.from({ length: 50 }, (_, i) => 9901 + i),
+		);
+
+		const spy = spyFsReads(dir);
+		try {
+			const cursor = readEventsCursor(eventsPath, { sinceSeq: 9900, limit: 50 });
+			assert.deepEqual(cursor.events, expected, "post-wide-call cached read must stay exact");
+			// Entry dropped → the next cached read full-parses. Had the entry
+			// survived the wide call, this would have been a delta-only read
+			// of <= appendedBytes.
+			assert.ok(
+				spy.readSyncBytes >= fileSize,
+				`dropped entry must force a full ${fileSize}B re-parse, got ${spy.readSyncBytes}B (delta would be <= ${appendedBytes}B)`,
+			);
+			assert.equal(spy.readFileSyncCalls, 0);
 		} finally {
 			spy.restore();
 		}

@@ -157,12 +157,14 @@ function positiveInteger(value: number | undefined): number | undefined {
 //                  (a partial trailing line is held back, not consumed)
 //   lastSeq         seq of the last event at verifiedOffset
 //   ring            bounded, file-ordered suffix of the verified events
+//   ino/dev         inode identity stamped from the SAME stat call as the
+//                  size/mtimeMs stamps (fix round 2, below)
 // The watermark is ESTABLISHED only by a full parse from offset 0 in which
 // every parsed event carries a finite seq and seqs are non-decreasing, and
 // EXTENDED only by deltas whose first seq >= lastSeq and whose seqs are
 // non-decreasing. Any violation — out-of-order append, seq-less line, file
-// shrink, stamp mismatch, short delta read — rebuilds from a fresh full
-// parse. With the watermark held, answering from the ring is sound:
+// shrink, stamp mismatch, INODE CHANGE, short delta read — rebuilds from a
+// fresh full parse. With the watermark held, answering from the ring is sound:
 //   - verified && ringStartSeq <= sinceSeq: every event BEFORE the ring
 //     start lies inside the verified range, where seqs are non-decreasing,
 //     so its seq <= ringStartSeq <= sinceSeq — the sinceSeq filter would
@@ -175,6 +177,38 @@ function positiveInteger(value: number | undefined): number | undefined {
 // the full parse. Files larger than the wide 4MB window can return a strict
 // SUPERSET of the old byte-window answer (older post-sinceSeq events the
 // window used to drop) — never fewer events.
+//
+// Fix round 2 — INODE STAMPING (the rewrite-then-regrow hole): size+mtimeMs
+// alone cannot distinguish "grew" from "was replaced and grew back past the
+// old size". Every real REWRITER of the events file produces a NEW inode —
+// compaction (applyCompactionUnlocked → atomicWriteFile temp+rename),
+// rotation (renameSync + 'wx' create), forget+import — while appends
+// PRESERVE it. So both the unchanged branch and the delta branch additionally
+// require stat.ino === entry.ino && stat.dev === entry.dev; a mismatch is
+// treated as a replacement and rebuilds from a full parse. Repro it closes:
+// file [1..10] → cached read primes the entry → rewrite keeping [9,10]
+// (shrink, new inode) → append 11..20 (regrow past the old size, mtimeMs now
+// >= the primed mtimeMs) → the stamp-only check used to take the delta
+// branch and serve [6,7,8,9,10,19,20] — 8 events permanently dropped, 3
+// deleted phantom events served. With inode identity the read rebuilds and
+// returns [9,10,11..20], byte-identical to a full parse.
+//
+// Two hygiene rules that keep the stamps trustworthy:
+//   - the wide/FIND-05 path (sinceSeq=0 / no-limit / stat failures) DROPS
+//     the entry for the path: mixed call patterns must not keep stale stamps
+//     alive across reads that never re-validate them (an entry could then
+//     outlive its inode up to the point of inode-number reuse);
+//   - the delta read fstat's the fd it just opened and rejects a swap
+//     (rotation between statSync and openSync) instead of attributing the
+//     new inode's bytes to the old watermark.
+// Residual (documented, empty in the current writer set): an IN-PLACE
+// truncate rewrite — same inode, then regrowth past the old size — would
+// still pass the delta branch. No such writer exists: appenders use
+// appendFileSync, and every rewriter (compaction, rotation, forget+import)
+// swaps the inode. Same accepted-risk class as transcript-cache.
+// Accepted divergence, unchanged from fix round 1: a trailing fragment
+// without "\n" is held back rather than parsed (a mid-append partial line),
+// which can differ from the wide reader at the sub-line level.
 
 const TAIL_BYTES = 4 * 1024 * 1024; // FIND-05: 4 MB wide tail window
 const TAIL_EVENT_CAP = 5000;
@@ -191,6 +225,14 @@ interface CursorTailCacheEntry {
 	/** Stamp pair from the last update; any mismatch forces a rebuild. */
 	size: number;
 	mtimeMs: number;
+	/** Inode identity from the SAME stat call as the stamps above. Appends
+	 *  preserve it; every rewriter (compaction's atomicWriteFile temp+rename,
+	 *  rotation's renameSync+'wx' create, forget+import) produces a NEW one.
+	 *  A mismatch means "the path now names a different file" — even when
+	 *  size/mtimeMs alone would pass (rewrite-then-regrow past the old size
+	 *  with a >= mtimeMs) — and forces a full-parse rebuild. */
+	ino: number;
+	dev: number;
 	verifiedOffset: number;
 	lastSeq: number;
 	/** True only while every consumed line since offset 0 carried a finite,
@@ -200,6 +242,14 @@ interface CursorTailCacheEntry {
 }
 
 const cursorTailCache = new Map<string, CursorTailCacheEntry>();
+
+/** Fix round 2: inode identity check — the path must still name the exact
+ *  file (same dev+ino) the entry's stamps describe. Appends preserve the
+ *  inode; compaction (temp+rename), rotation (rename+'wx'), and forget+import
+ *  all produce a new one, so a mismatch reliably means "replaced". */
+function sameInode(stat: { ino: number; dev: number }, entry: CursorTailCacheEntry): boolean {
+	return stat.ino === entry.ino && stat.dev === entry.dev;
+}
 
 /** Drop events from the ring's front (file order) past `bound`, keeping the
  *  newest suffix. Ring bound: max(TAIL_EVENT_CAP, limit) * 2 events — enough
@@ -289,6 +339,8 @@ function rebuildCursorTailCache(eventsPath: string, bound: number): { entry: Cur
 		const entry: CursorTailCacheEntry = {
 			size: stat.size,
 			mtimeMs: stat.mtimeMs,
+			ino: stat.ino,
+			dev: stat.dev,
 			verifiedOffset: scan.verifiedBytes,
 			lastSeq: typeof lastLine === "number" ? lastLine : 0,
 			verified: scan.ok,
@@ -357,8 +409,16 @@ function readEventsCursorTailCached(eventsPath: string, sinceSeq: number, limit:
 	const previous = cursorTailCache.get(eventsPath);
 	const bound = Math.max(TAIL_EVENT_CAP, limit) * 2;
 
-	if (previous && stat.size === previous.size && stat.mtimeMs === previous.mtimeMs) {
-		// Unchanged stamps: serve purely from the ring (no event bytes read).
+	if (
+		previous &&
+		stat.size === previous.size &&
+		stat.mtimeMs === previous.mtimeMs &&
+		sameInode(stat, previous)
+	) {
+		// Unchanged stamps + same inode: serve purely from the ring (no event
+		// bytes read). The inode check is what makes "unchanged" trustworthy:
+		// size+mtimeMs alone pass for a same-path replacement with recycled
+		// stamps (compaction/rotation rewrites).
 		const ring = evictCursorRing(previous.ring, bound);
 		if (cursorRingProvable(previous, ring, sinceSeq)) {
 			if (ring !== previous.ring) cursorTailCache.set(eventsPath, { ...previous, ring });
@@ -369,17 +429,34 @@ function readEventsCursorTailCached(eventsPath: string, sinceSeq: number, limit:
 				limit,
 			);
 		}
-	} else if (previous && stat.size > previous.size && stat.mtimeMs >= previous.mtimeMs && previous.verifiedOffset < stat.size) {
-		// Append-only growth: read only [verifiedOffset, size). Provability is
-		// checked BEFORE the read — appending only moves the ring start
-		// forward, so an unprovable ring can never become provable here.
+	} else if (
+		previous &&
+		stat.size > previous.size &&
+		stat.mtimeMs >= previous.mtimeMs &&
+		sameInode(stat, previous) &&
+		previous.verifiedOffset < stat.size
+	) {
+		// Append-only growth on the SAME inode: read only [verifiedOffset,
+		// size). Provability is checked BEFORE the read — appending only moves
+		// the ring start forward, so an unprovable ring can never become
+		// provable here. The inode requirement closes rewrite-then-regrow: a
+		// replacement (new inode) that shrank and grew back past the old size
+		// with mtimeMs >= previous.mtimeMs must NOT be read as a delta from
+		// the dead watermark — it falls through to the full parse.
 		const preRing = evictCursorRing(previous.ring, bound);
 		if (cursorRingProvable(previous, preRing, sinceSeq)) {
 			let delta: Buffer | null = null;
 			let deltaFd: number | undefined;
 			try {
 				deltaFd = fs.openSync(eventsPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-				delta = readCursorByteRange(deltaFd, previous.verifiedOffset, stat.size);
+				// TOCTOU guard: rotation/compaction can swap the path between
+				// the statSync above and this open. The stamps describe the
+				// stat'd inode; bytes from a different one must never extend
+				// its watermark — re-check identity on the fd actually opened.
+				const fdStat = fs.fstatSync(deltaFd);
+				if (fdStat.ino === stat.ino && fdStat.dev === stat.dev) {
+					delta = readCursorByteRange(deltaFd, previous.verifiedOffset, stat.size);
+				}
 			} catch {
 				delta = null;
 			} finally {
@@ -399,6 +476,8 @@ function readEventsCursorTailCached(eventsPath: string, sinceSeq: number, limit:
 					const entry: CursorTailCacheEntry = {
 						size: stat.size,
 						mtimeMs: stat.mtimeMs,
+						ino: stat.ino,
+						dev: stat.dev,
 						verifiedOffset: previous.verifiedOffset + scan.verifiedBytes,
 						lastSeq: typeof lastLineSeq === "number" ? lastLineSeq : previous.lastSeq,
 						// The delta verified against the watermark, but a
@@ -421,14 +500,17 @@ function readEventsCursorTailCached(eventsPath: string, sinceSeq: number, limit:
 		}
 	}
 
-	// Full parse: cache miss, stamp mismatch/shrink, watermark violation, or
-	// an anchor older than the ring's provable start. Re-establishes the
-	// watermark and answers with TOTAL coverage (exact full-read semantics
-	// for files within the wide window; a superset — never fewer — beyond).
+	// Full parse: cache miss, stamp mismatch/shrink, INODE CHANGE (rewrite,
+	// rotation, forget+import), watermark violation, or an anchor older than
+	// the ring's provable start. Re-establishes the watermark and answers with
+	// TOTAL coverage (exact full-read semantics for files within the wide
+	// window; a superset — never fewer — beyond).
 	const rebuilt = rebuildCursorTailCache(eventsPath, bound);
 	if (rebuilt === undefined) return undefined;
 	cursorTailCache.set(eventsPath, rebuilt.entry);
-	// FIND-12 pattern: evict the oldest entry by Map insertion order.
+	// Bounded FIFO, not an LRU: Map.set on an existing key does NOT refresh
+	// its insertion position, so the oldest-INSERTED entry is the one evicted
+	// (the FIND-12 bound, with the comment telling the truth about what it is).
 	if (cursorTailCache.size > CURSOR_TAIL_CACHE_MAX_ENTRIES) {
 		const oldestKey = cursorTailCache.keys().next().value;
 		if (oldestKey !== undefined) cursorTailCache.delete(oldestKey);
@@ -516,6 +598,14 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 		const cached = readEventsCursorTailCached(eventsPath, sinceSeq, limit);
 		if (cached !== undefined) return cached;
 	}
+	// Fix round 2: the wide path never re-validates the watermark cache, so it
+	// must DROP the entry instead of leaving its stamps behind. Without this,
+	// a rewrite that lands between sinceSeq=0 / no-limit calls keeps stale
+	// (size, mtimeMs, ino) stamps in the map until some later cached-path call
+	// re-validates them — the entry would outlive its inode up to the point of
+	// inode-number reuse. The next sinceSeq+limit call re-establishes the
+	// watermark with one full parse.
+	cursorTailCache.delete(eventsPath);
 	const tail = readJsonlTail<TeamEvent>(eventsPath, TAIL_BYTES);
 	if (tail.truncated) {
 		logInternalError("event-log.cursor-tail-truncated", {
