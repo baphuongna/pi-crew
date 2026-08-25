@@ -1078,25 +1078,34 @@ function flushOnePendingAtomicWrite(filePath: string): void {
 		}
 	} catch (error) {
 		logInternalError("atomic-write.coalesced-flush", error, filePath, "error");
-		// Issue 1 fix: set a fresh timer for failed entries before returning.
-		// This ensures failed entries are retried without waiting for another
-		// write to arrive. Only set timer if this entry is still current
-		// (not replaced by a newer write during the flush).
+		// ISSUE (2026-08-26, dead-retry-path fix): atomicWriteFile's first
+		// statement cancels the pending entry (cancelPendingCoalescedWrite),
+		// so when the write throws, the map no longer holds this entry — the
+		// previous retry logic looked the map up, found nothing, and silently
+		// dropped the buffered write (no retry, no propagation). RE-ADD the
+		// captured entry (unless a NEWER write re-queued during the flush —
+		// its generation would differ) so the backoff retry below fires on
+		// real data instead of a phantom lookup.
 		const current = pendingAtomicWrites.get(filePath);
-		if (current?.generation === savedGeneration) {
-			current.retryCount++;
-			if (current.retryCount >= MAX_FLUSH_RETRIES) {
-				// Max retries exceeded - remove entry and propagate error to callers
-				pendingAtomicWrites.delete(filePath);
-				// Re-throw so callers can handle the persistent failure
-				throw error;
-			}
-			// Exponential backoff: base delay * 2^(retryCount-1), capped at 30 seconds
-			const backoffMs = Math.min(30000, current.coalesceMs * 2 ** (current.retryCount - 1));
-			const timer = setTimeout(() => flushOnePendingAtomicWrite(filePath), backoffMs);
-			timer.unref();
-			current.timer = timer;
+		if (current !== undefined && current.generation !== savedGeneration) {
+			// A newer write arrived during the flush — leave it alone.
+			return;
 		}
+		const entryToRetry = current ?? entry;
+		entryToRetry.retryCount++;
+		if (entryToRetry.retryCount >= MAX_FLUSH_RETRIES) {
+			// Max retries exceeded - remove entry and propagate error to callers
+			pendingAtomicWrites.delete(filePath);
+			// Re-throw so callers can handle the persistent failure
+			throw error;
+		}
+		// Exponential backoff: base delay * 2^(retryCount-1), capped at 30 seconds
+		const backoffMs = Math.min(30000, entryToRetry.coalesceMs * 2 ** (entryToRetry.retryCount - 1));
+		clearTimeout(entryToRetry.timer);
+		const timer = setTimeout(() => flushOnePendingAtomicWrite(filePath), backoffMs);
+		timer.unref();
+		entryToRetry.timer = timer;
+		pendingAtomicWrites.set(filePath, entryToRetry);
 	}
 }
 
