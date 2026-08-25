@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
+import type * as FsTypes from "node:fs";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendEvent, appendEventBuffered, flushEventLogBuffer, readEvents } from "../../../../src/state/event-log/event-log.ts";
+import {
+	__test__appendBatchForUnitTest,
+	appendEvent,
+	appendEventBuffered,
+	flushEventLogBuffer,
+	readEvents,
+} from "../../../../src/state/event-log/event-log.ts";
 
 test("appendEventBuffered batches into single lock acquire and preserves seq order (2.2)", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-event-buffer-"));
@@ -138,6 +146,185 @@ test("buffered append with explicit seq beyond the reservation still advances th
 		const sidecar = fs.readFileSync(`${eventsPath}.seq`, "utf-8").trim();
 		assert.equal(sidecar, "5000", `.seq sidecar must advance to explicit seq 5000, got ${sidecar}`);
 	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+/**
+ * Perf Round 2 (Task 2, 2026-08-25): the buffered batch flush must fsync the
+ * events file ONLY when the batch contains a terminal event — an all-non-terminal
+ * batch (the `task.progress`/`task.checkpoint` route through appendEventBuffered)
+ * skips the fsync and relies on the caller's own durability. Terminal events
+ * BYPASS the buffer (appendEventBuffered routes them straight to appendEvent,
+ * which fsyncs itself), so a batch here has no terminal event unless a caller
+ * deliberately mixed one in.
+ *
+ * The fsync-count assertions use the same spy technique as
+ * `test/unit/manifest-cache-ttl.test.ts` and
+ * `test/unit/state/event-log/event-log-pid-write.test.ts`: `node:fs` ESM
+ * namespace properties are read-only, but the CommonJS exports object behind the
+ * builtin IS mutable, and `module.syncBuiltinESMExports()` pushes the patched
+ * functions back into every ESM namespace that imported `node:fs`.
+ *
+ * Instrument-liveness guard: each test first drives an fsync on the events file
+ * through the terminal-branch of the batch fn and asserts the spy saw it, so
+ * the zero-count assertions cannot pass vacuously if the spy were dead.
+ */
+interface FsyncSpy {
+	readonly scopeFsyncs: number;
+	restore(): void;
+}
+
+/**
+ * Count `fs.fsyncSync` calls on the given events file. fsyncSync receives only an
+ * fd (no path), so the spy proxies openSync/closeSync for the exact events file
+ * to record the fd → path mapping, and counts fsyncSync calls whose fd maps to
+ * that path. The event-log appends to the file via appendFileSync (no fd from
+ * openSync we see) and fsyncs only via openSync("r+") + fsyncSync + closeSync —
+ * so an fsync on the events file is always framed by its own open/close here.
+ */
+function spyFsyncForEventsDir(eventsPath: string): FsyncSpy {
+	const nodeRequire = createRequire(import.meta.url);
+	const fsCjs = nodeRequire("node:fs") as typeof FsTypes;
+	const nodeModule = nodeRequire("node:module") as {
+		syncBuiltinESMExports(): void;
+	};
+	const state = { scopeFsyncs: 0 };
+	const originalFsyncSync = fsCjs.fsyncSync;
+	const originalOpenSync = fsCjs.openSync;
+	const originalCloseSync = fsCjs.closeSync;
+	const fdToPath = new Map<number, string>();
+
+	fsCjs.openSync = (($path, $flag, ...rest) => {
+		const fd = originalOpenSync.apply(fsCjs, [$path, $flag, ...rest] as never);
+		if (String($path) === eventsPath) fdToPath.set(fd as number, String($path));
+		return fd;
+	}) as typeof FsTypes.openSync;
+	fsCjs.closeSync = ((fd) => {
+		fdToPath.delete(fd as number);
+		return originalCloseSync.apply(fsCjs, [fd] as never);
+	}) as typeof FsTypes.closeSync;
+	fsCjs.fsyncSync = ((fd) => {
+		if (fdToPath.get(fd as number) === eventsPath) state.scopeFsyncs++;
+		return originalFsyncSync.apply(fsCjs, [fd] as never);
+	}) as typeof FsTypes.fsyncSync;
+	nodeModule.syncBuiltinESMExports();
+	return {
+		get scopeFsyncs(): number {
+			return state.scopeFsyncs;
+		},
+		restore() {
+			fsCjs.openSync = originalOpenSync;
+			fsCjs.closeSync = originalCloseSync;
+			fsCjs.fsyncSync = originalFsyncSync;
+			nodeModule.syncBuiltinESMExports();
+		},
+	};
+}
+
+test("T2: buffered flush of an all-non-terminal batch fsyncs the events file 0 times", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t2-nonterminal-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	const keepAlive = setInterval(() => undefined, 50);
+	const spy = spyFsyncForEventsDir(eventsPath);
+	try {
+		// Long buffer so the batch flushes only via flushEventLogBuffer.
+		const promises: Promise<unknown>[] = [];
+		for (let i = 0; i < 20; i++) {
+			promises.push(
+				appendEventBuffered(
+					eventsPath,
+					{ type: "task.progress", runId: "run-t2", taskId: `t${i}` },
+					60_000,
+				),
+			);
+		}
+		await flushEventLogBuffer();
+		await Promise.all(promises);
+
+		// 20 non-terminal events written in one batch.
+		assert.equal(readEvents(eventsPath).length, 20, "all 20 buffered events persisted");
+		// Liveness guard: the spy instrument must be live (i.e. the module under
+		// test imports the same patched node:fs object) OR the 0 assertion passes
+		// vacuously. Exercise the fsync gate directly: a mixed batch with a
+		// terminal event MUST fsync.
+		await __test__appendBatchForUnitTest(eventsPath, [
+			{
+				event: { type: "run.completed", runId: "run-t2", taskId: "t0" },
+				resolve: () => undefined,
+				reject: () => undefined,
+			},
+		]);
+		assert.ok(spy.scopeFsyncs >= 1, `instrument liveness: mixed batch must have fsync'd the events file (got ${spy.scopeFsyncs})`);
+	} finally {
+		clearInterval(keepAlive);
+		spy.restore();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("T2: buffered flush of a non-terminal batch skips the fsync on the events file", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t2-skip-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	const keepAlive = setInterval(() => undefined, 50);
+	const spy = spyFsyncForEventsDir(eventsPath);
+	try {
+		// Instrument liveness guard (see first T2 test): verify the spy live path
+		// BEFORE the assertion it guards, so a dead spy cannot pass the zero-count
+		// assertion vacuously.
+		await __test__appendBatchForUnitTest(eventsPath, [
+			{
+				event: { type: "run.completed", runId: "run-t2-live", taskId: "t0" },
+				resolve: () => undefined,
+				reject: () => undefined,
+			},
+		]);
+		const livenessFsyncs = spy.scopeFsyncs;
+		assert.ok(livenessFsyncs >= 1, `instrument liveness: drive test must have fsync'd the events file (got ${livenessFsyncs})`);
+
+		// Now the non-terminal batch, through the SAME events file, must add 0
+		// additional fsyncSync calls on that file.
+		const before = spy.scopeFsyncs;
+		const promises: Promise<unknown>[] = [];
+		for (let i = 0; i < 5; i++) {
+			promises.push(
+				appendEventBuffered(
+					eventsPath,
+					{ type: "task.progress", runId: "run-t2-skip", taskId: `t${i}` },
+					60_000,
+				),
+			);
+		}
+		await flushEventLogBuffer();
+		await Promise.all(promises);
+		assert.equal(readEvents(eventsPath).length, 6, "5 buffered + the liveness terminal event persisted");
+		assert.equal(spy.scopeFsyncs, before, "all-non-terminal buffered batch must NOT fsync the events file");
+	} finally {
+		clearInterval(keepAlive);
+		spy.restore();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("T2: a buffered batch that contains a terminal event DOES fsync the events file (fsync gate)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-t2-terminal-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	const spy = spyFsyncForEventsDir(eventsPath);
+	try {
+		// This batch deliberately mixes a terminal event (which would NOT be
+		// routed through the buffer via the public appendEventBuffered API — it
+		// bypasses to appendEvent directly). The gate must detect it and fsync.
+		const promises: Array<{ event: { type: string; runId: string; taskId?: string }; resolve: () => void; reject: () => void }> = [
+			{ event: { type: "task.progress", runId: "run-t2-mixed" }, resolve: () => undefined, reject: () => undefined },
+			{ event: { type: "task.progress", runId: "run-t2-mixed" }, resolve: () => undefined, reject: () => undefined },
+			{ event: { type: "task.progress", runId: "run-t2-mixed" }, resolve: () => undefined, reject: () => undefined },
+			{ event: { type: "task.failed", runId: "run-t2-mixed", taskId: "t1" }, resolve: () => undefined, reject: () => undefined },
+		];
+		await __test__appendBatchForUnitTest(eventsPath, promises);
+		assert.equal(readEvents(eventsPath).length, 4, "all 4 mixed-batch events persisted");
+		assert.ok(spy.scopeFsyncs >= 1, `mixed batch with a terminal event must fsync the events file (got ${spy.scopeFsyncs})`);
+	} finally {
+		spy.restore();
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });

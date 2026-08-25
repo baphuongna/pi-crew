@@ -831,13 +831,22 @@ async function appendEventBatchInsideLock(eventsPath: string, queue: BufferedApp
 	}
 
 	fs.appendFileSync(eventsPath, finalized.map((f) => f.line).join(""), "utf-8");
-	const fd = fs.openSync(eventsPath, "r+");
-	try {
-		fs.fsyncSync(fd);
-	} catch {
-		// EPERM on Windows CI: best-effort flush
-	} finally {
-		fs.closeSync(fd);
+	// PERF (2026-08-25): skip the fsync when the whole batch is non-terminal.
+	// Terminal events never route through this buffer (appendEventBuffered
+	// bypasses to appendEvent, which fsyncs itself), so a batch here has no
+	// terminal event unless a caller deliberately mixed one in — mirror F3a:
+	// the event-reconstructor tolerates an inconsistent tail; the explicit
+	// persistSequenceMonotonic below still lands the reserved end range.
+	const hasTerminal = finalized.some((f) => TERMINAL_EVENT_TYPES.has(f.fullEvent.type));
+	if (hasTerminal) {
+		const fd = fs.openSync(eventsPath, "r+");
+		try {
+			fs.fsyncSync(fd);
+		} catch {
+			// EPERM on Windows CI: best-effort flush
+		} finally {
+			fs.closeSync(fd);
+		}
 	}
 	// R16-B1 (Phase 3.6): monotonic persist under the .seqlock — the reservation
 	// already persisted the batch range end; this covers explicit (pre-assigned)
@@ -1174,6 +1183,18 @@ export function flushBufferedQueuesSync(): void {
 		}
 	}
 	for (const eventsPath of [...bufferedTimers.keys()]) bufferedTimers.delete(eventsPath);
+}
+
+// Exported only for the buffered-batch unit tests. NOT part of the public API —
+// the `__test__` prefix follows the project convention used in atomic-write.ts,
+// state-store.ts, team-runner.ts, etc. `appendEventBuffered` rejects terminal
+// events BEFORE they reach the batch (see appendEventBuffered), so a batch that
+// deliberately mixes in a terminal event is unreachable through the public API;
+// this hook lets T2 assert the fsync gate directly. Both production call paths
+// (async flush via withEventLogLockAsync and the EL-2 sync flush via
+// withEventLogLockSync) route through appendEventBatchInsideLock.
+export function __test__appendBatchForUnitTest(eventsPath: string, queue: BufferedAppend[]): Promise<void> {
+	return appendEventBatchInsideLock(eventsPath, queue);
 }
 
 /**
