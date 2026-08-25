@@ -326,7 +326,7 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 	PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC: {
 		name: "PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC",
 		parser: "boolean",
-		doc: "'1'/'true' writes non-terminal tasks checkpoints best-effort (no fsync, flush immediately); terminal transitions stay full (defaults.ts, config.ts persistence.skipTasksFsync)",
+		doc: "'1'/'true' writes non-terminal tasks checkpoints best-effort (no fsync; 50ms coalesce kept, only durability skipped); terminal transitions stay full (defaults.ts, config.ts persistence.skipTasksFsync)",
 	},
 	PI_CREW_TRUST_PROJECT_DWF: {
 		name: "PI_CREW_TRUST_PROJECT_DWF",

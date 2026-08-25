@@ -678,7 +678,7 @@
       "properties": {
         "skipTasksFsync": {
           "type": "boolean",
-          "description": "Opt-in (default false): write non-terminal tasks checkpoints best-effort (no fsync, flush immediately). Terminal transitions stay full-durability. Env PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC beats this."
+          "description": "Opt-in (default false): write non-terminal tasks checkpoints best-effort (no fsync; the 50ms coalesced write grouping is kept — only durability is skipped, tasks.json stays reconstructible from the fsync'd event log). Terminal transitions stay full-durability. Env PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC beats this."
         }
       }
     }

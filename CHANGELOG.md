@@ -4,7 +4,7 @@
 
 ## [Unreleased] — perf round 2 (2026-08-25): fsync cleanup + polling latency
 
-13 commits after the 2026-08-24 round (45 after `v0.10.2`) (28 files, +3,095/−106, excluding the plan doc and this changelog). Continuation of the 2026-08-24 performance review work, focused on durability escalations and polling latency. Implementation plan: `.superpowers/sdd/2026-08-25-perf-round2-fsync-and-polling/`. Validation evidence: task reports T1-T8 + `bench/b12-fsync-counts.bench.ts`.
+13 commits after the 2026-08-24 round (45 after `v0.10.2`) (27 files, +3,094/−105, excluding the plan doc and this changelog). Continuation of the 2026-08-24 performance review work, focused on durability escalations and polling latency. Implementation plan: `.superpowers/sdd/2026-08-25-perf-round2-fsync-and-polling/`. Validation evidence: task reports T1-T8 + `bench/b12-fsync-counts.bench.ts`.
 
 ### What changed (by area)
 

@@ -321,12 +321,13 @@ export interface PiTeamsConfig {
 export interface PersistenceConfig {
 	/**
 	 * Opt-in (default `false`): write non-terminal tasks checkpoints with
-	 * `durability:"best-effort"` (no fsync) instead of the coalesced `"full"`
-	 * path, and flush immediately rather than buffering for 50ms. tasks.json
-	 * is fully reconstructible from the fsync'd event log, so a crash loses at
-	 * most the tail of an in-flight checkpoint and recovers from events.jsonl.
-	 * Terminal task transitions (completed/failed/cancelled/needs_attention/
-	 * skipped) ALWAYS stay full-durability regardless of this flag.
+	 * `durability:"best-effort"` (no fsync) while KEEPING the 50ms coalesced
+	 * write grouping — only the durability of the flush changes, not its
+	 * timing. tasks.json is fully reconstructible from the fsync'd event log,
+	 * so a crash loses at most the tail of an in-flight checkpoint and
+	 * recovers from events.jsonl. Terminal task transitions (completed/failed/
+	 * cancelled/needs_attention/skipped) ALWAYS stay full-durability
+	 * regardless of this flag.
 	 * Set via env `PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC` (`"1"`/`"true"`) or
 	 * config `persistence.skipTasksFsync`. Env beats config; default false.
 	 * @see src/state/stores/state-store.ts saveRunTasksCoalesced
