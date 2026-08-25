@@ -45,7 +45,7 @@ environmental, not a regression. fsync intentionally remains in the durable path
 | Metric | Pre-fix (2026-08-24) | Post-fix (branch) | Δ |
 |---|---|---|---|
 | `atomic-write-json` warm p50 | 13.01 ms | 13.21 ms | ~flat (fsync floor; control-on-main 13.09 ms) |
-| `b3.state-store-jsonl` n10 `atomicWriteMs` | 14.83 ms | 15.00 ms | ~flat vs yesterday; **25% faster than same-day main control (20.03 ms)** |
+| `b3.state-store-jsonl` n10 `atomicWriteMs` | 14.83 ms | 15.00 ms | ~flat; the "25% faster than same-day control (20.03 ms)" noted pre-merge was load drift — a post-merge interleaved A/B (main vs `519a5e4e`, same session) shows 16.6 vs 16.5 ms, no delta |
 | `b4.event-log` n100 sync append | 1409 ms (70.96/s) | 1518 ms (65.89/s) | environmental drift (control-on-main 1503 ms, 66.53/s) |
 | `b4.event-log` n100 async append | 156 ms (640.86/s) | 198 ms (506/s) | environmental drift (control-on-main 179 ms, 558.30/s); hoped-for async p50 drop did not materialize on wall clock |
 | `b4.event-log` n100 buffered append | — | 261-263 ms (380/s) | new visibility |
@@ -61,6 +61,18 @@ writers) are mostly invisible to these wall-clock benches by design — they rem
 kernel calls whose latency is dominated by the remaining fsync. See the task-27
 report for run-to-run variance data, the same-day main control runs behind the
 "environmental drift" rows, and the b5/b11 bench-infra notes.
+
+Post-merge interleaved A/B (2026-08-25, main vs `519a5e4e` in a worktree, same
+session, alternating runs — the CPU-bound paths the branch targeted, which the
+fsync-floor rows above cannot show):
+
+| Path | baseline | main | Δ |
+|---|---|---|---|
+| `readAllMailboxMessages` warm (160 msgs / 8 files) | 932-949 µs | 521-527 µs | **−44%** (stat-gated parse cache) |
+| `readAllMailboxMessages` churn (60-msg file rewritten per read) | 1903-1970 µs | 1057-1088 µs | **−45%** |
+| `b3` jsonl read n=100 | 1.32 ms | 0.23 ms | **−83%** (cache-keep + stamp reuse) |
+| `b3` jsonl write (n10/100/1000) | 0.11/0.17/0.83 ms | 0.09/0.15/0.77 ms | ~−10% (lazy stringify) |
+| manifest `list()` refresh after TTL (200 runs) | 61-64 µs | 45-66 µs | no measurable wall-time delta (win is syscall count, not latency) |
 
 ### Verification
 
