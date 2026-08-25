@@ -643,8 +643,10 @@ export function appendMailboxMessage(
 		const delivery = readDeliveryState(manifest);
 		delivery.messages[complete.id] = complete.status;
 		delivery.updatedAt = createdAt;
-		// F4: complete transitions are terminal-ish — keep full durability.
-		writeDeliveryState(manifest, delivery, { durability: "full" });
+		// F4: delivery state is informational and overwritten by the next message —
+		// drop explicit full durability so the default (best-effort) applies; a hard
+		// crash only risks re-delivery, the accepted semantics of the default path.
+		writeDeliveryState(manifest, delivery);
 	});
 	notifyMailboxAppended(complete);
 	return complete;
