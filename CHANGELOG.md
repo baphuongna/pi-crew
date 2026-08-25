@@ -2,6 +2,65 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — perf round 2 (2026-08-25): fsync cleanup + polling latency
+
+13 commits after `v0.10.2` (20 files, +980/−110). Continuation of the 2026-08-24 performance review work, focused on durability escalations and polling latency. Implementation plan: `.superpowers/sdd/2026-08-25-perf-round2-fsync-and-polling/`. Validation evidence: task reports T1-T8 + `bench/b12-fsync-counts.bench.ts`.
+
+### What changed (by area)
+
+- **Pid files** — `withEventLogLockSync` writes lock pid files via `openSync(pidFile, "wx")` followed by plain write (0 fsyncs) instead of `atomicWriteFile` (2 fsyncs). The lock dir's `mkdir` is the mutex; pid files are mtime-stale-detected. Async `.alock` path unchanged.
+- **Buffered event batch flush** — `appendBatchForBufferedWrite` skips fsync for all-non-terminal batches (terminal batches still fsync). Non-terminal buffered work now pays 0 fsyncs per batch.
+- **Non-terminal tasks checkpoints** — opt-in best-effort fsync gate `PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC` (default `false`, beats config). When enabled, non-terminal `tasks.json` checkpoints are written with durability `"best-effort"` (0 fsyncs) while keeping the 50ms coalesced write grouping; terminal transitions and default-off path retain full durability. Reconstructible from the fsync'd event log.
+- **Mailbox delivery marks** — `appendMailboxMessage` (regular sync delivery) now defaults to best-effort durability (delivery.json is informational; next message overwrites). Terminal `acknowledgeMailboxMessage` and `appendMailboxMessageAsync` paths keep explicit full durability.
+- **Steering/ask polling** — event-driven adaptive cadence under live-session realtime: 50ms when realtime active (`hasLiveControlRealtimeListeners()`), 500ms when idle. Non-realtime workers stay at 500ms.
+- **Events cursor tail reads** — verified watermark cache with inode-stamped entries (replaces unsound order-assumption fast path from first attempt). SinceSeq+limit ticks read 256–512KiB deltas instead of full 4MB when the watermark is proven; stale anchors and wide calls still full-parse. Cache invalidates on inode change (compaction/rotation/rewrite) and drops entries on sinceSeq=0/no-limit reads.
+- **Bench infra** — b5 (`deep-tracking`) repaired for deleted `observation-store` module; b11 (`dep-context-cache`) fixed NDJSON contract; new b12 (`fssync-counts`) micro-bench spies `fs.fsyncSync` calls per operation.
+- **Coalesced drain** — `flushPendingAtomicWrites` groups parent-dir fsyncs across all files in the drain (one `fsyncSync` per distinct dir, best-effort on win32). 4 files in one dir: 5 fsyncs total (4 data + 1 dir) vs 8 pre-grouping (4 data + 4 dir).
+
+### Bench results (Linux x86_64, Node v22.23.1, `npm run bench`)
+
+b12 fsync counts per operation (deterministic across runs; "before" refers to pre-round2 baseline):
+
+| Operation | Before | After | Expectation |
+|---|---|---|---|
+| `appendEventSyncNonTerminal` | 2 | **0** | ≤1 (T1 pid write) |
+| `appendEventSyncTerminal` | 1 | **1** | ==1 (documented) |
+| `appendEventBufferedNonTerminalBatch8` | 8 | **0** | ==0 (T2 batch skip) |
+| `tasksCheckpointNonTerminalFlagOff` | 2 | **2** | ≥1 (full durability) |
+| `tasksCheckpointNonTerminalFlagOn` | 2 | **0** | ==0 (opt-in best-effort) |
+| `appendMailboxMessageDeliveryMark` | 2 | **0** | ==0 (T4 best-effort) |
+| `coalescedDrain4FilesOneDir` | 8 | **5** | ==5 (4 data + 1 dir, T8) |
+
+Coalesced drain A/B (4 files, one dir, heavily loaded machine — indicative): median 36.6 ms (post-T8) vs 55.6 ms (pre-T8) for 5 vs 8 fsyncs. Idle-machine measurement: −61% wall-clock (see task-8 report). The deterministic contract is the fsync count.
+
+### Durability semantics
+
+**Full durability retained** for: terminal event writes, terminal task transitions, all `acknowledgeMailboxMessage` calls, all direct `atomicWrite`/`atomicWriteJson` calls, and the default (flag-off) non-terminal checkpoint path. Every persistent state transition that is *not* reconstructible from the event log remains fsync'd.
+
+**Best-effort (opt-in or informational-only)** for: pid files (lock dir is the mutex), non-terminal buffered event batches, non-terminal `tasks.json` checkpoints (when `PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC=1`), and `delivery.json` marks. These state components are reconstructible (pid files via mtime-stale detection; tasks.json from the fsync'd `events.jsonl`; delivery.json is informational and overwritten). A hard crash may lose the latest tail; recovery replays from the last fsync'd event.
+
+### Known residuals (discovered, documented, left for follow-up)
+
+- `flushOnePendingAtomicWrite`'s retry path is dead code (pre-existing; surfaced by T8): coalesced entries are deleted before the write attempt, so the catch block's `retryCount++` and `MAX_FLUSH_RETRIES` rethrow never execute. Fixing requires behavioral changes to failure semantics (separate task).
+- Cursor cache ino-recycle coincidence: same-path in-place truncate+regrowth would pass the delta-branch check if the rewrite preserved the inode (no current writer does; same accepted-risk class as transcript-cache). Documented in `src/state/event-log/cursor.ts`.
+- Async mailbox twin (`appendMailboxMessageAsync`) retains full durability; T4 scoped to regular sync delivery only.
+- Tasks-checkpoint `loadConfig()` reads the flag at every save (negligible via 2s TTL cache).
+
+### What did NOT improve
+
+- Broker fan-out and worktree git-spawn memoization: unchanged (already addressed in round 1).
+- Async mailbox path (`appendMailboxMessageAsync`): intentionally left at full durability (T4 scoped to sync delivery only).
+- Tasks-checkpoint coalescing: already present; T3 only added durability control, the 50ms grouping predates this branch.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `npm run typecheck` | pass |
+| `npm run lint` | pass (2 pre-existing warnings in unrelated files) |
+| `npm run test:unit` | 7156 pass / 0 fail / 3 skipped (includes new T1/T2/T3/T4/T6/T8 test suites) |
+| `npm run bench` | legacy suite green; b5/b11 NDJSON contract repaired; b12 fsync-counts bench added (7 cases, all pass) |
+
 ## [Unreleased] — perf: fix 2026-08-24 performance review findings (state persistence syscall ceremony, UI sync I/O storms, mailbox/event-log hot paths, broker fan-out, worktree git-spawn memoization)
 
 28 commits after `v0.10.2` (53 files, +4,718/−433). Implements the plan at
