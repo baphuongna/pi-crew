@@ -250,29 +250,33 @@ const PI_CREW_BROKER_RUN_ID_ASK_ENV = "PI_CREW_BROKER_RUN_ID";
 // is bounded by the fixed 500ms `setInterval`/`sleep` cadence. Under
 // live-session realtime (in-process producer/consumer pairs), the durable
 // file-poll is only a fallback — the producer can also walk the mailbox/bus
-// instantly — so a short poll cadence while a request is in flight removes the
-// latency term without changing the durable/fallback semantics.
+// instantly — so a short 50ms cadence UNDER REALTIME removes the latency term
+// for live-session answers without changing the durable/fallback semantics.
+// Non-realtime workers (where the file-poll is the SOLE durability path) keep
+// the prior bounded-cost 500ms cadence — no 10x polling amplification in the
+// common child-process case.
 const STEER_POLL_ACTIVE_MS = 50;
 const STEER_POLL_IDLE_MS = 500;
 
 /**
  * Effective poll interval for the mailbox steering / ask / delegate file
- * polls. Adaptive:
- *   - `realtimeActive` (live-session realtime listeners registered) OR a
- *     `requestInFlight` (an ask/delegate/steer is outstanding) → the short
- *     50ms cadence, so an answer that lands on the durable channel is picked
- *     up within ~50ms instead of up to 500ms;
- *   - otherwise (idle, nothing outstanding) → relax back to the prior 500ms
- *     bounded-cost cadence.
+ * polls:
+ *   - `realtimeActive` (live-session realtime listeners registered) → the
+ *     short 50ms cadence, so an answer that lands on the durable channel is
+ *     picked up within ~50ms instead of up to 500ms;
+ *   - otherwise (non-realtime worker — the file-poll is the sole durability
+ *     path) → the prior 500ms bounded-cost cadence.
+ *
+ * There is deliberately NO separate "in-flight" branch: the ask/delegate
+ * loops are in-flight for their whole duration, so keying the short cadence
+ * off it would force 50ms polling even on non-realtime workers. The realtime
+ * flag alone is the gate.
  *
  * The broker-push path (Feature 2b) is unaffected — it delivers immediately
  * regardless of interval; this helper only governs the FILE-POLL fallback.
  */
-export function effectiveSteeringInterval(options: {
-	realtimeActive: boolean;
-	requestInFlight: boolean;
-}): number {
-	return options.realtimeActive || options.requestInFlight ? STEER_POLL_ACTIVE_MS : STEER_POLL_IDLE_MS;
+export function effectiveSteeringInterval(realtimeActive: boolean): number {
+	return realtimeActive ? STEER_POLL_ACTIVE_MS : STEER_POLL_IDLE_MS;
 }
 
 const ASK_TIMEOUT_SEC_DEFAULT = 600;
@@ -501,9 +505,7 @@ export function createDelegateTool(deps: DelegateToolDeps = {}): DelegateToolDef
 						break;
 					}
 					if (now() >= deadline) break;
-					await sleep(
-						effectiveSteeringInterval({ realtimeActive: hasLiveControlRealtimeListeners(), requestInFlight: true }),
-					);
+					await sleep(effectiveSteeringInterval(hasLiveControlRealtimeListeners()));
 				}
 				const waitedMs = now() - startedAt;
 				if (terminal === "completed" && result) {
@@ -698,9 +700,11 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 				const manifest = { stateRoot, runId } as unknown as TeamRunManifest;
 				// Poll, bounded by the broker-issued deadline (epoch ms). No unbounded
 				// loop: every iteration checks signal + deadline; sleeps use the
-				// adaptive cadence (50ms while this request is in flight under
-				// live-session realtime, so an answer lands within ~50ms rather than
-				// incurring the old fixed 0–500ms latency term).
+				// adaptive cadence — 50ms ONLY under live-session realtime (the
+				// producer is in-process, so an answer lands within ~50ms rather
+				// than the old fixed 0–500ms term); non-realtime workers keep the
+				// 500ms bounded-cost cadence (file-poll is their sole durability
+				// path — no amplification).
 				let terminal: "answered" | "timed-out" | "aborted" = "timed-out";
 				let answer: MailboxMessage | undefined;
 				while (true) {
@@ -714,9 +718,7 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 						break;
 					}
 					if (now() >= value.deadline) break;
-					await sleep(
-						effectiveSteeringInterval({ realtimeActive: hasLiveControlRealtimeListeners(), requestInFlight: true }),
-					);
+					await sleep(effectiveSteeringInterval(hasLiveControlRealtimeListeners()));
 				}
 				const waitedMs = now() - startedAt;
 				// Terminal report (ADR item 8): best-effort un-park on EVERY path.
@@ -864,13 +866,15 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 			};
 			// PERF R2 (task 5): event-driven + adaptive cadence. Instead of a
 			// fixed 500ms setInterval, re-derive the interval from the realtime
-			// state on every tick: while live-session realtime is active the
-			// file poll runs at 50ms (a steer/answer lands within ~50ms instead
-			// of incurring the 0–500ms latency term); when idle it relaxes back
-			// to the prior 500ms bounded-cost cadence. The recursive setTimeout
-			// also guarantees the poll never overlaps a previous (synchronous,
-			// short) pollSteering pass. The broker-push path (Feature 2b below)
-			// is unchanged and still delivers immediately.
+			// state on every tick: while live-session realtime is active (the
+			// steer producer is in-process) the file poll runs at 50ms so a
+			// steer lands within ~50ms instead of the 0–500ms latency term; when
+			// realtime is OFF (non-live worker — the file-poll is the sole
+			// delivery path) it relaxes back to the prior 500ms bounded-cost
+			// cadence. The recursive setTimeout also guarantees the poll never
+			// overlaps a previous (synchronous, short) pollSteering pass. The
+			// broker-push path (Feature 2b below) is unchanged and still
+			// delivers immediately.
 			let pollTimer: ReturnType<typeof setTimeout> | undefined;
 			const armSteeringPoll = (): void => {
 				pollTimer = setTimeout(
@@ -878,10 +882,7 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 						pollSteering();
 						armSteeringPoll();
 					},
-					effectiveSteeringInterval({
-						realtimeActive: hasLiveControlRealtimeListeners(),
-						requestInFlight: false,
-					}),
+					effectiveSteeringInterval(hasLiveControlRealtimeListeners()),
 				);
 				pollTimer.unref?.();
 			};
