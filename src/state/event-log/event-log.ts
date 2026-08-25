@@ -7,7 +7,6 @@ import { emitFromTeamEvent } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";
 import { sleep, sleepSync } from "../../utils/sleep.ts";
-import { atomicWriteFile } from "../atomic-write.ts";
 import { applyCompactionUnlocked, needsRotation, prepareCompaction, rotateEventLogUnlocked } from "./event-log-rotation.ts";
 import {
 	advanceSequenceCounter,
@@ -132,9 +131,18 @@ export function withEventLogLockSync<T>(eventsPath: string, fn: () => T, options
 			// (reduced from 120s) is appropriate.
 			fs.mkdirSync(lockDir);
 			try {
-				atomicWriteFile(pidFile, String(process.pid));
+				// PERF (2026-08-25): pid file is disposable + mtime-stale-detected, so the
+				// full atomicWriteFile (2 fsync) here was dead ceremony — the .alock async
+				// path already writes pid via "wx". Mirror it: O_EXCL open, plain write.
+				// The lock dir itself is the mutex.
+				const pidFd = fs.openSync(pidFile, "wx");
+				try {
+					fs.writeSync(pidFd, String(process.pid));
+				} finally {
+					fs.closeSync(pidFd);
+				}
 			} catch {
-				/* best-effort */
+				/* best-effort — e.g. EEXIST under a re-taken dir; stale pid is mtime-detected */
 			}
 			acquired = true;
 			break;
