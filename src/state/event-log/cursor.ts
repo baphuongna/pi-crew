@@ -138,22 +138,317 @@ function positiveInteger(value: number | undefined): number | undefined {
 	return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
-/** Perf round 2 / Task 6: acceptance check for the bounded (limit-scaled) tail
- *  window. The events file is append-only with non-decreasing metadata.seq
- *  (the same invariant the seq-dedupe, the cross-process seq sync, and the
- *  archive-tail readers rely on), so every event located BEFORE the window
- *  start has seq <= the first parsed seq inside the window. When that first
- *  seq is <= sinceSeq, no observable event (seq > sinceSeq) can exist before
- *  the window: the window's post-filter set is EXACTLY the wide (4MB) read's
- *  post-filter set, so every downstream step — TAIL_EVENT_CAP slice, sinceSeq
- *  filter, archive-tail merge, dedupe+sort, total/nextSeq — is identical to
- *  the wide path. A window that cannot prove this (unparseable or seq-less
- *  first line, empty window, first seq > sinceSeq) conservatively rejects and
- *  the caller falls back to the wide read. */
-function boundedTailCoversSinceSeq(tail: { truncated: boolean; items: TeamEvent[] }, sinceSeq: number): boolean {
-	if (!tail.truncated) return true; // window already covered the whole file
-	const firstSeq = tail.items[0]?.metadata?.seq;
-	return typeof firstSeq === "number" && Number.isFinite(firstSeq) && firstSeq <= sinceSeq;
+// --- Perf round 2 / Task 6 (fix round 1): VERIFIED watermark tail cache -------
+//
+// The first cut of this task scaled the tail window down with `limit` and
+// accepted it whenever the window's first parsed seq <= sinceSeq — assuming
+// file order == seq order. That assumption is FALSE:
+//   (1) compaction recovery re-appends lost events at the END of the file
+//       with their OLD seqs (event-log-rotation.ts applyCompaction);
+//   (2) the sync (.mkdirlock) and async (.alok) lock families are disjoint,
+//       so interleaved writers can append reserved seqs out of order;
+//   (3) explicit baseMetadata.seq appends bypass reservation ordering.
+// A file can therefore look like [1..200, 5000, 201..1700], and the window
+// acceptance silently dropped event 5000 forever.
+//
+// This fix keeps NO order assumption. Instead each events path carries a
+// cache entry with a VERIFIED watermark (transcript-cache.ts pattern):
+//   verifiedOffset  byte offset just past the last VERIFIED complete line
+//                  (a partial trailing line is held back, not consumed)
+//   lastSeq         seq of the last event at verifiedOffset
+//   ring            bounded, file-ordered suffix of the verified events
+// The watermark is ESTABLISHED only by a full parse from offset 0 in which
+// every parsed event carries a finite seq and seqs are non-decreasing, and
+// EXTENDED only by deltas whose first seq >= lastSeq and whose seqs are
+// non-decreasing. Any violation — out-of-order append, seq-less line, file
+// shrink, stamp mismatch, short delta read — rebuilds from a fresh full
+// parse. With the watermark held, answering from the ring is sound:
+//   - verified && ringStartSeq <= sinceSeq: every event BEFORE the ring
+//     start lies inside the verified range, where seqs are non-decreasing,
+//     so its seq <= ringStartSeq <= sinceSeq — the sinceSeq filter would
+//     drop it in a full read too. The ring's post-filter set IS the full
+//     read's post-filter set, so TAIL_EVENT_CAP slice, archive-tail merge
+//     (R18/R16-B1), dedupe+sort, total/nextSeq are all identical.
+//   - ringStartOffset === 0: the ring IS the whole file (nothing dropped).
+// An UNVERIFIED lineage (an out-of-order file, e.g. after compaction
+// recovery) may only answer via ringStartOffset === 0; anything else takes
+// the full parse. Files larger than the wide 4MB window can return a strict
+// SUPERSET of the old byte-window answer (older post-sinceSeq events the
+// window used to drop) — never fewer events.
+
+const TAIL_BYTES = 4 * 1024 * 1024; // FIND-05: 4 MB wide tail window
+const TAIL_EVENT_CAP = 5000;
+const CURSOR_READ_CHUNK_BYTES = 64 * 1024;
+const CURSOR_TAIL_CACHE_MAX_ENTRIES = 100;
+
+/** One parsed event plus the absolute byte offset of its line's start. */
+interface CursorLineEvent {
+	event: TeamEvent;
+	startOffset: number;
+}
+
+interface CursorTailCacheEntry {
+	/** Stamp pair from the last update; any mismatch forces a rebuild. */
+	size: number;
+	mtimeMs: number;
+	verifiedOffset: number;
+	lastSeq: number;
+	/** True only while every consumed line since offset 0 carried a finite,
+	 *  non-decreasing seq. False => the ring may answer only from offset 0. */
+	verified: boolean;
+	ring: CursorLineEvent[];
+}
+
+const cursorTailCache = new Map<string, CursorTailCacheEntry>();
+
+/** Drop events from the ring's front (file order) past `bound`, keeping the
+ *  newest suffix. Ring bound: max(TAIL_EVENT_CAP, limit) * 2 events — enough
+ *  lookback behind the anchor for the provability check while bounding
+ *  memory (the answer itself is capped to TAIL_EVENT_CAP events regardless,
+ *  so a larger ring only widens provability, it never changes results). */
+function evictCursorRing(ring: CursorLineEvent[], bound: number): CursorLineEvent[] {
+	return ring.length > bound ? ring.slice(ring.length - bound) : ring;
+}
+
+/** Parse COMPLETE lines out of `buf`, which starts at absolute `baseOffset`
+ *  (itself a line boundary). A trailing fragment without "\n" is held back
+ *  (mid-append partial line). Corrupt/blank lines advance the verified
+ *  offset but yield no event. `minSeq` seeds the watermark check: `ok` is
+ *  false when any parsed event lacks a finite seq or goes backwards — i.e.
+ *  the non-decreasing watermark is broken and the caller must rebuild.
+ *  Parsed events are returned regardless (a full-parse answer must keep
+ *  them, mirroring the wide reader). */
+function scanEventLines(
+	buf: Buffer,
+	baseOffset: number,
+	minSeq: number | undefined,
+): { lines: CursorLineEvent[]; verifiedBytes: number; ok: boolean } {
+	const lines: CursorLineEvent[] = [];
+	let ok = true;
+	let lastSeq = minSeq;
+	let pos = 0;
+	for (;;) {
+		const newline = buf.indexOf(0x0a, pos);
+		if (newline < 0) break;
+		const text = buf.toString("utf-8", pos, newline).trim();
+		if (text) {
+			try {
+				const event = JSON.parse(text) as TeamEvent;
+				const seq = event.metadata?.seq;
+				if (typeof seq !== "number" || !Number.isFinite(seq) || (lastSeq !== undefined && seq < lastSeq)) {
+					ok = false;
+				} else {
+					lastSeq = seq;
+				}
+				lines.push({ event, startOffset: baseOffset + pos });
+			} catch {
+				/* corrupt line — skipped, but its bytes still advance */
+			}
+		}
+		pos = newline + 1;
+	}
+	return { lines, verifiedBytes: pos, ok };
+}
+
+/** Read exactly [start, end) from an already-open fd, or return null on any
+ *  short read (concurrent shrink/rotation) so the caller rebuilds from a
+ *  full parse. Reading from the caller's fd keeps the stat and the read on
+ *  the SAME inode. */
+function readCursorByteRange(fd: number, start: number, end: number): Buffer | null {
+	if (end <= start) return Buffer.alloc(0);
+	const length = end - start;
+	const buf = Buffer.alloc(length);
+	let totalRead = 0;
+	while (totalRead < length) {
+		const chunk = Math.min(CURSOR_READ_CHUNK_BYTES, length - totalRead);
+		const n = fs.readSync(fd, buf, totalRead, chunk, start + totalRead);
+		if (n <= 0) return null;
+		totalRead += n;
+	}
+	return buf;
+}
+
+/** Full parse from offset 0 — the only way to ESTABLISH the watermark, and
+ *  the answer basis when the ring cannot prove coverage (total coverage by
+ *  construction). Returns undefined when the file cannot be read (the caller
+ *  falls back to the wide window). O_NOFOLLOW matches readJsonlTail's
+ *  symlink refusal. */
+function rebuildCursorTailCache(eventsPath: string, bound: number): { entry: CursorTailCacheEntry; lines: CursorLineEvent[] } | undefined {
+	let fd: number | undefined;
+	try {
+		fd = fs.openSync(eventsPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+	} catch {
+		return undefined;
+	}
+	try {
+		const stat = fs.fstatSync(fd);
+		const buf = readCursorByteRange(fd, 0, stat.size);
+		if (buf === null) return undefined;
+		const scan = scanEventLines(buf, 0, undefined);
+		const lastLine = scan.lines.at(-1)?.event.metadata?.seq;
+		const entry: CursorTailCacheEntry = {
+			size: stat.size,
+			mtimeMs: stat.mtimeMs,
+			verifiedOffset: scan.verifiedBytes,
+			lastSeq: typeof lastLine === "number" ? lastLine : 0,
+			verified: scan.ok,
+			ring: evictCursorRing(scan.lines, bound),
+		};
+		return { entry, lines: scan.lines };
+	} finally {
+		try {
+			fs.closeSync(fd);
+		} catch {
+			/* ignore */
+		}
+	}
+}
+
+/** Shared answer pipeline (identical to the wide path's): TAIL_EVENT_CAP
+ *  slice (+ its warning) BEFORE the sinceSeq filter, then the R18/R16-B1
+ *  archive-tail merge, then the head-cap limit, then total/nextSeq. */
+function cursorResultFromEvents(all: TeamEvent[], eventsPath: string, sinceSeq: number, limit: number | undefined): EventCursorResult {
+	let capped = all;
+	if (capped.length > TAIL_EVENT_CAP) {
+		logInternalError(
+			"event-log.cursor-full-read",
+			new Error(`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`),
+			`eventsPath=${eventsPath}`,
+		);
+		capped = capped.slice(-TAIL_EVENT_CAP);
+	}
+	const filtered = capped.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
+	// R18 (Phase 3.6): rotation stranding — prepend archive-tail events (seq >
+	// sinceSeq, deduped, seq-sorted) ahead of the live tail slice, so events
+	// stranded into an archive by a rotation are still delivered to sinceSeq
+	// streaming consumers. No-rotation case: no archives exist → behavior is
+	// byte-identical to before (mergeArchiveTailEvents returns liveEvents).
+	const merged = mergeArchiveTailEvents(readArchiveTailEvents(eventsPath, sinceSeq), filtered);
+	const events = limit !== undefined ? merged.slice(0, limit) : merged;
+	const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
+	return { events, nextSeq: returnedMaxSeq, total: merged.length };
+}
+
+/** Can `ring` (under `entry`'s lineage) answer a read anchored at sinceSeq?
+ *  Sound per the watermark docblock: either the ring starts at the verified
+ *  seq watermark that sinceSeq has already passed, or the ring starts at
+ *  offset 0 and is the whole file. */
+function cursorRingProvable(entry: CursorTailCacheEntry, ring: CursorLineEvent[], sinceSeq: number): boolean {
+	if (ring.length === 0) {
+		return entry.verifiedOffset === 0 || (entry.verified && entry.lastSeq <= sinceSeq);
+	}
+	const start = ring[0];
+	return start.startOffset === 0 || (entry.verified && (start.event.metadata?.seq ?? 0) <= sinceSeq);
+}
+
+/** Perf round 2 / Task 6 (fix round 1): serve a sinceSeq+limit cursor read
+ *  from the verified watermark cache. `sinceSeq > 0` gating keeps
+ *  replay-from-zero calls on the wide path (seqs start at 1, so a sinceSeq=0
+ *  anchor can never be proven passed by a watermark — every call would pay
+ *  the full parse for nothing). Returns undefined when the file cannot be
+ *  stat'd/read; the caller then runs the FIND-05 wide path unchanged. */
+function readEventsCursorTailCached(eventsPath: string, sinceSeq: number, limit: number): EventCursorResult | undefined {
+	let stat: fs.Stats;
+	try {
+		stat = fs.statSync(eventsPath);
+	} catch {
+		return undefined;
+	}
+	const previous = cursorTailCache.get(eventsPath);
+	const bound = Math.max(TAIL_EVENT_CAP, limit) * 2;
+
+	if (previous && stat.size === previous.size && stat.mtimeMs === previous.mtimeMs) {
+		// Unchanged stamps: serve purely from the ring (no event bytes read).
+		const ring = evictCursorRing(previous.ring, bound);
+		if (cursorRingProvable(previous, ring, sinceSeq)) {
+			if (ring !== previous.ring) cursorTailCache.set(eventsPath, { ...previous, ring });
+			return cursorResultFromEvents(
+				ring.map((line) => line.event),
+				eventsPath,
+				sinceSeq,
+				limit,
+			);
+		}
+	} else if (previous && stat.size > previous.size && stat.mtimeMs >= previous.mtimeMs && previous.verifiedOffset < stat.size) {
+		// Append-only growth: read only [verifiedOffset, size). Provability is
+		// checked BEFORE the read — appending only moves the ring start
+		// forward, so an unprovable ring can never become provable here.
+		const preRing = evictCursorRing(previous.ring, bound);
+		if (cursorRingProvable(previous, preRing, sinceSeq)) {
+			let delta: Buffer | null = null;
+			let deltaFd: number | undefined;
+			try {
+				deltaFd = fs.openSync(eventsPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+				delta = readCursorByteRange(deltaFd, previous.verifiedOffset, stat.size);
+			} catch {
+				delta = null;
+			} finally {
+				if (deltaFd !== undefined) {
+					try {
+						fs.closeSync(deltaFd);
+					} catch {
+						/* ignore */
+					}
+				}
+			}
+			if (delta !== null) {
+				const scan = scanEventLines(delta, previous.verifiedOffset, previous.lastSeq);
+				if (scan.ok) {
+					const ring = evictCursorRing([...preRing, ...scan.lines], bound);
+					const lastLineSeq = scan.lines.at(-1)?.event.metadata?.seq;
+					const entry: CursorTailCacheEntry = {
+						size: stat.size,
+						mtimeMs: stat.mtimeMs,
+						verifiedOffset: previous.verifiedOffset + scan.verifiedBytes,
+						lastSeq: typeof lastLineSeq === "number" ? lastLineSeq : previous.lastSeq,
+						// The delta verified against the watermark, but a
+						// violation earlier in the file keeps the lineage
+						// unverified (it can only answer from offset 0).
+						verified: previous.verified,
+						ring,
+					};
+					cursorTailCache.set(eventsPath, entry);
+					if (cursorRingProvable(entry, ring, sinceSeq)) {
+						return cursorResultFromEvents(
+							ring.map((line) => line.event),
+							eventsPath,
+							sinceSeq,
+							limit,
+						);
+					}
+				}
+			}
+		}
+	}
+
+	// Full parse: cache miss, stamp mismatch/shrink, watermark violation, or
+	// an anchor older than the ring's provable start. Re-establishes the
+	// watermark and answers with TOTAL coverage (exact full-read semantics
+	// for files within the wide window; a superset — never fewer — beyond).
+	const rebuilt = rebuildCursorTailCache(eventsPath, bound);
+	if (rebuilt === undefined) return undefined;
+	cursorTailCache.set(eventsPath, rebuilt.entry);
+	// FIND-12 pattern: evict the oldest entry by Map insertion order.
+	if (cursorTailCache.size > CURSOR_TAIL_CACHE_MAX_ENTRIES) {
+		const oldestKey = cursorTailCache.keys().next().value;
+		if (oldestKey !== undefined) cursorTailCache.delete(oldestKey);
+	}
+	return cursorResultFromEvents(
+		rebuilt.lines.map((line) => line.event),
+		eventsPath,
+		sinceSeq,
+		limit,
+	);
+}
+
+/** Test/invalidation hook: drop the verified watermark cache for one events
+ *  path (or every path when omitted). */
+export function clearEventsCursorTailCache(eventsPath?: string): void {
+	if (!eventsPath) {
+		cursorTailCache.clear();
+		return;
+	}
+	cursorTailCache.delete(eventsPath);
 }
 
 export function readEventsCursor(eventsPath: string, options: EventCursorOptions = {}): EventCursorResult {
@@ -206,60 +501,28 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 	// emitted whenever the file exceeds the 4MB tail budget, signalling
 	// that a prefix was dropped and callers should pass fromByteOffset for
 	// streaming reads.
-	const TAIL_BYTES = 4 * 1024 * 1024; // 4 MB
-	const TAIL_EVENT_CAP = 5000;
-	// Perf round 2 / Task 6: bounded-tail fast path. When the caller anchors a
-	// streaming read with sinceSeq AND caps it with limit (run-event-bus
-	// onWithReplay, broker events.since/events.subscribe resync), a small
-	// limit-scaled window is enough: everything the wide read would filter out
-	// (seq <= sinceSeq) does not need to be read or parsed at all. The window
-	// is accepted only when it provably contains the entire post-sinceSeq
-	// region (boundedTailCoversSinceSeq); otherwise we re-read with the full
-	// 4MB window and the result is byte-identical to the previous behavior.
-	// `sinceSeq > 0` is required or the first window seq could never prove
-	// coverage (seqs start at 1) and every call would pay the double read.
-	const TAIL_LOOKBACK_MIN_BYTES = 256 * 1024; // floor: ~1k events of lookback behind the anchor
-	const TAIL_LOOKBACK_BYTES_PER_EVENT = 512; // headroom for message-bearing events
 	const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
 	const limit = positiveInteger(options.limit);
-	const bounded = limit !== undefined && sinceSeq > 0;
-	const boundedBytes = bounded
-		? Math.min(TAIL_BYTES, Math.max(TAIL_LOOKBACK_MIN_BYTES, limit * TAIL_LOOKBACK_BYTES_PER_EVENT))
-		: TAIL_BYTES;
-
-	let tail = readJsonlTail<TeamEvent>(eventsPath, boundedBytes);
-	let usedBoundedTail = false;
-	if (bounded && boundedBytes < TAIL_BYTES) {
-		if (boundedTailCoversSinceSeq(tail, sinceSeq)) usedBoundedTail = true;
-		else tail = readJsonlTail<TeamEvent>(eventsPath, TAIL_BYTES);
+	// Perf round 2 / Task 6 (fix round 1): streaming ticks anchored with
+	// sinceSeq and capped with limit (run-event-bus onWithReplay, broker
+	// events.since/events.subscribe resync) are served by the verified
+	// watermark cache — delta-only reads for append growth, zero event-byte
+	// reads when nothing changed, and a full-parse rebuild on any watermark
+	// violation, shrink, or stale anchor. Warning suppression there is
+	// backed by proof, not by an order assumption: a ring answer happens
+	// only when no post-sinceSeq event can have been dropped. sinceSeq=0 /
+	// no-limit calls keep this wide path unchanged.
+	if (limit !== undefined && sinceSeq > 0) {
+		const cached = readEventsCursorTailCached(eventsPath, sinceSeq, limit);
+		if (cached !== undefined) return cached;
 	}
-	let all = tail.items;
-	// The bounded window's dropped prefix provably contains no post-sinceSeq
-	// events, so the truncation warning would be a false alarm (and per-tick
-	// spam for streaming callers) — only the wide read reports truncation.
-	if (tail.truncated && !usedBoundedTail) {
+	const tail = readJsonlTail<TeamEvent>(eventsPath, TAIL_BYTES);
+	if (tail.truncated) {
 		logInternalError("event-log.cursor-tail-truncated", {
 			eventsPath,
-			returned: all.length,
+			returned: tail.items.length,
 			tailBytes: TAIL_BYTES,
 		});
 	}
-	if (all.length > TAIL_EVENT_CAP) {
-		logInternalError(
-			"event-log.cursor-full-read",
-			new Error(`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`),
-			`eventsPath=${eventsPath}`,
-		);
-		all = all.slice(-TAIL_EVENT_CAP);
-	}
-	const filtered = all.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
-	// R18 (Phase 3.6): rotation stranding — prepend archive-tail events (seq >
-	// sinceSeq, deduped, seq-sorted) ahead of the live tail slice, so events
-	// stranded into an archive by a rotation are still delivered to sinceSeq
-	// streaming consumers. No-rotation case: no archives exist → behavior is
-	// byte-identical to before (mergeArchiveTailEvents returns liveEvents).
-	const merged = mergeArchiveTailEvents(readArchiveTailEvents(eventsPath, sinceSeq), filtered);
-	const events = limit !== undefined ? merged.slice(0, limit) : merged;
-	const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
-	return { events, nextSeq: returnedMaxSeq, total: merged.length };
+	return cursorResultFromEvents(tail.items, eventsPath, sinceSeq, limit);
 }
