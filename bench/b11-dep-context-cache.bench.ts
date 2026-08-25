@@ -25,6 +25,10 @@
  *      tee-safety fallthrough intentionally still reads per consumer (proof
  *      the cache never corrupts tee/fullOutputPath semantics).
  *
+ * Output contract (scripts/run-bench.mjs): human tables first, then ONE final
+ * NDJSON line `{"name":"b11.dep-context-cache",...}` with the per-scenario key
+ * numbers — the runner parses the LAST JSON line on stdout.
+ *
  * Run standalone (NO package.json script — bench/ files are standalone):
  *   node --experimental-strip-types bench/b11-dep-context-cache.bench.ts
  */
@@ -154,7 +158,16 @@ function pct(cached: number, bypassed: number): string {
 
 let failures = 0;
 
-function report(label: string, depChars: number, iterations: number) {
+interface ScenarioNumbers {
+	iterations: number;
+	depChars: number;
+	cached: { readFile: number; exists: number; hits: number; misses: number; wallMs: number };
+	bypassed: { readFile: number; exists: number; hits: number; misses: number; wallMs: number };
+	readFileReductionPct: string;
+	byteIdentity: boolean;
+}
+
+function report(label: string, depChars: number, iterations: number): ScenarioNumbers {
 	const fixture = buildFixture(label, depChars);
 	const cached = runScenario(fixture, false, iterations);
 	const bypassed = runScenario(fixture, true, iterations);
@@ -188,11 +201,35 @@ function report(label: string, depChars: number, iterations: number) {
 		`  reduction: readFile ${pct(cached.readOps.readFile, bypassed.readOps.readFile)} | exists ${pct(cached.readOps.exists, bypassed.readOps.exists)} | wall ${pct(cached.wallMs, bypassed.wallMs)}`,
 	);
 	console.log(`  byte-identity (render per consumer, cached vs bypassed): ${identical ? "PASS" : "FAIL"}`);
+	return {
+		iterations,
+		depChars,
+		cached: { ...cached.readOps, wallMs: round(cached.wallMs) },
+		bypassed: { ...bypassed.readOps, wallMs: round(bypassed.wallMs) },
+		readFileReductionPct: pct(cached.readOps.readFile, bypassed.readOps.readFile),
+		byteIdentity: identical,
+	};
+}
+
+function round(n: number): number {
+	return Math.round(n * 100) / 100;
 }
 
 console.log(`b11 — dep-context cache: ${CONSUMER_IDS.length} consumers per scenario (fan-in over 1 dep)`);
-report("S1-realistic", S1_CHARS, ITERATIONS);
-report("S2-tee-band", S2_CHARS, S2_ITERATIONS);
+const scenarios: Record<string, ScenarioNumbers> = {};
+scenarios["S1-realistic"] = report("S1-realistic", S1_CHARS, ITERATIONS);
+scenarios["S2-tee-band"] = report("S2-tee-band", S2_CHARS, S2_ITERATIONS);
+
+// NDJSON contract line — must be the LAST stdout line (runner parses it).
+console.log(
+	JSON.stringify({
+		name: "b11.dep-context-cache",
+		unit: "mixed",
+		consumersPerScenario: CONSUMER_IDS.length,
+		scenarios,
+		failures,
+	}),
+);
 
 for (const dir of tmpDirs) {
 	try {

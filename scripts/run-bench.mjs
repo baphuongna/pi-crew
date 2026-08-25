@@ -10,8 +10,11 @@
  *      date, PI_MODEL when set). Legacy `bench/child-pi-parse.bench.ts`
  *      is NOT JSON-emitting and is excluded from the glob.
  *
- * Each bench prints a single JSON line on stdout (NDJSON). Earlier lines may
- * be ignored. Failures abort the run.
+ * Each bench prints ONE NDJSON result line on stdout — the LAST line on
+ * stdout that parses as JSON is taken (human-readable lines before it are
+ * ignored; see runBench). A bench whose subject no longer exists may emit a
+ * skip marker `{"name":"...","skipped":"<reason>"}` instead of cases.
+ * Failures (non-zero exit or no parsable JSON line) abort the run.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
