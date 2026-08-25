@@ -33,9 +33,9 @@ export function updateTask(tasks: TeamTaskState[], updated: TeamTaskState): Team
  * "completed". For non-terminal transitions (heartbeat, progress) the
  * default buffered write is fine and matches prior behavior. With the
  * opt-in `persistence.skipTasksFsync` flag (default off), non-terminal
- * checkpoints bypass the coalesce buffer and write immediately with
- * durability "best-effort" (no fsync) — tasks.json is reconstructible from
- * the fsync'd event log, so best-effort loses at most the in-flight tail.
+ * checkpoints stay in the 50ms coalesce window but drop ONLY the fsync
+ * (durability "best-effort") — tasks.json is reconstructible from the
+ * fsync'd event log, so a crash loses at most the un-flushed tail.
  *
  * @param checkpointPhase - Optional checkpoint phase to include in the task state alongside the update.
  */
@@ -160,16 +160,16 @@ export function persistSingleTaskUpdate(
 				// leave tasks.json stale with a non-terminal status.
 				// PERF round 2, Task 3 (opt-in, default off): for NON-terminal
 				// checkpoints — and ONLY when persistence.skipTasksFsync is true —
-				// route through the skipCoalesce bypass with durability
-				// "best-effort" (no fsync) + a synchronous flush instead of the
-				// 50ms coalesced queue. tasks.json is reconstructible from the
-				// fsync'd event log, so a crash loses at most the tail of a
-				// checkpoint. Terminal transitions (skipCoalesce=true) MUST remain
-				// full-durability — the flag never touches that path.
+				// KEEP the 50ms coalesce window (the RMW grouping benefit) and drop
+				// ONLY durability: the coalesced entry stores "best-effort" and the
+				// flush forwards it to atomicWriteFile (no data/parent-dir fsync).
+				// tasks.json is reconstructible from the fsync'd event log, so the
+				// crash tail is at most the in-flight checkpoint. Terminal
+				// transitions (skipCoalesce=true) always stay full-durability — the
+				// flag never touches that path.
 				const skipTasksFsync = !skipCoalesce && loadConfig().config.persistence?.skipTasksFsync === true;
 				if (skipTasksFsync) {
-					saveRunTasksCoalesced(manifest, merged, true, "best-effort");
-					flushPendingAtomicWrites(manifest.tasksPath);
+					saveRunTasksCoalesced(manifest, merged, false, "best-effort");
 				} else {
 					saveRunTasksCoalesced(manifest, merged, skipCoalesce);
 				}

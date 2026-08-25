@@ -3,12 +3,13 @@
  * tasks checkpoints (PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC).
  *
  * saveRunTasksCoalesced gains an optional `durability` param that flows into
- * the coalesced entry. persistSingleTaskUpdate (state-helpers.ts) bypasses the
- * coalesce buffer for NON-terminal saves when the config flag is on — routing
- * straight through the existing skipCoalesce escape hatch with durability
- * "best-effort" (no data/parent-dir fsync) followed by an immediate flush —
- * so tasks.json is written synchronously and stays reconstructible from the
- * fsync'd event log. Terminal transitions MUST remain full-durability.
+ * the coalesced entry. persistSingleTaskUpdate (state-helpers.ts) keeps the
+ * 50ms coalesce window for NON-terminal saves when the config flag is on and
+ * drops ONLY durability — it does NOT bypass the coalesced path and does NOT
+ * flush eagerly. The coalesced entry stores "best-effort" (atomic-write.ts:980)
+ * and the flush forwards it to atomicWriteFile (atomic-write.ts:997), which
+ * skips the data AND parent-dir fsync. Terminal transitions MUST remain
+ * full-durability regardless of the flag.
  *
  * We assert OBSERVABLY via a node:fs CJS-default swap (the same pattern as
  * test/unit/manifest-cache-ttl.test.ts): patch `fs.openSync` to map each
@@ -106,7 +107,12 @@ function waitForFlush(): Promise<void> {
 
 interface FsSpy {
 	/** Number of fsyncSync calls on a temp fd that is about to become the
-	 *  targeted run's tasks.json. */
+	 *  targeted run's tasks.json, PLUS fsyncs on a directory fd opened at the
+	 *  tasks file's parent (the full-durability parent-dir fsync). The DATA
+	 *  fsync can't be distinguished from a full write's dir fsync by path
+	 *  (both belong to the tasks file's write), so full durability counts
+	 *  >= 2 fsyncs and best-effort counts EXACTLY 0 — a faithful probe that
+	 *  the atomicWriteFile call was durability "full" vs "best-effort". */
 	fsyncOnTasks(): number;
 	restore(): void;
 }
@@ -127,16 +133,26 @@ function makeTasksFsyncSpy(tasksPaths: string[]): FsSpy {
 	fsDefault.openSync = (...args: unknown[]) => {
 		const fd = originalOpen(...args);
 		const filePath = args[0];
-		if (typeof filePath === "string" && filePath.endsWith(".tmp")) {
-			const base = filePath.slice(0, -".tmp".length);
-			const parent = path.dirname(base);
-			// Match the temp file's parent as the tasks path prefix — atomic
-			// writes place the temp next to the target (<tasksPath>.<uuid>.tmp).
-			for (const target of targetPaths) {
-				const targetParent = path.dirname(target);
-				if (parent === targetParent && path.basename(base).startsWith(path.basename(target))) {
-					fdToPath.set(fd, filePath);
-					break;
+		if (typeof filePath === "string") {
+			if (filePath.endsWith(".tmp")) {
+				// atomic-write.ts:619 — the data temp file for the target.
+				const base = filePath.slice(0, -".tmp".length);
+				const parent = path.dirname(base);
+				for (const target of targetPaths) {
+					const targetParent = path.dirname(target);
+					if (parent === targetParent && path.basename(base).startsWith(path.basename(target))) {
+						fdToPath.set(fd, filePath);
+						break;
+					}
+				}
+			} else {
+				// atomic-write.ts:711 — the parent-dir fsync opens the directory
+				// of the target file with flags "r". Attribute it to the target.
+				for (const target of targetPaths) {
+					if (filePath === path.dirname(target)) {
+						fdToPath.set(fd, filePath);
+						break;
+					}
 				}
 			}
 		}
@@ -163,7 +179,7 @@ function makeTasksFsyncSpy(tasksPaths: string[]): FsSpy {
 // persistSingleTaskUpdate (the caller) — end-to-end gating
 // ---------------------------------------------------------------------------
 
-test("flag ON, non-terminal save → tasks.json rewritten best-effort with ZERO fsync", async () => {
+test("flag ON, non-terminal save → coalesced path, flushes best-effort with ZERO fsync", async () => {
 	const { cwd, cleanup } = makeTempProject();
 	try {
 		setEnv("PI_CREW_PERSISTENCE_SKIP_TASKS_FSYNC", "1");
@@ -177,11 +193,18 @@ test("flag ON, non-terminal save → tasks.json rewritten best-effort with ZERO 
 			const updated = { ...base, status: "running" as const };
 			const merged = persistSingleTaskUpdate(created.manifest, loaded?.tasks ?? [], updated, "started");
 			assert.ok(merged.length >= 1, "persist returns a tasks array");
+			// THE CALLER KEEPS THE COALESCE WINDOW: the best-effort write is
+			// buffered, not flushed eagerly. After the CALLER's scoped flush at the
+			// top of its CAS loop drained the previous pending entry, the fresh
+			// best-effort entry sits in the 50ms window — so the disk must still
+			// reflect the PRE-persist state (queued), not the running update.
+			const statusesBefore = onDiskStatuses(cwd, created.manifest);
+			assert.ok(statusesBefore.every((s) => s !== "running"), `coalesced best-effort must stay buffered until flush (got ${statusesBefore})`);
 			await waitForFlush();
-			// The best-effort path is synchronous (immediate atomicWrite + flush),
-			// so the running status must already be on disk.
-			const statuses = onDiskStatuses(cwd, created.manifest);
-			assert.ok(statuses.includes("running"), `best-effort non-terminal save must land on disk synchronously (got ${statuses})`);
+			// Flush the buffered best-effort entry → lands running, zero fsync.
+			flushPendingAtomicWrites(created.paths.tasksPath);
+			const statusesAfter = onDiskStatuses(cwd, created.manifest);
+			assert.ok(statusesAfter.includes("running"), `flushed best-effort save must land the running status (got ${statusesAfter})`);
 			assert.equal(spy.fsyncOnTasks(), 0, `best-effort tasks save must fsync the tasks fd 0 times (got ${spy.fsyncOnTasks()})`);
 		} finally {
 			spy.restore();
@@ -197,14 +220,14 @@ test("flag OFF, non-terminal save → default coalesced/full durability (fsync o
 		const created = makeRun(cwd);
 		const spy = makeTasksFsyncSpy([created.paths.tasksPath]);
 		try {
-			const merged = persistSingleTaskUpdate(
-				created.manifest,
-				[],
-				{ id: created.paths.tasksPath, status: "running" } as never,
-				"started",
-			);
+			const loaded = loadRunManifestById(cwd, created.manifest.runId);
+			const base = loaded?.tasks[0];
+			assert.ok(base, "run has at least one task");
+			const updated = { ...base, status: "running" as const };
+			const merged = persistSingleTaskUpdate(created.manifest, loaded?.tasks ?? [], updated, "started");
 			assert.ok(merged.length >= 1);
-			// Default path is coalesced: nothing may reach the disk before 50ms.
+			// Default path is coalesced: nothing reaches the disk before the
+			// window elapses (no fsync on the tasks temp fd either).
 			assert.equal(spy.fsyncOnTasks(), 0, "coalesced default path must not fsync before the window elapses");
 			await waitForFlush();
 			assert.equal(spy.fsyncOnTasks(), 0, "still no fsync before flush (buffered)");
