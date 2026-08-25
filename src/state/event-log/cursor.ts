@@ -138,6 +138,24 @@ function positiveInteger(value: number | undefined): number | undefined {
 	return value !== undefined && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
+/** Perf round 2 / Task 6: acceptance check for the bounded (limit-scaled) tail
+ *  window. The events file is append-only with non-decreasing metadata.seq
+ *  (the same invariant the seq-dedupe, the cross-process seq sync, and the
+ *  archive-tail readers rely on), so every event located BEFORE the window
+ *  start has seq <= the first parsed seq inside the window. When that first
+ *  seq is <= sinceSeq, no observable event (seq > sinceSeq) can exist before
+ *  the window: the window's post-filter set is EXACTLY the wide (4MB) read's
+ *  post-filter set, so every downstream step — TAIL_EVENT_CAP slice, sinceSeq
+ *  filter, archive-tail merge, dedupe+sort, total/nextSeq — is identical to
+ *  the wide path. A window that cannot prove this (unparseable or seq-less
+ *  first line, empty window, first seq > sinceSeq) conservatively rejects and
+ *  the caller falls back to the wide read. */
+function boundedTailCoversSinceSeq(tail: { truncated: boolean; items: TeamEvent[] }, sinceSeq: number): boolean {
+	if (!tail.truncated) return true; // window already covered the whole file
+	const firstSeq = tail.items[0]?.metadata?.seq;
+	return typeof firstSeq === "number" && Number.isFinite(firstSeq) && firstSeq <= sinceSeq;
+}
+
 export function readEventsCursor(eventsPath: string, options: EventCursorOptions = {}): EventCursorResult {
 	// Incremental byte-offset path: read only new bytes since last known offset
 	if (options.fromByteOffset !== undefined) {
@@ -190,12 +208,36 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 	// streaming reads.
 	const TAIL_BYTES = 4 * 1024 * 1024; // 4 MB
 	const TAIL_EVENT_CAP = 5000;
+	// Perf round 2 / Task 6: bounded-tail fast path. When the caller anchors a
+	// streaming read with sinceSeq AND caps it with limit (run-event-bus
+	// onWithReplay, broker events.since/events.subscribe resync), a small
+	// limit-scaled window is enough: everything the wide read would filter out
+	// (seq <= sinceSeq) does not need to be read or parsed at all. The window
+	// is accepted only when it provably contains the entire post-sinceSeq
+	// region (boundedTailCoversSinceSeq); otherwise we re-read with the full
+	// 4MB window and the result is byte-identical to the previous behavior.
+	// `sinceSeq > 0` is required or the first window seq could never prove
+	// coverage (seqs start at 1) and every call would pay the double read.
+	const TAIL_LOOKBACK_MIN_BYTES = 256 * 1024; // floor: ~1k events of lookback behind the anchor
+	const TAIL_LOOKBACK_BYTES_PER_EVENT = 512; // headroom for message-bearing events
 	const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
 	const limit = positiveInteger(options.limit);
+	const bounded = limit !== undefined && sinceSeq > 0;
+	const boundedBytes = bounded
+		? Math.min(TAIL_BYTES, Math.max(TAIL_LOOKBACK_MIN_BYTES, limit * TAIL_LOOKBACK_BYTES_PER_EVENT))
+		: TAIL_BYTES;
 
-	const tail = readJsonlTail<TeamEvent>(eventsPath, TAIL_BYTES);
+	let tail = readJsonlTail<TeamEvent>(eventsPath, boundedBytes);
+	let usedBoundedTail = false;
+	if (bounded && boundedBytes < TAIL_BYTES) {
+		if (boundedTailCoversSinceSeq(tail, sinceSeq)) usedBoundedTail = true;
+		else tail = readJsonlTail<TeamEvent>(eventsPath, TAIL_BYTES);
+	}
 	let all = tail.items;
-	if (tail.truncated) {
+	// The bounded window's dropped prefix provably contains no post-sinceSeq
+	// events, so the truncation warning would be a false alarm (and per-tick
+	// spam for streaming callers) — only the wide read reports truncation.
+	if (tail.truncated && !usedBoundedTail) {
 		logInternalError("event-log.cursor-tail-truncated", {
 			eventsPath,
 			returned: all.length,
