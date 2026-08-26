@@ -41,15 +41,21 @@ Coalesced drain A/B (4 files, one dir, heavily loaded machine — indicative): m
 
 ### Known residuals (discovered, documented, left for follow-up)
 
-- `flushOnePendingAtomicWrite`'s retry path is dead code (pre-existing; surfaced by T8): coalesced entries are deleted before the write attempt, so the catch block's `retryCount++` and `MAX_FLUSH_RETRIES` rethrow never execute. Fixing requires behavioral changes to failure semantics (separate task).
+- `flushOnePendingAtomicWrite`'s retry path is dead code (pre-existing; surfaced by T8): coalesced entries are deleted before the write attempt, so the catch block's `retryCount++` and `MAX_FLUSH_RETRIES` rethrow never execute. Fixing requires behavioral changes to failure semantics (separate task). *(→ resolved by the follow-up fixes below)*
 - Cursor cache ino-recycle coincidence: same-path in-place truncate+regrowth would pass the delta-branch check if the rewrite preserved the inode (no current writer does; same accepted-risk class as transcript-cache). Documented in `src/state/event-log/cursor.ts`.
-- Async mailbox twin (`appendMailboxMessageAsync`) retains full durability; T4 scoped to regular sync delivery only.
+- Async mailbox twin (`appendMailboxMessageAsync`) retains full durability; T4 scoped to regular sync delivery only. *(→ resolved by the follow-up fixes below)*
 - Tasks-checkpoint `loadConfig()` reads the flag at every save (negligible via 2s TTL cache).
+
+### Follow-up fixes (branch `fix/round2-followups`, 2026-08-26)
+
+- **Dead retry path fixed** — `flushOnePendingAtomicWrite`'s catch now re-queues the entry (the live map entry if a newer write arrived mid-flush, else the captured one) with exponential backoff, so a failed flush retries instead of silently dropping the buffered write; the error still propagates at `MAX_FLUSH_RETRIES`. Regression suite `test/unit/state/atomic-write-coalesced-retry.test.ts` (openSync ENOSPC injection; the coalescer contract is no-throw while retries remain).
+- **Async mailbox twin aligned** — `appendMailboxMessageAsync` delivery marks drop to the best-effort default (mirror of the T4 sync-twin fix); third test in `mailbox-delivery-durability.test.ts` pins 0-fsync pure appends with init absorbed into the baseline.
+- **Test isolation fix (not a production bug)** — `manifest-cache-list-active.test.ts` leaked the real user root into exact-membership assertions (listActive scans every run root by design, RT-F3); the suite now snapshots env and points `PI_CREW_HOME` at an empty temp home, deleting the precedence-winning `PI_TEAMS_HOME`.
 
 ### What did NOT improve
 
 - Broker fan-out and worktree git-spawn memoization: unchanged (already addressed in round 1).
-- Async mailbox path (`appendMailboxMessageAsync`): intentionally left at full durability (T4 scoped to sync delivery only).
+- Async mailbox path (`appendMailboxMessageAsync`): intentionally left at full durability (T4 scoped to sync delivery only). *(→ resolved by the follow-up fixes above)*
 - Tasks-checkpoint coalescing: already present; T3 only added durability control, the 50ms grouping predates this branch.
 
 ### Verification
