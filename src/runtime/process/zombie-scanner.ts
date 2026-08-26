@@ -33,6 +33,15 @@ export interface ZombieSubagent {
 	/** Whether the recorded crew parent PID is still alive. */
 	parentAlive: boolean;
 	role: string | undefined;
+	/**
+	 * Mux kind from PI_CREW_SURFACE ("tmux"|"herdr") when the worker booted in
+	 * a surface pane (T12). Surface workers have NO heartbeat (T9 handoff) —
+	 * env markers are the only identity signal, so the scanner never gates a
+	 * surface entry on liveness telemetry.
+	 */
+	surface?: "tmux" | "herdr";
+	/** Pane id from PI_CREW_SURFACE_PANE — doctor closes orphan panes by it. */
+	surfacePaneId?: string;
 	rssKb: number;
 	elapsedSec: number | undefined;
 	cmd: string;
@@ -180,12 +189,17 @@ export function scanZombieSubagents(): ZombieScanResult {
 
 			const crewParentPid = Number.parseInt(environ.PI_CREW_PARENT_PID ?? "", 10);
 			const stat = readProcStat(pid);
+			// Surface identity (T12): strict allowlist — an unrelated PI_CREW_SURFACE
+			// value must not half-populate the fields doctor relies on for pane close.
+			const surface = environ.PI_CREW_SURFACE === "tmux" || environ.PI_CREW_SURFACE === "herdr" ? environ.PI_CREW_SURFACE : undefined;
 			const entry: ZombieSubagent = {
 				pid,
 				ppid: stat?.ppid ?? 0,
 				crewParentPid: Number.isFinite(crewParentPid) ? crewParentPid : 0,
 				parentAlive: Number.isFinite(crewParentPid) && isPidAlive(crewParentPid),
 				role: environ.PI_CREW_ROLE,
+				surface,
+				surfacePaneId: environ.PI_CREW_SURFACE_PANE || undefined,
 				rssKb: readProcRssKb(pid),
 				elapsedSec: stat?.elapsedSec,
 				cmd: readProcCmdline(pid),
@@ -252,11 +266,9 @@ export function formatZombieReport(scan: ZombieScanResult): string {
 		lines.push(`### Zombies — parent dead (${scan.zombies.length})`);
 		lines.push("These sub-agents are orphaned. Safe to kill after review:");
 		lines.push("");
-		lines.push("  PID       PARENT  RSS       ROLE          CMD");
+		lines.push("  PID       PARENT  RSS       ROLE          SURFACE          CMD");
 		for (const z of scan.zombies) {
-			lines.push(
-				`  ${String(z.pid).padEnd(9)}${String(z.crewParentPid).padEnd(8)}${formatRss(z.rssKb).padEnd(10)}${(z.role ?? "?").padEnd(14)}${z.cmd.slice(0, 60)}`,
-			);
+			lines.push(formatZombieRow(z));
 		}
 		lines.push("");
 	}
@@ -265,11 +277,9 @@ export function formatZombieReport(scan: ZombieScanResult): string {
 		lines.push(`### Live — parent still running (${scan.live.length})`);
 		lines.push("NOT zombies. Do not kill (parent PID is alive and may still reap them).");
 		lines.push("");
-		lines.push("  PID       PARENT  RSS       ROLE          CMD");
+		lines.push("  PID       PARENT  RSS       ROLE          SURFACE          CMD");
 		for (const l of scan.live) {
-			lines.push(
-				`  ${String(l.pid).padEnd(9)}${String(l.crewParentPid).padEnd(8)}${formatRss(l.rssKb).padEnd(10)}${(l.role ?? "?").padEnd(14)}${l.cmd.slice(0, 60)}`,
-			);
+			lines.push(formatZombieRow(l));
 		}
 		lines.push("");
 	}
@@ -282,6 +292,13 @@ export function formatZombieReport(scan: ZombieScanResult): string {
 
 	lines.push("To kill a zombie: `kill <PID>` (the OS will reap it). This tool never kills.");
 	return lines.join("\n");
+}
+
+/** One table row — shared by the zombie + live sections so columns stay aligned. */
+function formatZombieRow(z: ZombieSubagent): string {
+	// SURFACE = "kind:paneId" (T12) — the pane doctor closes when orphaned.
+	const surface = z.surface ? `${z.surface}:${z.surfacePaneId ?? "?"}` : "-";
+	return `  ${String(z.pid).padEnd(9)}${String(z.crewParentPid).padEnd(8)}${formatRss(z.rssKb).padEnd(10)}${(z.role ?? "?").padEnd(14)}${surface.padEnd(16)}${z.cmd.slice(0, 44)}`;
 }
 
 function formatRss(kb: number): string {

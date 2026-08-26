@@ -6,13 +6,18 @@ import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import { type DriftReport, detectDrift, formatDriftReport } from "../../config/drift-detector.ts";
 import { buildConfiguredModelRouting, resolveModelFallbackPolicy } from "../../runtime/model/model-fallback.ts";
+import { getPiTempBase } from "../../runtime/model/pi-args.ts";
 import { getRuntimeWarmupStatus } from "../../runtime/model/runtime-warmup.ts";
 import { currentSessionModel, sessionModelSnapshot } from "../../runtime/model/session-model.ts";
 import { getPiSpawnCommand } from "../../runtime/pi-spawn.ts";
-import { formatZombieReport, scanZombieSubagents } from "../../runtime/process/zombie-scanner.ts";
+import { formatZombieReport, scanZombieSubagents, type ZombieScanResult } from "../../runtime/process/zombie-scanner.ts";
+import { launchScriptRegistry, sweepLaunchScripts, sweepOrphanLaunchScriptFiles } from "../../runtime/surface/launch-script.ts";
+import { surfaceProviderForCleanup } from "../../runtime/surface/resolve-surface.ts";
+import type { SurfaceProvider } from "../../runtime/surface/surface-provider.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { TeamToolParams } from "../../schema/team-tool-schema.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
+import { TEAM_TERMINAL_RUN_STATUSES } from "../../state/contracts.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import { type FatalFsCause, fsFailureLabel } from "../../utils/fs-errno.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
@@ -514,13 +519,214 @@ export function buildTeamDoctorReport(input: TeamDoctorReportInput): TeamDoctorR
 	};
 }
 
-export function handleDoctor(ctx: TeamContext, params: TeamToolParamsValue = {}): PiTeamsToolResult {
-	// Sub-focus: zombie sub-agent scan. READ-ONLY — never kills. Returns a table of
-	// orphaned pi-crew sub-agents identified by the authoritative PI_CREW_KIND=subagent
-	// marker. The user's main session never carries that marker, so it can never appear.
+// ── T12: orphan surface-pane cleanup (doctor focus=zombies) ─────────────────
+//
+// Two orphan sources:
+//  1. zombie scan — a sub-agent whose crew parent died while carrying
+//     PI_CREW_SURFACE/PI_CREW_SURFACE_PANE: the pane outlived its host.
+//  2. terminal-run manifests — a finished run whose manifest.surface.panes
+//     still has entries (host died before releaseSurfacePane). Those panes
+//     hold the live-pane cap hostage for the rest of the run (T11 residual);
+//     doctor is the sweep that finally releases them.
+//
+// Closing is gated on provider.detect() — if the mux is unavailable the panes
+// are listed without any close attempt (fail-open list-only, never close blind).
+
+/** How many most-recent run manifests to scan for orphan panes. */
+const ORPHAN_RUN_SCAN_LIMIT = 10;
+
+export interface OrphanSurfacePane {
+	paneId: string;
+	kind: "tmux" | "herdr";
+	/** Provenance line for the human, e.g. `zombie-scan pid 4242`. */
+	source: string;
+}
+
+export interface DoctorSurfaceCleanupDeps {
+	/** Provider per kind — injectable so tests never touch a real mux. */
+	providers?: Partial<Record<"tmux" | "herdr", SurfaceProvider>>;
+	/** Clock (ms epoch) for the script TTL sweep — default Date.now. */
+	now?: () => number;
+	/** Launch-script temp base (default getPiTempBase()). */
+	tempBase?: string;
+	/** Max recent run manifests scanned — 0 skips the manifest source. */
+	runScanLimit?: number;
+}
+
+export interface DoctorSurfaceCleanupResult {
+	orphans: OrphanSurfacePane[];
+	/** Pane ids successfully closed via provider.closeSurface. */
+	closed: string[];
+	/** Pane ids the mux no longer knows — nothing to close, not a failure. */
+	gone: string[];
+	failures: { paneId: string; error: string }[];
+	/** Launch scripts removed from disk + registry (orphan script sweep, T5). */
+	scriptsSwept: number;
+	/** Why a provider kind was skipped (listed-only). */
+	providerNotes: string[];
+}
+
+/** Panes recorded on TERMINAL runs' manifests — the T11 residual leak. */
+function collectTerminalRunOrphanPanes(cwd: string, limit: number): OrphanSurfacePane[] {
+	const runsRoot = path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
+	let recentRunIds: string[];
+	try {
+		recentRunIds = fs
+			.readdirSync(runsRoot, { withFileTypes: true })
+			.filter((entry) => entry.isDirectory())
+			.map((entry) => {
+				let mtimeMs = 0;
+				try {
+					mtimeMs = fs.statSync(path.join(runsRoot, entry.name)).mtimeMs;
+				} catch {
+					/* unreadable run dir — mtime 0 sorts last */
+				}
+				return { runId: entry.name, mtimeMs };
+			})
+			.sort((a, b) => b.mtimeMs - a.mtimeMs)
+			.slice(0, limit)
+			.map((entry) => entry.runId);
+	} catch {
+		return [];
+	}
+	const orphans: OrphanSurfacePane[] = [];
+	for (const runId of recentRunIds) {
+		let manifest: Record<string, unknown>;
+		try {
+			manifest = JSON.parse(fs.readFileSync(path.join(runsRoot, runId, "manifest.json"), "utf-8"));
+		} catch {
+			continue; // unreadable/absent manifest — nothing this run can tell us
+		}
+		if (typeof manifest.status !== "string" || !TEAM_TERMINAL_RUN_STATUSES.has(manifest.status as never)) continue;
+		const surface = manifest.surface as { provider?: unknown; panes?: unknown } | undefined;
+		const kind = surface?.provider;
+		if (kind !== "tmux" && kind !== "herdr") continue;
+		if (!surface?.panes || typeof surface.panes !== "object") continue;
+		for (const [taskId, paneId] of Object.entries(surface.panes as Record<string, unknown>)) {
+			if (typeof paneId !== "string" || paneId === "") continue;
+			orphans.push({ paneId, kind, source: `run ${runId} task ${taskId} (terminal)` });
+		}
+	}
+	return orphans;
+}
+
+/**
+ * Collect + close orphan surface panes and sweep orphan launch scripts.
+ * Best-effort throughout: an error on one pane never aborts the rest, and a
+ * provider that fails detect() downgrades that kind to list-only.
+ */
+export async function cleanupOrphanSurfacePanes(input: {
+	cwd: string;
+	scan: ZombieScanResult;
+	deps?: DoctorSurfaceCleanupDeps;
+}): Promise<DoctorSurfaceCleanupResult> {
+	const deps = input.deps ?? {};
+	const now = deps.now ?? Date.now;
+
+	// Orphan launch-script sweep (optional T5): registry covers this process's
+	// scripts, disk glob covers scripts left by a dead host (they carry broker
+	// tokens, so a doctor run is the right moment to purge them).
+	let scriptsSwept = 0;
+	try {
+		scriptsSwept += sweepLaunchScripts(launchScriptRegistry, now());
+		scriptsSwept += sweepOrphanLaunchScriptFiles(deps.tempBase ?? getPiTempBase(), now());
+	} catch {
+		// best-effort — sweeping must never break the pane report
+	}
+
+	const orphans: OrphanSurfacePane[] = [];
+	const seen = new Set<string>();
+	for (const zombie of input.scan.zombies) {
+		if (!zombie.surface || !zombie.surfacePaneId || seen.has(zombie.surfacePaneId)) continue;
+		seen.add(zombie.surfacePaneId);
+		orphans.push({ paneId: zombie.surfacePaneId, kind: zombie.surface, source: `zombie-scan pid ${zombie.pid}` });
+	}
+	const runScanLimit = deps.runScanLimit ?? ORPHAN_RUN_SCAN_LIMIT;
+	if (runScanLimit > 0) {
+		for (const orphan of collectTerminalRunOrphanPanes(input.cwd, runScanLimit)) {
+			if (seen.has(orphan.paneId)) continue;
+			seen.add(orphan.paneId);
+			orphans.push(orphan);
+		}
+	}
+
+	const providerNotes: string[] = [];
+	const providers = new Map<"tmux" | "herdr", SurfaceProvider>();
+	for (const kind of [...new Set(orphans.map((orphan) => orphan.kind))]) {
+		const provider = deps.providers?.[kind] ?? surfaceProviderForCleanup(kind);
+		if (!provider) {
+			providerNotes.push(`${kind}: provider unavailable — panes listed only`);
+			continue;
+		}
+		try {
+			const detection = provider.detect();
+			if (!detection.ok) {
+				providerNotes.push(`${kind}: ${detection.reason ?? "not detected"} — panes listed only`);
+				continue;
+			}
+		} catch (error) {
+			providerNotes.push(`${kind}: detect threw (${error instanceof Error ? error.message : String(error)}) — panes listed only`);
+			continue;
+		}
+		providers.set(kind, provider);
+	}
+
+	const closed: string[] = [];
+	const gone: string[] = [];
+	const failures: { paneId: string; error: string }[] = [];
+	for (const orphan of orphans) {
+		const provider = providers.get(orphan.kind);
+		if (!provider) continue; // list-only — note already recorded per kind
+		try {
+			const handle = provider.attach(orphan.paneId);
+			if (!handle) {
+				gone.push(orphan.paneId);
+				continue;
+			}
+			await provider.closeSurface(handle, { force: true });
+			closed.push(orphan.paneId);
+		} catch (error) {
+			failures.push({ paneId: orphan.paneId, error: error instanceof Error ? error.message : String(error) });
+		}
+	}
+
+	return { orphans, closed, gone, failures, scriptsSwept, providerNotes };
+}
+
+export function formatOrphanPaneReport(cleanup: DoctorSurfaceCleanupResult): string {
+	const lines: string[] = [];
+	lines.push("## Orphan surface-pane cleanup");
+	lines.push("");
+	if (cleanup.orphans.length === 0) {
+		lines.push("No orphan surface panes found (zombie scan + terminal-run manifests).");
+	} else {
+		lines.push(`Orphan panes (${cleanup.orphans.length}):`);
+		for (const orphan of cleanup.orphans) {
+			lines.push(`  - ${orphan.kind} pane ${orphan.paneId} — ${orphan.source}`);
+		}
+		lines.push("");
+	}
+	if (cleanup.closed.length > 0) lines.push(`Closed: ${cleanup.closed.join(", ")}`);
+	if (cleanup.gone.length > 0) lines.push(`Already gone (mux no longer tracks them): ${cleanup.gone.join(", ")}`);
+	if (cleanup.failures.length > 0) {
+		lines.push(`Close failures (${cleanup.failures.length}):`);
+		for (const failure of cleanup.failures) lines.push(`  - ${failure.paneId}: ${failure.error}`);
+	}
+	for (const note of cleanup.providerNotes) lines.push(`Note: ${note}`);
+	lines.push(`Orphan launch scripts swept: ${cleanup.scriptsSwept}`);
+	return lines.join("\n");
+}
+
+export async function handleDoctor(ctx: TeamContext, params: TeamToolParamsValue = {}): Promise<PiTeamsToolResult> {
+	// Sub-focus: zombie sub-agent scan + orphan surface-pane cleanup (T12). The
+	// process scan itself stays READ-ONLY — never kills a process. The pane
+	// cleanup only closes multiplexer panes (zombie workers' panes + terminal
+	// runs' leaked panes) through the provider, gated on detect(). The user's
+	// main session never carries PI_CREW_KIND, so it can never appear here.
 	if (params.focus === "zombies") {
 		const scan = scanZombieSubagents();
-		const text = formatZombieReport(scan);
+		const cleanup = await cleanupOrphanSurfacePanes({ cwd: ctx.cwd, scan });
+		const text = `${formatZombieReport(scan)}\n\n${formatOrphanPaneReport(cleanup)}`;
 		return result(
 			text,
 			{
@@ -530,6 +736,11 @@ export function handleDoctor(ctx: TeamContext, params: TeamToolParamsValue = {})
 					zombies: scan.zombies.length,
 					live: scan.live.length,
 					errors: scan.errors.length,
+					orphanPanes: cleanup.orphans.length,
+					panesClosed: cleanup.closed.length,
+					panesGone: cleanup.gone.length,
+					paneCloseFailures: cleanup.failures.length,
+					scriptsSwept: cleanup.scriptsSwept,
 				},
 			},
 			false,

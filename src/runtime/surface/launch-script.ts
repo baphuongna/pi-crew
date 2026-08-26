@@ -137,3 +137,33 @@ export function sweepLaunchScripts(registry: Map<string, number>, now: number): 
 	}
 	return swept;
 }
+
+/**
+ * Disk sweep cho script mồ côi TỪ PROCESS KHÁC (T12, optional T5): registry chỉ
+ * biết script của process hiện tại — host chết giữa run để lại file chứa token
+ * broker trên đĩa mà không entry nào trỏ tới. Doctor quét {baseDir} theo glob
+ * `pi-crew-launch-*.sh` và xóa file cũ hơn TTL theo mtime. Trả số file đã dọn
+ * (best-effort — lỗi đĩa từng file bị bỏ qua).
+ */
+export function sweepOrphanLaunchScriptFiles(baseDir: string, now: number): number {
+	let swept = 0;
+	let entries: string[];
+	try {
+		entries = fs.readdirSync(baseDir);
+	} catch {
+		return 0; // baseDir không tồn tại/đọc lỗi — không có gì để dọn
+	}
+	for (const name of entries) {
+		if (!/^pi-crew-launch-.*\.sh$/.test(name)) continue;
+		const scriptPath = path.join(baseDir, name);
+		try {
+			const mtimeMs = fs.statSync(scriptPath).mtimeMs;
+			if (now - mtimeMs <= LAUNCH_SCRIPT_TTL_MS) continue;
+			fs.rmSync(scriptPath, { force: true });
+			swept++;
+		} catch {
+			// best-effort — file biến mất giữa readdir và stat/rm thì đã đạt mục tiêu
+		}
+	}
+	return swept;
+}

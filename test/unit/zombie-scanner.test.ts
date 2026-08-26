@@ -9,10 +9,11 @@
  */
 
 import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import { buildPiWorkerArgs } from "../../src/runtime/model/pi-args.ts";
-import { formatZombieReport, scanZombieSubagents } from "../../src/runtime/process/zombie-scanner.ts";
+import { __test, formatZombieReport, scanZombieSubagents, type ZombieSubagent } from "../../src/runtime/process/zombie-scanner.ts";
 
 function fakeAgent(): AgentConfig {
 	return {
@@ -100,4 +101,111 @@ test("formatZombieReport: render is human-readable and states read-only safety",
 test("formatZombieReport: empty scan renders a clean 'nothing found' message", () => {
 	const text = formatZombieReport({ zombies: [], live: [], errors: [] });
 	assert.match(text, /No pi-crew sub-agent processes found/i);
+});
+
+// ── T12: surface worker fields (PI_CREW_SURFACE / PI_CREW_SURFACE_PANE) ──────
+// Surface workers carry their mux identity in env; doctor (T12) reads the pane
+// id off the scan result to close orphan panes. The scan MUST NOT rely on a
+// heartbeat — surface mode has none (T9 handoff): env markers are the only signal.
+
+/** Bounded poll until /proc/<pid>/environ reflects the post-exec env. */
+async function waitForSubagentMarker(pid: number | undefined, timeoutMs = 5000): Promise<void> {
+	if (pid === undefined) return;
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (__test.readProcEnviron(pid).PI_CREW_KIND === "subagent") return;
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+}
+
+test("scanZombieSubagents: surface worker exposes surface + surfacePaneId from /proc environ", {
+	skip: process.platform !== "linux",
+}, async () => {
+	// A pid that has already exited + been reaped — process.kill(pid, 0) sees ESRCH.
+	// PID reuse within the test window is astronomically unlikely.
+	const deadParentPid = spawnSync("true").pid ?? 1;
+	const child = spawn("sleep", ["30"], {
+		env: {
+			...process.env,
+			PI_CREW_KIND: "subagent",
+			PI_CREW_PARENT_PID: String(deadParentPid),
+			PI_CREW_SURFACE: "tmux",
+			PI_CREW_SURFACE_PANE: "%12",
+		},
+		stdio: "ignore",
+	});
+	try {
+		await waitForSubagentMarker(child.pid);
+		const scan = scanZombieSubagents();
+		const entry = [...scan.zombies, ...scan.live].find((z) => z.pid === child.pid);
+		assert.ok(entry, "spawned marker process must appear in the scan");
+		assert.equal(entry.surface, "tmux", "PI_CREW_SURFACE=tmux must surface as entry.surface");
+		assert.equal(entry.surfacePaneId, "%12", "PI_CREW_SURFACE_PANE must surface as entry.surfacePaneId");
+	} finally {
+		child.kill();
+	}
+});
+
+test("scanZombieSubagents: headless worker leaves surface fields undefined", { skip: process.platform !== "linux" }, async () => {
+	const deadParentPid = spawnSync("true").pid ?? 1;
+	const child = spawn("sleep", ["30"], {
+		env: {
+			...process.env,
+			PI_CREW_KIND: "subagent",
+			PI_CREW_PARENT_PID: String(deadParentPid),
+		},
+		stdio: "ignore",
+	});
+	try {
+		await waitForSubagentMarker(child.pid);
+		const scan = scanZombieSubagents();
+		const entry = [...scan.zombies, ...scan.live].find((z) => z.pid === child.pid);
+		assert.ok(entry, "spawned marker process must appear in the scan");
+		assert.equal(entry.surface, undefined, "no PI_CREW_SURFACE → surface stays undefined");
+		assert.equal(entry.surfacePaneId, undefined, "no PI_CREW_SURFACE_PANE → surfacePaneId stays undefined");
+	} finally {
+		child.kill();
+	}
+});
+
+test("scanZombieSubagents: unknown PI_CREW_SURFACE value is ignored (not half-parsed)", {
+	skip: process.platform !== "linux",
+}, async () => {
+	const deadParentPid = spawnSync("true").pid ?? 1;
+	const child = spawn("sleep", ["30"], {
+		env: {
+			...process.env,
+			PI_CREW_KIND: "subagent",
+			PI_CREW_PARENT_PID: String(deadParentPid),
+			PI_CREW_SURFACE: "screen", // not a pi-crew surface kind
+			PI_CREW_SURFACE_PANE: "%99",
+		},
+		stdio: "ignore",
+	});
+	try {
+		await waitForSubagentMarker(child.pid);
+		const scan = scanZombieSubagents();
+		const entry = [...scan.zombies, ...scan.live].find((z) => z.pid === child.pid);
+		assert.ok(entry, "spawned marker process must appear in the scan");
+		assert.equal(entry.surface, undefined, "unsupported surface kind must not be reported");
+	} finally {
+		child.kill();
+	}
+});
+
+test("formatZombieReport: surface entries render pane id + provider", () => {
+	const zombie: ZombieSubagent = {
+		pid: 4242,
+		ppid: 1,
+		crewParentPid: 4242 - 100,
+		parentAlive: false,
+		role: "executor",
+		surface: "tmux",
+		surfacePaneId: "%12",
+		rssKb: 2048,
+		elapsedSec: 600,
+		cmd: "pi --mode json -p task",
+	};
+	const text = formatZombieReport({ zombies: [zombie], live: [], errors: [] });
+	assert.match(text, /tmux:%12/, "report must show provider + pane id for surface zombies");
 });

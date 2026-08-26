@@ -186,3 +186,22 @@ export function resolveSurface(
 	herdrProviderSingleton ??= createHerdrProvider();
 	return herdrProviderSingleton;
 }
+
+/**
+ * Doctor orphan-pane cleanup (T12): provider singleton THEO KIND, không qua gate
+ * matrix §3 — doctor dọn pane mồ côi chứ không spawn worker mới, nên các gate
+ * async-run/depth/cap không áp dụng. Caller tự gọi detect() và chỉ close khi mux
+ * còn sống; trả null khi constructor throw (never — nhưng doctor fail-open list-only).
+ */
+export function surfaceProviderForCleanup(kind: "tmux" | "herdr"): SurfaceProvider | null {
+	try {
+		if (kind === "tmux") {
+			tmuxProviderSingleton ??= createTmuxProvider();
+			return tmuxProviderSingleton;
+		}
+		herdrProviderSingleton ??= createHerdrProvider();
+		return herdrProviderSingleton;
+	} catch {
+		return null;
+	}
+}
