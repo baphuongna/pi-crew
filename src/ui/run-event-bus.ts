@@ -359,7 +359,16 @@ export function teamEventToRunEventType(event: TeamEvent): RunEventType | undefi
 	if (type === "run.blocked") return "run_blocked";
 	if (type === "run.running") return "run_started";
 	if (type === "run.cancelled") return "run_cancelled";
-	if (type === "task.progress" || type === "mailbox.message_queued" || type === "mailbox.message_delivered") return "mailbox_updated";
+	if (
+		type === "task.progress" ||
+		type === "mailbox.message_queued" ||
+		type === "mailbox.message_delivered" ||
+		// Task 5b (§15.2 wake): broker-side worker→parent wake signal. Maps to
+		// the existing mailbox_updated/run:state channel so sidebar+widget
+		// refresh through the render scheduler without new UI code.
+		type === "worker.message"
+	)
+		return "mailbox_updated";
 	if (type === "run.effectiveness" || type === "task.attention") return "effectiveness_changed";
 	return undefined;
 }

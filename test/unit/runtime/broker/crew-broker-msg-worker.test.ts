@@ -252,6 +252,106 @@ test("worker msg.send to sibling taskId → ok (DM delivers to that task's inbox
 	}
 });
 
+test("worker msg.send to parent → appends worker.message run event (kind/subject only, never body)", async () => {
+	const s = await scaffoldRunningTask("wakev");
+	const { broker, socketPath } = await startBroker({ cwd: s.cwd });
+	try {
+		const token = broker.issueRunToken(s.runId, s.taskId);
+		const client = await rawConnect(socketPath);
+		try {
+			await hello(client, s.runId, s.taskId, token);
+			const res = await sendMsg(client, {
+				to: "parent",
+				body: "secret-body-milestone-parser-done",
+				kind: "notify",
+				subject: "parser milestone",
+			});
+			assert.ok(res.result, `worker to:parent must succeed: ${JSON.stringify(res)}`);
+			const loaded = loadRunManifestById(s.cwd, s.runId)!;
+			const lines = fs.readFileSync(loaded.manifest.eventsPath, "utf-8").trim().split("\n").filter(Boolean);
+			const events = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+			const wake = events.filter((e) => e.type === "worker.message");
+			assert.equal(wake.length, 1, "exactly one worker.message event must be appended");
+			assert.equal(wake[0]!.runId, s.runId);
+			assert.equal(wake[0]!.taskId, s.taskId, "taskId must be the sender");
+			const data = wake[0]!.data as Record<string, unknown>;
+			assert.equal(data.to, "parent");
+			assert.equal(data.kind, "notify");
+			assert.equal(data.subject, "parser milestone");
+			assert.ok(!("body" in data), "event data must not carry the body");
+			assert.ok(
+				!lines.some((l) => l.includes("secret-body-milestone-parser-done")),
+				"message body must never leak into the run event log",
+			);
+		} finally {
+			client.close();
+		}
+	} finally {
+		await broker.stop();
+		fs.rmSync(s.cwd, { recursive: true, force: true });
+	}
+});
+
+test("worker msg.send to parent → live orchestrator connection receives mailbox.message frame", async () => {
+	const s = await scaffoldRunningTask("wakel");
+	const { broker, socketPath } = await startBroker({ cwd: s.cwd });
+	try {
+		// Orchestrator-side connection: role comes from the orchestrator token.
+		const orchToken = broker.issueOrchestratorToken(s.runId);
+		const orch = await rawConnect(socketPath);
+		const worker = await rawConnect(socketPath);
+		try {
+			await hello(orch, s.runId, "leader", orchToken);
+			await hello(worker, s.runId, s.taskId, broker.issueRunToken(s.runId, s.taskId));
+			// Arm the frame wait BEFORE sending: the broker's mailbox-append
+			// observer fans out on a microtask, so the orchestrator frame can
+			// hit the socket before the sender's ack does.
+			const framePromise = orch.waitForFrame((f) => (f as { event?: string })?.event === "mailbox.message") as Promise<{
+				data?: Record<string, unknown>;
+			}>;
+			const res = await sendMsg(worker, { to: "parent", body: "need decision on API shape", kind: "message" });
+			assert.ok(res.result, `worker to:parent must succeed: ${JSON.stringify(res)}`);
+			const frame = await framePromise;
+			assert.ok(frame, "orchestrator conn must receive the live mailbox.message frame");
+			assert.equal(frame.data!.to, "parent");
+			assert.equal(frame.data!.from, s.taskId);
+			assert.equal(frame.data!.kind, "message");
+		} finally {
+			orch.close();
+			worker.close();
+		}
+	} finally {
+		await broker.stop();
+		fs.rmSync(s.cwd, { recursive: true, force: true });
+	}
+});
+
+test("worker DM to sibling does NOT append a worker.message event", async () => {
+	const s = await scaffoldRunningTask("wakedm");
+	const { broker, socketPath } = await startBroker({ cwd: s.cwd });
+	try {
+		const token = broker.issueRunToken(s.runId, s.taskId);
+		const client = await rawConnect(socketPath);
+		try {
+			await hello(client, s.runId, s.taskId, token);
+			const res = await sendMsg(client, { to: s.siblingTaskId, body: "dm body", kind: "message" });
+			assert.ok(res.result, `worker DM must succeed: ${JSON.stringify(res)}`);
+			const loaded = loadRunManifestById(s.cwd, s.runId)!;
+			const lines = fs.readFileSync(loaded.manifest.eventsPath, "utf-8").trim().split("\n").filter(Boolean);
+			const events = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+			assert.ok(
+				!events.some((e) => e.type === "worker.message"),
+				"worker.message event is reserved for to:'parent' wake — DMs must not emit it",
+			);
+		} finally {
+			client.close();
+		}
+	} finally {
+		await broker.stop();
+		fs.rmSync(s.cwd, { recursive: true, force: true });
+	}
+});
+
 test("worker msg.send with non-notify/message kind → bad-params", async () => {
 	const s = await scaffoldRunningTask("kind");
 	const { broker, socketPath } = await startBroker({ cwd: s.cwd });

@@ -555,7 +555,18 @@ export class CrewBroker {
 		for (const conn of set) {
 			if (conn.closed || !conn.authed) continue;
 			// Recipient filter: deliver to the addressed task, or to all if 'all'.
-			if (msg.to && msg.to !== "all" && conn.taskId !== msg.to) continue;
+			// Task 5b (§15.2 wake): "parent"-addressed messages land in the
+			// run-level inbox, whose live consumer is the run's orchestrator
+			// connection (role from the orchestrator token — its taskId never
+			// equals "parent"), so without this branch the wake frame would be
+			// filtered out and the orchestrator would only see the message on
+			// its next inbox poll.
+			const isRecipient =
+				!msg.to ||
+				msg.to === "all" ||
+				conn.taskId === msg.to ||
+				(msg.to === "parent" && conn.role === "orchestrator");
+			if (!isRecipient) continue;
 			try {
 				this.writeOrQueue(conn, eventFrame, false);
 			} catch {
@@ -873,6 +884,9 @@ export class CrewBroker {
 		// and message id, `mailboxTaskId` is the mailbox file the append lands
 		// in (undefined = run-level inbox, which the orchestrator consumes).
 		let targets: Array<{ label: string; mailboxTaskId: string | undefined }>;
+		// Task 5b (spec §15.2 wake): set when a worker addresses the parent —
+		// the durable write alone would sit unread in the run-level inbox.
+		let sentToParent = false;
 		if (isWorker) {
 			// Worker constraint (1): from is ALWAYS the authenticated taskId.
 			// Worker constraint (2): to is limited to parent | valid sibling
@@ -885,6 +899,7 @@ export class CrewBroker {
 			if (to === "parent") {
 				// Run-level inbox (taskId undefined) → the orchestrator session.
 				targets = [{ label: "parent", mailboxTaskId: undefined }];
+				sentToParent = true;
 			} else if (to === "group") {
 				targets = taskIds.map((t) => ({ label: t, mailboxTaskId: t }));
 			} else if (to !== undefined && taskIds.includes(to)) {
@@ -943,6 +958,33 @@ export class CrewBroker {
 		} catch (err) {
 			this.sendError(conn, id, "durable-failed", (err as Error).message);
 			return;
+		}
+		// Task 5b (spec §15.2 wake): a worker message addressed to the parent
+		// appends a bounded `worker.message` run event so the host-side event
+		// bus (sidebar/widget refresh) and any live orchestrator connection
+		// wake up. Only kind/subject are recorded — NEVER the body, to keep the
+		// append-only event log lean. Awaited before the ack so the wake signal
+		// is durable by the time the caller proceeds; failure is non-fatal (the
+		// mailbox write above is the source of truth).
+		if (sentToParent) {
+			try {
+				await appendEventAsync(manifest.eventsPath, {
+					type: "worker.message",
+					runId: manifest.runId,
+					taskId: fromField,
+					data: {
+						to: "parent",
+						kind: parsed.kind ?? "message",
+						...(parsed.subject !== undefined ? { subject: parsed.subject } : {}),
+					},
+				});
+			} catch (err) {
+				logInternalError(
+					"crew-broker.msg.worker-message-event",
+					err instanceof Error ? err : new Error(String(err)),
+					`runId=${conn.runId}`,
+				);
+			}
 		}
 		this.sendResult(conn, id, {
 			messageId,
@@ -2050,6 +2092,9 @@ interface MsgSendParams {
 	kind?: MailboxMessageKind;
 	priority?: MailboxMessagePriority;
 	replyTo?: string;
+	/** Task 5b (§15.2): short subject echoed into the worker.message wake
+	 * event (bounded like the tool-side MSG_SUBJECT_MAX_CHARS). */
+	subject?: string;
 }
 
 function parseMsgSendParams(value: unknown): MsgSendParams | undefined {
@@ -2069,7 +2114,8 @@ function parseMsgSendParams(value: unknown): MsgSendParams | undefined {
 		return undefined;
 	}
 	const replyTo = typeof v.replyTo === "string" ? v.replyTo : undefined;
-	return { to: to as string | string[] | "all", body: v.body, kind, priority, replyTo };
+	const subject = typeof v.subject === "string" && v.subject.length > 0 && v.subject.length <= 256 ? v.subject : undefined;
+	return { to: to as string | string[] | "all", body: v.body, kind, priority, replyTo, subject };
 }
 
 interface MsgInboxParams {
