@@ -3,7 +3,10 @@
  *
  * Baseline context (2026-08-26, machine bom, cwd /home/bom/source/my_pi —
  * 77k rg files, ~57k post-ext-filter): runRetrievalCycle took 5266ms cold /
- * 4278ms warm before the single-pass + stopword + discovery-cache fixes.
+ * 4278ms warm (shortened-goal variant used by this bench; the full-length
+ * real-run goal measured 7055/3335ms — see the erratum in
+ * docs/real-test/reports/perf-round3-probe.md) before the single-pass +
+ * stopword + discovery-cache fixes.
  * Budgets below are deliberately generous (4x the post-fix expectation) so
  * slower CI machines stay green while a regression to the 3-cycle behavior
  * (which triples the cost) fails loudly.

@@ -20,7 +20,12 @@ accumulating evaluation list (same file up to 3× in the top-10).
 | runRetrievalCycle cold | 7055 ms | 1980 ms | −72% |
 | warm, new keywords (discovery cache) | 3335 ms | 275 ms | −92% |
 | keywords from tokenize | 55 | 41 | −25% |
-| duplicate paths in top-10 | up to 3× | 0 | — |
+| duplicate paths in top-10 | up to 3×¹ | 0 | — |
+
+¹ Observed ×3 on the original real-run workload; the identical-input baseline
+re-measure shows max 1 (score-tie ordering can keep cycle-2/3 duplicates out
+of the top slice — the cross-cycle accumulation mechanism itself is what T1
+removed). See the probe report footnote.
 
 Prompt-pipeline impact: the measured 6-8s/task gap (real test) had retrieval
 as its dominant component; post-fix retrieval is 2.0s cold / 0.28s warm —

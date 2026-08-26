@@ -13,7 +13,9 @@
 | `runRetrievalCycle` cold | 7055 ms (7039–7258) | **1980 ms** (1911–2165) | **−72%** |
 | warm, keywords mới (discovery cache hit) | 3335 ms (3248–3911) | **275 ms** (257–289) | **−92%** |
 | keywords từ tokenize(task+goal) | 55 | **41** | −25% |
-| duplicate paths trong top-10 | tối đa 3× cùng file | **0** | — |
+| duplicate paths trong top-10 | tối đa 3× cùng file¹ | **0** | — |
+
+¹ Quan sát ×3 lấy từ run thật `team_20260826002634` (workload đầu tiên của round này). Với input probe hiện tại, baseline cho max dupe = 1 — top-10 baseline gồm 10 file score 0.531 khác nhau, stable sort giữ các bản sao cycle 2/3 khỏi lọt vào slice; cơ chế tích lũy trùng path giữa cycles vẫn đúng (đó là động cơ dedupe của T1), chỉ là magnitude phụ thuộc phân bố score của workload.
 | rg spawns per retrieval | 3 | **1** cold / **0** warm | — |
 
 ## b13 bench (ngữ cảnh khác — repo pi-crew nhỏ)
