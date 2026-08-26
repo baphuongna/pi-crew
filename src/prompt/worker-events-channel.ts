@@ -46,6 +46,8 @@ export interface WorkerEventsChannelOptions {
 export interface WorkerEventsChannel {
 	/** Emit a worker.* event. false = dropped (schema/rate/buffer reasons). */
 	emit(type: string, data: Record<string, unknown>): boolean;
+	/** Emit a terminal worker.* event (bypasses rate-limit; schema/buffer still apply). */
+	emitTerminal(type: string, data: Record<string, unknown>): boolean;
 	/** Retry queued appends (called on the next emit internally). */
 	flush(): void;
 	/** Test introspection. */
@@ -174,6 +176,37 @@ export function createWorkerEventsChannel(options: WorkerEventsChannelOptions = 
 			}
 			pending.push({ type, data, droppedSinceLast: suppressedSinceLast });
 			suppressedSinceLast = 0;
+			return true;
+		},
+		emitTerminal(type: string, data: Record<string, unknown>): boolean {
+			if (!eventsPath || !runId) return false; // non-team context — no-op
+			if (!WORKER_EVENT_TYPE_PATTERN.test(type)) {
+				counters.droppedSchema++;
+				return false;
+			}
+			// NO sliding-window rate limit — terminal events bypass.
+			// Drain any queued items first (FIFO — oldest first), then the new one.
+			if (pending.length > 0) {
+				const carry = flushInternal(0);
+				if (carry > 0) {
+					// Writer failing: queue the new item under the FIFO cap.
+					if (pending.length >= bufferCap) {
+						pending.shift();
+						counters.droppedBuffer++;
+					}
+					pending.push({ type, data, droppedSinceLast: 0 });
+					return true; // accepted (queued)
+				}
+			}
+			if (write({ type, data, droppedSinceLast: 0 })) {
+				counters.accepted++;
+				return true;
+			}
+			if (pending.length >= bufferCap) {
+				pending.shift();
+				counters.droppedBuffer++;
+			}
+			pending.push({ type, data, droppedSinceLast: 0 });
 			return true;
 		},
 		flush(): void {
