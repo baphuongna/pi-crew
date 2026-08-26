@@ -35,6 +35,7 @@ import test from "node:test";
 import {
 	acknowledgeMailboxMessage,
 	appendMailboxMessage,
+	appendMailboxMessageAsync,
 	readDeliveryState,
 	readMailbox,
 } from "../../../../src/state/coordination/mailbox.ts";
@@ -176,6 +177,39 @@ test("explicit full durability stays full — the terminal acknowledge path keep
 		assert.ok(fs.existsSync(deliveryFile), "delivery.json must still exist after acknowledge (liveness)");
 		const finalDelivery = readDeliveryState(manifest);
 		assert.equal(finalDelivery.messages[appended.id], "acknowledged", "acknowledge must mark the message acknowledged");
+	} finally {
+		spy.restore();
+		removeTrackedTempDir(dir);
+	}
+});
+
+test("appendMailboxMessageAsync delivery write is best-effort too (mirror of the sync twin)", async () => {
+	const { dir, manifest } = setupMailboxWorkspace();
+	const spy = spyFsyncsUnder(manifest.stateRoot);
+	try {
+		// First async append ALSO initializes the mailbox — absorb init noise
+		// into a baseline (same pattern as the sync-twin test above).
+		const first = await appendMailboxMessageAsync(manifest, {
+			direction: "outbox",
+			from: "broker",
+			to: "task_1",
+			body: "async twin init",
+		});
+		const afterInit = spy.fsyncs();
+		assert.ok(afterInit > 0, "instrument liveness: init writes are full durability, fsyncs must be counted");
+
+		// Pure async delivery append: best-effort default must add 0 fsyncs.
+		const appended = await appendMailboxMessageAsync(manifest, {
+			direction: "outbox",
+			from: "broker",
+			to: "task_1",
+			body: "async twin",
+		});
+		const afterAppend = spy.fsyncs();
+		assert.equal(afterAppend, afterInit, "async delivery append must add 0 fsyncs (best-effort default)");
+		const delivery = readDeliveryState(manifest);
+		assert.equal(delivery.messages[appended.id], appended.status, "async append must still record delivery");
+		assert.equal(delivery.messages[first.id], first.status, "first async append must be tracked too");
 	} finally {
 		spy.restore();
 		removeTrackedTempDir(dir);

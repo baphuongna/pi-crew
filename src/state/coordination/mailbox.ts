@@ -756,7 +756,11 @@ export async function appendMailboxMessageAsync(
 		const delivery = readDeliveryState(manifest);
 		delivery.messages[complete.id] = complete.status;
 		delivery.updatedAt = createdAt;
-		writeDeliveryState(manifest, delivery, { durability: "full" });
+		// PERF round 2 (mirror of the sync-twin fix at :647): delivery.json is
+		// informational and the next message overwrites it — drop the forced
+		// full durability so the default (best-effort) applies here too. A
+		// crash risks re-delivery only, the accepted default-path semantics.
+		writeDeliveryState(manifest, delivery);
 	});
 	notifyMailboxAppended(complete);
 	return complete;
