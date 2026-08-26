@@ -19,6 +19,7 @@ import { Worker } from "node:worker_threads";
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { currentCrewDepth } from "../model/pi-args.ts";
 import type { SurfaceProvider } from "./surface-provider.ts";
+import { createTmuxProvider } from "./tmux-provider.ts";
 
 /** Hard cap on live surface panes per run (D6). Reaching it → headless. */
 export const MAX_SURFACE_WORKERS = 6;
@@ -46,6 +47,10 @@ export interface ResolveSurfaceOpts {
 // Binary availability cache — same shape as hasCommand in amos tmux helpers:
 // `command -v` is a subprocess, so memoize per binary path for the hot path.
 const binaryAvailability = new Map<string, boolean>();
+
+// tmux provider singleton — mọi pane của process này chia sẻ 1 onExit poll
+// interval trong provider, nên resolveSurface phải trả về cùng instance.
+let tmuxProviderSingleton: SurfaceProvider | null = null;
 
 function hasBinary(bin: string): boolean {
 	const cached = binaryAvailability.get(bin);
@@ -135,10 +140,10 @@ function pingSocketSync(socketPath: string, timeoutMs = HERDR_PING_TIMEOUT_MS): 
  *  6. auto: TMUX + binary → tmux, else HERDR_ENV + binary + live socket →
  *     herdr; forced mode only tries its own cell, fail → null
  *
- * TODO(T3/T4): wire production providers here — dynamic-import the tmux and
- * herdr provider factories and pass them as the default `providers`. Until
- * then a caller without injected providers gets null (headless) even when
- * detection succeeds.
+ * Providers: tmux dùng createTmuxProvider (T3, singleton — chia sẻ 1 poll
+ * interval cho mọi pane của process này); injected `opts.providers` thắng
+ * cho test. TODO(T4): herdr provider thật — đến khi đó herdr cell detect
+ * thành công vẫn trả null (headless).
  */
 export function resolveSurface(
 	env: NodeJS.ProcessEnv,
@@ -176,7 +181,13 @@ export function resolveSurface(
 	}
 	if (kind === null) return null;
 
-	// TODO(T3/T4): default to the real provider factories once they land.
-	const provider = opts.providers?.[kind];
-	return provider ?? null;
+	// Injected providers thắng (test); tmux mặc định dùng provider thật (T3);
+	// herdr chờ T4 — detect thành công vẫn headless.
+	const injected = opts.providers?.[kind];
+	if (injected) return injected;
+	if (kind === "tmux") {
+		tmuxProviderSingleton ??= createTmuxProvider();
+		return tmuxProviderSingleton;
+	}
+	return null;
 }

@@ -233,6 +233,28 @@ test("async run (PI_CREW_ASYNC_RUN=1) → null — A1 force headless (spec §14)
 	assert.equal(resolveSurface(env, makeConfig(), "executor", 0, { tmuxBin: fakeBinary("tmux"), providers }), null);
 });
 
+test("wiring T3: không inject providers → tmux factory thật; herdr vẫn null (TODO T4)", () => {
+	// tmux cell detect thành công, không inject → provider tmux thật (không null)
+	const tmux = resolveSurface(tmuxEnv, makeConfig(), "executor", 0, {
+		tmuxBin: fakeBinary("tmux"),
+	});
+	assert.equal(tmux?.kind, "tmux");
+	assert.notEqual(tmux, providers.tmux);
+	// cùng singleton qua các lần gọi
+	const again = resolveSurface(tmuxEnv, makeConfig(), "executor", 0, {
+		tmuxBin: fakeBinary("tmux"),
+	});
+	assert.equal(again, tmux);
+	// herdr detect thành công nhưng chưa có provider thật (T4) → vẫn null
+	assert.equal(
+		resolveSurface(herdrEnv, makeConfig(), "executor", 0, {
+			herdrBin: fakeBinary("herdr"),
+			pingSocket: () => true,
+		}),
+		null,
+	);
+});
+
 test("default pingSocket: socket thật sống → herdr; socket chết → null", async () => {
 	const server = net.createServer(() => undefined);
 	const socketPath = join(binDir, `herdr-live-${Math.random().toString(36).slice(2, 8)}.sock`);
