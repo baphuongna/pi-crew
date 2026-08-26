@@ -152,12 +152,15 @@ describe("F1 — tools: frontmatter wildcards (parseToolsField)", () => {
 	});
 });
 
-describe("F1 — excludeExtensions + ADR-5 §8 extension ALLOWLIST at depth>0", () => {
-	// ADR-5 §8 (governed nesting, T3/WP-5 step 8): every spawn buildPiWorkerArgs
-	// produces runs at depth > 0 (workers depth 1, grandchildren 2+) — the
-	// extension list is an ALLOWLIST: ONLY PROMPT_RUNTIME_EXTENSION_PATH is
-	// emitted, regardless of source. The legacy denylist/SEC-1 strips remain as
-	// defense-in-depth but agent-declared extensions never reach a sub-agent.
+describe("F1 → D5 — extension discovery is OPEN at depth>0 (spec v0.7 §6)", () => {
+	// D5 (spec v0.7 §6, 2026-08 loadout rework) REVERSED the ADR-5 §8
+	// allowlist: the default worker loadout is a FULL pi session (like the
+	// main session). Agent-declared `extensions:` are emitted after the
+	// always-present prompt-runtime extension, `--no-extensions` is gone,
+	// and the excludeExtensions/SEC-1 strips were removed with it (the
+	// denylist was subsumed by the allowlist it defended; with the
+	// allowlist gone, discovery is governed by the same trust model as the
+	// main session — `pi install` decides what loads).
 	const extensionFlagsOf = (args: string[]): string[] => {
 		const flags: string[] = [];
 		for (let i = 0; i < args.length; i++) {
@@ -166,34 +169,35 @@ describe("F1 — excludeExtensions + ADR-5 §8 extension ALLOWLIST at depth>0", 
 		return flags;
 	};
 
-	it("user-sourced agent extensions are NOT emitted (allowlist, ADR-5 §8)", () => {
+	it("user-sourced agent extensions ARE emitted (D5 open discovery)", () => {
 		const agent = makeAgentConfig({ source: "user", extensions: ["foo", "bar"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
 		const flags = extensionFlagsOf(args);
-		assert.ok(!flags.includes("foo"), "user-sourced 'foo' must NOT pass the allowlist");
-		assert.ok(!flags.includes("bar"), "user-sourced 'bar' must NOT pass the allowlist");
+		assert.ok(flags.includes("foo"), "user-sourced 'foo' must pass through (D5)");
+		assert.ok(flags.includes("bar"), "user-sourced 'bar' must pass through (D5)");
 	});
 
-	it("excludeExtensions entries never appear (denylist subsumed by allowlist)", () => {
+	it("excludeExtensions entries appear (denylist removed with the allowlist it defended)", () => {
 		const agent = makeAgentConfig({ source: "user", extensions: ["foo", "bar", "baz"], excludeExtensions: ["foo", "baz"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
 		const flags = extensionFlagsOf(args);
-		assert.ok(!flags.includes("foo") && !flags.includes("baz"));
-		assert.ok(!flags.includes("bar"), "even non-excluded 'bar' is dropped at depth>0");
+		assert.ok(flags.includes("foo") && flags.includes("baz"), "excludeExtensions is no longer applied on this path");
+		assert.ok(flags.includes("bar"), "non-excluded 'bar' passes through");
 	});
 
-	it("project-sourced agent extensions are NOT emitted (SEC-1 hole closed regardless of trust flag)", () => {
+	it("project-sourced agent extensions ARE emitted (SEC-1 strip removed by D5)", () => {
 		const agent = makeAgentConfig({ source: "project", extensions: ["/tmp/attacker.ts"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
 		const flags = extensionFlagsOf(args);
-		assert.ok(!flags.includes("/tmp/attacker.ts"));
+		assert.ok(flags.includes("/tmp/attacker.ts"), "project-sourced extensions pass through (same trust model as main session)");
 	});
 
-	it("--no-extensions + prompt-runtime remain (the allowlist member)", () => {
+	it("NO --no-extensions; prompt-runtime always present and first", () => {
 		const agent = makeAgentConfig({ source: "user", extensions: ["foo"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
-		assert.ok(args.includes("--no-extensions"));
+		assert.ok(!args.includes("--no-extensions"), "extension discovery must stay open");
 		const flags = extensionFlagsOf(args);
-		assert.equal(flags.length, 1, `exactly one --extension flag expected, got ${JSON.stringify(flags)}`);
+		assert.ok(flags.length === 2, `prompt-runtime + declared extension expected, got ${JSON.stringify(flags)}`);
+		assert.ok(flags[0]!.includes("prompt-runtime"), "prompt-runtime is emitted first (infrastructure, declared extensions after)");
 	});
 });

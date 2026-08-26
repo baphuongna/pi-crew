@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
-import { resolveToolPolicy } from "../../agents/agent-config.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { packageRoot, userPiRoot } from "../../utils/paths.ts";
 
@@ -278,71 +277,34 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		args.push("--thinking", effectiveThinking);
 	}
 
-	// Apply role-based tool restrictions (from role-tools.ts)
-	// F1 unify (v0.8.0): the tool policy is resolved by the shared
-	// `resolveToolPolicy` helper (same code as the live-session path), so the
-	// two spawn paths agree. Before this, child-pi used role-config
-	// authoritative and ignored `agent.disallowedTools`; live-session used
-	// frontmatter authoritative and ignored role-config. Now:
-	//   - allowlist precedence is source-aware (builtin → role authoritative;
-	//     user/project → frontmatter authoritative)
-	//   - denylist is additive (role excludeTools + agent disallowedTools merged)
-	const policy = resolveToolPolicy(input.agent, input.role);
-	const explicitTools = policy.tools;
-	const excludeTools = policy.excludeTools;
-
-	// §0c C6: agent.disableTools (Pi `--no-tools`) fully disables all tools. Used by
-	// capability-locked agents (e.g. the goal-judge) that must have NO agency.
-	// MUST come before any --tools/--exclude-tools so it wins (Pi applies last-wins).
-	// An empty `tools:[]` is INSUFFICIENT because the length-check below skips it.
+	// D5 (spec v0.7 §6): default loadout = FULL session (như main session).
+	// --no-extensions/--no-skills/--tools CHỈ xuất hiện khi agent .md khai explicit.
+	const CONTROL_TOOLS = ["ask", "delegate"] as const;
 	if (input.agent.disableTools === true) {
-		args.push("--no-tools");
+		args.push("--no-tools"); // capability-locked agents giữ hành vi (goal-judge)
 	} else {
-		if (explicitTools?.length) args.push("--tools", explicitTools.join(","));
-		if (excludeTools?.length) args.push("--exclude-tools", excludeTools.join(","));
-	}
-	// Always add --no-extensions before --extension to prevent user extensions from being auto-loaded.
-	// User extensions in ~/.pi/agent/extensions/ may fail due to missing dependencies.
-	args.push("--no-extensions");
-	if (input.agent.extensions !== undefined) {
-		// F1 (v0.7.9): apply `excludeExtensions` denylist (case-insensitive
-		// basename match) BEFORE the trusted PROMPT_RUNTIME_EXTENSION_PATH is
-		// prepended. The prompt-runtime is a pi-crew internal and is never
-		// excludable. Unknown names in the denylist are tolerated (logged
-		// would be nice but this path is sync and minimal — keeping parity
-		// with the rest of the agent loader's best-effort semantics).
-		const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path.basename(name).toLowerCase()));
-		let allowed = input.agent.extensions.filter((ext) => !excluded.has(path.basename(ext).toLowerCase()));
-		// SEC-1: Defense-in-depth — deny untrusted project-sourced extensions
-		// unless explicitly trusted via PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1.
-		// Even if parseAgentFile missed the strip (e.g., agent was constructed
-		// at runtime), buildPiWorkerArgs must never emit --extension
-		// <attacker-path> for a project / project-pi agent. Both `project`
-		// (.crew/agents/) and `project-pi` (.pi/agents/) are repo-adjacent /
-		// untrusted sources. Only the trusted PROMPT_RUNTIME_EXTENSION_PATH is
-		// allowed through.
-		const extEnv = input.env ?? process.env;
-		if (
-			(input.agent.source === "project" || input.agent.source === "project-pi") &&
-			extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1"
-		) {
-			allowed = allowed.filter((ext) => path.resolve(ext) === path.resolve(PROMPT_RUNTIME_EXTENSION_PATH));
+		// AgentConfig.tools is string[] (parseToolsField normalizes the
+		// frontmatter CSV), but inline/runtime-constructed agents may still
+		// carry the raw CSV string — normalize both.
+		const rawTools: unknown = input.agent.tools;
+		const declared =
+			typeof rawTools === "string"
+				? rawTools.split(",").map((t) => t.trim()).filter(Boolean)
+				: Array.isArray(rawTools)
+					? rawTools.map((t) => String(t).trim()).filter(Boolean)
+					: [];
+		if (declared.length > 0) {
+			const allow = new Set<string>([...declared, ...CONTROL_TOOLS]);
+			args.push("--tools", [...allow].join(","));
 		}
-		// ADR-5 §8 (governed nesting, T3/WP-5 step 8): every spawn this builder
-		// produces runs at depth > 0 (workers are depth 1, delegate grandchildren
-		// are 2+; currentCrewDepth(base)+1 is ALWAYS >= 1) — the extension list
-		// is an unconditional ALLOWLIST: only the trusted
-		// PROMPT_RUNTIME_EXTENSION_PATH passes, REGARDLESS OF SOURCE. User-sourced
-		// agent declarations can no longer inject extensions into sub-agents
-		// (SEC-1's project-only strip left user/builtin declarations unfiltered —
-		// the audit's untested hole). The denylist + SEC-1 strip above remain as
-		// defense-in-depth; the allowlist is authoritative.
-		allowed = [];
-		for (const extension of [PROMPT_RUNTIME_EXTENSION_PATH, ...allowed]) args.push("--extension", extension);
-	} else {
-		args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
+		// declared rỗng → KHÔNG truyền --tools (full default toolset — pattern
+		// buildSubagentToolAllowlist của pi-interactive-subagents index.ts:809-811).
 	}
-	if (!input.agent.inheritSkills) args.push("--no-skills");
+	// prompt-runtime extension luôn nạp (hạ tầng phối hợp — không phải cắt xén).
+	args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
+	for (const ext of input.agent.extensions ?? []) args.push("--extension", ext);
+	// KHÔNG còn --no-extensions (extension discovery hoạt động như main session).
+	if (input.agent.inheritSkills === false) args.push("--no-skills");
 	for (const skillPath of input.skillPaths ?? []) args.push("--skill", skillPath);
 
 	let tempDir: string | undefined;
