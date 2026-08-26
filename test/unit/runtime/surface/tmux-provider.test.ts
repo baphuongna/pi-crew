@@ -193,9 +193,9 @@ test("closeSurface graceful: SIGTERM pid → đợi 3s → pane vẫn sống →
 	await provider.closeSurface(handle);
 	// Thứ tự: alive-check → pid query → SIGTERM → sleep 3s → alive-check → kill-pane
 	assert.deepEqual(h.calls, [
-		["list-panes", "-F", "#{pane_dead} #{pane_id}"],
-		["list-panes", "-F", "#{pane_pid} #{pane_id}"],
-		["list-panes", "-F", "#{pane_dead} #{pane_id}"],
+		["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"],
+		["list-panes", "-a", "-F", "#{pane_pid} #{pane_id}"],
+		["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"],
 		["kill-pane", "-t", "%12"],
 	]);
 	assert.deepEqual(h.kills, [12345]);
@@ -233,7 +233,7 @@ test("closeSurface graceful: pane đã đóng từ đầu → no-op idempotent",
 	const { provider, handle } = await spawnPane(h);
 	h.calls.length = 0;
 	await provider.closeSurface(handle);
-	assert.deepEqual(h.calls, [["list-panes", "-F", "#{pane_dead} #{pane_id}"]]);
+	assert.deepEqual(h.calls, [["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]]);
 	assert.deepEqual(h.kills, []);
 	assert.deepEqual(h.sleeps, []);
 });
@@ -251,6 +251,43 @@ test("closeSurface graceful: không tìm được pid → force kill-pane ngay, 
 	assert.deepEqual(h.kills, []);
 	assert.deepEqual(h.sleeps, []);
 	assert.deepEqual(h.calls.at(-1), ["kill-pane", "-t", "%12"]);
+});
+
+test("closeSurface graceful: pid query trả pid 0 → guard pid>1 chặn signal, force kill-pane ngay", async () => {
+	const h = makeFake();
+	h.respond((args) => {
+		if (args[0] === "split-window") return "%12\n";
+		// pid 0 từ output lệch format — process.kill(0) sẽ SIGTERM cả process group
+		if (pidQuery(args)) return "0 %12\n";
+		return "0 %12\n";
+	});
+	const { provider, handle } = await spawnPane(h);
+	h.calls.length = 0;
+	await provider.closeSurface(handle);
+	assert.deepEqual(h.kills, []);
+	assert.deepEqual(h.sleeps, []);
+	assert.deepEqual(h.calls.at(-1), ["kill-pane", "-t", "%12"]);
+});
+
+test("list-panes luôn kèm -a: pane id duy nhất toàn server — poll/pid/alive/attach không giới hạn current window", async () => {
+	const h = makeFake();
+	defaultRespond(h);
+	const { provider, handle } = await spawnPane(h);
+	// pollExits (onExit tick)
+	handle.onExit(() => undefined);
+	h.tick();
+	assert.deepEqual(h.calls.at(-1), ["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]);
+	// graceful close: cả alive-check lẫn pid query
+	h.calls.length = 0;
+	await provider.closeSurface(handle);
+	assert.ok(
+		h.calls.every((c) => c[0] !== "list-panes" || c.includes("-a")),
+		`mọi list-panes phải có -a: ${JSON.stringify(h.calls)}`,
+	);
+	// attach
+	h.calls.length = 0;
+	provider.attach("%12");
+	assert.deepEqual(h.calls.at(-1), ["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]);
 });
 
 test("onExit: pane_dead=1 → 'pane-closed' đúng một lần; tick sau đó im lặng", async () => {
@@ -373,7 +410,7 @@ test("attach: pane sống → handle; không tồn tại/dead → null", () => {
 	const attached = provider.attach("%12");
 	assert.equal(attached?.id, "%12");
 	assert.equal(attached?.kind, "tmux");
-	assert.deepEqual(h.calls, [["list-panes", "-F", "#{pane_dead} #{pane_id}"]]);
+	assert.deepEqual(h.calls, [["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]]);
 	assert.equal(provider.attach("%99"), null);
 	h.respond((args) => (args[0] === "list-panes" ? "1 %12\n" : ""));
 	assert.equal(provider.attach("%12"), null);

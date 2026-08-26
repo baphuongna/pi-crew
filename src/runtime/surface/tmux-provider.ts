@@ -139,7 +139,10 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 	function pollExits(): void {
 		let stdout: string;
 		try {
-			stdout = tmux(["list-panes", "-F", "#{pane_dead} #{pane_id}"]);
+			// -a: liệt kê panes toàn server — pane id là duy nhất toàn server,
+			// còn không -a thì chỉ thấy current window (pane-closed giả khi user
+			// switch window giữa chừng).
+			stdout = tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]);
 		} catch {
 			// tmux binary mất đột ngột / server chết — mọi handle còn sống thành mux-dead.
 			for (const paneId of [...watchers.keys()]) fire(paneId, "mux-dead");
@@ -187,10 +190,10 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 		}
 	}
 
-	/** Pane còn trong list và chưa dead. tmux throw (mux chết) → false. */
+	/** Pane còn trong list (toàn server) và chưa dead. tmux throw (mux chết) → false. */
 	function isPaneAlive(paneId: string): boolean {
 		try {
-			return parsePaneStatus(tmux(["list-panes", "-F", "#{pane_dead} #{pane_id}"])).get(paneId) === false;
+			return parsePaneStatus(tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"])).get(paneId) === false;
 		} catch {
 			return false;
 		}
@@ -245,7 +248,7 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 		attach(id: string): SurfaceHandle | null {
 			let status: Map<string, boolean>;
 			try {
-				status = parsePaneStatus(tmux(["list-panes", "-F", "#{pane_dead} #{pane_id}"]));
+				status = parsePaneStatus(tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]));
 			} catch {
 				return null;
 			}
@@ -267,7 +270,7 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 			}
 			// Graceful (spec §4): SIGTERM pid trong pane → đợi 3s → force kill-pane.
 			if (!isPaneAlive(handle.id)) return; // đã đóng — idempotent
-			const pid = findPanePid(tmux(["list-panes", "-F", "#{pane_pid} #{pane_id}"]), handle.id);
+			const pid = findPanePid(tmux(["list-panes", "-a", "-F", "#{pane_pid} #{pane_id}"]), handle.id);
 			// pid > 1: pid 0/1 không bao giờ là process của pane — không signal.
 			// Không tìm được pid thì SIGTERM không thể → force luôn, không đợi vô ích.
 			if (pid !== null && pid > 1) {
