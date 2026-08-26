@@ -6,7 +6,6 @@ import test from "node:test";
 import {
 	__test_resetRipgrepCache,
 	detectRipgrep,
-	MAX_CYCLES,
 	MAX_SUGGESTED_FILES,
 	renderSuggestedFilesSection,
 	runRetrievalCycle,
@@ -121,12 +120,12 @@ test("M3-C: empty keyword set → converged=true within MAX_CYCLES", async () =>
 	}
 });
 
-test("M3-C-2: cycles never exceed MAX_CYCLES (3) even when keywords are non-empty", async () => {
+test("M3-C-2: single-pass — cycles is 0 or 1", async () => {
 	const cwd = makeFixtureDir();
 	__test_resetRipgrepCache();
 	try {
 		const result = await runRetrievalCycle("find anything", "explore everything", cwd);
-		assert.ok(result.cycles >= 0 && result.cycles <= MAX_CYCLES, `cycles ${result.cycles} must be in [0, ${MAX_CYCLES}]`);
+		assert.ok(result.cycles >= 0 && result.cycles <= 1, `cycles ${result.cycles} must be in [0, 1] (single-pass since perf round 3)`);
 		// Suggested files cap respects the max.
 		assert.ok(result.files.length <= MAX_SUGGESTED_FILES, `suggested files ${result.files.length} must be ≤ ${MAX_SUGGESTED_FILES}`);
 	} finally {
@@ -230,4 +229,27 @@ test("M3-H: runRetrievalCycle is safe with a non-existent cwd (no throw, empty r
 	assert.equal(typeof result.cycles, "number", "cycles must be a number");
 	assert.equal(typeof result.converged, "boolean", "converged must be a boolean");
 	assert.equal(typeof result.usedFallback, "boolean", "usedFallback must be a boolean");
+});
+
+test("R3-1: single discovery pass — cycles === 1 with non-empty keywords", async () => {
+	const cwd = makeFixtureDir();
+	__test_resetRipgrepCache();
+	try {
+		const result = await runRetrievalCycle("tool guidance prompt", "build M3 retrieval", cwd);
+		assert.equal(result.cycles, 1, `expected exactly 1 cycle, got ${result.cycles}`);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("R3-2: no duplicate paths in result.files (dedupe by absolute path)", async () => {
+	const cwd = makeFixtureDir();
+	__test_resetRipgrepCache();
+	try {
+		const result = await runRetrievalCycle("tool guidance prompt", "build M3 retrieval", cwd);
+		const paths = result.files.map((f) => f.path);
+		assert.equal(new Set(paths).size, paths.length, `result.files must be unique, got: ${JSON.stringify(paths)}`);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
 });

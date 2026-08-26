@@ -1,18 +1,17 @@
 /**
- * M3: Iterative file-retrieval orchestrator.
+ * M3: File-retrieval orchestrator.
  *
- * Pattern: workers progressively discover relevant context files
- * (e.g. "which source file handles X?") using ripgrep-driven keyword
- * search + the existing context-retrieval.ts scoring/convergence
- * helpers. Max 3 cycles, fall back to in-memory heuristic when
- * ripgrep is not available (e.g. minimal Windows CI runners).
+ * Pattern: workers discover relevant context files (e.g. "which
+ * source file handles X?") using ripgrep-driven keyword search + the
+ * existing context-retrieval.ts scoring/convergence helpers. Single
+ * discovery pass (perf round 3), fall back to in-memory heuristic
+ * when ripgrep is not available (e.g. minimal Windows CI runners).
  *
  * Signal flow:
  *   renderTaskPrompt (in prompt-builder.ts)
  *     → runRetrievalCycle(task, goal, cwd)
- *       → cycle 1: rg --files, then score each file
- *       → cycle 2: refine query, rg --json for keyword filter
- *       → cycle 3: same; if !shouldContinue, stop early
+ *       → single pass: rg --files, then score each file (deduped
+ *         by absolute path)
  *     → returns top-N files (5..10)
  *   renderTaskPrompt injects "Suggested files to read (top-N by
  *   retrieval score):" section before final prompt assembly.
@@ -24,10 +23,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { RelevanceEvaluation } from "./context-retrieval.ts";
-import { hasConverged, scoreRelevance, shouldContinue } from "./context-retrieval.ts";
-
-/** Max retrieval cycles per prompt render. Matches context-retrieval.MAX_CYCLES. */
-export const MAX_CYCLES = 3;
+import { hasConverged, scoreRelevance } from "./context-retrieval.ts";
 
 /** Hard cap on suggested files injected into the worker prompt. */
 export const MAX_SUGGESTED_FILES = 10;
@@ -272,9 +268,9 @@ async function walkFilesFallback(cwd: string, keywords: string[]): Promise<Array
 }
 
 /**
- * Iterate up to MAX_CYCLES times. Each cycle: discover files, score
- * them, check convergence. Stop early on convergence or when
- * shouldContinue returns false.
+ * Single discovery pass (perf round 3): discover files once, score
+ * them path-only, dedupe by absolute path, check convergence on the
+ * deduped evaluation set.
  */
 export async function runRetrievalCycle(task: string, goal: string, cwd: string): Promise<RetrievalResult> {
 	const keywords = tokenizeQuery(task, goal);
@@ -284,55 +280,54 @@ export async function runRetrievalCycle(task: string, goal: string, cwd: string)
 	const rg = await detectRipgrep();
 	const useRg = rg.available;
 	let usedFallback = !useRg;
-	const evaluations: RelevanceEvaluation[] = [];
-	let cycle = 0;
-	let converged = false;
-	for (; cycle < MAX_CYCLES; cycle++) {
-		let discovered: string[] = [];
-		try {
-			if (useRg) {
-				// Cycle 0: enumerate all relevant files via `rg --files`.
-				// Later cycles: filter by keywords via `rg --files | rg pattern`.
-				// We use the simpler `rg --files` + filter strategy because
-				// `rg --json` parsing adds complexity for marginal gain.
-				// `rg --files` respects .gitignore by default; we add an
-				// explicit -g '!node_modules' and -g '!.git' to be safe on
-				// repos that don't ignore them.
-				const stdout = await runRipgrep(["--files", "-g", "!node_modules", "-g", "!.git", cwd], cwd);
-				discovered = stdout
-					.split("\n")
-					.map((p) => p.trim())
-					.filter((p) => p && RELEVANT_EXTS.has(path.extname(p).toLowerCase()))
-					.map((p) => path.relative(cwd, p));
-			} else {
-				discovered = (await walkFilesFallback(cwd, keywords)).map((f) => f.path);
-			}
-		} catch {
-			// rg errored mid-run — switch to fallback for this cycle.
-			usedFallback = true;
+	// PERF round 3 (2026-08-26): single discovery pass. The previous loop ran
+	// up to MAX_CYCLES=3 iterations, but each iteration re-ran `rg --files`
+	// (identical output ~0.36s/spawn on my_pi) and re-scored the identical
+	// ~57k-file set: path-only scoring (content always "") cannot reach
+	// HIGH_RELEVANCE_THRESHOLD=0.7 (observed max 0.64), so hasConverged was
+	// always false and the loop ran unconditionally — 3× CPU for a zero
+	// result delta (measured 5266ms → 1810ms cold on the my_pi monorepo).
+	let discovered: string[] = [];
+	try {
+		if (useRg) {
+			// `rg --files` respects .gitignore by default; explicit -g guards
+			// repos that don't ignore them (comment moved from the loop body).
+			const stdout = await runRipgrep(["--files", "-g", "!node_modules", "-g", "!.git", cwd], cwd);
+			discovered = stdout
+				.split("\n")
+				.map((p) => p.trim())
+				.filter((p) => p && RELEVANT_EXTS.has(path.extname(p).toLowerCase()))
+				.map((p) => path.relative(cwd, p));
+		} else {
 			discovered = (await walkFilesFallback(cwd, keywords)).map((f) => f.path);
 		}
-		// Score each discovered file. Path-only scoring (no file read) so
-		// we don't slow down prompt building for hundreds of files.
-		const seenInThisCycle = new Set<string>();
-		for (const relPath of discovered) {
-			if (seenInThisCycle.has(relPath)) continue;
-			seenInThisCycle.add(relPath);
-			const absPath = path.isAbsolute(relPath) ? relPath : path.join(cwd, relPath);
-			const score = scoreRelevance(absPath, "", keywords);
-			if (score > 0) {
-				evaluations.push({
-					path: absPath,
-					relevance: score,
-					reason: reasonFor(absPath, keywords),
-					missingContext: [],
-				});
-			}
-		}
-		converged = hasConverged(evaluations);
-		if (converged) break;
-		if (!shouldContinue(evaluations, cycle)) break;
+	} catch {
+		// rg errored mid-run — switch to fallback for this pass.
+		usedFallback = true;
+		discovered = (await walkFilesFallback(cwd, keywords)).map((f) => f.path);
 	}
+	// Score each discovered file. Path-only scoring (no file read) so
+	// we don't slow down prompt building for hundreds of files.
+	// PERF round 3: dedupe by ABSOLUTE path — the multi-cycle accumulation
+	// previously pushed the same evaluation once per cycle, so the top-10
+	// could contain the same file up to 3 times (observed on
+	// team_20260826002634: task-output-context-dep-cache.test.ts ×3).
+	const byPath = new Map<string, RelevanceEvaluation>();
+	for (const relPath of discovered) {
+		const absPath = path.isAbsolute(relPath) ? relPath : path.join(cwd, relPath);
+		if (byPath.has(absPath)) continue;
+		const score = scoreRelevance(absPath, "", keywords);
+		if (score > 0) {
+			byPath.set(absPath, {
+				path: absPath,
+				relevance: score,
+				reason: reasonFor(absPath, keywords),
+				missingContext: [],
+			});
+		}
+	}
+	const evaluations = [...byPath.values()];
+	const converged = hasConverged(evaluations);
 	// Sort by score desc, take top N (5..10).
 	evaluations.sort((a, b) => b.relevance - a.relevance);
 	const cap = Math.min(MAX_SUGGESTED_FILES, Math.max(MIN_SUGGESTED_FILES, evaluations.length));
@@ -341,7 +336,7 @@ export async function runRetrievalCycle(task: string, goal: string, cwd: string)
 		score: e.relevance,
 		reason: e.reason,
 	}));
-	return { files: top, cycles: cycle, converged, usedFallback };
+	return { files: top, cycles: 1, converged, usedFallback };
 }
 
 /**
