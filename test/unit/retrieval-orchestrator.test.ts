@@ -271,6 +271,8 @@ test("R3-4: rg discovery cached per cwd for 60s — new files invisible until re
 	__test_resetRipgrepCache();
 	__test_resetDiscoveredCache();
 	try {
+		const rg = await detectRipgrep();
+		if (!rg.available) return; // cache test cần rg path — CI không rg bỏ qua
 		const first = await runRetrievalCycle("latefile probe", "find latefile", cwd);
 		assert.ok(!first.files.some((f) => f.path.includes("late-added")), "sanity: file not created yet");
 		// Create a NEW strongly-matching file AFTER the first retrieval.
@@ -284,7 +286,7 @@ test("R3-4: rg discovery cached per cwd for 60s — new files invisible until re
 		const third = await runRetrievalCycle("latefile probe", "find latefile", cwd);
 		assert.ok(
 			third.files.some((f) => f.path.includes("late-added")),
-			"after cache reset the new file must be discovered and rank (score: 2 path hits)",
+			"after cache reset the new file must be discovered and rank (single keyword path hit)",
 		);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });

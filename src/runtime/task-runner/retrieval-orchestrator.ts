@@ -95,7 +95,10 @@ const discoveredCache = new Map<string, { files: string[]; at: number }>();
 
 function getCachedDiscovered(cwd: string): string[] | undefined {
 	const hit = discoveredCache.get(cwd);
-	if (hit && Date.now() - hit.at < DISCOVERED_TTL_MS) return hit.files;
+	if (hit && Date.now() - hit.at < DISCOVERED_TTL_MS) {
+		// shared cached array — treat as read-only
+		return hit.files;
+	}
 	return undefined;
 }
 
