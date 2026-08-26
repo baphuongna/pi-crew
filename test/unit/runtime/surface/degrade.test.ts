@@ -174,6 +174,102 @@ test("makeTerminalEventProbe: bỏ qua completion của task khác và dòng JSO
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// ── Fix round 1 / F3: incremental fd read trong MISS window ───────────────
+
+/** IO đếm byte qua wrapper quanh fs thật — cùng path production nhưng đo được. */
+function countingIo(eventsPath: string) {
+	let readCalls = 0;
+	let statCalls = 0;
+	let bytesSeen = 0;
+	let openCalls = 0;
+	return {
+		readCalls: (): number => readCalls,
+		statCalls: (): number => statCalls,
+		bytesSeen: (): number => bytesSeen,
+		openCalls: (): number => openCalls,
+		deps: {
+			io: {
+				open(path: string): number {
+					openCalls += 1;
+					return fs.openSync(path, "r");
+				},
+				size(fd: number): number {
+					statCalls += 1;
+					return fs.fstatSync(fd).size;
+				},
+				read(fd: number, start: number, end: number): string {
+					readCalls += 1;
+					const length = end - start;
+					bytesSeen += length;
+					const buffer = Buffer.alloc(length);
+					const bytesRead = fs.readSync(fd, buffer, 0, length, start);
+					return buffer.toString("utf8", 0, bytesRead);
+				},
+				close(fd: number): void {
+					fs.closeSync(fd);
+				},
+			},
+		},
+	};
+}
+
+test("F3: MISS case chỉ đọc PHẦN MỚI của log — không full-read mỗi poll", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-degrade-probe-incr-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	// Log dày sẵn (~40KB) KHÔNG có completion — MISS là nhánh nóng của degrade.
+	const filler = Array.from({ length: 400 }, (_, i) => `${JSON.stringify({ type: "message_end", taskId: "05_e", n: i })}\n`).join("");
+	fs.writeFileSync(eventsPath, filler, "utf8");
+
+	const counter = countingIo(eventsPath);
+	const clock = makeFakeClock(0, 50);
+	const probe = makeTerminalEventProbe({
+		eventsPath,
+		taskId: "05_e",
+		sleep: clock.sleep,
+		now: clock.now,
+		pollMs: 50,
+		...counter.deps,
+	} as never);
+
+	assert.equal(await probe(2000), false, "không có completion → degraded như cũ");
+	const fileSize = fs.statSync(eventsPath).size;
+	assert.ok(
+		counter.bytesSeen() <= fileSize + 1024,
+		`tổng byte đọc (${counter.bytesSeen()}) phải ≈ 1× file (${fileSize}), không phải ×số-poll`,
+	);
+	// Poll nhiều lần nhưng SAU lần đọc đầu file không đổi → các tick kế chỉ
+	// stat (size === offset → early-return), KHÔNG đọc lại gì cả.
+	assert.ok(counter.statCalls() >= 10, `phải poll nhiều lần (${counter.statCalls()} stat calls)`);
+	assert.ok(counter.openCalls() <= 1, `fd mở đúng một lần cho một cửa sổ probe (${counter.openCalls()})`);
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("F3: truncate/shrink giữa chừng reset offset về 0 (vẫn tìm thấy completion sau đó)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-degrade-probe-trunc-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	fs.writeFileSync(eventsPath, `${JSON.stringify({ type: "worker.completed", taskId: "STALE", data: {} })}\n`, "utf8");
+	const clock = makeFakeClock(0, 50);
+	const probe = makeTerminalEventProbe({
+		eventsPath,
+		taskId: "06_f",
+		sleep: clock.sleep,
+		now: clock.now,
+		pollMs: 50,
+		...countingIo(eventsPath).deps,
+	} as never);
+
+	await Promise.resolve(); // vòng poll đầu quét nội dung cũ
+	// Host rotate/truncate rồi worker ghi completion mới.
+	fs.writeFileSync(
+		eventsPath,
+		`${JSON.stringify({ type: "worker.completed", taskId: "06_f", data: { result: "AFTER_ROTATE" } })}\n`,
+		"utf8",
+	);
+	assert.equal(await probe(500), true, "shrink → đọc lại từ đầu và thấy completion mới");
+	assert.deepEqual(probe.foundPayload(), { result: "AFTER_ROTATE" });
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
 // ── Lockout counters ──────────────────────────────────────────────────────
 
 test("nextLockoutCounts: mỗi cause cộng vào nhóm của nó", () => {
@@ -297,6 +393,7 @@ interface ControllerHarness {
 	events: RecordedEvent[];
 	revoked: string[];
 	setNow: (ms: number) => void;
+	readonly nowMs: number;
 }
 
 function makeController(runId: string, startNowMs = Date.parse("2026-08-26T10:00:00Z")): ControllerHarness {
@@ -310,7 +407,15 @@ function makeController(runId: string, startNowMs = Date.parse("2026-08-26T10:00
 		revoke: (taskId) => revoked.push(taskId),
 		now: () => nowMs,
 	});
-	return { controller, events, revoked, setNow: (ms) => (nowMs = ms) };
+	return {
+		controller,
+		events,
+		revoked,
+		setNow: (ms) => (nowMs = ms),
+		get nowMs() {
+			return nowMs;
+		},
+	};
 }
 
 test("controller: panes/pids sống; spawn-fail 3 liên tiếp khóa (boot thành công reset streak)", () => {
@@ -412,6 +517,107 @@ test("controller: 2 pane degrade khác tick cũng chỉ batch tại thời đi�
 	assert.equal(second.controller.livePaneCount(), 0);
 	assert.equal(second.controller.shouldAttemptSurface(), true);
 	assert.deepEqual(first.revoked, ["1"]);
+});
+
+// ── Fix round 1 / F1: batch counting wiring ───────────────────────────────
+
+test("F1: N pane mux-dead qua N lần degrade() riêng → counts.mux đúng MỘT lần sau drain", () => {
+	const harness = makeController("run-burst");
+	// 3 pane sống đồng thời, chết gần như cùng lúc (mux chết toàn cục).
+	for (const [taskId, paneId] of [
+		["t1", "%a"],
+		["t2", "%b"],
+		["t3", "%c"],
+	] as const) {
+		harness.controller.notifySpawned({ taskId, paneId, provider: "herdr" });
+	}
+	for (const [taskId, paneId] of [
+		["t1", "%a"],
+		["t2", "%b"],
+		["t3", "%c"],
+	] as const) {
+		harness.controller.notifyPaneExited({ taskId, paneId, completed: false, exitReason: "mux-dead" });
+	}
+
+	// Degrade #1 đã bật lockout NGAY (spec §7 c3) nhưng counts KHÔNG được cộng
+	// per-entry nữa (sửa F1: đếm một lần trên cả batch drained).
+	const beforeDrain = harness.controller.snapshot().lockout;
+	assert.equal(beforeDrain?.cause, "degrade");
+	assert.notEqual(beforeDrain?.counts.mux, 3, "trước drain không được cộng +N");
+
+	const drained = harness.controller.takeDegraded();
+	assert.equal(drained.length, 3);
+	const afterDrain = harness.controller.snapshot().lockout;
+	assert.equal(afterDrain?.since, new Date(harness.nowMs).toISOString(), "since giữ từ degrade ĐẦU");
+	assert.deepEqual(afterDrain?.counts, { pane: 0, mux: 1 }, "một sự kiện mux chết dù 3 pane → mux +1 duy nhất");
+
+	// Drain trống kế tiếp không cộng thêm gì.
+	harness.controller.takeDegraded();
+	assert.deepEqual(harness.controller.snapshot().lockout?.counts, { pane: 0, mux: 1 });
+});
+
+test("F1: batch lẫn cause — mux-dead gộp, pane-closed cộng riêng từng entry", () => {
+	const harness = makeController("run-mixed");
+	for (const [taskId, paneId] of [
+		["m1", "%a"],
+		["p1", "%b"],
+		["p2", "%c"],
+	] as const) {
+		harness.controller.notifySpawned({ taskId, paneId, provider: "tmux" });
+	}
+	harness.controller.notifyPaneExited({ taskId: "m1", paneId: "%a", completed: false, exitReason: "mux-dead" });
+	harness.controller.notifyPaneExited({ taskId: "p1", paneId: "%b", completed: false, exitReason: "pane-closed" });
+	harness.controller.notifyPaneExited({ taskId: "p2", paneId: "%c", completed: false, exitReason: "pane-closed" });
+
+	harness.controller.takeDegraded();
+	assert.deepEqual(harness.controller.snapshot().lockout?.counts, { pane: 2, mux: 1 });
+});
+
+test("F1: hai drain window riêng biệt là hai sự kiện độc lập (mux chết hai lần)", () => {
+	const harness = makeController("run-two-windows");
+	harness.controller.notifySpawned({ taskId: "a", paneId: "%1", provider: "tmux" });
+	harness.controller.notifyPaneExited({ taskId: "a", paneId: "%1", completed: false, exitReason: "mux-dead" });
+	harness.controller.takeDegraded();
+
+	harness.setNow(harness.nowMs + 60_000);
+	harness.controller.notifySpawned({ taskId: "b", paneId: "%2", provider: "tmux" });
+	harness.controller.notifyPaneExited({ taskId: "b", paneId: "%2", completed: false, exitReason: "mux-dead" });
+	harness.controller.takeDegraded();
+
+	assert.deepEqual(harness.controller.snapshot().lockout?.counts, { pane: 0, mux: 2 }, "khác window = sự kiện khác");
+});
+
+// ── Fix round 1 / F2: seed controller từ manifest.surface cũ ──────────────
+
+test("F2: initialState giữ lockout/workerPids/sessionPaths của run resume sau restart", () => {
+	const seeded = createSurfaceRuntimeController({
+		runId: "run-resume",
+		eventsPath: "/tmp/e.jsonl",
+		initialState: normalizeSurfaceState({
+			provider: "tmux",
+			panes: { stale_worker: "%7" },
+			workerPids: { stale_worker: 424242 },
+			sessionPaths: {},
+			lockout: { since: "2026-08-26T09:00:00Z", counts: { pane: 2, mux: 1 }, cause: "degrade" },
+		}),
+	});
+	assert.equal(seeded.shouldAttemptSurface(), false, "lockout cũ phải còn hiệu lực sau restart");
+	const snapshot = seeded.snapshot();
+	assert.equal(snapshot.provider, "tmux");
+	assert.equal(snapshot.lockout?.since, "2026-08-26T09:00:00Z");
+	assert.deepEqual(snapshot.lockout?.counts, { pane: 2, mux: 1 });
+	assert.deepEqual(snapshot.workerPids, { stale_worker: 424242 });
+	// Pane cũ vẫn còn trong evidence map (doctor/zombie-sweep đọc); live count
+	// cũng tính nó vì pane có thể THẬT vẫn sống khi host chết.
+	assert.equal(snapshot.panes.stale_worker, "%7");
+	assert.equal(seeded.livePaneCount(), 1);
+
+	// Degrade mới trong run tiếp tục TRÊN counts cũ.
+	seeded.takeDegraded(); // rỗng
+	seeded.notifySpawned({ taskId: "fresh", paneId: "%9", provider: "tmux" });
+	seeded.notifyPaneExited({ taskId: "fresh", paneId: "%9", completed: false, exitReason: "pane-closed" });
+	seeded.takeDegraded();
+	assert.deepEqual(seeded.snapshot().lockout?.counts, { pane: 3, mux: 1 }, "cộng dồn lên evidence cũ");
 });
 
 test("registry: register/get/clear theo runId — không leak giữa các run", () => {

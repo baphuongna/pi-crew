@@ -103,6 +103,19 @@ export interface TerminalEventProbeDeps {
 	runId?: string;
 	/** Reader override cho test (default: fs.readFileSync trả undefined khi lỗi). */
 	readFile?: (path: string) => string | undefined;
+	/**
+	 * Lớp IO của đường incremental (fix round 1/F3): fd mở MỘT lần cho cả cửa
+	 * sổ probe, mỗi poll chỉ đọc byte mới từ offset — run-log lớn không bị
+	 * full-read ~40 lần/degrade nữa (pattern hotspot perf-round cũ). Inject để
+	 * test đếm byte/call mà vẫn đi đúng path production.
+	 */
+	io?: {
+		open(path: string): number;
+		size(fd: number): number;
+		/** Đọc byte [start, end); trả text utf8. */
+		read(fd: number, start: number, end: number): string;
+		close(fd: number): void;
+	};
 	/** Sleep override cho test — nhận ms, resolve khi đồng hồ test cho phép. */
 	sleep?: (ms: number) => Promise<void>;
 	/** Clock (ms) override cho test (default Date.now). */
@@ -120,20 +133,19 @@ const EMPTY_PAYLOAD = Object.freeze({});
 
 /**
  * Tail incremental RUN events.jsonl trong ngân sách `budgetMs`, trả true ngay
- * khi thấy `worker.completed` (khớp taskId/runId nếu biết). Byte-offset giữ
- * giữa các lần poll nên file lớn không bị quét lại; shrink (truncate) reset.
+ * khi thấy `worker.completed` (khớp taskId/runId nếu biết).
+ *
+ * Hai chế độ đọc:
+ * - Production: incremental fd (mở 1 lần/ cửa sổ, `readSync` từ byte-offset —
+ *   cùng discipline với EventLogTailSource.readFromOffset; shrink/truncate
+ *   reset offset về 0). Việc đọc mỗi poll TOÀN BỘ run-log là pattern hotspot
+ *   đã bị perf review gắn cờ từ trước — đừng quay lại.
+ * - Test/injected `readFile`: nội dung FULL mỗi lần, offset là char-index vào
+ *   nội dung đó (hành vi cũ giữ nguyên cho fixture đơn giản).
+ *
  * Hết ngân sách → false — caller quyết định degrade. KHÔNG bao giờ throw.
  */
 export function makeTerminalEventProbe(deps: TerminalEventProbeDeps): TerminalEventProbe {
-	const readFile =
-		deps.readFile ??
-		((path: string): string | undefined => {
-			try {
-				return fs.readFileSync(path, "utf8");
-			} catch {
-				return undefined; // file chưa tồn tại / lỗi tạm — thử lại ở poll kế
-			}
-		});
 	const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 	const now = deps.now ?? Date.now;
 	const step = Math.max(1, deps.pollMs ?? CLASSIFY_POLL_MS);
@@ -141,26 +153,47 @@ export function makeTerminalEventProbe(deps: TerminalEventProbeDeps): TerminalEv
 	let partial = "";
 	let payload: Record<string, unknown> | undefined;
 
+	let fd: number | null = null;
+	const ioOpen = deps.io?.open ?? ((path: string) => fs.openSync(path, "r"));
+	const ioSize = deps.io?.size ?? ((handle: number) => fs.fstatSync(handle).size);
+	const ioRead =
+		deps.io?.read ??
+		((handle: number, start: number, end: number): string => {
+			const length = end - start;
+			const buffer = Buffer.alloc(length);
+			const bytesRead = fs.readSync(handle, buffer, 0, length, start);
+			return buffer.toString("utf8", 0, bytesRead);
+		});
+	const ioClose = deps.io?.close ?? ((handle: number) => fs.closeSync(handle));
+
+	const closeIo = (): void => {
+		if (fd === null) return;
+		try {
+			ioClose(fd);
+		} catch {
+			/* fd đã chết — bỏ qua */
+		}
+		fd = null;
+	};
+
 	const probe = async (budgetMs: number): Promise<boolean> => {
 		payload = undefined;
 		const deadline = now() + Math.max(0, budgetMs);
-		for (;;) {
-			if (scanOnce()) return true;
-			if (now() >= deadline) return false;
-			await sleep(Math.min(step, Math.max(1, deadline - now())));
+		try {
+			for (;;) {
+				if (scanOnce()) return true;
+				if (now() >= deadline) return false;
+				await sleep(Math.min(step, Math.max(1, deadline - now())));
+			}
+		} finally {
+			// Cửa sổ classify kết thúc (hoặc throw do caller bug) → nhả fd. Probe
+			// kế tiếp mở lại tự nhiên.
+			closeIo();
 		}
 	};
 	const foundPayload = (): Record<string, unknown> => payload ?? EMPTY_PAYLOAD;
 
-	function scanOnce(): boolean {
-		const content = readFile(deps.eventsPath);
-		if (content === undefined) return false; // file chưa tồn tại — chưa có gì để khớp
-		if (content.length < offset) {
-			offset = 0;
-			partial = "";
-		}
-		const chunk = content.slice(offset);
-		offset += chunk.length;
+	function feed(chunk: string): boolean {
 		if (!chunk) return false;
 		const lines = (partial + chunk).split("\n");
 		partial = lines.pop() ?? "";
@@ -184,6 +217,66 @@ export function makeTerminalEventProbe(deps: TerminalEventProbeDeps): TerminalEv
 			return true;
 		}
 		return false;
+	}
+
+	function scanOnce(): boolean {
+		if (deps.readFile) {
+			// Fixture mode: content FULL mỗi lần, offset là char-index vào nó.
+			const content = safeReadFile();
+			if (content === undefined) return false; // file chưa tồn tại — chưa có gì để khớp
+			if (content.length < offset) {
+				offset = 0;
+				partial = "";
+			}
+			const chunk = content.slice(offset);
+			offset += chunk.length;
+			return feed(chunk);
+		}
+		return scanIncremental();
+	}
+
+	function safeReadFile(): string | undefined {
+		try {
+			return deps.readFile!(deps.eventsPath);
+		} catch {
+			return undefined;
+		}
+	}
+
+	/**
+	 * Chỉ đọc byte [offset, size) — poll giữa chừng trên log dài tốn O(delta)
+	 * chứ không O(file). Truncate/shrink (size < offset) đọc lại từ đầu.
+	 */
+	function scanIncremental(): boolean {
+		if (fd === null) {
+			try {
+				fd = ioOpen(deps.eventsPath);
+			} catch {
+				return false; // ENOENT — recorder chưa tạo file; thử lại ở poll kế
+			}
+		}
+		let size: number;
+		try {
+			size = ioSize(fd);
+		} catch {
+			// fd point-at-dead-inode (file bị rotate/rename) — mở lại sạch.
+			closeIo();
+			return false;
+		}
+		if (size < offset) {
+			offset = 0;
+			partial = "";
+		}
+		if (size === offset) return false;
+		let text: string;
+		try {
+			text = ioRead(fd, offset, size);
+		} catch {
+			return false; // race đọc giữa lúc truncate — offset giữ nguyên, thử lại
+		}
+		// Parity với EventLogTailSource.readFromOffset: offset tiến theo BYTE đọc.
+		offset += Buffer.byteLength(text);
+		return feed(text);
 	}
 
 	return Object.assign(probe, { foundPayload });
@@ -409,6 +502,15 @@ export interface SurfaceRuntimeControllerDeps {
 	runId: string;
 	/** RUN events.jsonl — nơi ghi event `surface.degraded`. */
 	eventsPath: string;
+	/**
+	 * Fix round 1/F2: raw `manifest.surface` của run đang resume — controller
+	 * SEED state từ đây thay vì khởi động trống, nếu không một host restart
+	 * giữa run sẽ đánh mất lockout.since/counts + workerPids/sessionPaths cũ.
+	 * Pane cũ vẫn còn trong evidence map: nó có thể THẬT vẫn sống khi host chết
+	 * (worker là con của mux server), và entry cùng taskId sẽ bị đè khi task
+	 * được re-dispatch. Dữ liệu rác/không hợp lệ được normalizeSurfaceState lọc.
+	 */
+	initialState?: unknown;
 	/** Broker token revoker (T10) — resolve lazy lúc degrade. */
 	revoke?: (taskId: string) => void;
 	appendEvent?: (eventsPath: string, event: AppendTeamEvent) => void;
@@ -476,8 +578,11 @@ export function createSurfaceRuntimeController(deps: SurfaceRuntimeControllerDep
 			}
 		});
 
-	const state = emptySurfaceState();
-	const livePids = new Set<string>();
+	// F2: seed từ manifest của run đang resume (normalize lọc dữ liệu cũ/thồi).
+	const state = deps.initialState !== undefined ? normalizeSurfaceState(deps.initialState) : emptySurfaceState();
+	// Pane được seed từ manifest vẫn có thể THẬT đang sống (worker là con của
+	// mux server chứ không phải host chết) — đếm vào live cap như pane mới.
+	const livePids = new Set<string>(Object.keys(state.panes));
 	let spawnFailStreak = 0;
 	let degradedQueue: SurfaceDegradedEntry[] = [];
 
@@ -491,7 +596,17 @@ export function createSurfaceRuntimeController(deps: SurfaceRuntimeControllerDep
 			ts: new Date(now()).toISOString(),
 		};
 		degradedQueue.push(entry);
-		state.lockout = applyDegradedBatch(state, [entry]).lockout;
+		// F1 (spec §7 c3 anti-flap): khóa NGAY tại degrade ĐẦU TIÊN, nhưng counts
+		// KHÔNG cộng per-entry — N pane mux-dead chảy vào đây qua N lời gọi rời
+		// rạc là MỘT sự kiện. counts được tính đúng một lần trên cả batch tại
+		// takeDegraded() (scheduler drain), nơi ranh giới "cùng lúc" xác định được.
+		if (state.lockout?.cause !== "degrade") {
+			state.lockout = {
+				since: state.lockout?.since ?? entry.ts,
+				counts: state.lockout?.counts ?? { pane: 0, mux: 0 },
+				cause: "degrade",
+			};
+		}
 		// Spec §7 bước 1–3: event đủ entry cho debug, revoke token NGAY (worker
 		// zombie trong pane không được tiếp tục nói chuyện với broker), rồi
 		// scheduler tick sẽ làm bước 4–5 (re-dispatch headless).
@@ -557,6 +672,12 @@ export function createSurfaceRuntimeController(deps: SurfaceRuntimeControllerDep
 		takeDegraded: () => {
 			const drained = degradedQueue;
 			degradedQueue = [];
+			if (drained.length > 0) {
+				// F1: counts của TOÀN BỘ batch drain này tính đúng một lần — N entry
+				// mux-dead đồng thời = +1 mux (applyDegradedBatch dùng cause-group
+				// batching; since giữ từ lockout đã đặt ở degrade đầu tiên).
+				Object.assign(state, applyDegradedBatch(state, drained));
+			}
 			return drained;
 		},
 		consecutiveSpawnFails: () => spawnFailStreak,

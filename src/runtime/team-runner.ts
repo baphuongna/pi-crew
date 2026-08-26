@@ -882,6 +882,10 @@ async function executeTeamRunCore(
 	const surfaceController = createSurfaceRuntimeController({
 		runId: manifest.runId,
 		eventsPath: manifest.eventsPath,
+		// F2 (fix round 1): resume sau host restart phải kế thừa lockout +
+		// workerPids/sessionPaths/panes đã ghi trên manifest, nếu không evidence
+		// của nửa đầu run bị mất khi controller mới khởi động trống.
+		initialState: manifest.surface,
 		revoke: (taskId) => getActiveBrokerRevoker()?.(taskId),
 	});
 	registerSurfaceRuntimeController(surfaceController);
