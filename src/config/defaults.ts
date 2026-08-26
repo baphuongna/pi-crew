@@ -194,11 +194,15 @@ export const DEFAULT_BROKER = {
 	maxFrameBytes: 262144,
 	outboundQueueCap: 256,
 	/** WP-2/R2 (ADR-0 docs/decisions/2026-08-17-waiting-producer-ask item 7):
-	 *  capability gate for the broker's `wait.*` methods. DEFAULT FALSE —
-	 *  fail-closed until WP-2 completes, then flipped to true. While false,
+	 *  capability gate for the broker's `wait.*` methods. FLIPPED TO TRUE
+	 *  (2026-08-26): WP-2 completed and its battery landed, so the ADR-0
+	 *  "then flipped to true" step is now done — ask works out of the box.
+	 *  (Before this flip, every production ask was rejected policy-disabled
+	 *  whenever no user config existed — the feature slept silently.) Set
+	 *  `broker.waitMethodsEnabled: false` to re-close. While false,
 	 *  wait.request/wait.resolve are rejected with a policy-disabled error
 	 *  AND a policy.action event in events.jsonl (never silent). */
-	waitMethodsEnabled: false,
+	waitMethodsEnabled: true,
 } as const;
 
 /**

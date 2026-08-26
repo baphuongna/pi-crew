@@ -325,6 +325,27 @@ test("broker config: waitMethodsEnabled survives parse + merge + defaults (B1 re
 	}
 });
 
+test("broker config: DEFAULT waitMethodsEnabled is true (ADR-0 flip — ask must work out of the box)", async () => {
+	// WP-2 completed (2026-08-18 B1 battery); the ADR-0 plan said "then flipped
+	// to true" but the flip never happened, so every production ask was rejected
+	// policy-disabled while no user config existed. Pin the new default: a
+	// workspace with NO broker config at all must get waitMethodsEnabled=true.
+	const { loadConfig, __test__setConfigCacheTtlMs } = await import("../../../src/config/config.ts");
+	__test__setConfigCacheTtlMs(0);
+	const fs = await import("node:fs");
+	const os = await import("node:os");
+	const path = await import("node:path");
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-broker-def-"));
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, ".crew", "config.json"), JSON.stringify({}));
+		const broker = loadConfig(cwd).config.broker;
+		assert.equal(broker?.waitMethodsEnabled, true, "no-config workspace must default waitMethodsEnabled to true");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("broker config: workspace config reaches the production broker ctor path (loadConfig WITH cwd)", async () => {
 	// B1 battery third bug: lifecycle-handlers called loadConfig() with NO cwd,
 	// so even a correctly-parsed workspace broker config never reached the

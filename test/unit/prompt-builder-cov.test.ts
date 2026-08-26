@@ -118,6 +118,13 @@ describe("coordinationBridgeInstructions", () => {
 		const result = coordinationBridgeInstructions(task);
 		assert.ok(result.includes("DONE/FAILED"));
 	});
+
+	it("includes the never-guess ask guidance (workers must prefer ask over silent assumptions)", () => {
+		const task = makeTask({ id: "04_verify" });
+		const result = coordinationBridgeInstructions(task);
+		assert.ok(result.includes("Never guess implementation details"), "ask guidance line must be present");
+		assert.ok(result.includes("`ask` tool"), "must name the ask tool explicitly");
+	});
 });
 
 // ── renderOutputSchemaBlock ─────────────────────────────────────────────
