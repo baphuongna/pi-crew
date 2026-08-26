@@ -39,9 +39,10 @@ export class BrokerTokenRegistry {
 	private readonly map = new Map<string, BrokerToken>();
 	/** Task 10 (mux-surface A1 §5.2): sha256 hashes of explicitly revoked
 	 *  tokens. Heap-only like the map; hashing keeps the registry from holding
-	 *  a second plaintext copy of a secret. A revoked token stays in `map` so
-	 *  `revoke` + `issue` (the A2 re-issue remedy) produces a DIFFERENT secret
-	 *  that is NOT revoked — revocation is per-secret, not per-key. */
+	 *  a second plaintext copy of a secret. Revocation is per-SECRET, not
+	 *  per-key: `issue()` mints a fresh token when the registered one is in
+	 *  this set (fix round 1 BUG #1), so the A2 re-issue remedy always
+	 *  produces a live token while the old secret stays dead. */
 	private readonly revokedTokenHashes = new Set<string>();
 
 	private static hashToken(token: BrokerToken): string {
@@ -82,8 +83,12 @@ export class BrokerTokenRegistry {
 	/** Issue a token for `runId` (+optional `taskId`). Idempotent per key:
 	 *  if a token already exists for the computed key, the existing token is
 	 *  returned unchanged so that concurrent sibling tasks sharing a key all
-	 *  authenticate with the same token. Pass an explicit `token` only in
-	 *  tests that need a deterministic value. */
+	 *  authenticate with the same token — UNLESS that token was revoked (fix
+	 *  round 1, BUG #1): a revoked secret is never resurrected, a fresh one
+	 *  is minted and overwrites the entry (the degrade respawn flow re-issues
+	 *  after revokeTaskToken and the new worker must get a live token).
+	 *  Pass an explicit `token` only in tests that need a deterministic
+	 *  value. */
 	issue(runId: string, taskId?: string, token?: BrokerToken): BrokerToken {
 		if (typeof runId !== "string" || runId.length === 0) {
 			throw new Error("BrokerTokenRegistry.issue: runId must be a non-empty string");
@@ -91,7 +96,9 @@ export class BrokerTokenRegistry {
 		const k = this.key(runId, taskId);
 		if (token === undefined) {
 			const existing = this.map.get(k);
-			if (existing !== undefined) return existing;
+			if (existing !== undefined && !this.revokedTokenHashes.has(BrokerTokenRegistry.hashToken(existing))) {
+				return existing;
+			}
 			const fresh = newBrokerToken();
 			this.map.set(k, fresh);
 			return fresh;

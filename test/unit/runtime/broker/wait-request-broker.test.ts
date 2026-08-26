@@ -715,6 +715,79 @@ test("hello: wrong token + unknown taskId (run active) + unknown run → generic
 	}
 });
 
+// ----------------------------------------------------------------------------
+// Task 10 fix round 1: re-issue after revoke + orchestrator role exemption
+// ----------------------------------------------------------------------------
+
+test("registry: issue() after revokeToken returns a FRESH secret (idempotent reuse must not resurrect a revoked token)", () => {
+	const reg = new BrokerTokenRegistry();
+	const runId = "run-reissue";
+	const t1 = reg.issue(runId, "task-A");
+	reg.revokeToken(t1);
+	assert.equal(reg.isTaskTokenRevoked(runId, "task-A"), true, "revoked before re-issue");
+	// BUG #1 (fix round 1): issue() was idempotent per key and returned the
+	// very token that had just been revoked — the degrade respawn flow then
+	// hands a dead token to the new worker.
+	const t2 = reg.issue(runId, "task-A");
+	assert.notEqual(t2, t1, "re-issue must mint a fresh secret, not reuse the revoked one");
+	assert.equal(reg.isTaskTokenRevoked(runId, "task-A"), false, "new token must not be revoked");
+	assert.equal(reg.tokenRole(runId, "task-A", t2), "worker", "fresh token authenticates");
+	assert.equal(reg.tokenRole(runId, "task-A", t1), null, "old token stays dead (no longer registered)");
+});
+
+test("revokeTaskToken + re-issue: respawned worker authenticates with the fresh token (degrade flow)", async () => {
+	const scaff = await scaffoldRunningTask("reissue");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd, waitMethodsEnabled: true });
+	const deadToken = broker.issueRunToken(scaff.runId, scaff.taskId);
+	broker.revokeTaskToken(scaff.taskId);
+	try {
+		const freshToken = broker.issueRunToken(scaff.runId, scaff.taskId);
+		assert.notEqual(freshToken, deadToken, "re-issue must return a different secret");
+
+		const client = await rawConnect(socketPath);
+		await hello(client, scaff.runId, scaff.taskId, freshToken);
+		// The fresh token must carry full worker capability — park + resolve.
+		client.socket.write(encodeBrokerFrame({ id: "w1", method: "wait.request", params: { to: scaff.taskId, question: "respawned?" } }));
+		const res = (await client.waitForFrame((f) => (f as { id?: string })?.id === "w1")) as {
+			result?: { ok?: boolean };
+			error?: { code: string };
+		};
+		assert.ok(!res.error, `wait.request with the re-issued token must succeed: ${JSON.stringify(res)}`);
+		assert.equal(res.result?.ok, true);
+		client.close();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
+test("revokeTaskToken: orchestrator role is exempt from the revoked check (hello + frames)", async () => {
+	const scaff = await scaffoldRunningTask("orchexempt");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });
+	broker.issueRunToken(scaff.runId, scaff.taskId);
+	broker.revokeTaskToken(scaff.taskId);
+	const orchToken = broker.issueOrchestratorToken(scaff.runId);
+	try {
+		const client = await rawConnect(socketPath);
+		// BUG #2 (fix round 1): the revoked check keyed on (runId, taskId)
+		// without a role guard, so an orchestrator hello naming the revoked
+		// task as its taskId was rejected with 'revoked' — breaking the T11
+		// degrade flow (orchestrator steers after revoking a task).
+		await hello(client, scaff.runId, scaff.taskId, orchToken);
+		client.socket.write(encodeBrokerFrame({ id: "p-1", method: "ping", params: null }));
+		const pong = (await client.waitForFrame((f) => (f as { id?: string })?.id === "p-1")) as {
+			result?: { pong?: boolean };
+			error?: { code: string };
+		};
+		assert.ok(!pong.error, `orchestrator frames must not hit the revoked check: ${JSON.stringify(pong)}`);
+		assert.equal(pong.result?.pong, true);
+		client.close();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
 test("P1 wiring: disabled waitMethodsEnabled rejects wait.request with the policy message (production fail-closed path)", async () => {
 	// WP-2 review round 1 (P1): lifecycle-handlers now threads
 	// cfg?.waitMethodsEnabled ?? false into the production CrewBroker. The

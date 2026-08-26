@@ -161,7 +161,7 @@ rm -f -- "$0"
 
 - Task là positional arg — pi TUI mở trong pane, submit task làm turn đầu.
 - **Session path: không phụ thuộc CLI flag** — prompt-runtime self-report qua `worker.started`.
-- **Broker hello**: hello gửi `{protocol, runId, taskId, token}` sẵn — token match → accept; mismatch + run active + taskId khớp → re-issue token trong response (**A2**; A1 async force headless nên pane re-attached không xuất hiện). Run terminal (status ∈ {completed, cancelled, failed}) → reject `stale-token`.
+- **Broker hello**: hello gửi `{protocol, runId, taskId, token}` sẵn — token match → accept; mismatch + run active + taskId khớp → re-issue token trong response (**A2**; A1 async force headless nên pane re-attached không xuất hiện). Run terminal (status ∈ {completed, cancelled, failed}) → reject `stale-token` (worker-role hello; orchestrator in-process miễn — late-steer sau run end là legitimate).
 - **Auto-exit (D7)**: env `PI_CREW_AUTO_EXIT=1` → prompt-runtime subscribe session lifecycle; turn kết thúc stopReason `done`/`end_turn` và không còn ask pending / delegate chạy / steer pending → **ghi + fsync `worker.completed`** → session shutdown. *(Verify API shutdown ở plan; tham chiếu `subagent-done.ts` của pi-interactive-subagents.)*
 - **Parent-guard worker-side (chống PID-reuse — sửa Critical vòng 4)**: prompt-runtime poll mỗi 5s: parent chết khi **pid không tồn tại HOẶC starttime khác `PI_CREW_PARENT_START_TIME`**. Starttime = field 22 của `/proc/<pid>/stat` (clock ticks từ boot — không đổi theo pid reuse; host ghi lúc spawn). Parent chết thật → ghi `worker.parent-lost` → shutdown theo D7 → pane tự đóng. SIGSTOP host: pid còn + starttime khớp → không kill nhầm. macOS fallback: chỉ pid check + ghi chú hạn chế (doctor cảnh báo). Async run: background-runner là parent sống tiếp → không kích hoạt.
 - Loadout mặc định full session (§6) — áp cả headless lẫn surface; `--tools` chỉ xuất hiện khi agent `.md` khai explicit.
@@ -403,7 +403,7 @@ interface WorkerErrorEvent {
 
 ### 12.4 Broker extensions
 
-- Error mới: `{ error: "stale-token", detail: "run {id} is terminal" }`; method `revokeTaskToken(taskId)`.
+- Error mới: `{ error: "stale-token", detail: "run {id} is terminal" }` (worker-role hello; orchestrator in-process miễn — late-steer sau run end là legitimate); method `revokeTaskToken(taskId)`.
 - **(A2)** Hello response `reissuedToken?: string`.
 
 ## 13. Sequence diagrams

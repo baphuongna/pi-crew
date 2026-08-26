@@ -659,7 +659,10 @@ export class CrewBroker {
 		// connection is rejected here, at the next request boundary, with the
 		// connection closed (A1: no mid-stream force-close, so the revoke
 		// itself never tears a socket out from under a handler).
-		if (this.tokens.isTaskTokenRevoked(conn.runId, conn.taskId)) {
+		// Fix round 1 (BUG #2): WORKER role only — the check keys on
+		// (runId, taskId), and an orchestrator hello may legitimately name a
+		// revoked task as its taskId (T11 degrade: revoke → respawn → steer).
+		if (conn.role === "worker" && this.tokens.isTaskTokenRevoked(conn.runId, conn.taskId)) {
 			this.sendErrorAndClose(conn, id, "revoked", "token revoked");
 			return;
 		}
@@ -763,10 +766,14 @@ export class CrewBroker {
 		// reported as "revoked" (more specific than stale), and a WORKER token
 		// for a TERMINAL run is stale by definition: the run will never issue
 		// work again, so a surface worker must not re-attach with it.
-		// Orchestrator connections are exempt: the orchestrator is in-process
-		// (same root session) and legitimately talks to the broker after the
-		// run completed (late steer, closeout reads).
-		if (this.tokens.isTaskTokenRevoked(runId, taskId)) {
+		// Orchestrator connections are exempt from BOTH checks: the
+		// orchestrator is in-process (same root session) and legitimately
+		// talks to the broker after the run completed (late steer, closeout
+		// reads) and after a task token was revoked (T11 degrade flow).
+		// Fix round 1 (BUG #2): the revoked check keys on (runId, taskId), so
+		// without the role guard an orchestrator hello naming a revoked task
+		// as its taskId was rejected 'revoked'.
+		if (resolved.role === "worker" && this.tokens.isTaskTokenRevoked(runId, taskId)) {
 			this.sendErrorAndClose(conn, id, "revoked", "hello rejected: token revoked");
 			return;
 		}
