@@ -9,9 +9,9 @@
  *     (migrate-hint message); unauthenticated ✗.
  *  2. flag off (nestingEnabled default false): policy-disabled error AND a
  *     delegate.rejected event in events.jsonl — never silent.
- *  3. admission denials surfaced as typed errors: read-only parent role
- *     (role-denied), depth (depth-exceeded at default maxDepth=2),
- *     slots exhausted (fail-fast).
+ *  3. admission denials surfaced as typed errors: depth (depth-exceeded at
+ *     default maxDepth=4), slots exhausted (fail-fast). The parent ROLE is no
+ *     longer a gate (D8) — a read-only explorer parent is admitted.
  *  4. happy path (injected fake spawner): immediate {grandchildTaskRef}
  *     response, fenced result delivered to the PARENT task mailbox,
  *     budget reservation → roll-up reconciliation on disk, slot released
@@ -234,18 +234,29 @@ test("flag off (default): policy-disabled error + delegate.rejected event — ne
 	}
 });
 
-test("admission: read-only parent role (explorer) rejected with role-denied message", async () => {
+test("admission D8: read-only parent role (explorer) may now delegate", async () => {
 	const s = await scaffoldRunningTask("role", "explorer");
-	const { broker, socketPath } = await startBroker({ cwd: s.cwd, nestingEnabled: true });
+	const spawns: GrandchildSpawnInput[] = [];
+	const fakeSpawner = async (input: GrandchildSpawnInput): Promise<GrandchildSpawnResult> => {
+		spawns.push(input);
+		return { ok: true, resultText: "explorer grandchild did the thing", usageTokens: 42 };
+	};
+	const { broker, socketPath } = await startBroker({ cwd: s.cwd, nestingEnabled: true, spawner: fakeSpawner });
 	try {
 		const token = broker.issueRunToken(s.runId, s.taskId);
 		const client = await rawConnect(socketPath);
 		try {
 			await hello(client, s.runId, s.taskId, token);
-			const res = await sendDelegate(client, { prompt: "x" });
-			assert.ok(res.error);
-			assert.equal(res.error!.code, "policy-denied");
-			assert.match(res.error!.message, /not executor-class/);
+			const res = await sendDelegate(client, { prompt: "explore" });
+			assert.ok(res.result, `explorer parent must be admitted: ${JSON.stringify(res)}`);
+			assert.equal(res.result!.ok, true);
+			const ref = res.result!.grandchildTaskRef as string;
+			assert.match(ref, /^gc-/);
+			assert.equal(spawns[0]?.role, "explorer", "grandchild role threads the parent record role");
+			// Background lifecycle completes (mailbox + roll-up).
+			const events = await readEventsUntil(s.eventsPath, (evts) => evts.some((e) => e.type === "delegate.completed"));
+			assert.ok(events.some((e) => e.type === "delegate.admitted"));
+			assert.ok(events.some((e) => e.type === "delegate.completed"));
 		} finally {
 			client.close();
 		}

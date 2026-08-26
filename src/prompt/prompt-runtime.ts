@@ -432,7 +432,7 @@ export function createDelegateTool(deps: DelegateToolDeps = {}): DelegateToolDef
 				return notice(
 					"unavailable",
 					"dormant",
-					"[delegate] is dormant in this worker (PI_CREW_DELEGATE_ENABLED not set — read-only roles and depth-2+ workers cannot delegate) — do the work yourself; do not call delegate again.",
+					"[delegate] is dormant in this worker (PI_CREW_DELEGATE_ENABLED not set — delegate requires a governed broker worker) — do the work yourself; do not call delegate again.",
 				);
 			}
 			const taskId = get(PI_CREW_TASK_ID_ASK_ENV) ?? get(PI_CREW_BROKER_TASK_ID_ASK_ENV);
@@ -533,8 +533,10 @@ export function createDelegateTool(deps: DelegateToolDeps = {}): DelegateToolDef
 	});
 }
 
-/** Layer-1 dormant gate for the delegate tool (ADR-5 §1 — executor-class
- *  roles at depth 1 only; child-pi-spawn sets the env). */
+/** Layer-1 dormant gate for the delegate tool (ADR-5 §1 — worker-side
+ *  env gate; child-pi-spawn sets PI_CREW_DELEGATE_ENABLED unconditionally
+ *  for EVERY role. Broker admission re-checks depth+slot from the task
+ *  RECORD — the env is UX/hygiene, not the security boundary). */
 export function shouldRegisterDelegateTool(env: NodeJS.ProcessEnv = process.env): boolean {
 	return env[PI_CREW_DELEGATE_ENABLED_ENV] === "1";
 }
@@ -957,8 +959,9 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	if (shouldRegisterAskTool()) {
 		pi.registerTool(createAskTool());
 	}
-	// T3/R5 (ADR-5 §1): the `delegate` tool — dormant-until-env, executor-class
-	// roles at depth 1 only (child-pi-spawn sets PI_CREW_DELEGATE_ENABLED).
+	// T3/R5 (ADR-5 §1): the `delegate` tool — dormant-until-env, set for EVERY
+	// worker role (child-pi-spawn now sets PI_CREW_DELEGATE_ENABLED
+	// unconditionally; broker admission is the depth+slot boundary, D8).
 	if (shouldRegisterDelegateTool()) {
 		pi.registerTool(createDelegateTool());
 	}

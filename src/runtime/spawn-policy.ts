@@ -8,26 +8,26 @@
  *
  * Gate dimensions (each with a distinct machine-readable reason + fail-fast
  * message; evaluated in this order — cheapest/most-global first):
- *   1. nesting-disabled   — `nesting.enabled` is false (DEFAULT; fail-closed)
- *   2. role-denied        — the PARENT task's role is not executor-class
- *                           (read-only roles cannot raise spawn privileges),
- *                           or the requested grandchild role is not one of
- *                           the delegate-tool's allowed roles
- *   3. trust-denied       — untrusted escalation context (manual-only trust
+ *   1. trust-denied       — untrusted escalation context (manual-only trust
  *                           gate; the handler resolves trust, policy enforces)
- *   4. depth-exceeded     — child depth (parent.depth + 1) exceeds the
- *                           resolved maxDepth (default 2). Depth comes from
+ *   2. role-denied        — the REQUESTED grandchild role is not one of the
+ *                           delegate-tool's allowed roles (the parent role is
+ *                           NO LONGER gated — D8: every role may delegate;
+ *                           the spawn-side checkCrewDepth cap is the boundary)
+ *   3. depth-exceeded     — child depth (parent.depth + 1) exceeds the
+ *                           resolved maxDepth (default 4). Depth comes from
  *                           the parent task RECORD, never worker env
  *                           (design §7 rev-2 P0-2)
- *   5. slots-exhausted    — nested-slot budget exhausted ("N/M in flight");
+ *   4. slots-exhausted    — nested-slot budget exhausted ("N/M in flight");
  *                           fail-fast, never queue
- *   6. budget-insufficient— requested budgetTokens exceed the parent task's
+ *   5. budget-insufficient— requested budgetTokens exceed the parent task's
  *                           remaining allocation (tokensGranted - tokensSpent)
- *   7. model-invalid      — requested model is not in the resolved model
+ *   6. model-invalid      — requested model is not in the resolved model
  *                           catalog (the unvalidated provider/model
  *                           pass-through — model-fallback.ts:282, the
  *                           429-cascade root — must not be reachable here)
- *   8. timeout-invalid    — timeoutSec outside 1..MAX (default 900)
+ *   7. timeout-invalid    — timeoutSec outside 1..MAX (default 900)
+ *   8. workspace-conflict — write-capable grandchild narrowing cwd overlap
  */
 
 import { modelRefToString } from "./model/model-fallback.ts";
@@ -48,7 +48,6 @@ export const DEFAULT_DELEGATE_TIMEOUT_SEC = 900;
 export const MAX_DELEGATE_TIMEOUT_SEC = 86_400;
 
 export type SpawnPolicyDenyReason =
-	| "nesting-disabled"
 	| "role-denied"
 	| "trust-denied"
 	| "depth-exceeded"
@@ -59,14 +58,14 @@ export type SpawnPolicyDenyReason =
 	| "workspace-conflict";
 
 export interface DelegateAdmissionInput {
-	/** Resolved `nesting.enabled` config (DEFAULT false — fail-closed, ADR-5 §10). */
-	nestingEnabled: boolean;
-	/** Resolved max depth (nesting.maxDepth default 2; env clamp mirrors PI_CREW_MAX_DEPTH 1..10). */
+	/** Resolved max depth (nesting.maxDepth default 4; env clamp mirrors PI_CREW_MAX_DEPTH 1..10). */
 	maxDepth: number;
 	/** Parent task record fields the policy is allowed to trust. */
 	parentTask: {
 		taskId: string;
-		role: string;
+		/** Role for workspace-capability evaluation (policy no longer gates the
+		 *  parent role — D8 opens delegation to every role). */
+		role?: string;
 		/** Absent on pre-v2 records — treated as depth 1 (a worker). */
 		depth?: number;
 		allocation?: { tokensGranted?: number; tokensSpent?: number };
@@ -122,26 +121,13 @@ function deny(reason: SpawnPolicyDenyReason, message: string): SpawnPolicyDecisi
 }
 
 export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnPolicyDecision {
-	const { nestingEnabled, maxDepth, parentTask, requested } = input;
+	const { maxDepth, parentTask, requested } = input;
 	const parentDepth = parentTask.depth ?? 1; // pre-v2 records: workers are depth 1
 	const childDepth = parentDepth + 1;
 
-	// 1. Flag gate — fail-closed default (ADR-5 §10).
-	if (!nestingEnabled) {
-		return deny(
-			"nesting-disabled",
-			"delegate rejected: governed nesting is disabled (nesting.enabled=false, the fail-closed default; enable it in USER config)",
-		);
-	}
-
-	// 2. Role gate — parent must be executor-class; requested role must be in
-	// the tool's allowed set.
-	if (!isExecutorClassRole(parentTask.role)) {
-		return deny(
-			"role-denied",
-			`delegate rejected: role '${parentTask.role}' is not executor-class (${EXECUTOR_CLASS_ROLES.join("/")}) — read-only roles cannot delegate`,
-		);
-	}
+	// 1. Role gate — the REQUESTED grandchild role must be in the tool's allowed
+	// set (the PARENT role is no longer gated — D8: every role may delegate;
+	// the spawn-side checkCrewDepth cap + slot budget below are the boundary).
 	const requestedRole = requested?.role;
 	if (requestedRole !== undefined && !(DELEGATE_ALLOWED_ROLES as readonly string[]).includes(requestedRole)) {
 		return deny(
@@ -150,12 +136,12 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 		);
 	}
 
-	// 3. Trust gate — untrusted escalation context never spawns.
+	// 2. Trust gate — untrusted escalation context never spawns.
 	if (input.untrusted) {
 		return deny("trust-denied", "delegate rejected: untrusted escalation context (trust gate is manual-only)");
 	}
 
-	// 4. Depth gate — computed from the parent RECORD (never worker env).
+	// 3. Depth gate — computed from the parent RECORD (never worker env).
 	if (childDepth > maxDepth) {
 		return deny(
 			"depth-exceeded",
@@ -163,7 +149,7 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 		);
 	}
 
-	// 5. Nested-slot budget — fail-fast, never queue.
+	// 4. Nested-slot budget — fail-fast, never queue.
 	if (input.slots.used >= input.slots.max) {
 		return deny(
 			"slots-exhausted",
@@ -171,7 +157,7 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 		);
 	}
 
-	// 6. Parent allocation sufficiency — reserve up-front or reject.
+	// 5. Parent allocation sufficiency — reserve up-front or reject.
 	if (requested?.budgetTokens !== undefined) {
 		const granted = parentTask.allocation?.tokensGranted ?? 0;
 		const spent = parentTask.allocation?.tokensSpent ?? 0;
@@ -184,7 +170,7 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 		}
 	}
 
-	// 7. Model validation against the resolved catalog.
+	// 6. Model validation against the resolved catalog.
 	const normalizedModel = requested?.model !== undefined ? modelRefToString(requested.model) : undefined;
 	if (normalizedModel !== undefined && input.modelCatalog !== undefined) {
 		if (!input.modelCatalog.includes(normalizedModel)) {
@@ -192,7 +178,7 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 		}
 	}
 
-	// 8. Timeout validation (mandatory default 900).
+	// 7. Timeout validation (mandatory default 900).
 	const timeoutSec = requested?.timeoutSec ?? DEFAULT_DELEGATE_TIMEOUT_SEC;
 	if (!Number.isFinite(timeoutSec) || timeoutSec < 1 || timeoutSec > MAX_DELEGATE_TIMEOUT_SEC) {
 		return deny(
@@ -201,7 +187,7 @@ export function evaluateDelegateAdmission(input: DelegateAdmissionInput): SpawnP
 		);
 	}
 
-	// 9. Workspace interaction (ADR-5 §9): a write-capable grandchild sharing
+	// 8. Workspace interaction (ADR-5 §9): a write-capable grandchild sharing
 	// the parent's cwd with ANOTHER in-flight executor is only admitted when
 	// serialization is established (limits.serializeOnPathOverlap) — otherwise
 	// reject; read-only grandchild roles (explorer/analyst) never conflict.

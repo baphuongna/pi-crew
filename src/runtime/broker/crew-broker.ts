@@ -1465,8 +1465,7 @@ export class CrewBroker {
 					t.cwd === task.cwd,
 			).length;
 			const decision = evaluateDelegateAdmission({
-				nestingEnabled: true, // flag already checked above
-				maxDepth: this.options.nestingMaxDepth ?? resolveCrewMaxDepth(undefined), // config knob > env-clamped 1..10, default 2 (ADR-5 §3)
+				maxDepth: this.options.nestingMaxDepth ?? resolveCrewMaxDepth(undefined), // config knob > env-clamped 1..10, default 4 (D8; ADR-5 §3)
 				parentTask: {
 					taskId: parentTaskId,
 					role: task.role,
