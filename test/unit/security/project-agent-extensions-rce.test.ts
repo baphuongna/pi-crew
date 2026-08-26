@@ -2,13 +2,14 @@
  * SEC-1 Test: Critical RCE via project-agent extensions.
  *
  * Verifies that `parseAgentFile` strips `extensions` and `excludeExtensions`
- * for project-sourced agents (THE security boundary — unchanged by D5).
+ * for project-sourced agents, and that `buildPiWorkerArgs` provides
+ * defense-in-depth by never emitting `--extension <attacker-path>` for
+ * agents from untrusted sources (project / project-pi / dynamic).
  *
- * D5 (spec v0.7 §6, 2026-08 loadout rework) removed the builder-layer
- * defense-in-depth: `buildPiWorkerArgs` now emits agent-declared extensions
- * regardless of source (same trust model as the main session). The builder
- * tests below assert that D5 behavior — the loader strip above is what
- * prevents the RCE.
+ * D5 (spec v0.7 §6) keeps auto-discovery OPEN but the fix round restored
+ * the declaration strip: `extensions:` declared by an untrusted-source
+ * agent never reaches argv without the trust gate. Trusted declarations
+ * (user / builtin sources) pass through.
  *
  * The trust gate is `PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1`.
  */
@@ -169,13 +170,13 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		}
 	});
 
-	it("buildPiWorkerArgs emits project agent extensions (D5 — the loader strip is the security boundary)", () => {
+	it("buildPiWorkerArgs does NOT emit --extension <attacker-path> for project agents", () => {
 		delete process.env[ENV_KEY];
 		try {
 			const agent = makeAgent("project", ["./.crew/pwn.ts", "./evil.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
-			assert.ok(args.some((a) => a.includes("pwn.ts")), "project agent extensions pass through the builder (D5)");
-			assert.ok(args.some((a) => a.includes("evil.ts")), "second project extension passes through the builder (D5)");
+			assertArgvNotContains(args, "pwn.ts");
+			assertArgvNotContains(args, "evil.ts");
 			// The trusted prompt-runtime extension should still be present.
 			assert.ok(
 				args.some((a) => a.includes("prompt-runtime")),
@@ -186,13 +187,13 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		}
 	});
 
-	it("buildPiWorkerArgs emits project-pi agent extensions (D5)", () => {
+	it("buildPiWorkerArgs does NOT emit --extension <attacker-path> for project-pi agents", () => {
 		delete process.env[ENV_KEY];
 		try {
 			const agent = makeAgent("project-pi", ["./.pi/pwn.ts", "./evil.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
-			assert.ok(args.some((a) => a.includes("pwn.ts")), "project-pi agent extensions pass through the builder (D5)");
-			assert.ok(args.some((a) => a.includes("evil.ts")), "second project-pi extension passes through the builder (D5)");
+			assertArgvNotContains(args, "pwn.ts");
+			assertArgvNotContains(args, "evil.ts");
 			assert.ok(
 				args.some((a) => a.includes("prompt-runtime")),
 				"prompt-runtime extension must be present",
@@ -202,33 +203,44 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		}
 	});
 
-	it("buildPiWorkerArgs emits USER agent extensions (D5 open discovery)", () => {
+	it("buildPiWorkerArgs does NOT emit --extension for DYNAMIC (runtime-constructed) agents", () => {
+		delete process.env[ENV_KEY];
+		try {
+			const agent = makeAgent("dynamic", ["./.crew/pwn.ts"]);
+			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
+			assertArgvNotContains(args, "pwn.ts");
+		} finally {
+			restoreEnv(envSnap);
+		}
+	});
+
+	it("buildPiWorkerArgs emits USER agent extensions (trusted declaration source)", () => {
 		delete process.env[ENV_KEY];
 		try {
 			const agent = makeAgent("user", ["./user-ext.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
-			assert.ok(args.some((a) => a.includes("user-ext.ts")), "user agent extensions pass through (D5)");
+			assert.ok(args.some((a) => a.includes("user-ext.ts")), "user agent extensions pass through (trusted source)");
 			assert.ok(!args.includes("--no-extensions"), "--no-extensions is gone (open discovery)");
 		} finally {
 			restoreEnv(envSnap);
 		}
 	});
 
-	it("buildPiWorkerArgs emits BUILTIN agent extensions (D5 open discovery)", () => {
+	it("buildPiWorkerArgs emits BUILTIN agent extensions (trusted declaration source)", () => {
 		delete process.env[ENV_KEY];
 		try {
 			const agent = makeAgent("builtin", ["./builtin-ext.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
 			assert.ok(
 				args.some((a) => a.includes("builtin-ext.ts")),
-				"builtin agent extensions pass through (D5)",
+				"builtin agent extensions pass through (trusted source)",
 			);
 		} finally {
 			restoreEnv(envSnap);
 		}
 	});
 
-	it("buildPiWorkerArgs emits project extensions regardless of the trust env (gate lives in the loader)", () => {
+	it("env trust gate preserves project extensions in the builder (gate consulted via input.env)", () => {
 		delete process.env[ENV_KEY];
 		const agent = makeAgent("project", ["./.crew/pwn.ts"]);
 		const { args } = buildPiWorkerArgs({
@@ -238,18 +250,18 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		});
 		assert.ok(
 			args.some((a) => a.includes("pwn.ts")),
-			"the builder no longer filters — PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS is enforced by discoverAgents",
+			"PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1 must preserve project declarations in the builder",
 		);
 	});
 
-	it("buildPiWorkerArgs no longer consults the trust env (per-call or process)", () => {
-		// Process env says trusted, per-call env says NOT trusted — the builder
-		// is source-agnostic now (D5); the gate is loader-side only.
+	it("buildPiWorkerArgs checks agent.source via input.env when process.env differs", () => {
+		// Process env says trusted, but the per-call env says NOT trusted.
 		process.env[ENV_KEY] = "1";
 		try {
 			const agent = makeAgent("project", ["./.crew/pwn.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test", agent, env: {} });
-			assert.ok(args.some((a) => a.includes("pwn.ts")), "extensions emitted regardless of env trust state (D5)");
+			// Per-call env {} has no PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS → must strip.
+			assertArgvNotContains(args, "pwn.ts");
 		} finally {
 			restoreEnv(envSnap);
 		}

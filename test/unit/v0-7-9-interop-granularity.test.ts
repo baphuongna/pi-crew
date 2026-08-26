@@ -152,15 +152,14 @@ describe("F1 — tools: frontmatter wildcards (parseToolsField)", () => {
 	});
 });
 
-describe("F1 → D5 — extension discovery is OPEN at depth>0 (spec v0.7 §6)", () => {
-	// D5 (spec v0.7 §6, 2026-08 loadout rework) REVERSED the ADR-5 §8
-	// allowlist: the default worker loadout is a FULL pi session (like the
-	// main session). Agent-declared `extensions:` are emitted after the
-	// always-present prompt-runtime extension, `--no-extensions` is gone,
-	// and the excludeExtensions/SEC-1 strips were removed with it (the
-	// denylist was subsumed by the allowlist it defended; with the
-	// allowlist gone, discovery is governed by the same trust model as the
-	// main session — `pi install` decides what loads).
+describe("F1 → D5 — extension discovery OPEN, untrusted declarations stripped (spec v0.7 §6 + fix round 1)", () => {
+	// D5 (spec v0.7 §6, 2026-08 loadout rework) made the default worker
+	// loadout a FULL pi session: `--no-extensions` is gone and auto-discovery
+	// is open like the main session. Fix round 1 restored the SEC-1
+	// declaration strip for untrusted sources (project / project-pi /
+	// dynamic) plus the excludeExtensions denylist, applied to the declared
+	// list AFTER the strip. Trusted declarations (user / builtin) pass
+	// through after the always-present prompt-runtime extension.
 	const extensionFlagsOf = (args: string[]): string[] => {
 		const flags: string[] = [];
 		for (let i = 0; i < args.length; i++) {
@@ -169,27 +168,27 @@ describe("F1 → D5 — extension discovery is OPEN at depth>0 (spec v0.7 §6)",
 		return flags;
 	};
 
-	it("user-sourced agent extensions ARE emitted (D5 open discovery)", () => {
+	it("user-sourced agent extensions ARE emitted (trusted declaration source)", () => {
 		const agent = makeAgentConfig({ source: "user", extensions: ["foo", "bar"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
 		const flags = extensionFlagsOf(args);
-		assert.ok(flags.includes("foo"), "user-sourced 'foo' must pass through (D5)");
-		assert.ok(flags.includes("bar"), "user-sourced 'bar' must pass through (D5)");
+		assert.ok(flags.includes("foo"), "user-sourced 'foo' must pass through");
+		assert.ok(flags.includes("bar"), "user-sourced 'bar' must pass through");
 	});
 
-	it("excludeExtensions entries appear (denylist removed with the allowlist it defended)", () => {
+	it("excludeExtensions entries never appear (denylist applied to the declared list after the strip)", () => {
 		const agent = makeAgentConfig({ source: "user", extensions: ["foo", "bar", "baz"], excludeExtensions: ["foo", "baz"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
 		const flags = extensionFlagsOf(args);
-		assert.ok(flags.includes("foo") && flags.includes("baz"), "excludeExtensions is no longer applied on this path");
-		assert.ok(flags.includes("bar"), "non-excluded 'bar' passes through");
+		assert.ok(!flags.includes("foo") && !flags.includes("baz"));
+		assert.ok(flags.includes("bar"), "non-excluded 'bar' passes through (no allowlist anymore — only the denylist)");
 	});
 
-	it("project-sourced agent extensions ARE emitted (SEC-1 strip removed by D5)", () => {
+	it("project-sourced agent extensions are NOT emitted (SEC-1 declaration strip restored)", () => {
 		const agent = makeAgentConfig({ source: "project", extensions: ["/tmp/attacker.ts"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
 		const flags = extensionFlagsOf(args);
-		assert.ok(flags.includes("/tmp/attacker.ts"), "project-sourced extensions pass through (same trust model as main session)");
+		assert.ok(!flags.includes("/tmp/attacker.ts"));
 	});
 
 	it("NO --no-extensions; prompt-runtime always present and first", () => {

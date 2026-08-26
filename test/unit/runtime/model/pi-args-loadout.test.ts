@@ -40,3 +40,42 @@ test("inheritSkills:false vẫn tắt skills khi agent khai explicit", () => {
 	const { args } = buildPiWorkerArgs({ task: "Task: x", agent: agent({ inheritSkills: false }) });
 	assert.ok(args.includes("--no-skills"), "explicit inheritSkills:false still disables skills");
 });
+
+// B1 (fix round 1): env emission must match argv semantics — undefined
+// inheritSkills means INHERIT (like the argv `=== false` check), not "0".
+test("B1: PI_CREW_INHERIT_SKILLS env matches argv — undefined = inherit", () => {
+	const inherited = buildPiWorkerArgs({ task: "Task: x", agent: agent() });
+	assert.ok(!inherited.args.includes("--no-skills"));
+	assert.equal(inherited.env.PI_CREW_INHERIT_SKILLS, "1", "undefined inheritSkills → env 1 (inherit)");
+	assert.equal(inherited.env.PI_TEAMS_INHERIT_SKILLS, "1", "PI_TEAMS alias must agree");
+	const disabled = buildPiWorkerArgs({ task: "Task: x", agent: agent({ inheritSkills: false }) });
+	assert.ok(disabled.args.includes("--no-skills"));
+	assert.equal(disabled.env.PI_CREW_INHERIT_SKILLS, "0", "inheritSkills:false → env 0");
+	assert.equal(disabled.env.PI_TEAMS_INHERIT_SKILLS, "0", "PI_TEAMS alias must agree");
+});
+
+// B2 (fix round 1): `disallowedTools:` frontmatter is a declaration-driven
+// denylist (opt-in like `tools:`) — NOT the role-based policy D5 removed.
+test("B2: declared disallowedTools → --exclude-tools; omitted → none", () => {
+	const { args } = buildPiWorkerArgs({ task: "Task: x", agent: agent({ disallowedTools: ["bash", "write"] }) });
+	const idx = args.indexOf("--exclude-tools");
+	assert.ok(idx >= 0, "--exclude-tools must be present when disallowedTools declared");
+	const list = args[idx + 1]!.split(",");
+	assert.ok(list.includes("bash") && list.includes("write"), "declared disallowed tools present");
+	const full = buildPiWorkerArgs({ task: "Task: x", agent: agent() });
+	assert.ok(!full.args.includes("--exclude-tools"), "no --exclude-tools when nothing declared");
+});
+
+// GAP-1 (fix round 1): SEC-1 builder strip is restored for DECLARED
+// extensions from untrusted sources — auto-discovery stays open (D5), but
+// `extensions:` in a project/project-pi/dynamic agent never reaches argv
+// without the trust gate.
+test("GAP-1: declared extensions from dynamic/project sources are stripped (SEC-1)", () => {
+	const { args } = buildPiWorkerArgs({
+		task: "Task: x",
+		agent: agent({ extensions: ["./.crew/pwn.ts"] }),
+		env: {},
+	});
+	assert.ok(!args.some((a) => a.includes("pwn.ts")), "dynamic-source declaration must be stripped");
+	assert.ok(args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")), "prompt-runtime stays unconditionally");
+});

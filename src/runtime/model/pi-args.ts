@@ -299,10 +299,31 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		}
 		// declared rỗng → KHÔNG truyền --tools (full default toolset — pattern
 		// buildSubagentToolAllowlist của pi-interactive-subagents index.ts:809-811).
+		// B2 (fix round 1): `disallowedTools:` frontmatter is a
+		// declaration-driven denylist (opt-in like `tools:`) — NOT the
+		// role-based policy D5 removed.
+		const disallowed = (input.agent.disallowedTools ?? []).map((t) => t.trim()).filter(Boolean);
+		if (disallowed.length > 0) args.push("--exclude-tools", [...new Set(disallowed)].join(","));
 	}
 	// prompt-runtime extension luôn nạp (hạ tầng phối hợp — không phải cắt xén).
 	args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
-	for (const ext of input.agent.extensions ?? []) args.push("--extension", ext);
+	// SEC-1 (fix round 1): DECLARED extensions from untrusted sources
+	// (project / project-pi / dynamic) are stripped unless the operator opts
+	// in via PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1. Auto-discovery stays
+	// open (D5) — this only filters explicit `extensions:` declarations.
+	const extEnv = input.env ?? process.env;
+	const untrustedSource =
+		input.agent.source === "project" || input.agent.source === "project-pi" || input.agent.source === "dynamic";
+	let declaredExtensions = input.agent.extensions ?? [];
+	if (untrustedSource && extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1") {
+		declaredExtensions = [];
+	}
+	// F1 (v0.7.9): excludeExtensions denylist (case-insensitive basename
+	// match) applies to the declared list AFTER the SEC-1 strip. The
+	// prompt-runtime is a pi-crew internal and is never excludable.
+	const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path.basename(name).toLowerCase()));
+	declaredExtensions = declaredExtensions.filter((ext) => !excluded.has(path.basename(ext).toLowerCase()));
+	for (const ext of declaredExtensions) args.push("--extension", ext);
 	// KHÔNG còn --no-extensions (extension discovery hoạt động như main session).
 	if (input.agent.inheritSkills === false) args.push("--no-skills");
 	for (const skillPath of input.skillPaths ?? []) args.push("--skill", skillPath);
@@ -342,12 +363,14 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 			// main session (the lesson from an accidental `kill` of a live main session).
 			PI_CREW_KIND: "subagent",
 			PI_CREW_INHERIT_PROJECT_CONTEXT: input.agent.inheritProjectContext ? "1" : "0",
-			PI_CREW_INHERIT_SKILLS: input.agent.inheritSkills ? "1" : "0",
+			// B1 (fix round 1): match the argv `=== false` semantics — undefined
+			// inheritSkills means INHERIT (D5 default), not "0".
+			PI_CREW_INHERIT_SKILLS: input.agent.inheritSkills === false ? "0" : "1",
 			PI_CREW_DEPTH: String(parentDepth + 1),
 			PI_CREW_MAX_DEPTH: String(maxDepth),
 			PI_CREW_ROLE: input.agent.name,
 			PI_TEAMS_INHERIT_PROJECT_CONTEXT: input.agent.inheritProjectContext ? "1" : "0",
-			PI_TEAMS_INHERIT_SKILLS: input.agent.inheritSkills ? "1" : "0",
+			PI_TEAMS_INHERIT_SKILLS: input.agent.inheritSkills === false ? "0" : "1",
 			PI_TEAMS_DEPTH: String(parentDepth + 1),
 			PI_TEAMS_MAX_DEPTH: String(maxDepth),
 			PI_TEAMS_ROLE: input.agent.name,
