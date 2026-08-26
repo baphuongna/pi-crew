@@ -445,10 +445,15 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.fire("tool_execution_start", { type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: { path: "a.ts" } });
 		h.fire("message_end", ASSISTANT_STOP);
 
-		assert.equal(h.lines.length, 2);
-		const first = JSON.parse(h.lines[0]!) as { seq: number; event: Record<string, unknown> };
+		// T11: registration itself emits `worker.started` (self-report + run event),
+		// so the recorder's FIRST line is that self-report at seq 1 and the
+		// compacted session events follow.
+		assert.equal(h.lines.length, 3);
+		const started = JSON.parse(h.lines[0]!) as { seq: number; event: Record<string, unknown> };
+		assert.equal(started.event.type, "worker.started");
+		const first = JSON.parse(h.lines[1]!) as { seq: number; event: Record<string, unknown> };
 		assert.deepEqual(Object.keys(first.event).sort(), ["args", "toolName", "type"], "record mirrors the host compaction shape");
-		assert.equal(first.seq, 1);
+		assert.equal(first.seq, 2);
 	});
 
 	it("auto-exits after a settled turn: worker.completed THEN abort+shutdown (D7 order)", () => {
@@ -458,8 +463,8 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.fire("agent_settled");
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			[] as string[],
-			"nothing emitted while the confirm window is open",
+			["worker.started"],
+			"nothing but the registration report while the confirm window is open",
 		);
 
 		const [confirmId] = h.timers.pendingTimeouts();
@@ -467,20 +472,23 @@ describe("registerSurfaceWorkerLifecycle", () => {
 
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			["worker.completed"],
+			["worker.started", "worker.completed"],
 		);
-		const completed = h.runEvents[0]!;
+		const completed = h.runEvents.at(-1)!;
 		assert.equal(completed.data.result, "done");
 		assert.equal(completed.data.stopReason, "stop");
 		assert.equal((completed.data.usage as { input: number }).input, 10);
 		// Ordering: report (sync append + flush) → cut any running turn → shutdown.
-		assert.deepEqual(h.calls, ["emit:worker.completed", "ctx.abort", "ctx.shutdown"]);
+		assert.deepEqual(h.calls.slice(-3), ["emit:worker.completed", "ctx.abort", "ctx.shutdown"]);
 		assert.deepEqual(h.exitCodes(), [], "pi shutdown API preferred over process.exit");
 
 		// A second settled turn after termination must not double-report.
 		h.fire("agent_settled");
 		h.timers.invokeTimeout(1); // no new timer is armed once terminated
-		assert.equal(h.runEvents.length, 1);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			["worker.started", "worker.completed"],
+		);
 		assert.deepEqual(h.timers.pendingTimeouts(), [], "confirm timer cleared after firing");
 	});
 
@@ -500,7 +508,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.timers.invokeTimeout(confirmId!);
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			[] as string[],
+			["worker.started"],
 			"exit aborted when a steer became pending",
 		);
 
@@ -511,7 +519,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.timers.invokeTimeout(confirmId!);
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			[] as string[],
+			["worker.started"],
 		);
 
 		// Drained queue on a later settle → exits normally.
@@ -520,7 +528,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.timers.invokeTimeout(confirmId!);
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			["worker.completed"],
+			["worker.started", "worker.completed"],
 		);
 		assert.deepEqual(h.calls.at(-1), "ctx.shutdown");
 	});
@@ -533,7 +541,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		assert.deepEqual(h.timers.pendingTimeouts(), [], "no confirm armed while a delegate runs");
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			[] as string[],
+			["worker.started"],
 		);
 		assert.equal(h.shutdownCalls(), 0, "running delegate keeps the session alive");
 
@@ -547,7 +555,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.timers.invokeTimeout(confirmId!);
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			["worker.completed"],
+			["worker.started", "worker.completed"],
 		);
 	});
 
@@ -558,7 +566,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.fire("agent_settled", {});
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			[] as string[],
+			["worker.started"],
 		);
 		assert.equal(h.shutdownCalls(), 0, "pending ask keeps the session alive");
 	});
@@ -569,8 +577,13 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		});
 		h.fire("message_end", ASSISTANT_STOP);
 		h.fire("agent_settled", {});
-		assert.equal(h.lines.length, 1);
-		assert.deepEqual(h.runEvents, [], "no terminal event without PI_CREW_AUTO_EXIT=1");
+		// lines[0] = worker.started self-report, lines[1] = the compacted event.
+		assert.equal(h.lines.length, 2);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			["worker.started"],
+			"only the started report — no terminal event without PI_CREW_AUTO_EXIT=1",
+		);
 	});
 
 	it("parent-guard emits worker.parent-lost then shuts down", () => {
@@ -587,16 +600,16 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.timers.invokeInterval(armed[0]!.id);
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			["worker.parent-lost"],
+			["worker.started", "worker.parent-lost"],
 		);
 		// Parent died (possibly mid-turn): report → abort the running turn →
 		// shutdown, so pi's deferred shutdown completes instead of freezing.
-		assert.deepEqual(h.calls, ["emit:worker.parent-lost", "ctx.abort", "ctx.shutdown"]);
+		assert.deepEqual(h.calls.slice(-3), ["emit:worker.parent-lost", "ctx.abort", "ctx.shutdown"]);
 		assert.equal(h.timers.pendingIntervals(), 0, "guard timer cleared after firing");
 
 		// Idempotent: further ticks stay silent.
 		h.timers.invokeInterval(armed[0]!.id);
-		assert.equal(h.runEvents.length, 1);
+		assert.equal(h.runEvents.length, 2);
 	});
 
 	it("parent-guard treats pid reuse (live pid, different starttime) as lost", () => {
@@ -608,7 +621,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.timers.invokeInterval(timer!.id);
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			["worker.parent-lost"],
+			["worker.started", "worker.parent-lost"],
 		);
 	});
 
@@ -621,7 +634,7 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		h.timers.invokeInterval(timer!.id);
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			[] as string[],
+			["worker.started"],
 		);
 		assert.equal(h.shutdownCalls(), 0);
 	});
@@ -641,13 +654,13 @@ describe("registerSurfaceWorkerLifecycle", () => {
 
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
-			["worker.error"],
+			["worker.started", "worker.error"],
 		);
-		const failure = h.runEvents[0]!;
+		const failure = h.runEvents.at(-1)!;
 		assert.equal(failure.data.errorMessage, "provider overload");
 		assert.equal(failure.data.stopReason, "error");
 		assert.equal((failure.data.usage as { input: number }).input, 10, "usage still reported");
-		assert.deepEqual(h.calls, ["emit:worker.error"], "no abort/shutdown — the pane stays open");
+		assert.deepEqual(h.calls.slice(1), ["emit:worker.error"], "no abort/shutdown — the pane stays open");
 		assert.equal(h.shutdownCalls(), 0);
 
 		// Repeated failed settles keep reporting (bounded), never exit.
@@ -663,6 +676,46 @@ describe("registerSurfaceWorkerLifecycle", () => {
 });
 
 // ── seq seeding across attempts (host cursor stays monotonic) ─────────────
+
+describe("worker.started self-report (S2-T11, §12.2)", () => {
+	it("emits once at registration into BOTH the per-agent log (seq 1) and the run event log", () => {
+		const h = buildHarness({
+			env: workerEnv({ PI_CREW_SURFACE_PANE: "%12" }),
+		});
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			["worker.started"],
+			"registration report is the FIRST terminal-path run event",
+		);
+		const started = h.runEvents[0]!;
+		assert.equal(started.data.pid, process.pid);
+		assert.equal(started.data.surface, "tmux");
+		assert.equal(started.data.surfacePaneId, "%12");
+
+		const first = JSON.parse(h.lines[0]!) as { seq: number; event: Record<string, unknown> };
+		assert.deepEqual([first.seq, first.event.type], [1, "worker.started"]);
+	});
+
+	it("keeps seq monotonic: a record() after recordSelfReport continues +1", () => {
+		const out: string[] = [];
+		const now = (): number => Date.UTC(2026, 7, 26);
+		const recorder = createAgentEventRecorder({
+			eventsPath: "",
+			appendLine: (_t, line) => out.push(line),
+			now,
+		});
+		recorder.recordSelfReport({ type: "worker.started", pid: 1 });
+		recorder.record(ASSISTANT_STOP);
+		const parsed = out.map((line) => JSON.parse(line) as { seq: number; event: Record<string, unknown> });
+		assert.deepEqual(
+			parsed.map((entry) => [entry.seq, entry.event.type]),
+			[
+				[1, "worker.started"],
+				[2, "message_end"],
+			],
+		);
+	});
+});
 
 describe("recorder seq seeding", () => {
 	/** Host-format log with seq 1..5 (what an earlier attempt left behind). */

@@ -21,7 +21,7 @@ import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
-import { type BrokerSpawnCredentials, setActiveBrokerIssuer } from "../../runtime/broker/broker-issuer.ts";
+import { type BrokerSpawnCredentials, setActiveBrokerIssuer, setActiveBrokerRevoker } from "../../runtime/broker/broker-issuer.ts";
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import { forgetDetachedRun, hasDetachedRuns, peekFinishedDetachedRunResults } from "../../runtime/detached-run-results.ts";
@@ -1145,6 +1145,22 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		}
 	};
 
+	// MuxSurface A1 (spec §7 D3 step 2): publish the revoker alongside the
+	// issuer — team-runner's degrade controller calls it when a pane is lost.
+	// Best-effort and self-gated: no broker bound (never started / session
+	// switched) means nothing to revoke; re-issue after respawn mints fresh (T10).
+	const revokeForTask = (taskId: string): void => {
+		if (!taskId || typeof taskId !== "string") return;
+		if (!isRootSession(process.env)) return;
+		if (!broker || brokerSessionId !== cachedSessionId) return;
+		try {
+			broker.revokeTaskToken(taskId);
+		} catch (error) {
+			logInternalError("broker.revoke-for-task", error instanceof Error ? error : new Error(String(error)), `taskId=${taskId}`, "warn");
+		}
+	};
+	setActiveBrokerRevoker(revokeForTask);
+
 	// Publish this issuer as the process-local active issuer so runChildPi can
 	// default `brokerIssuer` without the registration context being threaded
 	// through every runner call site. The issuer self-gates (root + flag), so
@@ -1155,6 +1171,7 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		issueForChild,
 		stop: async () => {
 			setActiveBrokerIssuer(undefined);
+			setActiveBrokerRevoker(undefined);
 			if (broker) {
 				try {
 					await broker.stop();

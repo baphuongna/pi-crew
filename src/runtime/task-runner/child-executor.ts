@@ -741,6 +741,53 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				input.signal.removeEventListener("abort", externalAbortListener);
 			}
 		}
+		// ── MuxSurface A1 (spec §7 D3): degrade short-circuit ────────────────
+		// classifyOnExit found NO worker.completed after the pane died, so the
+		// worker never finished. This is NOT a model failure and NOT an empty
+		// result — deriving an error here would route into autoRetry (no-op
+		// retries + deadletter noise) AND persist a "failed" task that
+		// handleFailedTask could abort the whole run on. Instead: hand the loss
+		// to finalize as `surfaceLost` (needs_attention), leave the task
+		// non-terminal in the meantime, and let the team-runner drain re-queue
+		// it headless.
+		if (childResult.surface?.degraded) {
+			const degraded = childResult.surface.degraded;
+			logs.push(
+				`SURFACE DEGRADE: worker in ${childResult.surface.kind} pane ${childResult.surface.paneId} lost (${degraded.cause}) ` +
+					`with no completion within the classify window; re-dispatching headless`,
+				"",
+			);
+			return {
+				resultArtifact: undefined,
+				logArtifact: undefined,
+				transcriptArtifact: undefined,
+				exitCode: null,
+				error: undefined,
+				modelAttempts,
+				parsedOutput: undefined,
+				finalStdout: "",
+				rawFinalText: undefined,
+				transcriptPath,
+				terminalEvidence,
+				startupEvidence: createStartupEvidence({
+					command: "pi",
+					startedAt: attemptStartedAt,
+					finishedAt: new Date(),
+					promptSentAt: attemptStartedAt,
+					promptAccepted: false,
+					stderr: childResult.stderr,
+					error: undefined,
+					exitCode: null,
+				}),
+				surfaceLost: {
+					taskId: task.id,
+					paneId: childResult.surface.paneId,
+					cause: degraded.cause,
+					exitReason: degraded.exitReason,
+					ts: new Date().toISOString(),
+				},
+			};
+		}
 		const evidenceStatus = evidenceStatusFor(childResult);
 		terminalEvidence = [
 			...terminalEvidence,

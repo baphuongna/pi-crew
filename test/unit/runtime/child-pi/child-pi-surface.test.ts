@@ -22,6 +22,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { runChildPi } from "../../../../src/runtime/child-pi/child-pi.ts";
+import { CLASSIFY_TIMEOUT_MS } from "../../../../src/runtime/surface/degrade.ts";
 import { __test_getTrackedTempDirs } from "../../../../src/runtime/model/pi-args.ts";
 import type {
 	SurfaceDetection,
@@ -142,8 +143,20 @@ function cleanup(workRoot: string, launchDir: string): void {
 	rmSync(launchDir, { recursive: true, force: true });
 }
 
+/** Ghi sẵn `worker.completed` vào RUN event log — mô phỏng D7 report-before-dying
+ *  của worker thật (bắt buộc để classifyOnExit trả "completed"). */
+function seedWorkerCompleted(eventsPath: string, taskId = "01_explore", resultText = "TASK DONE"): void {
+	mkdirSync(join(eventsPath, ".."), { recursive: true });
+	appendFileSync(
+		eventsPath,
+		`${JSON.stringify({ type: "worker.completed", runId: "run_surface_1", taskId, data: { result: resultText, stopReason: "stop" } })}\n`,
+		"utf8",
+	);
+}
+
 test("runChildPi boots the worker in a pane via launch script — no stdio process spawned", async () => {
 	const { workRoot, launchDir } = await setup();
+	seedWorkerCompleted(join(workRoot, "state", "runs", "run_surface_1", "events.jsonl"));
 	try {
 		const provider = fakeSurfaceProvider();
 		const lifecycle: ChildPiLifecycleEvent[] = [];
@@ -160,7 +173,8 @@ test("runChildPi boots the worker in a pane via launch script — no stdio proce
 
 		// Worker chạy trong pane — không pid process stdio nào được báo cáo.
 		assert.equal(onSpawnPidSeen, undefined, "surface mode không spawn process nên không có pid");
-		assert.deepEqual(provider.spawnOptsSeen, [{ cwd: workRoot }], "createSurface chỉ nhận cwd — command gửi riêng");
+		// T11 (F4): title = taskId để pane đọc được trong mux — command vẫn gửi riêng.
+		assert.deepEqual(provider.spawnOptsSeen, [{ cwd: workRoot, title: "01_explore" }], "createSurface chỉ nhận cwd + title (taskId)");
 
 		// Command vào pane: `bash '<script>'; exit` (script tự xóa sau khi chạy).
 		assert.equal(provider.sentCommands.length, 1);
@@ -201,11 +215,32 @@ test("runChildPi boots the worker in a pane via launch script — no stdio proce
 		// Kết quả có marker surface cho T9/T11 consume.
 		assert.equal(result.exitCode, 0);
 		assert.deepEqual(result.surface, { kind: "tmux", paneId: "%7", scriptPath });
+		assert.equal(result.surface?.degraded, undefined);
+		assert.equal(result.rawFinalText, "TASK DONE");
 		// Lifecycle event mặt được host ghi vào run log (worker.surface_spawned).
 		assert.ok(
 			lifecycle.some((event) => event.type === "surface_spawned"),
 			JSON.stringify(lifecycle.map((e) => e.type)),
 		);
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
+test("T11 classify: pane chết KHÔNG có worker.completed → result.surface.degraded (§7)", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const provider = fakeSurfaceProvider();
+		const startedAtMs = Date.now();
+		const result = await runChildPi(
+			makeRunInput(workRoot, { surface: { providers: { tmux: provider }, baseDir: launchDir } }),
+		);
+		const elapsedMs = Date.now() - startedAtMs;
+		assert.ok(elapsedMs >= CLASSIFY_TIMEOUT_MS - 250, `phải đốt trọn classify window (${elapsedMs}ms)`);
+		assert.equal(result.surface?.degraded?.cause, "pane-closed");
+		assert.equal(result.surface?.degraded?.exitReason, "pane-closed");
+		assert.equal(result.rawFinalText, "", "chưa hoàn thành thì không được giả kết quả");
+		assert.equal(result.exitStatus?.timedOut, false);
 	} finally {
 		cleanup(workRoot, launchDir);
 	}

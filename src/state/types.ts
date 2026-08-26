@@ -408,6 +408,9 @@ export interface TeamRunManifest {
 	 * models.json happens to list first.
 	 */
 	modelContext?: RunModelContext;
+	/** MuxSurface A1 (spec §8.3): pane/pid/lockout state of this run. Absent on
+	 *  runs that never booted a surface worker and on older manifests. */
+	surface?: ManifestSurfaceState;
 }
 
 export interface RunModelContext {
@@ -419,6 +422,41 @@ export interface RunModelContext {
 	parentThinking?: string;
 	/** `"provider/id"` entries from the caller's pi ModelRegistry (auth-filtered). */
 	availableModels?: string[];
+}
+
+/**
+ * MuxSurface A1 run-scope surface state (spec §8.3 / §12.3). Written by the
+ * team-runner's surface-degrade controller (runtime/surface/degrade.ts) and
+ * read by doctor (T12). Plain JSON — manifests parse without a schema, so an
+ * absent field means "no surface worker ever booted" and older writers simply
+ * don't emit it (backward-compatible in both directions).
+ *
+ * Per-run scope: every new run starts without `surface`, which IS the
+ * "reset ở run sau" of the anti-flap policy (spec §7 step 3).
+ */
+export interface ManifestSurfaceState {
+	provider: "tmux" | "herdr" | null;
+	/** taskId → pane id of the LIVE pane (removed when the pane is released). */
+	panes: Record<string, string>;
+	/** taskId → pid, captured from the worker's own `worker.started` event. */
+	workerPids: Record<string, number>;
+	/**
+	 * taskId → session file path when the worker self-reports one (optional
+	 * field of §12.2 — never populated in A1 because pi does not expose its
+	 * session path to extensions; kept for the degrade-resume seam).
+	 */
+	sessionPaths: Record<string, string>;
+	/**
+	 * Surface is OFF for the rest of this run since `since`:
+	 * - cause "degrade": ≥1 degrade entry after the classify timeout
+	 *   (anti-flap; counts keep per-cause evidence for doctor).
+	 * - cause "spawn-fail": 3 consecutive spawn failures.
+	 */
+	lockout?: {
+		since: string;
+		counts: { pane: number; mux: number };
+		cause: "degrade" | "spawn-fail";
+	};
 }
 
 export interface UsageState {

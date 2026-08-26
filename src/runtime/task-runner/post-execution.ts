@@ -56,7 +56,22 @@ import { persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
  * mutation guard (fail mode) inside finalizeTaskResult.
  */
 export interface TaskExecutionResult {
-	resultArtifact: ArtifactDescriptor;
+	/**
+	 * MuxSurface A1 (spec §7 D3): the worker's pane died with NO worker.completed
+	 * inside the classify window — the worker never finished. When set,
+	 * {@link finalizeTaskResult} short-circuits into a dedicated degrade
+	 * terminalisation (needs_attention, no fabricated result) INSTEAD of the
+	 * yield/mutation/output guards, which would misread the loss as an
+	 * empty-result failure and trigger autoRetry double-dispatch.
+	 */
+	surfaceLost?: {
+		taskId: string;
+		paneId: string;
+		cause: "pane-closed" | "mux-dead";
+		exitReason: string;
+		ts: string;
+	};
+	resultArtifact?: ArtifactDescriptor;
 	logArtifact: ArtifactDescriptor | undefined;
 	transcriptArtifact: ArtifactDescriptor | undefined;
 	exitCode: number | null;
@@ -122,6 +137,46 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 	const transcriptPath = execResult.transcriptPath;
 	const terminalEvidence = execResult.terminalEvidence;
 	const startupEvidence = execResult.startupEvidence;
+
+	// ── MuxSurface A1 (spec §7 D3): degrade terminalisation ───────────────
+	// The pane died with NO worker.completed in the classify window: the worker
+	// never finished, so the yield/mutation/output guards would MISREAD this as
+	// an empty-result failure (autoRetry would then double-dispatch and a failed
+	// task could abort the whole run at handleFailedTask). Terminalise as
+	// needs_attention WITHOUT fabricating a result; team-runner's surface-degrade
+	// drain re-queues the unit headless (scratchpad restore + pendingSteers
+	// replay + resume note) WITHOUT consuming retry budget (spec §7 step 5).
+	if (execResult.surfaceLost) {
+		const lost = execResult.surfaceLost;
+		task = {
+			...task,
+			status: "needs_attention",
+			finishedAt: new Date().toISOString(),
+			exitCode: null,
+			error: undefined,
+			claim: undefined,
+			heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
+			workerExitStatus: terminalEvidence.at(-1)?.exitStatus,
+			terminalEvidence: terminalEvidence.length ? [...(task.terminalEvidence ?? []), ...terminalEvidence] : task.terminalEvidence,
+			diagnostics: {
+				...(task.diagnostics ?? {}),
+				surfaceLost: { ts: lost.ts, cause: lost.cause, paneId: lost.paneId, exitReason: lost.exitReason },
+			},
+		};
+		tasks = updateTask(tasks, task);
+		// ST-7: durable terminal write under the run lock — crash recovery must
+		// see needs_attention, not a phantom "running" worker.
+		tasks = await withRunLock(manifest, async () => persistSingleTaskUpdate(manifest, tasks, task, undefined, true));
+		upsertCrewAgent(manifest, recordFromTask(manifest, task, runtimeKind));
+		await appendEventAsync(manifest.eventsPath, {
+			type: "task.surface_lost",
+			runId: manifest.runId,
+			taskId: task.id,
+			message: `Surface worker lost (${lost.cause}) before completing — re-dispatching headless`,
+			data: { paneId: lost.paneId, cause: lost.cause, exitReason: lost.exitReason, ts: lost.ts },
+		});
+		return { manifest, tasks };
+	}
 
 	// --- Yield-based completion contract ---
 	// _yieldResult: preserved for future use — yield completion contract not yet wired to task.result
@@ -538,7 +593,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		artifacts: [
 			...manifest.artifacts,
 			promptArtifact,
-			resultArtifact,
+			...(resultArtifact ? [resultArtifact] : []),
 			inputsArtifact,
 			coordinationArtifact,
 			...(skillArtifact ? [skillArtifact] : []),

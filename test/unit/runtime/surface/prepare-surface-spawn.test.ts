@@ -188,7 +188,12 @@ test("happy path: resolves provider, splits pane WITHOUT command, builds script,
 	assert.equal(outcome.paneId, "%42");
 	assert.equal(outcome.handle.id, "%42");
 	// Pane được tạo TRƯỚC khi biết command gì cả — KHÔNG placeholder mechanism.
-	assert.deepEqual(provider.spawnOptsSeen[0], { cwd: "/tmp/project" }, "createSurface chỉ nhận cwd, chưa gửi command");
+	// T11 (F4): title = taskId để pane đọc được trong mux, không phải command.
+	assert.deepEqual(
+		provider.spawnOptsSeen[0],
+		{ cwd: "/tmp/project", title: "01_explore" },
+		"createSurface chỉ nhận cwd + title (taskId), chưa gửi command",
+	);
 	// Thứ tự bắt buộc: createSurface → sendCommand.
 	assert.deepEqual(provider.calls, ["createSurface", "sendCommand"]);
 	// Command gửi vào pane bọc path script bằng shellEscape và thoát shell sau chạy.

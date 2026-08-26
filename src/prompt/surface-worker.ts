@@ -234,6 +234,13 @@ export interface TurnSnapshot {
 
 export interface AgentEventRecorder {
 	record(event: unknown): void;
+	/**
+	 * Worker self-report through the SAME `{seq,time,event}` pipeline WITHOUT
+	 * pi-event compaction (compaction would drop non-pi shapes like the §12.2
+	 * `worker.started` run-level contract). Keeps seq monotonic so host tail
+	 * consumers never see a duplicate id.
+	 */
+	recordSelfReport(event: Record<string, unknown>): void;
 	turnSnapshot(): TurnSnapshot;
 	stats(): RecorderStats;
 }
@@ -405,6 +412,23 @@ export function createAgentEventRecorder(options: AgentEventRecorderOptions): Ag
 				logInternalError("prompt-runtime.surface-recorder-write", error as Error, `eventsPath=${eventsPath}`);
 			}
 		},
+		recordSelfReport(selfEvent: Record<string, unknown>): void {
+			seq += 1;
+			let line: string;
+			try {
+				line = `${JSON.stringify(redact({ seq, time: new Date(now()).toISOString(), event: selfEvent }))}\n`;
+			} catch {
+				stats.failed += 1;
+				return;
+			}
+			try {
+				appendLine(eventsPath, line);
+				stats.written += 1;
+			} catch (error) {
+				stats.failed += 1;
+				logInternalError("prompt-runtime.surface-recorder-write", error as Error, `eventsPath=${eventsPath}`);
+			}
+		},
 		turnSnapshot(): TurnSnapshot {
 			return { resultText: lastAssistantText, usage: { ...usage }, stopReason: lastStopReason, errorMessage: lastErrorMessage };
 		},
@@ -511,6 +535,20 @@ export function registerSurfaceWorkerLifecycle(
 		now,
 	});
 	const activity = deps.activity ?? createWorkerActivityTracker();
+
+	if (recorderActive) {
+		// §12.2 worker.started (terminal-path, no rate limit): the ONLY host-visible
+		// signal of "this pane has a live worker" — doctor's zombie sweep and the
+		// T11 degrade manifest (`workerPids`/`sessionPaths`) read it. sessionPath
+		// stays optional (pi does not expose it to extensions in A1).
+		const startedData: Record<string, unknown> = {
+			pid: process.pid,
+			surface: surfaceKind,
+			surfacePaneId: get("PI_CREW_SURFACE_PANE"),
+		};
+		recorder.recordSelfReport({ type: "worker.started", ...startedData });
+		emitRunEvent("worker.started", startedData);
+	}
 
 	// pi hands every handler an ExtensionContext; keep the freshest one around,
 	// because the parent-guard fires OUTSIDE any handler yet still needs

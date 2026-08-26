@@ -258,7 +258,19 @@ export {
 // Re-export the test-only helpers so existing test imports still resolve.
 export { __test__mergeTaskUpdates, __test__shouldMergeTaskUpdate } from "./merge-gate.ts";
 
+import { getActiveBrokerRevoker } from "./broker/broker-issuer.ts";
 import { injectAdaptivePlanIfReady, isAdaptiveWorkflow } from "./goal-workflow/adaptive-plan.ts";
+// MuxSurface A1 (spec §7 D3 + §8.3): run-scoped surface-degrade controller —
+// child-pi layer notifies spawn/exit/degrade through the registry keyed by
+// runId; this runner owns policy (lockout), persistence (manifest.surface) and
+// the headless re-dispatch of degraded units.
+import {
+	clearSurfaceRuntimeController,
+	createSurfaceRuntimeController,
+	normalizeSurfaceState,
+	planHeadlessRedeplays,
+	registerSurfaceRuntimeController,
+} from "./surface/degrade.ts";
 
 // formatTaskProgress / runEffectivenessLines / scratchpadSummaryLines /
 // lastProgressContentHash / writeProgress moved to ./finalize-run.ts (2026-08
@@ -862,6 +874,28 @@ async function executeTeamRunCore(
 	// task-output-context.ts.
 	const resultReadCache = createResultArtifactReadCache();
 
+	// ── MuxSurface A1 (spec §7 D3): per-run degrade controller ─────────────
+	// Owned here because only this runner may mutate manifest/tasks/events; the
+	// child-pi surface branch reaches it through the registry keyed by runId.
+	// Broker token revocation resolves lazily AT degrade time (the broker can
+	// start mid-run on the first credential request).
+	const surfaceController = createSurfaceRuntimeController({
+		runId: manifest.runId,
+		eventsPath: manifest.eventsPath,
+		revoke: (taskId) => getActiveBrokerRevoker()?.(taskId),
+	});
+	registerSurfaceRuntimeController(surfaceController);
+	// Re-dispatch-once guard: a degraded task is replayed headless exactly once
+	// per run — repeated loss lands in needs_attention for a human instead of a
+	// mux-flap respawn loop (spec §7 anti-flap).
+	const surfaceLossHandled = new Set<string>();
+	// Pure merge of the controller snapshot onto ANY manifest view (callers pass
+	// either the closure local or ctx.manifest so the freshest state wins).
+	const attachSurfaceSnapshot = (target: TeamRunManifest): TeamRunManifest => ({
+		...target,
+		surface: normalizeSurfaceState(surfaceController.snapshot()),
+	});
+
 	// CORE-4: scheduler context — mutable state bag for extracted scheduler
 	// functions. Fields are synced from closure locals at the top of each
 	// loop iteration; extracted functions mutate ctx in-place.
@@ -984,6 +1018,33 @@ async function executeTeamRunCore(
 			// (cancel-during-exec check + batch summary artifact).
 			const { taskIds: settledTaskIds, result: resultToMerge } = ctx.settledMerge!;
 
+			// ── MuxSurface A1 (spec §7 steps 4–5): drain degrades → re-dispatch
+			// headless. Runs BEFORE phase advance so a degraded task is `queued`
+			// again while the scheduler still sees this tick's state, and before
+			// handleFailedTask can ever observe needs_attention leftovers.
+			const surfaceDegraded = surfaceController.takeDegraded();
+			if (surfaceDegraded.length > 0) {
+				const replay = planHeadlessRedeplays({
+					tasks: ctx.tasks,
+					degraded: surfaceDegraded,
+					handledTaskIds: surfaceLossHandled,
+				});
+				ctx.tasks = replay.tasks;
+				tasks = ctx.tasks;
+				if (replay.requeuedTaskIds.length > 0) {
+					await appendEventAsync(manifest.eventsPath, {
+						type: "surface.requeued",
+						runId: manifest.runId,
+						message: `Re-dispatched ${replay.requeuedTaskIds.length} surface-degraded task(s) headless: ${replay.requeuedTaskIds.join(", ")}`,
+						data: {
+							taskIds: replay.requeuedTaskIds,
+							skipped: replay.skipped,
+							resumeComponents: ["rendered-prompt", "scratchpad-restore", "pendingSteers-replay", "resume-note"],
+						},
+					});
+				}
+			}
+
 			// CORE-4 extraction 6: workflow phase advance. ctx.wfMachine is
 			// already synced from the top-of-loop sync (RT-15);
 			// advanceWorkflowPhases advances phases whose tasks are all terminal,
@@ -1089,6 +1150,11 @@ async function executeTeamRunCore(
 					...(groupDelivery?.artifact ? [groupDelivery.artifact] : []),
 				]),
 			};
+			// MuxSurface A1 (§8.3): persist the run-scoped pane/pid/lockout snapshot
+			// with the batch manifest write — panes recorded this tick become
+			// visible to doctor/zombie-sweep and a crash mid-run leaves at most
+			// one tick of stale pane records.
+			manifest = attachSurfaceSnapshot(manifest);
 			manifest = writeProgress(manifest, tasks, "team-runner", input.executeWorkers, input.runtimeConfig);
 			await saveRunManifestAsync(manifest);
 		}
@@ -1098,11 +1164,27 @@ async function executeTeamRunCore(
 		// + health snapshot, performs the joint atomic manifest+tasks save, and
 		// returns the terminal { manifest, tasks } result. Sync the locals back
 		// from ctx so the finally block observes consistent state.
+		// Last degrade drain: a pane that died during the closeout still gets its
+		// headless replay attempt if any scheduler work remains, else it stays
+		// needs_attention for resume — never silently dropped from the manifest.
+		const finalDegraded = surfaceController.takeDegraded();
+		if (finalDegraded.length > 0) {
+			const finalReplay = planHeadlessRedeplays({
+				tasks: ctx.tasks,
+				degraded: finalDegraded,
+				handledTaskIds: surfaceLossHandled,
+			});
+			ctx.tasks = finalReplay.tasks;
+		}
+		ctx.manifest = attachSurfaceSnapshot(ctx.manifest);
 		const finalResult = await finalizeRun(ctx);
 		manifest = ctx.manifest;
 		tasks = ctx.tasks;
 		return finalResult;
 	} finally {
+		// MuxSurface A1: drop the run's registry entry FIRST — no in-flight
+		// notify after teardown may resurrect policy state into the next run.
+		clearSurfaceRuntimeController(manifest.runId);
 		// #3: drainPendingUnits returns settled outcomes, but the finally block
 		// only needs the drain side-effect (abort + await + clear); the return
 		// value is intentionally unused here.

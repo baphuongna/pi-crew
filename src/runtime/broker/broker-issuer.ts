@@ -45,3 +45,27 @@ export function setActiveBrokerIssuer(issuer: BrokerIssuer | undefined): void {
 export function getActiveBrokerIssuer(): BrokerIssuer | undefined {
 	return activeIssuer;
 }
+
+/**
+ * MuxSurface A1 (spec §7 D3 step 2): process-local revoker for per-task tokens.
+ * The team-runner's surface-degrade controller calls it when a pane is lost so
+ * the zombie worker left in that pane can no longer authenticate to the broker;
+ * the headless respawn mints a FRESH token (T10 re-issue).
+ *
+ * Same registration model as the issuer: the lifecycle controller publishes a
+ * closure on start and clears it on stop, so the degrade path needs no wiring
+ * through every runner layer. A function reference only — never a token.
+ */
+export type BrokerRevoker = (taskId: string) => void;
+
+let activeRevoker: BrokerRevoker | undefined;
+
+/** Register the active revoker (called by the lifecycle controller on start). */
+export function setActiveBrokerRevoker(revoker: BrokerRevoker | undefined): void {
+	activeRevoker = revoker;
+}
+
+/** Read the active revoker, if any. Returns undefined when no broker is wired. */
+export function getActiveBrokerRevoker(): BrokerRevoker | undefined {
+	return activeRevoker;
+}

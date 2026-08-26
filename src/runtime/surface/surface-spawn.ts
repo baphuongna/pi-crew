@@ -96,7 +96,17 @@ export type SurfaceSpawnOutcome =
 			 */
 			eventsPath: string | null;
 	  }
-	| { mode: "headless"; reason?: string };
+	| {
+			mode: "headless";
+			reason?: string;
+			/**
+			 * True khi một surface spawn ĐÃ THỰC SỰ được thử (createSurface /
+			 * sendCommand) và fail — phân biệt với các lối headless không hề đụng
+			 * mux (gate/resolve null). T11 dùng flag này cho counter spawn-fail
+			 * riêng của spec §7 ("Spawn-fail ≠ flap, nhưng có lockout riêng").
+			 */
+			attempted?: boolean;
+	  };
 
 /**
  * Per-agent event log của worker surface — DELEGATE sang công thức canonical
@@ -198,17 +208,22 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 		return { mode: "headless", reason: "surface resolution returned null (mode/depth/async/cap/role gate or no mux)" };
 	}
 
-	// Pane TRƯỚC — cần id thật cho env map của script.
+	// Pane TRƯỚC — cần id thật cho env map của script. Title = taskId (F4, review
+	// T7): pane rename là cosmetic nên KHÔNG được quyết định fail-closed.
 	let handle: SurfaceHandle;
 	try {
-		handle = await provider.createSurface(input.taskId, { cwd: input.cwd });
+		handle = await provider.createSurface(input.taskId, { cwd: input.cwd, title: input.taskId });
 	} catch (error) {
 		logInternalError(
 			"surface-spawn.create-surface",
 			error instanceof Error ? error : new Error(String(error)),
 			`taskId=${input.taskId}`,
 		);
-		return { mode: "headless", reason: `createSurface failed: ${error instanceof Error ? error.message : String(error)}` };
+		return {
+			mode: "headless",
+			reason: `createSurface failed: ${error instanceof Error ? error.message : String(error)}`,
+			attempted: true,
+		};
 	}
 
 	// Từ đây trở đi mọi lỗi phải đóng pane mồ côi rồi fallback headless.
@@ -263,7 +278,11 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 				`pane=${handle.id}`,
 			);
 		}
-		return { mode: "headless", reason: `surface boot failed: ${error instanceof Error ? error.message : String(error)}` };
+		return {
+			mode: "headless",
+			reason: `surface boot failed: ${error instanceof Error ? error.message : String(error)}`,
+			attempted: true,
+		};
 	}
 }
 

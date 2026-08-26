@@ -118,7 +118,9 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		const skillArtifact = ctx.skillArtifact;
 		const coordinationArtifact = ctx.coordinationArtifact;
 
-		let resultArtifact: ArtifactDescriptor;
+		// MuxSurface degrade path returns NO result artifact — undefined until a
+		// branch produces one (finalizeTaskResult's surfaceLost branch ignores it).
+		let resultArtifact: ArtifactDescriptor | undefined;
 		let logArtifact: ArtifactDescriptor | undefined;
 		let transcriptArtifact: ArtifactDescriptor | undefined;
 		let exitCode: number | null = 0;
@@ -138,7 +140,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			const child = await runChildProcessTask(ctx);
 			task = ctx.task;
 			tasks = ctx.tasks;
-			resultArtifact = child.resultArtifact;
+			resultArtifact = child.resultArtifact ?? resultArtifact;
 			logArtifact = child.logArtifact;
 			transcriptArtifact = child.transcriptArtifact;
 			exitCode = child.exitCode;

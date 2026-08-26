@@ -14,6 +14,7 @@ import { getActiveBrokerIssuer } from "../broker/broker-issuer.ts";
 import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import { EventLogTailSource } from "../event-log-tail-source.ts";
 import { bridgeEventFromJsonEvent } from "../event-stream-bridge.ts";
+import { classifyOnExit, getSurfaceRuntimeController, makeTerminalEventProbe } from "../surface/degrade.ts";
 import type { SurfaceProvider } from "../surface/surface-provider.ts";
 import { prepareSurfaceSpawn, type SurfaceExitInfo, type SurfaceSpawnOutcome, waitForSurfaceExit } from "../surface/surface-spawn.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
@@ -93,7 +94,10 @@ export interface ChildPiLifecycleEvent {
 		| "exit"
 		| "close"
 		| "surface_spawned"
-		| "surface_closed";
+		| "surface_closed"
+		/** T11 (spec §7): a REAL surface spawn attempt failed → headless fallback
+		 *  + the run-scoped spawn-fail lockout counter (3 consecutive → OFF). */
+		| "surface_spawn_failed";
 	/** Process ID when available. */
 	pid?: number;
 	/** Pane id (surface events). */
@@ -271,11 +275,20 @@ export interface ChildPiRunResult {
 	 * pane instead of a stdio pipe (spec §13.1). Downstream (T9 EventLogTailSource,
 	 * T11 degrade) consumes the pane identity; the empty stdout/stderr is EXPECTED
 	 * in surface mode — events arrive through the per-agent event log, not a pipe.
+	 *
+	 * `degraded` is set when classifyOnExit found NO worker.completed within the
+	 * 2s window after the pane died (spec §7 D3) — task-runner hands that to
+	 * finalize as `surfaceLost` instead of reading it as an empty/false result.
 	 */
 	surface?: {
 		kind: "tmux" | "herdr";
 		paneId: string;
 		scriptPath: string;
+		degraded?: {
+			cause: "pane-closed" | "mux-dead";
+			exitReason: string;
+			classifiedAt: string;
+		};
 	};
 }
 
@@ -358,6 +371,13 @@ async function trySurfaceBranch(
 	if (!input.agentId) return null;
 	const surfaceOpts = input.surface;
 	const preResolved = surfaceOpts?.providers?.tmux ?? surfaceOpts?.providers?.herdr;
+	// T11 (spec §7): per-run degrade controller — team-runner owns the policy
+	// (lockout counters, pane cap accounting); this layer only consults it.
+	// Absent controller (delegate spawn outside a team run, unit tests) keeps
+	// today's behavior untouched.
+	const taskId = input.agentId;
+	const degradeController = getSurfaceRuntimeController(input.runId);
+	if (degradeController && !degradeController.shouldAttemptSurface()) return null;
 	let outcome: SurfaceSpawnOutcome;
 	try {
 		outcome = await prepareSurfaceSpawn({
@@ -368,8 +388,8 @@ async function trySurfaceBranch(
 			workerEnv: buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model).env as Record<string, string>,
 			config: surfaceOpts?.config ?? safeLoadSurfaceConfig(input.cwd),
 			role: input.role ?? input.agent.name,
-			livePaneCount: surfaceOpts?.livePaneCount ?? 0,
-			taskId: input.agentId,
+			livePaneCount: degradeController ? degradeController.livePaneCount() : (surfaceOpts?.livePaneCount ?? 0),
+			taskId,
 			cwd: input.cwd,
 			piArgs: builtArgs,
 			stateRoot: input.eventsPath ? path.dirname(input.eventsPath) : "",
@@ -378,20 +398,31 @@ async function trySurfaceBranch(
 		});
 	} catch (error) {
 		// Defense in depth — prepareSurfaceSpawn is no-throw by contract (§3).
-		logInternalError(
-			"child-pi.surface-unexpected",
-			error instanceof Error ? error : new Error(String(error)),
-			`taskId=${input.agentId}`,
-		);
+		logInternalError("child-pi.surface-unexpected", error instanceof Error ? error : new Error(String(error)), `taskId=${taskId}`);
 		return null;
 	}
-	if (outcome.mode !== "surface") return null;
+	if (outcome.mode !== "surface") {
+		// Spawn-fail ≠ flap (spec §7) but it feeds ITS OWN lockout counter. Only
+		// `attempted` outcomes count — gate/resolve-null rejections are the mux
+		// simply being absent, not the multiplexer misbehaving.
+		if (outcome.mode === "headless" && outcome.attempted) {
+			degradeController?.notifySpawnFailed({ taskId, reason: outcome.reason ?? "surface spawn failed" });
+			input.onLifecycleEvent?.({
+				type: "surface_spawn_failed",
+				surfaceKind: preResolved?.kind,
+				error: outcome.reason,
+				ts: new Date().toISOString(),
+			});
+		}
+		return null;
+	}
 
-	const surfaceMeta: ChildPiRunResult["surface"] = {
+	const surfaceMeta: NonNullable<ChildPiRunResult["surface"]> = {
 		kind: outcome.kind,
 		paneId: outcome.paneId,
 		scriptPath: outcome.scriptPath,
 	};
+	degradeController?.notifySpawned({ taskId, paneId: outcome.paneId, provider: outcome.kind });
 	input.onLifecycleEvent?.({
 		type: "surface_spawned",
 		surfaceKind: outcome.kind,
@@ -408,7 +439,20 @@ async function trySurfaceBranch(
 	if (eventSource && input.runId && input.agentId) {
 		const runId = input.runId;
 		const taskId = input.agentId;
+		const controllerForBridge = degradeController;
 		eventSource.onEvent((event) => {
+			// T11: the worker's own `worker.started` self-report carries the pid +
+			// session path that doctor/degrade-resume need (§12.2). Bridge it into
+			// the run-scoped controller BEFORE the dashboard shim — it is the only
+			// host-side consumer of that payload.
+			if ((event as { type?: unknown } | undefined)?.type === "worker.started") {
+				const started = event as { pid?: unknown; sessionPath?: unknown };
+				controllerForBridge?.notifyWorkerStarted({
+					taskId,
+					pid: typeof started.pid === "number" ? started.pid : undefined,
+					sessionPath: typeof started.sessionPath === "string" ? started.sessionPath : undefined,
+				});
+			}
 			const bridgeEvent = bridgeEventFromJsonEvent(runId, taskId, event);
 			if (bridgeEvent) runEventBus.emit({ type: "worker_status", runId, taskId, data: bridgeEvent });
 		});
@@ -428,6 +472,50 @@ async function trySurfaceBranch(
 	} finally {
 		eventSource?.close();
 	}
+	// T11 classify (spec §7): D7 report-before-dying means a normally-finishing
+	// worker already wrote `worker.completed` to the RUN event log before its
+	// pane closed, so the probe finds it on the first scan. Nothing within the
+	// 2s window → the worker never finished → the pane death is a DEGRADE and
+	// team-runner re-dispatches this unit headless. Cancel/deadline force-closes
+	// are HOST-initiated — classify is skipped there (never counts as mux flap),
+	// but the pane release itself is reported in EVERY case so the run's live
+	// pane cap stays accurate.
+	let completedPayload: Record<string, unknown> | undefined;
+	if (!exitInfo.cancelledByAbort && !exitInfo.timedOut) {
+		const probe = makeTerminalEventProbe({ eventsPath: input.eventsPath ?? "", taskId, runId: input.runId ?? undefined });
+		const verdict = await classifyOnExit(outcome.handle, probe);
+		const completed = verdict === "completed";
+		if (completed) {
+			const payload = probe.foundPayload();
+			completedPayload = payload && typeof payload.result === "string" && payload.result.trim().length > 0 ? payload : undefined;
+		} else {
+			surfaceMeta.degraded = {
+				cause: exitInfo.reason === "mux-dead" ? "mux-dead" : "pane-closed",
+				exitReason: exitInfo.reason,
+				classifiedAt: new Date().toISOString(),
+			};
+		}
+		degradeController?.notifyPaneExited({
+			taskId,
+			paneId: outcome.paneId,
+			completed,
+			exitReason: exitInfo.reason,
+		});
+	} else {
+		degradeController?.notifyPaneExited({
+			taskId,
+			paneId: outcome.paneId,
+			completed: false,
+			exitReason: exitInfo.reason,
+			cancelledByAbort: exitInfo.cancelledByAbort,
+			timedOut: exitInfo.timedOut,
+		});
+	}
+	// Result text captured from `worker.completed` — WITHOUT it every surface
+	// task would look empty downstream (rawFinalText/stdout are the only result
+	// channels post-execution trusts) and flip to failed via the empty-output
+	// guard even though the worker SUCCEEDED.
+	const surfaceResultText = typeof completedPayload?.result === "string" ? completedPayload.result : "";
 	input.onLifecycleEvent?.({
 		type: "surface_closed",
 		surfaceKind: outcome.kind,
@@ -439,7 +527,8 @@ async function trySurfaceBranch(
 	// The headless branch cleans this up in settle(); surface returns early.
 	cleanupTempDir(tempDir);
 	// Empty stdout/stderr is EXPECTED — events flow through the per-agent event
-	// log (worker-side recorder, spec §5.3), not through a pipe we own.
+	// log (worker-side recorder, spec §5.3), not through a pipe we own. The only
+	// text the worker produced surfaces via `worker.completed` (surfaceResultText).
 	return {
 		exitCode: exitInfo.cancelledByAbort || exitInfo.timedOut ? null : 0,
 		stdout: "",
@@ -454,7 +543,7 @@ async function trySurfaceBranch(
 						`${input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS}ms response timeout; pane was force-closed.`,
 				}
 			: {}),
-		rawFinalText: "",
+		rawFinalText: surfaceResultText,
 		intermediateFindings: "",
 		...(exitInfo.cancelledByAbort ? { aborted: true } : {}),
 		surface: surfaceMeta,
