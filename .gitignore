@@ -43,3 +43,6 @@ __pycache__/
 docs/perf-report-team_*
 # Benchmark result output (bench sources b*.bench.ts ARE tracked)
 bench/results/
+
+# superpowers SDD workspaces
+.superpowers/
