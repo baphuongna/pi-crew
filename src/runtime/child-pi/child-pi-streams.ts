@@ -69,7 +69,15 @@ function compactContentPart(part: unknown): unknown | undefined {
 	return undefined;
 }
 
-function compactChildPiEvent(event: unknown): unknown | undefined {
+/**
+ * Compact one child-pi JSON event into the bounded record shape stored in
+ * agent transcripts / per-agent event logs. Shared by TWO producers that must
+ * stay byte-compatible (the consumer, agent-transcript.ts, parses both):
+ *   1. the host-side stdout funnel (headless workers), and
+ *   2. the worker-side surface recorder (S2-T8 — surface panes have no
+ *      stdout JSON stream, so the worker records its own events).
+ */
+export function compactChildPiEvent(event: unknown): unknown | undefined {
 	const record = asRecord(event);
 	if (!record) return undefined;
 	if (record.type === "message_update") return undefined;

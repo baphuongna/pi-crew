@@ -15,6 +15,7 @@ import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { pollWorkerInbox } from "./inbox-poll.ts";
 import { createMessageTool, type MessageToolParams as MessageToolInputs, shouldRegisterMessageTool } from "./message-tool.ts";
 import { registerScratchpadLifecycle } from "./scratchpad-lifecycle.ts";
+import { createWorkerActivityTracker, registerSurfaceWorkerLifecycle, trackToolActivity } from "./surface-worker.ts";
 
 export const PI_TEAMS_INHERIT_PROJECT_CONTEXT_ENV = "PI_TEAMS_INHERIT_PROJECT_CONTEXT";
 export const PI_TEAMS_INHERIT_SKILLS_ENV = "PI_TEAMS_INHERIT_SKILLS";
@@ -779,6 +780,11 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// delivery paths. Without id-bearing entries (legacy producer), pollSteering
 	// is the only delivery channel and dedup is a no-op for id-less entries.
 	const seenSteers = createSeenSteerIdSet();
+	// S2-T8 (spec §5.2 D7 + §5.3): shared ask/delegate in-flight counters. They
+	// feed the surface worker's auto-exit signals; the tracker is handed to
+	// registerSurfaceWorkerLifecycle below, so the counters exist (and cost
+	// nothing) even when no surface gate env var is set.
+	const surfaceActivity = createWorkerActivityTracker();
 	// ── Feature 1: maxTokens cap ──────────────────────────────────────────
 	// Cap output tokens per API call for background workers. Reads
 	// PI_CREW_MAX_OUTPUT_TOKENS env (set by pi-args.ts from agent.maxTokens).
@@ -1027,21 +1033,30 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// only flushes+kills the engine on session_shutdown reason "quit" (F3).
 	registerScratchpadLifecycle(pi);
 
+	// ── S2-T8 (spec §5.2 D7 + §5.3): worker-side surface lifecycle ───────
+	// Recorder (surface panes have no stdout JSON stream → they must write
+	// agents/<taskId>/events.jsonl themselves), auto-exit after the final
+	// settled turn, and a parent-guard keyed on PI_CREW_PARENT_PID + its
+	// starttime. Gates live INSIDE: with no surface env set this is a no-op
+	// returning undefined, so main sessions register nothing new.
+	registerSurfaceWorkerLifecycle(pi, { activity: surfaceActivity });
+
 	// ── WP-2/R2 (ADR-0 item 1): waiting-producer `ask` tool ──────────────
 	// Dormant-until-env (same pattern as the scratchpad gate above):
 	// registered ONLY when the parent spawned this worker with
 	// PI_CREW_ASK_ENABLED=1 (child-pi-spawn sets it unconditionally for
 	// EVERY role — read-only roles included). A main user session never
 	// carries the var, so the tool is invisible there; a second dormant
-	// check inside execute is defense in depth.
+	// check inside execute is defense in depth. The wrapper only feeds the
+	// auto-exit activity counters — behaviour is unchanged.
 	if (shouldRegisterAskTool()) {
-		pi.registerTool(createAskTool());
+		pi.registerTool(trackToolActivity(createAskTool(), surfaceActivity, "ask"));
 	}
 	// T3/R5 (ADR-5 §1): the `delegate` tool — dormant-until-env, set for EVERY
 	// worker role (child-pi-spawn now sets PI_CREW_DELEGATE_ENABLED
 	// unconditionally; broker admission is the depth+slot boundary, D8).
 	if (shouldRegisterDelegateTool()) {
-		pi.registerTool(createDelegateTool());
+		pi.registerTool(trackToolActivity(createDelegateTool(), surfaceActivity, "delegate"));
 	}
 	// D9/§15.2: the `message` tool — dormant-until-env, set for EVERY worker
 	// role (child-pi-spawn sets PI_CREW_MSG_ENABLED unconditionally). The tool

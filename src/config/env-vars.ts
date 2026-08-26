@@ -407,6 +407,22 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_BROKER_RUN_ID",
 		doc: "broker run id; aliases PI_CREW_RUN_ID (scratchpad-lifecycle.ts:81, crew-broker-child.ts:51)",
 	},
+	PI_CREW_AGENT_EVENTS_PATH: {
+		name: "PI_CREW_AGENT_EVENTS_PATH",
+		doc: "per-agent events log (<stateRoot>/agents/<taskId>/events.jsonl) written by the surface worker recorder (surface-worker.ts; derived by prepareSurfaceSpawn)",
+	},
+	PI_CREW_AUTO_EXIT: {
+		name: "PI_CREW_AUTO_EXIT",
+		doc: "'1' → the worker shuts its session down after the final settled turn — spec §5.2 D7 (written by prepareSurfaceSpawn, read by surface-worker.ts)",
+	},
+	PI_CREW_SURFACE: {
+		name: "PI_CREW_SURFACE",
+		doc: "surface provider kind for this worker ('tmux'|'herdr') — arms the worker-side recorder/parent-guard (written by prepareSurfaceSpawn.ts:214, read by surface-worker.ts)",
+	},
+	PI_CREW_PARENT_START_TIME: {
+		name: "PI_CREW_PARENT_START_TIME",
+		doc: "parent starttime ticks (/proc/<pid>/stat field 22) captured at spawn — pid-reuse-safe parent-guard comparison (written by prepareSurfaceSpawn.ts:223, read by surface-worker.ts)",
+	},
 	PI_CREW_ARTIFACTS_ROOT: {
 		name: "PI_CREW_ARTIFACTS_ROOT",
 		doc: "artifacts root for scratchpad containment (scratchpad-lifecycle.ts:228/281)",

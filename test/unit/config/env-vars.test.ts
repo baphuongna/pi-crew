@@ -100,6 +100,11 @@ const SRC_READ_NAMES: readonly string[] = [
 	"PI_CREW_BROKER_SOCKET",
 	"PI_CREW_BROKER_TOKEN",
 	"PI_CREW_BROKER_TASK_ID",
+	// names read from a passed-in env object (surface worker, S2-T8)
+	"PI_CREW_AGENT_EVENTS_PATH",
+	"PI_CREW_AUTO_EXIT",
+	"PI_CREW_SURFACE",
+	"PI_CREW_PARENT_START_TIME",
 	"PI_CREW_GUEST",
 ];
 
