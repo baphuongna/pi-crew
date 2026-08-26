@@ -13,14 +13,18 @@
  *      SAME `{seq,time,event}` JSONL lines the host writes for headless
  *      workers (crew-agent-records.ts appendCrewAgentEvent), using the same
  *      compaction (compactChildPiEvent) so ONE parser — agent-transcript.ts —
- *      reads both shapes. seq is counted locally from 1: another process
- *      cannot share the host's cursor/sidecar bookkeeping.
+ *      reads both shapes. seq continues after whatever is already in the log
+ *      (tail scan = nextAgentEventSeq semantics): that reader filters
+ *      `seq > sinceSeq`, so restarting at 1 over an older attempt's log would
+ *      hide every new line forever.
  *
  *   B. AUTO-EXIT (gate: PI_CREW_AUTO_EXIT=1, spec D7) — when the agent run has
  *      fully settled on a naturally-finished turn and NOTHING is pending
  *      (ask / delegate / steer), append the terminal run-level event
- *      `worker.completed` FIRST (D7 ordering: report before dying) and only
- *      then shut the session down, which closes the pane.
+ *      `worker.completed` FIRST (D7 ordering: report before dying), abort any
+ *      in-flight turn, then shut the session down (which closes the pane). A
+ *      settled `stopReason:"error"` emits a capped `worker.error` instead and
+ *      keeps the pane open for inspection.
  *
  *   C. PARENT-GUARD (gate: PI_CREW_PARENT_PID [+ surface/auto-exit context]) —
  *      a 5s poll: if the parent disappears (pid gone OR starttime mismatch —
@@ -59,6 +63,7 @@ import * as path from "node:path";
 import { getCrewEnv } from "../config/env-vars.ts";
 import type { ExtensionAPI } from "../extension/pi-api.ts";
 import { compactChildPiEvent } from "../runtime/child-pi/child-pi-streams.ts";
+import { procStartTimeTicks } from "../runtime/process/proc-stat.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 import { createWorkerEventsChannel } from "./worker-events-channel.ts";
@@ -82,6 +87,13 @@ export const PARENT_GUARD_INTERVAL_MS = 5000;
  * decide to die.
  */
 export const AUTO_EXIT_SETTLE_CONFIRM_MS = 600;
+/**
+ * `worker.error` rides the no-rate-limit terminal path, so an error loop
+ * (model keeps failing across steered retries) needs its own bound. After the
+ * cap the turn keeps failing silently — task/usage budgets and the host
+ * watchdog remain the real stoppers.
+ */
+export const WORKER_ERROR_EVENT_CAP = 5;
 
 // ── shouldAutoExit ────────────────────────────────────────────────────────
 
@@ -108,23 +120,6 @@ export function shouldAutoExit(signals: AutoExitSignals): boolean {
 }
 
 // ── parent liveness ───────────────────────────────────────────────────────
-
-/**
- * Extract field 22 (starttime in clock ticks since boot) from a
- * `/proc/<pid>/stat` buffer. Paren-aware: comm (field 2) may contain spaces
- * AND closing parens, so everything up to the LAST ")" is skipped rather than
- * whitespace-split. Returns undefined for unparseable input.
- */
-export function parseProcStartTick(stat: string): string | undefined {
-	const lastParen = stat.lastIndexOf(")");
-	if (lastParen === -1) return undefined;
-	const fieldsAfterComm = stat
-		.slice(lastParen + 1)
-		.trim()
-		.split(/\s+/);
-	const raw = fieldsAfterComm[19];
-	return raw && Number.isFinite(Number(raw)) ? raw : undefined;
-}
 
 /**
  * Pure parent-liveness decision.
@@ -154,7 +149,7 @@ export function parentAlive(pid: number, expectedStartTime: string | undefined, 
 	}
 	if (stat === undefined) return false;
 	if (!expectedStartTime) return true;
-	const observed = parseProcStartTick(stat);
+	const observed = procStartTimeTicks(stat);
 	if (!observed) return true;
 	return observed === expectedStartTime;
 }
@@ -215,6 +210,13 @@ export interface AgentEventRecorderOptions {
 	now?: () => number;
 	/** Default: redactSecrets — the host applies the same filter to stdout records. */
 	redact?: (value: unknown) => unknown;
+	/**
+	 * Override the automatic tail scan (tests / explicit continuation point).
+	 * When absent, seq continues AFTER the highest `{seq}` already in the log.
+	 */
+	seedSeq?: number;
+	/** Tail-reader override for the seed scan (tests). */
+	readTail?: (path: string, bytes: number) => string | undefined;
 }
 
 export interface RecorderStats {
@@ -226,6 +228,8 @@ export interface TurnSnapshot {
 	resultText: string;
 	usage: Record<string, unknown>;
 	stopReason: string | undefined;
+	/** Provider error text of the latest failed assistant message (if any). */
+	errorMessage: string;
 }
 
 export interface AgentEventRecorder {
@@ -264,13 +268,64 @@ function mergeUsage(into: Record<string, unknown>, incoming: Record<string, unkn
 	into.cost = { total: costTotal(into) + costTotal(incoming) };
 }
 
+/** How much of an existing log's tail the seed scan reads (256KB ≈ hundreds of lines). */
+export const SEQ_SEED_TAIL_BYTES = 262_144;
+
+function defaultReadTail(target: string, bytes: number): string | undefined {
+	try {
+		const fd = fs.openSync(target, "r");
+		try {
+			const size = fs.fstatSync(fd).size;
+			if (size === 0) return "";
+			const start = Math.max(0, size - bytes);
+			const buffer = Buffer.alloc(size - start);
+			fs.readSync(fd, buffer, 0, buffer.length, start);
+			return buffer.toString("utf-8");
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return undefined; // absent / unreadable log — nothing to continue from
+	}
+}
+
+/**
+ * Highest `{seq}` in the last `tailBytes` of an existing per-agent log.
+ * Host writers (crew-agent-records) append sequentially, so the tail always
+ * holds the maximum; this is what lets a re-attempt CONTINUE the numbering —
+ * `readCrewAgentEventsCursor` filters `event.seq > sinceSeq`, so restarting at
+ * 1 over an older log would make every new line permanently invisible to the
+ * pane reader. Absent/corrupt data yields 0 (start fresh at 1).
+ */
+export function lastSeqInLog(
+	eventsPath: string,
+	deps?: { readTail?: (path: string, bytes: number) => string | undefined; tailBytes?: number },
+): number {
+	const readTail = deps?.readTail ?? defaultReadTail;
+	const raw = readTail(eventsPath, deps?.tailBytes ?? SEQ_SEED_TAIL_BYTES);
+	if (!raw) return 0;
+	let max = 0;
+	for (const line of raw.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const parsed = record(JSON.parse(line));
+			const candidate = typeof parsed.seq === "number" && Number.isInteger(parsed.seq) ? parsed.seq : NaN;
+			if (Number.isFinite(candidate) && candidate > max) max = candidate;
+		} catch {
+			/* partial or corrupt line — skipped */
+		}
+	}
+	return max;
+}
+
 /**
  * Worker-side mirror of appendCrewAgentEvent: bounded `{seq,time,event}` JSONL
- * lines into the per-agent events log, counting seq locally (a separate
- * process cannot share the host's cursor/sidecar bookkeeping). Uses the exact
- * host-side compaction, so agent-transcript.ts parses headless and surface
- * logs identically. Write failures are counted, never thrown — telemetry must
- * not take down a live worker.
+ * lines into the per-agent events log. seq CONTINUES from whatever is already
+ * on disk (tail scan above), mirroring nextAgentEventSeq's monotonic contract;
+ * a fresh file simply starts at 1. Uses the exact host-side compaction, so
+ * agent-transcript.ts parses headless and surface logs identically. Write
+ * failures are counted, never thrown — telemetry must not take down a live
+ * worker.
  */
 export function createAgentEventRecorder(options: AgentEventRecorderOptions): AgentEventRecorder {
 	const { eventsPath } = options;
@@ -295,14 +350,19 @@ export function createAgentEventRecorder(options: AgentEventRecorderOptions): Ag
 	// (tests) and already-existing dirs never trigger filesystem side effects.
 	let dirEnsured = false;
 
-	let seq = 0;
+	let seq =
+		options.seedSeq !== undefined
+			? Math.max(0, options.seedSeq)
+			: lastSeqInLog(eventsPath, options.readTail ? { readTail: options.readTail } : undefined);
 	let lastAssistantText = "";
 	let lastStopReason: string | undefined;
+	let lastErrorMessage = "";
 	const usage: Record<string, unknown> = {};
 	const stats = { written: 0, failed: 0 };
 
 	// Fold compacted events into the running turn summary backing
-	// `worker.completed` (final text, cumulative usage, final stopReason).
+	// `worker.completed` / `worker.error` (final text, cumulative usage,
+	// final stopReason / provider error).
 	const observeTurnState = (compacted: Record<string, unknown>): void => {
 		// Event-level usage wins over message-level (a usage-only tail record
 		// carries the delta), and only one side contributes — merging both
@@ -315,6 +375,7 @@ export function createAgentEventRecorder(options: AgentEventRecorderOptions): Ag
 		if (message.role !== "assistant") return;
 		const text = assistantText(message);
 		if (text) lastAssistantText = text;
+		if (typeof message.errorMessage === "string" && message.errorMessage.trim()) lastErrorMessage = message.errorMessage.trim();
 		if (typeof message.stopReason === "string") lastStopReason = message.stopReason;
 		else if (typeof compacted.stopReason === "string") lastStopReason = compacted.stopReason;
 	};
@@ -345,7 +406,7 @@ export function createAgentEventRecorder(options: AgentEventRecorderOptions): Ag
 			}
 		},
 		turnSnapshot(): TurnSnapshot {
-			return { resultText: lastAssistantText, usage: { ...usage }, stopReason: lastStopReason };
+			return { resultText: lastAssistantText, usage: { ...usage }, stopReason: lastStopReason, errorMessage: lastErrorMessage };
 		},
 		stats(): RecorderStats {
 			return { ...stats };
@@ -360,6 +421,7 @@ export function createAgentEventRecorder(options: AgentEventRecorderOptions): Ag
 interface LifecycleCtx {
 	isIdle?: () => boolean;
 	hasPendingMessages?: () => boolean;
+	abort?: () => void;
 	shutdown?: () => void;
 }
 
@@ -389,9 +451,6 @@ export interface SurfaceWorkerDeps {
 export interface SurfaceWorkerHandle {
 	recorder: AgentEventRecorder;
 	activity: WorkerActivityTracker;
-	/** Deferred settle confirmation, runnable early (tests). Returns whether
-	 *  the terminal path fired. */
-	confirmSettle(pendingOverride?: boolean): boolean;
 	dispose(): void;
 }
 
@@ -460,6 +519,9 @@ export function registerSurfaceWorkerLifecycle(
 	let terminated = false;
 	let confirmTimer: unknown;
 	let guardTimer: unknown;
+	// worker.error rides the no-rate-limit terminal path; cap it so a task
+	// stuck in an error loop cannot flood the shared run log.
+	let errorReports = 0;
 
 	const stopParentGuard = (): void => {
 		if (guardTimer === undefined) return;
@@ -487,18 +549,34 @@ export function registerSurfaceWorkerLifecycle(
 		(deps.exit ?? ((code: number) => process.exit(code)))(0);
 	};
 
-	/** Terminal path shared by auto-exit and parent-lost: report, then die. */
+	/**
+	 * Terminal path shared by auto-exit and parent-lost: report FIRST (D7 —
+	 * the append is synchronous), then abort any in-flight turn and shut down.
+	 *
+	 * abort() before shutdown() matters when the parent dies MID-TURN:
+	 * pi defers a shutdown request until the current agent loop finishes
+	 * (interactive-mode binds shutdownHandler as `if idle → shutdown`), which
+	 * could leave the pane frozen for minutes while the recorder has already
+	 * stopped. Aborting the operation makes that deferred shutdown immediate.
+	 */
 	const terminate = (type: string, data: Record<string, unknown>): void => {
 		if (terminated) return;
 		terminated = true;
 		stopParentGuard();
 		clearConfirmTimer();
 		emitRunEvent(type, data);
+		if (typeof latestCtx?.abort === "function") {
+			try {
+				latestCtx.abort();
+			} catch (error) {
+				logInternalError("prompt-runtime.surface-worker-abort", error as Error, undefined, "warn");
+			}
+		}
 		requestShutdown();
 	};
 
 	/** Deferred confirmation armed by agent_settled (runs off the 600ms window). */
-	const confirmSettle = (pendingOverride?: boolean): boolean => {
+	const confirmSettle = (): boolean => {
 		clearConfirmTimer();
 		if (terminated) return false;
 
@@ -506,10 +584,24 @@ export function registerSurfaceWorkerLifecycle(
 		// running": pi keeps hasPendingMessages precise, and isIdle guards the
 		// case where a queued steer already STARTED its own agent run.
 		const ctx = latestCtx;
-		const steersPending =
-			pendingOverride ?? (Boolean(ctx?.hasPendingMessages?.()) || (typeof ctx?.isIdle === "function" ? !ctx.isIdle() : false));
+		const steersPending = Boolean(ctx?.hasPendingMessages?.()) || (typeof ctx?.isIdle === "function" ? !ctx.isIdle() : false);
 
 		const snapshot = recorder.turnSnapshot();
+		// §12.2: surface failed turns so the run shows WHY it stalled — but do
+		// NOT exit on them (the pane stays open for inspection; the host
+		// watchdog owns that lifecycle).
+		if (snapshot.stopReason === "error") {
+			errorReports += 1;
+			if (errorReports <= WORKER_ERROR_EVENT_CAP) {
+				emitRunEvent("worker.error", {
+					errorMessage: snapshot.errorMessage || snapshot.resultText || "agent turn ended with stopReason=error",
+					usage: snapshot.usage,
+					stopReason: snapshot.stopReason,
+				});
+			}
+			return false;
+		}
+
 		if (
 			!shouldAutoExit({
 				stopReason: snapshot.stopReason,
@@ -581,7 +673,6 @@ export function registerSurfaceWorkerLifecycle(
 	return {
 		recorder,
 		activity,
-		confirmSettle,
 		dispose() {
 			terminated = true;
 			stopParentGuard();

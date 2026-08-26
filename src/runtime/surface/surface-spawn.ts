@@ -29,6 +29,7 @@ import * as path from "node:path";
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { currentCrewDepth, getPiTempBase } from "../model/pi-args.ts";
+import { procStartTimeTicks } from "../process/proc-stat.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
 import { buildLaunchScript, launchScriptRegistry, shellEscape, sweepLaunchScripts } from "./launch-script.ts";
 import type { ResolveSurfaceOpts } from "./resolve-surface.ts";
@@ -105,10 +106,10 @@ export function stripHeadlessModeArgs(args: string[]): string[] {
 
 /**
  * Đọc field 22 (/proc/<pid>/stat) — clock ticks kể từ boot, bất biến qua pid
- * reuse. Parse paren-aware (comm có thể chứa space/ký tự lạ, kể cả ")"):
- * lấy phần SAU ")" cuối cùng rồi split whitespace; starttime là index 19 của
- * phần còn lại. Return RAW ticks dạng chuỗi để worker-side parent-guard (T8)
- * so khớp từng byte với cùng nguồn dữ liệu. Non-Linux / đọc lỗi → "" .
+ * reuse. Parse DELEGATE cho runtime/process/proc-stat (dùng chung với
+ * worker-side parent-guard T8 và zombie-scanner — hai bên PHẢI index giống
+ * nhau, nếu không guard sẽ giết nhầm worker khoẻ). Return RAW ticks dạng chuỗi
+ * để worker so khớp từng byte với cùng nguồn dữ liệu. Non-Linux / đọc lỗi → "" .
  */
 export function readParentStartTime(pid: number, readStat?: (pid: number) => string | undefined): string {
 	const reader =
@@ -122,14 +123,7 @@ export function readParentStartTime(pid: number, readStat?: (pid: number) => str
 		});
 	const stat = reader(pid);
 	if (!stat) return "";
-	const lastParen = stat.lastIndexOf(")");
-	if (lastParen === -1) return "";
-	const fieldsAfterComm = stat
-		.slice(lastParen + 1)
-		.trim()
-		.split(/\s+/);
-	const raw = fieldsAfterComm[19];
-	return raw && Number.isFinite(Number(raw)) ? raw : "";
+	return procStartTimeTicks(stat) ?? "";
 }
 
 /** Nối command + args thành một dòng bash an toàn (mỗi token escaped riêng). */

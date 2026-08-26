@@ -24,7 +24,11 @@ import {
 	type SurfaceWorkerDeps,
 	shouldAutoExit,
 	trackToolActivity,
+	WORKER_ERROR_EVENT_CAP,
 } from "../../../src/prompt/surface-worker.ts";
+import { readCrewAgentEventsCursor } from "../../../src/runtime/crew-agent-records.ts";
+import { fieldsAfterComm, procStartTimeTicks } from "../../../src/runtime/process/proc-stat.ts";
+import type { TeamRunManifest } from "../../../src/state/types.ts";
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -48,8 +52,11 @@ function workerEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
 /** Instantaneous timers — nothing runs on its own; tests tick by hand. */
 interface TimerRegistry {
 	invokeInterval(id: number): void;
+	/** Runs the production deferred callback (e.g. the settle confirm). */
+	invokeTimeout(id: number): void;
 	pendingIntervals(): number;
 	intervals(): Array<{ id: number; ms: number }>;
+	pendingTimeouts(): number[];
 }
 
 function fakeTimers(): {
@@ -64,10 +71,17 @@ function fakeTimers(): {
 			invokeInterval(id) {
 				intervals.get(id)?.fn();
 			},
+			invokeTimeout(id) {
+				const fn = timeouts.get(id);
+				if (!fn) return;
+				timeouts.delete(id);
+				fn();
+			},
 			pendingIntervals() {
 				return intervals.size;
 			},
 			intervals: () => [...intervals.entries()].map(([id, meta]) => ({ id, ms: meta.ms })),
+			pendingTimeouts: () => [...timeouts.keys()],
 		},
 		deps: {
 			setIntervalFn(fn, ms) {
@@ -90,14 +104,22 @@ function fakeTimers(): {
 	};
 }
 
+interface SessionStateSpec {
+	pending?: boolean;
+	idle?: boolean;
+}
+
 interface Harness extends Record<string, unknown> {
 	lines: string[];
 	runEvents: Array<{ type: string; data: Record<string, unknown> }>;
+	/** Ordered observable effects: `emit:<type>` / `ctx.abort` / `ctx.shutdown`. */
+	calls: string[];
 	shutdownCalls(): number;
 	exitCodes(): number[];
 	timers: TimerRegistry;
 	handle: NonNullable<ReturnType<typeof registerSurfaceWorkerLifecycle>>;
-	fire(event: string, payload?: unknown, hasPending?: boolean): void;
+	fire(event: string, payload?: unknown, spec?: boolean | SessionStateSpec): void;
+	setSession(spec: SessionStateSpec): void;
 }
 
 /** Fake ExtensionAPI + collected output for one wired worker session. */
@@ -110,17 +132,25 @@ function buildHarness(opts: SurfaceWorkerDeps = {}): Harness {
 	};
 	const lines: string[] = [];
 	const runEvents: Array<{ type: string; data: Record<string, unknown> }> = [];
+	const calls: string[] = [];
 	let shutdownCalls = 0;
 	const exitCodes: number[] = [];
+	// Mutable per-test session view — the fake ctx closures read it LIVE, so a
+	// steer toggled mid-confirm-window is visible when the timer finally runs.
+	const sessionState = { pending: false, idle: true };
 	const bundle = fakeTimers();
 
 	const handle = registerSurfaceWorkerLifecycle(pi as never, {
 		env: workerEnv(),
 		appendLine: (_target, line) => lines.push(line),
-		emitRunEvent: (type, data) => runEvents.push({ type, data }),
+		emitRunEvent: (type, data) => {
+			runEvents.push({ type, data });
+			calls.push(`emit:${type}`);
+		},
 		readStat: () => undefined,
 		exit: ((code: number) => {
 			exitCodes.push(code);
+			calls.push(`exit:${code}`);
 			return undefined as never;
 		}) as never,
 		...bundle.deps,
@@ -128,20 +158,36 @@ function buildHarness(opts: SurfaceWorkerDeps = {}): Harness {
 	});
 	assert.ok(handle);
 
-	function fire(event: string, payload: unknown = {}, hasPending = false): void {
+	function setSession(spec: SessionStateSpec): void {
+		if (spec.pending !== undefined) sessionState.pending = spec.pending;
+		if (spec.idle !== undefined) sessionState.idle = spec.idle;
+	}
+
+	function fire(event: string, payload: unknown = {}, spec: boolean | SessionStateSpec = {}): void {
+		setSession(typeof spec === "boolean" ? { pending: spec } : spec);
 		for (const reg of registrations.filter((r) => r.event === event)) {
-			reg.handler(payload, { hasPendingMessages: () => hasPending, shutdown: () => void (shutdownCalls += 1) });
+			reg.handler(payload, {
+				hasPendingMessages: () => sessionState.pending,
+				isIdle: () => sessionState.idle,
+				abort: () => calls.push("ctx.abort"),
+				shutdown: () => {
+					shutdownCalls += 1;
+					calls.push("ctx.shutdown");
+				},
+			});
 		}
 	}
 
 	return {
 		lines,
 		runEvents,
+		calls,
 		shutdownCalls: () => shutdownCalls,
 		exitCodes: () => exitCodes,
 		timers: bundle.timers,
 		handle,
 		fire,
+		setSession,
 	};
 }
 
@@ -152,6 +198,18 @@ const ASSISTANT_STOP = {
 		stopReason: "stop",
 		content: [{ type: "text", text: "done" }],
 		usage: { input: 10, output: 4, cost: { total: 0.01 } },
+	},
+};
+
+/** A failed turn (pi keeps the provider error on message.errorMessage). */
+const ASSISTANT_ERROR = {
+	type: "message_end",
+	message: {
+		role: "assistant",
+		stopReason: "error",
+		errorMessage: "provider overload",
+		content: [{ type: "text", text: "attempt failed" }],
+		usage: { input: 10, output: 2, cost: { total: 0.02 } },
 	},
 };
 
@@ -393,18 +451,19 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		assert.equal(first.seq, 1);
 	});
 
-	it("auto-exits after a settled turn: worker.completed THEN shutdown (D7 order)", () => {
+	it("auto-exits after a settled turn: worker.completed THEN abort+shutdown (D7 order)", () => {
 		const h = buildHarness();
-		h.fire("session_start", {}, false); // pi hands every handler a ctx
+		h.fire("session_start"); // pi hands every handler a ctx
 		h.fire("message_end", ASSISTANT_STOP);
-		h.fire("agent_settled", {});
+		h.fire("agent_settled");
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
 			[] as string[],
 			"nothing emitted while the confirm window is open",
 		);
 
-		h.handle.confirmSettle(); // the deferred confirm (600ms in production)
+		const [confirmId] = h.timers.pendingTimeouts();
+		h.timers.invokeTimeout(confirmId!); // the deferred confirm (600ms in production)
 
 		assert.deepEqual(
 			h.runEvents.map((e) => e.type),
@@ -414,41 +473,94 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		assert.equal(completed.data.result, "done");
 		assert.equal(completed.data.stopReason, "stop");
 		assert.equal((completed.data.usage as { input: number }).input, 10);
-		assert.ok(h.shutdownCalls() >= 1, "session shutdown requested after the terminal event was flushed");
+		// Ordering: report (sync append + flush) → cut any running turn → shutdown.
+		assert.deepEqual(h.calls, ["emit:worker.completed", "ctx.abort", "ctx.shutdown"]);
 		assert.deepEqual(h.exitCodes(), [], "pi shutdown API preferred over process.exit");
 
 		// A second settled turn after termination must not double-report.
-		h.fire("agent_settled", {});
-		h.handle.confirmSettle();
+		h.fire("agent_settled");
+		h.timers.invokeTimeout(1); // no new timer is armed once terminated
 		assert.equal(h.runEvents.length, 1);
+		assert.deepEqual(h.timers.pendingTimeouts(), [], "confirm timer cleared after firing");
 	});
 
 	it("holds the exit while a steer arrives during the settle-confirm window", () => {
 		const h = buildHarness();
 		h.fire("message_end", ASSISTANT_STOP);
-		h.fire("agent_settled", {});
+		const confirmIdsAfterFirstSettle = (): number[] => {
+			h.fire("agent_settled");
+			return h.timers.pendingTimeouts();
+		};
 
-		assert.equal(h.runEvents.length, 0, "nothing emitted while the confirm window is open");
-		assert.ok(h.timers.intervals().length >= 0);
+		let [confirmId] = confirmIdsAfterFirstSettle();
+		assert.ok(confirmId !== undefined, "a confirm timer is armed for an idle-looking settle");
 
-		// Deliver the deferred confirm, with pi reporting pending messages.
-		h.handle.confirmSettle(true);
-		assert.deepEqual(h.runEvents, [], "exit aborted when a steer became pending");
+		// The steer lands mid-window: pi reports a queued message at confirm time.
+		h.setSession({ pending: true });
+		h.timers.invokeTimeout(confirmId!);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			[] as string[],
+			"exit aborted when a steer became pending",
+		);
+
+		// Same race, other direction: the queued steer already STARTED its own
+		// run before our window closed — no longer idle → still no exit.
+		h.setSession({ pending: false, idle: false });
+		[confirmId] = confirmIdsAfterFirstSettle();
+		h.timers.invokeTimeout(confirmId!);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			[] as string[],
+		);
 
 		// Drained queue on a later settle → exits normally.
-		h.fire("agent_settled", {});
-		h.handle.confirmSettle(false);
-		assert.equal(h.runEvents.length, 1);
+		h.setSession({ idle: true });
+		[confirmId] = confirmIdsAfterFirstSettle();
+		h.timers.invokeTimeout(confirmId!);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			["worker.completed"],
+		);
+		assert.deepEqual(h.calls.at(-1), "ctx.shutdown");
 	});
 
-	it("aborts immediately when an ask/delegate is still running", () => {
+	it("aborts immediately when an ask/delegate is still running (no timer churn)", () => {
+		const h = buildHarness();
+		h.handle.activity.begin("delegate");
+		h.fire("message_end", ASSISTANT_STOP);
+		h.fire("agent_settled", {}, { pending: false });
+		assert.deepEqual(h.timers.pendingTimeouts(), [], "no confirm armed while a delegate runs");
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			[] as string[],
+		);
+		assert.equal(h.shutdownCalls(), 0, "running delegate keeps the session alive");
+
+		// Once the delegate finishes, the NEXT settle exits normally.
+		h.handle.activity.end("delegate");
+		h.fire("message_end", ASSISTANT_STOP);
+		const [confirmId] = (() => {
+			h.fire("agent_settled");
+			return h.timers.pendingTimeouts();
+		})();
+		h.timers.invokeTimeout(confirmId!);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			["worker.completed"],
+		);
+	});
+
+	it("aborts immediately when an ask is still running", () => {
 		const h = buildHarness();
 		h.handle.activity.begin("ask");
 		h.fire("message_end", ASSISTANT_STOP);
 		h.fire("agent_settled", {});
-		assert.deepEqual(h.runEvents, []);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			[] as string[],
+		);
 		assert.equal(h.shutdownCalls(), 0, "pending ask keeps the session alive");
-		h.handle.activity.end("ask");
 	});
 
 	it("recording-only config (no AUTO_EXIT, no PARENT_PID) records without ever exiting", () => {
@@ -477,7 +589,9 @@ describe("registerSurfaceWorkerLifecycle", () => {
 			h.runEvents.map((e) => e.type),
 			["worker.parent-lost"],
 		);
-		assert.ok(h.shutdownCalls() >= 1);
+		// Parent died (possibly mid-turn): report → abort the running turn →
+		// shutdown, so pi's deferred shutdown completes instead of freezing.
+		assert.deepEqual(h.calls, ["emit:worker.parent-lost", "ctx.abort", "ctx.shutdown"]);
 		assert.equal(h.timers.pendingIntervals(), 0, "guard timer cleared after firing");
 
 		// Idempotent: further ticks stay silent.
@@ -505,7 +619,10 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		});
 		const [timer] = h.timers.intervals();
 		h.timers.invokeInterval(timer!.id);
-		assert.deepEqual(h.runEvents, []);
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			[] as string[],
+		);
 		assert.equal(h.shutdownCalls(), 0);
 	});
 
@@ -513,5 +630,128 @@ describe("registerSurfaceWorkerLifecycle", () => {
 		const h = buildHarness({ env: workerEnv({ PI_CREW_PARENT_PID: "4242" }) });
 		h.fire("session_shutdown", { type: "session_shutdown", reason: "quit" }, false);
 		assert.equal(h.timers.pendingIntervals(), 0);
+	});
+
+	it("reports worker.error on a failed settled turn WITHOUT exiting (pane stays for inspection)", () => {
+		const h = buildHarness();
+		h.fire("message_end", ASSISTANT_ERROR);
+		h.fire("agent_settled");
+		const [confirmId] = h.timers.pendingTimeouts();
+		h.timers.invokeTimeout(confirmId!);
+
+		assert.deepEqual(
+			h.runEvents.map((e) => e.type),
+			["worker.error"],
+		);
+		const failure = h.runEvents[0]!;
+		assert.equal(failure.data.errorMessage, "provider overload");
+		assert.equal(failure.data.stopReason, "error");
+		assert.equal((failure.data.usage as { input: number }).input, 10, "usage still reported");
+		assert.deepEqual(h.calls, ["emit:worker.error"], "no abort/shutdown — the pane stays open");
+		assert.equal(h.shutdownCalls(), 0);
+
+		// Repeated failed settles keep reporting (bounded), never exit.
+		for (let i = 0; i < WORKER_ERROR_EVENT_CAP + 2; i++) {
+			h.fire("message_end", ASSISTANT_ERROR);
+			h.fire("agent_settled");
+			const [id] = h.timers.pendingTimeouts();
+			if (id !== undefined) h.timers.invokeTimeout(id);
+		}
+		const errorCount = h.runEvents.filter((e) => e.type === "worker.error").length;
+		assert.ok(errorCount <= WORKER_ERROR_EVENT_CAP, `terminal bypass needs a cap: got ${errorCount}`);
+	});
+});
+
+// ── seq seeding across attempts (host cursor stays monotonic) ─────────────
+
+describe("recorder seq seeding", () => {
+	/** Host-format log with seq 1..5 (what an earlier attempt left behind). */
+	function writeHostLog(dir: string, taskId: string, maxSeq: number): string {
+		const eventsPath = path.join(dir, "agents", taskId, "events.jsonl");
+		fs.mkdirSync(path.dirname(eventsPath), { recursive: true });
+		const lines = Array.from(
+			{ length: maxSeq },
+			(_, i) =>
+				`${JSON.stringify({ seq: i + 1, time: new Date(Date.UTC(2026, 7, 1)).toISOString(), event: { type: "message_end" } })}\n`,
+		);
+		fs.writeFileSync(eventsPath, lines.join(""), "utf-8");
+		return eventsPath;
+	}
+
+	it("continues after an earlier attempt so readCrewAgentEventsCursor(sinceSeq) still sees new events", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "surface-seed-"));
+		try {
+			const stateRoot = dir;
+			writeHostLog(stateRoot, "task-9", 5);
+			const manifest = { stateRoot } as unknown as TeamRunManifest;
+
+			const recorder = createAgentEventRecorder({
+				eventsPath: path.join(stateRoot, "agents", "task-9", "events.jsonl"),
+				now: () => Date.UTC(2026, 7, 26),
+			});
+			recorder.record(ASSISTANT_STOP);
+
+			const cursor = readCrewAgentEventsCursor(manifest, "task-9", { sinceSeq: 5 });
+			assert.equal(cursor.events.length, 1, "a fresh event MUST be visible past the old cursor");
+			assert.equal((cursor.events[0] as { seq: number }).seq, 6);
+			assert.equal(cursor.nextSeq, 6);
+			// And the recorder itself keeps counting from there.
+			recorder.record({ type: "tool_execution_start", toolName: "read", args: {} });
+			const last = JSON.parse(fs.readFileSync(cursor.path, "utf-8").trim().split("\n").at(-1)!) as { seq: number };
+			assert.equal(last.seq, 7);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("seeds from an injected tail reader and tolerates a trailing partial line", () => {
+		const out: string[] = [];
+		const recorder = createAgentEventRecorder({
+			eventsPath: "/tmp/agents/task-x/events.jsonl",
+			appendLine: (_t, line) => out.push(line),
+			readTail: () => '{"seq":41,"time":"t","event":{}}\n{"seq":4', // partial trailing write
+		});
+		recorder.record(ASSISTANT_STOP);
+		assert.equal(JSON.parse(out[0]!).seq, 42, "next seq = max(existing)+1, partial line ignored");
+
+		// No readable log (absent file / non-writer sink) → starts at 1.
+		const fresh = createAgentEventRecorder({
+			eventsPath: "/tmp/agents/task-y/events.jsonl",
+			appendLine: (_t, line) => out.push(line),
+			readTail: () => undefined,
+		});
+		fresh.record(ASSISTANT_STOP);
+		assert.equal(JSON.parse(out.at(-1)!).seq, 1);
+	});
+
+	it("explicit seedSeq overrides the automatic tail scan", () => {
+		const out: string[] = [];
+		const recorder = createAgentEventRecorder({
+			eventsPath: "/tmp/agents/task-z/events.jsonl",
+			appendLine: (_t, line) => out.push(line),
+			readTail: () => '{"seq":9}',
+			seedSeq: 100,
+		});
+		recorder.record(ASSISTANT_STOP);
+		assert.equal(JSON.parse(out[0]!).seq, 101);
+	});
+});
+
+// ── shared /proc stat parser (worker + spawn + zombie-scanner drift guard) ─
+
+describe("proc-stat field parsing (shared)", () => {
+	it("reads starttime AND ppid from the same paren-aware split", () => {
+		// Same comm-with-parens hazard as the guard/spawn fixtures.
+		const stat = "991 42 (bad ) name) S 1 991 991 0 -1 4194560 100 0 0 0 10 5 0 0 20 0 1 0 777 0 0";
+		const fields = fieldsAfterComm(stat);
+		assert.ok(fields);
+		assert.equal(fields[0], "S", "rest[0] is state (zombie-scanner)");
+		assert.equal(fields[1], "1", "rest[1] is ppid (zombie-scanner)");
+		assert.equal(procStartTimeTicks(stat), "777", "rest[19] is starttime (spawn + worker guard)");
+	});
+
+	it("rejects unparseable buffers", () => {
+		assert.equal(fieldsAfterComm("no parens here"), undefined);
+		assert.equal(procStartTimeTicks("991 42 ) x"), undefined);
 	});
 });

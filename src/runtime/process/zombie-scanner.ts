@@ -23,6 +23,7 @@
  */
 
 import * as fs from "node:fs";
+import { fieldsAfterComm, PROC_STAT_PPID_INDEX, PROC_STAT_STARTTIME_INDEX } from "./proc-stat.ts";
 
 export interface ZombieSubagent {
 	pid: number;
@@ -66,17 +67,12 @@ function readProcStat(pid: number): { ppid: number; elapsedSec: number | undefin
 	try {
 		const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf-8");
 		// stat format: pid (comm) state ppid ... starttime ...
-		// comm may contain spaces/parens, so parse from the LAST ')' backwards.
-		const closeParen = stat.lastIndexOf(")");
-		if (closeParen < 0) return undefined;
-		const rest = stat
-			.slice(closeParen + 2)
-			.trim()
-			.split(/\s+/);
-		// rest[0] = state, rest[1] = ppid
-		const ppid = Number.parseInt(rest[1] ?? "", 10);
-		// starttime (clock ticks since boot) is field 22 in the full stat → index 19 in `rest`
-		const starttimeTicksRaw = Number.parseInt(rest[19] ?? "", 10);
+		// Shared paren-aware cut (proc-stat.ts) — MUST index identically with
+		// surface-spawn's PI_CREW_PARENT_START_TIME capture.
+		const rest = fieldsAfterComm(stat);
+		if (!rest) return undefined;
+		const ppid = Number.parseInt(rest[PROC_STAT_PPID_INDEX] ?? "", 10);
+		const starttimeTicksRaw = Number.parseInt(rest[PROC_STAT_STARTTIME_INDEX] ?? "", 10);
 		const starttimeTicks = Number.isFinite(starttimeTicksRaw) ? starttimeTicksRaw : undefined;
 		const elapsedSec = computeElapsedSec(starttimeTicks);
 		return { ppid: Number.isFinite(ppid) ? ppid : 0, elapsedSec };
