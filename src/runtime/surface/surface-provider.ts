@@ -24,11 +24,6 @@ export interface SurfaceSpawnOpts {
 }
 
 /**
- * Empty map for surface exit reasons (reserved for future use)
- */
-export interface SurfaceExitReasonMap {}
-
-/**
  * Reason why a surface session ended
  */
 export type SurfaceExitReason = "pane-closed" | "mux-dead" | "detached";

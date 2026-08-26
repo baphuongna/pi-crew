@@ -11,18 +11,18 @@
  * slower CI machines stay green while a regression to the 3-cycle behavior
  * (which triples the cost) fails loudly.
  */
-import { performance } from "node:perf_hooks";
+
 import * as path from "node:path";
+import { performance } from "node:perf_hooks";
 import * as url from "node:url";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..");
 
-const { runRetrievalCycle, __test_resetDiscoveredCache } = await import(
-	"../src/runtime/task-runner/retrieval-orchestrator.ts"
-);
+const { runRetrievalCycle, __test_resetDiscoveredCache } = await import("../src/runtime/task-runner/retrieval-orchestrator.ts");
 
-const GOAL = "Smoke-verify pi-crew on this session: run `npm run test:critical` ONCE, cache the output to .crew/cache/, then report the exact pass/fail counts.";
+const GOAL =
+	"Smoke-verify pi-crew on this session: run `npm run test:critical` ONCE, cache the output to .crew/cache/, then report the exact pass/fail counts.";
 const TASK = `Find the likely source of the issue: ${GOAL}`;
 
 function ms(t0: number): number {
@@ -62,7 +62,12 @@ for (const [name, c] of Object.entries(cases)) {
 	console.log(`b13 ${name}: ${c.wallMs}ms (budget <${c.budgetMs}ms — ${c.note}) ${c.pass ? "PASS" : "FAIL"}`);
 }
 console.log(
-	JSON.stringify({ name: "b13.retrieval-latency", unit: "ms", cases: Object.fromEntries(Object.entries(cases).map(([k, v]) => [k, { wallMs: v.wallMs, budgetMs: v.budgetMs, pass: v.pass }])), failures }),
+	JSON.stringify({
+		name: "b13.retrieval-latency",
+		unit: "ms",
+		cases: Object.fromEntries(Object.entries(cases).map(([k, v]) => [k, { wallMs: v.wallMs, budgetMs: v.budgetMs, pass: v.pass }])),
+		failures,
+	}),
 );
 if (failures > 0) {
 	console.log("b13 FAILED");

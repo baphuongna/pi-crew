@@ -24,7 +24,7 @@
  *   - dedup by message id across polls via a caller-owned seen-set and/or a
  *     `sinceTs` watermark — one message delivers once.
  */
-import { readAllMailboxMessages, type MailboxMessage } from "../state/coordination/mailbox.ts";
+import { type MailboxMessage, readAllMailboxMessages } from "../state/coordination/mailbox.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 
 export interface WorkerInboxPickup {

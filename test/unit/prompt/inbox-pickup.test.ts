@@ -283,8 +283,8 @@ describe("registerPiTeamsPromptRuntime wiring (inbox pickup)", () => {
 		});
 		const sent: unknown[] = [];
 		const pi = {
-			registerTool: () => {},
-			on: () => {},
+			registerTool: () => undefined,
+			on: () => undefined,
 			sendMessage: (msg: unknown) => {
 				sent.push(msg);
 			},
