@@ -13,12 +13,12 @@ import {
 } from "../../src/runtime/task-runner/retrieval-orchestrator.ts";
 
 /**
- * M3: integration tests for the iterative file-retrieval orchestrator.
+ * M3: integration tests for the single-pass file-retrieval orchestrator.
  *
  * Cases (per task spec):
  *   A. ripgrep available (use `rg --files` against the fixture dir) → returns files sorted by score
  *   B. task with clear keyword match → top-N includes the matching fixture file
- *   C. `shouldContinue` returns false early (e.g. empty keyword set) → cycles ≤ 3, converged within MAX_CYCLES
+ *   C. empty keyword set → short-circuit with cycles=0, converged=true
  *
  * The orchestrator must NEVER throw: missing ripgrep falls back to the
  * in-memory walk. We exercise both paths in the same fixture so the
@@ -105,7 +105,7 @@ test("M3-B: task with clear keyword match → top-N includes the matching file",
 	}
 });
 
-test("M3-C: empty keyword set → converged=true within MAX_CYCLES", async () => {
+test("M3-C: empty keyword set → short-circuit cycles=0, converged=true", async () => {
 	const cwd = makeFixtureDir();
 	__test_resetRipgrepCache();
 	try {
@@ -252,4 +252,15 @@ test("R3-2: no duplicate paths in result.files (dedupe by absolute path)", async
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
+});
+
+test("R3-3: tokenizeQuery drops generic verbs/pronouns that never match code paths", () => {
+	const kws = tokenizeQuery(
+		"Find the likely source of this issue, then report exact counts once you run it",
+		"this session was run to verify things",
+	);
+	const banned = ["find", "likely", "this", "then", "report", "exact", "once", "run", "you", "it", "was", "to", "things"];
+	for (const b of banned) assert.ok(!kws.includes(b), `stopword '${b}' must be filtered, got ${JSON.stringify(kws)}`);
+	// Signal keywords still survive:
+	for (const keep of ["source", "issue", "counts", "session", "verify"]) assert.ok(kws.includes(keep), `keyword '${keep}' must survive, got ${JSON.stringify(kws)}`);
 });

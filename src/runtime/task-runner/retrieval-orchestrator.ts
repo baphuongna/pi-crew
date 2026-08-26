@@ -32,7 +32,22 @@ export const MAX_SUGGESTED_FILES = 10;
 export const MIN_SUGGESTED_FILES = 5;
 
 /** Stopwords dropped during keyword tokenization (lowercase comparison). */
-const STOPWORDS: ReadonlySet<string> = new Set(["the", "a", "an", "and", "or", "to", "of", "in", "for", "on", "is", "are", "be", "with"]);
+// PERF round 3: expanded from 14 function words to the common verb/pronoun/
+// filler set. These multiply the scoring cost (keywords × files × passes)
+// and essentially never appear in code file paths. Deliberately KEPT OUT:
+// domain words that DO match paths — test, cache, prompt, tool, spec, run
+// artifacts like "smoke" — check the keep-assertions in R3-3 before adding.
+const STOPWORDS: ReadonlySet<string> = new Set([
+	"the", "a", "an", "and", "or", "to", "of", "in", "for", "on", "is", "are", "be", "with",
+	"this", "that", "these", "those", "then", "than", "so", "if", "but", "not", "no", "yes",
+	"it", "its", "they", "them", "their", "we", "you", "your", "us", "our", "i",
+	"was", "were", "been", "has", "have", "had", "will", "would", "can", "could", "should",
+	"may", "might", "must", "shall", "do", "does", "did", "done",
+	"find", "found", "look", "run", "likely", "please", "just", "only", "also", "into", "from",
+	"when", "what", "which", "where", "how", "all", "any", "some", "there", "here",
+	"report", "reports", "exact", "once", "twice", "things", "thing", "stuff",
+	"make", "makes", "made", "use", "using", "used",
+]);
 
 /** File extensions considered relevant for retrieval. */
 const RELEVANT_EXTS: ReadonlySet<string> = new Set([
