@@ -35,15 +35,16 @@ export const MIN_SUGGESTED_FILES = 5;
 // PERF round 3: expanded from 14 function words to the common verb/pronoun/
 // filler set. These multiply the scoring cost (keywords × files × passes)
 // and essentially never appear in code file paths. Deliberately KEPT OUT:
-// domain words that DO match paths — test, cache, prompt, tool, spec, run
-// artifacts like "smoke" — check the keep-assertions in R3-3 before adding.
+// domain words that DO match paths — test, cache, prompt, tool, spec,
+// artifact names like "smoke" — check the keep-assertions in R3-3 before adding.
 const STOPWORDS: ReadonlySet<string> = new Set([
 	"the", "a", "an", "and", "or", "to", "of", "in", "for", "on", "is", "are", "be", "with",
 	"this", "that", "these", "those", "then", "than", "so", "if", "but", "not", "no", "yes",
 	"it", "its", "they", "them", "their", "we", "you", "your", "us", "our", "i",
 	"was", "were", "been", "has", "have", "had", "will", "would", "can", "could", "should",
 	"may", "might", "must", "shall", "do", "does", "did", "done",
-	"find", "found", "look", "run", "likely", "please", "just", "only", "also", "into", "from",
+	"find", "found", "look", "run", // 'run' — generic verb, false-positives every *runner* path (see R3-3)
+	"likely", "please", "just", "only", "also", "into", "from",
 	"when", "what", "which", "where", "how", "all", "any", "some", "there", "here",
 	"report", "reports", "exact", "once", "twice", "things", "thing", "stuff",
 	"make", "makes", "made", "use", "using", "used",
@@ -78,6 +79,34 @@ interface RipgrepAvailable {
 }
 
 let cachedRgCheck: RipgrepAvailable | undefined;
+
+/**
+ * PERF round 3: per-cwd cache of the rg discovery result (relative paths,
+ * post RELEVANT_EXTS filter). Tasks in one run share the cwd but differ in
+ * step.task keywords, so the stableIOCache in prompt-builder.ts misses per
+ * task — this cache keeps the expensive part (rg spawn + 77k-line parse)
+ * at once per cwd per minute instead of once per task. Fallback walk is
+ * NOT cached (its result depends on keywords). Size-capped, insertion-
+ * order eviction, same TTL family as stableIOCache (60s).
+ */
+const DISCOVERED_TTL_MS = 60_000;
+const DISCOVERED_CACHE_MAX = 32;
+const discoveredCache = new Map<string, { files: string[]; at: number }>();
+
+function getCachedDiscovered(cwd: string): string[] | undefined {
+	const hit = discoveredCache.get(cwd);
+	if (hit && Date.now() - hit.at < DISCOVERED_TTL_MS) return hit.files;
+	return undefined;
+}
+
+function storeDiscovered(cwd: string, files: string[]): void {
+	discoveredCache.set(cwd, { files, at: Date.now() });
+	while (discoveredCache.size > DISCOVERED_CACHE_MAX) {
+		const oldest = discoveredCache.keys().next().value;
+		if (oldest === undefined) break;
+		discoveredCache.delete(oldest);
+	}
+}
 
 /**
  * Detect ripgrep availability once per process. Uses `rg --version` and
@@ -122,6 +151,11 @@ export async function detectRipgrep(): Promise<RipgrepAvailable> {
 /** @internal Test-only: reset the ripgrep detection cache. */
 export function __test_resetRipgrepCache(): void {
 	cachedRgCheck = undefined;
+}
+
+/** @internal Test-only: reset the discovery cache. */
+export function __test_resetDiscoveredCache(): void {
+	discoveredCache.clear();
 }
 
 /**
@@ -305,14 +339,20 @@ export async function runRetrievalCycle(task: string, goal: string, cwd: string)
 	let discovered: string[] = [];
 	try {
 		if (useRg) {
-			// `rg --files` respects .gitignore by default; explicit -g guards
-			// repos that don't ignore them (comment moved from the loop body).
-			const stdout = await runRipgrep(["--files", "-g", "!node_modules", "-g", "!.git", cwd], cwd);
-			discovered = stdout
-				.split("\n")
-				.map((p) => p.trim())
-				.filter((p) => p && RELEVANT_EXTS.has(path.extname(p).toLowerCase()))
-				.map((p) => path.relative(cwd, p));
+			const cached = getCachedDiscovered(cwd);
+			if (cached) {
+				discovered = cached;
+			} else {
+				// `rg --files` respects .gitignore by default; explicit -g guards
+				// repos that don't ignore them (comment moved from the loop body).
+				const stdout = await runRipgrep(["--files", "-g", "!node_modules", "-g", "!.git", cwd], cwd);
+				discovered = stdout
+					.split("\n")
+					.map((p) => p.trim())
+					.filter((p) => p && RELEVANT_EXTS.has(path.extname(p).toLowerCase()))
+					.map((p) => path.relative(cwd, p));
+				storeDiscovered(cwd, discovered);
+			}
 		} else {
 			discovered = (await walkFilesFallback(cwd, keywords)).map((f) => f.path);
 		}

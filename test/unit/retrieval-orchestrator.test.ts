@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import {
+	__test_resetDiscoveredCache,
 	__test_resetRipgrepCache,
 	detectRipgrep,
 	MAX_SUGGESTED_FILES,
@@ -263,4 +264,29 @@ test("R3-3: tokenizeQuery drops generic verbs/pronouns that never match code pat
 	for (const b of banned) assert.ok(!kws.includes(b), `stopword '${b}' must be filtered, got ${JSON.stringify(kws)}`);
 	// Signal keywords still survive:
 	for (const keep of ["source", "issue", "counts", "session", "verify"]) assert.ok(kws.includes(keep), `keyword '${keep}' must survive, got ${JSON.stringify(kws)}`);
+});
+
+test("R3-4: rg discovery cached per cwd for 60s — new files invisible until reset", async () => {
+	const cwd = makeFixtureDir();
+	__test_resetRipgrepCache();
+	__test_resetDiscoveredCache();
+	try {
+		const first = await runRetrievalCycle("latefile probe", "find latefile", cwd);
+		assert.ok(!first.files.some((f) => f.path.includes("late-added")), "sanity: file not created yet");
+		// Create a NEW strongly-matching file AFTER the first retrieval.
+		fs.writeFileSync(path.join(cwd, "src", "late-added-latefile.ts"), "// latefile latefile latefile\n", "utf-8");
+		const second = await runRetrievalCycle("latefile probe", "find latefile", cwd);
+		assert.ok(
+			!second.files.some((f) => f.path.includes("late-added")),
+			"within TTL the cached discovery must NOT see the new file (cache hit proof)",
+		);
+		__test_resetDiscoveredCache();
+		const third = await runRetrievalCycle("latefile probe", "find latefile", cwd);
+		assert.ok(
+			third.files.some((f) => f.path.includes("late-added")),
+			"after cache reset the new file must be discovered and rank (score: 2 path hits)",
+		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
 });
