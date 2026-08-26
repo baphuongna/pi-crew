@@ -25,9 +25,11 @@ import { DEFAULT_NESTING } from "../../../src/config/defaults.ts";
 import { PiTeamsConfigSchema } from "../../../src/schema/config-schema.ts";
 import { collectSensitiveConfigPaths } from "../../../src/schema/sensitive-config-paths.ts";
 
-test("DEFAULT_NESTING is fail-closed: enabled=false, maxDepth=2 (ADR-5 §10)", () => {
+test("DEFAULT_NESTING is fail-closed: enabled=false, maxDepth=4 (ADR-5 §10 + D8)", () => {
 	assert.equal(DEFAULT_NESTING.enabled, false);
-	assert.equal(DEFAULT_NESTING.maxDepth, 2);
+	// D8 (spec v0.7): maxDepth kept in lockstep with DEFAULT_MAX_CREW_DEPTH so
+	// the broker-admission gate and spawn-side cap never disagree.
+	assert.equal(DEFAULT_NESTING.maxDepth, 4);
 });
 
 test("parseConfig: valid nesting block passes through", () => {
@@ -61,13 +63,13 @@ test("parseConfig: boundaries 1 and 64 / 1 and 10 accepted", () => {
 test("mergeConfig: partial user nesting block does not erase the fail-closed default", () => {
 	const base = { nesting: { ...DEFAULT_NESTING } };
 	const merged = mergeConfig(base, { nesting: { maxSlots: 4 } });
-	assert.deepEqual(merged.nesting, { enabled: false, maxDepth: 2, maxSlots: 4 });
+	assert.deepEqual(merged.nesting, { enabled: false, maxDepth: 4, maxSlots: 4 });
 });
 
 test("mergeConfig: explicit user enabled=true wins over the default", () => {
 	const base = { nesting: { ...DEFAULT_NESTING } };
 	const merged = mergeConfig(base, { nesting: { enabled: true } });
-	assert.deepEqual(merged.nesting, { enabled: true, maxDepth: 2 });
+	assert.deepEqual(merged.nesting, { enabled: true, maxDepth: 4 });
 });
 
 test("nesting.enabled is sensitive: project config cannot enable delegation", () => {

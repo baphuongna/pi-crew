@@ -215,7 +215,10 @@ export const DEFAULT_BROKER = {
  */
 export const DEFAULT_NESTING = {
 	enabled: false,
-	maxDepth: 2,
+	// D8 (spec v0.7): nested spawning open — child creates child. Kept in
+	// lockstep with DEFAULT_MAX_CREW_DEPTH (pi-args) so the broker-admission
+	// depth gate and the spawn-side cap can never disagree.
+	maxDepth: 4,
 } as const;
 
 /**
