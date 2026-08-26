@@ -1,13 +1,18 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
+import { loadConfig } from "../../config/config.ts";
 import { getCrewEnv } from "../../config/env-vars.ts";
+import type { PiTeamsConfig } from "../../config/types.ts";
 import { registerChildProcess, unregisterChildProcess } from "../../extension/crew-cleanup.ts";
 import type { WorkerExitStatus } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecretString } from "../../utils/redaction.ts";
 import { getActiveBrokerIssuer } from "../broker/broker-issuer.ts";
 import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
+import type { SurfaceProvider } from "../surface/surface-provider.ts";
+import { prepareSurfaceSpawn, type SurfaceSpawnOutcome, waitForSurfaceExit } from "../surface/surface-spawn.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
 import { clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
 import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
@@ -71,10 +76,29 @@ export function redactStderrExcerpt(stderr: string, maxChars: number): string {
 
 /** Structured lifecycle event emitted by child-pi for critical transitions. */
 export interface ChildPiLifecycleEvent {
-	/** Event discriminator. */
-	type: "spawned" | "spawn_error" | "response_timeout" | "final_drain" | "hard_kill" | "exit" | "close";
+	/**
+	 * Event discriminator. `surface_spawned` / `surface_closed` are emitted by
+	 * the MuxSurface spawn branch (spec §13.1) — no stdio process exists, so
+	 * `pid` is absent there and surface fields carry the pane identity.
+	 */
+	type:
+		| "spawned"
+		| "spawn_error"
+		| "response_timeout"
+		| "final_drain"
+		| "hard_kill"
+		| "exit"
+		| "close"
+		| "surface_spawned"
+		| "surface_closed";
 	/** Process ID when available. */
 	pid?: number;
+	/** Pane id (surface events). */
+	paneId?: string;
+	/** Surface backend kind (surface events). */
+	surfaceKind?: "tmux" | "herdr";
+	/** Why the pane ended / degraded (surface_closed): "pane-closed" | "mux-dead" | "detached". */
+	paneExitReason?: string;
 	/** Exit code for exit/close events. */
 	exitCode?: number | null;
 	/** Error message for error events. */
@@ -192,6 +216,28 @@ export interface ChildPiRunInput {
 	/** Base env for depth computation (defaults to process.env). Advanced —
 	 * used with depthOverride by the root-side delegate handler. */
 	env?: NodeJS.ProcessEnv;
+	/**
+	 * MuxSurface A1 (spec §13.1): opt-in/hint for booting this worker in a
+	 * multiplexer pane instead of a stdio pipe. Undefined → the branch still
+	 * consults the discovered project config, which defaults surface OFF
+	 * (`visibleAgents: []`), so behaviour stays headless unless explicitly
+	 * configured. Any failure degrades to the normal headless spawn path (§3
+	 * fail-closed) — NEVER throws.
+	 *
+	 * - `providers`: pre-resolved provider instances — dispatch-owned (team-runner
+	 *   T11 passes its resolved provider + livePaneCount) and test injection.
+	 *   Hard gates (async run / host depth) still apply.
+	 * - `config`: overrides discovered config (tests).
+	 * - `livePaneCount`: panes already live for this run — `MAX_SURFACE_WORKERS`
+	 *     cap check. Defaults 0 until T11 threads manifest state.
+	 * - `baseDir`: launch-script dir override (default getPiTempBase()).
+	 */
+	surface?: {
+		providers?: { tmux?: SurfaceProvider; herdr?: SurfaceProvider };
+		config?: PiTeamsConfig;
+		livePaneCount?: number;
+		baseDir?: string;
+	};
 }
 
 export interface ChildPiRunResult {
@@ -217,6 +263,17 @@ export interface ChildPiRunResult {
 	 *  text) still produce a non-empty result. Consumers should prefer rawFinalText
 	 *  first — this is a last-resort fallback. */
 	intermediateFindings?: string;
+	/**
+	 * MuxSurface A1: present ONLY when the worker booted inside a multiplexer
+	 * pane instead of a stdio pipe (spec §13.1). Downstream (T9 EventLogTailSource,
+	 * T11 degrade) consumes the pane identity; the empty stdout/stderr is EXPECTED
+	 * in surface mode — events arrive through the per-agent event log, not a pipe.
+	 */
+	surface?: {
+		kind: "tmux" | "herdr";
+		paneId: string;
+		scriptPath: string;
+	};
 }
 
 // Base allowlist of non-provider env vars always passed to child workers.
@@ -257,6 +314,119 @@ function isFinalAssistantEvent(event: unknown): boolean {
 	if (stopReason !== undefined && stopReason !== "stop") return false;
 	const content = Array.isArray(message?.content) ? message.content : [];
 	return !content.some((part) => asRecord(part)?.type === "toolCall");
+}
+
+/**
+ * Discover the project crew config for the surface gate. The discovered config
+ * DEFAULTS surface off (`visibleAgents: []`) — headless unless explicitly opted
+ * in. Any discovery failure → default config (fail-closed §3), never throws.
+ */
+function safeLoadSurfaceConfig(cwd: string): PiTeamsConfig {
+	try {
+		return loadConfig(cwd).config;
+	} catch (error) {
+		logInternalError(
+			"child-pi.surface-config",
+			error instanceof Error ? error : new Error(String(error)),
+			"surface gate uses default (off)",
+		);
+		return {};
+	}
+}
+
+/**
+ * MuxSurface A1 spawn branch (spec §13.1). Returns a ChildPiRunResult when the
+ * worker was booted INSIDE a multiplexer pane (no stdio process is spawned and
+ * completion is awaited through the pane's own lifetime), or null to fall
+ * through to the normal stdio spawn.
+ *
+ * NEVER throws: any preparation failure degrades to null (headless §3).
+ */
+async function trySurfaceBranch(
+	input: ChildPiRunInput,
+	depthEnv: NodeJS.ProcessEnv | undefined,
+	builtArgs: string[],
+	mergedEnv: NodeJS.ProcessEnv,
+	builtEnv: Record<string, string | undefined>,
+	tempDir: string | undefined,
+): Promise<ChildPiRunResult | null> {
+	// A pane needs a task id for its title/event-log path — an anonymous worker
+	// has nothing meaningful to boot there, so stay on the headless road.
+	if (!input.agentId) return null;
+	const surfaceOpts = input.surface;
+	const preResolved = surfaceOpts?.providers?.tmux ?? surfaceOpts?.providers?.herdr;
+	let outcome: SurfaceSpawnOutcome;
+	try {
+		outcome = await prepareSurfaceSpawn({
+			// Detection env must be the HOST's base env (depth 0 tier-1), NOT the
+			// child's built env whose PI_CREW_DEPTH is parentDepth+1 — layer-1
+			// guard would misfire on our own tier-1 workers.
+			env: depthEnv ?? process.env,
+			workerEnv: buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model).env as Record<string, string>,
+			config: surfaceOpts?.config ?? safeLoadSurfaceConfig(input.cwd),
+			role: input.role ?? input.agent.name,
+			livePaneCount: surfaceOpts?.livePaneCount ?? 0,
+			taskId: input.agentId,
+			cwd: input.cwd,
+			piArgs: builtArgs,
+			stateRoot: input.eventsPath ? path.dirname(input.eventsPath) : "",
+			baseDir: surfaceOpts?.baseDir,
+			deps: preResolved ? { provider: preResolved } : {},
+		});
+	} catch (error) {
+		// Defense in depth — prepareSurfaceSpawn is no-throw by contract (§3).
+		logInternalError(
+			"child-pi.surface-unexpected",
+			error instanceof Error ? error : new Error(String(error)),
+			`taskId=${input.agentId}`,
+		);
+		return null;
+	}
+	if (outcome.mode !== "surface") return null;
+
+	const surfaceMeta: ChildPiRunResult["surface"] = {
+		kind: outcome.kind,
+		paneId: outcome.paneId,
+		scriptPath: outcome.scriptPath,
+	};
+	input.onLifecycleEvent?.({
+		type: "surface_spawned",
+		surfaceKind: outcome.kind,
+		paneId: outcome.paneId,
+		ts: new Date().toISOString(),
+	});
+	// Pane lifetime IS the worker lifetime in A1: T8's auto-exit closes the pane
+	// at turn end (spec §13.2), cancel/timeout closes it here via AbortSignal.
+	const exitInfo = await waitForSurfaceExit(outcome, { signal: input.signal });
+	input.onLifecycleEvent?.({
+		type: "surface_closed",
+		surfaceKind: outcome.kind,
+		paneId: outcome.paneId,
+		paneExitReason: exitInfo.reason,
+		ts: new Date().toISOString(),
+	});
+	// Empty stdout/stderr is EXPECTED — events flow through the per-agent event
+	// log (worker-side recorder, spec §5.3), not through a pipe we own.
+	return {
+		exitCode: exitInfo.cancelledByAbort ? null : 0,
+		stdout: "",
+		stderr: "",
+		...(exitInfo.cancelledByAbort
+			? { error: `Cancelled while running in ${outcome.kind} pane ${outcome.paneId} (${exitInfo.reason})` }
+			: {}),
+		rawFinalText: "",
+		intermediateFindings: "",
+		...(exitInfo.cancelledByAbort ? { aborted: true } : {}),
+		surface: surfaceMeta,
+		exitStatus: {
+			exitCode: exitInfo.cancelledByAbort ? null : 0,
+			cancelled: exitInfo.cancelledByAbort,
+			timedOut: false,
+			killed: false,
+			cleanupErrors: [],
+			finalDrainMs: 0,
+		},
+	};
 }
 
 export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResult> {
@@ -325,7 +495,12 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	}
 	const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask, depthEnv);
 	if (spawnPrep.kind === "aborted") return spawnPrep.result;
-	const { spawnSpec, mergedEnv, tempDir, builtEnv } = spawnPrep.ctx;
+	const { spawnSpec, mergedEnv, tempDir, builtEnv, builtArgs } = spawnPrep.ctx;
+	// MuxSurface A1 (spec §13.1): attempt booting the worker in a mux pane BEFORE
+	// spawning a stdio pipe. Returns a finished result in surface mode (pane exit
+	// awaited) or null → fall through to the classic headless spawn below.
+	const surfaceResult = await trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir);
+	if (surfaceResult) return surfaceResult;
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
 			// Compose the final SpawnOptions: canary + filter + spread are now

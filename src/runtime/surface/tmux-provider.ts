@@ -240,9 +240,21 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 				}
 			}
 			// Command đã build sẵn ("bash <script-path>") — gửi literal rồi Enter.
-			tmux(["send-keys", "-t", paneId, "-l", opts.command]);
-			tmux(["send-keys", "-t", paneId, "Enter"]);
+			// Commandless tạo pane là hợp lệ (spec §13.1: host cần pane id trước,
+			// build script xong mới boot worker qua sendCommand) — không gửi gì cả.
+			if (opts.command !== undefined) {
+				tmux(["send-keys", "-t", paneId, "-l", opts.command]);
+				tmux(["send-keys", "-t", paneId, "Enter"]);
+			}
 			return makeHandle(paneId);
+		},
+
+		async sendCommand(handle, text) {
+			assertTmuxHandle(handle);
+			// Gửi literal text (không tmux-interpreted) rồi Enter — giống cách
+			// createSurface gửi command người dùng gõ được.
+			tmux(["send-keys", "-t", handle.id, "-l", text]);
+			tmux(["send-keys", "-t", handle.id, "Enter"]);
 		},
 
 		attach(id: string): SurfaceHandle | null {

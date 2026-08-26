@@ -13,7 +13,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
 	LAUNCH_SCRIPT_TTL_MS,
 	launchScriptRegistry,
 	SurfaceDepthGuardError,
+	SurfaceTaskIdError,
 	sweepLaunchScripts,
 } from "../../../../src/runtime/surface/launch-script.ts";
 
@@ -194,6 +195,99 @@ test("sweepLaunchScripts deletes entries older than TTL from disk and registry, 
 	} finally {
 		rmSync(sweepBase, { recursive: true, force: true });
 	}
+});
+
+// ── taskId guard (follow-up BẮT BUỘC từ review T5) ───────────────────────
+// taskId được nối thẳng vào tên file script (`pi-crew-launch-{taskId}-{pid}.sh`)
+// — một taskId chứa `/`, `\0` hay `..` là path traversal: ghi file ra ngoài
+// baseDir. Builder phải reject TRƯỚC khi chạm đĩa.
+
+test("throws LaunchScriptTaskIdError for taskId containing /, \\0, .. or empty", () => {
+	for (const evilTaskId of ["a/b", "../../etc/passwd", "..", "nested/path/task", "bad\0nul", ""]) {
+		assert.throws(
+			() =>
+				buildLaunchScript({
+					taskId: evilTaskId,
+					env: surfaceEnv(),
+					command: "pi",
+					cwd: "/home/user/repo",
+					baseDir,
+				}),
+			SurfaceTaskIdError,
+			`taskId ${JSON.stringify(evilTaskId)} phải bị reject`,
+		);
+	}
+	// Không ghi gì xuống đĩa khi guard chặn.
+	assert.ok(!existsSync(join(baseDir, `pi-crew-launch-a${process.pid}.sh`)));
+	assert.ok(!existsSync(join(baseDir, `pi-crew-launch-..-${process.pid}.sh`)));
+});
+
+test("taskId guard runs BEFORE the env is serialized (no traversal file escapes baseDir)", () => {
+	const escapeBase = mkdtempSync(join(tmpdir(), "launch-script-traversal-"));
+	try {
+		assert.throws(
+			() =>
+				buildLaunchScript({
+					taskId: "../escape",
+					env: surfaceEnv(),
+					command: "pi",
+					cwd: "/home/user/repo",
+					baseDir: escapeBase,
+				}),
+			SurfaceTaskIdError,
+		);
+		// Parent dir của baseDir không được sinh file mới nào.
+		assert.deepEqual(readdirSync(escapeBase), [], "baseDir phải vẫn rỗng");
+	} finally {
+		rmSync(escapeBase, { recursive: true, force: true });
+	}
+});
+
+// ── callerEnv: guard lớp 2 đo ĐỘ SÂU CALLER, không phải độ sâu worker ────
+// Script surface worker export PI_CREW_DEPTH=<caller+1> (đúng nghĩa "worker
+// này ở tầng mấy") — bảo toàn parity headless. Guard lớp 2 (spec §3/§5.2)
+// nhắm vào người GỌI builder (worker lồng tự build script cho tier-1), nên
+// phải đọc depth từ callerEnv khi nó được truyền.
+
+test("worker depth 1 in exported env builds fine when callerEnv depth is 0", () => {
+	const callerEnv = { ...surfaceEnv(), PI_CREW_DEPTH: "0" };
+	const scriptPath = buildLaunchScript({
+		taskId: "tier1",
+		env: { ...surfaceEnv(), PI_CREW_DEPTH: "1" },
+		command: "pi",
+		cwd: "/home/user/repo",
+		baseDir,
+		callerEnv,
+	});
+	assert.ok(existsSync(scriptPath));
+});
+
+test("still throws SurfaceDepthGuardError when callerEnv itself is nested", () => {
+	const nestedCaller = { ...surfaceEnv(), PI_CREW_DEPTH: "2" };
+	assert.throws(
+		() =>
+			buildLaunchScript({
+				taskId: "pane-in-pane",
+				env: { ...surfaceEnv(), PI_CREW_DEPTH: "1" },
+				command: "pi",
+				cwd: "/home/user/repo",
+				baseDir,
+				callerEnv: nestedCaller,
+			}),
+		SurfaceDepthGuardError,
+	);
+	// Không có callerEnv → hành vi cũ giữ nguyên: depth>0 trong env input vẫn throw.
+	assert.throws(
+		() =>
+			buildLaunchScript({
+				taskId: "legacy-guard",
+				env: { ...surfaceEnv(), PI_CREW_DEPTH: "3" },
+				command: "pi",
+				cwd: "/home/user/repo",
+				baseDir,
+			}),
+		SurfaceDepthGuardError,
+	);
 });
 
 test("sweepLaunchScripts cũng dọn entry có file đã biến mất (idempotent, không throw)", () => {

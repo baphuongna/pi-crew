@@ -316,8 +316,16 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 				}
 			}
 			// Command đã build sẵn ("bash <script-path>") — gửi literal + newline.
-			await call("pane.send_text", { pane_id: paneId, text: `${opts.command}\n` });
+			// Commandless tạo pane là hợp lệ (spec §13.1) — bỏ qua khi không có.
+			if (opts.command !== undefined) {
+				await call("pane.send_text", { pane_id: paneId, text: `${opts.command}\n` });
+			}
 			return makeHandle(paneId);
+		},
+
+		async sendCommand(handle, text) {
+			assertHerdrHandle(handle);
+			await call("pane.send_text", { pane_id: handle.id, text: `${text}\n` });
 		},
 
 		attach(_id: string): SurfaceHandle | null {

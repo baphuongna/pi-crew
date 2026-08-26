@@ -228,6 +228,18 @@ export const BACKGROUND_RUNNER_ENV_ALLOWLIST: string[] = [
 	"PI_TEAMS_BG_REPORT_ON_FATAL",
 ];
 
+/**
+ * Stamp the headless gate onto the background runner's env (MuxSurface A1,
+ * spec §3): a detached run has no interactive multiplexer session to inherit
+ * panes from, so `resolveSurface` must return null for every worker this
+ * process (and its descendants, via OS env inheritance) ever spawns.
+ *
+ * Exported for the unit test asserting the invariant.
+ */
+export function buildBackgroundRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	return { ...env, PI_CREW_ASYNC_RUN: "1" };
+}
+
 export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise<SpawnBackgroundTeamRunResult> {
 	// FIX (2026-07-02, perf review F-critical): use packageRoot() instead of
 	// import.meta.url-relative path. The previous path.resolve walks
@@ -257,7 +269,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 	// `npm root -g` probe. No-op when pi-crew and pi are co-located. See
 	// src/runtime/peer-dep.ts.
 	const peerDepDir = resolvePeerDepDir();
-	const childEnv = peerDepDir ? { ...filteredEnv, [PEER_DEP_DIR_ENV]: peerDepDir } : filteredEnv;
+	const childEnv = buildBackgroundRunnerEnv(peerDepDir ? { ...filteredEnv, [PEER_DEP_DIR_ENV]: peerDepDir } : filteredEnv);
 
 	const loader = resolveTypeScriptLoader();
 	if (!loader) {

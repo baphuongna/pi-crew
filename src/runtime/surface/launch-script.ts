@@ -7,9 +7,10 @@
  * `rm -f -- "$0"`. Script là file one-shot tuổi thọ vài giây — TTL registry
  * dọn script mồ côi (worker chưa kịp chạy đã chết) sau 60s.
  *
- * Depth guard lớp 2: builder throw khi env input cho thấy đây là worker lồng
- * (PI_CREW_DEPTH > 0). Lớp 1 là resolveSurface trả null (spec §3) — lớp 2 bảo
- * vệ đường gọi trực tiếp builder mà bỏ qua resolveSurface.
+ * Depth guard lớp 2: builder throw khi NGƯỜI GỌI đang lồng (callerEnv có
+ * PI_CREW_DEPTH > 0; không truyền callerEnv thì fallback đọc env input —
+ * hành vi cũ). Lớp 1 là resolveSurface trả null (spec §3) — lớp 2 bảo vệ
+ * đường gọi trực tiếp builder mà bỏ qua resolveSurface.
  */
 
 import * as fs from "node:fs";
@@ -29,6 +30,25 @@ export class SurfaceDepthGuardError extends Error {
 	}
 }
 
+/** Thrown khi taskId dùng để đặt tên file script không an toàn cho path. */
+export class SurfaceTaskIdError extends Error {
+	constructor(taskId: string) {
+		super(`Refusing to build surface launch script: unsafe taskId ${JSON.stringify(taskId)} — must not contain "/", "\\", NUL or ".."`);
+		this.name = "SurfaceTaskIdError";
+	}
+}
+
+/**
+ * taskId được nối thẳng vào tên file (`pi-crew-launch-{taskId}-{pid}.sh`) —
+ * `/`, `\`, NUL hay `..` trong đó là path traversal ghi file ra ngoài baseDir.
+ * Follow-up bắt buộc từ review Task 5.
+ */
+function assertSafeTaskId(taskId: string): void {
+	if (!taskId || taskId.includes("/") || taskId.includes("\\") || taskId.includes("\0") || taskId.includes("..")) {
+		throw new SurfaceTaskIdError(taskId);
+	}
+}
+
 export interface BuildLaunchScriptInput {
 	taskId: string;
 	/** Env worker cần có trong pane (broker, steering, surface, parent-guard). */
@@ -39,6 +59,14 @@ export interface BuildLaunchScriptInput {
 	cwd: string;
 	/** Thư mục chứa script — dùng getPiTempBase() từ pi-args.ts. */
 	baseDir: string;
+	/**
+	 * Env của NGƯỜI GỌI builder — nguồn duy nhất cho depth guard lớp 2. Khi
+	 * được truyền, guard KHÔNG còn đọc env export nữa vì script worker hợp lệ
+	 * mang PI_CREW_DEPTH=<caller+1> (parity với spawn headless — child-pi-spawn
+	 * luôn set depth con = cha + 1); chỉ người GỌI lồng mới bị chặn.
+	 * Không truyền → hành vi cũ (đọc env input) giữ nguyên cho caller đã có.
+	 */
+	callerEnv?: NodeJS.ProcessEnv;
 }
 
 /** TTL cho launch script (spec §5.2): sweep xóa script cũ hơn 60s. */
@@ -68,7 +96,8 @@ export function shellEscape(value: string): string {
  * dẫn, và dữ liệu từ task không tin cậy được để raw vào file bash.
  */
 export function buildLaunchScript(input: BuildLaunchScriptInput): string {
-	const depth = currentCrewDepth(input.env);
+	assertSafeTaskId(input.taskId);
+	const depth = currentCrewDepth(input.callerEnv ?? input.env);
 	if (depth > 0) throw new SurfaceDepthGuardError(depth);
 
 	const scriptPath = path.join(input.baseDir, `pi-crew-launch-${input.taskId}-${process.pid}.sh`);

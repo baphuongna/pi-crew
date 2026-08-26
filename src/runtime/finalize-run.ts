@@ -33,6 +33,7 @@ import { evaluateCrewPolicy, summarizePolicyDecisions } from "./policy-engine.ts
 import { buildRecoveryLedger } from "./recovery/recovery-recipes.ts";
 import type { SchedulerContext } from "./scheduler-context.ts";
 import { taskGraphSnapshot } from "./scheduling/task-graph-scheduler.ts";
+import { sweepLaunchScriptsAtRunEnd } from "./surface/surface-spawn.ts";
 
 function formatTaskProgress(task: TeamTaskState): string {
 	return `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.error ? ` - ${task.error}` : ""}`;
@@ -289,6 +290,9 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
  * @returns    The final `{ manifest, tasks }` result for the run.
  */
 export async function finalizeRun(ctx: SchedulerContext): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+	// MuxSurface A1 (spec §5.2): dọn launch script mồ côi đúng lúc run kết thúc
+	// — best-effort, không ảnh hưởng kết quả run.
+	sweepLaunchScriptsAtRunEnd();
 	const input = ctx.input;
 	let tasks = ctx.tasks;
 	let manifest = ctx.manifest;

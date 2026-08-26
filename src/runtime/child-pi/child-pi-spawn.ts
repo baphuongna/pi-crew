@@ -237,6 +237,13 @@ export function buildFinalChildPiSpawnOptions(
 export interface SpawnContext {
 	/** The command + args returned by getPiSpawnCommand. */
 	spawnSpec: ReturnType<typeof getPiSpawnCommand>;
+	/**
+	 * RAW worker argv as produced by buildPiWorkerArgs (BEFORE any binary/script
+	 * wrapping) — the surface spawn branch re-resolves the command line after
+	 * stripping `--mode json -p` (spec §5.2: surface variant differs ONLY in run
+	 * mode), so it needs the untouched argument list.
+	 */
+	builtArgs: string[];
 	/** The merged env (process.env + built.env) to pass to spawn(). */
 	mergedEnv: NodeJS.ProcessEnv;
 	/** Temp dir created by buildPiWorkerArgs (caller must clean up after spawn). */
@@ -392,6 +399,7 @@ export function prepareSpawnContext(
 		kind: "ready",
 		ctx: {
 			spawnSpec,
+			builtArgs: built.args,
 			mergedEnv: { ...process.env, ...built.env },
 			tempDir: built.tempDir,
 			builtEnv: built.env,

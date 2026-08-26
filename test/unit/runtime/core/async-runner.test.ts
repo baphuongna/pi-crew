@@ -4,11 +4,20 @@ import * as path from "node:path";
 import test from "node:test";
 import {
 	BACKGROUND_RUNNER_ENV_ALLOWLIST,
+	buildBackgroundRunnerEnv,
 	getBackgroundRunnerCommand,
 	nodeSupportsStripTypes,
 	resolveJitiRegisterPath,
 	resolveTypeScriptLoader,
 } from "../../../../src/runtime/async-runner.ts";
+
+// ── MuxSurface A1 (spec §3): async runs force headless ───────────────────
+
+test("buildBackgroundRunnerEnv stamps PI_CREW_ASYNC_RUN=1 so the whole tree stays headless", () => {
+	const env = buildBackgroundRunnerEnv({ PATH: "/usr/bin:/bin", HOME: "/home/u" });
+	assert.equal(env.PI_CREW_ASYNC_RUN, "1", "resolveSurface đọc flag này từ detection env — background runner phải gắn nó");
+	assert.equal(env.PATH, "/usr/bin:/bin", "env gốc phải được giữ nguyên");
+});
 
 test("background runner uses the jiti runtime loader for installed TypeScript", () => {
 	const command = getBackgroundRunnerCommand(

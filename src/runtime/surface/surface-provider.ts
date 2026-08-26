@@ -9,18 +9,24 @@
  * Detection result for a surface provider
  */
 export interface SurfaceDetection {
-  ok: boolean;
-  kind?: "tmux" | "herdr";
-  reason?: string;
+	ok: boolean;
+	kind?: "tmux" | "herdr";
+	reason?: string;
 }
 
 /**
- * Options for spawning a new surface
+ * Options for spawning a new surface.
+ *
+ * `command` is OPTIONAL on purpose: the MuxSurface spawn flow (spec §13.1)
+ * creates the pane FIRST to learn its id, builds the launch script with
+ * PI_CREW_SURFACE_PANE=<real id>, and only then boots the worker through
+ * {@link SurfaceProvider.sendCommand}. Omitting it leaves the pane sitting at
+ * its shell prompt without any keys being sent.
  */
 export interface SurfaceSpawnOpts {
-  cwd: string;
-  command: string;
-  title?: string;
+	cwd: string;
+	command?: string;
+	title?: string;
 }
 
 /**
@@ -32,10 +38,10 @@ export type SurfaceExitReason = "pane-closed" | "mux-dead" | "detached";
  * Handle to an active surface session
  */
 export interface SurfaceHandle {
-  id: string;
-  kind: "tmux" | "herdr";
-  onExit(cb: (reason: SurfaceExitReason) => void): void;
-  dispose(): void;
+	id: string;
+	kind: "tmux" | "herdr";
+	onExit(cb: (reason: SurfaceExitReason) => void): void;
+	dispose(): void;
 }
 
 /**
@@ -46,23 +52,32 @@ export interface SurfaceHandle {
  * - herdr: Custom herd-based multiplexer (future)
  */
 export interface SurfaceProvider {
-  /** Provider kind identifier */
-  kind: "tmux" | "herdr";
+	/** Provider kind identifier */
+	kind: "tmux" | "herdr";
 
-  /** Detect if the multiplexer is available and functional */
-  detect(): SurfaceDetection;
+	/** Detect if the multiplexer is available and functional */
+	detect(): SurfaceDetection;
 
-  /** Create a new surface session */
-  createSurface(name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle>;
+	/** Create a new surface session */
+	createSurface(name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle>;
 
-  /** Attach to an existing surface session (returns null if not found/implemented) */
-  attach(id: string): SurfaceHandle | null;
+	/**
+	 * Send literal text into an existing surface session (as if typed by the
+	 * user, followed by Enter). Both shipped providers implement it — the only
+	 * way the host boots a worker in a pane that was created without a command
+	 * (spec §13.1). Optional on the interface so pre-existing fake providers in
+	 * tests keep compiling; callers treat "absent" as spawn failure and degrade.
+	 */
+	sendCommand?(handle: SurfaceHandle, text: string): Promise<void>;
 
-  /** Read current screen content from surface */
-  readScreen(handle: SurfaceHandle, lines?: number): Promise<string>;
+	/** Attach to an existing surface session (returns null if not found/implemented) */
+	attach(id: string): SurfaceHandle | null;
 
-  /** Close/terminate a surface session */
-  closeSurface(handle: SurfaceHandle, opts?: { force?: boolean }): Promise<void>;
+	/** Read current screen content from surface */
+	readScreen(handle: SurfaceHandle, lines?: number): Promise<string>;
 
-  /** rebalance(): void — A2 defer (not implemented in A1) */
+	/** Close/terminate a surface session */
+	closeSurface(handle: SurfaceHandle, opts?: { force?: boolean }): Promise<void>;
+
+	/** rebalance(): void — A2 defer (not implemented in A1) */
 }
