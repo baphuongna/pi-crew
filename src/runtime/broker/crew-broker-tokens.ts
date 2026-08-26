@@ -10,7 +10,7 @@
  * independently testable.
  */
 
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 /** Length guard: tokens are 128-bit-class (UUID v4). */
 export type BrokerToken = string;
@@ -37,6 +37,16 @@ export function newBrokerToken(): BrokerToken {
  */
 export class BrokerTokenRegistry {
 	private readonly map = new Map<string, BrokerToken>();
+	/** Task 10 (mux-surface A1 §5.2): sha256 hashes of explicitly revoked
+	 *  tokens. Heap-only like the map; hashing keeps the registry from holding
+	 *  a second plaintext copy of a secret. A revoked token stays in `map` so
+	 *  `revoke` + `issue` (the A2 re-issue remedy) produces a DIFFERENT secret
+	 *  that is NOT revoked — revocation is per-secret, not per-key. */
+	private readonly revokedTokenHashes = new Set<string>();
+
+	private static hashToken(token: BrokerToken): string {
+		return createHash("sha256").update(token, "utf8").digest("hex");
+	}
 
 	/** Compute the registry key. Compound when taskId is present, bare
 	 *  runId otherwise (backward-compat with the original per-run model). */
@@ -184,9 +194,29 @@ export class BrokerTokenRegistry {
 		if (!taskId) this.map.delete(this.orchestratorKey(runId));
 	}
 
+	/** Task 10 (mux-surface A1 §5.2): mark `token` revoked. The next hello
+	 *  presenting it — and every subsequent frame on a connection already
+	 *  authenticated with it — is rejected with code "revoked". No-op on a
+	 *  non-string/empty input. */
+	revokeToken(token: BrokerToken): void {
+		if (typeof token !== "string" || token.length === 0) return;
+		this.revokedTokenHashes.add(BrokerTokenRegistry.hashToken(token));
+	}
+
+	/** Task 10: whether the token currently registered for the compound
+	 *  (runId, taskId) key has been revoked. False when no such key exists
+	 *  (undefined ids, orchestrator connections, legacy bare-runId fallbacks)
+	 *  and short-circuits while nothing was ever revoked. */
+	isTaskTokenRevoked(runId: string | undefined, taskId: string | undefined): boolean {
+		if (this.revokedTokenHashes.size === 0 || !runId || !taskId) return false;
+		const token = this.map.get(this.key(runId, taskId));
+		return token !== undefined && this.revokedTokenHashes.has(BrokerTokenRegistry.hashToken(token));
+	}
+
 	/** Wipe every token. Called from CrewBroker.stop(). */
 	clear(): void {
 		this.map.clear();
+		this.revokedTokenHashes.clear();
 	}
 
 	/** Diagnostic — count of registered tokens. Never returns the tokens. */

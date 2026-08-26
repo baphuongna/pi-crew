@@ -35,7 +35,7 @@ import {
 } from "../../state/coordination/mailbox.ts";
 import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
-import type { TeamTaskState } from "../../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../utils/ndjson.ts";
@@ -46,7 +46,7 @@ import { type GrandchildSpawnInput, type GrandchildSpawnResult, spawnDelegateGra
 import { resolveCrewMaxDepth } from "../model/pi-args.ts";
 import { NestedSlotBudget } from "../scheduling/nested-slots.ts";
 import { evaluateDelegateAdmission } from "../spawn-policy.ts";
-import { BrokerTokenRegistry } from "./crew-broker-tokens.ts";
+import { type BrokerToken, BrokerTokenRegistry } from "./crew-broker-tokens.ts";
 import { WaitStatusCache } from "./wait-status-cache.ts";
 
 /** Protocol version negotiated at `hello` time. Bump on breaking change. */
@@ -55,6 +55,13 @@ const BROKER_PROTOCOL = 1;
 /** Hard hello deadline (per spec). After 1s, the connection is closed with a
  *  generic auth/protocol code. */
 const HELLO_DEADLINE_MS = 1_000;
+
+/** Task 10 (mux-surface A1 §5.2): run statuses after which every hello token
+ *  is by definition stale — the run will never issue work again, so the error
+ *  is "stale-token" instead of generic auth. NARROWER than
+ *  TEAM_TERMINAL_RUN_STATUSES on purpose: "blocked" is recoverable, so a
+ *  blocked run still authenticates normally. */
+const STALE_RUN_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
 
 /** Default per-connection outbound queue cap (events). */
 const DEFAULT_OUTBOUND_QUEUE_CAP = 256;
@@ -161,6 +168,12 @@ export class CrewBroker {
 			| "serializeOnPathOverlap"
 		>;
 	private readonly tokens = new BrokerTokenRegistry();
+	/** Task 10 (mux-surface A1 §5.2): taskId → the compound token most
+	 *  recently issued for it. revokeTaskToken(taskId) resolves the exact
+	 *  secret through this map — no runId needed (the broker serves many
+	 *  runs; a colliding taskId in another run revokes both, which is the
+	 *  conservative direction). Heap-only like the registry. */
+	private readonly taskTokens = new Map<string, BrokerToken>();
 	private server: net.Server | null = null;
 	private resolvedSocketPath: string | null = null;
 	private stopped = false;
@@ -238,7 +251,29 @@ export class CrewBroker {
 		if (typeof runId !== "string" || runId.length === 0) {
 			throw new Error("CrewBroker.issueRunToken: runId must be a non-empty string");
 		}
-		return this.tokens.issue(runId, taskId);
+		const token = this.tokens.issue(runId, taskId);
+		// Task 10: track the live secret per taskId so revokeTaskToken can
+		// resolve it later. A re-issue overwrites the entry; the OLD token
+		// keeps whatever revocation it already had (per-secret, not per-key).
+		if (taskId !== undefined) this.taskTokens.set(taskId, token);
+		return token;
+	}
+
+	/** Task 10 (mux-surface A1 §5.2): revoke the token issued for `taskId`.
+	 *  The next hello presenting that token — and every subsequent frame on a
+	 *  connection already authenticated with it — is rejected with code
+	 *  "revoked". Open connections are NOT force-closed (A1 enforces at the
+	 *  next frame boundary; re-issue is the A2 remedy). No-op when no token
+	 *  was ever issued for the task. */
+	revokeTaskToken(taskId: string): void {
+		if (typeof taskId !== "string" || taskId.length === 0) {
+			throw new Error("CrewBroker.revokeTaskToken: taskId must be a non-empty string");
+		}
+		const token = this.taskTokens.get(taskId);
+		if (token !== undefined) {
+			this.tokens.revokeToken(token);
+			this.taskTokens.delete(taskId);
+		}
 	}
 
 	/** Issue the orchestrator token for `runId` (F-06). Cryptographically
@@ -414,6 +449,8 @@ export class CrewBroker {
 		// 3. Clear the token map. This is the single point where the heap
 		//    state for runIds is wiped. No persistence to clean up.
 		this.tokens.clear();
+		// Task 10: drop the taskId → token index with it.
+		this.taskTokens.clear();
 
 		// 4. Unlink the recorded socket file IF we created it. We never
 		//    touch any other path. We also never `process.kill` anything.
@@ -617,6 +654,15 @@ export class CrewBroker {
 		}
 
 		// Post-hello: dispatch the known set.
+		// Task 10 (mux-surface A1 §5.2): a revoked task token is dead on
+		// arrival for EVERY frame, not just hellos — an already-authed
+		// connection is rejected here, at the next request boundary, with the
+		// connection closed (A1: no mid-stream force-close, so the revoke
+		// itself never tears a socket out from under a handler).
+		if (this.tokens.isTaskTokenRevoked(conn.runId, conn.taskId)) {
+			this.sendErrorAndClose(conn, id, "revoked", "token revoked");
+			return;
+		}
 		switch (method) {
 			case "ping":
 				this.sendResult(conn, id, { pong: true, protocol: BROKER_PROTOCOL });
@@ -693,8 +739,43 @@ export class CrewBroker {
 		// task-scoped-token rule without retaining the secret candidate.
 		const resolved = this.tokens.tokenRoleWithMatchKind(runId, taskId, token);
 		if (resolved === null) {
+			// Task 10 (mux-surface A1 §5.2): distinguish a STALE token from a
+			// wrong one. A worker re-attaching from a durable surface (broker
+			// restarted → heap registry lost, run still on disk) presents a
+			// token this broker never issued: when the run exists and the task
+			// is real, that is a stale token — reject, but say so, because the
+			// A2 remedy is a re-issue, not a retry. An unknown run/task keeps
+			// the generic auth error (no disclosure of which id was valid).
+			const loaded = this.loadRunForHello(runId);
+			if (loaded && (loaded.tasks ?? []).some((t) => t.id === taskId)) {
+				this.sendErrorAndClose(
+					conn,
+					id,
+					"stale-token",
+					"hello rejected: stale token (run/task exist but this broker did not issue the token; re-issue required)",
+				);
+				return;
+			}
 			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
 			return;
+		}
+		// Task 10: the token matches — but an explicitly revoked secret is
+		// reported as "revoked" (more specific than stale), and a WORKER token
+		// for a TERMINAL run is stale by definition: the run will never issue
+		// work again, so a surface worker must not re-attach with it.
+		// Orchestrator connections are exempt: the orchestrator is in-process
+		// (same root session) and legitimately talks to the broker after the
+		// run completed (late steer, closeout reads).
+		if (this.tokens.isTaskTokenRevoked(runId, taskId)) {
+			this.sendErrorAndClose(conn, id, "revoked", "hello rejected: token revoked");
+			return;
+		}
+		if (resolved.role === "worker") {
+			const loaded = this.loadRunForHello(runId);
+			if (loaded && STALE_RUN_STATUSES.has(loaded.manifest.status)) {
+				this.sendErrorAndClose(conn, id, "stale-token", "hello rejected: run is already terminal (stale token)");
+				return;
+			}
 		}
 
 		// Bounded identity checks. taskId must be a non-empty string.
@@ -731,6 +812,21 @@ export class CrewBroker {
 			run: runId,
 			ok: true,
 		});
+	}
+
+	/** Task 10 (mux-surface A1 §5.2): best-effort manifest load for the hello
+	 *  decision path. Returns undefined when no cwd is configured or the run
+	 *  is not on disk — callers treat that as "cannot classify" and keep the
+	 *  legacy generic-auth behavior (the heap registry stays the source of
+	 *  truth for authentication). */
+	private loadRunForHello(runId: string): { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined {
+		const cwd = this.options.cwd;
+		if (!cwd) return undefined;
+		try {
+			return loadRunManifestById(cwd, runId) ?? undefined;
+		} catch {
+			return undefined;
+		}
 	}
 
 	// ------------------------------------------------------------------------

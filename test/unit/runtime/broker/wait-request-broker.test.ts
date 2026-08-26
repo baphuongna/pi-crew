@@ -23,6 +23,19 @@
  *  5. wait.resolve round-trip: parked → resolved flips waiting→running, clears
  *     waitState, appends ask.answered + task.resumed; a questionId mismatch is
  *     rejected WITHOUT clearing anything.
+ *
+ * Task 10 (mux-surface A1 §5.2) — revokeTaskToken + stale-token hello:
+ *  6. valid hello ok → revokeTaskToken(taskId) → re-hello with the old token
+ *     is rejected with code "revoked";
+ *  7. an ALREADY-authed connection is rejected at the next request entry
+ *     (no force-close — A1 enforces at the frame boundary);
+ *  8. hello against a terminal run (completed) → "stale-token" even though
+ *     the token still matches the heap registry;
+ *  9. wrong token + ACTIVE run + matching taskId → "stale-token" (NOT the
+ *     generic auth error) so a re-attaching surface worker can tell a stale
+ *     token from a fabricated one;
+ * 10. wrong token + unknown taskId / unknown run → generic auth (no
+ *     disclosure of which id was valid).
  */
 
 import assert from "node:assert/strict";
@@ -546,6 +559,156 @@ test("wait.resolve: flag off → policy-disabled error AND policy.action event",
 		assert.ok(policy, "policy.action event must be appended");
 		assert.equal((policy?.data as Record<string, unknown> | undefined)?.action, "wait.resolve");
 		client.close();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
+// ----------------------------------------------------------------------------
+// Task 10 (mux-surface A1 §5.2): revokeTaskToken + stale-token hello errors
+// ----------------------------------------------------------------------------
+
+test("revokeTaskToken: valid hello ok → revoke → re-hello with the old token is 'revoked'", async () => {
+	const scaff = await scaffoldRunningTask("revoke");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });
+	const token = broker.issueRunToken(scaff.runId, scaff.taskId);
+	try {
+		const client = await rawConnect(socketPath);
+		await hello(client, scaff.runId, scaff.taskId, token);
+		client.close();
+
+		broker.revokeTaskToken(scaff.taskId);
+
+		const client2 = await rawConnect(socketPath);
+		client2.socket.write(
+			encodeBrokerFrame({ id: "hello-r", method: "hello", params: { protocol: 1, runId: scaff.runId, taskId: scaff.taskId, token } }),
+		);
+		const res = (await client2.waitForFrame((f) => (f as { id?: string })?.id === "hello-r")) as {
+			result?: { ok?: boolean };
+			error?: { code: string; message: string };
+		};
+		assert.equal(res.error?.code, "revoked");
+		assert.match(res.error?.message ?? "", /revoked/i);
+		client2.close();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
+test("revokeTaskToken: already-authed connection is rejected at the next request entry (no force-close)", async () => {
+	const scaff = await scaffoldRunningTask("revokeinflight");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd, waitMethodsEnabled: true });
+	const token = broker.issueRunToken(scaff.runId, scaff.taskId);
+	try {
+		const client = await rawConnect(socketPath);
+		await hello(client, scaff.runId, scaff.taskId, token);
+
+		broker.revokeTaskToken(scaff.taskId);
+
+		// The open connection is NOT force-closed by the revoke itself; the
+		// NEXT frame on it is rejected with 'revoked' and the conn closes.
+		client.socket.write(encodeBrokerFrame({ id: "p-1", method: "ping", params: null }));
+		const res = (await client.waitForFrame((f) => (f as { id?: string })?.id === "p-1")) as {
+			result?: { pong?: boolean };
+			error?: { code: string; message: string };
+		};
+		assert.equal(res.error?.code, "revoked");
+		assert.ok(!res.result?.pong, "revoked token must not answer ping");
+		await new Promise<void>((resolve) => client.socket.once("close", () => resolve()));
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
+test("hello: run terminal (completed) → 'stale-token' even though the token still matches", async () => {
+	const scaff = await scaffoldRunningTask("terminal");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });
+	const token = broker.issueRunToken(scaff.runId, scaff.taskId);
+	// Flip the run to a terminal status on disk.
+	const loaded = loadRunManifestById(scaff.cwd, scaff.runId)!;
+	saveRunManifest({ ...loaded.manifest, status: "completed", updatedAt: new Date().toISOString() });
+	try {
+		const client = await rawConnect(socketPath);
+		client.socket.write(
+			encodeBrokerFrame({ id: "hello-t", method: "hello", params: { protocol: 1, runId: scaff.runId, taskId: scaff.taskId, token } }),
+		);
+		const res = (await client.waitForFrame((f) => (f as { id?: string })?.id === "hello-t")) as {
+			result?: { ok?: boolean };
+			error?: { code: string; message: string };
+		};
+		assert.equal(res.error?.code, "stale-token");
+		assert.match(res.error?.message ?? "", /stale/i);
+		client.close();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
+test("hello: wrong token + ACTIVE run + matching taskId → 'stale-token', not generic auth", async () => {
+	const scaff = await scaffoldRunningTask("staleactive");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });
+	broker.issueRunToken(scaff.runId, scaff.taskId);
+	try {
+		const client = await rawConnect(socketPath);
+		client.socket.write(
+			encodeBrokerFrame({
+				id: "hello-s",
+				method: "hello",
+				params: { protocol: 1, runId: scaff.runId, taskId: scaff.taskId, token: "token-not-from-this-broker" },
+			}),
+		);
+		const res = (await client.waitForFrame((f) => (f as { id?: string })?.id === "hello-s")) as {
+			error?: { code: string; message: string };
+		};
+		assert.equal(res.error?.code, "stale-token");
+		assert.match(res.error?.message ?? "", /stale/i);
+		client.close();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
+test("hello: wrong token + unknown taskId (run active) + unknown run → generic auth (no disclosure)", async () => {
+	const scaff = await scaffoldRunningTask("generic");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });
+	broker.issueRunToken(scaff.runId, scaff.taskId);
+	try {
+		const client = await rawConnect(socketPath);
+		// Run exists but the taskId does not — must stay generic.
+		client.socket.write(
+			encodeBrokerFrame({
+				id: "hello-g1",
+				method: "hello",
+				params: { protocol: 1, runId: scaff.runId, taskId: "no-such-task", token: "x" },
+			}),
+		);
+		const res1 = (await client.waitForFrame((f) => (f as { id?: string })?.id === "hello-g1")) as {
+			error?: { code: string; message: string };
+		};
+		assert.equal(res1.error?.code, "auth");
+		assert.equal(res1.error?.message, "hello rejected");
+
+		// Run does not exist at all — generic too.
+		const client2 = await rawConnect(socketPath);
+		client2.socket.write(
+			encodeBrokerFrame({
+				id: "hello-g2",
+				method: "hello",
+				params: { protocol: 1, runId: "run-not-on-disk", taskId: "task-A", token: "x" },
+			}),
+		);
+		const res2 = (await client2.waitForFrame((f) => (f as { id?: string })?.id === "hello-g2")) as {
+			error?: { code: string; message: string };
+		};
+		assert.equal(res2.error?.code, "auth");
+		assert.equal(res2.error?.message, "hello rejected");
+		client.close();
+		client2.close();
 	} finally {
 		await broker.stop();
 		fs.rmSync(scaff.cwd, { recursive: true, force: true });
