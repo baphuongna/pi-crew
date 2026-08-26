@@ -137,6 +137,12 @@ interface ServerConnection {
 	 *  legacy bare-runId fallback match WITHOUT keeping the raw token on the
 	 *  connection (tokens stay confined to the heap-only registry). */
 	authMatchKind?: "compound" | "runId-fallback";
+	/** Task 10 fix round 2 (BUG #3): sha256 of the secret this connection
+	 *  authenticated with. Derived, one-way — never the plaintext token. The
+	 *  post-hello revocation check evaluates THIS digest so a revoke →
+	 *  re-issue window cannot let an old connection ride the freshly issued
+	 *  token for the same key. */
+	authedSecretHash?: string;
 	/** Outbound queue of encoded frames awaiting drain. */
 	outbound: Buffer[];
 	/** Set when the queue has hit the cap and a frame was dropped. */
@@ -659,10 +665,16 @@ export class CrewBroker {
 		// connection is rejected here, at the next request boundary, with the
 		// connection closed (A1: no mid-stream force-close, so the revoke
 		// itself never tears a socket out from under a handler).
-		// Fix round 1 (BUG #2): WORKER role only — the check keys on
-		// (runId, taskId), and an orchestrator hello may legitimately name a
-		// revoked task as its taskId (T11 degrade: revoke → respawn → steer).
-		if (conn.role === "worker" && this.tokens.isTaskTokenRevoked(conn.runId, conn.taskId)) {
+		// Fix round 1 (BUG #2): WORKER role only — an orchestrator hello may
+		// legitimately name a revoked task as its taskId (T11 degrade: revoke
+		// → respawn → steer).
+		// Fix round 2 (BUG #3): SECRET-based, not key-based — the check
+		// evaluates the digest of the secret this connection authenticated
+		// with. Looking up the token currently registered for the key let a
+		// revoked-secret connection silently regain full capability once the
+		// key was re-issued for the respawn (the connection outlived the
+		// revoke → re-issue window while staying quiet).
+		if (conn.role === "worker" && conn.authedSecretHash !== undefined && this.tokens.isSecretRevoked(conn.authedSecretHash)) {
 			this.sendErrorAndClose(conn, id, "revoked", "token revoked");
 			return;
 		}
@@ -801,6 +813,9 @@ export class CrewBroker {
 		conn.taskId = taskId;
 		conn.role = resolved.role;
 		conn.authMatchKind = resolved.matchKind;
+		// Fix round 2 (BUG #3): digest of the authenticated secret for the
+		// secret-based frame revocation check below (never the plaintext).
+		conn.authedSecretHash = BrokerTokenRegistry.hashToken(token);
 		// Phase 1.3: index by runId for live mailbox fanout.
 		let connsForRun = this.connectionsByRun.get(runId);
 		if (!connsForRun) {

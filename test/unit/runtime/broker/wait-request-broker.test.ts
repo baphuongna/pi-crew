@@ -761,6 +761,48 @@ test("revokeTaskToken + re-issue: respawned worker authenticates with the fresh 
 	}
 });
 
+test("revokeTaskToken: already-authed connection STAYS revoked across a re-issue (secret-based frame check)", async () => {
+	const scaff = await scaffoldRunningTask("revokewin");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });
+	const t2 = broker.issueRunToken(scaff.runId, scaff.taskId);
+	try {
+		const client = await rawConnect(socketPath);
+		await hello(client, scaff.runId, scaff.taskId, t2);
+
+		broker.revokeTaskToken(scaff.taskId);
+		// Re-issue for the respawn (spec §7 degrade): a NEW worker gets t3.
+		const t3 = broker.issueRunToken(scaff.runId, scaff.taskId);
+		assert.notEqual(t3, t2);
+
+		// BUG #3 (fix round 2): the frame-entry check used to look up the
+		// token CURRENTLY registered for the key — after the re-issue that is
+		// t3 (not revoked), so the OLD connection authenticated with the
+		// revoked t2 silently regained full capability. The check must be
+		// secret-based: the connection stays dead even though the key is live.
+		client.socket.write(encodeBrokerFrame({ id: "p-1", method: "ping", params: null }));
+		const res = (await client.waitForFrame((f) => (f as { id?: string })?.id === "p-1")) as {
+			result?: { pong?: boolean };
+			error?: { code: string };
+		};
+		assert.equal(res.error?.code, "revoked", "frame on a revoked-secret connection must be rejected");
+		assert.ok(!res.result?.pong);
+		await new Promise<void>((resolve) => client.socket.once("close", () => resolve()));
+
+		// Control: the respawned worker with t3 is unaffected.
+		const client2 = await rawConnect(socketPath);
+		await hello(client2, scaff.runId, scaff.taskId, t3);
+		client2.socket.write(encodeBrokerFrame({ id: "p-2", method: "ping", params: null }));
+		const pong = (await client2.waitForFrame((f) => (f as { id?: string })?.id === "p-2")) as {
+			result?: { pong?: boolean };
+		};
+		assert.equal(pong.result?.pong, true);
+		client2.close();
+	} finally {
+		await broker.stop();
+		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+	}
+});
+
 test("revokeTaskToken: orchestrator role is exempt from the revoked check (hello + frames)", async () => {
 	const scaff = await scaffoldRunningTask("orchexempt");
 	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });

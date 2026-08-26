@@ -45,7 +45,11 @@ export class BrokerTokenRegistry {
 	 *  produces a live token while the old secret stays dead. */
 	private readonly revokedTokenHashes = new Set<string>();
 
-	private static hashToken(token: BrokerToken): string {
+	/** Public so the broker can hash the hello secret ONCE at auth time and
+	 *  keep only the digest on the connection (fix round 2 BUG #3: the frame
+	 *  revocation check is secret-based — a connection authenticated with a
+	 *  revoked secret stays dead even after the key is re-issued). */
+	static hashToken(token: BrokerToken): string {
 		return createHash("sha256").update(token, "utf8").digest("hex");
 	}
 
@@ -213,11 +217,22 @@ export class BrokerTokenRegistry {
 	/** Task 10: whether the token currently registered for the compound
 	 *  (runId, taskId) key has been revoked. False when no such key exists
 	 *  (undefined ids, orchestrator connections, legacy bare-runId fallbacks)
-	 *  and short-circuits while nothing was ever revoked. */
+	 *  and short-circuits while nothing was ever revoked. This is the HELLO
+	 *  path check — at hello time the candidate must still match the map, so
+	 *  key resolution is equivalent to secret resolution. */
 	isTaskTokenRevoked(runId: string | undefined, taskId: string | undefined): boolean {
 		if (this.revokedTokenHashes.size === 0 || !runId || !taskId) return false;
 		const token = this.map.get(this.key(runId, taskId));
 		return token !== undefined && this.revokedTokenHashes.has(BrokerTokenRegistry.hashToken(token));
+	}
+
+	/** Fix round 2 (BUG #3): whether a specific SECRET digest has been
+	 *  revoked. The post-hello frame check uses this — it must evaluate the
+	 *  secret the connection ACTUALLY authenticated with, not whatever token
+	 *  the key currently holds (a revoke → re-issue window must not let an
+	 *  old connection ride a freshly issued token). */
+	isSecretRevoked(hash: string): boolean {
+		return this.revokedTokenHashes.has(hash);
 	}
 
 	/** Wipe every token. Called from CrewBroker.stop(). */
