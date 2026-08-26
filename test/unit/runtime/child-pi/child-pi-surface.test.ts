@@ -22,6 +22,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { runChildPi } from "../../../../src/runtime/child-pi/child-pi.ts";
+import { __test_getTrackedTempDirs } from "../../../../src/runtime/model/pi-args.ts";
 import type {
 	SurfaceDetection,
 	SurfaceExitReason,
@@ -271,6 +272,83 @@ test("default config (nothing opted in) keeps the headless pipeline untouched", 
 		delete process.env.PI_CREW_ALLOW_MOCK;
 	}
 });
+
+// ── Fix round 1 / F1 — tempDir phải dọn ngay khi pane kết thúc ───────────
+// Fixture trước đây dùng systemPrompt:"" nên buildPiWorkerArgs không tạo
+// tempDir → leak không thể hiện trong test. Với agent có systemPrompt thật,
+// headless path dọn tempDir ở settle(); surface path cũng PHẢI dọn — nếu not,
+// mỗi agent có systemPrompt rò rỉ một dir tới session_shutdown.
+
+test("F1: systemPrompt temp dir is cleaned up as soon as the pane exits", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const before = new Set(__test_getTrackedTempDirs());
+		const provider = fakeSurfaceProvider();
+		const result = await runChildPi(
+			makeRunInput(workRoot, {
+				agent: makeAgentWithSystemPrompt(),
+				surface: { providers: { tmux: provider }, baseDir: launchDir },
+			}),
+		);
+		assert.ok(result.surface, "fixture này phải đi đúng nhánh surface");
+		// Positive control: systemPrompt thật đã được chuyển thành --system-prompt
+		// file → chứng minh buildPiWorkerArgs ĐÃ tạo tempDir trong run này.
+		const sentMatch = /^bash '(.+)'; exit$/.exec(provider.sentCommands[0]);
+		assert.ok(sentMatch, provider.sentCommands[0]);
+		const content = readFileSync(sentMatch[1] as string, "utf8");
+		assert.match(content, /--system-prompt/, "systemPrompt phải đi vào argv worker");
+		const leaked = __test_getTrackedTempDirs().filter((dir) => !before.has(dir));
+		assert.deepEqual(leaked, [], `tempDir của worker surface phải được dọn ngay sau pane exit, còn rò: ${leaked.join(", ")}`);
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
+// ── Fix round 1 / F2 — deadline tối thiểu (parity timeout headless) ──────
+
+test("F2: a wedged surface worker hits the response deadline and is force-closed", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const provider = fakeSurfaceProvider();
+		provider.autoExitAfterSend = false; // worker treo vĩnh viễn
+		let hungWithoutDeadline = false;
+		const done = runChildPi(
+			makeRunInput(workRoot, {
+				responseTimeoutMs: 80,
+				surface: { providers: { tmux: provider }, baseDir: launchDir },
+			}),
+		);
+		const result = await Promise.race([
+			done.then((value) => ({ value })),
+			new Promise<null>((resolve) =>
+				setTimeout(() => {
+					hungWithoutDeadline = true;
+					resolve(null);
+				}, 4000),
+			),
+		]);
+		assert.ok(!hungWithoutDeadline, "runChildPi phải resolve qua response deadline thay vì giữ slot vô hạn");
+		if (!result || !("value" in result)) return;
+		const res = result.value;
+		assert.deepEqual(provider.closeCalls, [{ force: true }], "deadline đạt → phải force-close pane");
+		assert.equal(res.exitCode, null);
+		assert.equal(res.exitStatus?.timedOut, true, "result phải đánh dấu timedOut cho T11 classify degrade");
+		assert.match(res.error ?? "", /(response timeout|no completion)/i);
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
+/** Agent fixture có systemPrompt thật để kích hoạt đường tạo tempDir. */
+function makeAgentWithSystemPrompt() {
+	return {
+		name: "executor",
+		description: "test executor",
+		source: "builtin" as const,
+		filePath: "/builtin/agents/executor.md",
+		systemPrompt: "# Executor\nYou are a hard-working executor agent.",
+	};
+}
 
 function escapeRe(value: string): string {
 	return value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");

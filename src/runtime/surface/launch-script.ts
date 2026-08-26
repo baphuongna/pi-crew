@@ -106,6 +106,11 @@ export function buildLaunchScript(input: BuildLaunchScriptInput): string {
 		lines.push(`export ${key}=${shellEscape(value)}`);
 	}
 	lines.push(`cd ${shellEscape(input.cwd)}`);
+	// Self-delete SỚM (fix round 1/F3): script chứa token broker trong env —
+	// thu hẹp secret-on-disk window xuống vài ms thay vì hết life worker. An toàn
+	// vì bash đã mở fd lên file: tiến trình đang chạy đọc tiếp bằng fd dù đường
+	// dẫn biến mất. rm cuối giữ lại như idempotent backstop.
+	lines.push('( rm -f -- "$0" ) &');
 	lines.push(input.command);
 	lines.push('rm -f -- "$0"');
 	atomicWriteFile(scriptPath, `${lines.join("\n")}\n`, { mode: 0o600 });

@@ -396,8 +396,14 @@ async function trySurfaceBranch(
 		ts: new Date().toISOString(),
 	});
 	// Pane lifetime IS the worker lifetime in A1: T8's auto-exit closes the pane
-	// at turn end (spec §13.2), cancel/timeout closes it here via AbortSignal.
-	const exitInfo = await waitForSurfaceExit(outcome, { signal: input.signal });
+	// at turn end (spec §13.2); cancel closes it here via AbortSignal and the
+	// response deadline force-closes a WEDGED worker (fix round 1/F2 — parity
+	// with headless minimum timeout so a stuck pane cannot hold its worker slot
+	// forever; A1 has no stream-activity signal so this is ONE hard deadline).
+	const exitInfo = await waitForSurfaceExit(outcome, {
+		signal: input.signal,
+		deadlineMs: input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS,
+	});
 	input.onLifecycleEvent?.({
 		type: "surface_closed",
 		surfaceKind: outcome.kind,
@@ -405,23 +411,33 @@ async function trySurfaceBranch(
 		paneExitReason: exitInfo.reason,
 		ts: new Date().toISOString(),
 	});
+	// F1: the pane is gone — nothing can still need the prompt/task temp dir.
+	// The headless branch cleans this up in settle(); surface returns early.
+	cleanupTempDir(tempDir);
 	// Empty stdout/stderr is EXPECTED — events flow through the per-agent event
 	// log (worker-side recorder, spec §5.3), not through a pipe we own.
 	return {
-		exitCode: exitInfo.cancelledByAbort ? null : 0,
+		exitCode: exitInfo.cancelledByAbort || exitInfo.timedOut ? null : 0,
 		stdout: "",
 		stderr: "",
 		...(exitInfo.cancelledByAbort
 			? { error: `Cancelled while running in ${outcome.kind} pane ${outcome.paneId} (${exitInfo.reason})` }
+			: {}),
+		...(exitInfo.timedOut
+			? {
+					error:
+						`Surface worker in ${outcome.kind} pane ${outcome.paneId} produced no completion within ` +
+						`${input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS}ms response timeout; pane was force-closed.`,
+				}
 			: {}),
 		rawFinalText: "",
 		intermediateFindings: "",
 		...(exitInfo.cancelledByAbort ? { aborted: true } : {}),
 		surface: surfaceMeta,
 		exitStatus: {
-			exitCode: exitInfo.cancelledByAbort ? null : 0,
+			exitCode: exitInfo.cancelledByAbort || exitInfo.timedOut ? null : 0,
 			cancelled: exitInfo.cancelledByAbort,
-			timedOut: false,
+			timedOut: exitInfo.timedOut,
 			killed: false,
 			cleanupErrors: [],
 			finalDrainMs: 0,

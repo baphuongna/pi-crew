@@ -275,15 +275,31 @@ export interface SurfaceExitInfo {
 	reason: SurfaceExitReason;
 	/** True khi parent AbortSignal đã force-close pane (cancel/host-shutdown). */
 	cancelledByAbort: boolean;
+	/**
+	 * True khi response deadline đạt TRƯỚC khi pane tự chết — worker bị coi là
+	 * treo, pane bị force-close (fix round 1/F2: parity timeout tối thiểu với
+	 * đường headless để slot worker không bị giữ vô hạn).
+	 */
+	timedOut: boolean;
+}
+
+export interface WaitForSurfaceExitHooks {
+	signal?: AbortSignal;
+	/** Hard deadline (ms) tính từ lúc bắt đầu chờ — undefined = không deadline. */
+	deadlineMs?: number;
 }
 
 /**
- * Chờ worker trong pane kết thúc — nguồn chờ DUY NHẤT của nhánh surface là
- * handle.onExit (pane chết / mux chết / host chủ động detach). Parent
- * AbortSignal → closeSurface({force:true}) → onExit bắn "detached", nên promise
- * luôn có hồi kết (không treo slot worker). Spec §13.2.
+ * Chờ worker trong pane kết thúc — nguồn chờ chính là handle.onExit (pane chết
+ * / mux chết / host chủ động detach). Hai cơ chế giải thoát promise để slot
+ * worker KHÔNG BAO GIỜ bị giữ vô hạn:
+ *   1. Parent AbortSignal → closeSurface({force:true}) → onExit bắn "detached".
+ *   2. Response deadline (fix round 1/F2) → cùng force-close; A1 không có tín
+ *      hiệu activity từ stream nên deadline là một mốc hard duy nhất kể từ lúc
+ *      boot (nghiêm hơn nghĩa "no new output" của headless — T11 refine).
+ * Spec §13.2.
  */
-export async function waitForSurfaceExit(outcome: SurfaceSpawned, hooks: { signal?: AbortSignal } = {}): Promise<SurfaceExitInfo> {
+export async function waitForSurfaceExit(outcome: SurfaceSpawned, hooks: WaitForSurfaceExitHooks = {}): Promise<SurfaceExitInfo> {
 	const forceClose = async (): Promise<void> => {
 		try {
 			await outcome.provider.closeSurface(outcome.handle, { force: true });
@@ -296,18 +312,32 @@ export async function waitForSurfaceExit(outcome: SurfaceSpawned, hooks: { signa
 		}
 	};
 	let cancelledByAbort = hooks.signal?.aborted === true;
+	let timedOut = false;
 	if (cancelledByAbort) await forceClose();
 	const onAbort = (): void => {
-		if (cancelledByAbort) return;
+		if (cancelledByAbort || timedOut) return;
 		cancelledByAbort = true;
 		void forceClose();
 	};
 	hooks.signal?.addEventListener("abort", onAbort, { once: true });
+	const timer =
+		hooks.deadlineMs !== undefined
+			? setTimeout(
+					() => {
+						if (cancelledByAbort) return; // cancel thắng — đã force-close
+						timedOut = true;
+						void forceClose();
+					},
+					Math.max(1, hooks.deadlineMs),
+				)
+			: null;
+	timer?.unref(); // deadline không được giữ event loop sống vô ích
 	try {
 		return await new Promise<SurfaceExitInfo>((resolve) => {
-			outcome.handle.onExit((reason) => resolve({ reason, cancelledByAbort }));
+			outcome.handle.onExit((reason) => resolve({ reason, cancelledByAbort, timedOut }));
 		});
 	} finally {
 		hooks.signal?.removeEventListener("abort", onAbort);
+		if (timer) clearTimeout(timer);
 	}
 }

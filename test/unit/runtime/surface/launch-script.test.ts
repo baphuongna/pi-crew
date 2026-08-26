@@ -154,6 +154,46 @@ test("shell-escapes hostile values (single quote, $, backtick) in env and cwd �
 	assert.ok(!existsSync(scriptPath), 'script phải tự xóa qua rm -f -- "$0"');
 });
 
+// ── Fix round 1 / F3 — thu hẹp secret-on-disk window ─────────────────────
+// Env của script chứa token broker; self-delete chỉ chạy SAU khi worker thoát
+// là quá trễ. Bash giữ fd mở nên xoá TRƯỚC khi chạy command vẫn an toàn.
+
+test("F3: script deletes itself BEFORE running the command (bash keeps the fd open)", () => {
+	const commandLine = "'/bin/echo' 'Task: explore'";
+	const scriptPath = buildLaunchScript({
+		taskId: "early-rm",
+		env: surfaceEnv(),
+		command: commandLine,
+		cwd: "/home/user/repo",
+		baseDir,
+	});
+	const content = readFileSync(scriptPath, "utf8");
+	const lines = content.split("\n");
+	const earlyIdx = lines.indexOf('( rm -f -- "$0" ) &');
+	const cmdIdx = lines.indexOf(commandLine);
+	assert.ok(earlyIdx !== -1, 'phải có dòng `( rm -f -- "$0" ) &`');
+	assert.ok(cmdIdx !== -1);
+	assert.ok(earlyIdx < cmdIdx && earlyIdx > lines.indexOf("#!/bin/bash"), "early-rm phải nằm giữa shebang và dòng lệnh worker");
+	// Final rm vẫn giữ nguyên như trước (idempotent khi early-rm đã xoá).
+	assert.equal(lines[lines.length - 2], 'rm -f -- "$0"', 'dòng cuối (trước \\n kết file) phải là rm -f -- "$0"');
+});
+
+test("F3: script with early self-delete still runs correctly to completion", (t) => {
+	const workDir = mkdtempSync(join(tmpdir(), "launch-script-earlyrm-"));
+	t.after(() => rmSync(workDir, { recursive: true, force: true }));
+	const resultPath = join(workDir, "result.txt");
+	const scriptPath = buildLaunchScript({
+		taskId: "earlyrm-run",
+		env: surfaceEnv(),
+		command: `printf '%s' ok > ${resultPath}`,
+		cwd: workDir,
+		baseDir,
+	});
+	execFileSync("bash", [scriptPath], { stdio: "ignore" });
+	assert.equal(readFileSync(resultPath, "utf8"), "ok", "worker giả phải chạy xong dù script đã bị xoá từ sớm");
+	assert.ok(!existsSync(scriptPath));
+});
+
 test("registers built script in the module-level TTL registry", () => {
 	const before = launchScriptRegistry.size;
 	const scriptPath = buildLaunchScript({
