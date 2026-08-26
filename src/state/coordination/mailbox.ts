@@ -9,7 +9,7 @@ import { withFileLockAsync, withFileLockSync } from "./locks.ts";
 
 export type MailboxDirection = "inbox" | "outbox";
 export type MailboxMessageStatus = "queued" | "delivered" | "acknowledged";
-export type MailboxMessageKind = "message" | "steer" | "follow-up" | "response" | "group_join";
+export type MailboxMessageKind = "message" | "notify" | "steer" | "follow-up" | "response" | "group_join";
 export type MailboxMessagePriority = "urgent" | "normal" | "low";
 export type MailboxDeliveryMode = "interrupt" | "next_turn";
 
@@ -257,7 +257,14 @@ function isStatus(value: unknown): value is MailboxMessageStatus {
 }
 
 function isKind(value: unknown): value is MailboxMessageKind {
-	return value === "message" || value === "steer" || value === "follow-up" || value === "response" || value === "group_join";
+	return (
+		value === "message" ||
+		value === "notify" ||
+		value === "steer" ||
+		value === "follow-up" ||
+		value === "response" ||
+		value === "group_join"
+	);
 }
 
 function isPriority(value: unknown): value is MailboxMessagePriority {

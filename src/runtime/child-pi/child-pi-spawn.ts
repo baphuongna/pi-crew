@@ -288,6 +288,13 @@ export function prepareSpawnContext(
 	// design (S-6), which would leave the ask tool dead-on-arrival there.
 	// Control-namespace keys → pass assertOnlyControlEnvKeys.
 	built.env.PI_CREW_ASK_ENABLED = "1"; // dormant gate (worker conditional registerTool)
+	// D9/§15.2: the worker-side `message` tool env is UNCONDITIONAL for EVERY
+	// role and depth, like ask/delegate. The env gate is UX/hygiene, NOT the
+	// security boundary: the broker re-checks `from` (always the authenticated
+	// taskId) + `to` (parent/sibling/group) + kind (notify|message) from the
+	// connection identity, so an env flag alone cannot forge a sender.
+	// Control-namespace key → assertOnlyControlEnvKeys.
+	built.env.PI_CREW_MSG_ENABLED = "1"; // dormant gate (worker conditional registerTool)
 	// T3/R5 (ADR-5 §1, D8): the worker-side `delegate` tool env is now
 	// UNCONDITIONAL for EVERY role and depth — read-only/analyst roles get the
 	// tool too. The env gate is UX/hygiene, NOT the security boundary:

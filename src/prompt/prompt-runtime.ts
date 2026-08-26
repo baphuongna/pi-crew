@@ -12,6 +12,7 @@ import { appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
+import { createMessageTool, type MessageToolParams as MessageToolInputs, shouldRegisterMessageTool } from "./message-tool.ts";
 import { registerScratchpadLifecycle } from "./scratchpad-lifecycle.ts";
 
 export const PI_TEAMS_INHERIT_PROJECT_CONTEXT_ENV = "PI_TEAMS_INHERIT_PROJECT_CONTEXT";
@@ -879,13 +880,10 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 			// delivers immediately.
 			let pollTimer: ReturnType<typeof setTimeout> | undefined;
 			const armSteeringPoll = (): void => {
-				pollTimer = setTimeout(
-					() => {
-						pollSteering();
-						armSteeringPoll();
-					},
-					effectiveSteeringInterval(hasLiveControlRealtimeListeners()),
-				);
+				pollTimer = setTimeout(() => {
+					pollSteering();
+					armSteeringPoll();
+				}, effectiveSteeringInterval(hasLiveControlRealtimeListeners()));
 				pollTimer.unref?.();
 			};
 			// Immediate wake: if realtime is already active at registration
@@ -964,5 +962,32 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// unconditionally; broker admission is the depth+slot boundary, D8).
 	if (shouldRegisterDelegateTool()) {
 		pi.registerTool(createDelegateTool());
+	}
+	// D9/§15.2: the `message` tool — dormant-until-env, set for EVERY worker
+	// role (child-pi-spawn sets PI_CREW_MSG_ENABLED unconditionally). The tool
+	// carries a simplified `execute(params) => {status,text}` contract (no
+	// parking, no poll loop), so we adapt it into a ToolDefinition here.
+	if (shouldRegisterMessageTool()) {
+		const messageTool = createMessageTool();
+		pi.registerTool({
+			name: messageTool.name,
+			label: "Send a message",
+			description: messageTool.description,
+			parameters: messageTool.inputSchema as Parameters<typeof pi.registerTool>[0]["parameters"],
+			renderShell: "default",
+			promptSnippet:
+				"message(to, kind, body, subject?, priority?) — non-blocking message (notify parent / DM sibling / broadcast group); never waits",
+			promptGuidelines: [
+				"Use message() for non-blocking coordination: notify the orchestrator of progress/risks (`to:'parent'`), DM another worker by task id, or broadcast the group.",
+				"Unlike ask(), message() never parks the task or waits for a reply — it returns immediately.",
+				"If the message tool reports it is rate-limited or the broker is unavailable, include the note in your final result instead.",
+			],
+			execute: async (_toolCallId, toolParams) => {
+				// The runtime hands us the schema-validated params; the message
+				// tool's simplified contract accepts them directly.
+				const result = await messageTool.execute(toolParams as MessageToolInputs);
+				return { content: [{ type: "text", text: result.text }], details: { status: result.status } };
+			},
+		});
 	}
 }

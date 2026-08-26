@@ -395,6 +395,10 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_ASK_ENABLED",
 		doc: "'1' enables the worker-side ask tool — dormant-until-env gate (written UNCONDITIONALLY by child-pi-spawn.ts, read by prompt-runtime.ts per ADR-0 WP-2 item 2)",
 	},
+	PI_CREW_MSG_ENABLED: {
+		name: "PI_CREW_MSG_ENABLED",
+		doc: "'1' enables the worker-side message tool (D9/§15.2) — dormant-until-env gate (written UNCONDITIONALLY by child-pi-spawn.ts, read by prompt-runtime.ts)",
+	},
 	PI_CREW_STATE_ROOT: {
 		name: "PI_CREW_STATE_ROOT",
 		doc: "run stateRoot for the ask-tool mailbox poll (<stateRoot>/mailbox; written by child-pi-spawn.ts, read by prompt-runtime.ts per ADR-0 WP-2 item 2)",

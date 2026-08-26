@@ -819,17 +819,29 @@ export class CrewBroker {
 
 	/** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
 	private async handleMsgSend(conn: ServerConnection, id: string, params: unknown): Promise<void> {
-		if (conn.role !== "orchestrator") {
-			this.sendError(conn, id, "forbidden", "msg.send requires orchestrator role");
-			return;
-		}
 		if (!conn.runId) {
 			this.sendError(conn, id, "auth", "not authed");
+			return;
+		}
+		// D9/§15.2 role gate: workers may send messages (for notifying the
+		// orchestrator, DMing a sibling, or broadcasting the group) with strictly
+		// bounded privileges. Orchestrator role keeps its full prior surface
+		// (arrays / "all" / steer kinds / arbitrary recipient sets).
+		const isWorker = conn.role === "worker";
+		if (conn.role !== "orchestrator" && !isWorker) {
+			this.sendError(conn, id, "forbidden", "msg.send requires orchestrator or worker role");
 			return;
 		}
 		const parsed = parseMsgSendParams(params);
 		if (!parsed) {
 			this.sendError(conn, id, "bad-params", "msg.send: invalid params");
+			return;
+		}
+		// Worker constraint (3): kind limited to notify|message. Fire-and-forget
+		// `notify` vs inbox-facing `message` — both return immediately to the
+		// caller; the distinction is receiver-side handling.
+		if (isWorker && parsed.kind !== undefined && parsed.kind !== "notify" && parsed.kind !== "message") {
+			this.sendError(conn, id, "bad-params", "msg.send: worker kind must be 'notify' or 'message'");
 			return;
 		}
 		const bodyJson = safeStringify(parsed.body);
@@ -856,17 +868,49 @@ export class CrewBroker {
 			this.sendError(conn, id, "no-manifest", (err as Error).message);
 			return;
 		}
-		const recipients: string[] = Array.isArray(parsed.to)
-			? (parsed.to as string[])
-			: parsed.to === "all"
-				? taskIds
-				: [parsed.to as string];
-		if (recipients.length === 0 || recipients.length > 64) {
-			this.sendError(conn, id, "bad-params", "msg.send: recipient count out of range");
-			return;
+		// ── Recipient resolution ──────────────────────────────────────────────
+		// Each target is {label, mailboxTaskId}: `label` is echoed in the ack
+		// and message id, `mailboxTaskId` is the mailbox file the append lands
+		// in (undefined = run-level inbox, which the orchestrator consumes).
+		let targets: Array<{ label: string; mailboxTaskId: string | undefined }>;
+		if (isWorker) {
+			// Worker constraint (1): from is ALWAYS the authenticated taskId.
+			// Worker constraint (2): to is limited to parent | valid sibling
+			// taskId | group.
+			if (!conn.taskId) {
+				this.sendError(conn, id, "forbidden", "msg.send worker requires a task-scoped identity");
+				return;
+			}
+			const to = typeof parsed.to === "string" ? parsed.to : undefined;
+			if (to === "parent") {
+				// Run-level inbox (taskId undefined) → the orchestrator session.
+				targets = [{ label: "parent", mailboxTaskId: undefined }];
+			} else if (to === "group") {
+				targets = taskIds.map((t) => ({ label: t, mailboxTaskId: t }));
+			} else if (to !== undefined && taskIds.includes(to)) {
+				targets = [{ label: to, mailboxTaskId: to }];
+			} else {
+				this.sendError(conn, id, "forbidden", `msg.send: worker cannot target '${to}'`);
+				return;
+			}
+			if (targets.length === 0 || targets.length > 64) {
+				this.sendError(conn, id, "bad-params", "msg.send: recipient count out of range");
+				return;
+			}
+		} else {
+			const recipients: string[] = Array.isArray(parsed.to)
+				? (parsed.to as string[])
+				: parsed.to === "all"
+					? taskIds
+					: [parsed.to as string];
+			if (recipients.length === 0 || recipients.length > 64) {
+				this.sendError(conn, id, "bad-params", "msg.send: recipient count out of range");
+				return;
+			}
+			targets = recipients.map((recipient) => ({ label: recipient, mailboxTaskId: recipient }));
 		}
 		const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-		const fromField = conn.taskId ?? conn.runId;
+		const fromField = isWorker ? conn.taskId! : (conn.taskId ?? conn.runId);
 		let durable = false;
 		try {
 			// PERF (2026-08-24): to:"all" with 50 tasks used to run 50 sequential
@@ -875,15 +919,15 @@ export class CrewBroker {
 			// mailbox files append concurrently; delivery.json stays serialized by
 			// its own lock.
 			const CHUNK = 8;
-			for (let i = 0; i < recipients.length; i += CHUNK) {
+			for (let i = 0; i < targets.length; i += CHUNK) {
 				const results = await Promise.allSettled(
-					recipients.slice(i, i + CHUNK).map((recipient) =>
+					targets.slice(i, i + CHUNK).map((target) =>
 						appendMailboxMessageAsync(manifest, {
-							id: `${messageId}_${recipient}`,
+							id: `${messageId}_${target.label}`,
 							direction: "inbox",
 							from: fromField,
-							to: recipient,
-							taskId: recipient,
+							to: target.label,
+							taskId: target.mailboxTaskId,
 							body: bodyJson,
 							kind: parsed.kind ?? "message",
 							priority: parsed.priority ?? "normal",
@@ -902,7 +946,7 @@ export class CrewBroker {
 		}
 		this.sendResult(conn, id, {
 			messageId,
-			recipientCount: recipients.length,
+			recipientCount: targets.length,
 			durableStatus: durable ? "ok" : "failed",
 			liveDeliveryStatus: "ok",
 		});
@@ -2017,7 +2061,7 @@ function parseMsgSendParams(value: unknown): MsgSendParams | undefined {
 	if (typeof to === "string" && to.length === 0) return undefined;
 	if (v.body === undefined) return undefined;
 	const kind = v.kind as MailboxMessageKind | undefined;
-	if (kind !== undefined && !["message", "steer", "follow-up", "response", "group_join"].includes(kind)) {
+	if (kind !== undefined && !["message", "notify", "steer", "follow-up", "response", "group_join"].includes(kind)) {
 		return undefined;
 	}
 	const priority = v.priority as MailboxMessagePriority | undefined;
