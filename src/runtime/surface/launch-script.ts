@@ -100,7 +100,10 @@ export function buildLaunchScript(input: BuildLaunchScriptInput): string {
 	const depth = currentCrewDepth(input.callerEnv ?? input.env);
 	if (depth > 0) throw new SurfaceDepthGuardError(depth);
 
-	const scriptPath = path.join(input.baseDir, `pi-crew-launch-${input.taskId}-${process.pid}.sh`);
+	// path.resolve (không phải path.join): script path phải ABSOLUTE — `rm -f
+	// -- "$0"` chạy trong pane SAU dòng `cd <cwd>`, nên $0 relative sẽ trỏ sai
+	// chỗ và self-delete thành no-op (T7 obs, fixed ở T14).
+	const scriptPath = path.resolve(input.baseDir, `pi-crew-launch-${input.taskId}-${process.pid}.sh`);
 	const lines: string[] = ["#!/bin/bash"];
 	for (const [key, value] of Object.entries(input.env)) {
 		lines.push(`export ${key}=${shellEscape(value)}`);

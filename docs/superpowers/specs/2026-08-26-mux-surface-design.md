@@ -1,6 +1,6 @@
 # MuxSurface — Design Spec
 
-Ngày: 2026-08-26 · Phiên bản: **v0.7** · Trạng thái: chờ user duyệt · Phạm vi: A1 → A2 (live panes)
+Ngày: 2026-08-26 · Phiên bản: **v0.7.1** · Trạng thái: chờ user duyệt · Phạm vi: A1 → A2 (live panes)
 
 > Changelog v0.2: auto-exit TUI worker (D7), worker-side event recorder (§5.3), graceful kill escalation (§5.1), pid self-report `worker.started` (§5.1), session path self-report (§5.2), token TTL sweep + run-id verify (§5.2), `limits.maxSurfaceWorkers` (§8), ANSI strip readScreen (§4), surface re-attach (§7), broker revoke khi degrade (§7), sensitive mark (§6), zombie-scanner surface fields (§5.1).
 >
@@ -15,6 +15,8 @@ Ngày: 2026-08-26 · Phiên bản: **v0.7** · Trạng thái: chờ user duyệt
 > Changelog v0.6 (chốt user — đảo chính sách loadout & nesting): **D5 đảo: full session là MẶC ĐỊNH** — worker = pi session đầy đủ như main session, không cắt xén: không `--no-extensions` (extensions + MCP discovery theo đúng cơ chế trust của pi), không `--no-skills`, không role tools override. Restriction thành **opt-in per-agent**: chỉ khi agent `.md` khai explicit `tools:` mới lock (kèm auto-add control tools). Xóa config `surface.fullSession` → **bỏ luôn toàn bộ sensitive machinery** (sanitize mark, set-scope guard — không còn field sensitive, §8 đơn giản còn 2 keys). **D8 mới — nested spawning mở**: `delegate` tool đăng ký cho MỌI worker (bỏ gate role executor-class + bỏ `config.nesting.enabled`), child tạo được child của chính nó — depth cap nâng default 2 → 4 (config 1-10 giữ), nested-slot budget giữ (chống bùng nổ đồng thời). Surface pane vẫn chỉ tier-1 (depth > 0 → headless, §3 giữ). Threat model §5.4 viết lại: biên giới an ninh chuyển từ tool-lockdown sang **depth cap + nested-slot budget + maxTurns + taskTimeoutMs + usage budget**.
 >
 > Changelog v0.7 (học giao tiếp từ pi-interactive-subagents): **D9 + §15 mới — worker messaging**: `message` tool worker-side (dormant-until-env `PI_CREW_MSG_ENABLED`, backed broker `msg.send`/`msg.inbox` CÓ SẴN — trước giờ chỉ thiếu tool đăng ký) cho notify parent phi blocking + DM sibling + group; **wake pattern** — notify parent inject thành steer vào orchestrator-session (adaptive planner) thay vì mọi câu hỏi đổ lên human; rate-limit chống spam vòng lặp. Hợp nhất host-side 1 action `message` 3 trạng thái (steer/answer/resume — pattern `subagent_message` của amos) → A2. Điều tra: `ask`/steer/resume đã ngang hoặc hơn amos (replyDeadline, priority, mid-turn inject) — gap duy nhất là worker không có kênh phi-blocking và DM.
+>
+> Changelog v0.7.1 (errata A1 implementation — T14): **D7 sửa theo implementation truth** — stopReason auto-exit là `stop` (giá trị thật của pi `StopReason`: pending|stop|length|toolUse|error|aborted|deferred; alias `end_turn`/`done` phòng-hồ; `error` không tự thoát), bỏ yêu cầu fsync (appendFileSync sync + page cache đủ cho classify ≤2s cùng máy; fsync chỉ chống mất điện và tái tạo stall ~13ms — perf round 3); **§7 session resume ghi chú A2 defer** (pi không expose sessionPath cho extension — degrade chạy thật 3/4 thành phần). Chi tiết + ADR: `docs/decisions/2026-08-26-mux-surface-a1.md`.
 
 ## 1. Bối cảnh & mục tiêu
 
@@ -34,7 +36,7 @@ pi-crew điều phối workers là process `pi` headless (`--mode json -p`, stdi
 | D4 | Kiến trúc | **Attachment bọc runtime**: surface là thuộc tính của dispatch sau khi `resolveTaskRuntimeKind` chọn `child-process`; không phải runtime mode thứ 4 |
 | D5 | Loadout worker | **Full session MẶC ĐỊNH — không cắt xén gì**: worker là pi session đầy đủ như main session (extensions + MCP + skills + full toolset + AGENTS.md theo cwd + session persistence). Restriction là **opt-in per-agent**: agent `.md` khai explicit `tools:` mới lock (auto-add control tools `ask`/`delegate`); role-tools config không còn áp mặc định. *(Đảo chính sách so với pi-crew hiện tại — breaking, ghi ADR)* |
 | D6 | Số pane giới hạn | **A1: hardcode 6** (constant `MAX_SURFACE_WORKERS` trong resolve-surface.ts). A2: config `limits.maxSurfaceWorkers` (số pane đang sống per-run); vượt → headless |
-| D7 | Vòng đời TUI worker | **Auto-exit extension-side**: prompt-runtime shutdown session khi task terminal (không có "done tool"). **Thứ tự bắt buộc: ghi + fsync `worker.completed` TRƯỚC khi shutdown** (fsync có sẵn — `atomic-write.ts` durability full) |
+| D7 | Vòng đời TUI worker | **Auto-exit extension-side**: prompt-runtime shutdown session khi task terminal (không có "done tool"). **Thứ tự bắt buộc: ghi đồng bộ `worker.completed` TRƯỚC khi shutdown** (appendFileSync sync là đủ — errata v0.7.1: fsync bị bỏ có chủ đích, page cache cho reader cùng máy thấy byte ngay; fsync chỉ chống mất điện và tái tạo stall ~13ms perf round 3) |
 | D8 | Nested spawning | **Mở cho mọi worker**: `delegate` tool có ở MỌI role — worker gọi child, child gọi child của chính nó (đệ quy tới depth cap). Default `maxDepth` nâng 2 → 4; config 1-10 giữ; nested-slot budget giữ. Bỏ gate `config.nesting.enabled`. Surface pane chỉ tier-1 (depth > 0 → headless) |
 | D9 | Worker messaging | **`message` tool worker-side** (§15): notify parent phi blocking + DM sibling + group — backed broker `msg.send` có sẵn. Wake pattern: notify có thể đánh thức orchestrator-session thay vì đổ lên human. Rate-limit chống loop |
 
@@ -162,7 +164,7 @@ rm -f -- "$0"
 - Task là positional arg — pi TUI mở trong pane, submit task làm turn đầu.
 - **Session path: không phụ thuộc CLI flag** — prompt-runtime self-report qua `worker.started`.
 - **Broker hello**: hello gửi `{protocol, runId, taskId, token}` sẵn — token match → accept; mismatch + run active + taskId khớp → re-issue token trong response (**A2**; A1 async force headless nên pane re-attached không xuất hiện). Run terminal (status ∈ {completed, cancelled, failed}) → reject `stale-token` (worker-role hello; orchestrator in-process miễn — late-steer sau run end là legitimate).
-- **Auto-exit (D7)**: env `PI_CREW_AUTO_EXIT=1` → prompt-runtime subscribe session lifecycle; turn kết thúc stopReason `done`/`end_turn` và không còn ask pending / delegate chạy / steer pending → **ghi + fsync `worker.completed`** → session shutdown. *(Verify API shutdown ở plan; tham chiếu `subagent-done.ts` của pi-interactive-subagents.)*
+- **Auto-exit (D7 — errata v0.7.1)**: env `PI_CREW_AUTO_EXIT=1` → prompt-runtime subscribe session lifecycle; turn kết thúc stopReason **`stop`** (giá trị thật của pi `StopReason`: `pending|stop|length|toolUse|error|aborted|deferred`; alias `end_turn`/`done` được chấp nhận phòng-hồ; `error` KHÔNG tự thoát — pane giữ mở cho debug, host watchdog sở hữu vòng đời đó) và không còn ask pending / delegate chạy / steer pending → **ghi đồng bộ `worker.completed`** (appendFileSync sync, không fsync — đủ cho classify ≤2s cùng máy) → session shutdown. *(Shutdown API: `ExtensionContext.shutdown()` — đã verify T8; tham chiếu `subagent-done.ts` của pi-interactive-subagents.)*
 - **Parent-guard worker-side (chống PID-reuse — sửa Critical vòng 4)**: prompt-runtime poll mỗi 5s: parent chết khi **pid không tồn tại HOẶC starttime khác `PI_CREW_PARENT_START_TIME`**. Starttime = field 22 của `/proc/<pid>/stat` (clock ticks từ boot — không đổi theo pid reuse; host ghi lúc spawn). Parent chết thật → ghi `worker.parent-lost` → shutdown theo D7 → pane tự đóng. SIGSTOP host: pid còn + starttime khớp → không kill nhầm. macOS fallback: chỉ pid check + ghi chú hạn chế (doctor cảnh báo). Async run: background-runner là parent sống tiếp → không kích hoạt.
 - Loadout mặc định full session (§6) — áp cả headless lẫn surface; `--tools` chỉ xuất hiện khi agent `.md` khai explicit.
 
@@ -216,7 +218,8 @@ Env `PI_CREW_SURFACE_MODE` chỉ user shell set được — không vector từ 
 
 ```
 SurfaceHandle.onExit(reason)
-   ├─ Chờ worker.completed ≤ 2s (classify timeout; D7 fsync-before-shutdown
+   ├─ Chờ worker.completed ≤ 2s (classify timeout; D7 sync-write-before-shutdown
+   │   (errata v0.7.1: appendFileSync sync, không fsync)
    │   đảm bảo pane-closed-bình-thường luôn kịp có event)
    │    ├─ có event   → cleanup, giải phóng slot pane
    │    └─ không có   → degrade:
@@ -232,7 +235,9 @@ SurfaceHandle.onExit(reason)
    │              prompt gốc + scratchpad restore + pendingSteers replay
    │              + session resume (theo sessionPath từ manifest)
    │                + resume prompt "continue from where you left off"
-   │              (4 thành phần độc lập)
+   │              (4 thành phần độc lập — errata v0.7.1: thành phần session
+   │               resume defer A2 — pi không expose sessionPath cho extension
+   │               nên manifest.sessionPaths rỗng ở A1; A1 chạy thật 3/4)
    │         5. Không đếm retry budget; attempt # ghi reason: "surface-lost"
 ```
 
@@ -304,7 +309,7 @@ Hàng đánh dấu **(A2)** thuộc giai đoạn 2. Chi tiết test case do impl
 | Unit | closeSurface graceful escalation | SIGTERM → 3s → force → SIGKILL (mock, verify thứ tự) |
 | Unit | launch script | env đủ (kể PARENT_PID/START_TIME), shellEscape, 0600, `rm "$0"`, **builder từ chối depth > 0** |
 | Unit | TTL sweep | script >60s xóa khi spawn/run-end; <60s còn |
-| Unit | auto-exit | không pending → completed (fsync) → shutdown; **có pending → KHÔNG shutdown** |
+| Unit | auto-exit | không pending → completed (ghi sync) → shutdown; **có pending → KHÔNG shutdown** |
 | Unit | parent-guard | pid chết → shutdown + worker.parent-lost; **pid reuse (pid sống + starttime khác) → vẫn shutdown**; SIGSTOP (pid + starttime khớp) → không shutdown |
 | Unit | recorder | per-agent `{seq, time, event}` đúng; terminal events không rate-limit (burst >30 vẫn qua) |
 | Unit | EventLogTailSource | watcher change → incremental read đúng offset (2+ write liên tiếp) |
@@ -369,7 +374,7 @@ Hàng **(A2)** chỉ làm giai đoạn 2.
 9. `createSurface` timeout cụ thể (spawn-fail path) — chọn giá trị (đề xuất 5-10s).
 10. `/proc/<pid>/stat` starttime đọc cross-platform + format truyền qua env (chuỗi) — xác nhận layout stat trên các kernel pi-crew hỗ trợ; macOS fallback chỉ-pid + doctor cảnh báo.
 
-Đã verify OK: fsync có sẵn; broker client không strict-parse; manifest plain JSON; updateConfig scope; hello đã gửi runId.
+Đã verify OK: fsync có sẵn (dù bị bỏ ở A1 theo errata v0.7.1); broker client không strict-parse; manifest plain JSON; updateConfig scope; hello đã gửi runId.
 
 **Prerequisite đã giải quyết (2026-08-26, verify ask)**: `broker.waitMethodsEnabled` từng default `false` — ADR-0 ghi "then flipped to true" nhưng chưa ai flip → mọi ask thật bị reject `policy-disabled` (worker chưa từng gọi thành công, 0 event park trong state cũ). **Đã flip default → `true`** (`defaults.ts` + test pin) **+ user config `~/.pi/pi-crew.json`** (bật cho bản dist đang cài) **+ prompt guidance** "never guess, call ask" trong `coordinationBridgeInstructions` (prompt-builder.ts). §15 (message tool + wake) kế thừa gate này — không còn rủi ro ngủ yên.
 
@@ -435,7 +440,7 @@ dispatch ─▶ resolveSurface(env, config, role, livePaneCount)
 ```
 worker turn kết thúc (không pending)
    ▼
-worker.completed → fsync → session shutdown → pane đóng
+worker.completed (ghi sync — errata v0.7.1) → session shutdown → pane đóng
    ▼
 host onExit → chờ completed ≤ 2s?
    ├─ CÓ  → cleanup, giải phóng slot

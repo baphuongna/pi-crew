@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import test from "node:test";
 
 import {
@@ -336,4 +336,26 @@ test("sweepLaunchScripts cũng dọn entry có file đã biến mất (idempoten
 	const registry = new Map<string, number>([[gonePath, now - LAUNCH_SCRIPT_TTL_MS - 5_000]]);
 	assert.equal(sweepLaunchScripts(registry, now), 1);
 	assert.equal(registry.size, 0);
+});
+
+// ── baseDir relative — builder phải trả path absolute (T7 obs, T14 fix) ──
+// `rm -f -- "$0"` trong pane chạy SAU dòng `cd <cwd>`: $0 giữ đúng chuỗi
+// host truyền cho bash, nên một script path relative (resolve theo cwd HOST
+// lúc build) trỏ sai chỗ sau khi pane cd — self-delete thành no-op và
+// secret-on-disk window mở lại. Builder resolve baseDir về absolute.
+
+test("relative baseDir resolves to an absolute script path (self-delete survives the pane cd)", () => {
+	const relBase = relative(process.cwd(), baseDir);
+	const scriptPath = buildLaunchScript({
+		taskId: "relbase",
+		env: surfaceEnv(),
+		command: "pi",
+		cwd: "/home/user/repo",
+		baseDir: relBase,
+	});
+	assert.ok(isAbsolute(scriptPath), "script path phải absolute để $0 còn đúng sau khi pane cd sang cwd khác");
+	assert.equal(dirname(scriptPath), baseDir, "script phải nằm đúng baseDir đích");
+	assert.ok(existsSync(scriptPath));
+	// Registry cũng nhận path absolute — sweep chạy sau khi cwd đổi vẫn trúng.
+	assert.ok(launchScriptRegistry.has(scriptPath));
 });
