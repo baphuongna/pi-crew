@@ -498,6 +498,9 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 					"autonomous.injectPolicy",
 					"agents.overrides",
 					"agents.disableBuiltins",
+					// Privilege-raising (spawns grandchildren) — schema marks it
+					// sensitive; project config is sanitized (ADR-5 §12 posture).
+					"nesting.enabled",
 				];
 				if (sensitiveKeys.some((k) => key === k || key.startsWith(k + "."))) {
 					warning +=

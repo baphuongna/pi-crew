@@ -79,6 +79,13 @@ State layer
 | `scaffold` | Dry-run mode — preview prompts without executing |
 | `live-session` (experimental) | In-process session-based execution |
 
+Workers run as **full `pi` sessions by default** — extensions, skills, and tools
+are inherited like the main session; restrictions are per-agent opt-in via
+frontmatter (`tools:` / `disallowedTools:` / `inheritSkills: false`). Nested
+spawning is also default-on: every role gets the `delegate` tool
+(`nesting.maxDepth: 4`, kill switch `nesting.enabled: false` in **user** config —
+project config cannot flip it, see `src/config/defaults.ts`).
+
 ### State Layout
 
 ```

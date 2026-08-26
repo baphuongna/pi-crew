@@ -30,6 +30,11 @@ Maps pi-crew behavior to proof. Every row must have real validation evidence.
 | Effectiveness guard | `docs/product/effectiveness.md` | yes | no | yes 3/3 | implemented | effectiveness-guard.test.ts |
 | Windows EBUSY | `docs/product/platform.md` | yes | yes | yes 3/3 | implemented | phase6-runtime-hardening.test.ts |
 | Depth guard | `docs/product/runtime-safety.md` | yes | no | yes 3/3 | implemented | subagent-depth.test.ts, completion-guard.test.ts |
+| Worker loadout full-session (D5) | `docs/superpowers/specs/2026-08-26-mux-surface-design.md` | yes | no | pending | implemented | pi-args-loadout.test.ts, pi-args.test.ts, pi-args-cov.test.ts |
+| Delegate mọi role (D8 — default-on + kill switch) | `docs/superpowers/specs/2026-08-26-mux-surface-design.md` | yes | yes | pending | implemented | delegate-tool-roles.test.ts, delegate-broker.test.ts, nesting-config.test.ts, delegate-roundtrip-e2e.test.ts |
+| Worker message tool (D9) | `docs/superpowers/specs/2026-08-26-mux-surface-design.md` | yes | yes | pending | implemented | message-tool.test.ts, crew-broker-msg-worker.test.ts, crew-broker-msg.test.ts |
+| Worker inbox pickup (§15.2) | `docs/superpowers/specs/2026-08-26-mux-surface-design.md` | yes | no | pending | implemented | inbox-pickup.test.ts |
+| Wake — worker.message event (§15.2) | `docs/superpowers/specs/2026-08-26-mux-surface-design.md` | yes | no | pending | implemented | crew-broker-msg-worker.test.ts |
 | Inline agent panel | `docs/design/2026-08-20-inline-agent-panel.md` | yes | no | pending | in_progress | inline-panel-selection.test.ts, widget-budgeted-row.test.ts, agent-transcript.test.ts, inline-panel-openpane.test.ts, widget-focused.test.ts, task-list.test.ts |
 
 ## Evidence Rules

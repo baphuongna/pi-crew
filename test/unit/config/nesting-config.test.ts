@@ -19,11 +19,16 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { invalidateConfigCache } from "../../../src/config/config.ts";
 import { mergeConfig } from "../../../src/config/config-merge.ts";
 import { parseConfig } from "../../../src/config/config-validation.ts";
 import { DEFAULT_NESTING } from "../../../src/config/defaults.ts";
+import type { TeamContext } from "../../../src/extension/team-tool/context.ts";
+import { handleSettings } from "../../../src/extension/team-tool/handle-settings.ts";
+import { textFromToolResult } from "../../../src/extension/tool-result.ts";
 import { PiTeamsConfigSchema } from "../../../src/schema/config-schema.ts";
 import { collectSensitiveConfigPaths } from "../../../src/schema/sensitive-config-paths.ts";
 
@@ -86,6 +91,36 @@ test("nesting.enabled is sensitive: project config cannot enable delegation", ()
 		sensitive.includes("nesting.enabled"),
 		`nesting.enabled must be marked sensitive (got: ${sensitive.filter((p) => p.startsWith("nesting")).join(", ") || "nothing"})`,
 	);
+});
+
+// Task 7 (deferred from Task 6): the set-path hint list in handle-settings is
+// a hardcoded mirror of the schema sensitive marks — `nesting.enabled` became
+// reachable through `team-settings set` once Task 6 wired the key, so the
+// project-scope write must carry the same "set it in user scope" note.
+test("team-settings set nesting.enabled --scope project carries the sensitive hint", () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-nest-hint-"));
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-nest-hint-cwd-"));
+	const prevHome = process.env.PI_TEAMS_HOME;
+	const prevSkip = process.env.PI_CREW_SKIP_HOME_CHECK;
+	process.env.PI_TEAMS_HOME = home;
+	process.env.PI_CREW_SKIP_HOME_CHECK = "1";
+	invalidateConfigCache();
+	try {
+		const res = handleSettings({ config: { args: "set nesting.enabled false", scope: "project" } }, { cwd } as TeamContext);
+		const text = textFromToolResult(res);
+		assert.ok(
+			text.includes("sensitive"),
+			`project-scope set must carry the sensitive hint (got: ${text})`,
+		);
+	} finally {
+		if (prevHome !== undefined) process.env.PI_TEAMS_HOME = prevHome;
+		else delete process.env.PI_TEAMS_HOME;
+		if (prevSkip !== undefined) process.env.PI_CREW_SKIP_HOME_CHECK = prevSkip;
+		else delete process.env.PI_CREW_SKIP_HOME_CHECK;
+		invalidateConfigCache();
+		fs.rmSync(home, { recursive: true, force: true });
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
 });
 
 test("schema.json nesting sub-schema matches the TypeBox properties", () => {

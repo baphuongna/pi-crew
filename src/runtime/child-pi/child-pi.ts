@@ -304,8 +304,8 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	if (!brokerSpawn && brokerIssuer && input.runId) {
 		try {
 			// ADR-5 §4: thread the child depth so the issuer can contain broker
-			// credentials at depths that may not delegate (depth-2 at default
-			// maxDepth=2 gets NO socket/token — env containment AC).
+			// credentials at depths that may not delegate (a child at the default
+			// maxDepth=4 cap gets NO socket/token — env containment AC).
 			brokerSpawn = await brokerIssuer(input.runId, input.agentId, input.depthOverride);
 		} catch (error) {
 			// H8 (2026-08-10): surface the silent degradation. Previously this

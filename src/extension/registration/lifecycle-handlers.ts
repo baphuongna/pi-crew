@@ -1129,8 +1129,8 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		if (!effectiveEnabled()) return undefined;
 		// ADR-5 §4 (governed nesting): tokens are minted ONLY for children that
 		// may themselves delegate — childDepth < resolved maxDepth. At the default
-		// maxDepth=2 a delegate-spawned depth-2 grandchild gets NO credentials
-		// (env containment: no PI_CREW_BROKER_SOCKET/TOKEN at depth 2; identity
+		// maxDepth=4 a delegate-spawned depth-4 grandchild gets NO credentials
+		// (env containment: no PI_CREW_BROKER_SOCKET/TOKEN at the cap depth; identity
 		// routing via PI_CREW_BROKER_RUN_ID/TASK_ID is threaded unconditionally
 		// elsewhere). Undefined childDepth = legacy worker spawn (depth 1).
 		if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;

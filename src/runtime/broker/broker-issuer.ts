@@ -28,8 +28,9 @@ export interface BrokerSpawnCredentials {
  *  ADR-5 §4 (governed nesting): `childDepth` carries the DEPTH-2+ grandchild's
  *  depth when the root-side delegate handler spawns it. The issuer mints only
  *  for children that may themselves delegate (childDepth < resolved
- *  PI_CREW_MAX_DEPTH) — at the default maxDepth=2 a depth-2 grandchild gets NO
- *  credentials (env containment AC: no PI_CREW_BROKER_SOCKET/TOKEN at depth 2).
+ *  PI_CREW_MAX_DEPTH) — at the default maxDepth=4 a depth-4 grandchild gets NO
+ *  credentials (env containment AC: no PI_CREW_BROKER_SOCKET/TOKEN at the cap
+ *  depth).
  *  Undefined childDepth = legacy worker spawn (depth 1) — unchanged behavior. */
 export type BrokerIssuer = (runId: string, taskId?: string, childDepth?: number) => Promise<BrokerSpawnCredentials | undefined>;
 

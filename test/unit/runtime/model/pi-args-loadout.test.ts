@@ -3,7 +3,7 @@
 // khi agent frontmatter khai explicit.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildPiWorkerArgs } from "../../../../src/runtime/model/pi-args.ts";
+import { buildPiWorkerArgs, resolveCrewMaxDepth } from "../../../../src/runtime/model/pi-args.ts";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
 
 function agent(fields: Partial<AgentConfig> = {}): AgentConfig {
@@ -83,8 +83,6 @@ test("GAP-1: declared extensions from dynamic/project sources are stripped (SEC-
 // Task 2 (loadout/nesting/messaging): D8 (spec v0.7) — default maxDepth
 // cho phép 4 level nested (child creates child creates child creates child).
 // Cap giữ để chống runaway recursion.
-import { resolveCrewMaxDepth } from "../../../../src/runtime/model/pi-args.ts";
-
 test("default max depth is 4 (child creates child creates child creates child)", () => {
 	assert.equal(resolveCrewMaxDepth(undefined, {}), 4);
 });

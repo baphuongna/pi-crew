@@ -262,7 +262,9 @@ Trục bền vững: pane/mux/host chết bất kỳ — state trên đĩa + cra
   // A2 thêm: "limits": { "maxSurfaceWorkers": 6 }
   // A1: MAX_SURFACE_WORKERS = 6 (constant resolve-surface.ts)
   // KHÔNG còn fullSession — full là mặc định (D5, §6)
-  // maxDepth (D8): runtime.maxDepth — default 4, range 1-10
+  // maxDepth (D8): nesting.maxDepth — default 4, range 1-10
+  //   (implementation truth: key sống trong khối `nesting` của PiTeamsConfigSchema
+  //   cạnh nesting.enabled/maxSlots — ADR-5 §10, không phải `runtime.maxDepth`)
 }
 ```
 
@@ -270,8 +272,8 @@ Trục bền vững: pane/mux/host chết bất kỳ — state trên đĩa + cra
 
 `handle-settings.ts` cập nhật đồng bộ:
 
-1. `KNOWN_KEYS` thêm 2 key `runtime.surface.mode`, `runtime.surface.visibleAgents` (A2 thêm `limits.maxSurfaceWorkers`) + cập nhật default `runtime.maxDepth: 4` → `schema`, `get`, `set`, `list`; `suggestConfigKey` tự gợi ý.
-2. `EFFECTIVE_DEFAULTS` thêm `runtime.surface.mode: "auto"`, `runtime.surface.visibleAgents: []`, cập nhật `runtime.maxDepth: 4` (đổi từ 2).
+1. `KNOWN_KEYS` thêm 2 key `runtime.surface.mode`, `runtime.surface.visibleAgents` (A2 thêm `limits.maxSurfaceWorkers`) + cập nhật default `nesting.maxDepth: 4` → `schema`, `get`, `set`, `list`; `suggestConfigKey` tự gợi ý.
+2. `EFFECTIVE_DEFAULTS` thêm `runtime.surface.mode: "auto"`, `runtime.surface.visibleAgents: []`, cập nhật `nesting.maxDepth: 4` (đổi từ 2).
 3. `src/config/config-validation.ts`: `parseSurfacePolicy` — enum mode, mảng string visibleAgents.
 4. `src/config/config-schema.ts`: mirror schema (không còn field sensitive nào của surface — fullSession đã bỏ).
 
