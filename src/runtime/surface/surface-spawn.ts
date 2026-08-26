@@ -29,8 +29,8 @@ import * as path from "node:path";
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { currentCrewDepth, getPiTempBase } from "../model/pi-args.ts";
-import { procStartTimeTicks } from "../process/proc-stat.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
+import { procStartTimeTicks } from "../process/proc-stat.ts";
 import { buildLaunchScript, launchScriptRegistry, shellEscape, sweepLaunchScripts } from "./launch-script.ts";
 import type { ResolveSurfaceOpts } from "./resolve-surface.ts";
 import { resolveSurface } from "./resolve-surface.ts";
@@ -89,8 +89,25 @@ export type SurfaceSpawnOutcome =
 			/** Provider đằng sau handle — degrade/close (T11) cần gọi nó. */
 			provider: SurfaceProvider;
 			scriptPath: string;
+			/**
+			 * Per-agent event log của worker này (`agents/{taskId}/events.jsonl`) —
+			 * host tail đúng file đó (T9 EventLogTailSource). Null khi spawn ngoài
+			 * run (không stateRoot → không set PI_CREW_AGENT_EVENTS_PATH cho worker).
+			 */
+			eventsPath: string | null;
 	  }
 	| { mode: "headless"; reason?: string };
+
+/**
+ * Per-agent event log của worker surface: `<stateRoot>/agents/<taskId>/events.jsonl`
+ * — đúng layout `agentEventsPath` (crew-agent-records.ts) mà worker recorder
+ * (S2-T8) ghi qua PI_CREW_AGENT_EVENTS_PATH và EventLogTailSource (S2-T9) tail.
+ * Một công thức, một nơi — host và worker phải cùng path nếu không recorder ghi
+ * một file còn host tail một file khác.
+ */
+export function surfaceAgentEventsPath(stateRoot: string, taskId: string): string | null {
+	return stateRoot ? path.join(stateRoot, "agents", taskId, "events.jsonl") : null;
+}
 
 /**
  * Gỡ đúng cụm `--mode json -p` khỏi argv worker. Idempotent-safe: không thấy
@@ -202,7 +219,7 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 		// Env export = worker env đầy đủ (parity headless) + các biến surface.
 		// Không stateRoot (spawn ngoài run) → không có event log để ghi — bỏ key
 		// thay vì đường dẫn tương đối sai layout agents/{taskId}/events.jsonl.
-		const eventsPath = input.stateRoot ? path.join(input.stateRoot, "agents", input.taskId, "events.jsonl") : null;
+		const eventsPath = surfaceAgentEventsPath(input.stateRoot, input.taskId);
 		const scriptEnv: Record<string, string> = {
 			...input.workerEnv,
 			PI_CREW_SURFACE: provider.kind,
@@ -228,7 +245,7 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 		});
 		// Boot worker + thoát shell khi worker kết thúc (pane đóng → onExit, §13.2).
 		await provider.sendCommand(handle, `bash ${shellEscape(scriptPath)}; exit`);
-		return { mode: "surface", kind: provider.kind, paneId: handle.id, handle, provider, scriptPath };
+		return { mode: "surface", kind: provider.kind, paneId: handle.id, handle, provider, scriptPath, eventsPath };
 	} catch (error) {
 		logInternalError(
 			"surface-spawn.boot",

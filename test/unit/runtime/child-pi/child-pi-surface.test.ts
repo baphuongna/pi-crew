@@ -16,7 +16,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -30,6 +30,7 @@ import type {
 	SurfaceProvider,
 	SurfaceSpawnOpts,
 } from "../../../../src/runtime/surface/surface-provider.ts";
+import { runEventBus } from "../../../../src/ui/run-event-bus.ts";
 
 interface FakeSurface extends SurfaceProvider {
 	sentCommands: string[];
@@ -339,8 +340,60 @@ test("F2: a wedged surface worker hits the response deadline and is force-closed
 	}
 });
 
-/** Agent fixture có systemPrompt thật để kích hoạt đường tạo tempDir. */
-function makeAgentWithSystemPrompt() {
+// ── T9 (spec §5.3) — host tail per-agent log → runEventBus ────────────────
+// Worker surface không có stdout stream: recorder worker (S2-T8) ghi
+// agents/{taskId}/events.jsonl, host tail file đó và bridge ra worker_status
+// cho dashboard/sidebar. QUAN TRỌNG: events KHÔNG đi qua onJsonEvent (callback
+// task-runner append vào chính file này — vòng watch→append→watch); đường
+// bridge-only là contract của test này.
+
+test("T9: events from the per-agent log reach runEventBus as worker_status (dashboard parity)", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const provider = fakeSurfaceProvider();
+		provider.autoExitAfterSend = false; // giữ pane sống để tail kịp phát event
+		const agentLog = join(workRoot, "state", "runs", "run_surface_1", "agents", "01_explore", "events.jsonl");
+		const seen: Array<Record<string, unknown>> = [];
+		const off = runEventBus.on("run_surface_1", (payload) => {
+			if (payload.type === "worker_status") seen.push(payload.data as Record<string, unknown>);
+		});
+		const done = runChildPi(makeRunInput(workRoot, { surface: { providers: { tmux: provider }, baseDir: launchDir } }));
+
+		// Chờ boot xong (script đã gửi → tail source đã dựng xong), rồi mới mô phỏng
+		// worker recorder ghi 2 dòng `{seq,time,event}` — file chưa tồn tại trước đó.
+		for (let i = 0; i < 100 && provider.sentCommands.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+		await new Promise((r) => setTimeout(r, 30));
+		mkdirSync(join(workRoot, "state", "runs", "run_surface_1", "agents", "01_explore"), { recursive: true });
+		appendFileSync(
+			agentLog,
+			`${JSON.stringify({ seq: 1, time: "2026-08-27T00:00:00.000Z", event: { type: "message_end", message: { role: "assistant", usage: { input: 3, output: 4 } } } })}\n`,
+			"utf-8",
+		);
+		appendFileSync(
+			agentLog,
+			`${JSON.stringify({ seq: 2, time: "2026-08-27T00:00:01.000Z", event: { type: "tool_execution_start", toolName: "bash" } })}\n`,
+			"utf-8",
+		);
+		for (let i = 0; i < 100 && seen.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+
+		provider.fireExit("pane-closed");
+		const result = await done;
+		off();
+
+		assert.ok(result.surface, "fixture này phải đi đúng nhánh surface");
+		assert.equal(seen.length, 2, `phải nhận đủ 2 event bridge, nhận: ${JSON.stringify(seen)}`);
+		assert.equal(seen[0]?.eventType, "message_end");
+		assert.equal(seen[0]?.runId, "run_surface_1");
+		assert.equal(seen[0]?.taskId, "01_explore");
+		assert.equal(seen[0]?.tokens, 7, "usage 3+4 phải gộp thành tokens như đường headless");
+		assert.equal(seen[1]?.eventType, "tool_execution_start");
+		assert.equal(seen[1]?.toolName, "bash");
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
+/** Agent fixture có systemPrompt thật để kích hoạt đường tạo tempDir. */ function makeAgentWithSystemPrompt() {
 	return {
 		name: "executor",
 		description: "test executor",

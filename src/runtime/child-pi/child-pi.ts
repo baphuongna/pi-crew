@@ -7,12 +7,15 @@ import { getCrewEnv } from "../../config/env-vars.ts";
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { registerChildProcess, unregisterChildProcess } from "../../extension/crew-cleanup.ts";
 import type { WorkerExitStatus } from "../../state/types.ts";
+import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecretString } from "../../utils/redaction.ts";
 import { getActiveBrokerIssuer } from "../broker/broker-issuer.ts";
 import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
+import { EventLogTailSource } from "../event-log-tail-source.ts";
+import { bridgeEventFromJsonEvent } from "../event-stream-bridge.ts";
 import type { SurfaceProvider } from "../surface/surface-provider.ts";
-import { prepareSurfaceSpawn, type SurfaceSpawnOutcome, waitForSurfaceExit } from "../surface/surface-spawn.ts";
+import { prepareSurfaceSpawn, type SurfaceExitInfo, type SurfaceSpawnOutcome, waitForSurfaceExit } from "../surface/surface-spawn.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
 import { clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
 import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
@@ -395,15 +398,36 @@ async function trySurfaceBranch(
 		paneId: outcome.paneId,
 		ts: new Date().toISOString(),
 	});
-	// Pane lifetime IS the worker lifetime in A1: T8's auto-exit closes the pane
-	// at turn end (spec §13.2); cancel closes it here via AbortSignal and the
-	// response deadline force-closes a WEDGED worker (fix round 1/F2 — parity
-	// with headless minimum timeout so a stuck pane cannot hold its worker slot
-	// forever; A1 has no stream-activity signal so this is ONE hard deadline).
-	const exitInfo = await waitForSurfaceExit(outcome, {
-		signal: input.signal,
-		deadlineMs: input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS,
-	});
+	// T9 (spec §5.3): surface worker không có stdout JSON stream — worker-side
+	// recorder ghi per-agent events.jsonl; host tail file đó và bridge thẳng ra
+	// run event bus cho dashboard/sidebar ("như cũ"). KHÔNG đưa vào
+	// input.onJsonEvent: callback task-runner gọi appendCrewAgentEventBuffered
+	// vào CHÍNH file này (worker đã ghi sẵn) → ghi đôi + vòng tự kích hoạt
+	// watch→append→watch không dừng (xem header event-log-tail-source.ts).
+	const eventSource = outcome.eventsPath ? new EventLogTailSource({ eventsPath: outcome.eventsPath }) : undefined;
+	if (eventSource && input.runId && input.agentId) {
+		const runId = input.runId;
+		const taskId = input.agentId;
+		eventSource.onEvent((event) => {
+			const bridgeEvent = bridgeEventFromJsonEvent(runId, taskId, event);
+			if (bridgeEvent) runEventBus.emit({ type: "worker_status", runId, taskId, data: bridgeEvent });
+		});
+	}
+	let exitInfo: SurfaceExitInfo;
+	try {
+		// Pane lifetime IS the worker lifetime in A1: T8's auto-exit closes the
+		// pane at turn end (spec §13.2); cancel closes it here via AbortSignal and
+		// the response deadline force-closes a WEDGED worker (fix round 1/F2 —
+		// parity with headless minimum timeout so a stuck pane cannot hold its
+		// worker slot forever; A1 has no stream-activity signal so this is ONE
+		// hard deadline).
+		exitInfo = await waitForSurfaceExit(outcome, {
+			signal: input.signal,
+			deadlineMs: input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS,
+		});
+	} finally {
+		eventSource?.close();
+	}
 	input.onLifecycleEvent?.({
 		type: "surface_closed",
 		surfaceKind: outcome.kind,
