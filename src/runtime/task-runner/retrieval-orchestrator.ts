@@ -338,7 +338,8 @@ export async function runRetrievalCycle(task: string, goal: string, cwd: string)
 	// ~57k-file set: path-only scoring (content always "") cannot reach
 	// HIGH_RELEVANCE_THRESHOLD=0.7 (observed max 0.64), so hasConverged was
 	// always false and the loop ran unconditionally — 3× CPU for a zero
-	// result delta (measured 5266ms → 1810ms cold on the my_pi monorepo).
+	// result delta (measured 7055ms → 1980ms cold on the my_pi monorepo,
+	// full-length real-run goal — see docs/real-test/reports/perf-round3-probe.md).
 	let discovered: string[] = [];
 	try {
 		if (useRg) {

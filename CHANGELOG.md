@@ -2,12 +2,12 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
-## [Unreleased] — perf: round 3 retrieval single-pass (prompt-pipeline 6-8s → ~1s/task)
+## [Unreleased] — perf: round 3 retrieval single-pass (retrieval 7.1s → 2.0s cold / 0.28s warm per task)
 
 Root cause (measured on real run `team_20260826002634`, 2026-08-26 real test):
-`runRetrievalCycle` spent 5.3s CPU per task — 3 unconditional cycles (the
+`runRetrievalCycle` spent up to ~7s CPU per task — 3 unconditional cycles (the
 0.7 convergence threshold is unreachable with path-only scoring, observed
-max 0.64), 25 keywords incl. filler over ~57k files, and a duplicate-
+max 0.64), 55 keywords incl. filler over ~57k files, and a duplicate-
 accumulating evaluation list (same file up to 3× in the top-10).
 
 - Single discovery pass + dedupe by absolute path (`retrieval-orchestrator.ts`)
@@ -15,12 +15,17 @@ accumulating evaluation list (same file up to 3× in the top-10).
 - rg discovery cached per cwd, 60s TTL, cap 32 (fallback walk uncached)
 - b13 bench guards cold <2s / cache-hit <400ms on the repo itself
 
-| Metric (my_pi monorepo, real run input) | Before | After (median 4 runs) |
-|---|---|---|
-| runRetrievalCycle cold | 5266 ms | 1613 ms (−69%) |
-| warm, new keywords (discovery cache) | 4278 ms | 258 ms (−94%) |
-| keywords from tokenize | 25 | 17 |
-| duplicate paths in top-10 | up to 3× | 0 |
+| Metric (my_pi monorepo, full-length real-run goal) | Before (`745cf9f1`) | After | Delta |
+|---|---|---|---|
+| runRetrievalCycle cold | 7055 ms | 1980 ms | −72% |
+| warm, new keywords (discovery cache) | 3335 ms | 275 ms | −92% |
+| keywords from tokenize | 55 | 41 | −25% |
+| duplicate paths in top-10 | up to 3× | 0 | — |
+
+Prompt-pipeline impact: the measured 6-8s/task gap (real test) had retrieval
+as its dominant component; post-fix retrieval is 2.0s cold / 0.28s warm —
+the non-retrieval remainder was not re-measured end-to-end yet (next real
+test will confirm).
 
 b13 (`bench/b13-retrieval-latency.bench.ts`) runs on the small pi-crew repo
 (cold 83 ms / cache-hit 8 ms) — it is a smoke guard, not the monorepo
