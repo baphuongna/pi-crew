@@ -215,6 +215,42 @@ test("pre-resolved deps.provider wins over resolveSurface (T11 dispatch owns res
 	launchScriptRegistry.clear();
 });
 
+// ── Fix round 1 (T9 review) — path-formula parity với consumer host ───────
+// agent-view / crew-agent-records đọc per-agent file qua safeAgentTaskId
+// (strip phần trước ":" + assertSafePathId). surfaceAgentEventsPath phải áp
+// CÙNG sanitize — nếu không, taskId chứa ":" làm worker ghi một file khác
+// file agent-view đọc (dashboard host tail vẫn khớp vì cùng công thức spawn,
+// nhưng agent-view trống).
+
+test("fix r1: taskId chứa ':' được sanitize như agentStateFile — eventsPath + env dùng phần sanitized", async () => {
+	launchScriptRegistry.clear();
+	const provider = fakeProvider();
+	const input = baseInput({ taskId: "01_explore:extra" });
+	input.deps!.resolve!.providers!.tmux = provider;
+	const outcome = await prepareSurfaceSpawn(input);
+	assert.ok(outcome.mode === "surface", JSON.stringify(outcome));
+	if (outcome.mode !== "surface") return;
+	// safeAgentTaskId("01_explore:extra") = "extra" — đúng file mọi consumer
+	// host (agentEventsPath/agentStateFile) đọc cho cùng taskId này.
+	assert.equal(outcome.eventsPath, join("/tmp/state/runs/run-1", "agents", "extra", "events.jsonl"));
+	const content = readFileSync(outcome.scriptPath, "utf-8");
+	assert.match(content, /export PI_CREW_AGENT_EVENTS_PATH='\/tmp\/state\/runs\/run-1\/agents\/extra\/events\.jsonl'/);
+	rmSync(outcome.scriptPath, { force: true });
+	launchScriptRegistry.clear();
+});
+
+test("fix r1: taskId không sanitize được (phần sau ':' unsafe) → fail-closed headless, không throw", async () => {
+	launchScriptRegistry.clear();
+	const provider = fakeProvider();
+	const input = baseInput({ taskId: "01_explore:../escape" });
+	input.deps!.resolve!.providers!.tmux = provider;
+	// assertSafePathId throw bên trong prepareSurfaceSpawn → catch chung →
+	// đóng pane mồ côi + fallback headless (§3) — KHÔNG throw ra caller.
+	const outcome = await prepareSurfaceSpawn(input);
+	assertHeadless(outcome, /surface boot failed: Invalid taskId/);
+	launchScriptRegistry.clear();
+});
+
 test("script content carries REAL pane id + parent info + agent events path + TUI argv without --mode json", async () => {
 	launchScriptRegistry.clear();
 	const provider = fakeProvider({ paneId: "%77" });

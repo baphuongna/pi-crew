@@ -24,10 +24,10 @@
  */
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { agentEventsPathForStateRoot } from "../crew-agent-records.ts";
 import { currentCrewDepth, getPiTempBase } from "../model/pi-args.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
 import { procStartTimeTicks } from "../process/proc-stat.ts";
@@ -99,14 +99,16 @@ export type SurfaceSpawnOutcome =
 	| { mode: "headless"; reason?: string };
 
 /**
- * Per-agent event log của worker surface: `<stateRoot>/agents/<taskId>/events.jsonl`
- * — đúng layout `agentEventsPath` (crew-agent-records.ts) mà worker recorder
- * (S2-T8) ghi qua PI_CREW_AGENT_EVENTS_PATH và EventLogTailSource (S2-T9) tail.
- * Một công thức, một nơi — host và worker phải cùng path nếu không recorder ghi
- * một file còn host tail một file khác.
+ * Per-agent event log của worker surface — DELEGATE sang công thức canonical
+ * `agentEventsPathForStateRoot` (crew-agent-records.ts): cùng safeAgentTaskId
+ * sanitize (strip phần trước ":" + assertSafePathId) như mọi consumer host
+ * (agent-view, status/output writers). Fix round 1/T9: tự path.join với taskId
+ * NGUYÊN làm taskId chứa ":" ghi file khác file agent-view đọc. Null khi không
+ * có stateRoot (spawn ngoài run) — bỏ key thay vì đường dẫn sai layout. Throw
+ * khi taskId không sanitize được → prepareSurfaceSpawn fail-closed headless.
  */
 export function surfaceAgentEventsPath(stateRoot: string, taskId: string): string | null {
-	return stateRoot ? path.join(stateRoot, "agents", taskId, "events.jsonl") : null;
+	return stateRoot ? agentEventsPathForStateRoot(stateRoot, taskId) : null;
 }
 
 /**

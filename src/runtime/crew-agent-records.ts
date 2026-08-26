@@ -98,7 +98,19 @@ export function agentStatusPath(manifest: TeamRunManifest, taskId: string): stri
 }
 
 export function agentEventsPath(manifest: TeamRunManifest, taskId: string): string {
-	return path.join(agentStateDir(manifest, taskId), "events.jsonl");
+	return agentEventsPathForStateRoot(manifest.stateRoot, taskId);
+}
+
+/**
+ * Per-agent events log dưới stateRoot bất kỳ (không cần manifest đầy đủ).
+ * MỘT công thức cho mọi bên: host writers/readers (qua agentEventsPath) và
+ * surface spawn (S2-T7 set PI_CREW_AGENT_EVENTS_PATH, S2-T9 tail) — tất cả
+ * qua safeAgentTaskId, nên taskId chứa ":" (delegate-spawn ids) rơi về CÙNG
+ * file cho cả worker recorder lẫn agent-view. Throw khi phần id sau sanitize
+ * không hợp lệ (assertSafePathId) — caller fail-closed tự xử lý.
+ */
+export function agentEventsPathForStateRoot(stateRoot: string, taskId: string): string {
+	return path.join(stateRoot, "agents", safeAgentTaskId(taskId), "events.jsonl");
 }
 
 export function agentOutputPath(manifest: TeamRunManifest, taskId: string): string {
