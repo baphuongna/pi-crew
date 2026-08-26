@@ -86,8 +86,8 @@ describe("currentCrewDepth", () => {
 // ── resolveCrewMaxDepth ──
 
 describe("resolveCrewMaxDepth", () => {
-	it("returns default (2) when no input or env", () => {
-		assert.strictEqual(resolveCrewMaxDepth(undefined, {}), 2);
+	it("returns default (4) when no input or env (D8 spec v0.7 — nested opens)", () => {
+		assert.strictEqual(resolveCrewMaxDepth(undefined, {}), 4);
 	});
 
 	it("reads from PI_CREW_MAX_DEPTH env", () => {
@@ -120,23 +120,23 @@ describe("resolveCrewMaxDepth", () => {
 		assert.strictEqual(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "11" }), 10);
 	});
 
-	it("rejects values < 1", () => {
-		assert.strictEqual(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "0" }), 2);
+	it("rejects values < 1 (falls back to default 4)", () => {
+		assert.strictEqual(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "0" }), 4);
 	});
 
-	it("rejects non-integer values", () => {
-		assert.strictEqual(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "2.5" }), 2);
+	it("rejects non-integer values (falls back to default 4)", () => {
+		assert.strictEqual(resolveCrewMaxDepth(undefined, { PI_CREW_MAX_DEPTH: "2.5" }), 4);
 	});
 });
 
 // ── checkCrewDepth ──
 
 describe("checkCrewDepth", () => {
-	it("is not blocked at depth 0 with default maxDepth 2", () => {
+	it("is not blocked at depth 0 with default maxDepth 4", () => {
 		const result = checkCrewDepth(undefined, {});
 		assert.strictEqual(result.blocked, false);
 		assert.strictEqual(result.depth, 0);
-		assert.strictEqual(result.maxDepth, 2);
+		assert.strictEqual(result.maxDepth, 4);
 	});
 
 	it("is blocked when depth equals maxDepth", () => {

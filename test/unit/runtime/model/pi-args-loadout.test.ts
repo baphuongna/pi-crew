@@ -79,3 +79,12 @@ test("GAP-1: declared extensions from dynamic/project sources are stripped (SEC-
 	assert.ok(!args.some((a) => a.includes("pwn.ts")), "dynamic-source declaration must be stripped");
 	assert.ok(args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")), "prompt-runtime stays unconditionally");
 });
+
+// Task 2 (loadout/nesting/messaging): D8 (spec v0.7) — default maxDepth
+// cho phép 4 level nested (child creates child creates child creates child).
+// Cap giữ để chống runaway recursion.
+import { resolveCrewMaxDepth } from "../../../../src/runtime/model/pi-args.ts";
+
+test("default max depth is 4 (child creates child creates child creates child)", () => {
+	assert.equal(resolveCrewMaxDepth(undefined, {}), 4);
+});

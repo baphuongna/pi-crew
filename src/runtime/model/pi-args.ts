@@ -16,7 +16,9 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 // dist/ entry points.
 const PROMPT_RUNTIME_EXTENSION_PATH = path.join(packageRoot(), "src", "prompt", "prompt-runtime.ts");
 const TASK_ARG_LIMIT = 8000;
-const DEFAULT_MAX_CREW_DEPTH = 2;
+// D8 spec v0.7 — nested mở (default 4 depth levels: child→child→child→child);
+// cap giữ để chống runaway recursion từ config lỗi hoặc intentional abuse.
+const DEFAULT_MAX_CREW_DEPTH = 4;
 
 // Track every temp dir created in this process so we can clean them up
 // even if the parent is killed before child-pi.ts cleanup runs.
