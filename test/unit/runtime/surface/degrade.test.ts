@@ -197,13 +197,13 @@ function countingIo(eventsPath: string) {
 					statCalls += 1;
 					return fs.fstatSync(fd).size;
 				},
-				read(fd: number, start: number, end: number): string {
+				read(fd: number, start: number, end: number): { text: string; bytesRead: number } {
 					readCalls += 1;
 					const length = end - start;
-					bytesSeen += length;
 					const buffer = Buffer.alloc(length);
 					const bytesRead = fs.readSync(fd, buffer, 0, length, start);
-					return buffer.toString("utf8", 0, bytesRead);
+					bytesSeen += bytesRead;
+					return { text: buffer.toString("utf8", 0, bytesRead), bytesRead };
 				},
 				close(fd: number): void {
 					fs.closeSync(fd);
@@ -244,29 +244,137 @@ test("F3: MISS case chỉ đọc PHẦN MỚI của log — không full-read m�
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test("F3: truncate/shrink giữa chừng reset offset về 0 (vẫn tìm thấy completion sau đó)", async () => {
+test("F3/fix2: truncate/shrink ĐÃ tiêu thụ offset cũ — reset về 0 và thấy completion mới", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-degrade-probe-trunc-"));
 	const eventsPath = path.join(dir, "events.jsonl");
-	fs.writeFileSync(eventsPath, `${JSON.stringify({ type: "worker.completed", taskId: "STALE", data: {} })}\n`, "utf8");
+	// Nội dung cũ DÀI hơn file sau rotate — bắt buộc shrink-reset branch.
+	fs.writeFileSync(
+		eventsPath,
+		Array.from({ length: 40 }, (_, i) => `${JSON.stringify({ type: "message_end", taskId: "STALE", n: i })}\n`).join(""),
+		"utf8",
+	);
 	const clock = makeFakeClock(0, 50);
+	const counter = countingIo(eventsPath);
 	const probe = makeTerminalEventProbe({
 		eventsPath,
 		taskId: "06_f",
 		sleep: clock.sleep,
 		now: clock.now,
 		pollMs: 50,
-		...countingIo(eventsPath).deps,
+		...counter.deps,
 	} as never);
 
-	await Promise.resolve(); // vòng poll đầu quét nội dung cũ
-	// Host rotate/truncate rồi worker ghi completion mới.
-	fs.writeFileSync(
-		eventsPath,
-		`${JSON.stringify({ type: "worker.completed", taskId: "06_f", data: { result: "AFTER_ROTATE" } })}\n`,
-		"utf8",
+	// Probe THẬT chạy trọn một cửa sổ trước khi rotate → offset tiến lên cuối
+	// nội dung cũ (fix round 1 cho test chỉ await một microtask — chưa poll).
+	assert.equal(await probe(200), false, "chưa có completion cho task này");
+	const sizeBeforeRotate = fs.statSync(eventsPath).size;
+	assert.ok(
+		counter.bytesSeen() >= sizeBeforeRotate - 1024,
+		`probe phải đã đọc hết nội dung cũ (${counter.bytesSeen()}/${sizeBeforeRotate})`,
 	);
-	assert.equal(await probe(500), true, "shrink → đọc lại từ đầu và thấy completion mới");
+
+	// Host rotate (file NHỎ HƠN hẳn) rồi worker ghi completion mới.
+	const rotated = `${JSON.stringify({ type: "worker.completed", taskId: "06_f", data: { result: "AFTER_ROTATE" } })}\n`;
+	fs.writeFileSync(eventsPath, rotated, "utf8");
+	assert.ok(fs.statSync(eventsPath).size < sizeBeforeRotate, "precondition shrink");
+
+	assert.equal(await probe(500), true, "shrink → offset reset về 0 và thấy completion mới");
 	assert.deepEqual(probe.foundPayload(), { result: "AFTER_ROTATE" });
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── Fix round 2 / 1: offset math qua ranh giới multi-byte UTF-8 ───────────
+
+/**
+ * File giả cấp byte NGHIÊM ngặt theo fs semantics: read trả đúng byte
+ * [start,end) và bytesRead = số byte thực đọc được. Cho phép dựng kịch bản
+ * writer append nửa multi-byte char giữa hai lần poll — điều mà Buffer-split
+ * thật trong fs cũng làm.
+ */
+function byteFileHarness(eventsPath: string) {
+	let bytes: Buffer = Buffer.alloc(0);
+	let handleCounter = 0;
+	let openCalls = 0;
+	let servedBytes = 0;
+	return {
+		append(chunk: Buffer | string): void {
+			bytes = Buffer.concat([bytes, typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk]);
+		},
+		size(): number {
+			return bytes.byteLength;
+		},
+		/** Tổng số byte consumer đã ĐỌC qua mọi cửa sổ probe — bất biến chống skip. */
+		servedBytes: (): number => servedBytes,
+		openCalls: (): number => openCalls,
+		deps: {
+			io: {
+				open(): number {
+					openCalls += 1;
+					handleCounter += 1;
+					return handleCounter;
+				},
+				size(): number {
+					return bytes.byteLength;
+				},
+				read(_fd: number, start: number, end: number): { text: string; bytesRead: number } {
+					const endClamped = Math.min(end, bytes.byteLength);
+					const slice = bytes.subarray(start, endClamped);
+					servedBytes += slice.byteLength;
+					return { text: slice.toString("utf8"), bytesRead: slice.byteLength };
+				},
+				close(): void {
+					/* fixture không giữ fd thật */
+				},
+			},
+		},
+	};
+}
+
+test("fix2: poll cắt GIỮA multi-byte char không được ăn mất byte thật (offset dùng bytesRead)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-degrade-probe-utf8-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	const harness = byteFileHarness(eventsPath);
+
+	const head = `${JSON.stringify({ type: "message_end", taskId: "07_g", note: "before" })}\n`;
+	// Một DÒNG worker.completed bị writer chia đôi NGAY GIỮA emoji nằm trong
+	// JSON string của result — text của poll đầu kết thúc bằng byte lead mồ côi
+	// (decoder thay bằng U+FFFD) nên Buffer.byteLength(text) > bytesRead.
+	const completedLine = `${JSON.stringify({ type: "worker.completed", taskId: "07_g", data: { result: "done ✅" } })}\n`;
+	const asBytes = Buffer.from(completedLine, "utf8");
+	// Byte-offset của emoji TRONG dòng (các ký tự trước nó đều ASCII).
+	const emojiByteOffset = Buffer.byteLength(completedLine.slice(0, completedLine.indexOf("✅")), "utf8");
+	// Cắt ngay SAU BYTE LEAD của ✅ (E2 9C 85): bỏ một mình E2 vào chunk đầu;
+	// cắt cả cặp E2 9C sẽ là chuỗi hoàn chỉnh và test trở nên vô hiệu.
+	const splitAfterLead = emojiByteOffset + 1;
+
+	harness.append(head);
+	harness.append(asBytes.subarray(0, splitAfterLead));
+
+	const clock = makeFakeClock(0, 50);
+	const probe = makeTerminalEventProbe({
+		eventsPath,
+		taskId: "07_g",
+		sleep: clock.sleep,
+		now: clock.now,
+		pollMs: 50,
+		...harness.deps,
+	} as never);
+
+	// Poll 1 tiêu thụ đúng tới byte lead emoji (text méo là bình thường — miễn
+	// là offset tiến theo SỐ BYTE đã đọc thì poll 2 nối tiếp nguyên vẹn).
+	assert.equal(await probe(100), false);
+	harness.append(asBytes.subarray(splitAfterLead));
+
+	assert.equal(await probe(300), true, "byte-boundary đúng thì dòng completion vẫn được match");
+	// ✅ bị decode rời từng byte qua 2 poll → text consumer nhận là replacement
+	// chars (parity EventLogTailSource) — nhưng KHÔNG byte nào được bỏ sót:
+	// tổng served phải b_hit đúng toàn bộ file. Offset tính từ
+	// Buffer.byteLength(text-méo) sẽ nhảy +2 → tail `"}}\n` bị cắt và assert
+	// dưới FAIL (đây chính là bug F2-#1 của fix round này).
+	assert.equal(harness.servedBytes(), harness.size(), "mọi byte của log đều được đọc — không skip");
+	const payload = probe.foundPayload() as { result?: string };
+	assert.match(payload.result ?? "", /^done /, "result vẫn parse ra JSON hợp lệ");
+	assert.ok(harness.openCalls() >= 2, "mỗi cửa sổ probe mở fd riêng");
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

@@ -112,8 +112,13 @@ export interface TerminalEventProbeDeps {
 	io?: {
 		open(path: string): number;
 		size(fd: number): number;
-		/** Đọc byte [start, end); trả text utf8. */
-		read(fd: number, start: number, end: number): string;
+		/**
+		 * Đọc byte [start, end). Trả CẢ `bytesRead` (fix round 2): poll có thể
+		 * cắt giữa multi-byte UTF-8 char — toString thay byte lead bằng U+FFFD
+		 * nên Buffer.byteLength(text) > bytesRead; offset phải tiến theo bytesRead
+		 * (parity EventLogTailSource.readFromOffset) nếu không byte thật bị bỏ.
+		 */
+		read(fd: number, start: number, end: number): { text: string; bytesRead: number };
 		close(fd: number): void;
 	};
 	/** Sleep override cho test — nhận ms, resolve khi đồng hồ test cho phép. */
@@ -158,11 +163,11 @@ export function makeTerminalEventProbe(deps: TerminalEventProbeDeps): TerminalEv
 	const ioSize = deps.io?.size ?? ((handle: number) => fs.fstatSync(handle).size);
 	const ioRead =
 		deps.io?.read ??
-		((handle: number, start: number, end: number): string => {
+		((handle: number, start: number, end: number): { text: string; bytesRead: number } => {
 			const length = end - start;
 			const buffer = Buffer.alloc(length);
 			const bytesRead = fs.readSync(handle, buffer, 0, length, start);
-			return buffer.toString("utf8", 0, bytesRead);
+			return { text: buffer.toString("utf8", 0, bytesRead), bytesRead };
 		});
 	const ioClose = deps.io?.close ?? ((handle: number) => fs.closeSync(handle));
 
@@ -268,15 +273,18 @@ export function makeTerminalEventProbe(deps: TerminalEventProbeDeps): TerminalEv
 			partial = "";
 		}
 		if (size === offset) return false;
-		let text: string;
+		let chunk: { text: string; bytesRead: number };
 		try {
-			text = ioRead(fd, offset, size);
+			chunk = ioRead(fd, offset, size);
 		} catch {
 			return false; // race đọc giữa lúc truncate — offset giữ nguyên, thử lại
 		}
-		// Parity với EventLogTailSource.readFromOffset: offset tiến theo BYTE đọc.
-		offset += Buffer.byteLength(text);
-		return feed(text);
+		// Parity với EventLogTailSource.readFromOffset:193 — offset tiến theo SỐ
+		// BYTE thực đọc (bytesRead), KHÔNG theo byteLength(text): một poll cắt giữa
+		// multi-byte UTF-8 char làm toString nhét U+FFFD thay byte lead → byteLength
+		// lớn hơn bytesRead, mà nhảy quá ăn mất byte thật của poll kế.
+		offset += chunk.bytesRead;
+		return feed(chunk.text);
 	}
 
 	return Object.assign(probe, { foundPayload });
