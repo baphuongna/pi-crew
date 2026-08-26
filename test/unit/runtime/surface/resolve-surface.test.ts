@@ -233,7 +233,7 @@ test("async run (PI_CREW_ASYNC_RUN=1) → null — A1 force headless (spec §14)
 	assert.equal(resolveSurface(env, makeConfig(), "executor", 0, { tmuxBin: fakeBinary("tmux"), providers }), null);
 });
 
-test("wiring T3: không inject providers → tmux factory thật; herdr vẫn null (TODO T4)", () => {
+test("wiring T3/T4: không inject providers → factory thật cho cả tmux và herdr, mỗi kind một singleton", () => {
 	// tmux cell detect thành công, không inject → provider tmux thật (không null)
 	const tmux = resolveSurface(tmuxEnv, makeConfig(), "executor", 0, {
 		tmuxBin: fakeBinary("tmux"),
@@ -245,13 +245,19 @@ test("wiring T3: không inject providers → tmux factory thật; herdr vẫn nu
 		tmuxBin: fakeBinary("tmux"),
 	});
 	assert.equal(again, tmux);
-	// herdr detect thành công nhưng chưa có provider thật (T4) → vẫn null
+	// herdr cell detect thành công → provider herdr thật (T4), cùng singleton
+	const herdr = resolveSurface(herdrEnv, makeConfig(), "executor", 0, {
+		herdrBin: fakeBinary("herdr"),
+		pingSocket: () => true,
+	});
+	assert.equal(herdr?.kind, "herdr");
+	assert.notEqual(herdr, providers.herdr);
 	assert.equal(
 		resolveSurface(herdrEnv, makeConfig(), "executor", 0, {
 			herdrBin: fakeBinary("herdr"),
 			pingSocket: () => true,
 		}),
-		null,
+		herdr,
 	);
 });
 

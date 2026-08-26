@@ -12,12 +12,11 @@
  */
 
 import { execFileSync } from "node:child_process";
-import * as os from "node:os";
-import * as path from "node:path";
 import { Worker } from "node:worker_threads";
 
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { currentCrewDepth } from "../model/pi-args.ts";
+import { createHerdrProvider, herdrSocketPath } from "./herdr-provider.ts";
 import type { SurfaceProvider } from "./surface-provider.ts";
 import { createTmuxProvider } from "./tmux-provider.ts";
 
@@ -51,6 +50,8 @@ const binaryAvailability = new Map<string, boolean>();
 // tmux provider singleton — mọi pane của process này chia sẻ 1 onExit poll
 // interval trong provider, nên resolveSurface phải trả về cùng instance.
 let tmuxProviderSingleton: SurfaceProvider | null = null;
+// herdr provider singleton — tương tự: 1 subscription connection chung.
+let herdrProviderSingleton: SurfaceProvider | null = null;
 
 function hasBinary(bin: string): boolean {
 	const cached = binaryAvailability.get(bin);
@@ -66,14 +67,8 @@ function hasBinary(bin: string): boolean {
 	return available;
 }
 
-/**
- * herdr socket path: HERDR_SOCKET_PATH override, else the default herdr
- * config location. TODO(T4): align with the real herdr env contract
- * (HERDR_SESSION may influence the path).
- */
-function herdrSocketPath(env: NodeJS.ProcessEnv): string {
-	return env.HERDR_SOCKET_PATH ?? path.join(os.homedir(), ".config", "herdr", "herdr.sock");
-}
+// herdr socket path dùng chung contract từ provider (T4):
+// HERDR_SOCKET_PATH → HERDR_SESSION (sessions/<name>/) → default location.
 
 // The liveness probe runs in a Worker so the main thread can block on
 // Atomics.wait while the worker's event loop drives net.connect to
@@ -140,10 +135,9 @@ function pingSocketSync(socketPath: string, timeoutMs = HERDR_PING_TIMEOUT_MS): 
  *  6. auto: TMUX + binary → tmux, else HERDR_ENV + binary + live socket →
  *     herdr; forced mode only tries its own cell, fail → null
  *
- * Providers: tmux dùng createTmuxProvider (T3, singleton — chia sẻ 1 poll
- * interval cho mọi pane của process này); injected `opts.providers` thắng
- * cho test. TODO(T4): herdr provider thật — đến khi đó herdr cell detect
- * thành công vẫn trả null (headless).
+ * Providers: tmux dùng createTmuxProvider (T3), herdr dùng
+ * createHerdrProvider (T4) — mỗi kind một singleton để mọi pane của process
+ * này chia sẻ event subscription; injected `opts.providers` thắng cho test.
  */
 export function resolveSurface(
 	env: NodeJS.ProcessEnv,
@@ -181,13 +175,14 @@ export function resolveSurface(
 	}
 	if (kind === null) return null;
 
-	// Injected providers thắng (test); tmux mặc định dùng provider thật (T3);
-	// herdr chờ T4 — detect thành công vẫn headless.
+	// Injected providers thắng (test); mặc định dùng provider thật — mỗi kind
+	// một singleton để mọi pane của process này chia sẻ event subscription.
 	const injected = opts.providers?.[kind];
 	if (injected) return injected;
 	if (kind === "tmux") {
 		tmuxProviderSingleton ??= createTmuxProvider();
 		return tmuxProviderSingleton;
 	}
-	return null;
+	herdrProviderSingleton ??= createHerdrProvider();
+	return herdrProviderSingleton;
 }
