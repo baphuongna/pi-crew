@@ -31,7 +31,8 @@ export function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTea
 	}
 	if (base.nesting || override.nesting) {
 		// ADR-5: per-key user-wins deep merge — a partial user-side nesting block
-		// (e.g. just maxSlots) must not erase DEFAULT_NESTING.enabled=false.
+		// (e.g. just maxSlots) must not erase DEFAULT_NESTING.enabled (true since
+		// the D8 flip; explicit user false still wins as the kill switch).
 		merged.nesting = {
 			...(base.nesting ?? {}),
 			...withoutUndefined((override.nesting ?? {}) as Record<string, unknown>),
@@ -57,6 +58,15 @@ export function mergeConfig(base: PiTeamsConfig, override: PiTeamsConfig): PiTea
 			merged.runtime.modelFallback = {
 				...(base.runtime?.modelFallback ?? {}),
 				...withoutUndefined((override.runtime?.modelFallback ?? {}) as Record<string, unknown>),
+			};
+		}
+		// Spec v0.7 §8.1 (Task 6): same per-key treatment for the surface
+		// block — a user surface with only visibleAgents must not wholesale-
+		// erase a project surface.mode (the WP-2/R2 bug class).
+		if (base.runtime?.surface || override.runtime?.surface) {
+			merged.runtime.surface = {
+				...(base.runtime?.surface ?? {}),
+				...withoutUndefined((override.runtime?.surface ?? {}) as Record<string, unknown>),
 			};
 		}
 	}

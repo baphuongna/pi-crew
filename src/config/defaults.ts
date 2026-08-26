@@ -207,14 +207,19 @@ export const DEFAULT_BROKER = {
 
 /**
  * Governed-nesting defaults (ADR-5 docs/decisions/2026-08-17-governed-nesting.md §10).
- * `enabled` is DEFAULT FALSE — fail-closed until WP-5 completes (B3 battery +
- * security sign-off), then flipped to true. While false, the `delegate`
- * surface rejects with a structured policy message and a `delegate.rejected`
- * event in events.jsonl (never silent). `maxSlots` default is computed at the
- * spawn policy from the global worker semaphore: max(1, floor(globalSem/2)).
+ * `enabled` is DEFAULT TRUE since D8 (spec v0.7, 2026-08-26): the WP-5
+ * completion gate (B3 battery + security sign-off) passed and Task 3 opened
+ * the `delegate` role gate for every role, so nested spawning — child creates
+ * child — is on out of the box. The security border moved to the depth cap
+ * (maxDepth 4) + the nested-slot budget; `nesting.enabled: false` in USER
+ * config (sensitive — project config cannot flip it) closes the surface, and
+ * while closed `delegate` rejects with a structured policy message plus a
+ * `delegate.rejected` event in events.jsonl (never silent). `maxSlots` default
+ * is computed at the spawn policy from the global worker semaphore:
+ * max(1, floor(globalSem/2)).
  */
 export const DEFAULT_NESTING = {
-	enabled: false,
+	enabled: true,
 	// D8 (spec v0.7): nested spawning open — child creates child. Kept in
 	// lockstep with DEFAULT_MAX_CREW_DEPTH (pi-args) so the broker-admission
 	// depth gate and the spawn-side cap can never disagree.

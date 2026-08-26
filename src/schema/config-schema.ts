@@ -95,6 +95,17 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 		),
 		excludeContextBash: Type.Optional(Type.Boolean()),
 		agentExtensions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { sensitive: true })),
+		// Mux-surface policy (spec v0.7 §8.2.4): no sensitive marks — surface
+		// picks where worker processes live, not what they may do.
+		surface: Type.Optional(
+			Type.Object(
+				{
+					mode: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("tmux"), Type.Literal("herdr"), Type.Literal("off")])),
+					visibleAgents: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+				},
+				{ additionalProperties: false },
+			),
+		),
 		isolationPolicy: Type.Optional(
 			Type.Object(
 				{

@@ -226,8 +226,9 @@ export function projectPiCrewJsonPath(cwd: string): string {
  * config block, or default.
  */
 
-/** ADR-5 §10: layer DEFAULT_NESTING under any user-set keys — the
- *  fail-closed enabled=false default must hold when no nesting block exists. */
+/** ADR-5 §10: layer DEFAULT_NESTING under any user-set keys — the default-on
+ *  enabled=true (D8 flip) must hold when no nesting block exists, and an
+ *  explicit user `enabled: false` still wins as the kill switch. */
 function applyNestingDefaults(parsed: CrewNestingConfig | undefined): CrewNestingConfig {
 	return { ...DEFAULT_NESTING, ...parsed };
 }

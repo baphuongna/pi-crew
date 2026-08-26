@@ -1085,10 +1085,11 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 					// config.broker.waitMethodsEnabled a dead knob and the ADR-0
 					// "then true" flip a silent no-op. Fail-closed when unset.
 					waitMethodsEnabled: cfg?.waitMethodsEnabled ?? false,
-					// T3/R5 (ADR-5 §10): governed-nesting capability gate — fail-closed
-					// default; production threads config.nesting (sensitive: user config
-					// only). Nested-slot sizing + admission-time model catalog (ADR-5 §7 —
-					// the production wiring MUST supply it) + workspace gate mirror.
+					// T3/R5 (ADR-5 §10): governed-nesting capability gate — default-on
+					// since D8 (loadConfig layers DEFAULT_NESTING.enabled=true; sensitive
+					// flag, so only USER config may flip it). Nested-slot sizing +
+					// admission-time model catalog (ADR-5 §7 — the production wiring
+					// MUST supply it) + workspace gate mirror.
 					nestingEnabled: nestingCfg?.nesting?.enabled ?? false,
 					...(nestingCfg?.nesting?.maxSlots !== undefined ? { nestingMaxSlots: nestingCfg.nesting.maxSlots } : {}),
 					...(nestingCfg?.nesting?.maxDepth !== undefined ? { nestingMaxDepth: nestingCfg.nesting.maxDepth } : {}),

@@ -18,6 +18,10 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"runtime.promptMode": "replace",
 	"runtime.completionMutationGuard": "warn",
 	"runtime.isolationPolicy": undefined,
+	// Mux-surface policy (spec v0.7 §8.2.2): auto-detect tmux/herdr; A1 shows
+	// panes to nobody until visibleAgents opts roles in (["*"] at A2 GA).
+	"runtime.surface.mode": "auto",
+	"runtime.surface.visibleAgents": [],
 	"limits.maxConcurrentWorkers": 1024,
 	"limits.maxTaskDepth": 100,
 	"limits.maxRunMinutes": 1440,
@@ -152,6 +156,13 @@ const KNOWN_KEYS = new Set([
 	"runtime.completionMutationGuard",
 	"runtime.effectivenessGuard",
 	"runtime.isolationPolicy",
+	// Mux-surface policy (spec v0.7 §8.2.1)
+	"runtime.surface.mode",
+	"runtime.surface.visibleAgents",
+	// governed nesting (ADR-5 §10; default-on since D8 — user config may close)
+	"nesting.enabled",
+	"nesting.maxSlots",
+	"nesting.maxDepth",
 	// limits
 	"limits.maxConcurrentWorkers",
 	"limits.allowUnboundedConcurrency",

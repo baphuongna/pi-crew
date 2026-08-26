@@ -282,6 +282,24 @@ function parseIsolationPolicy(value: unknown): CrewRuntimeConfig["isolationPolic
 	};
 }
 
+/** Mux-surface policy (spec v0.7 §8.1) — mirrors the isolationPolicy parse
+ *  shape: unknown literals are dropped field-wise (never thrown), and an
+ *  all-invalid block collapses to undefined. */
+function parseSurfacePolicy(value: unknown): CrewRuntimeConfig["surface"] | undefined {
+	const obj = asRecord(value);
+	if (!obj) return undefined;
+	const mode = parseWithSchema(
+		Type.Union([Type.Literal("auto"), Type.Literal("tmux"), Type.Literal("herdr"), Type.Literal("off")]),
+		obj.mode,
+	);
+	const visibleAgents = parseStringList(obj.visibleAgents);
+	if (mode === undefined && visibleAgents === undefined) return undefined;
+	return {
+		...(mode !== undefined ? { mode } : {}),
+		...(visibleAgents !== undefined ? { visibleAgents } : {}),
+	};
+}
+
 /**
  * F19-1 (Round 19 parity): runtime.modelFallback was declared in types.ts and the
  * schema (PiTeamsModelFallbackConfigSchema) but parseRuntimeConfig never emitted
@@ -339,6 +357,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
 		agentExtensions: parseStringList(obj.agentExtensions),
 		isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
+		surface: parseSurfacePolicy(obj.surface),
 		modelFallback: parseModelFallbackConfig(obj.modelFallback),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;

@@ -89,9 +89,11 @@ export interface CrewBrokerOptions {
 	 *  `config.broker.waitMethodsEnabled` here; tests pass it explicitly. */
 	waitMethodsEnabled?: boolean;
 	/** T3/R5 (ADR-5 §10): capability gate for the `delegate` surface. DEFAULT
-	 *  FALSE — fail-closed until the WP-5 completion gate flips it. The
-	 *  production wiring threads `config.nesting.enabled` here; tests pass it
-	 *  explicitly. Rejections are NEVER silent (delegate.rejected event). */
+	 *  TRUE since D8 (spec v0.7) — nested spawning is open out of the box; the
+	 *  broker still fail-closes when the flag is anything but true. The
+	 *  production wiring threads `config.nesting.enabled` (loadConfig layers
+	 *  DEFAULT_NESTING.enabled=true; a user `false` closes the surface); tests
+	 *  pass it explicitly. Rejections are NEVER silent (delegate.rejected). */
 	nestingEnabled?: boolean;
 	/** Optional override for the nested-slot budget size (config nesting.maxSlots). */
 	nestingMaxSlots?: number;
@@ -1499,17 +1501,19 @@ export class CrewBroker {
 			this.sendError(conn, id, "no-manifest", (err as Error).message);
 			return;
 		}
-		// Capability gate (ADR-5 §10): fail-closed, NEVER silent.
+		// Capability gate (ADR-5 §10): fail-closed, NEVER silent. Since the D8
+		// flip the DEFAULT is true, so reaching this branch means the user
+		// closed the surface via config — the message points back at the knob.
 		if (this.options.nestingEnabled !== true) {
 			this.recordDelegateEvent(loaded.manifest, "delegate.rejected", conn.taskId, {
 				reason: "nesting-disabled",
-				policy: "nesting.enabled=false (fail-closed default)",
+				policy: "nesting.enabled=false (user config; default is true since D8)",
 			});
 			this.sendError(
 				conn,
 				id,
 				"policy-disabled",
-				"delegate is disabled: nesting.enabled=false (fail-closed default; delegate.rejected recorded in events.jsonl)",
+				"delegate is disabled: nesting.enabled=false (set nesting.enabled=true in user config; delegate.rejected recorded in events.jsonl)",
 			);
 			return;
 		}

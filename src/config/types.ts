@@ -85,6 +85,21 @@ export interface CrewRuntimeConfig {
 	};
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens. Default: false */
 	excludeContextBash?: boolean;
+	/**
+	 * Mux-surface policy (mux-surface spec v0.7 §8.1): WHERE worker processes
+	 * live — a pane in tmux/herdr or headless child processes. Surface only
+	 * picks the process home; scheduler, broker, and state-on-disk are
+	 * unaffected. Not sensitive — any config tier may set it.
+	 */
+	surface?: {
+		/** auto = detect tmux/herdr and use panes when present, else headless.
+		 *  "tmux"/"herdr" force a backend (detect fail → headless + warning
+		 *  event, never a throw). "off" disables panes entirely. Default: "auto". */
+		mode?: "auto" | "tmux" | "herdr" | "off";
+		/** Exact-match agent/role names that get a surface pane; ["*"] = all.
+		 *  Default: [] in A1 (surface visible to nobody until opted in). */
+		visibleAgents?: string[];
+	};
 	/** Subagent model fallback policy: auto-tail ordering, cap, credential filtering, default model. */
 	modelFallback?: CrewModelFallbackConfig;
 }

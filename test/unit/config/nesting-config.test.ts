@@ -2,16 +2,18 @@
  * Governed-nesting config plumbing (ADR-5 §10, WP-5 step 2).
  *
  * Pins:
- * - `nesting.enabled` DEFAULT FALSE — fail-closed until the WP-5 completion
- *   gate (B3 battery + security sign-off) flips it. This is the security
- *   posture of the whole feature: the `delegate` surface must stay dormant.
+ * - `nesting.enabled` DEFAULT TRUE since D8 (spec v0.7, 2026-08-26): the
+ *   WP-5 completion gate (B3 battery + security sign-off) passed and Task 3
+ *   opened the `delegate` role gate, so nested spawning is on out of the box.
+ *   The security border is now the depth cap (default 4) + nested-slot
+ *   budget, not the master switch. Users can still close it via
+ *   `nesting.enabled: false` in USER config.
  * - parse: valid blocks pass; out-of-range / wrong-typed values are dropped
  *   (never thrown as raw), matching the LIMIT_CEILINGS pattern.
  * - merge: per-key user-wins deep merge — a partial user block must NOT erase
- *   the fail-closed default (the broker wholesale-replacement bug class,
- *   WP-2/R2).
+ *   the default (the broker wholesale-replacement bug class, WP-2/R2).
  * - `nesting.enabled` is `sensitive: true` → project-level config cannot
- *   enable delegation (privilege-raising flag, user config only).
+ *   flip delegation (privilege-raising flag, user config only).
  * - schema.json carries the same nesting sub-schema as the TypeBox schema.
  */
 
@@ -25,8 +27,8 @@ import { DEFAULT_NESTING } from "../../../src/config/defaults.ts";
 import { PiTeamsConfigSchema } from "../../../src/schema/config-schema.ts";
 import { collectSensitiveConfigPaths } from "../../../src/schema/sensitive-config-paths.ts";
 
-test("DEFAULT_NESTING is fail-closed: enabled=false, maxDepth=4 (ADR-5 §10 + D8)", () => {
-	assert.equal(DEFAULT_NESTING.enabled, false);
+test("DEFAULT_NESTING is default-on: enabled=true, maxDepth=4 (ADR-5 §10 + D8 flip)", () => {
+	assert.equal(DEFAULT_NESTING.enabled, true);
 	// D8 (spec v0.7): maxDepth kept in lockstep with DEFAULT_MAX_CREW_DEPTH so
 	// the broker-admission gate and spawn-side cap never disagree.
 	assert.equal(DEFAULT_NESTING.maxDepth, 4);
@@ -60,10 +62,16 @@ test("parseConfig: boundaries 1 and 64 / 1 and 10 accepted", () => {
 	assert.equal(parseConfig({ nesting: { maxDepth: 10 } }).nesting?.maxDepth, 10);
 });
 
-test("mergeConfig: partial user nesting block does not erase the fail-closed default", () => {
+test("mergeConfig: partial user nesting block does not erase the default-on enabled", () => {
 	const base = { nesting: { ...DEFAULT_NESTING } };
 	const merged = mergeConfig(base, { nesting: { maxSlots: 4 } });
-	assert.deepEqual(merged.nesting, { enabled: false, maxDepth: 4, maxSlots: 4 });
+	assert.deepEqual(merged.nesting, { enabled: true, maxDepth: 4, maxSlots: 4 });
+});
+
+test("mergeConfig: explicit user enabled=false still closes delegation (kill switch)", () => {
+	const base = { nesting: { ...DEFAULT_NESTING } };
+	const merged = mergeConfig(base, { nesting: { enabled: false } });
+	assert.deepEqual(merged.nesting, { enabled: false, maxDepth: 4 });
 });
 
 test("mergeConfig: explicit user enabled=true wins over the default", () => {
