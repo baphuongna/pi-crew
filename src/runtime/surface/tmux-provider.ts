@@ -232,29 +232,40 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 		async createSurface(_name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle> {
 			let targetWindow: string;
 			let directionFlag: string;
+			// Tab-map chỉ ghi sau khi split-window THÀNH CÔNG — nếu split fail,
+			// paneCount không đếm pane không tồn tại (luân phiên không lệch bước
+			// ở lần retry kế tiếp).
+			let commitTabPane: (() => void) | null = null;
 			if (opts.tabKey) {
 				// Tab-layout: mọi worker của cùng run chia 1 window (tab), split
 				// dọc/ngang xen kẽ theo pane index trong tab (spec tab-layout §4).
-				const existing = tabWindows.get(opts.tabKey);
+				const tabKey = opts.tabKey;
+				const existing = tabWindows.get(tabKey);
 				if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
-					existing.paneCount += 1;
+					const paneIndexInTab = existing.paneCount;
 					targetWindow = existing.windowId;
-					directionFlag = splitDirectionFor(existing.paneCount - 1) === "down" ? "-v" : "-h";
+					directionFlag = splitDirectionFor(paneIndexInTab) === "down" ? "-v" : "-h";
+					commitTabPane = () => {
+						existing.paneCount = paneIndexInTab + 1;
+					};
 				} else {
 					// Tab mới cho run (hoặc tab cũ đã đầy MAX_PANES_PER_TAB) — window riêng.
-					const windowId = tmux(["new-window", "-P", "-F", "#{window_id}"]).trim();
+					// -d: window mới không thành current window — không steal focus client.
+					const windowId = tmux(["new-window", "-d", "-P", "-F", "#{window_id}"]).trim();
 					if (!/^@\d+$/.test(windowId)) {
 						throw new Error(`Unexpected tmux new-window output: ${JSON.stringify(windowId)}`);
 					}
-					const label = opts.title ?? opts.tabKey;
+					const label = opts.title ?? tabKey;
 					try {
 						tmux(["rename-window", "-t", windowId, label]);
 					} catch {
 						// rename là cosmetic — pane vẫn dùng được.
 					}
-					tabWindows.set(opts.tabKey, { windowId, paneCount: 1 });
 					targetWindow = windowId;
 					directionFlag = splitDirectionFor(0) === "down" ? "-v" : "-h";
+					commitTabPane = () => {
+						tabWindows.set(tabKey, { windowId, paneCount: 1 });
+					};
 				}
 			} else {
 				// Đường legacy (spawn ngoài run): split từ pane cha để pane đi theo
@@ -271,6 +282,7 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 			if (!/^%\d+$/.test(paneId)) {
 				throw new Error(`Unexpected tmux split-window output: ${JSON.stringify(raw)}`);
 			}
+			commitTabPane?.();
 			if (opts.title) {
 				try {
 					tmux(["select-pane", "-t", paneId, "-T", opts.title]);

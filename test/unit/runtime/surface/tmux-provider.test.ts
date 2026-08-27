@@ -175,6 +175,7 @@ test("tabKey per-run: worker đầu tạo window mới + rename; splitIndex quy�
 	const newWin = calls.find((a) => a[0] === "new-window");
 	assert.ok(newWin, "phải tạo window mới cho run mới");
 	assert.ok(newWin?.includes("-P"), "new-window -P để lấy window id");
+	assert.ok(newWin?.includes("-d"), "new-window -d để window mới không steal focus client");
 	const rename = calls.find((a) => a[0] === "rename-window");
 	assert.ok(rename, "phải rename window theo tab label");
 	// splitIndex 0 → down → split-window phải là -v (không phải -h)
@@ -214,6 +215,40 @@ test("tabKey per-run: đủ 8 pane trong tab → worker kế tiếp mở window 
 	const splits = calls.filter((a) => a[0] === "split-window");
 	const lastSplit = splits[splits.length - 1];
 	assert.ok(lastSplit?.includes("@2"), `worker thứ 9 phải split vào window mới @2, nhận: ${JSON.stringify(lastSplit)}`);
+});
+
+test("tabKey per-run: split-window fail sau khi mở window mới → retry mở window mới, không lệch bước luân phiên", async () => {
+	const calls: string[][] = [];
+	let windowSeq = 0;
+	let splitShouldFail = true;
+	const provider = createTmuxProvider({
+		env: { TMUX: "/tmp/tmux,test,0", TMUX_PANE: "%0" },
+		tmux: (args) => {
+			calls.push(args);
+			if (args[0] === "new-window") {
+				windowSeq += 1;
+				return `@${windowSeq}\n`;
+			}
+			if (args[0] === "split-window") {
+				if (splitShouldFail) throw new Error("split failed");
+				return `%${100 + calls.length}\n`;
+			}
+			return "";
+		},
+	});
+	// Lần 1: window @1 mở xong nhưng split fail — provider throw, tab chưa ghi map.
+	await assert.rejects(() => provider.createSurface("w0", { cwd: "/w", tabKey: "runC", splitIndex: 0 }), /split failed/);
+	assert.equal(windowSeq, 1);
+	// Lần 2 (retry): tab chưa có pane nào → phải mở window mới @2 (không reuse @1
+	// với paneCount đã đếm pane fail), pane đầu vẫn là -v.
+	splitShouldFail = false;
+	const h = await provider.createSurface("w0", { cwd: "/w", tabKey: "runC", splitIndex: 0 });
+	assert.equal(h.kind, "tmux");
+	assert.equal(windowSeq, 2, "tab chưa có pane → mở window mới chứ không reuse window của lần fail");
+	const splits = calls.filter((a) => a[0] === "split-window");
+	const lastSplit = splits[splits.length - 1];
+	assert.ok(lastSplit?.includes("-v"), `pane đầu của window mới phải -v (down), nhận: ${JSON.stringify(lastSplit)}`);
+	assert.ok(lastSplit?.includes("@2"), `retry phải split vào window mới @2, nhận: ${JSON.stringify(lastSplit)}`);
 });
 
 test("readScreen: capture-pane -p -t id -S -<lines>; default 50", async () => {
