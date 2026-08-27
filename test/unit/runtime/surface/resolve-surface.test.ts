@@ -14,7 +14,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import type { PiTeamsConfig } from "../../../../src/config/types.ts";
-import { MAX_SURFACE_WORKERS, resolveSurface } from "../../../../src/runtime/surface/resolve-surface.ts";
+import { MAX_SURFACE_WORKERS, resolveSurface, resolveSurfaceDetailed } from "../../../../src/runtime/surface/resolve-surface.ts";
 import type { SurfaceHandle, SurfaceProvider } from "../../../../src/runtime/surface/surface-provider.ts";
 
 let binDir: string;
@@ -286,4 +286,67 @@ test("default pingSocket: socket thật sống → herdr; socket chết → null
 	} finally {
 		server.close();
 	}
+});
+
+// ── FINDING-3 (report 10tier 2026-08-27): gate-null path phải trả LÝ DO,    ──
+// không chỉ null câm — telemetry worker.surface_gate_blocked phân biệt
+// "headless vì misconfig" với "headless vì đúng thiết kế".
+
+test("resolveSurfaceDetailed: mỗi gate trả rejection {gate, reason, env} đúng thứ tự matrix", () => {
+	const tmuxOpts = { tmuxBin: fakeBinary("tmux"), providers } as const;
+
+	// mode off
+	let res = resolveSurfaceDetailed(tmuxEnv, makeConfig({ mode: "off" }), "executor", 0, tmuxOpts);
+	assert.equal(res.provider, null);
+	assert.equal(res.rejection?.gate, "mode-off");
+
+	// async run
+	res = resolveSurfaceDetailed({ ...tmuxEnv, PI_CREW_ASYNC_RUN: "1" }, makeConfig(), "executor", 0, tmuxOpts);
+	assert.equal(res.rejection?.gate, "async-run");
+
+	// depth (host là worker → pane-in-pane)
+	res = resolveSurfaceDetailed({ ...tmuxEnv, PI_CREW_DEPTH: "1" }, makeConfig(), "executor", 0, tmuxOpts);
+	assert.equal(res.rejection?.gate, "depth");
+	assert.equal(res.rejection?.env.depth, 1, "env snapshot phải mang depth thật");
+	assert.match(res.rejection?.reason ?? "", /DEPTH=1/);
+
+	// pane cap
+	res = resolveSurfaceDetailed(tmuxEnv, makeConfig(), "executor", MAX_SURFACE_WORKERS, tmuxOpts);
+	assert.equal(res.rejection?.gate, "pane-cap");
+
+	// role không nằm trong visibleAgents
+	res = resolveSurfaceDetailed(tmuxEnv, makeConfig({ visibleAgents: ["planner"] }), "executor", 0, tmuxOpts);
+	assert.equal(res.rejection?.gate, "role-not-visible");
+	assert.match(res.rejection?.reason ?? "", /executor/);
+
+	// không mux nào sống (auto) → no-mux kèm lý do từng cell
+	res = resolveSurfaceDetailed(baseEnv, makeConfig(), "executor", 0, {
+		tmuxBin: fakeBinary("tmux"),
+		herdrBin: fakeBinary("herdr"),
+		pingSocket: () => true,
+		providers,
+	});
+	assert.equal(res.rejection?.gate, "no-mux");
+	assert.match(res.rejection?.reason ?? "", /TMUX unset/, `reason phải kể vì sao tmux cell fail: ${res.rejection?.reason}`);
+	assert.match(res.rejection?.reason ?? "", /HERDR_ENV/, `reason phải kể vì sao herdr cell fail: ${res.rejection?.reason}`);
+	assert.deepEqual(res.rejection?.env, { tmux: false, herdrEnv: false, asyncRun: false, depth: 0 });
+
+	// forced mode fail → vẫn no-mux nhưng reason nhắc mode ép
+	res = resolveSurfaceDetailed(baseEnv, makeConfig({ mode: "herdr" }), "executor", 0, {
+		herdrBin: missingBinary(),
+		pingSocket: () => true,
+		providers,
+	});
+	assert.equal(res.rejection?.gate, "no-mux");
+	assert.match(res.rejection?.reason ?? "", /"herdr"/);
+
+	// thành công → provider, KHÔNG rejection
+	res = resolveSurfaceDetailed(tmuxEnv, makeConfig(), "executor", 0, tmuxOpts);
+	assert.equal(res.provider?.kind, "tmux");
+	assert.equal(res.rejection, undefined, "success không được mang rejection");
+});
+
+test("resolveSurface wrapper giữ contract cũ provider|null (delegate resolveSurfaceDetailed)", () => {
+	assert.equal(resolveSurface(baseEnv, makeConfig(), "executor", 0, { providers }), null);
+	assert.equal(resolveSurface(tmuxEnv, makeConfig(), "executor", 0, { tmuxBin: fakeBinary("tmux"), providers })?.kind, "tmux");
 });

@@ -169,7 +169,10 @@ function baseInput(overrides: Partial<PrepareSurfaceSpawnInput> = {}): PrepareSu
 	};
 }
 
-function assertHeadless(outcome: Awaited<ReturnType<typeof prepareSurfaceSpawn>>, reasonPattern?: RegExp): void {
+function assertHeadless(
+	outcome: Awaited<ReturnType<typeof prepareSurfaceSpawn>>,
+	reasonPattern?: RegExp,
+): asserts outcome is Extract<Awaited<ReturnType<typeof prepareSurfaceSpawn>>, { mode: "headless" }> {
 	assert.equal(outcome.mode, "headless", JSON.stringify(outcome));
 	if (!reasonPattern || outcome.mode !== "headless") return;
 	assert.ok(outcome.reason !== undefined, "fallback headless phải ghi lý do nội bộ");
@@ -308,7 +311,7 @@ test("depth > 0 in detection env → headless (guard lớp 1), no pane created",
 	const input = baseInput({ env: { ...HOST_ENV, PI_CREW_DEPTH: "2" }, livePaneCount: 3 });
 	input.deps!.resolve!.providers!.tmux = provider;
 	const outcome = await prepareSurfaceSpawn(input);
-	assertHeadless(outcome, /null|gated|resolution/i);
+	assertHeadless(outcome, /gate "depth"/);
 	assert.deepEqual(provider.calls, [], "không được đụng provider khi guard chặn trước");
 });
 
@@ -317,7 +320,7 @@ test("livePaneCount >= MAX_SURFACE_WORKERS → headless", async () => {
 	const input = baseInput({ livePaneCount: MAX_SURFACE_WORKERS });
 	input.deps!.resolve!.providers!.tmux = provider;
 	const outcome = await prepareSurfaceSpawn(input);
-	assertHeadless(outcome, /null|gated|resolution/i);
+	assertHeadless(outcome, /gate "pane-cap"/);
 	assert.deepEqual(provider.calls, []);
 	assert.equal(MAX_SURFACE_WORKERS, 6);
 });
@@ -477,7 +480,8 @@ function spawnedOutcomeFor(provider: ReturnType<typeof fakeProvider>) {
 
 test("I-1: abort force-close with a silent pane resolves synthetic exit within the grace window", async () => {
 	const provider = fakeProvider();
-	provider.handle.onExit = () => {}; // KHÔNG BAO GIỜ bắn — đúng kịch bản herdr race
+	// biome-ignore lint/suspicious/noEmptyBlockStatements: cố tình im lặng — KHÔNG BAO GIỜ bắn, đúng kịch bản herdr race
+	provider.handle.onExit = () => {};
 	const controller = new AbortController();
 	setTimeout(() => controller.abort(), 10);
 	const started = Date.now();
@@ -501,6 +505,7 @@ test("I-1: abort force-close with a silent pane resolves synthetic exit within t
 
 test("I-1: deadline force-close on a silent pane also resolves via the same fallback", async () => {
 	const provider = fakeProvider({ withoutSendCommand: false });
+	// biome-ignore lint/suspicious/noEmptyBlockStatements: cố tình im lặng — pane không bao giờ bắn exit
 	provider.handle.onExit = () => {};
 	let hung = false;
 	const info = await Promise.race([
@@ -536,4 +541,41 @@ test("I-1: real onExit arriving after force-close still wins over the synthetic 
 	assert.ok(info !== "hung");
 	assert.equal(info.synthetic, undefined, "exit THẬT thắng — không được gắn cờ tổng hợp");
 	assert.equal(info.reason, "pane-closed");
+});
+
+// ── FINDING-3 (report 10tier 2026-08-27): outcome headless phải mang LÝ DO  ──
+// gate chi tiết để child-pi emit worker.surface_gate_blocked — phân biệt
+// "gate chặn" với "mux probe fail thật" (attempted).
+
+test("gate rejection đi theo outcome headless: resolve path + pre-resolved hard gate, KHÔNG attempted", async () => {
+	// resolve path — depth gate (không pre-resolved provider)
+	let input = baseInput({ env: { ...HOST_ENV, PI_CREW_DEPTH: "2" } });
+	input.deps!.resolve!.providers!.tmux = fakeProvider();
+	let outcome = await prepareSurfaceSpawn(input);
+	assertHeadless(outcome, /depth/);
+	assert.equal(outcome.gateRejected?.gate, "depth", JSON.stringify(outcome.gateRejected));
+	assert.equal(outcome.attempted, undefined, "gate chặn KHÔNG phải spawn-fail — không đếm lockout");
+
+	// pre-resolved provider + async hard gate → gateRejected từ lớp guard 1
+	input = baseInput({ env: { ...HOST_ENV, PI_CREW_ASYNC_RUN: "1" }, deps: { provider: fakeProvider() } });
+	outcome = await prepareSurfaceSpawn(input);
+	assertHeadless(outcome);
+	assert.equal(outcome.gateRejected?.gate, "async-run", JSON.stringify(outcome.gateRejected));
+	assert.equal(outcome.gateRejected?.env.asyncRun, true);
+
+	// mux thật fail SAU khi resolve (createSurface throw) → attempted, KHÔNG gateRejected
+	input = baseInput();
+	input.deps!.resolve!.providers!.tmux = fakeProvider({ failCreate: new Error("split failed") });
+	outcome = await prepareSurfaceSpawn(input);
+	assertHeadless(outcome, /split failed/);
+	assert.equal(outcome.attempted, true);
+	assert.equal(outcome.gateRejected, undefined, "spawn-fail thật không phải gate — để counter lockout xử lý");
+
+	// thành công surface → không gateRejected (type đã đảm bảo field chỉ ở
+	// nhánh headless; cast để vẫn pin runtime)
+	input = baseInput();
+	input.deps!.resolve!.providers!.tmux = fakeProvider();
+	outcome = await prepareSurfaceSpawn(input);
+	if (outcome.mode !== "surface") throw new Error(`expected surface, got ${outcome.mode}`);
+	assert.equal((outcome as { gateRejected?: unknown }).gateRejected, undefined);
 });

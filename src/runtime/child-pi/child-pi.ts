@@ -15,6 +15,7 @@ import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import { EventLogTailSource } from "../event-log-tail-source.ts";
 import { bridgeEventFromJsonEvent } from "../event-stream-bridge.ts";
 import { classifyOnExit, getSurfaceRuntimeController, makeTerminalEventProbe } from "../surface/degrade.ts";
+import type { SurfaceGateEnvSnapshot } from "../surface/resolve-surface.ts";
 import type { SurfaceProvider } from "../surface/surface-provider.ts";
 import { prepareSurfaceSpawn, type SurfaceExitInfo, type SurfaceSpawnOutcome, waitForSurfaceExit } from "../surface/surface-spawn.ts";
 import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
@@ -97,7 +98,12 @@ export interface ChildPiLifecycleEvent {
 		| "surface_closed"
 		/** T11 (spec §7): a REAL surface spawn attempt failed → headless fallback
 		 *  + the run-scoped spawn-fail lockout counter (3 consecutive → OFF). */
-		| "surface_spawn_failed";
+		| "surface_spawn_failed"
+		/** FINDING-3 (report 10tier 2026-08-27): a gate rejected surface BEFORE
+		 *  touching the mux (mode-off/async-run/depth/pane-cap/role-not-visible/
+		 *  no-mux). Emitted ONLY when the user opted into surface
+		 *  (visibleAgents non-empty) — default runs stay silent. */
+		| "surface_gate_blocked";
 	/** Process ID when available. */
 	pid?: number;
 	/** Pane id (surface events). */
@@ -106,6 +112,10 @@ export interface ChildPiLifecycleEvent {
 	surfaceKind?: "tmux" | "herdr";
 	/** Why the pane ended / degraded (surface_closed): "pane-closed" | "mux-dead" | "detached". */
 	paneExitReason?: string;
+	/** Which gate rejected surface (surface_gate_blocked): one of the SurfaceGateName values. */
+	gate?: string;
+	/** Env signals the gate saw (surface_gate_blocked) — bounded snapshot, never the whole env. */
+	env?: SurfaceGateEnvSnapshot;
 	/** Exit code for exit/close events. */
 	exitCode?: number | null;
 	/** Error message for error events. */
@@ -378,6 +388,7 @@ async function trySurfaceBranch(
 	const taskId = input.agentId;
 	const degradeController = getSurfaceRuntimeController(input.runId);
 	if (degradeController && !degradeController.shouldAttemptSurface()) return null;
+	const surfaceConfig = surfaceOpts?.config ?? safeLoadSurfaceConfig(input.cwd);
 	let outcome: SurfaceSpawnOutcome;
 	try {
 		outcome = await prepareSurfaceSpawn({
@@ -386,7 +397,7 @@ async function trySurfaceBranch(
 			// guard would misfire on our own tier-1 workers.
 			env: depthEnv ?? process.env,
 			workerEnv: buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model).env as Record<string, string>,
-			config: surfaceOpts?.config ?? safeLoadSurfaceConfig(input.cwd),
+			config: surfaceConfig,
 			role: input.role ?? input.agent.name,
 			livePaneCount: degradeController ? degradeController.livePaneCount() : (surfaceOpts?.livePaneCount ?? 0),
 			taskId,
@@ -413,6 +424,25 @@ async function trySurfaceBranch(
 				error: outcome.reason,
 				ts: new Date().toISOString(),
 			});
+		}
+		// FINDING-3 (report 10tier 2026-08-27 adjudication): the gate-null path
+		// used to be completely silent — a misconfigured surface run (wrong
+		// visibleAgents, mode typo, …) was indistinguishable from a by-design
+		// headless run in events.jsonl. Emit ONLY when the user opted into
+		// surface (visibleAgents non-empty) so default runs gain zero noise.
+		// The lockout path above stays silent here — its cause already emitted
+		// surface.degraded events on the way to locking.
+		if (outcome.mode === "headless" && outcome.gateRejected) {
+			const visibleAgents = surfaceConfig.runtime?.surface?.visibleAgents ?? [];
+			if (visibleAgents.length > 0) {
+				input.onLifecycleEvent?.({
+					type: "surface_gate_blocked",
+					gate: outcome.gateRejected.gate,
+					error: outcome.gateRejected.reason,
+					env: outcome.gateRejected.env,
+					ts: new Date().toISOString(),
+				});
+			}
 		}
 		return null;
 	}
@@ -557,6 +587,13 @@ async function trySurfaceBranch(
 		},
 	};
 }
+
+/**
+ * Test seam — trySurfaceBranch là internal wiring giữa prepareSurfaceSpawn và
+ * lifecycle events (surface_gate_blocked). Mock mode intercepts runChildPi
+ * BEFORE this branch, so unit tests exercise the wiring through this export.
+ */
+export const __test__trySurfaceBranch = trySurfaceBranch;
 
 export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResult> {
 	// Phase 1 (live-session parity): prepend parent context when inheritContext is true.

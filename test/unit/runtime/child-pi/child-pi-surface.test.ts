@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../../../../src/runtime/child-pi/child-pi.ts";
-import { runChildPi } from "../../../../src/runtime/child-pi/child-pi.ts";
+import { __test__trySurfaceBranch, runChildPi } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { __test_getTrackedTempDirs } from "../../../../src/runtime/model/pi-args.ts";
 import { CLASSIFY_TIMEOUT_MS } from "../../../../src/runtime/surface/degrade.ts";
 import type {
@@ -451,7 +451,8 @@ test("I-1: abort with a never-firing onExit still resolves the run via synthetic
 		const controller = new AbortController();
 		const provider = fakeSurfaceProvider();
 		provider.autoExitAfterSend = false;
-		provider.handle.onExit = () => {}; // chết trước subscription — không event nào
+		// biome-ignore lint/suspicious/noEmptyBlockStatements: cố tình im lặng — pane chết trước subscription, đúng kịch bản herdr race
+		provider.handle.onExit = () => {};
 		let hung = false;
 		const done = runChildPi(
 			makeRunInput(workRoot, {
@@ -475,6 +476,72 @@ test("I-1: abort with a never-firing onExit still resolves the run via synthetic
 		assert.deepEqual(provider.closeCalls, [{ force: true }]);
 		assert.equal(result.aborted, true);
 		assert.equal(result.exitCode, null);
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
+// ── FINDING-3 (report 10tier 2026-08-27 adjudication): gate-null path     ──
+// trước đây câm hoàn toàn — "headless vì misconfig" không thể phân biệt với
+// "headless vì đúng thiết kế" (report 10tier đọc nhầm 10b thành headless từ
+// chính khoảng câm này). Giờ nhánh surface phát lifecycle surface_gate_blocked
+// — nhưng CHỈ khi user đã opt-in surface (visibleAgents non-empty) để default
+// runs không sinh noise.
+
+test("FINDING-3: gate block emits surface_gate_blocked lifecycle (visibleAgents opt-in), env snapshot kèm theo", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const lifecycle: ChildPiLifecycleEvent[] = [];
+		const gateEnv = {
+			...process.env,
+			PI_CREW_DEPTH: "1", // host depth 1 → gate depth (no pane-in-pane)
+			TMUX: undefined,
+			TMUX_PANE: undefined,
+			HERDR_ENV: undefined,
+			PI_CREW_ASYNC_RUN: undefined,
+		} as NodeJS.ProcessEnv;
+		const result = await __test__trySurfaceBranch(
+			makeRunInput(workRoot, {
+				onLifecycleEvent: (event: ChildPiLifecycleEvent) => lifecycle.push(event),
+				surface: { config: { runtime: { surface: { visibleAgents: ["executor"] } } }, baseDir: launchDir },
+			}),
+			gateEnv,
+			["--mode", "json", "-p", "task"],
+			{},
+			{},
+			undefined,
+		);
+		assert.equal(result, null, "gate block → headless fall-through");
+		const blocked = lifecycle.find((event) => event.type === "surface_gate_blocked");
+		assert.ok(blocked, `phải emit surface_gate_blocked, nhận: ${JSON.stringify(lifecycle.map((e) => e.type))}`);
+		assert.equal(blocked?.gate, "depth");
+		assert.equal(blocked?.env?.depth, 1);
+		assert.match(blocked?.error ?? "", /DEPTH=1/);
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
+test("FINDING-3: KHÔNG emit khi surface chưa opt-in (visibleAgents []) — default runs không noise", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const lifecycle: ChildPiLifecycleEvent[] = [];
+		const noMuxEnv = { ...process.env, TMUX: undefined, TMUX_PANE: undefined, HERDR_ENV: undefined } as NodeJS.ProcessEnv;
+		await __test__trySurfaceBranch(
+			makeRunInput(workRoot, {
+				onLifecycleEvent: (event: ChildPiLifecycleEvent) => lifecycle.push(event),
+				surface: { baseDir: launchDir }, // không config → visibleAgents [] (default)
+			}),
+			noMuxEnv,
+			["--mode", "json", "-p", "task"],
+			{},
+			{},
+			undefined,
+		);
+		assert.ok(
+			!lifecycle.some((event) => event.type === "surface_gate_blocked"),
+			`default run phải im lặng về surface, nhận: ${JSON.stringify(lifecycle.map((e) => e.type))}`,
+		);
 	} finally {
 		cleanup(workRoot, launchDir);
 	}

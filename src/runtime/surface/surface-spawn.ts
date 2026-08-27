@@ -32,8 +32,8 @@ import { currentCrewDepth, getPiTempBase } from "../model/pi-args.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
 import { procStartTimeTicks } from "../process/proc-stat.ts";
 import { buildLaunchScript, launchScriptRegistry, shellEscape, sweepLaunchScripts } from "./launch-script.ts";
-import type { ResolveSurfaceOpts } from "./resolve-surface.ts";
-import { resolveSurface } from "./resolve-surface.ts";
+import type { ResolveSurfaceOpts, SurfaceGateRejection, SurfaceResolution } from "./resolve-surface.ts";
+import { resolveSurfaceDetailed, surfaceGateEnvSnapshot } from "./resolve-surface.ts";
 import type { SurfaceExitReason, SurfaceHandle, SurfaceProvider } from "./surface-provider.ts";
 
 /** Dependencies injectable — test/thăm dò không cần mux thật. */
@@ -106,6 +106,14 @@ export type SurfaceSpawnOutcome =
 			 * riêng của spec §7 ("Spawn-fail ≠ flap, nhưng có lockout riêng").
 			 */
 			attempted?: boolean;
+			/**
+			 * Gate nào đã chặn TRƯỚC khi đụng mux (FINDING-3, report 10tier
+			 * 2026-08-27): mode-off/async-run/depth/pane-cap/role-not-visible/
+			 * no-mux. KHÔNG đặt khi `attempted` (mux probe fail thật là chuyện
+			 * của counter spawn-fail, không phải gate). Child-pi đọc field này
+			 * để phát lifecycle `surface_gate_blocked` vào run events.
+			 */
+			gateRejected?: SurfaceGateRejection;
 	  };
 
 /**
@@ -183,7 +191,7 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 				? "PI_CREW_ASYNC_RUN=1"
 				: `host depth ${currentCrewDepth(input.env)} > 0`
 			: null;
-	let provider: SurfaceProvider | null | undefined;
+	let resolution: SurfaceResolution;
 	try {
 		if (hardGated && input.deps?.provider !== undefined) {
 			logInternalError(
@@ -192,21 +200,37 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 				"fail-closed §3",
 				"warn",
 			);
-			return { mode: "headless", reason: `surface gated by ${hardGated}` };
+			return {
+				mode: "headless",
+				reason: `surface gated by ${hardGated}`,
+				gateRejected: {
+					gate: input.env.PI_CREW_ASYNC_RUN === "1" ? "async-run" : "depth",
+					reason: `surface gated by ${hardGated}`,
+					env: surfaceGateEnvSnapshot(input.env),
+				},
+			};
 		}
-		provider =
+		resolution =
 			input.deps?.provider !== undefined
-				? input.deps.provider
-				: resolveSurface(input.env, input.config, input.role, input.livePaneCount, input.deps?.resolve);
+				? { provider: input.deps.provider }
+				: resolveSurfaceDetailed(input.env, input.config, input.role, input.livePaneCount, input.deps?.resolve);
 	} catch (error) {
 		logInternalError("surface-spawn.resolve", error instanceof Error ? error : new Error(String(error)), "resolveSurface threw");
 		return { mode: "headless", reason: `surface resolution threw: ${error instanceof Error ? error.message : String(error)}` };
 	}
-	if (!provider) {
-		// Lý do cụ thể (depth/cap/async/mode/mux thiếu) thuộc về matrix T2 — ở đây
-		// chỉ ghi rằng resolution trả null, đủ để trace escalation về headless.
-		return { mode: "headless", reason: "surface resolution returned null (mode/depth/async/cap/role gate or no mux)" };
+	if (!resolution.provider) {
+		// Lý do cụ thể (depth/cap/async/mode/mux thiếu) đến từ matrix T2 —
+		// rejection đi theo outcome để child-pi phát surface_gate_blocked.
+		const rejection = resolution.rejection;
+		return {
+			mode: "headless",
+			reason: rejection
+				? `surface gate "${rejection.gate}": ${rejection.reason}`
+				: "surface resolution returned null (mode/depth/async/cap/role gate or no mux)",
+			gateRejected: rejection,
+		};
 	}
+	const provider = resolution.provider;
 
 	// Pane TRƯỚC — cần id thật cho env map của script. Title = taskId (F4, review
 	// T7): pane rename là cosmetic nên KHÔNG được quyết định fail-closed.

@@ -124,6 +124,44 @@ function pingSocketSync(socketPath: string, timeoutMs = HERDR_PING_TIMEOUT_MS): 
 }
 
 /**
+ * Gate nào đã từ chối surface — telemetry `worker.surface_gate_blocked`
+ * (FINDING-3, report 10tier 2026-08-27): gate-null path trước đây trả null
+ * câm, khiến "headless vì misconfig" không thể phân biệt với "headless vì
+ * đúng thiết kế" trong events.jsonl.
+ */
+export type SurfaceGateName = "mode-off" | "async-run" | "depth" | "pane-cap" | "role-not-visible" | "no-mux";
+
+/** Snapshot các tín hiệu env gate đã thấy — có chủ đích KHÔNG dump cả env (secrets). */
+export interface SurfaceGateEnvSnapshot {
+	tmux: boolean;
+	herdrEnv: boolean;
+	asyncRun: boolean;
+	depth: number;
+}
+
+export interface SurfaceGateRejection {
+	gate: SurfaceGateName;
+	/** Human-readable — kể vì sao cell/gate fail (đi thẳng vào events.jsonl). */
+	reason: string;
+	env: SurfaceGateEnvSnapshot;
+}
+
+export interface SurfaceResolution {
+	provider: SurfaceProvider | null;
+	/** Present khi provider null — gate/mux nào đã từ chối và vì sao. */
+	rejection?: SurfaceGateRejection;
+}
+
+export function surfaceGateEnvSnapshot(env: NodeJS.ProcessEnv): SurfaceGateEnvSnapshot {
+	return {
+		tmux: !!env.TMUX,
+		herdrEnv: env.HERDR_ENV === "1",
+		asyncRun: env.PI_CREW_ASYNC_RUN === "1",
+		depth: currentCrewDepth(env),
+	};
+}
+
+/**
  * Resolve the surface provider for a tier-1 worker, or null for headless.
  *
  * Matrix (spec §3), checked in order — first hit wins:
@@ -139,30 +177,42 @@ function pingSocketSync(socketPath: string, timeoutMs = HERDR_PING_TIMEOUT_MS): 
  * createHerdrProvider (T4) — mỗi kind một singleton để mọi pane của process
  * này chia sẻ event subscription; injected `opts.providers` thắng cho test.
  */
-export function resolveSurface(
+export function resolveSurfaceDetailed(
 	env: NodeJS.ProcessEnv,
 	config: PiTeamsConfig,
 	role: string,
 	livePaneCount: number,
 	opts: ResolveSurfaceOpts = {},
-): SurfaceProvider | null {
+): SurfaceResolution {
 	const surface = config.runtime?.surface;
 	const mode = surface?.mode ?? "auto";
-	if (mode === "off") return null;
+	const reject = (gate: SurfaceGateName, reason: string): SurfaceResolution => ({
+		provider: null,
+		rejection: { gate, reason, env: surfaceGateEnvSnapshot(env) },
+	});
+	if (mode === "off") return reject("mode-off", 'runtime.surface.mode is "off"');
 	// Async runs force headless in A1 — no re-attach yet (spec §14).
-	if (env.PI_CREW_ASYNC_RUN === "1") return null;
+	if (env.PI_CREW_ASYNC_RUN === "1") return reject("async-run", "PI_CREW_ASYNC_RUN=1 — async runs force headless in A1 (spec §14)");
 	// Surface panes are tier-1 only — never inside a worker.
-	if (currentCrewDepth(env) > 0) return null;
-	if (livePaneCount >= MAX_SURFACE_WORKERS) return null;
+	const hostDepth = currentCrewDepth(env);
+	if (hostDepth > 0) return reject("depth", `host PI_CREW_DEPTH=${hostDepth} > 0 — no pane-in-pane (tier-1 workers only)`);
+	if (livePaneCount >= MAX_SURFACE_WORKERS)
+		return reject("pane-cap", `livePaneCount ${livePaneCount} >= MAX_SURFACE_WORKERS ${MAX_SURFACE_WORKERS}`);
 
 	const visibleAgents = surface?.visibleAgents ?? [];
-	if (!visibleAgents.includes("*") && !visibleAgents.includes(role)) return null;
+	if (!visibleAgents.includes("*") && !visibleAgents.includes(role))
+		return reject("role-not-visible", `role "${role}" not in visibleAgents [${visibleAgents.join(", ")}]`);
 
 	// Per cell: binary first, env after (cheap env read after the cached
 	// subprocess check; the herdr ping — most expensive — runs last).
-	const tmuxCell = (): boolean => hasBinary(opts.tmuxBin ?? "tmux") && !!env.TMUX;
+	const tmuxBin = opts.tmuxBin ?? "tmux";
+	const herdrBin = opts.herdrBin ?? "herdr";
+	const tmuxWhy = (): string => (!hasBinary(tmuxBin) ? "tmux binary not found" : "TMUX unset");
+	const herdrWhy = (): string =>
+		!hasBinary(herdrBin) ? "herdr binary not found" : env.HERDR_ENV !== "1" ? "HERDR_ENV!=1" : "socket not live";
+	const tmuxCell = (): boolean => hasBinary(tmuxBin) && !!env.TMUX;
 	const herdrCell = (): boolean =>
-		hasBinary(opts.herdrBin ?? "herdr") && env.HERDR_ENV === "1" && (opts.pingSocket ?? pingSocketSync)(herdrSocketPath(env));
+		hasBinary(herdrBin) && env.HERDR_ENV === "1" && (opts.pingSocket ?? pingSocketSync)(herdrSocketPath(env));
 
 	let kind: "tmux" | "herdr" | null;
 	if (mode === "tmux") {
@@ -173,18 +223,32 @@ export function resolveSurface(
 		// auto — innermost wins: tmux beats herdr when both are present.
 		kind = tmuxCell() ? "tmux" : herdrCell() ? "herdr" : null;
 	}
-	if (kind === null) return null;
+	if (kind === null) {
+		const detail = mode === "tmux" ? tmuxWhy() : mode === "herdr" ? herdrWhy() : `tmux: ${tmuxWhy()}; herdr: ${herdrWhy()}`;
+		return reject("no-mux", `mode "${mode}" found no live mux (${detail})`);
+	}
 
 	// Injected providers thắng (test); mặc định dùng provider thật — mỗi kind
 	// một singleton để mọi pane của process này chia sẻ event subscription.
 	const injected = opts.providers?.[kind];
-	if (injected) return injected;
+	if (injected) return { provider: injected };
 	if (kind === "tmux") {
 		tmuxProviderSingleton ??= createTmuxProvider();
-		return tmuxProviderSingleton;
+		return { provider: tmuxProviderSingleton };
 	}
 	herdrProviderSingleton ??= createHerdrProvider();
-	return herdrProviderSingleton;
+	return { provider: herdrProviderSingleton };
+}
+
+/** Wrapper giữ contract cũ (provider | null) — dùng resolveSurfaceDetailed khi cần lý do gate. */
+export function resolveSurface(
+	env: NodeJS.ProcessEnv,
+	config: PiTeamsConfig,
+	role: string,
+	livePaneCount: number,
+	opts: ResolveSurfaceOpts = {},
+): SurfaceProvider | null {
+	return resolveSurfaceDetailed(env, config, role, livePaneCount, opts).provider;
 }
 
 /**
