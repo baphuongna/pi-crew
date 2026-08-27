@@ -32,6 +32,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import type { SurfaceDetection, SurfaceExitReason, SurfaceHandle, SurfaceProvider, SurfaceSpawnOpts } from "./surface-provider.ts";
+import { MAX_PANES_PER_TAB, splitDirectionFor } from "./surface-provider.ts";
 
 /**
  * Socket abstraction injectable. Quy ước EOF/error: onLine được gọi đúng một
@@ -131,6 +132,11 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 	let reqSeq = 0;
 	let subscription: HerdrSocket | null = null;
 	let subscriptionCb: ((line: string) => void) | null = null;
+
+	// Tab-layout (spec 2026-08-27-surface-tab-layout): tabKey(run) → {tabId,
+	// rootPaneId, paneCount}. Tab mở khi run spawn worker đầu; KHÔNG đóng khi
+	// worker xong — chỉ đóng khi run end (Task 5 gọi closeTabForRun).
+	const tabMap = new Map<string, { tabId: string; rootPaneId: string; paneCount: number }>();
 
 	function activeWatchers(): number {
 		let active = 0;
@@ -315,31 +321,72 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		},
 
 		async createSurface(_name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle> {
-			// Pane cha = pane của PROCESS đang gọi, lấy từ env HERDR_PANE_ID (đặt bởi
-			// herdr server khi spawn process trong pane — tương đương $TMUX_PANE của
-			// tmux). Fallback pane.current chỉ dùng khi env thiếu:
-			//   - Verify live (2026-08-27): `herdr pane current` chạy trong pane w2:p57
-			//     (KHÔNG focus) vẫn trả w2:p48 (focus hiện tại của server) — tức
-			//     pane.current là FOCUS pane, KHÔNG phải pane của caller. Có truyền
-			//     caller_pane_id thì server 0.8.2 vẫn không theo.
-			//   - Env HERDR_PANE_ID là nguồn chính xác duy nhất cho "pane của process".
-			const envPaneId = env.HERDR_PANE_ID;
-			let parentPaneId = envPaneId;
-			if (!envPaneId) {
-				const current = await call<{ pane?: { pane_id?: string } }>("pane.current", {});
-				parentPaneId = current.pane?.pane_id;
+			let parentPaneId: string | undefined;
+			let direction: "down" | "right";
+			// Tab-map chỉ commit sau khi pane.split THÀNH CÔNG — nếu split fail,
+			// paneCount không đếm pane không tồn tại (luân phiên không lệch bước ở
+			// lần retry kế tiếp) — cùng pattern tabWindows của tmux provider.
+			let commitTabPane: (() => void) | null = null;
+			if (opts.tabKey) {
+				// Tab-layout: mọi worker của cùng run chia 1 tab, split từ root pane
+				// của tab theo hướng dọc/ngang xen kẽ (spec tab-layout §4). KHÔNG
+				// tabKey → đường legacy bên dưới.
+				const tabKey = opts.tabKey;
+				const existing = tabMap.get(tabKey);
+				if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
+					const paneIndexInTab = existing.paneCount;
+					parentPaneId = existing.rootPaneId;
+					direction = splitDirectionFor(paneIndexInTab);
+					commitTabPane = () => {
+						existing.paneCount = paneIndexInTab + 1;
+					};
+				} else {
+					// Tab mới cho run (hoặc tab cũ đã đầy MAX_PANES_PER_TAB pane).
+					// Wire herdr thật (verified live 2026-08-27): `tab.create` params
+					// {label, workspace_id?} → result.tab.tab_id + result.root_pane.pane_id.
+					const created = await call<{ tab?: { tab_id?: string }; root_pane?: { pane_id?: string } }>("tab.create", {
+						label: opts.title ?? tabKey,
+						...(env.HERDR_WORKSPACE_ID ? { workspace_id: env.HERDR_WORKSPACE_ID } : {}),
+					});
+					const tabId = created.tab?.tab_id;
+					const rootPaneId = created.root_pane?.pane_id;
+					if (!tabId || !rootPaneId) throw new Error("tab.create returned no tab_id/root_pane");
+					parentPaneId = rootPaneId;
+					direction = splitDirectionFor(0);
+					commitTabPane = () => {
+						tabMap.set(tabKey, { tabId, rootPaneId, paneCount: 1 });
+					};
+				}
+			} else {
+				// Đường legacy (spawn ngoài run) — giữ nguyên như trước tab-layout.
+				// Pane cha = pane của PROCESS đang gọi, lấy từ env HERDR_PANE_ID (đặt bởi
+				// herdr server khi spawn process trong pane — tương đương $TMUX_PANE của
+				// tmux). Fallback pane.current chỉ dùng khi env thiếu:
+				//   - Verify live (2026-08-27): `herdr pane current` chạy trong pane w2:p57
+				//     (KHÔNG focus) vẫn trả w2:p48 (focus hiện tại của server) — tức
+				//     pane.current là FOCUS pane, KHÔNG phải pane của caller. Có truyền
+				//     caller_pane_id thì server 0.8.2 vẫn không theo.
+				//   - Env HERDR_PANE_ID là nguồn chính xác duy nhất cho "pane của process".
+				const envPaneId = env.HERDR_PANE_ID;
+				if (envPaneId) parentPaneId = envPaneId;
+				else {
+					const current = await call<{ pane?: { pane_id?: string } }>("pane.current", {});
+					parentPaneId = current.pane?.pane_id;
+				}
+				direction = "right";
 			}
 			if (!parentPaneId) {
-				throw new Error("no parent pane — HERDR_PANE_ID unset and pane.current returned no pane_id");
+				throw new Error("no parent pane — HERDR_PANE_ID unset, no tabKey, and pane.current returned no pane_id");
 			}
 			const split = await call<{ pane?: { pane_id?: string } }>("pane.split", {
-				direction: "right",
+				direction,
 				target_pane_id: parentPaneId,
 				cwd: opts.cwd,
 				focus: false,
 			});
 			const paneId = split.pane?.pane_id;
 			if (!paneId) throw new Error("pane.split returned no pane_id");
+			commitTabPane?.();
 			if (opts.title) {
 				try {
 					await call("pane.rename", { pane_id: paneId, label: opts.title });

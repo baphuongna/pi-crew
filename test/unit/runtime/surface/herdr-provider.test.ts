@@ -77,6 +77,12 @@ interface FakeHarness {
 	deps: HerdrProviderDeps;
 	env: Record<string, string | undefined>;
 	sockets: FakeSocket[];
+	/**
+	 * Provider dùng CHUNG cho harness — tab-map là per-provider nên các lần
+	 * spawnPane cùng harness phải tái dùng một instance (tab.create chỉ chạy
+	 * lần đầu cho tabKey mới).
+	 */
+	provider: () => SurfaceProvider;
 	/** Socket đang giữ subscription events (null nếu chưa subscribe). */
 	subscription: () => FakeSocket | null;
 	/** Đẩy một event pane_closed xuống subscription socket. */
@@ -86,6 +92,7 @@ interface FakeHarness {
 
 /** Respond mặc định: split trả pane w3:pC, các method khác trả ok/empty. */
 function defaultRespond(req: SentRequest): unknown {
+	if (req.method === "tab.create") return { type: "tab_created", tab: { tab_id: "w3:t9" }, root_pane: { pane_id: "w3:pR" } };
 	if (req.method === "pane.current") return { type: "pane_current", pane: { pane_id: "w3:pB", workspace_id: "w3" } };
 	if (req.method === "pane.split") return { type: "pane_info", pane: { pane_id: "w3:pC", workspace_id: "w3" } };
 	if (req.method === "pane.read") return { type: "pane_read", read: { text: "screen content\n" } };
@@ -120,10 +127,12 @@ function makeFake(respond: (req: SentRequest, sock: FakeSocket) => unknown = def
 		},
 		env,
 	};
+	let cachedProvider: SurfaceProvider | null = null;
 	return {
 		deps,
 		env,
 		sockets,
+		provider: () => (cachedProvider ??= createHerdrProvider(deps)),
 		subscription: () => subscriptionSocket,
 		emitPaneClosed: (paneId) => {
 			subscriptionSocket?.pushLine(
@@ -138,13 +147,15 @@ function makeFake(respond: (req: SentRequest, sock: FakeSocket) => unknown = def
 
 async function spawnPane(
 	h: FakeHarness,
-	opts?: { command?: string; cwd?: string; title?: string },
+	opts?: { command?: string; cwd?: string; title?: string; tabKey?: string; splitIndex?: number },
 ): Promise<{ provider: SurfaceProvider; handle: SurfaceHandle }> {
-	const provider = createHerdrProvider(h.deps);
+	const provider = h.provider();
 	const handle = await provider.createSurface("t1", {
 		cwd: opts?.cwd ?? "/tmp/wt",
 		command: opts?.command ?? "bash /tmp/pi-crew-launch-t1.sh",
 		title: opts?.title,
+		tabKey: opts?.tabKey,
+		splitIndex: opts?.splitIndex,
 	});
 	return { provider, handle };
 }
@@ -189,6 +200,30 @@ test("createSurface: env HERDR_PANE_ID ưu tiên làm pane cha — không gọi 
 		cwd: "/tmp/wt",
 		focus: false,
 	});
+});
+
+test("tabKey per-run: tab.create cho run mới; splitIndex quyết right/down; cùng tabKey tái dùng tab; đầy 8 → tab mới", async () => {
+	const h = makeFake();
+	h.env.HERDR_PANE_ID = "w2:p4W"; // env-first (fix 2026-08-27) — không gọi pane.current
+	const { handle: h1 } = await spawnPane(h, { title: "01_explore", tabKey: "runA", splitIndex: 0 } as never);
+	assert.equal(h1.id, "w3:pC");
+	// tab.create phải được gọi cho run mới
+	assert.ok(
+		h.sockets.some((s) => s.requests[0]?.method === "tab.create"),
+		"phải tab.create cho tabKey mới",
+	);
+	const tabCreate = h.sockets.find((s) => s.requests[0]?.method === "tab.create")?.requests[0];
+	assert.equal(tabCreate?.params.label, "01_explore");
+	// split đầu tiên trong tab: target = root_pane của tab (w3:pR), direction = down (index 0)
+	const split1 = h.sockets.find((s) => s.requests[0]?.method === "pane.split")?.requests[0];
+	assert.deepEqual(split1?.params.direction, "down");
+	assert.equal(split1?.params.target_pane_id, "w3:pR");
+	// Worker 2 cùng run → KHÔNG tab.create nữa, direction right (index 1)
+	h.sockets.length = 0;
+	await spawnPane(h, { title: "02_execute", tabKey: "runA", splitIndex: 1 } as never);
+	assert.ok(!h.sockets.some((s) => s.requests[0]?.method === "tab.create"), "cùng tabKey → tái dùng tab");
+	const split2 = h.sockets.find((s) => s.requests[0]?.method === "pane.split")?.requests[0];
+	assert.deepEqual(split2?.params.direction, "right");
 });
 
 test("createSurface: env không có HERDR_PANE_ID → fallback pane.current (focus pane) làm pane cha", async () => {
