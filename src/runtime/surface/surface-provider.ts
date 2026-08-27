@@ -23,10 +23,25 @@ export interface SurfaceDetection {
  * {@link SurfaceProvider.sendCommand}. Omitting it leaves the pane sitting at
  * its shell prompt without any keys being sent.
  */
+/** Max worker panes per tab trước khi provider mở tab mới (spec tab-layout §5). */
+export const MAX_PANES_PER_TAB = 8;
+
+/**
+ * Hướng split luân phiên theo pane index trong tab (spec tab-layout §4):
+ * chẵn → down (dọc), lẻ → right (ngang) — không dồn một phía.
+ */
+export function splitDirectionFor(index: number): "down" | "right" {
+	return index % 2 === 0 ? "down" : "right";
+}
+
 export interface SurfaceSpawnOpts {
 	cwd: string;
 	command?: string;
 	title?: string;
+	/** runId — mọi worker của cùng TEAM RUN chia tab (spec tab-layout §3.1). */
+	tabKey?: string;
+	/** Pane thứ mấy trong tab hiện tại — quyết định hướng down/right. */
+	splitIndex?: number;
 }
 
 /**

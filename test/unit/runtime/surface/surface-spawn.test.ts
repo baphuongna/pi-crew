@@ -112,3 +112,18 @@ test("herdr sendCommand sends pane.send_text with trailing newline into the hand
 	await provider.sendCommand!(handle, "bash '/tmp/x.sh'");
 	assert.deepEqual(requests, [{ method: "pane.send_text", params: { pane_id: "%3", text: "bash '/tmp/x.sh'\n" } }]);
 });
+
+import { MAX_PANES_PER_TAB, splitDirectionFor } from "../../../../src/runtime/surface/surface-provider.ts";
+
+test("splitDirectionFor: 0 → down, 1 → right, xen kẽ (splitIndex%2)", () => {
+	assert.equal(splitDirectionFor(0), "down");
+	assert.equal(splitDirectionFor(1), "right");
+	assert.equal(splitDirectionFor(2), "down");
+	assert.equal(splitDirectionFor(3), "right");
+	assert.equal(splitDirectionFor(7), "right");
+	assert.equal(splitDirectionFor(8), "down");
+});
+
+test("MAX_PANES_PER_TAB = 8 (spec 2026-08-27-surface-tab-layout)", () => {
+	assert.equal(MAX_PANES_PER_TAB, 8);
+});
