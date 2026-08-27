@@ -22,8 +22,8 @@ import { join } from "node:path";
 import test from "node:test";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { runChildPi } from "../../../../src/runtime/child-pi/child-pi.ts";
-import { CLASSIFY_TIMEOUT_MS } from "../../../../src/runtime/surface/degrade.ts";
 import { __test_getTrackedTempDirs } from "../../../../src/runtime/model/pi-args.ts";
+import { CLASSIFY_TIMEOUT_MS } from "../../../../src/runtime/surface/degrade.ts";
 import type {
 	SurfaceDetection,
 	SurfaceExitReason,
@@ -232,9 +232,7 @@ test("T11 classify: pane chết KHÔNG có worker.completed → result.surface.d
 	try {
 		const provider = fakeSurfaceProvider();
 		const startedAtMs = Date.now();
-		const result = await runChildPi(
-			makeRunInput(workRoot, { surface: { providers: { tmux: provider }, baseDir: launchDir } }),
-		);
+		const result = await runChildPi(makeRunInput(workRoot, { surface: { providers: { tmux: provider }, baseDir: launchDir } }));
 		const elapsedMs = Date.now() - startedAtMs;
 		assert.ok(elapsedMs >= CLASSIFY_TIMEOUT_MS - 250, `phải đốt trọn classify window (${elapsedMs}ms)`);
 		assert.equal(result.surface?.degraded?.cause, "pane-closed");
@@ -441,3 +439,43 @@ test("T9: events from the per-agent log reach runEventBus as worker_status (dash
 function escapeRe(value: string): string {
 	return value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+// ── Final fix I-1 — herdr race qua TOÀN pipeline runChildPi ──────────────
+// onExit KHÔNG BAO GIỜ bắn (pane chết trước lần đăng ký đầu) nhưng
+// closeSurface vẫn "thành công" (herdr nuốt pane_not_found): cancel phải vẫn
+// thoát qua grace fallback thay vì treo run tới host Ctrl-C.
+
+test("I-1: abort with a never-firing onExit still resolves the run via synthetic exit", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const controller = new AbortController();
+		const provider = fakeSurfaceProvider();
+		provider.autoExitAfterSend = false;
+		provider.handle.onExit = () => {}; // chết trước subscription — không event nào
+		let hung = false;
+		const done = runChildPi(
+			makeRunInput(workRoot, {
+				signal: controller.signal,
+				surface: { providers: { tmux: provider }, baseDir: launchDir },
+			}),
+		);
+		await new Promise<void>((resolve) => setTimeout(resolve, 10));
+		controller.abort();
+		const result = await Promise.race([
+			done,
+			new Promise<null>((resolve) =>
+				setTimeout(() => {
+					hung = true;
+					resolve(null);
+				}, 6000),
+			),
+		]);
+		assert.ok(!hung, "runChildPi phải resolve qua grace window (~2s mặc định)");
+		if (!result) return;
+		assert.deepEqual(provider.closeCalls, [{ force: true }]);
+		assert.equal(result.aborted, true);
+		assert.equal(result.exitCode, null);
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});

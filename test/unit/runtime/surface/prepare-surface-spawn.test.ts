@@ -36,6 +36,7 @@ import {
 	prepareSurfaceSpawn,
 	readParentStartTime,
 	stripHeadlessModeArgs,
+	waitForSurfaceExit,
 } from "../../../../src/runtime/surface/surface-spawn.ts";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
@@ -451,4 +452,88 @@ test("source contract: finalizeRun sweeps the launch-script registry when a run 
 		/sweepLaunchScriptsAtRunEnd\(/,
 		"finalizeRun phải gọi sweepLaunchScriptsAtRunEnd — không sweep thì script mồ côi sống sót qua TTL window ngắn",
 	);
+});
+
+// ── Final fix I-1 — herdr race: pane chết TRƯỚC lần onExit đầu ───────────
+// herdr subscription là edge-event: pane.split → pane chết trong gap ~10-50ms
+// → event pane.closed KHÔNG BAO GIỜ tới. forceClose khi đó gọi pane.close trả
+// `pane_not_found` mà closeSurface nuốt thành "thành công" — promise không còn
+// đường resolve nào → run kẹt tới host Ctrl-C (tmux miễn nhiễm vì poll trạng
+// thái). Contract mới: sau MỌI force-close, nếu onExit chưa bắn trong grace
+// window thì resolve exit TỔNG HỢP (`synthetic: true`, reason "detached").
+
+/** Outcome giả đã-boot cho waitForSurfaceExit. */
+function spawnedOutcomeFor(provider: ReturnType<typeof fakeProvider>) {
+	return {
+		mode: "surface" as const,
+		kind: provider.kind,
+		paneId: provider.handle.id,
+		handle: provider.handle,
+		provider,
+		scriptPath: "/tmp/irrelevant.sh",
+		eventsPath: null,
+	};
+}
+
+test("I-1: abort force-close with a silent pane resolves synthetic exit within the grace window", async () => {
+	const provider = fakeProvider();
+	provider.handle.onExit = () => {}; // KHÔNG BAO GIỜ bắn — đúng kịch bản herdr race
+	const controller = new AbortController();
+	setTimeout(() => controller.abort(), 10);
+	const started = Date.now();
+	let hung = false;
+	const info = await Promise.race([
+		waitForSurfaceExit(spawnedOutcomeFor(provider), { signal: controller.signal, graceAfterForceCloseMs: 30 }).then((v) => ({ v })),
+		new Promise<null>((resolve) =>
+			setTimeout(() => {
+				hung = true;
+				resolve(null);
+			}, 2000),
+		),
+	]);
+	assert.ok(!hung, "waitForSurfaceExit phải tự thoát qua grace window thay vì treo vô hạn");
+	if (!info) return;
+	assert.equal(info.v.synthetic, true, "exit phải đánh dấu TỔNG HỢP — không có event thật nào");
+	assert.equal(info.v.cancelledByAbort, true);
+	assert.equal(info.v.reason, "detached");
+	assert.ok(Date.now() - started < 1500, `grace (30ms) + abort (10ms) phải resolve nhanh, thấy ${Date.now() - started}ms`);
+});
+
+test("I-1: deadline force-close on a silent pane also resolves via the same fallback", async () => {
+	const provider = fakeProvider({ withoutSendCommand: false });
+	provider.handle.onExit = () => {};
+	let hung = false;
+	const info = await Promise.race([
+		waitForSurfaceExit(spawnedOutcomeFor(provider), { deadlineMs: 20, graceAfterForceCloseMs: 30 }).then((v) => ({ v })),
+		new Promise<null>((resolve) =>
+			setTimeout(() => {
+				hung = true;
+				resolve(null);
+			}, 2000),
+		),
+	]);
+	assert.ok(!hung);
+	if (!info) return;
+	assert.equal(info.v.timedOut, true);
+	assert.equal(info.v.synthetic, true, "deadline path đi chung grace fallback");
+});
+
+test("I-1: real onExit arriving after force-close still wins over the synthetic fallback", async () => {
+	const provider = fakeProvider();
+	let realExitCb: ((reason: SurfaceExitReason) => void) | null = null;
+	provider.handle.onExit = (cb) => {
+		realExitCb = cb;
+	};
+	const controller = new AbortController();
+	const pending = waitForSurfaceExit(spawnedOutcomeFor(provider), { signal: controller.signal, graceAfterForceCloseMs: 10_000 });
+	setTimeout(() => {
+		controller.abort();
+		// onExit THẬT đến sau force-close nhưng vẫn trong grace window.
+		queueMicrotask(() => realExitCb?.("pane-closed"));
+	}, 5);
+	const info = await Promise.race([pending, new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 3000))]);
+	assert.notEqual(info, "hung");
+	assert.ok(info !== "hung");
+	assert.equal(info.synthetic, undefined, "exit THẬT thắng — không được gắn cờ tổng hợp");
+	assert.equal(info.reason, "pane-closed");
 });

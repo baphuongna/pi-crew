@@ -303,6 +303,17 @@ export function sweepLaunchScriptsAtRunEnd(now: () => number = Date.now): number
 	}
 }
 
+/**
+ * Grace window sau khi host đã INITIATE force-close mà handle.onExit vẫn chưa
+ * bắn (final fix I-1): herdr subscribe là edge-event nên pane chết giữa khoảng
+ * split → lần đăng ký onExit ĐẦU sẽ bỏ lỡ event; `pane.close` trả
+ * `pane_not_found` và closeSurface nuốt thành "thành công" — nếu chỉ dựa vào
+ * onExit, promise treo tới host Ctrl-C. tmux miễn nhiễm vì poll TRẠNG THÁI.
+ * Hết grace → resolve exit TỔNG HỢP (`synthetic: true`, reason "detached").
+ * Timeout test inject được qua {@link WaitForSurfaceExitHooks.graceAfterForceCloseMs}.
+ */
+export const FORCE_CLOSE_EXIT_GRACE_MS = 2_000;
+
 export interface SurfaceExitInfo {
 	reason: SurfaceExitReason;
 	/** True khi parent AbortSignal đã force-close pane (cancel/host-shutdown). */
@@ -313,22 +324,33 @@ export interface SurfaceExitInfo {
 	 * đường headless để slot worker không bị giữ vô hạn).
 	 */
 	timedOut: boolean;
+	/**
+	 * True khi đây là exit TỔNG HỢP do grace window hết sau force-close mà
+	 * onExit vẫn im lặng (final fix I-1) — không có event thật nào từ mux;
+	 * caller phải coi như worker đã chết (exitCode null), không phải hoàn thành.
+	 */
+	synthetic?: boolean;
 }
 
 export interface WaitForSurfaceExitHooks {
 	signal?: AbortSignal;
 	/** Hard deadline (ms) tính từ lúc bắt đầu chờ — undefined = không deadline. */
 	deadlineMs?: number;
+	/** Ghi đè grace window (mặc định FORCE_CLOSE_EXIT_GRACE_MS) — test ngắn. */
+	graceAfterForceCloseMs?: number;
 }
 
 /**
  * Chờ worker trong pane kết thúc — nguồn chờ chính là handle.onExit (pane chết
- * / mux chết / host chủ động detach). Hai cơ chế giải thoát promise để slot
+ * / mux chết / host chủ động detach). Ba cơ chế giải thoát promise để slot
  * worker KHÔNG BAO GIỜ bị giữ vô hạn:
  *   1. Parent AbortSignal → closeSurface({force:true}) → onExit bắn "detached".
  *   2. Response deadline (fix round 1/F2) → cùng force-close; A1 không có tín
  *      hiệu activity từ stream nên deadline là một mốc hard duy nhất kể từ lúc
  *      boot (nghiêm hơn nghĩa "no new output" của headless — T11 refine).
+ *   3. Synthetic-exit grace (final fix I-1) → force-close xong mà onExit vẫn
+ *      câm (herdr edge-event gap / socket request treo — T4 A2 note) thì tự
+ *      kết thúc bằng exit tổng hợp.
  * Spec §13.2.
  */
 export async function waitForSurfaceExit(outcome: SurfaceSpawned, hooks: WaitForSurfaceExitHooks = {}): Promise<SurfaceExitInfo> {
@@ -343,33 +365,62 @@ export async function waitForSurfaceExit(outcome: SurfaceSpawned, hooks: WaitFor
 			);
 		}
 	};
-	let cancelledByAbort = hooks.signal?.aborted === true;
-	let timedOut = false;
-	if (cancelledByAbort) await forceClose();
-	const onAbort = (): void => {
-		if (cancelledByAbort || timedOut) return;
-		cancelledByAbort = true;
-		void forceClose();
-	};
-	hooks.signal?.addEventListener("abort", onAbort, { once: true });
-	const timer =
-		hooks.deadlineMs !== undefined
-			? setTimeout(
-					() => {
-						if (cancelledByAbort) return; // cancel thắng — đã force-close
-						timedOut = true;
-						void forceClose();
-					},
-					Math.max(1, hooks.deadlineMs),
-				)
-			: null;
-	timer?.unref(); // deadline không được giữ event loop sống vô ích
-	try {
-		return await new Promise<SurfaceExitInfo>((resolve) => {
-			outcome.handle.onExit((reason) => resolve({ reason, cancelledByAbort, timedOut }));
-		});
-	} finally {
-		hooks.signal?.removeEventListener("abort", onAbort);
-		if (timer) clearTimeout(timer);
-	}
+	return await new Promise<SurfaceExitInfo>((resolve) => {
+		let cancelledByAbort = hooks.signal?.aborted === true;
+		let timedOut = false;
+		let settled = false;
+		let synthTimer: ReturnType<typeof setTimeout> | null = null;
+		const finish = (info: SurfaceExitInfo): void => {
+			if (settled) return;
+			settled = true;
+			if (synthTimer) clearTimeout(synthTimer);
+			resolve(info);
+		};
+		const armSyntheticFallback = (): void => {
+			if (settled || synthTimer) return;
+			const graceMs = Math.max(1, hooks.graceAfterForceCloseMs ?? FORCE_CLOSE_EXIT_GRACE_MS);
+			synthTimer = setTimeout(() => {
+				logInternalError(
+					"surface-spawn.synthetic-exit",
+					new Error(`no onExit within ${graceMs}ms of force-close`),
+					`pane=${outcome.paneId} — resolving synthetic exit (pane may have died before its first onExit subscription)`,
+				);
+				finish({ reason: "detached", cancelledByAbort, timedOut, synthetic: true });
+			}, graceMs);
+			synthTimer.unref();
+		};
+		if (cancelledByAbort) {
+			// Cancel thắng mọi thứ — initiate ngay cả khi signal đã aborted trước.
+			cancelledByAbort = true;
+			void forceClose();
+			armSyntheticFallback();
+		}
+		const onAbort = (): void => {
+			if (cancelledByAbort || timedOut || settled) return;
+			cancelledByAbort = true;
+			void forceClose();
+			armSyntheticFallback();
+		};
+		hooks.signal?.addEventListener("abort", onAbort, { once: true });
+		const timer =
+			hooks.deadlineMs !== undefined
+				? setTimeout(
+						() => {
+							if (cancelledByAbort || timedOut || settled) return; // cancel thắng — đã force-close
+							timedOut = true;
+							void forceClose();
+							armSyntheticFallback();
+						},
+						Math.max(1, hooks.deadlineMs),
+					)
+				: null;
+		timer?.unref(); // deadline không được giữ event loop sống vô ích
+		outcome.handle.onExit((reason) => finish({ reason, cancelledByAbort, timedOut }));
+		if (!hooks.signal && !timer && !synthTimer && !settled) {
+			// Không đường giải thoát nào được cấu hình (không signal, không
+			// deadline): vẫn phải có hồi kết — dùng grace từ lúc bắt đầu chờ thay
+			// vì treo khi pane chết trước lần đăng ký onExit đầu.
+			armSyntheticFallback();
+		}
+	});
 }
