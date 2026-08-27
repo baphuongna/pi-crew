@@ -35,7 +35,7 @@ This artifact exists so past runs are verifiable (see SKILL.md "Output report").
 | 9e admin | ✅/❌/⏭️ | team/workflow CRUD round-trip |
 | 9f background | ✅/❌/⏭️ | auto-summarize/anchor/schedule register+remove |
 | 10a surface E2E | ✅/❌/⏭️ | tmux 3/3 (spawn+self-close / kill-pane→degrade / doctor orphan) + herdr 3/3 — or skip reason per backend (no `$TMUX`/CI/no socket/in tmux for herdr) |
-| 10b live surface run | ✅/❌/⏭️ | `visibleAgents='<set>'`, pane ids+titles during run, `manifest.surface.panes`, panes auto-closed |
+| 10b live surface run | ✅/❌/⏭️ | `visibleAgents='<set>'`, pane ids+titles during run, `worker.surface_spawned`/`worker.surface_closed` events (+ no `surface.degraded`), panes auto-closed. NOTE: `manifest.surface.panes` is `{}` at run END even on success (released on pane close) — engage-evidence is the EVENTS + `manifest.surface.provider`/`workerPids` |
 | 10c herdr path | ✅/❌/⏭️ | ran in herdr pane / skipped (not in herdr pane) |
 
 Legend: ✅ pass with evidence · ❌ fail (root cause below) · ⏭️ skipped (justify why)
