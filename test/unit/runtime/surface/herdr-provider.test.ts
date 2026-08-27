@@ -175,8 +175,48 @@ test("socket path được resolve: HERDR_SOCKET_PATH → HERDR_SESSION → defa
 	assert.ok(defaults.paths[0].endsWith(".config/herdr/herdr.sock"), defaults.paths[0]);
 });
 
-test("createSurface: pane.current → pane.split(right, từ pane hiện tại, cwd) → pane.send_text; mỗi request một connection", async () => {
+test("createSurface: env HERDR_PANE_ID ưu tiên làm pane cha — không gọi pane.current, split target_pane_id = HERDR_PANE_ID", async () => {
 	const h = makeFake();
+	h.env.HERDR_PANE_ID = "w2:p4W"; // pane của process (đặt bởi herdr khi spawn trong pane)
+	const { handle } = await spawnPane(h, { title: "crew:r1:t1" });
+	assert.equal(handle.id, "w3:pC");
+	// env có → KHÔNG gọi pane.current → method đầu tiên là pane.split
+	assert.equal(h.sockets[0]?.requests[0]?.method, "pane.split");
+	const split = h.sockets[0]?.requests[0];
+	assert.deepEqual(split?.params, {
+		direction: "right",
+		target_pane_id: "w2:p4W",
+		cwd: "/tmp/wt",
+		focus: false,
+	});
+});
+
+test("createSurface: env không có HERDR_PANE_ID → fallback pane.current (focus pane) làm pane cha", async () => {
+	const h = makeFake(); // env rỗng → fallback pane.current trả w3:pB
+	const { handle } = await spawnPane(h, { title: "crew:r1:t1" });
+	assert.equal(handle.id, "w3:pC");
+	const methods = h.sockets.map((s) => s.requests[0]?.method);
+	assert.equal(methods[0], "pane.current");
+	const split = h.sockets[1]?.requests[0];
+	assert.deepEqual(split?.params, {
+		direction: "right",
+		target_pane_id: "w3:pB",
+		cwd: "/tmp/wt",
+		focus: false,
+	});
+});
+
+test("createSurface: env HERDR_PANE_ID không có + pane.current trả thiếu pane → throw no parent pane", async () => {
+	const h = makeFake((req) => {
+		if (req.method === "pane.current") return { type: "pane_current", pane: null as never };
+		return defaultRespond(req);
+	});
+	const provider = createHerdrProvider(h.deps);
+	await assert.rejects(() => provider.createSurface("t1", { cwd: "/tmp", command: "bash x.sh" }), /no parent pane/);
+});
+
+test("createSurface: full send-text flow — fallback pane.current → pane.split(right) → pane.rename → pane.send_text; mỗi connection một request", async () => {
+	const h = makeFake(); // env rỗng → fallback pane.current trả w3:pB
 	const { handle } = await spawnPane(h, { title: "crew:r1:t1" });
 	assert.equal(handle.id, "w3:pC");
 	assert.equal(handle.kind, "herdr");

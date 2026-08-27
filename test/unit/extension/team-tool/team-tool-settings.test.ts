@@ -219,6 +219,37 @@ describe("handleSettings set", () => {
 			removeTrackedTempDir(tmp);
 		}
 	});
+
+	it("sets broker key without unknown-key warning", () => {
+		// broker.* keys lẽ ra phải trong KNOWN_KEYS — trước bản fix, set
+		// broker.waitMethodsEnabled bị warning "unknown key — may not take effect".
+		const tmp = createTrackedTempDir("settings-set-broker-");
+		try {
+			const res = handleSettings(makeConfig("set broker.waitMethodsEnabled true"), makeCtx(tmp));
+			const text = textFromToolResult(res);
+
+			assert.ok(text.includes("Set broker.waitMethodsEnabled"), `expected set result, got: ${text.slice(0, 200)}`);
+			assert.ok(
+				!text.includes("unknown key") && !text.includes("did you mean"),
+				`broker.waitMethodsEnabled là key hợp lệ — không được warning unknown, got: ${text.slice(0, 200)}`,
+			);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("sets broker.enabled true", () => {
+		const tmp = createTrackedTempDir("settings-set-broker-enabled-");
+		try {
+			const res = handleSettings(makeConfig("set broker.enabled true"), makeCtx(tmp));
+			const text = textFromToolResult(res);
+
+			assert.ok(text.includes("Set broker.enabled"), `expected set result, got: ${text.slice(0, 200)}`);
+			assert.ok(!text.includes("unknown key"));
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
 });
 
 // ─── handleSettings — unset ──────────────────────────────────────────────────

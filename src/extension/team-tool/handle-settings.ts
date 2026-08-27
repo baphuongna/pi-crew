@@ -22,6 +22,8 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	// panes to nobody until visibleAgents opts roles in (["*"] at A2 GA).
 	"runtime.surface.mode": "auto",
 	"runtime.surface.visibleAgents": [],
+	// Inter-pi broker (Phase 0): default-on after ADR-0 "asked then flipped true".
+	"broker.enabled": true,
 	"limits.maxConcurrentWorkers": 1024,
 	"limits.maxTaskDepth": 100,
 	"limits.maxRunMinutes": 1440,
@@ -163,6 +165,9 @@ const KNOWN_KEYS = new Set([
 	"nesting.enabled",
 	"nesting.maxSlots",
 	"nesting.maxDepth",
+	// inter-pi broker (Phase 0) — wait.* gate + master switch
+	"broker.enabled",
+	"broker.waitMethodsEnabled",
 	// limits
 	"limits.maxConcurrentWorkers",
 	"limits.allowUnboundedConcurrency",

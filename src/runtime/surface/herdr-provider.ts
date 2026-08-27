@@ -315,11 +315,23 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		},
 
 		async createSurface(_name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle> {
-			// Pane cha = pane đang focus của server (caller_pane_id chỉ đáng tin
-			// khi pi chạy trong pane herdr; focused pane an toàn cho cả hai).
-			const current = await call<{ pane?: { pane_id?: string } }>("pane.current", {});
-			const parentPaneId = current.pane?.pane_id;
-			if (!parentPaneId) throw new Error("pane.current returned no pane_id — no focused pane?");
+			// Pane cha = pane của PROCESS đang gọi, lấy từ env HERDR_PANE_ID (đặt bởi
+			// herdr server khi spawn process trong pane — tương đương $TMUX_PANE của
+			// tmux). Fallback pane.current chỉ dùng khi env thiếu:
+			//   - Verify live (2026-08-27): `herdr pane current` chạy trong pane w2:p57
+			//     (KHÔNG focus) vẫn trả w2:p48 (focus hiện tại của server) — tức
+			//     pane.current là FOCUS pane, KHÔNG phải pane của caller. Có truyền
+			//     caller_pane_id thì server 0.8.2 vẫn không theo.
+			//   - Env HERDR_PANE_ID là nguồn chính xác duy nhất cho "pane của process".
+			const envPaneId = env.HERDR_PANE_ID;
+			let parentPaneId = envPaneId;
+			if (!envPaneId) {
+				const current = await call<{ pane?: { pane_id?: string } }>("pane.current", {});
+				parentPaneId = current.pane?.pane_id;
+			}
+			if (!parentPaneId) {
+				throw new Error("no parent pane — HERDR_PANE_ID unset and pane.current returned no pane_id");
+			}
 			const split = await call<{ pane?: { pane_id?: string } }>("pane.split", {
 				direction: "right",
 				target_pane_id: parentPaneId,
