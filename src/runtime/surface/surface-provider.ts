@@ -40,7 +40,11 @@ export interface SurfaceSpawnOpts {
 	title?: string;
 	/** runId — mọi worker của cùng TEAM RUN chia tab (spec tab-layout §3.1). */
 	tabKey?: string;
-	/** Pane thứ mấy trong tab hiện tại — quyết định hướng down/right. */
+	/**
+	 * HINT từ caller (live pane count lúc spawn) — provider KHÔNG dùng field
+	 * này quyết hướng: counter nội bộ paneCount (deferred-commit) mới là chân
+	 * truth vì đó là số pane THẬT đã spawn trong tab.
+	 */
 	splitIndex?: number;
 }
 
