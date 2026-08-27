@@ -14,15 +14,6 @@ export interface SurfaceDetection {
 	reason?: string;
 }
 
-/**
- * Options for spawning a new surface.
- *
- * `command` is OPTIONAL on purpose: the MuxSurface spawn flow (spec §13.1)
- * creates the pane FIRST to learn its id, builds the launch script with
- * PI_CREW_SURFACE_PANE=<real id>, and only then boots the worker through
- * {@link SurfaceProvider.sendCommand}. Omitting it leaves the pane sitting at
- * its shell prompt without any keys being sent.
- */
 /** Max worker panes per tab trước khi provider mở tab mới (spec tab-layout §5). */
 export const MAX_PANES_PER_TAB = 8;
 
@@ -34,6 +25,15 @@ export function splitDirectionFor(index: number): "down" | "right" {
 	return index % 2 === 0 ? "down" : "right";
 }
 
+/**
+ * Options for spawning a new surface.
+ *
+ * `command` is OPTIONAL on purpose: the MuxSurface spawn flow (spec §13.1)
+ * creates the pane FIRST to learn its id, builds the launch script with
+ * PI_CREW_SURFACE_PANE=<real id>, and only then boots the worker through
+ * {@link SurfaceProvider.sendCommand}. Omitting it leaves the pane sitting at
+ * its shell prompt without any keys being sent.
+ */
 export interface SurfaceSpawnOpts {
 	cwd: string;
 	command?: string;
