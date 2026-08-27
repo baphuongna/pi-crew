@@ -278,6 +278,65 @@ test("tabMap deferred commit: pane.split fail sau tab.create thành công → th
 	assert.deepEqual(split2?.params.direction, "down", "pane đầu của tab mới phải down — luân phiên không lệch bước");
 });
 
+test("race concurrency: 2 createSurface cùng tabKey ĐỒNG THỜI → serialize per-tabKey: 1 tab.create, 2 pane.split, direction khác nhau", async () => {
+	// Task 4 (review Task 3 — race latent): team-run spawn worker SONG SONG nên
+	// 2 createSurface cùng tabKey là kịch bản THẬT. Không serialize: cả 2 đọc
+	// tabMap trước khi cái nào commit → 2 tab.create (1 tab mồ côi) hoặc cùng
+	// paneIndexInTab (under-count, luân phiên lệch bước).
+	const h = makeFake();
+	h.env.HERDR_PANE_ID = "w2:p4W";
+	const provider = h.provider();
+	// Gọi ĐỒNG THỜI — không await giữa 2 lời gọi.
+	const [a, b] = await Promise.all([
+		provider.createSurface("t1", { cwd: "/tmp/wt", command: "bash a.sh", title: "w0", tabKey: "runR", splitIndex: 0 }),
+		provider.createSurface("t2", { cwd: "/tmp/wt", command: "bash b.sh", title: "w1", tabKey: "runR", splitIndex: 1 }),
+	]);
+	assert.equal(a.id, "w3:pC");
+	assert.equal(b.id, "w3:pC");
+	assert.equal(h.sockets.filter((s) => s.requests[0]?.method === "tab.create").length, 1, "chỉ 1 tab.create — tab thứ 2 sẽ là mồ côi");
+	const splitReqs = h.sockets.filter((s) => s.requests[0]?.method === "pane.split").map((s) => s.requests[0]);
+	assert.equal(splitReqs.length, 2, "mỗi worker một pane.split");
+	assert.deepEqual(splitReqs[0]?.params.direction, "down", "worker đầu của tab → index 0 → down");
+	assert.deepEqual(splitReqs[1]?.params.direction, "right", "worker hai đọc tabMap SAU commit của worker đầu → index 1 → right");
+	assert.equal(splitReqs[1]?.params.target_pane_id, "w3:pR", "cả 2 split vào root pane của CÙNG tab");
+	// paneCount đúng 2 sau 2 spawn đồng thời: worker thứ 3 (tuần tự) tiếp tục
+	// luân phiên tại index 2 → down, KHÔNG mở tab mới (2/8 pane).
+	await provider.createSurface("t3", { cwd: "/tmp/wt", command: "bash c.sh", tabKey: "runR", splitIndex: 2 });
+	assert.equal(h.sockets.filter((s) => s.requests[0]?.method === "tab.create").length, 1, "tab còn chỗ → không tab mới");
+	const split3 = h.sockets
+		.filter((s) => s.requests[0]?.method === "pane.split")
+		.map((s) => s.requests[0])
+		.at(-1);
+	assert.deepEqual(split3?.params.direction, "down", "index 2 (chẵn) → down: paneCount = 2 sau race");
+});
+
+test("race concurrency: lần spawn đầu trong chain FAIL → lần sau vẫn chạy (chain không chết)", async () => {
+	// tabInFlight lưu bản .catch(() => {}) — promise settled (kể cả reject)
+	// thì .then kế chạy ngay; nếu chain chết, MỌI createSurface sau một fail
+	// cùng tabKey sẽ reject vĩnh viễn.
+	let failFirstSplit = true;
+	const h = makeFake((req, sock) => {
+		if (req.method === "pane.split" && failFirstSplit) {
+			failFirstSplit = false;
+			sock.pushLine(JSON.stringify({ id: req.id, error: { code: "split_failed", message: "no space" } }));
+			return undefined;
+		}
+		return defaultRespond(req);
+	});
+	const provider = h.provider();
+	const first = provider.createSurface("t1", { cwd: "/tmp/wt", command: "bash a.sh", title: "w0", tabKey: "runF", splitIndex: 0 });
+	const second = provider.createSurface("t2", { cwd: "/tmp/wt", command: "bash b.sh", title: "w1", tabKey: "runF", splitIndex: 1 });
+	await assert.rejects(first, /split_failed: no space/);
+	assert.equal((await second).id, "w3:pC", "chain phải sống tiếp sau thất bại của lần đầu");
+	// Lần đầu fail sau tab.create thành công → deferred-commit không ghi
+	// tabMap → lần hai phải tab.create LẠI (không tái dùng tab không pane).
+	assert.equal(
+		h.sockets.filter((s) => s.requests[0]?.method === "tab.create").length,
+		2,
+		"lần đầu không commit → lần hai tab.create lại",
+	);
+});
+
 test("createSurface: env không có HERDR_PANE_ID → fallback pane.current (focus pane) làm pane cha", async () => {
 	const h = makeFake(); // env rỗng → fallback pane.current trả w3:pB
 	const { handle } = await spawnPane(h, { title: "crew:r1:t1" });
