@@ -39,7 +39,7 @@ triggers:
 
 End-to-end verification discipline for pi-crew changes. Distilled from the broker Phase-4 rollout (commits `1cb2dca` → `d599578` → `612e18b` → `4186284`, July 2026). The pain this skill prevents: shipping code that compiles + unit-tests-green but breaks in the user's live Pi session, or hangs the verifier worker.
 
-**When to use**: after any change to `src/runtime/broker/*.ts` (broker + tokens + issuer), `src/ui/`, `src/config/`, `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi/*.ts` (worker spawn/kill/steering), `src/runtime/surface/*.ts` (MuxSurface providers, degrade, launch script), `src/prompt/*.ts` (worker-side tools: ask / message / delegate / surface-worker recorder), `src/runtime/goal-workflow/plan-templates.ts`, `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently. Surface changes additionally require Tier 10 (surface-mode battery) because surface is fail-closed: every failure degrades to headless and the run still goes green — only pane-level evidence proves the panes engaged.
+**When to use**: after any change to `src/runtime/broker/*.ts` (broker + tokens + issuer), `src/ui/`, `src/config/`, `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi/*.ts` (worker spawn/kill/steering), `src/runtime/surface/*.ts` (MuxSurface providers, degrade, launch script), `src/prompt/*.ts` (worker-side tools: ask / message / delegate / surface-worker recorder), `src/runtime/goal-workflow/plan-templates.ts`, `src/runtime/team-runner.ts` or `src/runtime/task-runner/**` (scheduler / execution — Tier 7 smoke), `src/state/**` (durable state — Tier 7 + 9a events/status), `src/runtime/live-session/**` + `src/runtime/custom-tools/*` (live-session mode + worker custom tools), `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently. Surface changes additionally require Tier 10 (surface-mode battery) because surface is fail-closed: every failure degrades to headless and the run still goes green — only pane-level evidence proves the panes engaged.
 
 > **Path map (2026-08-26 reorg + A1)**: `src/runtime/crew-broker*.ts` → `src/runtime/broker/`; `src/runtime/child-pi*.ts` → `src/runtime/child-pi/`; `src/runtime/plan-templates.ts` (flat) → `src/runtime/goal-workflow/plan-templates.ts`; NEW dirs `src/runtime/surface/` and `src/prompt/`. Test files moved with them (`test/unit/crew-broker-*.test.ts` → `test/unit/runtime/broker/`, `test/unit/keybinding-map.parity.test.ts` → `test/unit/ui/`, ...).
 
@@ -50,14 +50,14 @@ Two locations hold pi-crew state:
 1. **Source** (`src/`, `test/`, `package.json`, `workflows/`, `src/runtime/goal-workflow/plan-templates.ts`) — git-tracked, `git diff` shows it.
 2. **Bundle** (`dist/index.mjs`) — pre-built, loaded by Pi at **extension cold-start only**.
 
-The 3-way resolution order for `dist/index.mjs` (per `index.ts:5-22`):
+The 3-way resolution order for `dist/index.mjs` (per `index.ts:1-25`):
 ```
 1. dist/index.mjs (pre-built bundle) if present  ← DEFAULT since the v0.9.17 bundle-as-default rollout
 2. Inline strip-types loading — fallback when bundle missing
    OR PI_CREW_USE_BUNDLE=0
 ```
 
-> **Note on version pins**: this skill mentions specific versions (v0.9.17, v0.9.46, v0.9.47) as anchors for *when a behavior was introduced*, not as a constraint on which version the skill applies to. The verification discipline (Tiers 1–8) applies to every pi-crew release. Verify the version pin is still accurate via `git log --oneline -- index.ts` and `git log --oneline -- src/ui/run-dashboard.ts`.
+> **Note on version pins**: this skill mentions specific versions (v0.9.17, v0.9.46, v0.9.47) as anchors for *when a behavior was introduced*, not as a constraint on which version the skill applies to. The verification discipline (Tiers 1–10) applies to every pi-crew release. Verify the version pin is still accurate via `git log --oneline -- index.ts` and `git log --oneline -- src/ui/run-dashboard.ts`.
 
 **Workflow files are runtime data** — `workflows/*.workflow.md` and task prompt strings inside `src/runtime/goal-workflow/plan-templates.ts` are loaded per-call, NOT bundled. Edits take effect immediately, no rebuild needed.
 
@@ -127,7 +127,7 @@ To add Tier 1 to CI as a fast-feedback gate (under 30s):
 
 **What**: run the curated 14-file fast subset.
 
-**Why this exists**: full `npm run test:unit` runs 642 files, >4 minutes. Verifier worker timeout is 300s → worker killed mid-run, run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
+**Why this exists**: full `npm run test:unit` runs 810 files (was 642 at skill-writing time — it keeps growing), several minutes. Verifier worker response timeout would kill the worker mid-run → run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
 
 **How**:
 
@@ -145,7 +145,7 @@ Expected output: `# tests 102 # pass 102 # fail 0 # duration_ms ~21000`. (Count 
 | Introduced in commit | `1cb2dca fix(verifier): use test:critical instead of test:unit to avoid worker timeout` |
 | Runner wrapper | `scripts/test-runner.mjs` — injects `--test-force-exit`, forwards to `tsx --test` |
 | The 14 files | broker: `test/unit/runtime/broker/crew-broker-{handshake,stale-socket,feature-flag,server-gate,client-fallback,mailbox-observer,close-during-reconnect,steer-dedup,symlink-steering}.test.ts`; UI: `test/unit/ui/keybinding-map.parity.test.ts`, `test/unit/ui/pi-tui-dispatch-probe.test.ts`; utils: `test/unit/utils/session-utils-extract.test.ts`; config: `test/unit/config/config-schema-sync.test.ts`; spawn env: `test/unit/runtime/child-pi/child-pi-env-spread.test.ts` |
-| Failure mode that motivates it | Worker timeout in `src/runtime/child-pi/child-pi-constants.ts:23` (`RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs` = 300000); verifier LLM ran `npm test` and got killed at 300s with exit 143 (SIGTERM) |
+| Failure mode that motivates it | Worker timeout in `src/runtime/child-pi/child-pi-constants.ts:23` (`RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs` — 300000 at the time, now 600000); verifier LLM ran `npm test` and got killed with exit 143 (SIGTERM) |
 
 **Run after**: any edit to `src/runtime/broker/*.ts`, `src/ui/`, `src/config/`, `src/extension/registration/lifecycle-handlers.ts`, or `src/runtime/child-pi/*.ts`.
 
@@ -213,9 +213,9 @@ Compare the printed md5 against what the user's Pi session loaded. If they diffe
 | `typecheck` script | `package.json` `"typecheck"` — runs `tsc --noEmit && node --experimental-strip-types -e "await import('./index.ts'); ..."` |
 | `build:bundle` script | `package.json` `"build:bundle"` — runs `node scripts/build-bundle.mjs` |
 | Bundle builder | `scripts/build-bundle.mjs` (esbuild-based, bundles `index.bundle.ts` → `dist/index.mjs`) |
-| Bundle resolution rule | `index.ts:5-22` (entrypoint docstring); also `scripts/build-bundle.mjs:14-20` (entrypoint preference); **symlink is live for source files but the bundled `dist/index.mjs` is loaded** |
+| Bundle resolution rule | `index.ts:1-25` (entrypoint docstring); also `scripts/build-bundle.mjs:14-20` (entrypoint preference); **symlink is live for source files but the bundled `dist/index.mjs` is loaded** |
 | Postinstall hook | `scripts/postinstall.mjs:43` — best-effort bundle rebuild; falls back to strip-types if esbuild missing |
-| Bundle md5 after Phase-4 commit | `1cc4d55e18add7b9a036c569143320b6` (~2.78 MB at the time; **check current**: `md5sum dist/index.mjs`. As of v0.9.66 I-batch 2026-08-11: `16e29d053bd370e24f40df147dadcb79` ~2.81 MB) |
+| Bundle md5 anchors | `1cc4d55e18add7b9a036c569143320b6` (Phase-4 flip, ~2.78 MB) → `16e29d053bd370e24f40df147dadcb79` (v0.9.66, 2026-08-11) → `9b557ac106b82e1ee33d39dd0d6c7dd7` (post-MuxSurface-A1 main, 2026-08-27). **Always check current**: `md5sum dist/index.mjs` |
 
 ---
 
@@ -247,7 +247,7 @@ tmux -S /tmp/sock new-session -d -x 160 -y 50 -s pi \
 
 | What | Where |
 |---|---|
-| Bundle resolution | `index.ts:5-22` — "dist/index.mjs (pre-built bundle) if present AND not explicitly disabled — DEFAULT since v0.9.17" |
+| Bundle resolution | `index.ts:1-25` — "dist/index.mjs (pre-built bundle) if present AND not explicitly disabled — DEFAULT since v0.9.17" |
 | Bundle size impact after Phase-4 flip | `docs/decisions/2026-07-22-broker-phase4-gated-on.md` §Verification: "2.78 MB before and after the flip; the broker code was already in the bundle; only the default boolean changed" |
 | Symlink confirmation | **The symlink lives in the CONSUMING project, not inside pi-crew itself.** From the pi-crew repo, check the parent: `readlink ../node_modules/pi-crew` (returns `../pi-crew` for dev clones). For global installs: `readlink "$(npm root -g)"/pi-crew`. Pattern is always `<consumer>/node_modules/pi-crew → <pi-crew-repo>`. |
 
@@ -294,7 +294,7 @@ tmux capture-pane -t pi -p > /tmp/screen-after-up.txt
 |---|---|
 | `keyOf()` helper | `src/ui/key-utils.ts:37-42` (import + type alias at lines 16-18) |
 | Dispatch path | `src/ui/keybinding-map.ts` (migrated to `matchesKey()` in commit `f05a10d`) |
-| Golden snapshot test | `test/unit/ui/keybinding-map.parity.test.ts` — 7 `it()` blocks asserting parity against a generated golden snapshot; BINDINGS table has 27 entries (`src/ui/keybinding-map.ts:132-180`) |
+| Golden snapshot test | `test/unit/ui/keybinding-map.parity.test.ts` — 8 `it()` blocks asserting parity against a generated golden snapshot; `DEFAULT_BINDINGS` table has 31 action entries (`src/ui/keybinding-map.ts:147-211`; user-overridable via the `keybindings` config section / `PI_CREW_KEYBINDINGS` env) |
 | Live probe test | `test/unit/pi-tui-dispatch-probe.test.ts` — direct probe of dispatch (3 tests) |
 | Probe commit | `84944f7 test(probe): add invalidate() to control object so typecheck passes` |
 | Tab/Space bind | `src/ui/run-dashboard.ts` + commit `15a0ffe fix(ui): also bind Tab/Space/Enter/S to select in dashboard dispatch` |
@@ -358,9 +358,9 @@ else:
 
 ## Tier 7 — Smoke team run (verifier prompt doesn't hang)
 
-**What**: prove the verifier worker completes within `RESPONSE_TIMEOUT_MS` (300s).
+**What**: prove the verifier worker completes within `RESPONSE_TIMEOUT_MS` (**600s since the stuck-worker hardening — was 300s when this skill was distilled; `DEFAULT_CHILD_PI.responseTimeoutMs = 10 * 60_000`**).
 
-**Why this is its own tier**: `test:critical` covers unit-level invariants, but the verifier LLM is a separate failure mode — it reads the verifier prompt from `src/runtime/goal-workflow/plan-templates.ts:144, 147` (taskTemplate strings) or from `workflows/*.workflow.md` (workflow verifier sections), then decides which bash command to run. If the prompt says "Run tests" without specifying which, the LLM runs `npm test` and the worker hangs at 300s with exit 143.
+**Why this is its own tier**: `test:critical` covers unit-level invariants, but the verifier LLM is a separate failure mode — it reads the verifier prompt from `src/runtime/goal-workflow/plan-templates.ts:144, 147` (taskTemplate strings) or from `workflows/*.workflow.md` (workflow verifier sections), then decides which bash command to run. If the prompt says "Run tests" without specifying which, the LLM runs `npm test` (810+ files) and the worker gets killed by the response timeout with exit 143.
 
 **How** (from parent Pi session — `team` is a tool, not a shell command):
 
@@ -371,13 +371,13 @@ team:
   action: run              # run | status | events | cancel | retry | ...
   team: fast-fix           # team (a role-set): default / fast-fix / implementation / parallel-research / research / review
   workflow: fast-fix       # workflow (a phase DAG): default / fast-fix / plan-execute / implementation / review / research / parallel-research / pipeline / chain
-  goal: "Smoke-verify <X>. Run `npm run test:critical && npx tsc --noEmit` once, cache output, report exact pass/fail counts + total time. Confirm verifier completes without hang (must be <300s)."
+  goal: "Smoke-verify <X>. Run `npm run test:critical && npx tsc --noEmit` once, cache output, report exact pass/fail counts + total time. Confirm verifier completes without hang (must be <600s)."
   async: false             # synchronous: wait for completion before returning
 ```
 
 The `team` tool is described in the agent's system prompt. Use `team action='status' <runId>` to inspect mid-run, `team action='events' <runId> <limit>` for the event log, `team action='cancel' <runId>` to abort.
 
-**Real measured outcomes from this session**:
+**Real measured outcomes from this session** (July 2026, under the old 300s timeout — wall-clock shape still representative):
 
 | Run ID | Goal | Result | Wall-clock |
 |---|---|---|---|
@@ -391,16 +391,16 @@ The `team` tool is described in the agent's system prompt. Use `team action='sta
 |---|---|
 | `verificationCommand` for plan-templates | `src/runtime/goal-workflow/plan-templates.ts:147, 151` — both templates now `npm run test:critical && npx tsc --noEmit` |
 | `taskTemplate` for verifier | `src/runtime/goal-workflow/plan-templates.ts:144` — explicit "Do NOT run `npm test`" + "<2 min" budget |
-| Workflow verifier prompts | `workflows/fast-fix.workflow.md:24`, `workflows/default.workflow.md:31`, `workflows/plan-execute.workflow.md:30`, `workflows/review.workflow.md:31` |
+| Workflow verifier prompts | `workflows/fast-fix.workflow.md:24`, `workflows/plan-execute.workflow.md:30`, `workflows/review.workflow.md:31` — all three pin `test:critical`; `workflows/default.workflow.md:39` uses generic wording ("FAST targeted checks only, never the full suite") |
 | Verifier fix commit (plan-templates) | `1cb2dca fix(verifier): use test:critical instead of test:unit to avoid worker timeout` |
 | Verifier fix commit (workflows) | `d599578 fix(workflows): specify fast test:critical command in verifier prompts` |
-| Watchdog constant | `src/runtime/child-pi/child-pi-constants.ts:23` — `RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs` |
-| Cache directive | `Run FAST checks ONCE (cache output to .crew/cache/)` — anti-re-run safeguard baked into all 4 workflow verifier prompts |
+| Watchdog constant | `src/runtime/child-pi/child-pi-constants.ts:23` — `RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs` = **600_000** (`src/config/defaults.ts:26`; env override `PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS`, see `child-pi.ts:692-697`) |
+| Cache directive | `Run FAST checks ONCE (cache output to .crew/cache/)` — anti-re-run safeguard baked into the verifier prompts |
 | Decision doc | `docs/decisions/2026-07-22-broker-phase4-gated-on.md` §Verification (mentions the smoke run `team_20260722100811_9bf95bebff2b052a`) |
 
 **Two known failure modes for verifier**:
 
-1. **Verifier LLM runs `npm test`** (full unit + integration suite, >4 min) instead of `npm run test:critical`. Symptom: worker killed with exit 143 after exactly 300s. Fix: rewrite the verifier prompt to specify the exact fast command AND include "Do NOT run `npm test` or `npm run test:unit`".
+1. **Verifier LLM runs `npm test`** (full unit + integration suite, >4 min) instead of `npm run test:critical`. Symptom: worker killed with exit 143 at the response timeout (300s historically — the measured runs below predate the bump to 600s). Fix: rewrite the verifier prompt to specify the exact fast command AND include "Do NOT run `npm test` or `npm run test:unit`".
 2. **Verifier LLM improvises** with a clean-cache `npm test` run anyway. The cache directive ("cache to `.crew/cache/`", "do NOT re-run") catches this — the second worker that observes a cached log should not re-run.
 
 ---
@@ -420,7 +420,7 @@ md5sum dist/index.mjs
 readlink ../node_modules/pi-crew/dist/index.mjs 2>/dev/null \
   || readlink "$(npm root -g)"/pi-crew/dist/index.mjs \
   || md5sum "$(npm root -g)"/pi-crew/dist/index.mjs
-# (the consuming project loads pi-crew via this symlink — see index.ts:5-22)
+# (the consuming project loads pi-crew via this symlink — see index.ts:1-25)
 ```
 
 If the two md5s match → session is on the latest code. If not → user must `/quit` + reopen Pi.
@@ -431,7 +431,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 | What | Where |
 |---|---|
-| Symlink path | `index.ts:5-22` — **the symlink lives in the CONSUMING project** (parent dir or global prefix), not inside pi-crew itself. From the repo: `readlink ../node_modules/pi-crew` (dev) or `readlink "$(npm root -g)"/pi-crew` (global). Verify with `readlink` + `npm root -g`. |
+| Symlink path | `index.ts:1-25` — **the symlink lives in the CONSUMING project** (parent dir or global prefix), not inside pi-crew itself. From the repo: `readlink ../node_modules/pi-crew` (dev) or `readlink "$(npm root -g)"/pi-crew` (global). Verify with `readlink` + `npm root -g`. |
 | Session load model | Same file: "dist/index.mjs (pre-built bundle) if present — DEFAULT since v0.9.17" |
 
 ---
@@ -440,7 +440,7 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 **What**: drive the team tool + subagent tools through a spread of actions from the parent Pi session to prove the full surface works end-to-end, not just one smoke run.
 
-**Why this exists**: Tier 7 proves one team run completes. But pi-crew has ~54 `team` actions plus the subagent tools (`Agent`, `crew_agent`, `get_subagent_result`, `steer_subagent` — with `crew_agent_result`/`crew_agent_steer` aliases), the worker-side tools (`ask`, `delegate`, `message`), and the `team-settings` config surface, dispatched through several code paths (sync run, async run, chain, parallel, direct subagent). A schema or registration regression can break *some* paths while others still pass. The battery catches path-specific breakage.
+**Why this exists**: Tier 7 proves one team run completes. But pi-crew has **55 `team` actions across 5 domain dispatchers** (`RUN` 10: run/parallel/plan/plans/orchestrate/resume/retry/wait/steer/goal · `STATUS` 16: status/list/get/events/artifacts/summary/graph/search/health/worktrees/checkpoint/cache/explain/onboard/recommend/help · `CONTROL` 7 · `MANAGE` 16 · `AUTOMATE` 6 — `src/schema/team-tool-schema.ts:391-437`) plus the subagent tools (`Agent`, `crew_agent`, `get_subagent_result`, `steer_subagent` — with `crew_agent_result`/`crew_agent_steer` aliases), the worker-side tools (`ask`, `delegate`, `message`), and the `team-settings` config surface, dispatched through several code paths (sync run, async run, chain, parallel, direct subagent). A schema or registration regression can break *some* paths while others still pass. The battery catches path-specific breakage.
 
 **When required**: any change to `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, `src/extension/team-tool/*.ts` (handler dispatch), or the subagent-tool registration. Optional but cheap for any change — the read-only actions are free.
 
@@ -457,11 +457,14 @@ If the two md5s match → session is on the latest code. If not → user must `/
    - `team action='get' resource='workflow' team='implementation'` — resource inspect
    - `team action='explain' runId='<recent>'` — markdown render
    - `team action='worktrees' runId='<recent>'` — workspace listing
+   - `team action='graph' runId='<recent>'` — task-graph render (newer action)
+   - `team action='search' query='...'` — event/artifact search (newer action)
    - `team-settings` (slash) or `team action='settings' config={args:'get runtime.surface.mode'}` — config surface incl. the surface/nesting keys
 2. **9b. Spawn paths** (cost tokens — one probe each is enough):
    - `team action='run'` sync (fast-fix, trivial goal) — proves sync run + child-pi spawn + provider-extension loading
    - `team action='run' async=true` — proves background dispatch
    - `team action='run' chain='"A" -> "B"'` — proves sequential handoff (chain runner). **Omit `workflow`** — passing `workflow:'chain'` forwards it to each step and fails fast (~58ms silent; issue #44).
+   - `team action='orchestrate'` / `action='plan'` / `action='plans'` — planning surface without execution (cheap middle ground between 9a read-only and full spawn)
    - `Agent` direct subagent — proves the direct-subagent tool
    - `crew_agent` `run_in_background=true` then `get_subagent_result` — proves background subagent lifecycle
    - `steer_subagent` while a background subagent runs — proves live steering (timing-sensitive; was listed under 9c, but it is the canonical name now — `crew_agent_steer` is the alias)
@@ -584,13 +587,13 @@ herdr chỉ được detect khi **chính pi session đang chạy trong một her
 
 | Anti-pattern | Cost | Where fixed | Reference |
 |---|---|---|---|
-| `npm test` in verifier prompt | 300s worker timeout, run = "hang" | `1cb2dca` | verifier `taskTemplate`/`verificationCommand` in `src/runtime/goal-workflow/plan-templates.ts` (now `:144, 147, 151`) + 4 workflow files |
+| `npm test` in verifier prompt | worker killed at the response timeout (300s then, 600s now), run = "hang" | `1cb2dca` | verifier `taskTemplate`/`verificationCommand` in `src/runtime/goal-workflow/plan-templates.ts` (now `:144, 147, 151`) + workflow files |
 | `npm run test:unit` for in-loop verify | >4 min, same hang | `1cb2dca` | `package.json:85` (`test:critical` script) |
 | Default-off assumption in tests | Break when default flips | `612e18b` | `test/unit/runtime/broker/crew-broker-feature-flag.test.ts:31` (`DEFAULT_BROKER.enabled === true`) |
 | Test using real `loadConfig()` to mock config | Flaky when env / disk config changes | `612e18b` | `test/unit/runtime/broker/crew-broker-server-gate.test.ts:78` (use `brokerEnv: "0"` instead of `flagOn: false`) |
-| Source edit seen immediately | No, requires bundle rebuild + reload | n/a (permanent) | `index.ts:5-22` — bundle resolution rules |
+| Source edit seen immediately | No, requires bundle rebuild + reload | n/a (permanent) | `index.ts:1-25` — bundle resolution rules |
 | Skip disabled-path proof | `effectiveEnabled()` regression slips through | n/a (permanent) | Tier 2 above |
-| `npm run test:unit` against 642 files | >4 min; mis-judges verifier runtime | n/a (permanent) | Tier 1 above |
+| `npm run test:unit` against the full suite (810 files now, 642 then) | several minutes; mis-judges verifier runtime | n/a (permanent) | Tier 1 above |
 | Skip typecheck | TS errors slip past `test:critical` (which uses `--test-timeout=30000`) | n/a (permanent) | Tier 3 above |
 | Run `pi` from a stale bundle | Session shows old behavior despite src/ edits | n/a (permanent) | `scripts/check-bundle-staleness.mjs` — CI gate |
 | Test by reading code | Proves nothing about runtime | n/a (permanent) | All tiers above |
@@ -621,7 +624,7 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | Tmux probe: keys not reaching component | Wrong terminal encoding | Check `pi-tui` env; use both `\x1b[A` and `\x1bOA`; check `matchesKey` is wired in the dispatched class |
 | `pty_probe.py` errors `OSError: [Errno 6] No such device` | Pty already closed | Reduce `--startup-sleep` or check `pi` actually launched |
 | Smoke team: 04_verify exits with 143 | Verifier ran slow command (typically `npm test`) | Read worker transcript for actual command run; fix the verifier prompt per Tier 7 |
-| Smoke team: worker times out at 300s | Either verifier command slow OR LLM thinking cap | Check `RESPONSE_TIMEOUT_MS` (300s); bump only if you verified the command itself finishes <300s |
+| Smoke team: worker times out (exit 143) | Either verifier command slow OR LLM thinking cap | Check `RESPONSE_TIMEOUT_MS` (600s; env override `PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS`); bump only if you verified the command itself finishes under it |
 | `stale-ctx` error in worker output | Extension ctx is stale after session replacement | This is runtime noise, not a regression; ignore. (Source: `.crew/knowledge.md` "Process Safety" notes) |
 | Bundle md5 not changing after rebuild | Stale `dist/` cache or esbuild no-op | `rm -rf dist/ && npm run build:bundle`; verify new md5 |
 | Team tool returns `Unknown type` (isError:true, short text) | `Value.Check` in the handler hit a `Type.Unsafe({...})` schema node with **no `[TypeBox.Kind]` symbol** — only triggered when the model actually sends that field. Tier 1-8 pass; only Tier 9 (feature battery) catches it. | Replace the `Type.Unsafe` with a TypeBox-native constructor (`Type.Union`, `Type.Record`, `Type.Any`). Reproduce with `node --input-type=module -e "import {Value} from '@sinclair/typebox/value'; import {TeamToolParams} from './src/schema/team-tool-schema.ts'; Value.Check(TeamToolParams, {action:'list', skill:'', config:{}})"` — a throw = the bug. |
@@ -643,12 +646,12 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | 4 (md5 sync check) | <1s | 5s | Disk/symlink issue |
 | 5 (tmux spawn) | 5s | 15s | tmux server issue |
 | 6 (pty probe) | 5s | 15s | `pi` not in PATH |
-| 7 (smoke team) | 60s (verifier only) | 300s (worker hard limit) | Worker killed by `RESPONSE_TIMEOUT_MS` |
+| 7 (smoke team) | 60s (verifier only) | 600s (worker hard limit) | Worker killed by `RESPONSE_TIMEOUT_MS` |
 | 8 (final md5 sync) | <1s | 5s | Disk/symlink issue |
-| 9 (feature battery) | 30s (read-only batch) + ~120s per spawn probe | 300s per spawn probe (worker hard limit) | Spawn probe hung or returned `Unknown type`/`Validation failed` — a schema or registration regression; see Tier 9 + Failure symptoms |
+| 9 (feature battery) | 30s (read-only batch) + ~120s per spawn probe | 600s per spawn probe (worker hard limit) | Spawn probe hung or returned `Unknown type`/`Validation failed` — a schema or registration regression; see Tier 9 + Failure symptoms |
 | 10a (surface E2E suite) | 90s | 180s | tmux server issue or a real spawn/degrade regression — investigate, don't bump |
-| 10b (live surface run) | ~120s (one fast-fix run) | 300s (worker hard limit) | Pane never engaged (check `visibleAgents`) or auto-exit failed leaving panes open |
-| 10c (herdr path) | ~120s | 300s | herdr socket protocol drift — check `herdr api schema --json` against `src/runtime/surface/herdr-provider.ts` |
+| 10b (live surface run) | ~120s (one fast-fix run) | 600s (worker hard limit) | Pane never engaged (check `visibleAgents`) or auto-exit failed leaving panes open |
+| 10c (herdr path) | ~120s | 600s | herdr socket protocol drift — check `herdr api schema --json` against `src/runtime/surface/herdr-provider.ts` |
 
 If a tier runs over the hard limit, **stop and investigate** — don't bump the budget silently. The budget exists precisely so regressions in test runtime (which usually means a regression in test setup/teardown) are caught early.
 
@@ -731,6 +734,37 @@ The "skill stack" for a typical pi-crew change:
 
 ---
 
+## Feature coverage map (tính năng → tier verify)
+
+Use this to answer "đủ full tính năng chưa?" without re-deriving. Every user-facing pi-crew feature, and the cheapest tier that proves it live. If a feature row has no evidence in the report, the battery was not "full" — regardless of how many tiers ran.
+
+| Feature | Code entry | Verify via |
+|---|---|---|
+| Team tool — 55 actions / 5 domains | `src/schema/team-tool-schema.ts:391-437`, dispatch in `src/extension/team-tool/` | 9a (read-only) + 9b/9c/9d/9e/9f theo domain |
+| Runtime mode `child-process` (default) | `src/runtime/child-pi/` | 9b sync run + T7 |
+| Runtime mode `scaffold` (dry-run) | `src/runtime/task-runner/pre-execution.ts:176` | 9b `action='plan'`/`'plans'` (preview không spawn) hoặc run với `runtime.mode='scaffold'` |
+| Runtime mode `live-session` (experimental) | `src/runtime/live-session/` | Run với `runtime.mode='live-session'` + irc tool xuất hiện trong worker (`src/runtime/custom-tools/irc-tool.ts`) |
+| Subagent tools (Agent / steer / result) | `src/extension/registration/subagent-tools.ts` | 9b (`Agent`, `crew_agent`+`get_subagent_result`, `steer_subagent`) |
+| Worker tool `ask` (blocking Q→parent) | `src/prompt/prompt-runtime.ts:639`, broker wait.* | 9b-W ask round-trip |
+| Worker tool `message` (notify/DM/group) | `src/prompt/message-tool.ts` | 9b-W message probes |
+| Worker tool `delegate` (nested spawning) | `src/prompt/prompt-runtime.ts:414` | 9b-W delegate + depth-cap reject |
+| Full loadout (D5) | `src/runtime/model/pi-args.ts:283-330` | 9b-W full-loadout sanity |
+| Surface panes tmux/herdr (A1) | `src/runtime/surface/` | T10 (10a E2E + 10b live + 10c herdr) |
+| Broker (mailbox, steer, tokens) | `src/runtime/broker/` | T1/T2 + 9c steer/respond + T10a test #2 |
+| Dashboard + keybindings + overlays | `src/ui/`, commands `src/extension/registration/commands/` | T5/T6 probe + parity golden test |
+| Slash commands (8: run/status/doctor/help/dashboard/settings/init/config) | `commands/{run,status,manage,dashboard}.ts` | T5 send-keys một lệnh `/team-*` |
+| team-settings / config | `src/extension/team-tool/handle-settings.ts` | 9a settings get + 10b set visibleAgents |
+| Worktree isolation | `src/worktree/` | 9a worktrees + 9b run `workspaceMode='worktree'` |
+| Async detached runs + watchdog | `src/runtime/async-runner.ts` | 9b async + 9f (survive host exit: E2E riêng) |
+| Crash recovery / resume | `src/state/`, 9c | 9c resume/retry + checkpoint |
+| Export/import bundles | `src/extension/team-tool/` (import/imports/export) | 9e |
+| Schedule/cron, goal-loop, anchors | AUTOMATE domain | 9f |
+| Doctor / health / zombies + orphan panes | `src/extension/team-tool/doctor.ts` | 9a doctor + T10a test #3 |
+| Model fallback chain | `src/config/types.ts` (modelFallback) | unit tests + 9b sync run (auto-tail chay ngầm) |
+| State perf (fsync coalescing, event-log tail) | `src/state/` | bench `scripts/run-bench.mjs` (b5/b11-b13) — không cần battery live |
+
+---
+
 ## Maintenance
 
 The skill mentions specific commits, line numbers, and version pins. As the code evolves, these will drift. Maintenance playbook:
@@ -752,7 +786,7 @@ The skill does NOT need to be updated for every commit — only when the cited l
 ## Quick reference — exact commands
 
 ```bash
-# Tier 1 (critical unit, ~25s, 101 tests)
+# Tier 1 (critical unit, ~21s, 102 tests)
 npm run test:critical
 # Tier 2 (3-path proof, broker changes only)
 PI_CREW_BROKER=0 npm run test:critical
@@ -833,6 +867,8 @@ Source files (critical paths):
 - `src/ui/key-utils.ts:37-42` — `keyOf()` using pi-tui `matchesKey()`
 - `src/ui/keybinding-map.ts` — dispatch using `matchesKey()` (commit `f05a10d`)
 - `src/runtime/model/pi-args.ts:283-330` — D5 loadout: `--tools`/`--no-skills` ONLY khi agent frontmatter khai báo; `DEFAULT_MAX_CREW_DEPTH = 4`
+- `src/extension/registration/subagent-tools.ts` — `Agent` (:70), `get_subagent_result` (:359), `steer_subagent` (:475, alias `crew_agent*`)
+- `src/runtime/live-session/live-session-runtime.ts` + `src/runtime/custom-tools/irc-tool.ts` — live-session mode + peer-to-peer irc (experimental)
 
 Surface files (Tier 10 critical paths):
 - `src/runtime/surface/surface-provider.ts` — SurfaceProvider interface (spec §4)

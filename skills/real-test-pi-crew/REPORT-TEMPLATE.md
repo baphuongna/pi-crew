@@ -27,8 +27,8 @@ This artifact exists so past runs are verifiable (see SKILL.md "Output report").
 | 6 pty probe | ✅/❌/⏭️ | `<keys reached handleInput / diag lines>` |
 | 7 smoke team run | ✅/❌/⏭️ | runId `<id>`, `<n>/<n>` tasks, verifier `<dur>` (<300s) |
 | 8 final md5 sync | ✅/❌/⏭️ | disk = session = `<md5>` |
-| 9a read-only battery | ✅/❌/⏭️ | list/recommend/health/doctor/status/events/summary/get/explain/worktrees/settings — `<n>/11` |
-| 9b spawn paths | ✅/❌/⏭️ | sync / async / chain / Agent / crew_agent / steer_subagent — `<n>/6` |
+| 9a read-only battery | ✅/❌/⏭️ | list/recommend/health/doctor/status/events/summary/get/explain/worktrees/graph/search/settings — `<n>/13` |
+| 9b spawn paths | ✅/❌/⏭️ | sync / async / chain / orchestrate-plan / Agent / crew_agent / steer_subagent — `<n>/7` |
 | 9b-W worker tools | ✅/❌/⏭️ | ask round-trip / message notify / message DM-group / delegate nesting — which ran + evidence (reply in transcript, wake event, depth-cap reject) |
 | 9c lifecycle | ✅/❌/⏭️ | status-details/cache/checkpoint/steer/retry/resume + live cancel — which ran |
 | 9d destructive | ✅/❌/⏭️ | forget/cleanup/prune — which ran (note data-protection skips) |
