@@ -80,6 +80,9 @@ test("executeTeamRun registers the surface degrade controller for its run and cl
 			},
 			takeDegraded: () => [],
 			consecutiveSpawnFails: () => 0,
+			async closeRunTabs() {
+				/* sentinel — không có tab nào trong fake này */
+			},
 			snapshot: () => ({ provider: null, panes: {}, workerPids: {}, sessionPaths: {} }),
 		};
 		registerSurfaceRuntimeController(sentinel);

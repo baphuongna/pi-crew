@@ -19,6 +19,7 @@ import {
 	CLASSIFY_TIMEOUT_MS,
 	classifyOnExit,
 	clearSurfaceRuntimeController,
+	closeTabForRun,
 	createSurfaceRuntimeController,
 	getSurfaceRuntimeController,
 	isSpawnFailLockout,
@@ -29,12 +30,13 @@ import {
 	normalizeSurfaceState,
 	planHeadlessRedeplays,
 	recordSurfacePane,
+	recordSurfaceTab,
 	registerSurfaceRuntimeController,
 	releaseSurfacePane,
 	SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD,
 	type SurfaceDegradedEntry,
 } from "../../../../src/runtime/surface/degrade.ts";
-import type { SurfaceHandle } from "../../../../src/runtime/surface/surface-provider.ts";
+import type { SurfaceHandle, SurfaceProvider } from "../../../../src/runtime/surface/surface-provider.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 
 function fakeHandle(id = "%1"): SurfaceHandle {
@@ -738,4 +740,94 @@ test("registry: register/get/clear theo runId — không leak giữa các run", 
 	clearSurfaceRuntimeController("run-reg");
 	assert.equal(getSurfaceRuntimeController("run-reg"), undefined);
 	clearSurfaceRuntimeController("run-not-registered"); // no-op an toàn
+});
+
+// ── Task 5 (tab-layout 2026-08-27): tab sống tới run end ───────────────────
+
+test("releaseSurfacePane KHÔNG đóng tab — pane chết chỉ gỡ panes entry (spec tab-layout §5)", () => {
+	const harness = makeController("run-tab-live");
+	harness.controller.notifySpawned({ taskId: "01_explore", paneId: "%5", provider: "tmux", tabKey: "run-tab-live", tabId: "@1" });
+	assert.deepEqual(harness.controller.snapshot().tabs, { "run-tab-live": ["@1"] }, "spawn trong tab-flow ghi manifest tabs");
+	// Worker HOÀN THÀNH → pane entry ra khỏi map sống NHƯNG tab giữ nguyên:
+	// host không proactively đóng tab từng worker — tab do run end đóng.
+	harness.controller.notifyPaneExited({ taskId: "01_explore", paneId: "%5", completed: true, exitReason: "pane-closed" });
+	assert.equal(harness.controller.snapshot().panes["01_explore"], undefined, "entry pane được remove");
+	assert.equal(harness.controller.livePaneCount(), 0);
+	assert.deepEqual(harness.controller.snapshot().tabs, { "run-tab-live": ["@1"] }, "tab KHÔNG theo từng worker");
+	// Reducer thuần cũng vậy: release KHÔNG đụng tabs.
+	const withTabs = normalizeSurfaceState({ provider: "tmux", tabs: { run_x: ["@9"] } });
+	const released = releaseSurfacePane({ ...withTabs, panes: { "02": "%7" } }, "02");
+	assert.deepEqual(released.panes, {});
+	assert.deepEqual(released.tabs, { run_x: ["@9"] });
+});
+
+test("recordSurfaceTab: dedup tabId; run dài (>8 pane) tích lũy nhiều tabId cùng tabKey", () => {
+	let state = normalizeSurfaceState({ provider: "herdr" });
+	state = recordSurfaceTab(state, { tabKey: "team_A", tabId: "w2:t1" });
+	state = recordSurfaceTab(state, { tabKey: "team_A", tabId: "w2:t1" }); // duplicate pane cùng tab
+	state = recordSurfaceTab(state, { tabKey: "team_A", tabId: "w2:t2" }); // tab thứ 2 khi tab 1 đầy 8
+	assert.deepEqual(state.tabs, { team_A: ["w2:t1", "w2:t2"] });
+});
+
+test("normalizeSurfaceState: tabs giữ string[] hợp lệ, lọc rác của manifest cũ/tay", () => {
+	const state = normalizeSurfaceState({
+		provider: "tmux",
+		panes: {},
+		tabs: { team_A: ["@1", 42, ""], team_B: "w2:t1", team_C: [] },
+	});
+	assert.deepEqual(state.tabs, { team_A: ["@1"] }, "entry không phải string/[] rỗng bị bỏ");
+	assert.equal(normalizeSurfaceState({ panes: {} }).tabs, undefined, "không có tabs → giữ undefined (backward-compat)");
+});
+
+test("closeTabForRun: provider.closeTab gọi ĐÚNG MỘT LẦN theo tabKey (không loop tabIds) + clear tabs[tabKey]", async () => {
+	const closedTabs: string[] = [];
+	const provider = {
+		kind: "herdr",
+		closeTab: async (tabKey: string) => {
+			closedTabs.push(tabKey);
+		},
+	} as unknown as SurfaceProvider;
+	const state = normalizeSurfaceState({ provider: "herdr", tabs: { team_A: ["w2:t1", "w2:t2"] } });
+	await closeTabForRun(state, "team_A", provider);
+	assert.deepEqual(closedTabs, ["team_A"], "1 lần gọi — provider tự đóng mọi window/tab của run theo map nội bộ");
+	assert.deepEqual(state.tabs?.team_A, [], "entry tabs được clear (giữ key làm evidence đã đóng)");
+	// Lần 2 vẫn forward đúng MỘT lần gọi cho tabKey (wrapper mỏng — idempotence
+	// end-to-end nằm ở map nội bộ provider, xem test closeTab của tmux/herdr).
+	await closeTabForRun(state, "team_A", provider);
+	assert.deepEqual(closedTabs, ["team_A", "team_A"]);
+});
+
+test("closeTabForRun: provider không có closeTab / closeTab throw → không sập run end, tabs vẫn clear", async () => {
+	const bare = { kind: "tmux" } as unknown as SurfaceProvider; // provider cũ không implement closeTab
+	const stateA = normalizeSurfaceState({ tabs: { team_A: ["@1"] } });
+	await closeTabForRun(stateA, "team_A", bare);
+	assert.deepEqual(stateA.tabs?.team_A, []);
+
+	const throwing = {
+		kind: "tmux",
+		closeTab: async () => {
+			throw new Error("mux dead");
+		},
+	} as unknown as SurfaceProvider;
+	const stateB = normalizeSurfaceState({ tabs: { team_B: ["@2"] } });
+	await closeTabForRun(stateB, "team_B", throwing);
+	assert.deepEqual(stateB.tabs?.team_B, [], "cleanup cuối run nuốt lỗi provider (best-effort)");
+});
+
+test("controller.closeRunTabs: đóng MỌI tabKey đã ghi của run qua provider + snapshot phản ánh đã đóng", async () => {
+	const harness = makeController("run-close-tabs");
+	harness.controller.notifySpawned({ taskId: "01", paneId: "%1", provider: "tmux", tabKey: "team_A", tabId: "@1" });
+	harness.controller.notifySpawned({ taskId: "02", paneId: "%2", provider: "tmux", tabKey: "team_B", tabId: "@9" });
+	const closedTabs: string[] = [];
+	const provider = {
+		kind: "tmux",
+		closeTab: async (tabKey: string) => {
+			closedTabs.push(tabKey);
+		},
+	} as unknown as SurfaceProvider;
+	await harness.controller.closeRunTabs(provider);
+	assert.deepEqual(closedTabs, ["team_A", "team_B"]);
+	const snapshot = harness.controller.snapshot();
+	assert.deepEqual(snapshot.tabs?.team_A, []);
+	assert.deepEqual(snapshot.tabs?.team_B, []);
 });

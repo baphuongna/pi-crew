@@ -23,7 +23,13 @@ import test from "node:test";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { __test__trySurfaceBranch, runChildPi } from "../../../../src/runtime/child-pi/child-pi.ts";
 import { __test_getTrackedTempDirs } from "../../../../src/runtime/model/pi-args.ts";
-import { CLASSIFY_TIMEOUT_MS } from "../../../../src/runtime/surface/degrade.ts";
+import {
+	__test__clearAllSurfaceControllers,
+	CLASSIFY_TIMEOUT_MS,
+	clearSurfaceRuntimeController,
+	createSurfaceRuntimeController,
+	registerSurfaceRuntimeController,
+} from "../../../../src/runtime/surface/degrade.ts";
 import type {
 	SurfaceDetection,
 	SurfaceExitReason,
@@ -42,7 +48,7 @@ interface FakeSurface extends SurfaceProvider {
 	fireExit(reason: SurfaceExitReason): void;
 }
 
-function fakeSurfaceProvider(paneId = "%7"): FakeSurface {
+function fakeSurfaceProvider(paneId = "%7", tabId?: string): FakeSurface {
 	const sentCommands: string[] = [];
 	const spawnOptsSeen: SurfaceSpawnOpts[] = [];
 	const closeCalls: Array<{ force?: boolean }> = [];
@@ -59,6 +65,7 @@ function fakeSurfaceProvider(paneId = "%7"): FakeSurface {
 	const handle: SurfaceHandle = {
 		id: paneId,
 		kind: "tmux",
+		...(tabId ? { tabId } : {}),
 		onExit(cb) {
 			exitCb = cb;
 			// Replay như provider thật (tmux/herdr) — exit bắn trước khi subscribe
@@ -228,6 +235,26 @@ test("runChildPi boots the worker in a pane via launch script — no stdio proce
 			JSON.stringify(lifecycle.map((e) => e.type)),
 		);
 	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
+test("Task 5 (tab-layout): outcome tabKey/tabId được bridge vào controller → manifest surface.tabs của run", async () => {
+	const { workRoot, launchDir } = await setup();
+	seedWorkerCompleted(join(workRoot, "state", "runs", "run_surface_1", "events.jsonl"));
+	__test__clearAllSurfaceControllers();
+	const controller = createSurfaceRuntimeController({ runId: "run_surface_1", eventsPath: "unused" });
+	registerSurfaceRuntimeController(controller);
+	try {
+		const provider = fakeSurfaceProvider("%7", "@3"); // handle thuộc tab @3
+		const result = await runChildPi(makeRunInput(workRoot, { surface: { providers: { tmux: provider }, baseDir: launchDir } }));
+		assert.equal(result.exitCode, 0);
+		assert.deepEqual(controller.snapshot().tabs, { run_surface_1: ["@3"] }, "tabId lên controller theo tabKey=runId");
+		// Worker xong → pane entry release nhưng tab còn (spec tab-layout §5).
+		assert.equal(controller.snapshot().panes["01_explore"], undefined);
+		assert.deepEqual(controller.snapshot().tabs, { run_surface_1: ["@3"] });
+	} finally {
+		clearSurfaceRuntimeController("run_surface_1");
 		cleanup(workRoot, launchDir);
 	}
 });

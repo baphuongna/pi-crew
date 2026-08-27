@@ -44,6 +44,8 @@ import {
 interface FakeProviderOptions {
 	kind?: "tmux" | "herdr";
 	paneId?: string;
+	/** Task 5 (tab-layout): handle mang tabId → outcome phải đưa lên cho caller. */
+	tabId?: string;
 	failCreate?: Error;
 	withoutSendCommand?: boolean;
 }
@@ -68,6 +70,7 @@ function fakeProvider(options: FakeProviderOptions = {}): FakeSurfaceProvider {
 	const handle: SurfaceHandle = {
 		id: paneId,
 		kind,
+		...(options.tabId ? { tabId: options.tabId } : {}),
 		onExit(cb) {
 			exitCb = cb;
 		},
@@ -228,6 +231,20 @@ test("prepareSurfaceSpawn truyền tabKey=runId (từ stateRoot) + splitIndex=li
 	assert.equal(createOpts.tabKey, "team_20260827_runA", "tabKey = basename(stateRoot) = runId");
 	assert.equal(createOpts.splitIndex, 2, "splitIndex = livePaneCount");
 	rmSync(outcome.mode === "surface" ? outcome.scriptPath : "", { force: true });
+	launchScriptRegistry.clear();
+});
+
+test("Task 5 (tab-layout): outcome surface mang tabKey/tabId từ handle — caller ghi manifest surface.tabs", async () => {
+	launchScriptRegistry.clear();
+	const provider = fakeProvider({ tabId: "@7" });
+	const input = baseInput({ stateRoot: "/state/runs/team_20260827_runA" });
+	input.deps!.resolve!.providers!.tmux = provider;
+	const outcome = await prepareSurfaceSpawn(input);
+	assert.ok(outcome.mode === "surface", JSON.stringify(outcome));
+	if (outcome.mode !== "surface") return;
+	assert.equal(outcome.tabKey, "team_20260827_runA", "tabKey = basename(stateRoot) — đúng key của surface.tabs");
+	assert.equal(outcome.tabId, "@7", "tabId đưa lên từ handle.tabId của provider");
+	rmSync(outcome.scriptPath, { force: true });
 	launchScriptRegistry.clear();
 });
 

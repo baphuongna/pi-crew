@@ -29,7 +29,7 @@ import * as fs from "node:fs";
 import { type AppendTeamEvent, appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import type { ManifestSurfaceState, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
-import type { SurfaceExitReason, SurfaceHandle } from "./surface-provider.ts";
+import type { SurfaceExitReason, SurfaceHandle, SurfaceProvider } from "./surface-provider.ts";
 
 /** Trần classify sau `onExit` (spec §7: tmux poll 2s, fs.watch <100ms). */
 export const CLASSIFY_TIMEOUT_MS = 2000;
@@ -310,6 +310,8 @@ export function normalizeSurfaceState(raw: unknown): ManifestSurfaceState {
 	state.panes = stringRecord(value.panes);
 	state.workerPids = numberRecord(value.workerPids);
 	state.sessionPaths = stringRecord(value.sessionPaths);
+	const tabs = stringArrayRecord(value.tabs);
+	if (Object.keys(tabs).length > 0) state.tabs = tabs;
 	const lockout = value.lockout as ManifestSurfaceState["lockout"];
 	if (lockout && typeof lockout === "object" && typeof lockout.since === "string") {
 		const counts = (lockout.counts ?? {}) as Partial<LockoutCounts>;
@@ -343,6 +345,18 @@ function numberRecord(raw: unknown): Record<string, number> {
 	return out;
 }
 
+/** Tab-layout Task 5: tabs[tabKey] chỉ giữ string[] hợp lệ — entry rác bỏ cả key. */
+function stringArrayRecord(raw: unknown): Record<string, string[]> {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+	const out: Record<string, string[]> = {};
+	for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+		if (!key || !Array.isArray(val)) continue;
+		const ids = val.filter((id): id is string => typeof id === "string" && id.length > 0);
+		if (ids.length > 0) out[key] = ids;
+	}
+	return out;
+}
+
 /** Ghi nhận pane sống (boot xong createSurface+sendCommand). Thay thế entry cũ. */
 export function recordSurfacePane(
 	state: ManifestSurfaceState,
@@ -355,12 +369,51 @@ export function recordSurfacePane(
 	};
 }
 
-/** Pane đã thoát — luôn xóa khỏi map sống dù completed hay degraded. */
+/** Pane đã thoát — luôn xóa khỏi map sống dù completed hay degraded.
+ *  Task 5 (spec tab-layout §5): CHỈ gỡ entry manifest — host không close pane/tab
+ *  theo từng worker (pane tự exit khi script xong là worker-side); tab của run
+ *  sống tới run end và do {@link closeTabForRun} đóng. Tabs không bị đụng ở đây. */
 export function releaseSurfacePane(state: ManifestSurfaceState, taskId: string): ManifestSurfaceState {
 	if (!(taskId in state.panes)) return state;
 	const panes = { ...state.panes };
 	delete panes[taskId];
 	return { ...state, panes };
+}
+
+/** Ghi nhận tab của run (tab-layout §5): append-dedup tabId vào tabs[tabKey]. */
+export function recordSurfaceTab(state: ManifestSurfaceState, input: { tabKey: string; tabId: string }): ManifestSurfaceState {
+	const existing = state.tabs?.[input.tabKey] ?? [];
+	if (existing.includes(input.tabId)) return state;
+	return { ...state, tabs: { ...(state.tabs ?? {}), [input.tabKey]: [...existing, input.tabId] } };
+}
+
+/**
+ * Run end/cancel/kill → đóng TOÀN tab của run (spec tab-layout §5). Provider tự
+ * đóng mọi window/tab của run theo map nội bộ keyed theo tabKey nên đây gọi
+ * closeTab ĐÚNG MỘT LẦN — KHÔNG loop từng tabId (self-review Task 5). Lỗi
+ * provider được nuốt + log: cleanup cuối run không được làm hỏng finalize.
+ * Trả về state mới với tabs[tabKey] = [] (giữ key làm evidence "đã đóng") VÀ
+ * mutate in-place theo pattern Object.assign của controller trong file này.
+ */
+export async function closeTabForRun(
+	surface: ManifestSurfaceState,
+	tabKey: string,
+	provider: SurfaceProvider | null | undefined,
+): Promise<ManifestSurfaceState> {
+	if (typeof provider?.closeTab === "function") {
+		try {
+			await provider.closeTab(tabKey);
+		} catch (error) {
+			logInternalError(
+				"surface-degrade.close-tab",
+				error instanceof Error ? error : new Error(String(error)),
+				`tabKey=${tabKey} provider=${provider.kind}`,
+			);
+		}
+	}
+	const next: ManifestSurfaceState = { ...surface, tabs: { ...(surface.tabs ?? {}), [tabKey]: [] } };
+	Object.assign(surface, next);
+	return next;
 }
 
 /** Cập nhật pid/sessionPath từ event `worker.started` của chính worker. */
@@ -533,7 +586,7 @@ export interface SurfaceRuntimeController {
 	livePaneCount(): number;
 	/** False khi lockout (degrade hoặc 3 spawn-fail) → dispatch bỏ surface. */
 	shouldAttemptSurface(): boolean;
-	notifySpawned(input: { taskId: string; paneId: string; provider: string }): void;
+	notifySpawned(input: { taskId: string; paneId: string; provider: string; tabKey?: string; tabId?: string }): void;
 	notifySpawnFailed(input: { taskId: string; reason: string }): void;
 	notifyWorkerStarted(input: { taskId: string; pid?: number; sessionPath?: string }): void;
 	notifyPaneExited(input: {
@@ -546,6 +599,12 @@ export interface SurfaceRuntimeController {
 	}): void;
 	takeDegraded(): SurfaceDegradedEntry[];
 	consecutiveSpawnFails(): number;
+	/**
+	 * Run end (completed/cancelled/failed — spec tab-layout §5): đóng MỌI tab
+	 * đã ghi của run qua provider (theo kind của state). Team-runner gọi trong
+	 * finally — mọi đường thoát đều đóng tab, không chỉ happy path.
+	 */
+	closeRunTabs(provider: SurfaceProvider | null | undefined): Promise<void>;
 	snapshot(): ManifestSurfaceState;
 }
 
@@ -641,9 +700,12 @@ export function createSurfaceRuntimeController(deps: SurfaceRuntimeControllerDep
 		runId: deps.runId,
 		livePaneCount: () => livePids.size,
 		shouldAttemptSurface: () => state.lockout === undefined,
-		notifySpawned: ({ taskId, paneId, provider }) => {
+		notifySpawned: ({ taskId, paneId, provider, tabKey, tabId }) => {
 			spawnFailStreak = 0; // boot thành công disproves streak (spec: liên tiếp)
 			Object.assign(state, recordSurfacePane(state, { taskId, paneId, provider }));
+			// Tab-layout Task 5: tab của run ghi vào manifest để run end đóng —
+			// worker xong KHÔNG gỡ (tab sống tới run end).
+			if (tabKey && tabId) Object.assign(state, recordSurfaceTab(state, { tabKey, tabId }));
 			livePids.add(taskId);
 		},
 		notifySpawnFailed: ({ taskId, reason }) => {
@@ -689,6 +751,12 @@ export function createSurfaceRuntimeController(deps: SurfaceRuntimeControllerDep
 			return drained;
 		},
 		consecutiveSpawnFails: () => spawnFailStreak,
+		closeRunTabs: async (provider) => {
+			// Copy keys trước — closeTabForRun mutate state.tabs trong lúc lặp.
+			for (const tabKey of Object.keys(state.tabs ?? {})) {
+				await closeTabForRun(state, tabKey, provider);
+			}
+		},
 		// Trả snapshot MỚI mỗi lần — team-runner gắn nguyên object vào manifest.
 		snapshot: () => snapshotState(state),
 	};
@@ -700,6 +768,7 @@ function snapshotState(state: ManifestSurfaceState): ManifestSurfaceState {
 		panes: { ...state.panes },
 		workerPids: { ...state.workerPids },
 		sessionPaths: { ...state.sessionPaths },
+		...(state.tabs ? { tabs: { ...state.tabs } } : {}),
 		...(state.lockout
 			? { lockout: { since: state.lockout.since, counts: { ...state.lockout.counts }, cause: state.lockout.cause } }
 			: {}),

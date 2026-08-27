@@ -452,7 +452,14 @@ async function trySurfaceBranch(
 		paneId: outcome.paneId,
 		scriptPath: outcome.scriptPath,
 	};
-	degradeController?.notifySpawned({ taskId, paneId: outcome.paneId, provider: outcome.kind });
+	degradeController?.notifySpawned({
+		taskId,
+		paneId: outcome.paneId,
+		provider: outcome.kind,
+		// Task 5 (tab-layout): tab của run lên controller → manifest surface.tabs
+		// — run end (closeRunTabs) đóng đúng tab, worker xong KHÔNG đóng.
+		...(outcome.tabKey && outcome.tabId ? { tabKey: outcome.tabKey, tabId: outcome.tabId } : {}),
+	});
 	input.onLifecycleEvent?.({
 		type: "surface_spawned",
 		surfaceKind: outcome.kind,

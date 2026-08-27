@@ -96,6 +96,14 @@ export type SurfaceSpawnOutcome =
 			 * run (không stateRoot → không set PI_CREW_AGENT_EVENTS_PATH cho worker).
 			 */
 			eventsPath: string | null;
+			/**
+			 * Task 5 (tab-layout §5): tab của pane này — tabKey = runId, tabId từ
+			 * handle.tabId của provider. Caller (child-pi → controller) ghi manifest
+			 * `surface.tabs[tabKey]` để run end biết đóng tab nào. Vắng mặt = spawn
+			 * ngoài run hoặc provider chưa hỗ trợ tab.
+			 */
+			tabKey?: string;
+			tabId?: string;
 	  }
 	| {
 			mode: "headless";
@@ -292,7 +300,18 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 		});
 		// Boot worker + thoát shell khi worker kết thúc (pane đóng → onExit, §13.2).
 		await provider.sendCommand(handle, `bash ${shellEscape(scriptPath)}; exit`);
-		return { mode: "surface", kind: provider.kind, paneId: handle.id, handle, provider, scriptPath, eventsPath };
+		return {
+			mode: "surface",
+			kind: provider.kind,
+			paneId: handle.id,
+			handle,
+			provider,
+			scriptPath,
+			eventsPath,
+			// Task 5 (tab-layout): đưa tab identity lên cho caller ghi manifest —
+			// provider set handle.tabId trong tab-flow (tabKey có mặt).
+			...(runId && handle.tabId ? { tabKey: runId, tabId: handle.tabId } : {}),
+		};
 	} catch (error) {
 		logInternalError(
 			"surface-spawn.boot",

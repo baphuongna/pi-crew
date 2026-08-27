@@ -133,10 +133,12 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 	let subscription: HerdrSocket | null = null;
 	let subscriptionCb: ((line: string) => void) | null = null;
 
-	// Tab-layout (spec 2026-08-27-surface-tab-layout): tabKey(run) → {tabId,
-	// rootPaneId, paneCount}. Tab mở khi run spawn worker đầu; KHÔNG đóng khi
-	// worker xong — chỉ đóng khi run end (Task 5 gọi closeTabForRun).
-	const tabMap = new Map<string, { tabId: string; rootPaneId: string; paneCount: number }>();
+	// Tab-layout (spec 2026-08-27-surface-tab-layout): tabKey(run) → {tabIds
+	// (MỌI tab của run), rootPaneId (tab đang nhận split), paneCount}. Tab mở
+	// khi run spawn worker đầu; KHÔNG đóng khi worker xong — chỉ đóng khi run
+	// end (Task 5 gọi closeTab). Giữ array vì run dài có thể vượt
+	// MAX_PANES_PER_TAB và mở tab kế — closeTab phải dọn cả tab cũ.
+	const tabMap = new Map<string, { tabIds: string[]; rootPaneId: string; paneCount: number }>();
 	// Race Task 4 (review Task 3): serialize createSurface per tabKey — giữa lúc
 	// đọc tabMap và deferred-commit có 2 await (tab.create + pane.split) nên
 	// caller spawn worker song song sẽ đua nhau. Xem createSurface.
@@ -273,10 +275,11 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		// nhưng thiếu envelope event nên bị bỏ qua một cách vô hại.
 	}
 
-	function makeHandle(paneId: string): SurfaceHandle {
+	function makeHandle(paneId: string, tabId?: string): SurfaceHandle {
 		return {
 			id: paneId,
 			kind: "herdr",
+			...(tabId ? { tabId } : {}),
 			onExit(cb) {
 				let watcher = watchers.get(paneId);
 				if (!watcher) {
@@ -317,6 +320,7 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		parentPaneId: string,
 		direction: "down" | "right",
 		commitTabPane: (() => void) | null,
+		tabId?: string,
 	): Promise<SurfaceHandle> {
 		const split = await call<{ pane?: { pane_id?: string } }>("pane.split", {
 			direction,
@@ -339,7 +343,7 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		if (opts.command !== undefined) {
 			await call("pane.send_text", { pane_id: paneId, text: `${opts.command}\n` });
 		}
-		return makeHandle(paneId);
+		return makeHandle(paneId, tabId);
 	}
 
 	/**
@@ -356,9 +360,16 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		// lần retry kế tiếp) — cùng pattern tabWindows của tmux provider.
 		if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
 			const paneIndexInTab = existing.paneCount;
-			return splitAndBoot(opts, existing.rootPaneId, splitDirectionFor(paneIndexInTab), () => {
-				existing.paneCount = paneIndexInTab + 1;
-			});
+			const currentTabId = existing.tabIds[existing.tabIds.length - 1] as string;
+			return splitAndBoot(
+				opts,
+				existing.rootPaneId,
+				splitDirectionFor(paneIndexInTab),
+				() => {
+					existing.paneCount = paneIndexInTab + 1;
+				},
+				currentTabId,
+			);
 		}
 		// Tab mới cho run (hoặc tab cũ đã đầy MAX_PANES_PER_TAB pane).
 		// Wire herdr thật (verified live 2026-08-27): `tab.create` params
@@ -370,9 +381,16 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		const tabId = created.tab?.tab_id;
 		const rootPaneId = created.root_pane?.pane_id;
 		if (!tabId || !rootPaneId) throw new Error("tab.create returned no tab_id/root_pane");
-		return splitAndBoot(opts, rootPaneId, splitDirectionFor(0), () => {
-			tabMap.set(tabKey, { tabId, rootPaneId, paneCount: 1 });
-		});
+		const priorTabIds = existing?.tabIds ?? [];
+		return splitAndBoot(
+			opts,
+			rootPaneId,
+			splitDirectionFor(0),
+			() => {
+				tabMap.set(tabKey, { tabIds: [...priorTabIds, tabId], rootPaneId, paneCount: 1 });
+			},
+			tabId,
+		);
 	}
 
 	/** Đường legacy (spawn ngoài run, KHÔNG tabKey) — giữ nguyên như trước tab-layout. */
@@ -480,6 +498,31 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 				if ((err as Error).message.includes("pane_not_found")) return;
 				throw err;
 			}
+		},
+
+		/**
+		 * Task 5 (spec tab-layout §5): run end → đóng MỌI tab của run theo map
+		 * nội bộ (run dài >8 pane mở tab kế — cả hai đều phải chết). tab đã mất
+		 * (pane exit tự nhiên làm server dọn tab) → tab_not_found → idempotent;
+		 * lỗi khác vẫn ném về closeTabForRun (best-effort log ở caller). Dọn cả
+		 * lock tabInFlight (minor deferred từ review Task 4) — run đã kết thúc
+		 * thì không còn spawn nào cùng tabKey.
+		 */
+		async closeTab(tabKey: string): Promise<void> {
+			const entry = tabMap.get(tabKey);
+			if (!entry) return;
+			tabMap.delete(tabKey);
+			tabInFlight.delete(tabKey);
+			let firstError: unknown = null;
+			for (const tabId of entry.tabIds) {
+				try {
+					await call("tab.close", { tab_id: tabId });
+				} catch (err) {
+					if ((err as Error).message.includes("tab_not_found")) continue; // idempotent
+					if (firstError === null) firstError = err;
+				}
+			}
+			if (firstError !== null) throw firstError;
 		},
 	};
 }

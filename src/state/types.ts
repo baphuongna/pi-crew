@@ -447,6 +447,14 @@ export interface ManifestSurfaceState {
 	 */
 	sessionPaths: Record<string, string>;
 	/**
+	 * Tab-layout (spec 2026-08-27-surface-tab-layout §5): tabKey (runId) →
+	 * tab/window ids của run — ghi khi worker spawn trong tab-flow (handle.tabId
+	 * qua outcome), KHÔNG gỡ khi từng worker xong (tab sống tới run end). Entry
+	 * được clear (giữ key rỗng) khi run end đã đóng tab qua closeTabForRun.
+	 * Run dài vượt MAX_PANES_PER_TAB tích lũy nhiều id cùng key.
+	 */
+	tabs?: Record<string, string[]>;
+	/**
 	 * Surface is OFF for the rest of this run since `since`:
 	 * - cause "degrade": ≥1 degrade entry after the classify timeout
 	 *   (anti-flap; counts keep per-cause evidence for doctor).

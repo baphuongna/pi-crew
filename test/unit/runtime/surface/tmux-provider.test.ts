@@ -251,6 +251,69 @@ test("tabKey per-run: split-window fail sau khi mở window mới → retry mở
 	assert.ok(lastSplit?.includes("@2"), `retry phải split vào window mới @2, nhận: ${JSON.stringify(lastSplit)}`);
 });
 
+test("Task 5 tab-layout: handle.tabId = window của pane; đường legacy (không tabKey) → tabId undefined", async () => {
+	const h = makeFake();
+	defaultRespond(h);
+	const { handle } = await spawnPane(h);
+	assert.equal(handle.tabId, undefined, "spawn ngoài run không thuộc tab nào");
+});
+
+test("Task 5 tab-layout: closeTab kill-window MỌI window của run (kể cả window cũ khi run >8 pane); idempotent; tabKey lạ → no-op", async () => {
+	const calls: string[][] = [];
+	let windowSeq = 0;
+	const provider = createTmuxProvider({
+		env: { TMUX: "/tmp/tmux,test,0", TMUX_PANE: "%0" },
+		tmux: (args) => {
+			calls.push(args);
+			if (args[0] === "new-window") {
+				windowSeq += 1;
+				return `@${windowSeq}\n`;
+			}
+			if (args[0] === "split-window") return `%${100 + calls.length}\n`;
+			return "";
+		},
+	});
+	const h1 = await provider.createSurface("w0", { cwd: "/w", tabKey: "runE", splitIndex: 0 });
+	assert.equal(h1.tabId, "@1", "handle mang tabId (window id) để caller ghi manifest surface.tabs");
+	for (let i = 1; i < MAX_PANES_PER_TAB; i++) {
+		await provider.createSurface(`w${i}`, { cwd: "/w", tabKey: "runE", splitIndex: i });
+	}
+	const h9 = await provider.createSurface("w8", { cwd: "/w", tabKey: "runE", splitIndex: MAX_PANES_PER_TAB });
+	assert.equal(h9.tabId, "@2", "window thứ 2 của cùng run cũng được track (không leak window cũ)");
+	assert.equal(calls.filter((a) => a[0] === "new-window").length, 2, "precondition: run dùng 2 window");
+
+	const closeTab = provider.closeTab;
+	assert.ok(closeTab, "provider phải implement closeTab (spec tab-layout §5)");
+	calls.length = 0;
+	await provider.closeTab!("runE");
+	const kills = calls.filter((a) => a[0] === "kill-window");
+	assert.deepEqual(
+		kills.map((a) => a[a.length - 1]),
+		["@1", "@2"],
+		"closeTab đóng CẢ HAI window của run — không chỉ window cuối",
+	);
+	// Idempotent: map nội bộ đã dọn → không tmux call nữa; tabKey lạ → no-op.
+	calls.length = 0;
+	await closeTab.call(provider, "runE");
+	await closeTab.call(provider, "unknown-run");
+	assert.equal(calls.length, 0, "closeTab lần 2 / tabKey lạ không phát sinh tmux call");
+});
+
+test("Task 5 tab-layout: closeTab khi window đã tự đóng (pane cuối exit) → kill-window throw được nuốt", async () => {
+	const provider = createTmuxProvider({
+		env: { TMUX: "/tmp/tmux,test,0", TMUX_PANE: "%0" },
+		tmux: (args) => {
+			if (args[0] === "new-window") return "@1\n";
+			if (args[0] === "split-window") return "%100\n";
+			if (args[0] === "kill-window") throw new Error("can't find window");
+			return "";
+		},
+	});
+	await provider.createSurface("w0", { cwd: "/w", tabKey: "runG", splitIndex: 0 });
+	const closeTab = provider.closeTab!;
+	await closeTab("runG"); // không throw — window mất tự nhiên là idempotent
+});
+
 test("readScreen: capture-pane -p -t id -S -<lines>; default 50", async () => {
 	const h = makeFake();
 	defaultRespond(h);

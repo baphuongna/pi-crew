@@ -337,6 +337,69 @@ test("race concurrency: lần spawn đầu trong chain FAIL → lần sau vẫn 
 	);
 });
 
+test("Task 5 tab-layout: handle.tabId = tab của pane; đường legacy (không tabKey) → tabId undefined", async () => {
+	const h = makeFake();
+	h.env.HERDR_PANE_ID = "w2:p4W";
+	const { handle } = await spawnPane(h);
+	assert.equal(handle.tabId, undefined, "spawn ngoài run không thuộc tab nào");
+});
+
+test("Task 5 tab-layout: closeTab đóng MỌI tab của run qua tab.close; dọn tabMap → idempotent + spawn lại tab.create lại", async () => {
+	let tabSeq = 0;
+	const h = makeFake((req) => {
+		if (req.method === "tab.create") {
+			tabSeq += 1;
+			return { type: "tab_created", tab: { tab_id: `w3:t${tabSeq}` }, root_pane: { pane_id: `w3:pR${tabSeq}` } };
+		}
+		return defaultRespond(req);
+	});
+	h.env.HERDR_PANE_ID = "w2:p4W";
+	const provider = h.provider();
+	const h1 = await provider.createSurface("w0", { cwd: "/w", command: "bash a.sh", title: "w0", tabKey: "runT", splitIndex: 0 });
+	assert.equal(h1.tabId, "w3:t1", "handle mang tabId để caller ghi manifest surface.tabs");
+	for (let i = 1; i < MAX_PANES_PER_TAB; i++) {
+		await provider.createSurface(`w${i}`, { cwd: "/w", command: "bash a.sh", title: `w${i}`, tabKey: "runT", splitIndex: i });
+	}
+	const h9 = await provider.createSurface("w8", {
+		cwd: "/w",
+		command: "bash a.sh",
+		title: "w8",
+		tabKey: "runT",
+		splitIndex: MAX_PANES_PER_TAB,
+	});
+	assert.equal(h9.tabId, "w3:t2", "tab thứ 2 của cùng run cũng được track (không leak tab cũ)");
+	assert.equal(tabSeq, 2, "precondition: run dùng 2 tab");
+
+	h.sockets.length = 0;
+	assert.ok(provider.closeTab, "provider phải implement closeTab (spec tab-layout §5)");
+	await provider.closeTab!("runT");
+	const closeReqs = h.sockets.map((s) => s.requests[0]).filter((r) => r?.method === "tab.close");
+	assert.deepEqual(
+		closeReqs.map((r) => r?.params.tab_id),
+		["w3:t1", "w3:t2"],
+		"closeTab đóng CẢ HAI tab của run — không chỉ tab cuối",
+	);
+	// Idempotent: tabMap đã dọn → không request nào nữa.
+	h.sockets.length = 0;
+	await provider.closeTab!("runT");
+	assert.equal(h.sockets.filter((s) => s.requests[0]?.method === "tab.close").length, 0);
+	// Map đã dọn hoàn toàn: spawn lại cùng tabKey phải tab.create từ đầu (tab mới).
+	await provider.createSurface("w9", { cwd: "/w", command: "bash b.sh", title: "w9", tabKey: "runT", splitIndex: 0 });
+	assert.equal(h.sockets.filter((s) => s.requests[0]?.method === "tab.create").length, 1, "tabMap dọn sạch → tab.create lại");
+});
+
+test("Task 5 tab-layout: closeTab tab_not_found → idempotent không throw; error khác → throw", async () => {
+	const h = makeFake();
+	h.env.HERDR_PANE_ID = "w2:p4W";
+	const provider = h.provider();
+	await provider.createSurface("w0", { cwd: "/w", command: "bash a.sh", tabKey: "runN", splitIndex: 0 });
+	await provider.createSurface("w1", { cwd: "/w", command: "bash b.sh", tabKey: "runM", splitIndex: 0 });
+	h.failNextWith("tab_not_found", "no such tab");
+	await provider.closeTab!("runN"); // tab đã mất từ trước → không throw
+	h.failNextWith("mux_dead", "server gone");
+	await assert.rejects(() => provider.closeTab!("runM"), /mux_dead/);
+});
+
 test("createSurface: env không có HERDR_PANE_ID → fallback pane.current (focus pane) làm pane cha", async () => {
 	const h = makeFake(); // env rỗng → fallback pane.current trả w3:pB
 	const { handle } = await spawnPane(h, { title: "crew:r1:t1" });

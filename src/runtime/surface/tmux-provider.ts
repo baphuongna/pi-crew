@@ -112,10 +112,12 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 	const watchers = new Map<string, PaneWatcher>();
 	let timer: SurfaceTimer | null = null;
 
-	// Tab-layout (spec 2026-08-27-surface-tab-layout): tabKey(run) → window id +
-	// số pane đã spawn trong window đó. Tab mở khi run spawn worker đầu, KHÔNG
-	// đóng khi từng worker xong — chỉ đóng khi run end (closeTabFor, Task 5).
-	const tabWindows = new Map<string, { windowId: string; paneCount: number }>();
+	// Tab-layout (spec 2026-08-27-surface-tab-layout): tabKey(run) → MỌI window
+	// của run + số pane đã spawn trong window đang nhận. Tab mở khi run spawn
+	// worker đầu, KHÔNG đóng khi từng worker xong — chỉ đóng khi run end
+	// (closeTab, Task 5). Giữ array vì run dài có thể vượt MAX_PANES_PER_TAB
+	// và mở window kế — closeTab phải dọn cả window cũ, không chỉ window cuối.
+	const tabWindows = new Map<string, { windows: string[]; paneCount: number }>();
 
 	function activeWatchers(): number {
 		let active = 0;
@@ -163,10 +165,11 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 		}
 	}
 
-	function makeHandle(paneId: string): SurfaceHandle {
+	function makeHandle(paneId: string, tabId?: string): SurfaceHandle {
 		return {
 			id: paneId,
 			kind: "tmux",
+			...(tabId ? { tabId } : {}),
 			onExit(cb) {
 				let watcher = watchers.get(paneId);
 				if (!watcher) {
@@ -232,6 +235,8 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 		async createSurface(_name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle> {
 			let targetWindow: string;
 			let directionFlag: string;
+			// Task 5: window (tab) chứa pane này — None khi đường legacy.
+			let tabId: string | undefined;
 			// Tab-map chỉ ghi sau khi split-window THÀNH CÔNG — nếu split fail,
 			// paneCount không đếm pane không tồn tại (luân phiên không lệch bước
 			// ở lần retry kế tiếp).
@@ -243,7 +248,9 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 				const existing = tabWindows.get(tabKey);
 				if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
 					const paneIndexInTab = existing.paneCount;
-					targetWindow = existing.windowId;
+					const currentWindowId = existing.windows[existing.windows.length - 1] as string;
+					targetWindow = currentWindowId;
+					tabId = currentWindowId;
 					directionFlag = splitDirectionFor(paneIndexInTab) === "down" ? "-v" : "-h";
 					commitTabPane = () => {
 						existing.paneCount = paneIndexInTab + 1;
@@ -262,9 +269,11 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 						// rename là cosmetic — pane vẫn dùng được.
 					}
 					targetWindow = windowId;
+					tabId = windowId;
 					directionFlag = splitDirectionFor(0) === "down" ? "-v" : "-h";
+					const priorWindows = existing?.windows ?? [];
 					commitTabPane = () => {
-						tabWindows.set(tabKey, { windowId, paneCount: 1 });
+						tabWindows.set(tabKey, { windows: [...priorWindows, windowId], paneCount: 1 });
 					};
 				}
 			} else {
@@ -297,7 +306,7 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 				tmux(["send-keys", "-t", paneId, "-l", opts.command]);
 				tmux(["send-keys", "-t", paneId, "Enter"]);
 			}
-			return makeHandle(paneId);
+			return makeHandle(paneId, tabId);
 		},
 
 		async sendCommand(handle, text) {
@@ -341,6 +350,25 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 				await sleep(GRACEFUL_TERM_WAIT_MS);
 			}
 			if (isPaneAlive(handle.id)) killPaneBestEffort(handle.id);
+		},
+
+		/**
+		 * Task 5 (spec tab-layout §5): run end → kill MỌI window của run theo
+		 * map nội bộ (run dài >8 pane mở window kế — cả hai đều phải chết).
+		 * Window đã tự đóng từ trước (pane cuối tự exit làm window biến mất)
+		 * → kill-window throw → nuốt: idempotent.
+		 */
+		async closeTab(tabKey: string): Promise<void> {
+			const entry = tabWindows.get(tabKey);
+			if (!entry) return;
+			tabWindows.delete(tabKey);
+			for (const windowId of entry.windows) {
+				try {
+					tmux(["kill-window", "-t", windowId]);
+				} catch {
+					// window đã mất — coi như đã đóng.
+				}
+			}
 		},
 	};
 }

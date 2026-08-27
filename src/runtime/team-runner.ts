@@ -271,6 +271,9 @@ import {
 	planHeadlessRedeplays,
 	registerSurfaceRuntimeController,
 } from "./surface/degrade.ts";
+// Task 5 (tab-layout §5): run end đóng toàn tab của run qua provider singleton
+// cùng instance mà spawn đã dùng (map tab nội bộ sống trong provider).
+import { surfaceProviderForCleanup } from "./surface/resolve-surface.ts";
 
 // formatTaskProgress / runEffectivenessLines / scratchpadSummaryLines /
 // lastProgressContentHash / writeProgress moved to ./finalize-run.ts (2026-08
@@ -1186,6 +1189,18 @@ async function executeTeamRunCore(
 		tasks = ctx.tasks;
 		return finalResult;
 	} finally {
+		// Task 5 (tab-layout §5): tab chỉ đóng khi RUN END — mọi đường thoát
+		// (completed/failed/cancelled/throw) đều đóng toàn tab của run qua
+		// provider singleton cùng instance mà spawn đã dùng. Best-effort: lỗi đã
+		// được log bên trong closeTabForRun, teardown không được sập vì mux chết.
+		const surfaceProviderKind = surfaceController.snapshot().provider;
+		if (surfaceProviderKind) {
+			try {
+				await surfaceController.closeRunTabs(surfaceProviderForCleanup(surfaceProviderKind));
+			} catch (error) {
+				logInternalError("team-runner.close-run-tabs", error, `runId=${manifest.runId}`);
+			}
+		}
 		// MuxSurface A1: drop the run's registry entry FIRST — no in-flight
 		// notify after teardown may resurrect policy state into the next run.
 		clearSurfaceRuntimeController(manifest.runId);

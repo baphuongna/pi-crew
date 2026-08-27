@@ -55,6 +55,13 @@ export type SurfaceExitReason = "pane-closed" | "mux-dead" | "detached";
 export interface SurfaceHandle {
 	id: string;
 	kind: "tmux" | "herdr";
+	/**
+	 * Tab/window chứa pane này (tab-layout, spec 2026-08-27 §5) — provider set
+	 * khi spawn trong tab-flow (tabKey có mặt); caller ghi manifest
+	 * `surface.tabs[tabKey]` để run end biết đóng tab nào. Vắng mặt = spawn
+	 * ngoài run (đường legacy) hoặc provider cũ.
+	 */
+	tabId?: string;
 	onExit(cb: (reason: SurfaceExitReason) => void): void;
 	dispose(): void;
 }
@@ -93,6 +100,15 @@ export interface SurfaceProvider {
 
 	/** Close/terminate a surface session */
 	closeSurface(handle: SurfaceHandle, opts?: { force?: boolean }): Promise<void>;
+
+	/**
+	 * Đóng TOÀN bộ tab của một run theo tab-key (spec tab-layout §5: tab chỉ
+	 * đóng khi run end/cancel/kill — không đóng theo từng worker). Provider tự
+	 * tra map nội bộ tabKey → windows/tabs của run nên caller gọi ĐÚNG MỘT LẦN
+	 * cho mỗi tabKey, không loop từng tabId. Optional để fake provider cũ
+	 * trong test vẫn compile; idempotent (map trống / tab đã mất → no-op).
+	 */
+	closeTab?(tabKey: string): Promise<void>;
 
 	/** rebalance(): void — A2 defer (not implemented in A1) */
 }
