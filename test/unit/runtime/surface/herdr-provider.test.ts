@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createHerdrProvider, type HerdrProviderDeps, type HerdrSocket } from "../../../../src/runtime/surface/herdr-provider.ts";
 import type { SurfaceExitReason, SurfaceHandle, SurfaceProvider } from "../../../../src/runtime/surface/surface-provider.ts";
+import { MAX_PANES_PER_TAB } from "../../../../src/runtime/surface/surface-provider.ts";
 
 /** Request đã parse mà provider gửi xuống socket. */
 interface SentRequest {
@@ -224,6 +225,57 @@ test("tabKey per-run: tab.create cho run mới; splitIndex quyết right/down; c
 	assert.ok(!h.sockets.some((s) => s.requests[0]?.method === "tab.create"), "cùng tabKey → tái dùng tab");
 	const split2 = h.sockets.find((s) => s.requests[0]?.method === "pane.split")?.requests[0];
 	assert.deepEqual(split2?.params.direction, "right");
+});
+
+test("tabKey per-run: đầy MAX_PANES_PER_TAB pane → tab.create tab mới (tabMap ghi đè), worker thứ MAX+1 split vào root_pane của tab MỚI", async () => {
+	let tabSeq = 0;
+	const h = makeFake((req) => {
+		if (req.method === "tab.create") {
+			tabSeq += 1;
+			return { type: "tab_created", tab: { tab_id: `w3:t${tabSeq}` }, root_pane: { pane_id: `w3:pR${tabSeq}` } };
+		}
+		return defaultRespond(req);
+	});
+	// Đầy đúng MAX_PANES_PER_TAB worker vào tab runB — chỉ 1 tab.create.
+	for (let i = 0; i < MAX_PANES_PER_TAB; i++) {
+		await spawnPane(h, { title: `w${i}`, tabKey: "runB", splitIndex: i });
+	}
+	assert.equal(tabSeq, 1, "8 worker đầu chung 1 tab");
+	// Worker thứ MAX+1 → tab.create thứ 2 (tabMap ghi đè entry cũ), split target
+	// là root_pane của tab MỚI (w3:pR2) chứ không phải root của tab cũ (w3:pR1).
+	const { handle } = await spawnPane(h, { title: "w8", tabKey: "runB", splitIndex: MAX_PANES_PER_TAB });
+	assert.equal(handle.id, "w3:pC");
+	assert.equal(tabSeq, 2, "vượt max pane → tab mới");
+	const splits = h.sockets.filter((s) => s.requests[0]?.method === "pane.split");
+	const lastSplit = splits[splits.length - 1]?.requests[0];
+	assert.equal(lastSplit?.params.target_pane_id, "w3:pR2");
+	assert.notEqual(lastSplit?.params.target_pane_id, "w3:pR1", "phải split vào root_pane của tab mới");
+	assert.deepEqual(lastSplit?.params.direction, "down", "tab mới → luân phiên lại từ index 0");
+});
+
+test("tabMap deferred commit: pane.split fail sau tab.create thành công → throw; retry cùng tabKey phải tab.create lại (không reuse), không lệch bước luân phiên", async () => {
+	let splitShouldFail = true;
+	const h = makeFake((req, sock) => {
+		if (req.method === "pane.split" && splitShouldFail) {
+			sock.pushLine(JSON.stringify({ id: req.id, error: { code: "split_failed", message: "no space" } }));
+			return undefined;
+		}
+		return defaultRespond(req);
+	});
+	// Lần 1: tab.create thành công nhưng pane.split lỗi → createSurface throw,
+	// tabMap KHÔNG commit (closure commitTabPane chưa chạy).
+	await assert.rejects(() => spawnPane(h, { title: "w0", tabKey: "runC", splitIndex: 0 }), /split_failed: no space/);
+	assert.equal(h.sockets.filter((s) => s.requests[0]?.method === "tab.create").length, 1);
+	// Lần 2 (retry) cùng tabKey: tab chưa có pane hợp lệ nào → phải tab.create
+	// LẠI (không vào nhánh reuse), pane đầu của tab mới vẫn direction down.
+	splitShouldFail = false;
+	h.sockets.length = 0;
+	const { handle } = await spawnPane(h, { title: "w0", tabKey: "runC", splitIndex: 0 });
+	assert.equal(handle.id, "w3:pC");
+	assert.equal(h.sockets[0]?.requests[0]?.method, "tab.create", "retry cùng tabKey phải tab.create lại");
+	const split2 = h.sockets.find((s) => s.requests[0]?.method === "pane.split")?.requests[0];
+	assert.equal(split2?.params.target_pane_id, "w3:pR");
+	assert.deepEqual(split2?.params.direction, "down", "pane đầu của tab mới phải down — luân phiên không lệch bước");
 });
 
 test("createSurface: env không có HERDR_PANE_ID → fallback pane.current (focus pane) làm pane cha", async () => {
