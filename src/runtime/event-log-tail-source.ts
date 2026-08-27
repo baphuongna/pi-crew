@@ -60,6 +60,12 @@ export interface WorkerEventSource {
 
 /** Nhịp poll bootstrap khi chưa watch được file (mặc định 250ms). */
 export const TAIL_BOOTSTRAP_POLL_MS = 250;
+/**
+ * Backoff tối đa cho bootstrap poll khi file chưa xuất hiện (surface worker
+ * ghi chậm; ENOENT là đường bình thường). Không poll 250ms + log vô hạn khiến
+ * UI repaint liên tục — tăng dần lên tới mức này.
+ */
+export const TAIL_BOOTSTRAP_POLL_MAX_MS = 4 * TAIL_BOOTSTRAP_POLL_MS;
 
 interface TailDeps {
 	/** Timer override cho test. */
@@ -75,6 +81,8 @@ export class EventLogTailSource implements WorkerEventSource {
 	private callback: ((event: WorkerEventPayload) => void) | undefined;
 	private watcher: fs.FSWatcher | null = null;
 	private bootstrapTimer: unknown;
+	/** Số lần bootstrap poll fail liên tiếp — cho backoff + log-once. */
+	private bootstrapAttempts = 0;
 	private closed = false;
 	/** Cờ chống drain-before-close đệ quy (consumer close() trong callback). */
 	private draining = false;
@@ -137,31 +145,42 @@ export class EventLogTailSource implements WorkerEventSource {
 			if (created && this.watcher !== created) return; // watcher cũ lỗi muộn
 			this.watcher = null;
 			if (created) closeWatcher(created);
-			logInternalError(
-				"event-log-tail.watch",
-				error instanceof Error ? error : new Error(String(error)),
-				`eventsPath=${this.eventsPath}`,
-				"warn",
-			);
-			// Watcher chết giữa chừng (file bị unlink…) — bootstrap lại; tick
-			// poll tự giới hạn nhịp nên không thành vòng quay nóng.
+			// Log ENOENT ĐÚNG MỘT LẦN (không spam per-poll): file agent-log chưa
+			// xuất hiện là đường bình thường của surface (recorder tạo event đầu);
+			// log lặp mỗi 250ms là nguồn UI repaint liên tục. Lần đầu vẫn warn để
+			// kỹ sư thấy được, sau đó chỉ backoff-im lặng.
+			const err = error instanceof Error ? error : new Error(String(error));
+			const isEnoent = (err as NodeJS.ErrnoException)?.code === "ENOENT" || /ENOENT/.test(err.message);
+			if (this.bootstrapAttempts === 0 || !isEnoent) {
+				logInternalError("event-log-tail.watch", err, `eventsPath=${this.eventsPath}`, "warn");
+			}
+			// Watcher chết giữa chừng (file bị unlink…) — bootstrap lại với backoff;
+			// file missing tăng dần nhịp + không log lặp.
 			this.scheduleBootstrap();
 		};
 		created = watchWithErrorHandler(this.eventsPath, () => this.readFromOffset(), onError);
-		if (created) this.watcher = created;
-		else this.scheduleBootstrap(); // fs.watch unsupported / file chưa tồn tại
+		if (created) {
+			this.watcher = created;
+			this.bootstrapAttempts = 0; // gắn được → reset backoff/log-once
+		} else {
+			this.scheduleBootstrap(); // fs.watch unsupported / file chưa tồn tại
+		}
 	}
 
 	private scheduleBootstrap(): void {
 		if (this.closed || this.bootstrapTimer !== undefined || this.watcher) return;
 		const set = this.deps.setTimeoutFn ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+		// Backoff nhịp poll khi file chưa xuất hiện (bootstrapAttempts tăng dần):
+		// tránh poll 250ms + repaint vô hạn khi worker surface chậm/không ghi file.
+		this.bootstrapAttempts += 1;
+		const delay = Math.min(TAIL_BOOTSTRAP_POLL_MAX_MS, TAIL_BOOTSTRAP_POLL_MS * 2 ** (this.bootstrapAttempts - 1));
 		const timer = set(() => {
 			this.bootstrapTimer = undefined;
 			if (this.closed) return;
 			this.readFromOffset();
 			this.attachWatcher();
 			if (!this.watcher) this.scheduleBootstrap();
-		}, TAIL_BOOTSTRAP_POLL_MS);
+		}, delay);
 		this.bootstrapTimer = timer;
 		// Poll bootstrap không được giữ event loop sống — surface branch đã có
 		// waitForSurfaceExit lo việc chờ.

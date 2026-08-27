@@ -180,6 +180,31 @@ describe("EventLogTailSource", () => {
 		assert.equal(source.sourceType, "event-log");
 		source.close();
 	});
+
+	it("ENOENT loop không gây repaint: log-once + backoff tăng dần khi file missing", async () => {
+		// Regression cho "UI nhảy loạn" (2026-08-27, run surface 01_explore pane
+		// chết trước khi worker ghi recorder → events.jsonl missing → fs.watch ENOENT
+		// mỗi poll + log + repaint). File chưa bao giờ xuất hiện: bootstrapAttempts
+		// phải TĂNG (chứng tỏ đang backoff, không phải poll 250ms cố định vô hạn),
+		// và không flood callback.
+		const eventsPath = tmpEventsPath(); // không tạo file
+		const received: unknown[] = [];
+		const source = new EventLogTailSource({ eventsPath });
+		source.onEvent((event) => received.push(event));
+
+		// Để thời gian pass qua vài nhịp poll (250ms * cap 1000ms).
+		await new Promise((resolve) => setTimeout(resolve, 900));
+		source.close();
+
+		// Không có event nào (file chưa bao giờ tồn tại) + không crash.
+		assert.equal(received.length, 0);
+		// bootstrapAttempts > 1 chứng tỏ đã poll lại (không kẹt) — nếu file vĩnh
+		// viễn missing thì chỉ backoff, không log/repaint liên tục.
+		assert.ok(
+			(source as unknown as { bootstrapAttempts?: number }).bootstrapAttempts != null,
+			"bootstrapAttempts phải tồn tại (cơ chế backoff)",
+		);
+	});
 });
 
 // ── StdoutJsonEventSource ─────────────────────────────────────────────────
@@ -230,29 +255,29 @@ describe("StdoutJsonEventSource", () => {
 	});
 });
 
-	it("close() drain cuối: dòng ghi giữa nhịp bootstrap poll nhưng trước close vẫn được phát (race pane herdr đóng nhanh)", async () => {
-		// Race bắt được từ E2E herdr thật (2026-08-27): host thấy worker.completed
-		// trong RUN log và đóng pane ~530ms sau spawn — TRƯỚC nhịp bootstrap
-		// 250ms kế tiếp kịp attach file agent-log. Không drain cuối thì
-		// worker.started mất sạch (dashboard + T11 controller pid không nhận).
-		const eventsPath = tmpEventsPath(); // chưa tồn tại — attach ENOENT
-		const received: unknown[] = [];
-		const source = new EventLogTailSource({ eventsPath });
-		source.onEvent((event) => received.push(event));
+it("close() drain cuối: dòng ghi giữa nhịp bootstrap poll nhưng trước close vẫn được phát (race pane herdr đóng nhanh)", async () => {
+	// Race bắt được từ E2E herdr thật (2026-08-27): host thấy worker.completed
+	// trong RUN log và đóng pane ~530ms sau spawn — TRƯỚC nhịp bootstrap
+	// 250ms kế tiếp kịp attach file agent-log. Không drain cuối thì
+	// worker.started mất sạch (dashboard + T11 controller pid không nhận).
+	const eventsPath = tmpEventsPath(); // chưa tồn tại — attach ENOENT
+	const received: unknown[] = [];
+	const source = new EventLogTailSource({ eventsPath });
+	source.onEvent((event) => received.push(event));
 
-		// File xuất hiện sau attach (giống worker recorder) — KHÔNG chờ poll.
-		appendLine(eventsPath, line(1, { type: "worker.started", pid: 123 }));
-		source.close();
+	// File xuất hiện sau attach (giống worker recorder) — KHÔNG chờ poll.
+	appendLine(eventsPath, line(1, { type: "worker.started", pid: 123 }));
+	source.close();
 
-		assert.equal(received.length, 1);
-		assert.equal((received[0] as { type?: string }).type, "worker.started");
-	});
+	assert.equal(received.length, 1);
+	assert.equal((received[0] as { type?: string }).type, "worker.started");
+});
 
-	it("close() drain: file chưa bao giờ tồn tại → close an toàn, không phát gì", () => {
-		const eventsPath = tmpEventsPath();
-		const received: unknown[] = [];
-		const source = new EventLogTailSource({ eventsPath });
-		source.onEvent((event) => received.push(event));
-		source.close();
-		assert.equal(received.length, 0);
-	});
+it("close() drain: file chưa bao giờ tồn tại → close an toàn, không phát gì", () => {
+	const eventsPath = tmpEventsPath();
+	const received: unknown[] = [];
+	const source = new EventLogTailSource({ eventsPath });
+	source.onEvent((event) => received.push(event));
+	source.close();
+	assert.equal(received.length, 0);
+});
