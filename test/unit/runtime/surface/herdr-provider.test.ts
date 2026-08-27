@@ -244,14 +244,16 @@ test("createSurface: socket chết giữa chừng (EOF trước response) → th
 	await assert.rejects(() => provider.createSurface("t1", { cwd: "/tmp", command: "bash x.sh" }), /herdr socket/);
 });
 
-test("onExit: subscription connection riêng, subscribe pane.closed; event pane_closed pane khác bị ignore", async () => {
+test("onExit: subscription connection riêng, subscribe pane.closed + pane.exited; event pane_closed pane khác bị ignore", async () => {
 	const h = makeFake();
 	const { handle } = await spawnPane(h);
 	const reasons: SurfaceExitReason[] = [];
 	handle.onExit((r) => reasons.push(r));
 	const sub = h.subscription();
 	assert.ok(sub, "phải mở subscription connection");
-	assert.deepEqual(sub.requests[0]?.params, { subscriptions: [{ type: "pane.closed" }] });
+	assert.deepEqual(sub.requests[0]?.params, {
+		subscriptions: [{ type: "pane.closed" }, { type: "pane.exited" }],
+	});
 	h.emitPaneClosed("w9:zZ"); // pane khác — bỏ qua
 	assert.deepEqual(reasons, []);
 });
@@ -368,9 +370,74 @@ test("detect: connect thành công → ok; connect throw → !ok kèm reason", (
 	assert.ok(failed.reason);
 });
 
-test("attach: chưa hỗ trợ trong A1 → null", async () => {
+test("attach: optimistic handle (interface sync không round-trip được) — doctor xác minh aliveness qua readScreen", async () => {
+	// Trước đây attach trả null → doctor xếp MỌI orphan herdr là "gone" và
+	// không bao giờ đóng pane (bắt được từ E2E herdr 2026-08-27). Giờ trả
+	// handle; closeSurface lên pane chết đã idempotent (pane_not_found → ok).
 	const h = makeFake();
 	const provider = createHerdrProvider(h.deps);
-	assert.equal(provider.attach("w3:pC"), null);
-	assert.equal(h.sockets.length, 0);
+	const handle = provider.attach("w3:pC");
+	assert.ok(handle, "attach phải trả handle optimistic");
+	assert.equal(handle.id, "w3:pC");
+	assert.equal(handle.kind, "herdr");
+	assert.equal(h.sockets.length, 0, "attach sync không mở socket");
+});
+
+test("wire framing: provider KHÔNG tự nối \\n — defaultConnect's write() wrapper mới là nơi nối (chống frame \\n\\n)", async () => {
+	// Bug thật bắt được bởi E2E live (2026-08-27, herdr 0.8.2): frame kết thúc
+	// `\n\n` (provider tự nối \n trên wrapper đã nối sẵn) khiến server ĐÓNG
+	// subscription connection — empty line bị coi malformed → mọi watcher
+	// thành mux-dead. Fake socket thay thế cả wrapper nên pin chiều NGƯỢC:
+	// những gì provider đẩy xuống socket PHẢI KHÔNG kết thúc bằng \n. Framing
+	// một-\n đúng được pin live bởi test/system/surface-herdr.e2e.test.ts.
+	const h = makeFake();
+	const { provider, handle } = await spawnPane(h);
+	try {
+		handle.onExit(() => {});
+		const sub = h.subscription();
+		assert.ok(sub, "phải có subscription socket");
+		let frames = 0;
+		for (const sock of h.sockets) {
+			for (const w of sock.writes) {
+				frames += 1;
+				assert.ok(
+					!w.endsWith("\n"),
+					`frame không được kết thúc newline ở tầng provider (wrapper đã nối), nhận: ${JSON.stringify(w)}`,
+				);
+			}
+		}
+		assert.ok(frames > 0, "phải có ít nhất một frame write");
+	} finally {
+		handle.dispose();
+		provider.closeSurface(handle).catch(() => {});
+	}
+});
+
+test("onExit: event pane_exited (process exit tự nhiên) → 'pane-closed' — herdr 0.8.2 không push pane.closed cho exit tự nhiên", async () => {
+	// Bug thật bắt được từ E2E live (2026-08-27): worker herdr xong việc → shell
+	// `exit` → pane biến mất khỏi pane.list nhưng KHÔNG có pane_closed — chỉ có
+	// pane_exited. Thiếu subscribe này thì mọi worker hoàn thành bình thường
+	// treo host tới response deadline 600s.
+	const h = makeFake();
+	const { handle } = await spawnPane(h);
+	const reasons: SurfaceExitReason[] = [];
+	handle.onExit((r) => reasons.push(r));
+	h.subscription()?.pushLine(
+		JSON.stringify({ event: "pane_exited", data: { type: "pane_exited", pane_id: "w3:pC", workspace_id: "w3" } }),
+	);
+	assert.deepEqual(reasons, ["pane-closed"]);
+});
+
+test("onExit: subscription đăng ký CẢ hai loại pane.closed + pane.exited", async () => {
+	const h = makeFake();
+	const { handle } = await spawnPane(h);
+	handle.onExit(() => {});
+	const sub = h.subscription();
+	assert.ok(sub, "phải có subscription socket");
+	const subscribeReq = sub.requests.find((req) => req.method === "events.subscribe");
+	assert.ok(subscribeReq, "phải có request events.subscribe");
+	const types = ((subscribeReq?.params?.subscriptions as Array<{ type?: string }>) ?? []).map((s) => s.type);
+	assert.ok(types.includes("pane.closed"), `phải subscribe pane.closed, nhận: ${JSON.stringify(types)}`);
+	assert.ok(types.includes("pane.exited"), `phải subscribe pane.exited, nhận: ${JSON.stringify(types)}`);
+	handle.dispose();
 });

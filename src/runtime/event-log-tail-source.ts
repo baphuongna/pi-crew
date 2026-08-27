@@ -76,6 +76,8 @@ export class EventLogTailSource implements WorkerEventSource {
 	private watcher: fs.FSWatcher | null = null;
 	private bootstrapTimer: unknown;
 	private closed = false;
+	/** Cờ chống drain-before-close đệ quy (consumer close() trong callback). */
+	private draining = false;
 	/** Byte offset đã đọc tới — tự giữ qua các lần watcher báo đổi. */
 	private offset = 0;
 	/** Nửa dòng chưa kết thúc `\n` — giữ tới lần đọc kế tiếp. */
@@ -97,6 +99,13 @@ export class EventLogTailSource implements WorkerEventSource {
 
 	close(): void {
 		if (this.closed) return;
+		// Final catch-up (bắt được từ E2E herdr thật, 2026-08-27): pane surface
+		// có thể đóng rất nhanh sau worker.completed — host close ngay khi thấy
+		// result, TRƯỚC cả nhịp bootstrap poll 250ms kế tiếp kịp attach file
+		// agent-log (herdr socket nhanh; tmux chậm hơn nên thắng race). Đọc lần
+		// cuối đồng bộ để mọi dòng worker đã ghi vẫn tới consumer (dashboard,
+		// T11 controller pid) trước khi source chết.
+		this.drainBeforeClose();
 		this.closed = true;
 		closeWatcher(this.watcher);
 		this.watcher = null;
@@ -104,6 +113,17 @@ export class EventLogTailSource implements WorkerEventSource {
 			const clear = this.deps.clearTimeoutFn ?? ((timer: unknown) => clearTimeout(timer as ReturnType<typeof setTimeout>));
 			clear(this.bootstrapTimer);
 			this.bootstrapTimer = undefined;
+		}
+	}
+
+	/** Drain một lần, chống đệ quy khi consumer gọi close() ngay trong callback. */
+	private drainBeforeClose(): void {
+		if (this.draining) return;
+		this.draining = true;
+		try {
+			this.readFromOffset();
+		} finally {
+			this.draining = false;
 		}
 	}
 

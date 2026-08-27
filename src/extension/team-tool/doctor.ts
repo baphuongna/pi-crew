@@ -683,6 +683,15 @@ export async function cleanupOrphanSurfacePanes(input: {
 				gone.push(orphan.paneId);
 				continue;
 			}
+			// Attach của herdr là optimistic (interface sync không round-trip
+			// socket được) — xác minh pane còn sống trước khi đóng. tmux attach
+			// đã xác minh sync nhưng readScreen thêm một lần vẫn vô hại.
+			try {
+				await provider.readScreen(handle, 1);
+			} catch {
+				gone.push(orphan.paneId);
+				continue;
+			}
 			await provider.closeSurface(handle, { force: true });
 			closed.push(orphan.paneId);
 		} catch (error) {

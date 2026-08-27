@@ -9,6 +9,8 @@
  * - Subscription là connection dài hạn riêng: ack `subscription_started` rồi
  *   mỗi dòng sau là event pushed với envelope `{"event":"pane_closed","data":{...}}`
  *   — event kind DÙNG UNDERSCORE và KHÔNG có id (khác request/response).
+ *   Subscribe cả `pane.closed` (đóng qua API) LẪN `pane.exited` (process
+ *   exit tự nhiên) — herdr 0.8.2 KHÔNG push pane.closed cho exit tự nhiên.
  * - Socket path resolution theo docs herdr.dev/docs/socket-api:
  *   HERDR_SOCKET_PATH → HERDR_SESSION (sessions/<name>/herdr.sock) → default.
  *
@@ -193,6 +195,10 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 				}
 				resolve(msg.result as T);
 			});
+			// Wire là newline-JSON nhưng KHÔNG tự thêm \n ở đây: defaultConnect's
+			// write() wrapper đã nối `\n` (verified live herdr 0.8.2, 2026-08-27:
+			// frame `\n\n` khiến server ĐÓNG subscription connection — empty line
+			// bị coi là malformed → mọi watcher thành mux-dead).
 			socket.write(JSON.stringify({ id, method, params }));
 		});
 	}
@@ -212,7 +218,12 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		} catch {
 			return;
 		}
-		if (msg.event !== "pane_closed") return;
+		// CẢ HAI loại event đều là "pane biến mất" cho pi-crew (verified live
+		// herdr 0.8.2, 2026-08-27): `pane_closed` chỉ bắn khi đóng qua API
+		// pane.close; process exit tự nhiên (worker xong việc → shell `exit`)
+		// chỉ bắn `pane_exited` — thiếu nó thì mọi worker hoàn thành bình thường
+		// treo host tới response deadline 600s (bắt được từ E2E herdr thật).
+		if (msg.event !== "pane_closed" && msg.event !== "pane_exited") return;
 		const paneId = msg.data?.pane_id;
 		if (typeof paneId === "string" && watchers.has(paneId)) fire(paneId, "pane-closed");
 	}
@@ -238,7 +249,16 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 		subscription = socket;
 		subscriptionCb = onSubscriptionLine;
 		socket.onLine((line) => subscriptionCb?.(line));
-		socket.write(JSON.stringify({ id, method: "events.subscribe", params: { subscriptions: [{ type: "pane.closed" }] } }));
+		// Frame nối \n bởi defaultConnect's write() wrapper — KHÔNG thêm \n ở
+		// đây (frame `\n\n` → server đóng subscription, xem comment trong call()).
+		// Subscribe CẢ pane.closed LẪN pane.exited — xem onSubscriptionLine.
+		socket.write(
+			JSON.stringify({
+				id,
+				method: "events.subscribe",
+				params: { subscriptions: [{ type: "pane.closed" }, { type: "pane.exited" }] },
+			}),
+		);
 		// Ack subscription_started cũng đi qua onSubscriptionLine — JSON hợp lệ
 		// nhưng thiếu envelope event nên bị bỏ qua một cách vô hại.
 	}
@@ -328,10 +348,15 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 			await call("pane.send_text", { pane_id: handle.id, text: `${text}\n` });
 		},
 
-		attach(_id: string): SurfaceHandle | null {
-			// A1: attach cần request đồng bộ (pane.get) mà SurfaceProvider.attach
-			// là sync — defer đến khi runtime thật cần re-attach (A2).
-			return null;
+		attach(id: string): SurfaceHandle | null {
+			// SurfaceProvider.attach là SYNC nên không round-trip socket kiểm tra
+			// pane tồn tại được (A1 ghi chú này từ đầu). Trước đây return null —
+			// hệ quả: doctor xếp MỌI orphan herdr là "gone" và không bao giờ đóng
+			// pane (bắt được từ E2E herdr 2026-08-27). Giờ trả handle OPTIMISTIC:
+			// caller xác minh aliveness qua readScreen (async, doctor đã làm),
+			// còn closeSurface lên pane không tồn tại đã idempotent
+			// (pane_not_found → coi như đã đóng, không throw).
+			return makeHandle(id);
 		},
 
 		async readScreen(handle: SurfaceHandle, lines = 50): Promise<string> {

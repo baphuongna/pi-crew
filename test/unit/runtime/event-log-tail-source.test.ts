@@ -229,3 +229,30 @@ describe("StdoutJsonEventSource", () => {
 		source.close();
 	});
 });
+
+	it("close() drain cuối: dòng ghi giữa nhịp bootstrap poll nhưng trước close vẫn được phát (race pane herdr đóng nhanh)", async () => {
+		// Race bắt được từ E2E herdr thật (2026-08-27): host thấy worker.completed
+		// trong RUN log và đóng pane ~530ms sau spawn — TRƯỚC nhịp bootstrap
+		// 250ms kế tiếp kịp attach file agent-log. Không drain cuối thì
+		// worker.started mất sạch (dashboard + T11 controller pid không nhận).
+		const eventsPath = tmpEventsPath(); // chưa tồn tại — attach ENOENT
+		const received: unknown[] = [];
+		const source = new EventLogTailSource({ eventsPath });
+		source.onEvent((event) => received.push(event));
+
+		// File xuất hiện sau attach (giống worker recorder) — KHÔNG chờ poll.
+		appendLine(eventsPath, line(1, { type: "worker.started", pid: 123 }));
+		source.close();
+
+		assert.equal(received.length, 1);
+		assert.equal((received[0] as { type?: string }).type, "worker.started");
+	});
+
+	it("close() drain: file chưa bao giờ tồn tại → close an toàn, không phát gì", () => {
+		const eventsPath = tmpEventsPath();
+		const received: unknown[] = [];
+		const source = new EventLogTailSource({ eventsPath });
+		source.onEvent((event) => received.push(event));
+		source.close();
+		assert.equal(received.length, 0);
+	});
