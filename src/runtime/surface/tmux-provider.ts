@@ -2,8 +2,10 @@
  * tmux SurfaceProvider (spec §4)
  *
  * Port surface logic nhánh tmux từ pi-interactive-subagents, viết lại theo
- * interface pi-crew. Một worker = một pane split ngang từ pane cha
- * ($TMUX_PANE) để pane đi theo agent thay vì theo focus của user.
+ * interface pi-crew. Trong team run (tabKey): một run = một window (tab),
+ * worker split dọc/ngang xen kẽ tối đa MAX_PANES_PER_TAB pane. Ngoài run:
+ * một worker = một pane split ngang từ pane cha ($TMUX_PANE) để pane đi theo
+ * agent thay vì theo focus của user.
  * Launch command đã build sẵn ("bash <script-path>") — gửi vào pane qua
  * send-keys; script tự lo cwd (spec §5.2, Task 5).
  *
@@ -17,6 +19,7 @@
 import { execFileSync } from "node:child_process";
 
 import type { SurfaceDetection, SurfaceExitReason, SurfaceHandle, SurfaceProvider, SurfaceSpawnOpts } from "./surface-provider.ts";
+import { MAX_PANES_PER_TAB, splitDirectionFor } from "./surface-provider.ts";
 
 /** Chờ process trong pane chết sau SIGTERM trước khi force kill-pane (spec §4). */
 const GRACEFUL_TERM_WAIT_MS = 3000;
@@ -108,6 +111,11 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 	// Watcher theo pane id — MỘT timer chung cho mọi pane đang theo dõi.
 	const watchers = new Map<string, PaneWatcher>();
 	let timer: SurfaceTimer | null = null;
+
+	// Tab-layout (spec 2026-08-27-surface-tab-layout): tabKey(run) → window id +
+	// số pane đã spawn trong window đó. Tab mở khi run spawn worker đầu, KHÔNG
+	// đóng khi từng worker xong — chỉ đóng khi run end (closeTabFor, Task 5).
+	const tabWindows = new Map<string, { windowId: string; paneCount: number }>();
 
 	function activeWatchers(): number {
 		let active = 0;
@@ -222,12 +230,43 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 		},
 
 		async createSurface(_name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle> {
-			// Split từ pane cha để pane đi theo agent, không theo focus của user.
-			const parentPane = env.TMUX_PANE;
-			if (!parentPane) {
-				throw new Error("TMUX_PANE not set — tmux provider chỉ chạy bên trong tmux session");
+			let targetWindow: string;
+			let directionFlag: string;
+			if (opts.tabKey) {
+				// Tab-layout: mọi worker của cùng run chia 1 window (tab), split
+				// dọc/ngang xen kẽ theo pane index trong tab (spec tab-layout §4).
+				const existing = tabWindows.get(opts.tabKey);
+				if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
+					existing.paneCount += 1;
+					targetWindow = existing.windowId;
+					directionFlag = splitDirectionFor(existing.paneCount - 1) === "down" ? "-v" : "-h";
+				} else {
+					// Tab mới cho run (hoặc tab cũ đã đầy MAX_PANES_PER_TAB) — window riêng.
+					const windowId = tmux(["new-window", "-P", "-F", "#{window_id}"]).trim();
+					if (!/^@\d+$/.test(windowId)) {
+						throw new Error(`Unexpected tmux new-window output: ${JSON.stringify(windowId)}`);
+					}
+					const label = opts.title ?? opts.tabKey;
+					try {
+						tmux(["rename-window", "-t", windowId, label]);
+					} catch {
+						// rename là cosmetic — pane vẫn dùng được.
+					}
+					tabWindows.set(opts.tabKey, { windowId, paneCount: 1 });
+					targetWindow = windowId;
+					directionFlag = splitDirectionFor(0) === "down" ? "-v" : "-h";
+				}
+			} else {
+				// Đường legacy (spawn ngoài run): split từ pane cha để pane đi theo
+				// agent, không theo focus của user — giữ nguyên "-h" như trước.
+				const parentPane = env.TMUX_PANE;
+				if (!parentPane) {
+					throw new Error("TMUX_PANE not set — tmux provider chỉ chạy bên trong tmux session");
+				}
+				targetWindow = parentPane;
+				directionFlag = "-h";
 			}
-			const raw = tmux(["split-window", "-d", "-h", "-P", "-F", "#{pane_id}", "-t", parentPane]);
+			const raw = tmux(["split-window", "-d", directionFlag, "-P", "-F", "#{pane_id}", "-t", targetWindow]);
 			const paneId = raw.trim();
 			if (!/^%\d+$/.test(paneId)) {
 				throw new Error(`Unexpected tmux split-window output: ${JSON.stringify(raw)}`);

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { SurfaceExitReason, SurfaceHandle, SurfaceProvider } from "../../../../src/runtime/surface/surface-provider.ts";
+import { MAX_PANES_PER_TAB } from "../../../../src/runtime/surface/surface-provider.ts";
 import { createTmuxProvider, type TmuxProviderDeps } from "../../../../src/runtime/surface/tmux-provider.ts";
 
 /** Harness điều khiển fake tmux — nắm stdout theo args, spy mọi I/O. */
@@ -151,6 +152,68 @@ test("createSurface: split-window output không phải %N → throw", async () =
 	h.respond(() => "error: unknown command\n");
 	const provider = createTmuxProvider(h.deps);
 	await assert.rejects(() => provider.createSurface("t1", { cwd: "/tmp", command: "bash x.sh" }), /split-window/);
+});
+
+test("tabKey per-run: worker đầu tạo window mới + rename; splitIndex quyết định -h/-v; full 8 pane → window mới", async () => {
+	const calls: string[][] = [];
+	let windowSeq = 0;
+	const provider = createTmuxProvider({
+		env: { TMUX: "/tmp/tmux,test,0", TMUX_PANE: "%0" },
+		tmux: (args) => {
+			calls.push(args);
+			if (args[0] === "new-window") {
+				windowSeq += 1;
+				return `@${windowSeq}\n`;
+			}
+			if (args[0] === "split-window") return `%${100 + calls.length}\n`;
+			return "";
+		},
+	});
+	// Worker đầu của run "runA" — tạo window @1, pane đầu split DOWN từ root window pane.
+	const h1 = await provider.createSurface("01_explore", { cwd: "/w", tabKey: "runA", splitIndex: 0, title: "01_explore" });
+	assert.equal(h1.kind, "tmux");
+	const newWin = calls.find((a) => a[0] === "new-window");
+	assert.ok(newWin, "phải tạo window mới cho run mới");
+	assert.ok(newWin?.includes("-P"), "new-window -P để lấy window id");
+	const rename = calls.find((a) => a[0] === "rename-window");
+	assert.ok(rename, "phải rename window theo tab label");
+	// splitIndex 0 → down → split-window phải là -v (không phải -h)
+	const firstSplit = calls.find((a) => a[0] === "split-window");
+	assert.ok(firstSplit?.includes("-v"), `splitIndex 0 phải -v (down), nhận: ${JSON.stringify(firstSplit)}`);
+	// splitIndex 1 → right → -h
+	calls.length = 0;
+	await provider.createSurface("02_execute", { cwd: "/w", tabKey: "runA", splitIndex: 1, title: "02_execute" });
+	assert.ok(!calls.some((a) => a[0] === "new-window"), "cùng tabKey → KHÔNG tạo window mới");
+	const secondSplit = calls.find((a) => a[0] === "split-window");
+	assert.ok(secondSplit?.includes("-h"), `splitIndex 1 phải -h (right), nhận: ${JSON.stringify(secondSplit)}`);
+});
+
+test("tabKey per-run: đủ 8 pane trong tab → worker kế tiếp mở window mới cho run", async () => {
+	const calls: string[][] = [];
+	let windowSeq = 0;
+	const provider = createTmuxProvider({
+		env: { TMUX: "/tmp/tmux,test,0", TMUX_PANE: "%0" },
+		tmux: (args) => {
+			calls.push(args);
+			if (args[0] === "new-window") {
+				windowSeq += 1;
+				return `@${windowSeq}\n`;
+			}
+			if (args[0] === "split-window") return `%${100 + calls.length}\n`;
+			return "";
+		},
+	});
+	// Đầy đúng MAX_PANES_PER_TAB panes vào tab runB — chỉ 1 window.
+	for (let i = 0; i < MAX_PANES_PER_TAB; i++) {
+		await provider.createSurface(`w${i}`, { cwd: "/w", tabKey: "runB", splitIndex: i });
+	}
+	assert.equal(calls.filter((a) => a[0] === "new-window").length, 1, "8 worker đầu chung 1 window");
+	// Worker thứ 9 → window mới @2, split vào window đó.
+	await provider.createSurface("w8", { cwd: "/w", tabKey: "runB", splitIndex: 8 });
+	assert.equal(calls.filter((a) => a[0] === "new-window").length, 2, "vượt max pane → window mới");
+	const splits = calls.filter((a) => a[0] === "split-window");
+	const lastSplit = splits[splits.length - 1];
+	assert.ok(lastSplit?.includes("@2"), `worker thứ 9 phải split vào window mới @2, nhận: ${JSON.stringify(lastSplit)}`);
 });
 
 test("readScreen: capture-pane -p -t id -S -<lines>; default 50", async () => {
