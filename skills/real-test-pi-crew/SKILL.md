@@ -567,7 +567,7 @@ Acceptance: 3/3 cho mỗi suite khi điều kiện backend thỏa; skip vì thi�
 6. Dọn dẹp: team-settings set runtime.surface.visibleAgents '[]'
 ```
 
-Evidence cần thu: pane id + title từ `list-panes` TRONG lúc run, và pane biến mất sau run. **Đừng lấy `manifest.surface.panes` làm evidence engage** — map này được `releaseSurfacePane` xóa ngay khi pane đóng, nên một run engage THÀNH CÔNG cũng kết thúc với `panes: {}`. Evidence đúng sau run: `events.jsonl` có `worker.surface_spawned` + `worker.surface_closed` (kèm paneId) và KHÔNG có `surface.degraded`; `manifest.surface.provider` + `workerPids` non-empty (chỉ nhánh surface mới ghi `workerPids` qua `notifyWorkerStarted`). Không có các event đó → surface không engage được dù run xanh.
+Evidence cần thu: pane id + title từ `list-panes` TRONG lúc run, và pane biến mất sau run. **Đừng lấy `manifest.surface.panes` làm evidence engage** — map này được `releaseSurfacePane` xóa ngay khi pane đóng, nên một run engage THÀNH CÔNG cũng kết thúc với `panes: {}`. Evidence đúng sau run: `events.jsonl` có `worker.surface_spawned` + `worker.surface_closed` (kèm paneId) và KHÔNG có `surface.degraded`; `manifest.surface.provider` + `workerPids` non-empty (chỉ nhánh surface mới ghi `workerPids` qua `notifyWorkerStarted`). Nếu đã set `visibleAgents` mà không thấy surface_spawned: đọc `worker.surface_gate_blocked` (từ `d668e166`) — nó cho biết gate nào chặn và vì sao (`{gate, reason, env}`). Không có các event đó → surface không engage được dù run xanh.
 
 ### 10c. herdr path (chỉ khi pi chạy trong herdr pane)
 
@@ -577,7 +577,7 @@ herdr chỉ được detect khi **chính pi session đang chạy trong một her
 
 | Symptom | Likely cause | Recovery |
 |---|---|---|
-| Run xanh nhưng không pane nào xuất hiện | `visibleAgents` còn `[]` (default) — silent no-op | Set `visibleAgents`; re-run; kiểm tra `manifest.surface` |
+| Run xanh nhưng không pane nào xuất hiện | `visibleAgents` còn `[]` (default) — silent no-op | Set `visibleAgents`; re-run. Từ `d668e166`: nếu đã opt-in mà vẫn headless, `events.jsonl` có `worker.surface_gate_blocked` mang `{gate, reason, env}` (chỉ phát khi visibleAgents non-empty — default runs im lặng) |
 | `mode: "tmux"` nhưng vẫn headless | tmux binary/socket detect fail → degrade có chủ đích | `tmux info`; kiểm tra `$TMUX`; đọc warning event trong `events.jsonl` (không bao giờ im lặng) |
 | Worker thứ 7 trở đi headless | Pane cap `MAX_SURFACE_WORKERS = 6` (`src/runtime/surface/resolve-surface.ts`) — hardcoded A1 | By design; config cap là A2 defer |
 | Surface worker chết liên tục → quay lại headless | Degrade lockout: cause-group lockout + spawn-fail streak 3 | Đọc `events.jsonl` (degrade.classify events); fix gốc nhân (thường là launch script env) |
