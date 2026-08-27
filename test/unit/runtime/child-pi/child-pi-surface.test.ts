@@ -174,7 +174,12 @@ test("runChildPi boots the worker in a pane via launch script — no stdio proce
 		// Worker chạy trong pane — không pid process stdio nào được báo cáo.
 		assert.equal(onSpawnPidSeen, undefined, "surface mode không spawn process nên không có pid");
 		// T11 (F4): title = taskId để pane đọc được trong mux — command vẫn gửi riêng.
-		assert.deepEqual(provider.spawnOptsSeen, [{ cwd: workRoot, title: "01_explore" }], "createSurface chỉ nhận cwd + title (taskId)");
+		// Task 4 (tab-layout): kèm tabKey = runId (basename stateRoot) + splitIndex.
+		assert.deepEqual(
+			provider.spawnOptsSeen,
+			[{ cwd: workRoot, title: "01_explore", tabKey: "run_surface_1", splitIndex: 0 }],
+			"createSurface nhận cwd + title (taskId) + tabKey/splitIndex",
+		);
 
 		// Command vào pane: `bash '<script>'; exit` (script tự xóa sau khi chạy).
 		assert.equal(provider.sentCommands.length, 1);

@@ -193,10 +193,11 @@ test("happy path: resolves provider, splits pane WITHOUT command, builds script,
 	assert.equal(outcome.handle.id, "%42");
 	// Pane được tạo TRƯỚC khi biết command gì cả — KHÔNG placeholder mechanism.
 	// T11 (F4): title = taskId để pane đọc được trong mux, không phải command.
+	// Task 4 (tab-layout): kèm tabKey = runId (basename stateRoot) + splitIndex.
 	assert.deepEqual(
 		provider.spawnOptsSeen[0],
-		{ cwd: "/tmp/project", title: "01_explore" },
-		"createSurface chỉ nhận cwd + title (taskId), chưa gửi command",
+		{ cwd: "/tmp/project", title: "01_explore", tabKey: "run-1", splitIndex: 0 },
+		"createSurface nhận cwd + title (taskId) + tabKey/splitIndex, chưa gửi command",
 	);
 	// Thứ tự bắt buộc: createSurface → sendCommand.
 	assert.deepEqual(provider.calls, ["createSurface", "sendCommand"]);
@@ -211,6 +212,22 @@ test("happy path: resolves provider, splits pane WITHOUT command, builds script,
 	assert.equal(statSync(scriptPath).mode & 0o777, 0o600);
 	assert.ok(launchScriptRegistry.has(scriptPath), "script phải đăng ký vào TTL registry");
 	rmSync(scriptPath, { force: true });
+	launchScriptRegistry.clear();
+});
+
+test("prepareSurfaceSpawn truyền tabKey=runId (từ stateRoot) + splitIndex=livePaneCount cho provider", async () => {
+	launchScriptRegistry.clear();
+	const provider = fakeProvider();
+	const input = baseInput({ livePaneCount: 2, stateRoot: "/state/runs/team_20260827_runA" });
+	input.deps!.resolve!.providers!.tmux = provider;
+	const outcome = await prepareSurfaceSpawn(input);
+	assert.equal(outcome.mode, "surface", JSON.stringify(outcome));
+	// fakeProvider đã lưu opts createSurface trong spawnOptsSeen (brief Task 4:
+	// thêm createCalls nếu fake chưa lưu — fake này lưu sẵn từ đầu).
+	const createOpts = provider.spawnOptsSeen[0];
+	assert.equal(createOpts.tabKey, "team_20260827_runA", "tabKey = basename(stateRoot) = runId");
+	assert.equal(createOpts.splitIndex, 2, "splitIndex = livePaneCount");
+	rmSync(outcome.mode === "surface" ? outcome.scriptPath : "", { force: true });
 	launchScriptRegistry.clear();
 });
 

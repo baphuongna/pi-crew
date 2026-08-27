@@ -24,6 +24,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -231,9 +232,17 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 
 	// Pane TRƯỚC — cần id thật cho env map của script. Title = taskId (F4, review
 	// T7): pane rename là cosmetic nên KHÔNG được quyết định fail-closed.
+	// Tab-layout (spec 2026-08-27-surface-tab-layout): tabKey = runId (basename
+	// của stateRoot) — mọi worker của run chia tab; splitIndex = số pane worker
+	// run đã có (provider tự luân phiên down/right + mở tab mới khi đầy 8).
+	const runId = input.stateRoot ? path.basename(input.stateRoot) : undefined;
 	let handle: SurfaceHandle;
 	try {
-		handle = await provider.createSurface(input.taskId, { cwd: input.cwd, title: input.taskId });
+		handle = await provider.createSurface(input.taskId, {
+			cwd: input.cwd,
+			title: input.taskId,
+			...(runId ? { tabKey: runId, splitIndex: input.livePaneCount } : {}),
+		});
 	} catch (error) {
 		logInternalError(
 			"surface-spawn.create-surface",
