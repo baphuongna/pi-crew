@@ -19,7 +19,10 @@
  *
  * Skip guard: `process.env.CI || !process.env.TMUX` → skip toàn file — chỉ chạy
  * local bên trong tmux (CI không có mux, fail-closed là đúng thiết kế §3).
- * Chạy local: `npm run test:system` từ một tmux session.
+ * Ngoài tmux thật, module tự spawn MỘT dedicated tmux server cho cả file (xem
+ * `dedicatedTmux` dưới) rồi mồi biến TMUX chỉ vào nó — mọi lời gọi
+ * `tmux` (provider lẫn test helper) route về đúng server đó. Chạy local:
+ * `npm run test:system` từ tmux session hoặc từ shell thường.
  *
  * Case 2 (degrade, spec §7 D3): worker giả treo (không bao giờ ghi
  * worker.completed) → test kill-pane giữa chừng → classify không thấy completed
@@ -28,6 +31,12 @@
  *
  * Case 3 (T12 wiring): pane mồ côi thật được doctor liệt kê + đóng, report
  * in ra đúng pane id.
+ *
+ * Case 4 (tab-layout, spec 2026-08-27-surface-tab-layout): 2 worker cùng
+ * runId → ĐÚNG 1 window mới cho run (manifest surface.tabs + list-windows),
+ * cả 2 pane worker trong window đó; worker xong pane tự exit (`; exit` là
+ * worker-side) nhưng window CÒN SỐNG tới run end; closeRunTabs (finally của
+ * team-runner) → window biến mất.
  */
 
 import assert from "node:assert/strict";
@@ -49,7 +58,43 @@ import {
 import { createTmuxProvider } from "../../src/runtime/surface/tmux-provider.ts";
 import { runEventBus } from "../../src/ui/run-event-bus.ts";
 
-/** Chỉ chạy local trong tmux — CI/môi trường không mux thì skip (spec §3). */
+// ── Dedicated tmux server (chạy ngoài tmux thật) ────────────────────────────
+
+/**
+ * Report real-test 2026-08-27 từng chạy suite này qua `tmux -S /tmp/sock-*`:
+ * tmux CLI đọc socket từ biến TMUX (`<socket>,<server-pid>,<session-id>`) nên
+ * set TMUX mồi là MỌI lời gọi `tmux` — provider (execFileSync("tmux", …)) lẫn
+ * test helper — route về dedicated server mà không phải inject deps nào.
+ * TMUX_PANE mồi tiếp pane gốc của session để đường legacy (Case 3, spawn ngoài
+ * run không tabKey) còn pane cha để split. Server sống suốt file; test.after
+ * kill-server + dọn socket + trả TMUX/TMUX_PANE về trạng thái cũ. Trong tmux
+ * thật ($TMUX có sẵn) hoặc CI thì không đụng gì — guard skip như cũ.
+ */
+const dedicatedTmux = (() => {
+	if (process.env.CI || process.env.TMUX) return null;
+	let sockDir: string | null = null;
+	try {
+		sockDir = mkdtempSync(join(tmpdir(), "surface-e2e-tmuxserver-"));
+		const sock = join(sockDir, "sock");
+		execFileSync("tmux", ["-S", sock, "new-session", "-d", "-s", "e2e", "-x", "220", "-y", "50"]);
+		const pid = execFileSync("tmux", ["-S", sock, "display-message", "-p", "#{pid}"], { encoding: "utf8" }).trim();
+		if (!/^\d+$/.test(pid)) throw new Error(`unexpected server pid: ${JSON.stringify(pid)}`);
+		// Pane gốc của session (window 0) — vai pane cha cho đường legacy spawn.
+		const rootPane = execFileSync("tmux", ["-S", sock, "display-message", "-p", "-t", "e2e:0.0", "#{pane_id}"], {
+			encoding: "utf8",
+		}).trim();
+		if (!/^%\d+$/.test(rootPane)) throw new Error(`unexpected root pane: ${JSON.stringify(rootPane)}`);
+		process.env.TMUX = `${sock},${pid},0`;
+		process.env.TMUX_PANE = rootPane;
+		return { sock, sockDir };
+	} catch {
+		// tmux binary không có / server không nổi được → guard dưới skip như cũ.
+		if (sockDir) rmSync(sockDir, { recursive: true, force: true });
+		return null;
+	}
+})();
+
+/** Chỉ chạy local trong tmux (thật hoặc dedicated server trên) — CI skip (spec §3). */
 const E2E_OPTS: { skip?: string } =
 	process.env.CI || !process.env.TMUX ? { skip: "requires a real tmux session ($TMUX unset or CI=1)" } : {};
 
@@ -59,6 +104,18 @@ test.before(() => {
 	delete process.env.PI_CREW_ASYNC_RUN;
 	delete process.env.PI_TEAMS_MOCK_CHILD_PI;
 	delete process.env.PI_CREW_ALLOW_MOCK;
+});
+
+test.after(() => {
+	if (!dedicatedTmux) return;
+	delete process.env.TMUX;
+	delete process.env.TMUX_PANE;
+	try {
+		execFileSync("tmux", ["-S", dedicatedTmux.sock, "kill-server"]);
+	} catch {
+		// server đã chết — không còn gì để dọn.
+	}
+	rmSync(dedicatedTmux.sockDir, { recursive: true, force: true });
 });
 
 // ── Fake `pi` workers ─────────────────────────────────────────────────────
@@ -93,6 +150,32 @@ const FAKE_PI_OK_BODY = [
 ].join("\n");
 
 /**
+ * Worker hoàn thành + CHỜ RELEASE (Case 4 tab-layout): báo cáo đầy đủ như
+ * FAKE_PI_OK_BODY ngay từ lúc boot (sentinel + worker.started/completed) rồi
+ * vòng giữ pane sống tới khi test ghi file `e2e-release-<taskId>` (cap 60s)
+ * rồi exit — test cần pane worker CÒN SỐNG lúc assert membership trong tab,
+ * không đua đồng hồ với `sleep 2`.
+ */
+const FAKE_PI_HOLD_OK_BODY = [
+	"set -u",
+	`if [ -z "\${PI_CREW_SURFACE:-}" ]; then`,
+	"  exit 0",
+	"fi",
+	'AGENT_DIR="$(dirname -- "$PI_CREW_AGENT_EVENTS_PATH")"',
+	'mkdir -p -- "$AGENT_DIR"',
+	`printf 'TMUX_PANE=%s\nPID=%s\n' "\${TMUX_PANE:-}" "$$" > e2e-sentinel.txt`,
+	'SESSION_PATH="$PI_CREW_STATE_ROOT/agents/$PI_CREW_TASK_ID/session.jsonl"',
+	'TS="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"',
+	'printf \'{"seq":1,"time":"%s","event":{"type":"worker.started","pid":%s,"sessionPath":"%s"}}\\n\' "$TS" "$$" "$SESSION_PATH" >> "$PI_CREW_AGENT_EVENTS_PATH"',
+	'printf \'{"seq":2,"time":"%s","event":{"type":"worker.completed","result":"E2E SURFACE DONE"}}\\n\' "$TS" >> "$PI_CREW_AGENT_EVENTS_PATH"',
+	'printf \'{"type":"worker.completed","runId":"%s","taskId":"%s","data":{"result":"E2E SURFACE DONE","stopReason":"stop"}}\\n\' "$PI_CREW_BROKER_RUN_ID" "$PI_CREW_TASK_ID" >> "$PI_CREW_EVENTS_PATH"',
+	'release="e2e-release-$PI_CREW_TASK_ID"',
+	"i=0",
+	'while [ "$i" -lt 300 ] && [ ! -f "$release" ]; do sleep 0.2; i=$((i+1)); done',
+	"exit 0",
+].join("\n");
+
+/**
  * Worker treo (surface): sentinel + worker.started rồi sleep — KHÔNG bao giờ
  * ghi worker.completed. Pane chết giữa chừng (test kill-pane) phải đi degrade.
  */
@@ -118,13 +201,15 @@ interface E2eCtx {
 	launchDir: string;
 	/** Mọi pane test này tạo ra — finally kill best-effort để không rò rơi pane. */
 	panes: string[];
+	/** Mọi window (tab của run) test này mở — finally kill-window best-effort. */
+	windows: string[];
 }
 
 async function setupE2e(): Promise<E2eCtx> {
 	const workRoot = mkdtempSync(join(tmpdir(), "surface-e2e-"));
 	const fakeBinRoot = mkdtempSync(join(tmpdir(), "surface-e2e-bin-"));
 	const launchDir = mkdtempSync(join(tmpdir(), "surface-e2e-launch-"));
-	return { workRoot, fakeBinRoot, launchDir, panes: [] };
+	return { workRoot, fakeBinRoot, launchDir, panes: [], windows: [] };
 }
 
 /** Cài `pi` giả qua đường production PI_TEAMS_PI_BIN (không monkey-patch). */
@@ -144,6 +229,16 @@ function installFakePi(ctx: E2eCtx, body: string): void {
 }
 
 async function teardownE2e(ctx: E2eCtx, runId?: string): Promise<void> {
+	// Tab của run đóng theo window TRƯỚC pane — kill-pane pane cuối cùng cũng tự
+	// kéo window theo, nhưng window có root pane idle sẽ sống sót qua kill-pane
+	// nên phải kill-window đích danh (chính xác vai closeTab lúc run end).
+	for (const windowId of ctx.windows) {
+		try {
+			execFileSync("tmux", ["kill-window", "-t", windowId]);
+		} catch {
+			// window đã tự đóng (run end) — đúng kịch bản
+		}
+	}
 	for (const paneId of ctx.panes) {
 		try {
 			execFileSync("tmux", ["kill-pane", "-t", paneId]);
@@ -171,6 +266,34 @@ function tmuxPaneIds(): Set<string> {
 		);
 	} catch {
 		return new Set();
+	}
+}
+
+/** Toàn bộ window của server: window_id → window_name (label của tab, spec §3.2). */
+function tmuxWindows(): Map<string, string> {
+	try {
+		const out = execFileSync("tmux", ["list-windows", "-a", "-F", "#{window_id}\t#{window_name}"], { encoding: "utf8" });
+		const windows = new Map<string, string>();
+		for (const line of out.split("\n")) {
+			const sep = line.indexOf("\t");
+			if (sep <= 0) continue;
+			windows.set(line.slice(0, sep).trim(), line.slice(sep + 1).trim());
+		}
+		return windows;
+	} catch {
+		return new Map();
+	}
+}
+
+/** Pane ids của MỘT window (tab) — membership assertion cho Case 4. */
+function tmuxPanesOfWindow(windowId: string): string[] {
+	try {
+		return execFileSync("tmux", ["list-panes", "-t", windowId, "-F", "#{pane_id}"], { encoding: "utf8" })
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean);
+	} catch {
+		return [];
 	}
 }
 
@@ -261,9 +384,12 @@ test("E2E tmux: pane thật được spawn, script chạy trong pane, pane tự 
 	const taskId = "01_explore";
 	const runLog = makeRunLog(ctx.workRoot, runId);
 	const stopKeepAlive = keepEventLoopAlive();
+	// Provider hoisted ra ngoài try để finally đóng được tab (window) của run
+	// (Task 2: mọi spawn có stateRoot mở window riêng — không đóng thì root
+	// pane idle giữ window sống mãi lại trong session tmux của user).
+	const provider = createTmuxProvider();
 	try {
 		installFakePi(ctx, FAKE_PI_OK_BODY);
-		const provider = createTmuxProvider();
 		const lifecycle: ChildPiLifecycleEvent[] = [];
 		const busEvents: Array<Record<string, unknown>> = [];
 		const off = runEventBus.on(runId, (payload) => {
@@ -318,6 +444,7 @@ test("E2E tmux: pane thật được spawn, script chạy trong pane, pane tự 
 		);
 	} finally {
 		stopKeepAlive();
+		await provider.closeTab?.(runId);
 		await teardownE2e(ctx, runId);
 	}
 });
@@ -330,6 +457,9 @@ test("E2E tmux: kill-pane giữa chừng → degrade + lockout + re-dispatch hea
 	const taskId = "02_execute";
 	const runLog = makeRunLog(ctx.workRoot, runId);
 	const stopKeepAlive = keepEventLoopAlive();
+	// Provider hoisted ra ngoài try để finally đóng được tab (window) của run
+	// (xem Case 1).
+	const provider = createTmuxProvider();
 	try {
 		installFakePi(ctx, FAKE_PI_HANG_BODY);
 		const degradedSeen: SurfaceDegradedEntry[] = [];
@@ -339,7 +469,6 @@ test("E2E tmux: kill-pane giữa chừng → degrade + lockout + re-dispatch hea
 			onDegrade: (entry) => degradedSeen.push(entry),
 		});
 		registerSurfaceRuntimeController(controller);
-		const provider = createTmuxProvider();
 		const lifecycle: ChildPiLifecycleEvent[] = [];
 
 		const result1Promise = runChildPi(
@@ -401,6 +530,7 @@ test("E2E tmux: kill-pane giữa chừng → degrade + lockout + re-dispatch hea
 		assert.equal(result2.exitCode, 0, "re-dispatch headless vẫn phải hoàn thành");
 	} finally {
 		stopKeepAlive();
+		await provider.closeTab?.(runId);
 		await teardownE2e(ctx, runId);
 	}
 });
@@ -447,5 +577,113 @@ test("E2E tmux: doctor liệt kê + đóng pane mồ côi thật, report chứa 
 	} finally {
 		stopKeepAlive();
 		await teardownE2e(ctx);
+	}
+});
+
+// ── Case 4: tab-layout — 1 window/run, worker xong tab còn sống ─────────────
+
+test("E2E tmux: tab per-run — 2 worker cùng run chia 1 window, worker xong tab còn sống tới run end", E2E_OPTS, async () => {
+	const ctx = await setupE2e();
+	const runId = "run_e2e_tab";
+	// TaskId/label duy nhất theo pid tiến trình test — window name phải tìm được
+	// chính xác giữa các window sẵn có của server (kể cả tmux session thật).
+	const taskA = `71_tab_${process.pid}a`;
+	const taskB = `72_tab_${process.pid}b`;
+	const runLog = makeRunLog(ctx.workRoot, runId);
+	const stopKeepAlive = keepEventLoopAlive();
+	// Controller thật — đúng đường team-runner: child-pi tự tra theo runId và
+	// notifySpawned ghi manifest surface.tabs; finally run gọi closeRunTabs.
+	const controller = createSurfaceRuntimeController({ runId, eventsPath: runLog });
+	registerSurfaceRuntimeController(controller);
+	try {
+		installFakePi(ctx, FAKE_PI_HOLD_OK_BODY);
+		const provider = createTmuxProvider();
+		const windowsBefore = new Set(tmuxWindows().keys());
+
+		const lifecycle: ChildPiLifecycleEvent[] = [];
+		const spawnedPanes: string[] = [];
+		const onLifecycleEvent = (event: ChildPiLifecycleEvent): void => {
+			lifecycle.push(event);
+			if (event.type === "surface_spawned" && event.paneId) {
+				spawnedPanes.push(event.paneId);
+				ctx.panes.push(event.paneId);
+			}
+		};
+		// Spawn tuần tự: worker A mở tab (new-window), worker B phải rơi vào
+		// nhánh "tab đã có" (split trong window cũ) — thứ tự này là điều kiện
+		// để assert "không mở window thứ hai cho worker B".
+		const resultAPromise = runChildPi(
+			makeRunInput(ctx.workRoot, runId, taskA, runLog, {
+				onLifecycleEvent,
+				surface: { providers: { tmux: provider }, baseDir: ctx.launchDir },
+			}),
+		);
+		assert.ok(await waitUntil(() => spawnedPanes.length >= 1, 30_000), "worker A phải surface_spawned trong 30s");
+		const resultBPromise = runChildPi(
+			makeRunInput(ctx.workRoot, runId, taskB, runLog, {
+				onLifecycleEvent,
+				surface: { providers: { tmux: provider }, baseDir: ctx.launchDir },
+			}),
+		);
+		assert.ok(await waitUntil(() => spawnedPanes.length >= 2, 30_000), "worker B phải surface_spawned trong 30s");
+		const paneA = spawnedPanes[0] as string;
+		const paneB = spawnedPanes[1] as string;
+
+		// (1) Manifest production path: đúng 1 tab cho run — 2 worker cùng run
+		// ghi về CÙNG tabId (recordSurfaceTab dedup theo tabId).
+		const tabsAfterSpawn = controller.snapshot().tabs ?? {};
+		assert.deepEqual(
+			Object.keys(tabsAfterSpawn),
+			[runId],
+			`manifest surface.tabs phải có đúng 1 tabKey = runId, nhận ${JSON.stringify(tabsAfterSpawn)}`,
+		);
+		const tabIds = tabsAfterSpawn[runId] ?? [];
+		assert.equal(tabIds.length, 1, "2 worker cùng run → 1 window (dedup), không mở tab thứ hai");
+		const windowId = tabIds[0] as string;
+		ctx.windows.push(windowId);
+
+		// (2) Mux thật: window MỚI (không tồn tại trước spawn) mang label của
+		// worker đầu — new-window + rename-window lúc provider mở tab (§3.2).
+		const windows = tmuxWindows();
+		assert.ok(!windowsBefore.has(windowId), `window của run phải là window MỚI, nhận ${windowId}`);
+		assert.equal(windows.get(windowId), taskA, "window label = title worker đầu (rename-window lúc mở tab)");
+		const labeled = [...windows.entries()].filter(([, name]) => name === taskA);
+		assert.equal(labeled.length, 1, `toàn server chỉ 1 window mang label run này, nhận ${JSON.stringify(labeled)}`);
+
+		// (3) Cả 2 pane worker nằm TRONG window đó (root pane của window + 2 worker).
+		const panesInTab = tmuxPanesOfWindow(windowId);
+		assert.ok(panesInTab.includes(paneA), `pane A ${paneA} phải trong window ${windowId}: ${JSON.stringify(panesInTab)}`);
+		assert.ok(panesInTab.includes(paneB), `pane B ${paneB} phải trong window ${windowId}: ${JSON.stringify(panesInTab)}`);
+		assert.equal(panesInTab.length, 3, `window phải có root pane + 2 worker pane, nhận ${JSON.stringify(panesInTab)}`);
+
+		// Assert xong membership — thả 2 worker (script HOLD dò file release).
+		writeFileSync(join(ctx.workRoot, `e2e-release-${taskA}`), "", "utf8");
+		writeFileSync(join(ctx.workRoot, `e2e-release-${taskB}`), "", "utf8");
+		const [resultA, resultB] = await Promise.all([resultAPromise, resultBPromise]);
+
+		// (4) Worker hoàn thành: pane tự exit qua `; exit` là WORKER-SIDE — host
+		// không đóng tab theo từng worker (Task 5): window còn sống với root
+		// pane, 2 worker pane đã biến mất.
+		assert.equal(resultA.exitCode, 0);
+		assert.equal(resultB.exitCode, 0);
+		assert.equal(resultA.surface?.degraded, undefined, "worker A hoàn thành bình thường");
+		assert.equal(resultB.surface?.degraded, undefined, "worker B hoàn thành bình thường");
+		assert.ok(tmuxWindows().has(windowId), "tab phải sống tới run end — host không proactively đóng tab");
+		const panesAfter = tmuxPanesOfWindow(windowId);
+		assert.ok(!panesAfter.includes(paneA) && !panesAfter.includes(paneB), "worker pane phải tự đóng sau exit");
+		assert.equal(panesAfter.length, 1, `chỉ còn root pane của window, nhận ${JSON.stringify(panesAfter)}`);
+		assert.deepEqual(
+			controller.snapshot().tabs?.[runId],
+			[windowId],
+			"worker xong KHÔNG gỡ tab khỏi manifest (releaseSurfacePane không đụng tabs)",
+		);
+
+		// (5) Run end — đúng finally của team-runner: closeRunTabs → kill-window.
+		await controller.closeRunTabs(provider);
+		assert.ok(!tmuxWindows().has(windowId), "run end phải đóng window của run");
+		assert.deepEqual(controller.snapshot().tabs?.[runId], [], "manifest giữ key rỗng làm evidence đã đóng (shape closeTabForRun)");
+	} finally {
+		stopKeepAlive();
+		await teardownE2e(ctx, runId);
 	}
 });
