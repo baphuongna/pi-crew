@@ -129,9 +129,14 @@ function pingSocketSync(socketPath: string, timeoutMs = HERDR_PING_TIMEOUT_MS): 
  * câm, khiến "headless vì misconfig" không thể phân biệt với "headless vì
  * đúng thiết kế" trong events.jsonl.
  */
-export type SurfaceGateName = "mode-off" | "async-run" | "depth" | "pane-cap" | "role-not-visible" | "no-mux";
+export type SurfaceGateName = "mode-off" | "depth" | "pane-cap" | "role-not-visible" | "no-mux";
 
-/** Snapshot các tín hiệu env gate đã thấy — có chủ đích KHÔNG dump cả env (secrets). */
+/**
+ * Snapshot các tín hiệu env gate đã thấy — có chủ đích KHÔNG dump cả env (secrets).
+ * `asyncRun` chỉ để telemetry (run là async/background), KHÔNG còn là gate nào
+ * cả — kể từ 2026-08-27, surface bỏ hard-gate "async → headless"; pane có hay
+ * không do môi trường quét được + `runtime.surface.*` config quyết.
+ */
 export interface SurfaceGateEnvSnapshot {
 	tmux: boolean;
 	herdrEnv: boolean;
@@ -191,8 +196,6 @@ export function resolveSurfaceDetailed(
 		rejection: { gate, reason, env: surfaceGateEnvSnapshot(env) },
 	});
 	if (mode === "off") return reject("mode-off", 'runtime.surface.mode is "off"');
-	// Async runs force headless in A1 — no re-attach yet (spec §14).
-	if (env.PI_CREW_ASYNC_RUN === "1") return reject("async-run", "PI_CREW_ASYNC_RUN=1 — async runs force headless in A1 (spec §14)");
 	// Surface panes are tier-1 only — never inside a worker.
 	const hostDepth = currentCrewDepth(env);
 	if (hostDepth > 0) return reject("depth", `host PI_CREW_DEPTH=${hostDepth} > 0 — no pane-in-pane (tier-1 workers only)`);
@@ -254,7 +257,7 @@ export function resolveSurface(
 /**
  * Doctor orphan-pane cleanup (T12): provider singleton THEO KIND, không qua gate
  * matrix §3 — doctor dọn pane mồ côi chứ không spawn worker mới, nên các gate
- * async-run/depth/cap không áp dụng. Caller tự gọi detect() và chỉ close khi mux
+ * depth/cap không áp dụng. Caller tự gọi detect() và chỉ close khi mux
  * còn sống; trả null khi constructor throw (never — nhưng doctor fail-open list-only).
  */
 export function surfaceProviderForCleanup(kind: "tmux" | "herdr"): SurfaceProvider | null {

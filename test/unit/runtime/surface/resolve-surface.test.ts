@@ -228,9 +228,21 @@ test("visibleAgents [] → null; ['executor'] + role 'executor' → provider; ro
 	);
 });
 
-test("async run (PI_CREW_ASYNC_RUN=1) → null — A1 force headless (spec §14)", () => {
-	const env = { ...tmuxEnv, PI_CREW_ASYNC_RUN: "1" };
-	assert.equal(resolveSurface(env, makeConfig(), "executor", 0, { tmuxBin: fakeBinary("tmux"), providers }), null);
+test("async run (PI_CREW_ASYNC_RUN=1) KHÔNG còn bị chặn — env quyết (async không hard-headless)", () => {
+	// Kể từ 2026-08-27: bỏ hard-gate "async → headless". Surface detect theo
+	// môi trường, async không phải gate. Nếu tmux env present, async vẫn ra tmux.
+	const tmux = resolveSurface({ ...tmuxEnv, PI_CREW_ASYNC_RUN: "1" }, makeConfig(), "executor", 0, {
+		tmuxBin: fakeBinary("tmux"),
+		providers,
+	});
+	assert.notEqual(tmux, null, "async không còn chặn surface — env quyết");
+	assert.equal(tmux?.kind, "tmux");
+	// herdr env present + async → vẫn herdr (không bị async-run reject)
+	const herdr = resolveSurface({ ...herdrEnv, PI_CREW_ASYNC_RUN: "1" }, makeConfig(), "executor", 0, {
+		herdrBin: fakeBinary("herdr"),
+		pingSocket: () => true,
+	});
+	assert.equal(herdr?.kind, "herdr");
 });
 
 test("wiring T3/T4: không inject providers → factory thật cho cả tmux và herdr, mỗi kind một singleton", () => {
@@ -299,10 +311,6 @@ test("resolveSurfaceDetailed: mỗi gate trả rejection {gate, reason, env} đ�
 	let res = resolveSurfaceDetailed(tmuxEnv, makeConfig({ mode: "off" }), "executor", 0, tmuxOpts);
 	assert.equal(res.provider, null);
 	assert.equal(res.rejection?.gate, "mode-off");
-
-	// async run
-	res = resolveSurfaceDetailed({ ...tmuxEnv, PI_CREW_ASYNC_RUN: "1" }, makeConfig(), "executor", 0, tmuxOpts);
-	assert.equal(res.rejection?.gate, "async-run");
 
 	// depth (host là worker → pane-in-pane)
 	res = resolveSurfaceDetailed({ ...tmuxEnv, PI_CREW_DEPTH: "1" }, makeConfig(), "executor", 0, tmuxOpts);

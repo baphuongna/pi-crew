@@ -325,13 +325,15 @@ test("livePaneCount >= MAX_SURFACE_WORKERS → headless", async () => {
 	assert.equal(MAX_SURFACE_WORKERS, 6);
 });
 
-test("async run env → headless (A1 force)", async () => {
+test("async run env → KHÔNG còn bị gate (env quyết; async không hard-headless)", async () => {
 	const provider = fakeProvider();
 	const input = baseInput({ env: { ...HOST_ENV, PI_CREW_ASYNC_RUN: "1" } });
 	input.deps!.resolve!.providers!.tmux = provider;
 	const outcome = await prepareSurfaceSpawn(input);
-	assertHeadless(outcome);
-	assert.deepEqual(provider.calls, []);
+	// Kể từ 2026-08-27: async không phải gate — surface detect theo env. Provider
+	// inject vẫn được dùng (spawn thật), không headless.
+	assert.equal(outcome.mode, "surface", "async không còn chặn surface — env quyết");
+	assert.deepEqual(provider.calls, ["createSurface", "sendCommand"], "provider được dùng (spawn thật khi async)");
 });
 
 test("config mode off / role not visible → headless without creating panes", async () => {
@@ -365,12 +367,12 @@ test("build failure AFTER createSurface closes the orphan pane immediately and f
 	assert.equal(launchScriptRegistry.size, 0, "không đăng ký script lỗi vào registry");
 });
 
-test("pre-resolved provider is STILL gated by PI_CREW_ASYNC_RUN=1 (fail-closed §3)", async () => {
+test("pre-resolved provider KHÔNG còn bị gate bởi async — async không hard-headless", async () => {
 	const provider = fakeProvider();
 	const input = baseInput({ env: { ...HOST_ENV, PI_CREW_ASYNC_RUN: "1" }, deps: { provider } });
 	const outcome = await prepareSurfaceSpawn(input);
-	assertHeadless(outcome, /null|gated|resolution/i);
-	assert.deepEqual(provider.calls, [], "gate chạy cả trên đường pre-resolved");
+	assert.equal(outcome.mode, "surface", "async không còn gate trên đường pre-resolved");
+	assert.deepEqual(provider.calls, ["createSurface", "sendCommand"], "provider được dùng ngay cả khi async");
 });
 
 test("pre-resolved provider is STILL gated by host depth > 0 (no pane-in-pane)", async () => {
@@ -556,12 +558,13 @@ test("gate rejection đi theo outcome headless: resolve path + pre-resolved hard
 	assert.equal(outcome.gateRejected?.gate, "depth", JSON.stringify(outcome.gateRejected));
 	assert.equal(outcome.attempted, undefined, "gate chặn KHÔNG phải spawn-fail — không đếm lockout");
 
-	// pre-resolved provider + async hard gate → gateRejected từ lớp guard 1
-	input = baseInput({ env: { ...HOST_ENV, PI_CREW_ASYNC_RUN: "1" }, deps: { provider: fakeProvider() } });
+	// pre-resolved provider + host depth > 0 (hard gate duy nhất còn lại) →
+	// gateRejected từ lớp guard 1
+	input = baseInput({ env: { ...HOST_ENV, PI_CREW_DEPTH: "2" }, deps: { provider: fakeProvider() } });
 	outcome = await prepareSurfaceSpawn(input);
 	assertHeadless(outcome);
-	assert.equal(outcome.gateRejected?.gate, "async-run", JSON.stringify(outcome.gateRejected));
-	assert.equal(outcome.gateRejected?.env.asyncRun, true);
+	assert.equal(outcome.gateRejected?.gate, "depth", JSON.stringify(outcome.gateRejected));
+	assert.equal(outcome.gateRejected?.env.depth, 2);
 
 	// mux thật fail SAU khi resolve (createSurface throw) → attempted, KHÔNG gateRejected
 	input = baseInput();

@@ -108,7 +108,7 @@ export type SurfaceSpawnOutcome =
 			attempted?: boolean;
 			/**
 			 * Gate nào đã chặn TRƯỚC khi đụng mux (FINDING-3, report 10tier
-			 * 2026-08-27): mode-off/async-run/depth/pane-cap/role-not-visible/
+			 * 2026-08-27): mode-off/depth/pane-cap/role-not-visible/
 			 * no-mux. KHÔNG đặt khi `attempted` (mux probe fail thật là chuyện
 			 * của counter spawn-fail, không phải gate). Child-pi đọc field này
 			 * để phát lifecycle `surface_gate_blocked` vào run events.
@@ -183,14 +183,11 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 
 	// Lớp guard 1: provider hay null? deps.provider (pre-resolved) thắng —
 	// dispatch T11 sở hữu quyết định surface; không có thì đi qua matrix T2.
-	// Hai gate CỨNG (async-run, depth) áp cho cả đường pre-resolved — dispatch
-	// có thể lỡ bỏ qua matrix nhưng spec §3 thì không thể bị bỏ qua.
-	const hardGated =
-		input.env.PI_CREW_ASYNC_RUN === "1" || currentCrewDepth(input.env) > 0
-			? input.env.PI_CREW_ASYNC_RUN === "1"
-				? "PI_CREW_ASYNC_RUN=1"
-				: `host depth ${currentCrewDepth(input.env)} > 0`
-			: null;
+	// Gate CỨNG duy nhất áp cho cả đường pre-resolved là DEPTH (không pane-in-
+	// pane) — spec §3 không thể bị bỏ qua. Async KHÔNG còn là gate: kể từ
+	// 2026-08-27, surface không hard-code "async → headless" nữa; pane có hay
+	// không do môi trường quét được + `runtime.surface.*` config quyết.
+	const hardGated = currentCrewDepth(input.env) > 0 ? `host depth ${currentCrewDepth(input.env)} > 0` : null;
 	let resolution: SurfaceResolution;
 	try {
 		if (hardGated && input.deps?.provider !== undefined) {
@@ -204,7 +201,7 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 				mode: "headless",
 				reason: `surface gated by ${hardGated}`,
 				gateRejected: {
-					gate: input.env.PI_CREW_ASYNC_RUN === "1" ? "async-run" : "depth",
+					gate: "depth",
 					reason: `surface gated by ${hardGated}`,
 					env: surfaceGateEnvSnapshot(input.env),
 				},
