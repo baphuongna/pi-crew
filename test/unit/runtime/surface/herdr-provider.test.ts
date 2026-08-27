@@ -400,6 +400,28 @@ test("Task 5 tab-layout: closeTab tab_not_found → idempotent không throw; err
 	await assert.rejects(() => provider.closeTab!("runM"), /mux_dead/);
 });
 
+test("Task 6 doctor: closeTabById đóng tab.close theo id — thành công 'closed'; tab_not_found 'gone'; lỗi khác throw", async () => {
+	const h = makeFake();
+	const provider = h.provider();
+	const closeTabById = provider.closeTabById;
+	assert.ok(closeTabById, "provider phải implement closeTabById (doctor cleanup Task 6)");
+
+	h.sockets.length = 0;
+	assert.equal(await closeTabById.call(provider, "w2:t1"), "closed");
+	const req = h.sockets[0]?.requests[0];
+	assert.equal(req?.method, "tab.close", "đóng trực tiếp theo tab_id lấy từ manifest");
+	assert.equal(req?.params.tab_id, "w2:t1");
+	assert.notEqual(req?.method, "closeTab", "KHÔNG đi qua map nội bộ tabKey (trống ở doctor process)");
+
+	// Tab server không còn biết → mux xác nhận "đã mất" = gone, không throw.
+	h.failNextWith("tab_not_found", "no such tab");
+	assert.equal(await closeTabById.call(provider, "w2:t1"), "gone");
+
+	// Lỗi thật (server chết...) vẫn ném để doctor ghi failure.
+	h.failNextWith("mux_dead", "server gone");
+	await assert.rejects(() => closeTabById.call(provider, "w2:t1"), /mux_dead/);
+});
+
 test("createSurface: env không có HERDR_PANE_ID → fallback pane.current (focus pane) làm pane cha", async () => {
 	const h = makeFake(); // env rỗng → fallback pane.current trả w3:pB
 	const { handle } = await spawnPane(h, { title: "crew:r1:t1" });

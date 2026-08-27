@@ -452,6 +452,11 @@ export interface ManifestSurfaceState {
 	 * qua outcome), KHÔNG gỡ khi từng worker xong (tab sống tới run end). Entry
 	 * được clear (giữ key rỗng) khi run end đã đóng tab qua closeTabForRun.
 	 * Run dài vượt MAX_PANES_PER_TAB tích lũy nhiều id cùng key.
+	 *
+	 * Manifest TRÊN ĐĨA giữ nguyên tabIds sau run end (evidence cho doctor) —
+	 * tabs non-empty KHÔNG đồng nghĩa orphan; doctor phải liveness-check từng
+	 * tabId qua mux rồi close-by-ID idempotent (cleanupOrphanSurfacePanes,
+	 * provider.closeTabById), không đóng mù theo số entry.
 	 */
 	tabs?: Record<string, string[]>;
 	/**

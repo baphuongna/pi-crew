@@ -16,7 +16,7 @@ import { surfaceProviderForCleanup } from "../../runtime/surface/resolve-surface
 import type { SurfaceProvider } from "../../runtime/surface/surface-provider.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { TeamToolParams } from "../../schema/team-tool-schema.ts";
-import { atomicWriteFile } from "../../state/atomic-write.ts";
+import { atomicWriteFile, atomicWriteJson } from "../../state/atomic-write.ts";
 import { TEAM_TERMINAL_RUN_STATUSES } from "../../state/contracts.ts";
 import { allTeams, discoverTeams } from "../../teams/discover-teams.ts";
 import { type FatalFsCause, fsFailureLabel } from "../../utils/fs-errno.ts";
@@ -521,13 +521,18 @@ export function buildTeamDoctorReport(input: TeamDoctorReportInput): TeamDoctorR
 
 // ── T12: orphan surface-pane cleanup (doctor focus=zombies) ─────────────────
 //
-// Two orphan sources:
+// Three orphan sources:
 //  1. zombie scan — a sub-agent whose crew parent died while carrying
 //     PI_CREW_SURFACE/PI_CREW_SURFACE_PANE: the pane outlived its host.
 //  2. terminal-run manifests — a finished run whose manifest.surface.panes
 //     still has entries (host died before releaseSurfacePane). Those panes
 //     hold the live-pane cap hostage for the rest of the run (T11 residual);
 //     doctor is the sweep that finally releases them.
+//  3. terminal-run manifests' surface.tabs (tab-layout Task 6) — a finished
+//     run whose tabs entry still carries tab ids: the host died before
+//     closeTabForRun ran in its finally block. Doctor closes each tab BY ID
+//     (its own process never owned the provider's tabKey map) and clears the
+//     manifest entry only once the mux confirmed every tab id resolved.
 //
 // Closing is gated on provider.detect() — if the mux is unavailable the panes
 // are listed without any close attempt (fail-open list-only, never close blind).
@@ -540,6 +545,21 @@ export interface OrphanSurfacePane {
 	kind: "tmux" | "herdr";
 	/** Provenance line for the human, e.g. `zombie-scan pid 4242`. */
 	source: string;
+}
+
+/**
+ * Tab-layout Task 6: một entry `surface.tabs[tabKey]` còn tabIds trên manifest
+ * của run TERMINAL — ứng viên orphan, phải liveness-check từng tabId qua mux
+ * (closeTabById) trước khi đóng (doctor chạy ở process khác host đã spawn nên
+ * map nội bộ tabKey của provider trống ở đây — KHÔNG dùng closeTab(tabKey)).
+ */
+export interface OrphanSurfaceTab {
+	runId: string;
+	tabKey: string;
+	/** Mọi tab/window id của entry (run dài vượt MAX_PANES_PER_TAB có nhiều). */
+	tabIds: string[];
+	kind: "tmux" | "herdr";
+	manifestPath: string;
 }
 
 export interface DoctorSurfaceCleanupDeps {
@@ -560,14 +580,65 @@ export interface DoctorSurfaceCleanupResult {
 	/** Pane ids the mux no longer knows — nothing to close, not a failure. */
 	gone: string[];
 	failures: { paneId: string; error: string }[];
+	/** Tabs của terminal runs còn tabIds trên manifest (tab-layout Task 6). */
+	orphanTabs: OrphanSurfaceTab[];
+	/** Tab ids closed directly by id via provider.closeTabById. */
+	tabsClosed: string[];
+	/** Tab ids the mux no longer knows — liveness confirmed dead, not a failure. */
+	tabsGone: string[];
+	tabFailures: { tabId: string; error: string }[];
 	/** Launch scripts removed from disk + registry (orphan script sweep, T5). */
 	scriptsSwept: number;
 	/** Why a provider kind was skipped (listed-only). */
 	providerNotes: string[];
 }
 
+/** TERMINAL-run manifest record đọc từ đĩa — nguồn chung cho pane + tab orphans. */
+interface TerminalRunManifestRecord {
+	runId: string;
+	manifestPath: string;
+	manifest: Record<string, unknown>;
+	kind: "tmux" | "herdr";
+}
+
 /** Panes recorded on TERMINAL runs' manifests — the T11 residual leak. */
-function collectTerminalRunOrphanPanes(cwd: string, limit: number): OrphanSurfacePane[] {
+function collectTerminalRunOrphanPanes(records: TerminalRunManifestRecord[]): OrphanSurfacePane[] {
+	const orphans: OrphanSurfacePane[] = [];
+	for (const record of records) {
+		const surface = record.manifest.surface as { panes?: unknown } | undefined;
+		if (!surface?.panes || typeof surface.panes !== "object") continue;
+		for (const [taskId, paneId] of Object.entries(surface.panes as Record<string, unknown>)) {
+			if (typeof paneId !== "string" || paneId === "") continue;
+			orphans.push({ paneId, kind: record.kind, source: `run ${record.runId} task ${taskId} (terminal)` });
+		}
+	}
+	return orphans;
+}
+
+/**
+ * Tabs recorded on TERMINAL runs' manifests (tab-layout Task 5/6). Manifest
+ * TRÊN ĐĨA GIỮ tabIds sau run end làm evidence — entry non-empty trên run
+ * terminal nghĩa là host chết trước khi closeTabForRun chạy ở finally. Đây
+ * chỉ là DANH SÁCH ứng viên; doctor liveness-check từng tabId qua mux
+ * (closeTabById) rồi mới close-by-ID idempotent — không bao giờ close mù.
+ */
+function collectTerminalRunOrphanTabs(records: TerminalRunManifestRecord[]): OrphanSurfaceTab[] {
+	const tabs: OrphanSurfaceTab[] = [];
+	for (const record of records) {
+		const surface = record.manifest.surface as { tabs?: unknown } | undefined;
+		if (!surface?.tabs || typeof surface.tabs !== "object") continue;
+		for (const [tabKey, tabIds] of Object.entries(surface.tabs as Record<string, unknown>)) {
+			if (!Array.isArray(tabIds)) continue;
+			const ids = tabIds.filter((id): id is string => typeof id === "string" && id !== "");
+			if (ids.length === 0) continue; // host đã closeTabForRun — không phải orphan
+			tabs.push({ runId: record.runId, tabKey, tabIds: ids, kind: record.kind, manifestPath: record.manifestPath });
+		}
+	}
+	return tabs;
+}
+
+/** TERMINAL-run manifests gần nhất (mới nhất trước) — đọc MỘT lần cho cả pane + tab orphans. */
+function readRecentRunManifests(cwd: string, limit: number): TerminalRunManifestRecord[] {
 	const runsRoot = path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
 	let recentRunIds: string[];
 	try {
@@ -589,25 +660,21 @@ function collectTerminalRunOrphanPanes(cwd: string, limit: number): OrphanSurfac
 	} catch {
 		return [];
 	}
-	const orphans: OrphanSurfacePane[] = [];
+	const records: TerminalRunManifestRecord[] = [];
 	for (const runId of recentRunIds) {
+		const manifestPath = path.join(runsRoot, runId, "manifest.json");
 		let manifest: Record<string, unknown>;
 		try {
-			manifest = JSON.parse(fs.readFileSync(path.join(runsRoot, runId, "manifest.json"), "utf-8"));
+			manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
 		} catch {
 			continue; // unreadable/absent manifest — nothing this run can tell us
 		}
 		if (typeof manifest.status !== "string" || !TEAM_TERMINAL_RUN_STATUSES.has(manifest.status as never)) continue;
-		const surface = manifest.surface as { provider?: unknown; panes?: unknown } | undefined;
-		const kind = surface?.provider;
+		const kind = (manifest.surface as { provider?: unknown } | undefined)?.provider;
 		if (kind !== "tmux" && kind !== "herdr") continue;
-		if (!surface?.panes || typeof surface.panes !== "object") continue;
-		for (const [taskId, paneId] of Object.entries(surface.panes as Record<string, unknown>)) {
-			if (typeof paneId !== "string" || paneId === "") continue;
-			orphans.push({ paneId, kind, source: `run ${runId} task ${taskId} (terminal)` });
-		}
+		records.push({ runId, manifestPath, manifest, kind });
 	}
-	return orphans;
+	return records;
 }
 
 /**
@@ -642,17 +709,22 @@ export async function cleanupOrphanSurfacePanes(input: {
 		orphans.push({ paneId: zombie.surfacePaneId, kind: zombie.surface, source: `zombie-scan pid ${zombie.pid}` });
 	}
 	const runScanLimit = deps.runScanLimit ?? ORPHAN_RUN_SCAN_LIMIT;
-	if (runScanLimit > 0) {
-		for (const orphan of collectTerminalRunOrphanPanes(input.cwd, runScanLimit)) {
+	// Tab-layout Task 6: terminal runs còn surface.tabs entry non-empty. Đây
+	// chỉ là ứng viên — KHÔNG đóng mù theo "tabs non-empty" (manifest giữ
+	// tabIds sau run end by-design); liveness + close-by-ID từng tabId qua mux.
+	const terminalRunManifests = runScanLimit > 0 ? readRecentRunManifests(input.cwd, runScanLimit) : [];
+	if (terminalRunManifests.length > 0) {
+		for (const orphan of collectTerminalRunOrphanPanes(terminalRunManifests)) {
 			if (seen.has(orphan.paneId)) continue;
 			seen.add(orphan.paneId);
 			orphans.push(orphan);
 		}
 	}
+	const orphanTabs = collectTerminalRunOrphanTabs(terminalRunManifests);
 
 	const providerNotes: string[] = [];
 	const providers = new Map<"tmux" | "herdr", SurfaceProvider>();
-	for (const kind of [...new Set(orphans.map((orphan) => orphan.kind))]) {
+	for (const kind of [...new Set([...orphans.map((orphan) => orphan.kind), ...orphanTabs.map((tab) => tab.kind)])]) {
 		const provider = deps.providers?.[kind] ?? surfaceProviderForCleanup(kind);
 		if (!provider) {
 			providerNotes.push(`${kind}: provider unavailable — panes listed only`);
@@ -699,7 +771,55 @@ export async function cleanupOrphanSurfacePanes(input: {
 		}
 	}
 
-	return { orphans, closed, gone, failures, scriptsSwept, providerNotes };
+	// Tab-layout Task 6: đóng tab orphan theo tabId TRỰC TIẾP. Doctor chạy ở
+	// process khác host đã spawn nên map nội bộ tabKey của provider.closeTab
+	// TRỐNG ở đây — bắt buộc đường closeTabById theo id trên manifest. Entry
+	// manifest chỉ được clear (giữ key rỗng, cùng shape closeTabForRun) khi
+	// MỌI tabId đã được mux xác nhận (closed/gone); còn failure thì giữ
+	// nguyên để lần doctor sau thử lại (close-by-ID idempotent nên an toàn).
+	const tabsClosed: string[] = [];
+	const tabsGone: string[] = [];
+	const tabFailures: { tabId: string; error: string }[] = [];
+	const tabCloseUnsupported = new Set<string>();
+	for (const orphan of orphanTabs) {
+		const provider = providers.get(orphan.kind);
+		if (!provider) continue; // list-only — note already recorded per kind
+		if (typeof provider.closeTabById !== "function") {
+			if (!tabCloseUnsupported.has(orphan.kind)) {
+				tabCloseUnsupported.add(orphan.kind);
+				providerNotes.push(`${orphan.kind}: closeTabById unavailable — run tabs listed only`);
+			}
+			continue;
+		}
+		let allResolved = true;
+		for (const tabId of orphan.tabIds) {
+			try {
+				const outcome = await provider.closeTabById(tabId);
+				if (outcome === "gone") tabsGone.push(tabId);
+				else tabsClosed.push(tabId);
+			} catch (error) {
+				allResolved = false;
+				tabFailures.push({ tabId, error: error instanceof Error ? error.message : String(error) });
+			}
+		}
+		if (!allResolved) continue; // giữ nguyên entry manifest — evidence cho lần thử sau
+		try {
+			const manifest = JSON.parse(fs.readFileSync(orphan.manifestPath, "utf-8")) as {
+				surface?: { tabs?: Record<string, unknown> };
+			};
+			if (Array.isArray(manifest.surface?.tabs?.[orphan.tabKey])) {
+				manifest.surface.tabs[orphan.tabKey] = [];
+				atomicWriteJson(orphan.manifestPath, manifest);
+			}
+		} catch (error) {
+			tabFailures.push({
+				tabId: orphan.tabIds[0] ?? orphan.tabKey,
+				error: `manifest persist failed: ${error instanceof Error ? error.message : String(error)}`,
+			});
+		}
+	}
+
+	return { orphans, closed, gone, failures, orphanTabs, tabsClosed, tabsGone, tabFailures, scriptsSwept, providerNotes };
 }
 
 export function formatOrphanPaneReport(cleanup: DoctorSurfaceCleanupResult): string {
@@ -720,6 +840,19 @@ export function formatOrphanPaneReport(cleanup: DoctorSurfaceCleanupResult): str
 	if (cleanup.failures.length > 0) {
 		lines.push(`Close failures (${cleanup.failures.length}):`);
 		for (const failure of cleanup.failures) lines.push(`  - ${failure.paneId}: ${failure.error}`);
+	}
+	if (cleanup.orphanTabs.length > 0) {
+		lines.push("");
+		lines.push(`Orphan run tabs (${cleanup.orphanTabs.length}) — terminal runs whose surface.tabs still carry tab ids:`);
+		for (const tab of cleanup.orphanTabs) {
+			lines.push(`  - ${tab.kind} tab ${tab.tabIds.join(", ")} — run ${tab.runId} tabKey ${tab.tabKey} (terminal)`);
+		}
+	}
+	if (cleanup.tabsClosed.length > 0) lines.push(`Tabs closed by id: ${cleanup.tabsClosed.join(", ")}`);
+	if (cleanup.tabsGone.length > 0) lines.push(`Tabs already gone (mux no longer tracks them): ${cleanup.tabsGone.join(", ")}`);
+	if (cleanup.tabFailures.length > 0) {
+		lines.push(`Tab close failures (${cleanup.tabFailures.length}):`);
+		for (const failure of cleanup.tabFailures) lines.push(`  - ${failure.tabId}: ${failure.error}`);
 	}
 	for (const note of cleanup.providerNotes) lines.push(`Note: ${note}`);
 	lines.push(`Orphan launch scripts swept: ${cleanup.scriptsSwept}`);
@@ -749,6 +882,10 @@ export async function handleDoctor(ctx: TeamContext, params: TeamToolParamsValue
 					panesClosed: cleanup.closed.length,
 					panesGone: cleanup.gone.length,
 					paneCloseFailures: cleanup.failures.length,
+					orphanTabs: cleanup.orphanTabs.length,
+					tabsClosed: cleanup.tabsClosed.length,
+					tabsGone: cleanup.tabsGone.length,
+					tabCloseFailures: cleanup.tabFailures.length,
 					scriptsSwept: cleanup.scriptsSwept,
 				},
 			},

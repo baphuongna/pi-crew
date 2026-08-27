@@ -370,5 +370,31 @@ export function createTmuxProvider(deps: TmuxProviderDeps = {}): SurfaceProvider
 				}
 			}
 		},
+
+		/**
+		 * Task 6 (doctor cleanup-by-id): đóng MỘT window theo id đọc từ
+		 * manifest.surface.tabs — doctor chạy ở process khác host đã spawn nên
+		 * tabWindows ở đó trống (closeTab no-op). Liveness check TRƯỚC khi
+		 * đóng (pattern pane-orphan của doctor): list-windows toàn server, dễ
+		 * thấy window → gone, không kill-window mù; window mất giữa lúc check
+		 * và kill → throw được nuốt thành gone (idempotent).
+		 */
+		async closeTabById(tabId: string): Promise<"closed" | "gone"> {
+			let windows: string[];
+			try {
+				windows = tmux(["list-windows", "-a", "-F", "#{window_id}"]).trim().split("\n");
+			} catch (error) {
+				throw new Error(
+					`tmux list-windows failed before closing tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+			if (!windows.includes(tabId)) return "gone";
+			try {
+				tmux(["kill-window", "-t", tabId]);
+			} catch {
+				return "gone"; // window mất giữa chừng — mục tiêu đạt rồi
+			}
+			return "closed";
+		},
 	};
 }

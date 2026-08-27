@@ -110,5 +110,16 @@ export interface SurfaceProvider {
 	 */
 	closeTab?(tabKey: string): Promise<void>;
 
+	/**
+	 * Doctor cleanup-by-id (tab-layout Task 6): đóng MỘT tab/window theo id
+	 * đã ghi trong manifest `surface.tabs` — KHÔNG qua map nội bộ tabKey của
+	 * {@link closeTab}, vì doctor chạy ở TIẾN TRÌNH KHÁC host đã spawn (map
+	 * trống ở đó → closeTab luôn no-op). Liveness lấy từ chính mux: trả
+	 * `"gone"` khi mux không còn biết tab (đã tự chết — không có gì để đóng),
+	 * `"closed"` khi doctor đã đóng; throw cho lỗi thật (doctor ghi failure).
+	 * Idempotent; optional để fake provider cũ trong test vẫn compile.
+	 */
+	closeTabById?(tabId: string): Promise<"closed" | "gone">;
+
 	/** rebalance(): void — A2 defer (not implemented in A1) */
 }

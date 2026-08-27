@@ -524,5 +524,23 @@ export function createHerdrProvider(deps: HerdrProviderDeps = {}): SurfaceProvid
 			}
 			if (firstError !== null) throw firstError;
 		},
+
+		/**
+		 * Task 6 (doctor cleanup-by-id): đóng MỘT tab theo id đọc từ
+		 * manifest.surface.tabs — doctor chạy ở process khác host đã spawn nên
+		 * tabMap ở đó trống (closeTab no-op). Wire 0.8.2 không có lệnh đọc tab
+		 * đã verify (tab.get chưa probe) nên liveness lấy từ CHÍNH tab.close:
+		 * `tab_not_found` = server xác nhận tab đã mất → "gone", thành công →
+		 * "closed" — idempotent như closeTab ở trên, lỗi thật vẫn ném về doctor.
+		 */
+		async closeTabById(tabId: string): Promise<"closed" | "gone"> {
+			try {
+				await call("tab.close", { tab_id: tabId });
+				return "closed";
+			} catch (err) {
+				if ((err as Error).message.includes("tab_not_found")) return "gone";
+				throw err;
+			}
+		},
 	};
 }

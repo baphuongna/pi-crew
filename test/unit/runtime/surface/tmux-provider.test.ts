@@ -314,6 +314,42 @@ test("Task 5 tab-layout: closeTab khi window đã tự đóng (pane cuối exit)
 	await closeTab("runG"); // không throw — window mất tự nhiên là idempotent
 });
 
+test("Task 6 doctor: closeTabById — liveness list-windows trước, window sống → kill-window 'closed', đã mất → 'gone' không gọi kill", async () => {
+	const calls: string[][] = [];
+	let killWindowThrows = false;
+	const provider = createTmuxProvider({
+		env: { TMUX: "/tmp/tmux,test,0", TMUX_PANE: "%0" },
+		tmux: (args) => {
+			calls.push(args);
+			if (args[0] === "list-windows") return "@1\n@5\n";
+			if (args[0] === "kill-window" && killWindowThrows) throw new Error("can't find window");
+			return "";
+		},
+	});
+	const closeTabById = provider.closeTabById;
+	assert.ok(closeTabById, "provider phải implement closeTabById (doctor cleanup Task 6)");
+
+	// Window còn sống → kill-window theo id.
+	assert.equal(await closeTabById.call(provider, "@5"), "closed");
+	assert.ok(
+		calls.some((a) => a[0] === "kill-window" && a.includes("@5")),
+		"window sống bị đóng trực tiếp theo id",
+	);
+	assert.ok(
+		calls.some((a) => a[0] === "list-windows"),
+		"liveness check qua list-windows TRƯỚC khi kill",
+	);
+
+	// Window không còn trong list-windows → gone, không gọi kill-window mù.
+	calls.length = 0;
+	assert.equal(await closeTabById.call(provider, "@99"), "gone");
+	assert.ok(!calls.some((a) => a[0] === "kill-window"), "window đã mất không phát sinh kill-window");
+
+	// Window mất giữa lúc check và kill → throw được nuốt thành gone (idempotent).
+	killWindowThrows = true;
+	assert.equal(await closeTabById.call(provider, "@5"), "gone");
+});
+
 test("readScreen: capture-pane -p -t id -S -<lines>; default 50", async () => {
 	const h = makeFake();
 	defaultRespond(h);

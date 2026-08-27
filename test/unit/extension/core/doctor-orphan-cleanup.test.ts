@@ -86,6 +86,52 @@ function terminalManifest(panes: Record<string, string>, provider: "tmux" | "her
 	};
 }
 
+/** Terminal manifest với surface.tabs (tab-layout Task 5 shape) — panes rỗng để tách tín hiệu. */
+function tabbedTerminalManifest(tabs: Record<string, string[]>, provider: "tmux" | "herdr" = "tmux"): Record<string, unknown> {
+	return { runId: "run-x", status: "completed", surface: { provider, panes: {}, tabs } };
+}
+
+function readBackTabs(cwd: string, runId: string): Record<string, string[]> {
+	const manifest = JSON.parse(fs.readFileSync(path.join(cwd, ".crew", "state", "runs", runId, "manifest.json"), "utf-8")) as {
+		surface?: { tabs?: Record<string, string[]> };
+	};
+	return manifest.surface?.tabs ?? {};
+}
+
+/**
+ * Provider có closeTabById (Task 6): doctor chạy ở process KHÁC host đã spawn
+ * nên KHÔNG được dùng closeTab(tabKey) (map nội bộ trống ở doctor process) —
+ * test spy đường close-by-ID. Outcome per tabId: "closed" | "gone" | Error.
+ */
+function fakeTabCleanupProvider(
+	kind: "tmux" | "herdr",
+	outcomes: Record<string, "closed" | "gone" | Error>,
+): {
+	provider: SurfaceProvider;
+	closeByIdCalls: string[];
+} {
+	const closeByIdCalls: string[] = [];
+	const provider: SurfaceProvider = {
+		kind,
+		detect: () => ({ ok: true, kind }),
+		createSurface: async () => {
+			throw new Error("doctor cleanup must never create surfaces");
+		},
+		attach: () => null,
+		readScreen: async () => "",
+		closeSurface: async () => {
+			// no-op — panes rỗng trong các fixture tab; không có gì để đóng.
+		},
+		closeTabById: async (tabId: string) => {
+			closeByIdCalls.push(tabId);
+			const outcome = outcomes[tabId] ?? "closed";
+			if (outcome instanceof Error) throw outcome;
+			return outcome;
+		},
+	};
+	return { provider, closeByIdCalls };
+}
+
 test("cleanupOrphanSurfacePanes: closes zombie-scan panes through the matching provider", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-orphan-"));
 	const tmux = fakeSurfaceProvider("tmux");
@@ -244,6 +290,128 @@ test("cleanupOrphanSurfacePanes: orphan launch scripts older than TTL are swept 
 	}
 });
 
+// ── Task 6 (tab-layout): orphan RUN TAB cleanup trên terminal runs ──────────
+//
+// Doctor chạy ở TIẾN TRÌNH KHÁC host đã spawn tab: map nội bộ tabKey của
+// provider (closeTab) sống ở process host nên luôn trống ở doctor → doctor
+// phải đóng theo tabId TRỰC TIẾP lấy từ manifest.surface.tabs. Manifest trên
+// đĩa GIỮ tabIds sau run end (evidence, by-design Task 5) nên "tabs non-empty"
+// KHÔNG tự đồng nghĩa orphan — liveness lấy từ chính mux qua close-by-ID
+// idempotent ("closed" | "gone"), chỉ clear entry khi mux đã xác nhận.
+
+test("Task 6: run terminal có surface.tabs → closeTabById từng tabId (KHÔNG closeTab theo tabKey) + clear entry trên đĩa", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tab-"));
+	const tab = fakeTabCleanupProvider("tmux", {});
+	try {
+		writeRunManifest(cwd, "run-terminal", tabbedTerminalManifest({ team_A: ["w1", "w2"] }));
+		const out = await cleanupOrphanSurfacePanes({
+			cwd,
+			scan: emptyScanWith([]),
+			deps: { providers: { tmux: tab.provider } },
+		});
+		assert.deepEqual(tab.closeByIdCalls, ["w1", "w2"], "doctor đóng theo tabId trực tiếp từ manifest");
+		assert.deepEqual(out.tabsClosed, ["w1", "w2"]);
+		assert.deepEqual(readBackTabs(cwd, "run-terminal").team_A, [], "entry cleared (giữ key rỗng) — cùng shape closeTabForRun");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("Task 6: tab đã chết từ trước (mux trả gone) → reported gone, không failure, entry vẫn cleared", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tab-"));
+	const tab = fakeTabCleanupProvider("herdr", { "w2:t1": "gone" });
+	try {
+		writeRunManifest(cwd, "run-terminal", tabbedTerminalManifest({ team_A: ["w2:t1"] }, "herdr"));
+		const out = await cleanupOrphanSurfacePanes({
+			cwd,
+			scan: emptyScanWith([]),
+			deps: { providers: { herdr: tab.provider } },
+		});
+		assert.deepEqual(out.tabsGone, ["w2:t1"]);
+		assert.deepEqual(out.tabsClosed, []);
+		assert.equal(out.tabFailures.length, 0, "tab mux không còn biết là 'gone', không phải failure");
+		assert.deepEqual(readBackTabs(cwd, "run-terminal").team_A, []);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("Task 6: run KHÔNG terminal (running) giữ nguyên tabs — không close, manifest không đụng", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tab-"));
+	const tab = fakeTabCleanupProvider("tmux", {});
+	try {
+		writeRunManifest(cwd, "run-active", { ...tabbedTerminalManifest({ team_A: ["w1"] }), status: "running" });
+		const out = await cleanupOrphanSurfacePanes({
+			cwd,
+			scan: emptyScanWith([]),
+			deps: { providers: { tmux: tab.provider } },
+		});
+		assert.deepEqual(tab.closeByIdCalls, [], "run đang sống còn sở hữu tab của nó");
+		assert.equal(out.orphanTabs.length, 0);
+		assert.deepEqual(readBackTabs(cwd, "run-active").team_A, ["w1"]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("Task 6: closeTabById throw → tabFailures, entry manifest KHÔNG clear (thử lại lần doctor sau)", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tab-"));
+	const tab = fakeTabCleanupProvider("tmux", { w1: new Error("mux refused") });
+	try {
+		writeRunManifest(cwd, "run-terminal", tabbedTerminalManifest({ team_A: ["w1", "w2"] }));
+		const out = await cleanupOrphanSurfacePanes({
+			cwd,
+			scan: emptyScanWith([]),
+			deps: { providers: { tmux: tab.provider } },
+		});
+		assert.deepEqual(tab.closeByIdCalls, ["w1", "w2"], "lỗi một tab không abort các tab còn lại");
+		assert.equal(out.tabFailures.length, 1);
+		assert.equal(out.tabFailures[0]?.tabId, "w1");
+		assert.match(out.tabFailures[0]?.error ?? "", /mux refused/);
+		assert.deepEqual(readBackTabs(cwd, "run-terminal").team_A, ["w1", "w2"], "entry giữ nguyên làm evidence khi chưa dọn xong");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("Task 6: provider thiếu closeTabById → tab listed với note, không clear manifest, không crash", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tab-"));
+	const legacy = fakeSurfaceProvider("tmux"); // không có closeTabById — provider cũ
+	try {
+		writeRunManifest(cwd, "run-terminal", tabbedTerminalManifest({ team_A: ["w1"] }));
+		const out = await cleanupOrphanSurfacePanes({
+			cwd,
+			scan: emptyScanWith([]),
+			deps: { providers: { tmux: legacy.provider } },
+		});
+		assert.equal(out.orphanTabs.length, 1, "orphan tab vẫn được liệt kê cho human");
+		assert.ok(
+			out.providerNotes.some((note) => note.includes("closeTabById")),
+			"note giải thích tại sao tab chỉ được liệt kê",
+		);
+		assert.deepEqual(readBackTabs(cwd, "run-terminal").team_A, ["w1"]);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("Task 6: entry tabs rỗng (host đã closeTabForRun) không phải orphan — không gọi closeTabById", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tab-"));
+	const tab = fakeTabCleanupProvider("tmux", {});
+	try {
+		writeRunManifest(cwd, "run-terminal", tabbedTerminalManifest({ team_A: [] }));
+		const out = await cleanupOrphanSurfacePanes({
+			cwd,
+			scan: emptyScanWith([]),
+			deps: { providers: { tmux: tab.provider } },
+		});
+		assert.deepEqual(tab.closeByIdCalls, []);
+		assert.equal(out.orphanTabs.length, 0);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
 test("formatOrphanPaneReport: renders pane ids, providers, and close outcomes", () => {
 	const text = formatOrphanPaneReport({
 		orphans: [
@@ -253,6 +421,10 @@ test("formatOrphanPaneReport: renders pane ids, providers, and close outcomes", 
 		closed: ["%12"],
 		gone: [],
 		failures: [{ paneId: "%5", error: "mux refused" }],
+		orphanTabs: [{ runId: "run-terminal", tabKey: "team_A", tabIds: ["w1"], kind: "tmux", manifestPath: "/tmp/m.json" }],
+		tabsClosed: ["w1"],
+		tabsGone: [],
+		tabFailures: [],
 		scriptsSwept: 2,
 		providerNotes: [],
 	});
@@ -260,4 +432,6 @@ test("formatOrphanPaneReport: renders pane ids, providers, and close outcomes", 
 	assert.match(text, /%5/);
 	assert.match(text, /zombie-scan pid 100/);
 	assert.match(text, /mux refused/);
+	assert.match(text, /run run-terminal tabKey team_A/);
+	assert.match(text, /Tabs closed by id: w1/);
 });
