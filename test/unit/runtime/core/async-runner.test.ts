@@ -11,12 +11,35 @@ import {
 	resolveTypeScriptLoader,
 } from "../../../../src/runtime/async-runner.ts";
 
-// ── MuxSurface A1 (spec §3): async runs force headless ───────────────────
+// ── MuxSurface async surface policy (2026-08-30): async KHÔNG force headless ──
+// PI_CREW_ASYNC_RUN chỉ là telemetry — surface theo env + runtime.surface.*
+// config. Vì vậy background runner phải NHẬN mux env để resolveSurface detect
+// được tmux/herdr của host (battery 2026-08-30 Finding 2: async luôn no-mux).
 
-test("buildBackgroundRunnerEnv stamps PI_CREW_ASYNC_RUN=1 so the whole tree stays headless", () => {
+test("buildBackgroundRunnerEnv stamps PI_CREW_ASYNC_RUN=1 (telemetry only, not a gate)", () => {
 	const env = buildBackgroundRunnerEnv({ PATH: "/usr/bin:/bin", HOME: "/home/u" });
-	assert.equal(env.PI_CREW_ASYNC_RUN, "1", "resolveSurface đọc flag này từ detection env — background runner phải gắn nó");
+	assert.equal(env.PI_CREW_ASYNC_RUN, "1", "telemetry marker — resolveSurface KHÔNG dùng flag này làm gate");
 	assert.equal(env.PATH, "/usr/bin:/bin", "env gốc phải được giữ nguyên");
+});
+
+test("background-runner allowlist forwards mux env so async runs can engage surface", () => {
+	// Mọi env var mà src/runtime/surface/* đọc để detect/kết nối multiplexer.
+	// Thiếu một var → detached runner thấy no-mux → gate no-mux → headless
+	// vĩnh viễn cho async (Finding 2, real-test 2026-08-30-post-tab-layout-live).
+	const MUX_ENV_KEYS = [
+		"TMUX", // tmux detect + socket path (provider + resolve-surface)
+		"TMUX_PANE", // pane cha cho legacy path không tabKey
+		"TMUX_TMPDIR", // tmux CLI resolve default socket dir
+		"HERDR_ENV", // herdr in-pane marker (resolve-surface)
+		"HERDR_SESSION",
+		"HERDR_PANE_ID", // pane cha (herdr-provider ưu tiên env này)
+		"HERDR_SOCKET_PATH", // herdr socket (provider connect)
+		"HERDR_WORKSPACE_ID", // tab.create workspace scope
+		"HERDR_PING_TIMEOUT_MS", // provider tuning
+	];
+	for (const key of MUX_ENV_KEYS) {
+		assert.ok(BACKGROUND_RUNNER_ENV_ALLOWLIST.includes(key), `allowlist phải giữ ${key} để async surface detect được mux`);
+	}
 });
 
 test("background runner uses the jiti runtime loader for installed TypeScript", () => {

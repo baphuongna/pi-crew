@@ -226,13 +226,29 @@ export const BACKGROUND_RUNNER_ENV_ALLOWLIST: string[] = [
 	// Phase 1.5 #3: V8 diagnostic report on fatal error (RFC 17 — investigation).
 	"PI_CREW_BG_REPORT_ON_FATAL",
 	"PI_TEAMS_BG_REPORT_ON_FATAL",
+	// MuxSurface: multiplexer env the detached runner needs to DETECT and
+	// REACH the host's tmux/herdr — surface follows env + config for async runs
+	// too (2026-08-30 Finding 2: without these, every async run gates to no-mux
+	// and stays headless). None of these are secret-named (sanitizeEnvSecrets
+	// would reject them from the allowlist otherwise).
+	"TMUX",
+	"TMUX_PANE",
+	"TMUX_TMPDIR",
+	"HERDR_ENV",
+	"HERDR_SESSION",
+	"HERDR_PANE_ID",
+	"HERDR_SOCKET_PATH",
+	"HERDR_WORKSPACE_ID",
+	"HERDR_PING_TIMEOUT_MS",
 ];
 
 /**
- * Stamp the headless gate onto the background runner's env (MuxSurface A1,
- * spec §3): a detached run has no interactive multiplexer session to inherit
- * panes from, so `resolveSurface` must return null for every worker this
- * process (and its descendants, via OS env inheritance) ever spawns.
+ * Stamp the async telemetry marker onto the background runner's env.
+ * (MuxSurface async policy, 2026-08-30): `PI_CREW_ASYNC_RUN` is NOT a surface
+ * gate — surface follows env + `runtime.surface.*` config, same as sync runs.
+ * The marker stays for telemetry (`SurfaceGateEnvSnapshot.asyncRun`). Pane
+ * attach from a detached process is safe: parent-guard (PI_CREW_PARENT_PID)
+ * still reaps panes when the host dies.
  *
  * Exported for the unit test asserting the invariant.
  */
