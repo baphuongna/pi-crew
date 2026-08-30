@@ -156,7 +156,13 @@ function parseProfile(value: unknown): PiTeamsAutonomyProfile | undefined {
 
 function parseStringList(value: unknown): string[] | undefined {
 	const items = parseWithSchema(Type.Array(Type.String()), value);
-	if (!items || items.length === 0) return undefined;
+	if (!items) return undefined;
+	// F3 (real-test 2026-08-30-post-tab-layout-live, Finding 3): an explicit
+	// empty array is a VALUE ("nobody"/"none"), not "unset" — dropping it here
+	// made `team-settings set <key> []` a no-op that silently kept the previous
+	// list on disk. Whitespace-only entries below still collapse to undefined
+	// (unchanged legacy behavior).
+	if (items.length === 0) return [];
 	const normalized = items.map((entry) => entry.trim()).filter((entry) => entry.length > 0);
 	return normalized.length > 0 ? normalized : undefined;
 }

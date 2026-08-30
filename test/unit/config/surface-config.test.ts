@@ -148,3 +148,28 @@ test("team-settings get: runtime.surface.mode shows the configured value when se
 		assert.ok(text.includes("tmux"), `configured mode must surface via get, got: ${text}`);
 	});
 });
+
+// ─── F3 (real-test 2026-08-30-post-tab-layout-live, Finding 3) ────────────────
+// `set <array-key> []` là GIÁ TRỊ tường minh ("không ai visible"), không phải
+// unset — parseStringList đã normalize [] → undefined khiến patch mất key và
+// merge giữ giá trị cũ (set [] thành no-op trên đĩa).
+
+test("parseConfig: visibleAgents [] là giá trị tường minh, không bị drop thành undefined", () => {
+	const parsed = parseConfig({ runtime: { surface: { visibleAgents: [] } } });
+	assert.deepEqual(parsed.runtime?.surface?.visibleAgents, [], "[] phải sống sót qua parseConfig để set [] override được giá trị cũ");
+});
+
+test("team-settings set: set runtime.surface.visibleAgents [] override giá trị ['*'] trên đĩa", () => {
+	withTempHome({ runtime: { surface: { visibleAgents: ["*"] } } }, (_home, _cwd) => {
+		const setText = settingsText("set runtime.surface.visibleAgents []");
+		assert.ok(!setText.includes('["*"]'), `set [] không được còn lại effective ["*"], got: ${setText}`);
+
+		const getText = settingsText("get runtime.surface.visibleAgents");
+		assert.ok(!getText.includes('["*"]'), `get sau set [] phải trả [] (hoặc default), KHÔNG còn ["*"], got: ${getText}`);
+
+		// Đĩa cũng phải phản ánh [] (giá trị explicit), không giữ ["*"]
+		const loaded = loadConfig(process.cwd());
+		const onDisk = (loaded.config as { runtime?: { surface?: { visibleAgents?: string[] } } }).runtime?.surface?.visibleAgents;
+		assert.deepEqual(onDisk, [], `config trên đĩa phải là [] sau set [], got: ${JSON.stringify(onDisk)}`);
+	});
+});
