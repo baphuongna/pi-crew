@@ -189,12 +189,34 @@ function spyFsForRoots(roots: string[]): FsSpy {
 	const fsDefault = nodeRequire("node:fs") as {
 		statSync: (...args: unknown[]) => unknown;
 		readdirSync: (...args: unknown[]) => unknown;
+		realpathSync: { native(p: string): string };
 	};
 	const nodeModule = nodeRequire("node:module") as { syncBuiltinESMExports(): void };
 	const originalStat = fsDefault.statSync;
 	const originalReaddir = fsDefault.readdirSync;
 	const state = { manifestStats: 0, rootReaddirs: 0 };
-	const underRoots = (p: string) => roots.some((root) => p === root || p.startsWith(`${root}${path.sep}`));
+	// macOS: os.tmpdir() is /var/folders/… but realpath (and the cache, which
+	// canonicalizes via realpathSync.native — same helper it uses for run-root
+	// identity, manifest-cache.ts:91) resolves to /private/var/folders/….
+	// A spy matching only the raw tmpdir prefix sees ZERO stats on macOS CI
+	// and the liveness assertion fires ("warm scan must stat each manifest
+	// got 0" — run 33462332100). Match BOTH spellings of each root.
+	// Roots may not exist yet when the spy is installed (runs dir is created
+	// lazily by the first createRunManifest) — realpath the EXISTING ancestor
+	// (.crew always exists — makeTempProject mkdirs it) and re-join the missing
+	// tail, giving the canonical spelling the cache will use once the dir
+	// appears. Falls back to the raw root when even the parent is missing.
+	const realRoots = roots.map((r) => {
+		const parent = path.dirname(r);
+		const tail = path.basename(r);
+		try {
+			return path.join(fsDefault.realpathSync.native(parent), tail);
+		} catch {
+			return r;
+		}
+	});
+	const allRoots = [...new Set([...roots, ...realRoots])];
+	const underRoots = (p: string) => allRoots.some((root) => p === root || p.startsWith(`${root}${path.sep}`));
 	fsDefault.statSync = (...args: unknown[]) => {
 		const target = args[0];
 		if (typeof target === "string" && target.endsWith("manifest.json") && underRoots(target)) state.manifestStats++;
@@ -202,7 +224,7 @@ function spyFsForRoots(roots: string[]): FsSpy {
 	};
 	fsDefault.readdirSync = (...args: unknown[]) => {
 		const target = args[0];
-		if (typeof target === "string" && roots.includes(target)) state.rootReaddirs++;
+		if (typeof target === "string" && allRoots.includes(target)) state.rootReaddirs++;
 		return originalReaddir(...args);
 	};
 	nodeModule.syncBuiltinESMExports();

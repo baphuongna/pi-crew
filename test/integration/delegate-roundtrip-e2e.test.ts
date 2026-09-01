@@ -26,11 +26,17 @@ import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { createDelegateTool, type DelegateToolDefinition } from "../../src/prompt/prompt-runtime.ts";
 import { CrewBroker } from "../../src/runtime/broker/crew-broker.ts";
 import type { GrandchildSpawnInput, GrandchildSpawnResult } from "../../src/runtime/delegate-spawn.ts";
-import { loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
+import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../src/state/stores/state-store.ts";
 
 function tempSocketPath(suffix: string): string {
 	const tok = randomBytes(3).toString("hex");
-	return path.join(os.tmpdir(), `e2e-dlg-${tok}-${suffix}.sock`);
+	// Windows: unix-domain socket paths (…\.sock) fail listen EACCES on the
+	// CI runner — the broker supports named pipes there (same idiom as
+	// crew-broker-msg.test.ts:63-67). Caught by CI run 33462332100 after the
+	// lint gate stopped failing early and the Test step finally ran on Windows.
+	return process.platform === "win32"
+		? `\\\\.\\pipe\\pi-crew-e2e-dlg-${tok}-${suffix}`
+		: path.join(os.tmpdir(), `e2e-dlg-${tok}-${suffix}.sock`);
 }
 
 test("E2E roundtrip: delegate tool poll completes over the real broker + mailbox", async () => {
@@ -49,6 +55,12 @@ test("E2E roundtrip: delegate tool poll completes over the real broker + mailbox
 	);
 	const runId = run.details.runId!;
 	const loaded = loadRunManifestById(cwd, runId)!;
+	// Scaffold runs end "completed", but the broker rejects worker tokens for
+	// terminal runs (STALE_RUN_STATUSES — late-worker protection). A real
+	// delegate roundtrip happens while the RUN is still active: flip the
+	// manifest to running before issuing the token, like a live worker.
+	loaded.manifest.status = "running";
+	saveRunManifest(loaded.manifest);
 	const parent = loaded.tasks.find((t) => t.role === "executor") ?? loaded.tasks[0];
 	const now = new Date().toISOString();
 	saveRunTasks(
@@ -123,6 +135,10 @@ test("E2E roundtrip negated: poll with NO grandchild delivery times out (binding
 	);
 	const runId = run.details.runId!;
 	const loaded = loadRunManifestById(cwd, runId)!;
+	// Same as above: keep the RUN active or the broker rejects the token
+	// (stale-token) before the negated-poll timeout path can be exercised.
+	loaded.manifest.status = "running";
+	saveRunManifest(loaded.manifest);
 	const parent = loaded.tasks[0];
 	const now = new Date().toISOString();
 	saveRunTasks(

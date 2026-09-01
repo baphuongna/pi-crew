@@ -34,6 +34,7 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Readable } from "node:stream";
 
 import { closeWatcher, watchWithErrorHandler } from "../utils/fs-watch.ts";
@@ -158,7 +159,24 @@ export class EventLogTailSource implements WorkerEventSource {
 			// file missing tăng dần nhịp + không log lặp.
 			this.scheduleBootstrap();
 		};
-		created = watchWithErrorHandler(this.eventsPath, () => this.readFromOffset(), onError);
+		// macOS (CI 33462332100): fs.watch trên CHÍNH file miss appends — FSEvents
+		// gộp/im lặng với write cùng-từ-process-khác, test "2 event qua 2 append"
+		// timeout 4s trên macOS dù xanh Linux. Watch DIRECTORY chứa file thay thế:
+		// dir change events fire đáng tin trên cả FSEvents (macOS), inotify
+		// (Linux), ReadDirectoryChangesW (Windows). Lọc theo filename rồi đọc
+		// incremental — size === offset → no-op nên event khác file vô hại.
+		// Dir chưa tồn tại (surface mkdir lười) vẫn ENOENT → bootstrap poll giữ
+		// nguyên đường cũ.
+		const dir = path.dirname(this.eventsPath);
+		const base = path.basename(this.eventsPath);
+		created = watchWithErrorHandler(
+			dir,
+			(_eventType, filename) => {
+				if (typeof filename === "string" && path.basename(filename) !== base) return;
+				this.readFromOffset();
+			},
+			onError,
+		);
 		if (created) {
 			this.watcher = created;
 			this.bootstrapAttempts = 0; // gắn được → reset backoff/log-once
