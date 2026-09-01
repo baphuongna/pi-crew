@@ -2,7 +2,73 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
-## [Unreleased] — perf: round 3 retrieval single-pass (retrieval 7.1s → 2.0s cold / 0.28s warm per task)
+## [0.10.3] — MuxSurface: workers in real panes + per-team-run tabs (2026-09-01)
+
+128 commits since v0.10.2. The headline feature is **MuxSurface A1** (spec
+`docs/superpowers/specs/2026-08-26-mux-surface-design.md` v0.7.1, ADR
+`docs/decisions/2026-08-26-mux-surface-a1.md`): crew workers can now live in
+REAL multiplexer panes instead of headless stdio pipes.
+
+### MuxSurface A1 — pane-backed workers
+
+- **SurfaceProvider abstraction** (`src/runtime/surface/`) with twin backends:
+  tmux (libtmux-style CLI) and herdr (socket API, newline-JSON). Fail-closed
+  by design: every failure (no mux, forced-mode detect fail, depth, cap, role)
+  degrades to the headless path and the run still completes — pane engagement
+  is proven by events (`worker.surface_spawned`/`worker.surface_closed`),
+  never by the run's green status alone.
+- **Surface gating follows env + config, not run-mode**: `runtime.surface.mode`
+  (auto/tmux/herdr/off) + `runtime.surface.visibleAgents` opt-in (default
+  `[]` = nobody). Async runs engage panes exactly like sync runs — the detached
+  background runner forwards mux env (TMUX/HERDR_*) so `no-mux` detection sees
+  the host's multiplexer (fix `f0a41a16`, verified live: 3/3 workers in panes
+  on an async run, tab closed at run end).
+- **Per-team-run tabs (tab-layout, spec 2026-08-27)**: every TEAM RUN gets its
+  own tab/window (tmux `new-window -d` / herdr `tab.create`), max 8 worker
+  panes per tab before a new tab opens, alternating down/right splits, and the
+  tab closes ONLY when the run ends/cancels/is killed — workers finishing do
+  not close panes. Doctor closes orphan tabs by id + mux liveness.
+- **herdr pane-parent fix**: spawns target the caller's pane via
+  `HERDR_PANE_ID` (never the focused pane — `pane.current` without
+  `caller_pane_id` follows focus, verified live on herdr 0.8.2).
+- **Worker-side recorder + host tail**: surface workers write per-agent
+  `events.jsonl` (same shape as the host); the host tails it via
+  `EventLogTailSource` (incremental byte-offset reads, drain-before-close for
+  fast-closing panes, ENOENT backoff + log-once, and a steady-poll safety net
+  for FSEvents append coalescing on macOS).
+- **D5 full-loadout**: workers are FULL pi sessions by default — no
+  `--no-extensions`, no tool allowlists; restrictions are per-agent opt-in via
+  frontmatter. **D8 nesting**: every role gets the `delegate` tool
+  (`nesting.maxDepth: 4`, kill switch in user config only). **D9 `message`**
+  tool: non-blocking notify/DM/group via broker with anti-spoof `from`
+  override.
+- **ask gate flip**: `broker.waitMethodsEnabled` now defaults `true` — the
+  worker→parent blocking question path works out of the box (it had silently
+  slept behind the old default-off gate).
+- **Broker token revocation**: stale-token + secret-based checks; terminal
+  runs (completed/failed/cancelled) reject worker tokens by definition
+  (late-worker protection).
+
+### Verification for this release
+
+- E2E real-mux suites: tmux 4/4 + herdr 5/5 (spawn/self-close,
+  kill-pane→degrade→headless resume, doctor orphan cleanup, tab per-run,
+  closeTabById fallback).
+- Two full real-test batteries from live pi sessions
+  (`docs/real-test/reports/real-test-2026-08-30-post-tab-layout-live.md`,
+  `real-test-2026-08-31-post-fixes-live.md`): tab-layout verified with live
+  tmux polls (window per run, sequential worker panes, tab closed at run end),
+  async surface engagement verified post-fix, `set <array-key> []` config
+  round-trip fixed.
+- CI all-green on ubuntu + macOS + Windows (first time since 2026-08-24);
+  lint/format drift and 5 layers of hidden cross-OS test failures cleared.
+
+### Perf rounds also shipping in 0.10.3
+
+Retained verbatim below: round-3 retrieval single-pass, round-2 fsync cleanup
++ polling latency, and the 2026-08-24 performance-review fixes.
+
+### [0.10.3] perf: round 3 retrieval single-pass (retrieval 7.1s → 2.0s cold / 0.28s warm per task)
 
 Root cause (measured on real run `team_20260826002634`, 2026-08-26 real test):
 `runRetrievalCycle` spent up to ~7s CPU per task — 3 unconditional cycles (the
@@ -38,7 +104,7 @@ context above; a regression back to 3-cycle behavior stays under its budget
 at that scale. Full follow-up note: `docs/real-test/reports/perf-round3-probe.md`.
 Every number above was measured, not estimated.
 
-## [Unreleased] — perf round 2 (2026-08-25): fsync cleanup + polling latency
+### [0.10.3] perf round 2 (2026-08-25): fsync cleanup + polling latency
 
 13 commits after the 2026-08-24 round (45 after `v0.10.2`) (27 files, +3,094/−105, excluding the plan doc and this changelog). Continuation of the 2026-08-24 performance review work, focused on durability escalations and polling latency. Implementation plan: `.superpowers/sdd/2026-08-25-perf-round2-fsync-and-polling/`. Validation evidence: task reports T1-T8 + `bench/b12-fsync-counts.bench.ts`.
 
@@ -103,7 +169,7 @@ Coalesced drain A/B (4 files, one dir, heavily loaded machine — indicative): m
 | `npm run test:unit` | 7153 pass / 0 fail / 3 skipped (7156 total) (includes new T1/T2/T3/T4/T5/T6/T8 test suites) |
 | `npm run bench` | legacy suite green; b5/b11 NDJSON contract repaired; b12 fsync-counts bench added (7 cases, all pass) |
 
-## [Unreleased] — perf: fix 2026-08-24 performance review findings (state persistence syscall ceremony, UI sync I/O storms, mailbox/event-log hot paths, broker fan-out, worktree git-spawn memoization)
+### [0.10.3] perf: fix 2026-08-24 performance review findings (state persistence syscall ceremony, UI sync I/O storms, mailbox/event-log hot paths, broker fan-out, worktree git-spawn memoization)
 
 28 commits after `v0.10.2` (53 files, +4,718/−433). Implements the plan at
 `docs/superpowers/plans/2026-08-24-perf-review-fixes.md`: all Critical (C1–C3) and
