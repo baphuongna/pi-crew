@@ -78,7 +78,7 @@ export function pollWorkerInbox(pickup: WorkerInboxPickup): MailboxMessage[] {
 		// sinceTs watermark (ISO string compare).
 		if (pickup.sinceTs !== undefined && m.createdAt <= pickup.sinceTs) continue;
 		// Cross-call seen-set dedup.
-		if (seen && seen.has(m.id)) continue;
+		if (seen?.has(m.id)) continue;
 		// Within-call id dedup (duplicate file rows → one delivery).
 		if (byId.has(m.id)) continue;
 		byId.add(m.id);

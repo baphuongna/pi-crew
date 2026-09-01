@@ -11,12 +11,11 @@
  */
 
 import assert from "node:assert/strict";
-import test from "node:test";
 import * as fs from "node:fs";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createRequire } from "node:module";
-import { syncBuiltinESMExports } from "node:module";
+import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const fsDefault = require("node:fs") as typeof fs & { __patched?: boolean };
@@ -55,9 +54,7 @@ test("failed coalesced flush re-queues with backoff and retries to success", asy
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-retry-"));
 		t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 		const target = path.join(dir, "state.json");
-		const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import(
-			"../../../src/state/atomic-write.ts"
-		);
+		const { atomicWriteJsonCoalesced, flushPendingAtomicWrites } = await import("../../../src/state/atomic-write.ts");
 		atomicWriteJsonCoalesced(target, { hello: "world" }, 5, { compact: true });
 		// First flush: write throws ENOSPC once. The entry must NOT be
 		// silently dropped — it is re-queued with backoff (no throw while
@@ -75,9 +72,10 @@ test("failed coalesced flush re-queues with backoff and retries to success", asy
 
 test("spy is live (fails loudly when the patch is inert)", async () => {
 	await assert.rejects(
-		() => withWriteFailures(0, () => {
-			// failTimes=0 → live stays false → the wrapper asserts liveness.
-		}) as Promise<void>,
+		() =>
+			withWriteFailures(0, () => {
+				// failTimes=0 → live stays false → the wrapper asserts liveness.
+			}) as Promise<void>,
 		/instrument liveness/,
 	);
 });

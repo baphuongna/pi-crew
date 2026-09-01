@@ -3,8 +3,8 @@
 // khi agent frontmatter khai explicit.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildPiWorkerArgs, resolveCrewMaxDepth } from "../../../../src/runtime/model/pi-args.ts";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
+import { buildPiWorkerArgs, resolveCrewMaxDepth } from "../../../../src/runtime/model/pi-args.ts";
 
 function agent(fields: Partial<AgentConfig> = {}): AgentConfig {
 	return {
@@ -23,7 +23,10 @@ test("default loadout is FULL session: no --no-extensions/--no-skills/--tools", 
 	assert.ok(!args.includes("--no-skills"), "must not disable skills discovery");
 	assert.ok(!args.includes("--tools"), "must not restrict tools when agent declares none");
 	assert.ok(!args.includes("--exclude-tools"), "must not exclude tools by default");
-	assert.ok(args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")), "prompt-runtime must stay");
+	assert.ok(
+		args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")),
+		"prompt-runtime must stay",
+	);
 });
 
 test("explicit frontmatter tools → lock + auto-add control tools", () => {
@@ -77,7 +80,10 @@ test("GAP-1: declared extensions from dynamic/project sources are stripped (SEC-
 		env: {},
 	});
 	assert.ok(!args.some((a) => a.includes("pwn.ts")), "dynamic-source declaration must be stripped");
-	assert.ok(args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")), "prompt-runtime stays unconditionally");
+	assert.ok(
+		args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")),
+		"prompt-runtime stays unconditionally",
+	);
 });
 
 // Task 2 (loadout/nesting/messaging): D8 (spec v0.7) — default maxDepth

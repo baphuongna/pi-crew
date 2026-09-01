@@ -311,7 +311,7 @@ test("race concurrency: 2 createSurface cùng tabKey ĐỒNG THỜI → serializ
 });
 
 test("race concurrency: lần spawn đầu trong chain FAIL → lần sau vẫn chạy (chain không chết)", async () => {
-	// tabInFlight lưu bản .catch(() => {}) — promise settled (kể cả reject)
+	// tabInFlight lưu bản .catch(() => undefined) — promise settled (kể cả reject)
 	// thì .then kế chạy ngay; nếu chain chết, MỌI createSurface sau một fail
 	// cùng tabKey sẽ reject vĩnh viễn.
 	let failFirstSplit = true;
@@ -664,7 +664,7 @@ test("wire framing: provider KHÔNG tự nối \\n — defaultConnect's write() 
 	const h = makeFake();
 	const { provider, handle } = await spawnPane(h);
 	try {
-		handle.onExit(() => {});
+		handle.onExit(() => undefined);
 		const sub = h.subscription();
 		assert.ok(sub, "phải có subscription socket");
 		let frames = 0;
@@ -680,7 +680,7 @@ test("wire framing: provider KHÔNG tự nối \\n — defaultConnect's write() 
 		assert.ok(frames > 0, "phải có ít nhất một frame write");
 	} finally {
 		handle.dispose();
-		provider.closeSurface(handle).catch(() => {});
+		provider.closeSurface(handle).catch(() => undefined);
 	}
 });
 
@@ -702,7 +702,7 @@ test("onExit: event pane_exited (process exit tự nhiên) → 'pane-closed' —
 test("onExit: subscription đăng ký CẢ hai loại pane.closed + pane.exited", async () => {
 	const h = makeFake();
 	const { handle } = await spawnPane(h);
-	handle.onExit(() => {});
+	handle.onExit(() => undefined);
 	const sub = h.subscription();
 	assert.ok(sub, "phải có subscription socket");
 	const subscribeReq = sub.requests.find((req) => req.method === "events.subscribe");

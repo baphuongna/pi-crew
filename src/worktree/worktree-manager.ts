@@ -166,7 +166,7 @@ export function findGitRoot(cwd: string): string {
 
 export function assertCleanLeader(repoRoot: string): void {
 	const cached = syncCleanLeaderCache.get(repoRoot);
-	if (cached && cached.clean && Date.now() < cached.expiresAt) return;
+	if (cached?.clean && Date.now() < cached.expiresAt) return;
 	// H-7 follow-up: --untracked-files=no so pi-crew's own auto-created .gitignore
 	// (and any other untracked files the user hasn't staged) doesn't block worktree mode.
 	// The worktree contract is "no tracked changes" — untracked files are safe since

@@ -35,7 +35,7 @@ function makeHarness(rows = 24): Harness {
 	let doneCalls = 0;
 	const tui = {
 		terminal: { rows, columns: 100 },
-		requestRender: () => {},
+		requestRender: () => undefined,
 	};
 	let overlay: CrewAgentOverlay | undefined;
 	const ctx = {

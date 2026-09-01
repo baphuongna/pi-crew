@@ -38,8 +38,8 @@ const _checkExitReasonValues3: ExitReasonValues = "detached";
 const handle: SurfaceHandle = {
 	id: "test-id",
 	kind: "tmux",
-	onExit: (cb: (reason: SurfaceExitReason) => void) => {},
-	dispose: () => {},
+	onExit: (cb: (reason: SurfaceExitReason) => void) => undefined,
+	dispose: () => undefined,
 };
 
 // SurfaceProvider type check
@@ -49,7 +49,7 @@ const provider: SurfaceProvider = {
 	createSurface: async (name: string, opts: SurfaceSpawnOpts): Promise<SurfaceHandle> => handle,
 	attach: (id: string): SurfaceHandle | null => handle,
 	readScreen: async (handle: SurfaceHandle, lines?: number): Promise<string> => "",
-	closeSurface: async (handle: SurfaceHandle, opts?: { force?: boolean }): Promise<void> => {},
+	closeSurface: async (handle: SurfaceHandle, opts?: { force?: boolean }): Promise<void> => undefined,
 };
 
 test("SurfaceProvider types: compile without errors", () => {
