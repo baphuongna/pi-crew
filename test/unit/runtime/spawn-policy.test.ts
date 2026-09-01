@@ -41,7 +41,18 @@ test("happy path: depth-1 executor delegates → depth-2 grandchild admitted", (
 });
 
 test("D8: parent role no longer gated — ANY role (incl. read-only) may delegate", () => {
-	for (const role of ["executor", "test-engineer", "explorer", "analyst", "planner", "critic", "reviewer", "verifier", "writer", "security-reviewer"]) {
+	for (const role of [
+		"executor",
+		"test-engineer",
+		"explorer",
+		"analyst",
+		"planner",
+		"critic",
+		"reviewer",
+		"verifier",
+		"writer",
+		"security-reviewer",
+	]) {
 		const d = evaluateDelegateAdmission(baseInput({ parentTask: { taskId: "t", role, depth: 1 } }));
 		assert.equal(d.allowed, true, `${role} parent must be allowed to delegate (D8)`);
 	}

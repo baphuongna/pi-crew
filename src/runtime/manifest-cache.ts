@@ -332,7 +332,9 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		const runs = [...unique.values()].filter((value): value is CachedManifest => value !== undefined).map((value) => value.manifest);
 		// PERF (task-23d): ISO-8601 createdAt strings are fixed-width and sort
 		// correctly with plain comparison — no locale machinery per compare.
-		const sorted = runs.sort((a, b) => ((b.createdAt ?? "") < (a.createdAt ?? "") ? -1 : (b.createdAt ?? "") > (a.createdAt ?? "") ? 1 : 0));
+		const sorted = runs.sort((a, b) =>
+			(b.createdAt ?? "") < (a.createdAt ?? "") ? -1 : (b.createdAt ?? "") > (a.createdAt ?? "") ? 1 : 0,
+		);
 		const limited = sorted.slice(0, Math.max(0, limit));
 		if (manifestIndex.size > maxEntries) {
 			const removeCount = manifestIndex.size - maxEntries;
@@ -428,7 +430,14 @@ export function createManifestCache(cwd: string, options: ManifestCacheOptions =
 		}
 		const manifestPath = manifestPathForRun(root, filename);
 		if (manifestPath) {
-			const parsed = parseManifestIfChanged(root, filename, manifestPath, manifestIndex.get(filename), /* forceStat */ true, statTtlMs);
+			const parsed = parseManifestIfChanged(
+				root,
+				filename,
+				manifestPath,
+				manifestIndex.get(filename),
+				/* forceStat */ true,
+				statTtlMs,
+			);
 			if (parsed) {
 				manifestIndex.set(filename, parsed);
 			} else {

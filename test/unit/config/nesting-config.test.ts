@@ -108,10 +108,7 @@ test("team-settings set nesting.enabled --scope project carries the sensitive hi
 	try {
 		const res = handleSettings({ config: { args: "set nesting.enabled false", scope: "project" } }, { cwd } as TeamContext);
 		const text = textFromToolResult(res);
-		assert.ok(
-			text.includes("sensitive"),
-			`project-scope set must carry the sensitive hint (got: ${text})`,
-		);
+		assert.ok(text.includes("sensitive"), `project-scope set must carry the sensitive hint (got: ${text})`);
 	} finally {
 		if (prevHome !== undefined) process.env.PI_TEAMS_HOME = prevHome;
 		else delete process.env.PI_TEAMS_HOME;

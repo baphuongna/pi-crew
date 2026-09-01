@@ -219,7 +219,10 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 		try {
 			const agent = makeAgent("user", ["./user-ext.ts"]);
 			const { args } = buildPiWorkerArgs({ task: "test task", agent, env: {} });
-			assert.ok(args.some((a) => a.includes("user-ext.ts")), "user agent extensions pass through (trusted source)");
+			assert.ok(
+				args.some((a) => a.includes("user-ext.ts")),
+				"user agent extensions pass through (trusted source)",
+			);
 			assert.ok(!args.includes("--no-extensions"), "--no-extensions is gone (open discovery)");
 		} finally {
 			restoreEnv(envSnap);

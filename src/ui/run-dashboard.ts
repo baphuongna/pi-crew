@@ -162,12 +162,7 @@ function formatAge(iso: string | undefined): string | undefined {
 	return `${Math.floor(ms / 3_600_000)}h`;
 }
 
-function readProgressPreview(
-	run: TeamRunManifest,
-	maxLines = 5,
-	snapshotCache?: RunSnapshotCache,
-	resolve?: SnapshotResolver,
-): string[] {
+function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?: RunSnapshotCache, resolve?: SnapshotResolver): string[] {
 	// P0-6: prefer the snapshot's `recentOutputLines` (no disk I/O) over reading the
 	// progress artifact on every render. The progress artifact content is captured
 	// into the snapshot's recent events / output pipeline upstream.
@@ -283,12 +278,7 @@ function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefine
 	);
 }
 
-function readAgentPreview(
-	run: TeamRunManifest,
-	maxLines = 5,
-	options: RunDashboardOptions = {},
-	resolve?: SnapshotResolver,
-): string[] {
+function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashboardOptions = {}, resolve?: SnapshotResolver): string[] {
 	try {
 		const snapshot = resolve ? resolve(run) : snapshotFor(run, options.snapshotCache);
 		// P0-6: when a snapshot cache is provided but hasn't populated yet, return

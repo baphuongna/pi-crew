@@ -199,7 +199,10 @@ test("flag ON, non-terminal save → coalesced path, flushes best-effort with ZE
 			// best-effort entry sits in the 50ms window — so the disk must still
 			// reflect the PRE-persist state (queued), not the running update.
 			const statusesBefore = onDiskStatuses(cwd, created.manifest);
-			assert.ok(statusesBefore.every((s) => s !== "running"), `coalesced best-effort must stay buffered until flush (got ${statusesBefore})`);
+			assert.ok(
+				statusesBefore.every((s) => s !== "running"),
+				`coalesced best-effort must stay buffered until flush (got ${statusesBefore})`,
+			);
 			await waitForFlush();
 			// Flush the buffered best-effort entry → lands running, zero fsync.
 			flushPendingAtomicWrites(created.paths.tasksPath);

@@ -409,12 +409,7 @@ function readEventsCursorTailCached(eventsPath: string, sinceSeq: number, limit:
 	const previous = cursorTailCache.get(eventsPath);
 	const bound = Math.max(TAIL_EVENT_CAP, limit) * 2;
 
-	if (
-		previous &&
-		stat.size === previous.size &&
-		stat.mtimeMs === previous.mtimeMs &&
-		sameInode(stat, previous)
-	) {
+	if (previous && stat.size === previous.size && stat.mtimeMs === previous.mtimeMs && sameInode(stat, previous)) {
 		// Unchanged stamps + same inode: serve purely from the ring (no event
 		// bytes read). The inode check is what makes "unchanged" trustworthy:
 		// size+mtimeMs alone pass for a same-path replacement with recycled

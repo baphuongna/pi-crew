@@ -697,11 +697,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 		// (through the outer finally, which has nothing to clean up yet since
 		// the temp never existed).
 		try {
-			fd = fs.openSync(
-				tempPath,
-				fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
-				mode ?? 0o600,
-			);
+			fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, mode ?? 0o600);
 		} catch (openError) {
 			if ((openError as NodeJS.ErrnoException).code !== "ENOENT") throw openError;
 			forgetDir(dirPath);
@@ -711,11 +707,7 @@ export function atomicWriteFile(filePath: string, content: string, options?: Ato
 			// otherwise stay trusted for up to the 10s TTL.
 			invalidateSymlinkSafeCache(dirPath);
 			ensureDirSync(dirPath);
-			fd = fs.openSync(
-				tempPath,
-				fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW,
-				mode ?? 0o600,
-			);
+			fd = fs.openSync(tempPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | O_NOFOLLOW, mode ?? 0o600);
 		}
 		tempNeedsCleanup = true; // ST-7: temp file now exists on disk
 		// Post-open verification: on Windows O_NOFOLLOW is 0, so verify FD is a regular file

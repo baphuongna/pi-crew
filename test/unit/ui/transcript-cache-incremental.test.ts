@@ -3,11 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import {
-	clearTranscriptCache,
-	getTranscriptCacheEntry,
-	readTranscriptLinesCached,
-} from "../../../src/ui/transcript-cache.ts";
+import { clearTranscriptCache, getTranscriptCacheEntry, readTranscriptLinesCached } from "../../../src/ui/transcript-cache.ts";
 
 function tmpDir(prefix: string): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), prefix));

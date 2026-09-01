@@ -368,7 +368,7 @@ test("runtime cache: list() orders by createdAt descending; missing createdAt so
 		);
 		assert.ok(
 			(position.get(runOld.runId) ?? -1) < (position.get(runNoDate.runId) ?? -1),
-			"missing createdAt (\"\" fallback) must sort after every present createdAt",
+			'missing createdAt ("" fallback) must sort after every present createdAt',
 		);
 	} finally {
 		cache.dispose();

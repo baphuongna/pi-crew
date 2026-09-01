@@ -501,7 +501,13 @@ export class DurableTranscriptViewer implements Component {
 			fullVisual: null,
 			sourceLen: 0,
 		};
-		const rendered = renderViewerBase(state, width, data.lines, "pi-crew transcript", `${data.title} · ${data.truncated ? `tail ${Math.round(data.bytesRead / 1024)}KB/${Math.round(data.size / 1024)}KB` : `full ${Math.round(data.size / 1024)}KB`} · f ${this.fullTranscript ? "tail" : "full"}`);
+		const rendered = renderViewerBase(
+			state,
+			width,
+			data.lines,
+			"pi-crew transcript",
+			`${data.title} · ${data.truncated ? `tail ${Math.round(data.bytesRead / 1024)}KB/${Math.round(data.size / 1024)}KB` : `full ${Math.round(data.size / 1024)}KB`} · f ${this.fullTranscript ? "tail" : "full"}`,
+		);
 		// Write the clamped/updated scroll back (see DurableTextViewer.render).
 		this.scroll = state.scroll;
 		this.prevAutoScroll = this.autoScroll;

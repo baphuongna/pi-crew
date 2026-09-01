@@ -86,12 +86,7 @@ function spyFsForPidWrite(): PidWriteSpy {
 	fsCjs.renameSync = (($from: unknown, $to: unknown, ...rest: unknown[]) => {
 		// atomicWriteFile renames its temp over the pid path exactly when the
 		// temp's basename starts with "pid." (pid.<uuid>.tmp).
-		if (
-			typeof $from === "string" &&
-			$from.includes(`${path.sep}pid.`) &&
-			$from.endsWith(".tmp") &&
-			isPidPath($to)
-		) {
+		if (typeof $from === "string" && $from.includes(`${path.sep}pid.`) && $from.endsWith(".tmp") && isPidPath($to)) {
 			state.pidFileWrites++;
 		}
 		return originalRenameSync.apply(fsCjs, [$from, $to, ...rest] as never) as ReturnType<typeof FsTypes.renameSync>;

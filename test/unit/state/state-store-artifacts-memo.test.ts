@@ -165,9 +165,7 @@ test("saveRunTasksCoalesced keeps the manifest cache entry with zeroed tasks sta
 		assert.equal(loaded1.tasks[0]?.status, "queued");
 		assert.ok(__test__getManifestCacheEntry(stateRoot), "initial load populates the manifest cache");
 
-		const updatedTasks = loaded1.tasks.map((item, index) =>
-			index === 0 ? { ...item, status: "running" as const } : item,
-		);
+		const updatedTasks = loaded1.tasks.map((item, index) => (index === 0 ? { ...item, status: "running" as const } : item));
 		// skipCoalesce=true so the write lands on disk synchronously and the
 		// reload below is deterministic.
 		saveRunTasksCoalesced(created.manifest, updatedTasks, true);
@@ -208,9 +206,7 @@ test("load after a coalesced save reuses the cached manifest object — manifest
 		assert.ok(cachedAfterLoad, "initial load populates the cache");
 		assert.ok(cachedAfterLoad.manifest === loaded1.manifest, "cache stores the returned manifest object (identity baseline)");
 
-		const updatedTasks = loaded1.tasks.map((item, index) =>
-			index === 0 ? { ...item, status: "running" as const } : item,
-		);
+		const updatedTasks = loaded1.tasks.map((item, index) => (index === 0 ? { ...item, status: "running" as const } : item));
 		// Buffered coalesced save (the persistSingleTaskUpdate shape), then land
 		// the pending write exactly like its pre-read flush does.
 		saveRunTasksCoalesced(created.manifest, updatedTasks);
@@ -248,9 +244,7 @@ test("buffered coalesced save keeps the entry; next load re-reads disk, not the 
 		const stateRoot = created.paths.stateRoot;
 		const loaded1 = loadRunManifestById(cwd, created.manifest.runId);
 		assert.ok(loaded1);
-		const updatedTasks = loaded1.tasks.map((item, index) =>
-			index === 0 ? { ...item, status: "running" as const } : item,
-		);
+		const updatedTasks = loaded1.tasks.map((item, index) => (index === 0 ? { ...item, status: "running" as const } : item));
 		// Buffered write: nothing lands on disk for ~50ms, and the unref'd timer
 		// cannot fire during this synchronous test body.
 		saveRunTasksCoalesced(created.manifest, updatedTasks);
@@ -263,7 +257,11 @@ test("buffered coalesced save keeps the entry; next load re-reads disk, not the 
 		// array as a cache hit. That is the "only a miss, never a stale hit"
 		// guarantee of the cache-keep branch.
 		const loaded2 = loadRunManifestById(cwd, created.manifest.runId);
-		assert.equal(loaded2?.tasks[0]?.status, "queued", "disk re-read returns the pre-write content while the coalesced write is pending");
+		assert.equal(
+			loaded2?.tasks[0]?.status,
+			"queued",
+			"disk re-read returns the pre-write content while the coalesced write is pending",
+		);
 	} finally {
 		__test__clearManifestCache();
 		__test__clearArtifactsVerdictCache();

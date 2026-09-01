@@ -607,10 +607,7 @@ export class CrewBroker {
 			// filtered out and the orchestrator would only see the message on
 			// its next inbox poll.
 			const isRecipient =
-				!msg.to ||
-				msg.to === "all" ||
-				conn.taskId === msg.to ||
-				(msg.to === "parent" && conn.role === "orchestrator");
+				!msg.to || msg.to === "all" || conn.taskId === msg.to || (msg.to === "parent" && conn.role === "orchestrator");
 			if (!isRecipient) continue;
 			try {
 				this.writeOrQueue(conn, eventFrame, false);

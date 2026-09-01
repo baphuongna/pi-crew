@@ -490,9 +490,15 @@ test("repro (fix round 2): rewrite keeping the tail + regrow past the old size e
 		// Regrow past the primed size: the stamp-only delta check of the
 		// previous round (size > previous.size && mtimeMs >= previous.mtimeMs)
 		// passes from here on — the exact trap of the fix-round-2 Critical.
-		appendEvents(eventsPath, Array.from({ length: 10 }, (_, i) => 11 + i));
+		appendEvents(
+			eventsPath,
+			Array.from({ length: 10 }, (_, i) => 11 + i),
+		);
 		const regrownStat = fs.statSync(eventsPath);
-		assert.ok(regrownStat.size > primedStat.size, `precondition: regrown size ${regrownStat.size} must exceed primed ${primedStat.size}`);
+		assert.ok(
+			regrownStat.size > primedStat.size,
+			`precondition: regrown size ${regrownStat.size} must exceed primed ${primedStat.size}`,
+		);
 		assert.ok(regrownStat.mtimeMs >= primedStat.mtimeMs, "precondition: mtimeMs >= primed mtimeMs");
 
 		const expected = parseGroundTruth(eventsPath, 5, 100);

@@ -1156,7 +1156,12 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 		try {
 			broker.revokeTaskToken(taskId);
 		} catch (error) {
-			logInternalError("broker.revoke-for-task", error instanceof Error ? error : new Error(String(error)), `taskId=${taskId}`, "warn");
+			logInternalError(
+				"broker.revoke-for-task",
+				error instanceof Error ? error : new Error(String(error)),
+				`taskId=${taskId}`,
+				"warn",
+			);
 		}
 	};
 	setActiveBrokerRevoker(revokeForTask);

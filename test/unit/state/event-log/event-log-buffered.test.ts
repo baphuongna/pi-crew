@@ -231,13 +231,7 @@ test("T2: buffered flush of an all-non-terminal batch fsyncs the events file 0 t
 		// Long buffer so the batch flushes only via flushEventLogBuffer.
 		const promises: Promise<unknown>[] = [];
 		for (let i = 0; i < 20; i++) {
-			promises.push(
-				appendEventBuffered(
-					eventsPath,
-					{ type: "task.progress", runId: "run-t2", taskId: `t${i}` },
-					60_000,
-				),
-			);
+			promises.push(appendEventBuffered(eventsPath, { type: "task.progress", runId: "run-t2", taskId: `t${i}` }, 60_000));
 		}
 		await flushEventLogBuffer();
 		await Promise.all(promises);
@@ -287,13 +281,7 @@ test("T2: buffered flush of a non-terminal batch skips the fsync on the events f
 		const before = spy.scopeFsyncs;
 		const promises: Promise<unknown>[] = [];
 		for (let i = 0; i < 5; i++) {
-			promises.push(
-				appendEventBuffered(
-					eventsPath,
-					{ type: "task.progress", runId: "run-t2-skip", taskId: `t${i}` },
-					60_000,
-				),
-			);
+			promises.push(appendEventBuffered(eventsPath, { type: "task.progress", runId: "run-t2-skip", taskId: `t${i}` }, 60_000));
 		}
 		await flushEventLogBuffer();
 		await Promise.all(promises);

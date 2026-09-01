@@ -263,7 +263,8 @@ test("R3-3: tokenizeQuery drops generic verbs/pronouns that never match code pat
 	const banned = ["find", "likely", "this", "then", "report", "exact", "once", "run", "you", "it", "was", "to", "things"];
 	for (const b of banned) assert.ok(!kws.includes(b), `stopword '${b}' must be filtered, got ${JSON.stringify(kws)}`);
 	// Signal keywords still survive:
-	for (const keep of ["source", "issue", "counts", "session", "verify"]) assert.ok(kws.includes(keep), `keyword '${keep}' must survive, got ${JSON.stringify(kws)}`);
+	for (const keep of ["source", "issue", "counts", "session", "verify"])
+		assert.ok(kws.includes(keep), `keyword '${keep}' must survive, got ${JSON.stringify(kws)}`);
 });
 
 test("R3-4: rg discovery cached per cwd for 60s — new files invisible until reset", async () => {

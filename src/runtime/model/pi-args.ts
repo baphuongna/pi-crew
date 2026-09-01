@@ -291,7 +291,10 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		const rawTools: unknown = input.agent.tools;
 		const declared =
 			typeof rawTools === "string"
-				? rawTools.split(",").map((t) => t.trim()).filter(Boolean)
+				? rawTools
+						.split(",")
+						.map((t) => t.trim())
+						.filter(Boolean)
 				: Array.isArray(rawTools)
 					? rawTools.map((t) => String(t).trim()).filter(Boolean)
 					: [];
@@ -314,8 +317,7 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	// in via PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS=1. Auto-discovery stays
 	// open (D5) — this only filters explicit `extensions:` declarations.
 	const extEnv = input.env ?? process.env;
-	const untrustedSource =
-		input.agent.source === "project" || input.agent.source === "project-pi" || input.agent.source === "dynamic";
+	const untrustedSource = input.agent.source === "project" || input.agent.source === "project-pi" || input.agent.source === "dynamic";
 	let declaredExtensions = input.agent.extensions ?? [];
 	if (untrustedSource && extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1") {
 		declaredExtensions = [];

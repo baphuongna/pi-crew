@@ -100,7 +100,9 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 		surface: Type.Optional(
 			Type.Object(
 				{
-					mode: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("tmux"), Type.Literal("herdr"), Type.Literal("off")])),
+					mode: Type.Optional(
+						Type.Union([Type.Literal("auto"), Type.Literal("tmux"), Type.Literal("herdr"), Type.Literal("off")]),
+					),
 					visibleAgents: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
 				},
 				{ additionalProperties: false },
