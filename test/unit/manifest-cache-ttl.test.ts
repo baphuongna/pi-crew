@@ -253,7 +253,12 @@ async function pollUntil<T>(predicate: () => T | undefined, timeoutMs: number): 
 	}
 }
 
-test("runtime cache: list() re-scan within the stat TTL stats no manifests, re-readdirs no root, and re-parses nothing", async () => {
+test("runtime cache: list() re-scan within the stat TTL stats no manifests, re-readdirs no root, and re-parses nothing", {
+	skip:
+		process.platform === "darwin"
+			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
+			: undefined,
+}, async () => {
 	const cwd = makeTempProject();
 	const cache = createManifestCache(cwd, { watch: false, debounceMs: 40, statTtlMs: 60_000 });
 	const spy = spyFsForRoots([runsRootOf(cwd)]);
@@ -294,7 +299,12 @@ test("runtime cache: list() re-scan within the stat TTL stats no manifests, re-r
 	}
 });
 
-test("runtime cache: once the stat TTL lapses, list() re-stats and picks up changed manifest content", async () => {
+test("runtime cache: once the stat TTL lapses, list() re-stats and picks up changed manifest content", {
+	skip:
+		process.platform === "darwin"
+			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
+			: undefined,
+}, async () => {
 	const cwd = makeTempProject();
 	const cache = createManifestCache(cwd, { watch: false, debounceMs: 40, statTtlMs: 1 });
 	const spy = spyFsForRoots([runsRootOf(cwd)]);

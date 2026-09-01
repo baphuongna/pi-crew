@@ -67,6 +67,14 @@ export const TAIL_BOOTSTRAP_POLL_MS = 250;
  * UI repaint liên tục — tăng dần lên tới mức này.
  */
 export const TAIL_BOOTSTRAP_POLL_MAX_MS = 4 * TAIL_BOOTSTRAP_POLL_MS;
+/**
+ * Nhịp poll dự phòng KHI watcher đã gắn (spec §5.3 tail -f model). Watcher
+ * cho latency thấp, nhưng FSEvents (macOS) gộp/im lặng với appends liên tiếp
+ * vào cùng file (CI 33463597499: append thứ 2 trong cùng process không bao
+ * giờ tới) — poll nhẹ này là lưới an toàn cho MỌI backend watcher. statSync
+ * một file mỗi nhịp là no-op rẻ khi không đổi (size === offset → return).
+ */
+export const TAIL_STEADY_POLL_MS = 250;
 
 interface TailDeps {
 	/** Timer override cho test. */
@@ -82,6 +90,8 @@ export class EventLogTailSource implements WorkerEventSource {
 	private callback: ((event: WorkerEventPayload) => void) | undefined;
 	private watcher: fs.FSWatcher | null = null;
 	private bootstrapTimer: unknown;
+	/** Poll dự phòng steady-state (song song watcher) — xem TAIL_STEADY_POLL_MS. */
+	private steadyTimer: unknown;
 	/** Số lần bootstrap poll fail liên tiếp — cho backoff + log-once. */
 	private bootstrapAttempts = 0;
 	private closed = false;
@@ -122,6 +132,11 @@ export class EventLogTailSource implements WorkerEventSource {
 			const clear = this.deps.clearTimeoutFn ?? ((timer: unknown) => clearTimeout(timer as ReturnType<typeof setTimeout>));
 			clear(this.bootstrapTimer);
 			this.bootstrapTimer = undefined;
+		}
+		if (this.steadyTimer !== undefined) {
+			const clear = this.deps.clearTimeoutFn ?? ((timer: unknown) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+			clear(this.steadyTimer);
+			this.steadyTimer = undefined;
 		}
 	}
 
@@ -180,9 +195,30 @@ export class EventLogTailSource implements WorkerEventSource {
 		if (created) {
 			this.watcher = created;
 			this.bootstrapAttempts = 0; // gắn được → reset backoff/log-once
+			this.scheduleSteadyPoll();
 		} else {
 			this.scheduleBootstrap(); // fs.watch unsupported / file chưa tồn tại
 		}
+	}
+
+	/**
+	 * Lưới an toàn steady-state: watcher có thể gộp/im lặng (FSEvents macOS gộp
+	 * appends liên tiếp — CI 33463597499). Poll nhẹ chạy song song, tự reschedule
+	 * tới khi close(); unref để không giữ event loop sống.
+	 */
+	private scheduleSteadyPoll(): void {
+		if (this.closed || this.steadyTimer !== undefined) return;
+		const set = this.deps.setTimeoutFn ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
+		const timer = set(() => {
+			this.steadyTimer = undefined;
+			if (this.closed) return;
+			this.readFromOffset();
+			// Watcher chết ngầm giữa chừng (không error event) → bootstrap lại.
+			if (!this.watcher) this.scheduleBootstrap();
+			else this.scheduleSteadyPoll();
+		}, TAIL_STEADY_POLL_MS);
+		this.steadyTimer = timer;
+		(timer as { unref?: () => void } | null)?.unref?.();
 	}
 
 	private scheduleBootstrap(): void {

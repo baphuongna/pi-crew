@@ -107,7 +107,12 @@ function spyFsyncsUnder(underDir: string): { fsyncs(): number; restore(): void }
 	};
 }
 
-test("appendMailboxMessage delivery write is best-effort by default (0 fsyncs on a pure delivery append)", (t) => {
+test("appendMailboxMessage delivery write is best-effort by default (0 fsyncs on a pure delivery append)", {
+	skip:
+		process.platform === "darwin"
+			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
+			: undefined,
+}, (t) => {
 	const { dir, manifest } = setupMailboxWorkspace();
 	const deliveryFile = deliveryFileOf(manifest);
 	const spy = spyFsyncsUnder(dir);
@@ -148,7 +153,12 @@ test("appendMailboxMessage delivery write is best-effort by default (0 fsyncs on
 	}
 });
 
-test("explicit full durability stays full — the terminal acknowledge path keeps its fsyncs", (t) => {
+test("explicit full durability stays full — the terminal acknowledge path keeps its fsyncs", {
+	skip:
+		process.platform === "darwin"
+			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
+			: undefined,
+}, (t) => {
 	const { dir, manifest } = setupMailboxWorkspace();
 	const deliveryFile = deliveryFileOf(manifest);
 	const spy = spyFsyncsUnder(dir);
@@ -183,7 +193,12 @@ test("explicit full durability stays full — the terminal acknowledge path keep
 	}
 });
 
-test("appendMailboxMessageAsync delivery write is best-effort too (mirror of the sync twin)", async () => {
+test("appendMailboxMessageAsync delivery write is best-effort too (mirror of the sync twin)", {
+	skip:
+		process.platform === "darwin"
+			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
+			: undefined,
+}, async () => {
 	const { dir, manifest } = setupMailboxWorkspace();
 	const spy = spyFsyncsUnder(manifest.stateRoot);
 	try {
