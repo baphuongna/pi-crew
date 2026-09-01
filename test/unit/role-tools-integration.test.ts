@@ -6,7 +6,32 @@ import test from "node:test";
 import { getToolConfig, hasToolRestrictions } from "../../src/config/role-tools.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { unregisterActiveRun } from "../../src/state/stores/active-run-registry.ts";
+import { sleepSync } from "../../src/utils/sleep.ts";
 import { firstText } from "../fixtures/tool-result-helpers.ts";
+
+/**
+ * macOS-CI teardown hardening (same pattern as resume-cancel.test.ts, commit
+ * 8197f054): the mock worker's final writes can race the recursive rmdir —
+ * rimrafSync throws ENOTEMPTY (not swallowed by force:true) when a file lands
+ * between its unlink pass and a directory rmdir. Retry briefly; the worker has
+ * exited by now, so the next attempt succeeds. Best-effort: a persistent
+ * ENOTEMPTY (rare, macOS) is NOT a test failure — assertions already passed
+ * and /tmp is swept by the OS. Caught on CI run 33464623527.
+ */
+function teardownCwd(cwd: string): void {
+	for (let attempt = 0; attempt < 5; attempt++) {
+		try {
+			fs.rmSync(cwd, { recursive: true, force: true });
+			return;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {
+				console.error(`role-tools teardown: unable to remove ${cwd}: ${String(error)}`);
+				return;
+			}
+			sleepSync(200);
+		}
+	}
+}
 
 test("fast-fix team uses explorer role with tool restrictions", async () => {
 	// Set mock mode
@@ -49,7 +74,7 @@ test("fast-fix team uses explorer role with tool restrictions", async () => {
 		process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock ?? "";
 		if (previousAllow === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllow;
-		fs.rmSync(cwd, { recursive: true, force: true });
+		teardownCwd(cwd);
 	}
 });
 
@@ -85,7 +110,7 @@ test("default team uses executor role without restrictions", async () => {
 		process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock ?? "";
 		if (previousAllow === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllow;
-		fs.rmSync(cwd, { recursive: true, force: true });
+		teardownCwd(cwd);
 	}
 });
 
