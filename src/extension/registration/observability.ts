@@ -75,14 +75,10 @@ export interface ObservabilityDeps {
 	}>;
 }
 
-let _cachedOTLPExporter: OTLPExporterCtor | undefined;
 async function importOTLPExporter(): Promise<OTLPExporterCtor> {
-	if (!_cachedOTLPExporter) {
-		// LAZY: opt-in OTLP metric export — load only when otlp.enabled=true.
-		const mod = await import("../../observability/exporters/otlp-exporter.ts");
-		_cachedOTLPExporter = mod.OTLPExporter as unknown as OTLPExporterCtor;
-	}
-	return _cachedOTLPExporter;
+	// LAZY: opt-in OTLP metric export — load only when otlp.enabled=true.
+	const mod = await import("../../observability/exporters/otlp-exporter.ts");
+	return mod.OTLPExporter as unknown as OTLPExporterCtor;
 }
 
 /**

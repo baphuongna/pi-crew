@@ -18,17 +18,13 @@ import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 // Team tool handler — lazy-loaded because team-tool.ts imports many modules
 import type { handleTeamTool as HandleTeamToolFn } from "../team-tool.ts";
 
-let _cachedHandleTeamTool: typeof HandleTeamToolFn | undefined;
 async function handleTeamTool(
 	params: Parameters<typeof HandleTeamToolFn>[0],
 	ctx: Parameters<typeof HandleTeamToolFn>[1],
 ): Promise<ReturnType<typeof HandleTeamToolFn>> {
-	if (!_cachedHandleTeamTool) {
-		// LAZY: team-tool.ts imports many modules — defer until first use.
-		const mod = await import("../team-tool.ts");
-		_cachedHandleTeamTool = mod.handleTeamTool;
-	}
-	return _cachedHandleTeamTool(params, ctx);
+	// LAZY: team-tool.ts imports many modules — defer until first use.
+	const mod = await import("../team-tool.ts");
+	return mod.handleTeamTool(params, ctx);
 }
 
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
