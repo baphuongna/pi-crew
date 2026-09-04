@@ -18,8 +18,6 @@ import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows
 import { primePeerDep } from "./peer-dep.ts";
 import type { executeTeamRun as ExecuteTeamRunFn } from "./team-runner.ts";
 
-let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
-
 /** Maximum runtime for a single background run before the watchdog force-aborts
  *  it. Prevents zombie background-runner processes when a team run hangs forever
  *  (e.g. a hung child Pi process, a stuck lock, or a test that spawns a run
@@ -33,16 +31,13 @@ const MAX_BACKGROUND_RUN_MS = (() => {
 	return Number.isFinite(env) && env > 0 ? env : 2 * 60 * 60 * 1000;
 })();
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
-	if (!_cachedExecuteTeamRun) {
-		// FIX (split-scope install): prime the ESM peer dep BEFORE team-runner is
-		// imported, so its transitive skill-instructions.ts can read getAgentDir()
-		// from the primed cache instead of crashing on `Cannot find module`.
-		await primePeerDep().catch(() => undefined);
-		// LAZY: avoid pulling team-runner into background-runner at module load time.
-		const mod = await import("./team-runner.ts");
-		_cachedExecuteTeamRun = mod.executeTeamRun;
-	}
-	return _cachedExecuteTeamRun(...args);
+	// FIX (split-scope install): prime the ESM peer dep BEFORE team-runner is
+	// imported, so its transitive skill-instructions.ts can read getAgentDir()
+	// from the primed cache instead of crashing on `Cannot find module`.
+	await primePeerDep().catch(() => undefined);
+	// LAZY: avoid pulling team-runner into background-runner at module load time.
+	const mod = await import("./team-runner.ts");
+	return mod.executeTeamRun(...args);
 }
 
 import { logInternalError } from "../utils/internal-error.ts";

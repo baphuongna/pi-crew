@@ -23,14 +23,10 @@ import { listRecentRuns } from "./run-index.ts";
 import type { PiTeamsToolResult } from "./tool-result.ts";
 
 type ExecuteTeamRunFn = typeof _executeTeamRunFn;
-let _cachedExecuteTeamRun: ExecuteTeamRunFn | undefined;
 async function executeTeamRun(...args: Parameters<ExecuteTeamRunFn>): Promise<Awaited<ReturnType<ExecuteTeamRunFn>>> {
-	if (_cachedExecuteTeamRun === undefined) {
-		// LAZY: heavy runtime — defer 1.4s import cost until team run actually executes.
-		const mod = await import("../runtime/team-runner.ts");
-		_cachedExecuteTeamRun = mod.executeTeamRun;
-	}
-	return _cachedExecuteTeamRun(...args);
+	// LAZY: heavy runtime — defer 1.4s import cost until team run actually executes.
+	const mod = await import("../runtime/team-runner.ts");
+	return mod.executeTeamRun(...args);
 }
 
 import { directTeamAndWorkflowFromRun } from "../runtime/direct-run.ts";
@@ -44,14 +40,10 @@ import { buildParentContext, formatScoped, result, type TeamContext } from "./te
 import type { handleRun as _handleRunFn } from "./team-tool/run.ts";
 
 type HandleRunFn = typeof _handleRunFn;
-let _cachedHandleRun: HandleRunFn | undefined;
 async function handleRun(...args: Parameters<HandleRunFn>): Promise<Awaited<ReturnType<HandleRunFn>>> {
-	if (_cachedHandleRun === undefined) {
-		// LAZY: run.ts pulls in spawnBackgroundTeamRun + resolveCrewRuntime; also avoids jiti import race in child-process contexts.
-		const mod = await import("./team-tool/run.ts");
-		_cachedHandleRun = mod.handleRun;
-	}
-	return _cachedHandleRun(...args);
+	// LAZY: run.ts pulls in spawnBackgroundTeamRun + resolveCrewRuntime; also avoids jiti import race in child-process contexts.
+	const mod = await import("./team-tool/run.ts");
+	return mod.handleRun(...args);
 }
 
 import { t } from "../i18n.ts";

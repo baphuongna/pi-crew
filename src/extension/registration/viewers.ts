@@ -8,17 +8,10 @@ import { asCrewTheme } from "../../ui/theme-adapter.ts";
 // Lazy-loaded: DurableTranscriptViewer is 658ms — only needed for /crew transcript command
 import type { DurableTranscriptViewer as DurableTranscriptViewerType } from "../../ui/transcript-viewer.ts";
 
-let _cachedViewer: typeof DurableTranscriptViewerType | undefined;
-let _viewerPromise: Promise<typeof DurableTranscriptViewerType> | undefined;
 async function getViewer(): Promise<typeof DurableTranscriptViewerType> {
-	if (_cachedViewer) return _cachedViewer;
-	if (!_viewerPromise) {
-		_viewerPromise = import("../../ui/transcript-viewer.ts").then((mod) => {
-			_cachedViewer = mod.DurableTranscriptViewer;
-			return mod.DurableTranscriptViewer;
-		});
-	}
-	return _viewerPromise;
+	// LAZY: DurableTranscriptViewer is 658ms — only needed for /crew transcript.
+	const mod = await import("../../ui/transcript-viewer.ts");
+	return mod.DurableTranscriptViewer;
 }
 
 export async function selectAgentTask(

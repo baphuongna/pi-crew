@@ -18,14 +18,10 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { safeAbort } from "../../utils/safe-abort.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 
-let _cachedExecuteTeamRun: typeof ExecuteTeamRunFn | undefined;
 async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Promise<Awaited<ReturnType<typeof ExecuteTeamRunFn>>> {
-	if (!_cachedExecuteTeamRun) {
-		// LAZY: heavy runtime — defer 1.4s import cost until team run actually executes.
-		const mod = await import("../../runtime/team-runner.ts");
-		_cachedExecuteTeamRun = mod.executeTeamRun;
-	}
-	return _cachedExecuteTeamRun(...args);
+	// LAZY: heavy runtime — defer 1.4s import cost until team run actually executes.
+	const mod = await import("../../runtime/team-runner.ts");
+	return mod.executeTeamRun(...args);
 }
 
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";

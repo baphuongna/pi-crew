@@ -27,15 +27,10 @@ import type { CrewWidgetState } from "../../ui/widget/index.ts";
 import { stopCrewWidget, updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 
-/** Cached live-run-sidebar constructor (lazy-loaded on first overlay open). */
-let _cachedLiveRunSidebar: typeof LiveRunSidebarType | undefined;
 async function importLiveRunSidebar(): Promise<typeof LiveRunSidebarType> {
-	if (!_cachedLiveRunSidebar) {
-		// LAZY: defer LiveRunSidebar import until the user opens a sidebar overlay.
-		const mod = await import("../../ui/live-run-sidebar.ts");
-		_cachedLiveRunSidebar = mod.LiveRunSidebar;
-	}
-	return _cachedLiveRunSidebar;
+	// LAZY: defer LiveRunSidebar import until the user opens a sidebar overlay.
+	const mod = await import("../../ui/live-run-sidebar.ts");
+	return mod.LiveRunSidebar;
 }
 
 /** Mutable state owned by register.ts. */
