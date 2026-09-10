@@ -16,8 +16,9 @@ import { isToolError, textFromToolResult } from "../extension/tool-result.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { exportDiagnostic } from "../runtime/diagnostic-export.ts";
 import type { MailboxDirection, MailboxMessage } from "../state/coordination/mailbox.ts";
-import { appendEvent } from "../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks } from "../state/stores/state-store.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 
 export interface RunActionResult {
 	ok: boolean;
@@ -137,12 +138,12 @@ export async function dispatchKillStaleWorkers(ctx: ExtensionContext, runId: str
 			};
 		});
 		saveRunTasks(loaded.manifest, tasks);
-		appendEvent(loaded.manifest.eventsPath, {
+		appendEventBuffered(loaded.manifest.eventsPath, {
 			type: "worker.kill_stale",
 			runId,
 			message: `Marked ${count} stale worker heartbeat(s) dead.`,
 			data: { count },
-		});
+		}).catch((e) => logInternalError("run_action_dispatcher.buffered", e, "type=worker.kill_stale"));
 		return {
 			ok: true,
 			message: `Marked ${count} stale worker heartbeat(s) dead.`,

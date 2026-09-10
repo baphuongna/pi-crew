@@ -32,7 +32,7 @@ import * as path from "node:path";
 import { type Static, Type } from "@sinclair/typebox";
 import { defineTool, type ExtensionAPI, type ToolDefinition } from "../extension/pi-api.ts";
 import { EngineManager, type ExecuteResult } from "../runtime/scratchpad/engine.ts";
-import { appendEventFireAndForget } from "../state/event-log/event-log.ts";
+import { appendEventBuffered, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 // D5/MAJOR-S1: PI_CREW_PARENT_PID + PI_CREW_GUEST build the guest's zombie-
 // backstop env (PI_CREW_KIND_ENV is already exported above).
 import { type ArtifactWriteOptions, writeArtifact } from "../state/stores/artifact-store.ts";
@@ -84,12 +84,12 @@ function emitScratchpadMetric(
 	// never break the cell. The real appendEventFireAndForget already catches
 	// async; this guard also absorbs a sync throw from a bad writer.
 	try {
-		appendEvent(eventsPath, {
+		appendEventBuffered(eventsPath, {
 			type,
 			runId,
 			taskId: env[PI_CREW_TASK_ID_ENV],
 			data,
-		});
+		}).catch((e) => logInternalError("scratchpad_lifecycle.buffered", e, "unknown"));
 	} catch {
 		// Metric is best-effort — drop the event, never the cell.
 	}

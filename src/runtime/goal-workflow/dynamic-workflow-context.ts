@@ -27,7 +27,7 @@ import type { TSchema } from "@sinclair/typebox";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { appendMailboxMessage, readMailbox } from "../../state/coordination/mailbox.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
@@ -688,11 +688,11 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			if (title === phaseState.currentPhase) return;
 			// Close out the previous open phase BEFORE the new one opens.
 			if (phaseState.currentPhase !== undefined) {
-				appendEvent(manifest.eventsPath, {
+				appendEventBuffered(manifest.eventsPath, {
 					type: "dwf.phase_completed",
 					runId: manifest.runId,
 					data: { phase: phaseState.currentPhase },
-				});
+				}).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_completed"));
 			}
 			phaseState.currentPhase = title;
 			// Dedup append with hard cap to bound memory; events still flow.
@@ -710,11 +710,11 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					);
 				}
 			}
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: "dwf.phase_started",
 				runId: manifest.runId,
 				data: { phase: title },
-			});
+			}).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_started"));
 		},
 		budget,
 		log(message: unknown): void {
@@ -724,11 +724,11 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			if (wfState.logs.length < 1000) {
 				wfState.logs.push(text);
 			}
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: "dwf.log",
 				runId: manifest.runId,
 				data: { message: text },
-			});
+			}).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.log"));
 		},
 		args<T = unknown>(): T {
 			// round-14 P1-5: typed workflow args sourced from manifest (via opts.args).

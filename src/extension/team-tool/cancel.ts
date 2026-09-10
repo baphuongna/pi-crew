@@ -10,7 +10,7 @@ import {
 } from "../../runtime/process/cancellation.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
-import { appendEvent, appendEventAsync } from "../../state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
@@ -392,13 +392,13 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 		}
 		ctx.abortForegroundRun?.(fresh.manifest.runId);
 		for (const taskId of abortResult.abortedIds) {
-			appendEvent(fresh.manifest.eventsPath, {
+			appendEventBuffered(fresh.manifest.eventsPath, {
 				type: "task.cancelled",
 				runId: fresh.manifest.runId,
 				taskId,
 				message: cancelMessage,
 				data: cancelData,
-			});
+			}).catch((e) => logInternalError("cancel.buffered", e, "type=task.cancelled"));
 		}
 		const updated = updateRunStatus(
 			fresh.manifest,

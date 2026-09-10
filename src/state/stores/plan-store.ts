@@ -28,7 +28,7 @@ import * as path from "node:path";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { atomicWriteJsonCoalesced } from "../atomic-write.ts";
 import { withRunLockSync } from "../coordination/locks.ts";
-import { appendEvent } from "../event-log/event-log.ts";
+import { appendEventBuffered } from "../event-log/event-log.ts";
 import type { PlanItemRecord, PlanRecord, TeamRunManifest, TeamTaskState } from "../types.ts";
 
 interface PlanFile {
@@ -141,7 +141,7 @@ export function appendPlanRevision(manifest: TeamRunManifest, record: PlanRecord
 		revisions.push(record);
 		writePlanFile(manifest, revisions);
 		const dropped = record.items.filter((i) => i.status === "dropped").length;
-		appendEvent(manifest.eventsPath, {
+		appendEventBuffered(manifest.eventsPath, {
 			type: record.version === 1 ? "plan.created" : "plan.revised",
 			runId: manifest.runId,
 			message:
@@ -149,7 +149,7 @@ export function appendPlanRevision(manifest: TeamRunManifest, record: PlanRecord
 					? `Plan v1 created: ${record.items.length} item(s) in ${record.phases.length} phase(s)`
 					: `Plan v${record.version} revised (${record.items.length} item(s), ${dropped} dropped)`,
 			data: { planId: record.id, version: record.version, dropped },
-		});
+		}).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
 		return record;
 	});
 }
@@ -200,12 +200,12 @@ export function setPlanApproval(
 		// request surface (ensurePlanApprovalRequested) appends its own
 		// plan.approval_required event.
 		if (approval.status !== "pending") {
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: approval.status === "approved" ? "plan.approved" : "plan.rejected",
 				runId: manifest.runId,
 				message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
 				data: { planId: current.id, version: approval.planVersion, status: approval.status },
-			});
+			}).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
 		}
 		return current;
 	});

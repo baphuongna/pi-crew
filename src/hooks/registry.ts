@@ -1,6 +1,7 @@
-import { appendEvent } from "../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { runEventBus } from "../ui/run-event-bus.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import type { HookContext, HookDefinition, HookExecutionReport, HookName, HookResult } from "./types.ts";
 
 const registry = new Map<HookName, HookDefinition[]>();
@@ -179,7 +180,7 @@ export async function executeHook(name: HookName, ctx: HookContext): Promise<Hoo
 }
 
 export function appendHookEvent(manifest: TeamRunManifest, report: HookExecutionReport): void {
-	appendEvent(manifest.eventsPath, {
+	appendEventBuffered(manifest.eventsPath, {
 		type: "hook.executed",
 		runId: manifest.runId,
 		message: `Hook ${report.hookName} completed with outcome=${report.outcome}${report.reason ? `: ${report.reason}` : ""}`,
@@ -189,7 +190,7 @@ export function appendHookEvent(manifest: TeamRunManifest, report: HookExecution
 			durationMs: report.durationMs,
 			reason: report.reason,
 		},
-	});
+	}).catch((e) => logInternalError("registry.buffered", e, "type=hook.executed"));
 	runEventBus.emit({
 		type: "effectiveness_changed",
 		runId: manifest.runId,

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { NotificationDescriptor } from "../../extension/notification-router.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -175,7 +175,7 @@ export class HeartbeatWatcher {
 				this.lastLevel.set(key, level);
 				if (level === "dead" && previous !== "dead") {
 					this.opts.registry.counter("crew.heartbeat.dead_total", "Dead heartbeat detections").inc({ runId: run.runId });
-					appendEvent(loaded.manifest.eventsPath, {
+					appendEventBuffered(loaded.manifest.eventsPath, {
 						type: "crew.task.heartbeat_dead",
 						runId: run.runId,
 						taskId: task.id,
@@ -183,7 +183,7 @@ export class HeartbeatWatcher {
 						data: {
 							elapsedMs: Number.isFinite(elapsed) ? elapsed : undefined,
 						},
-					});
+					}).catch((e) => logInternalError("heartbeat_watcher.buffered", e, "type=crew.task.heartbeat_dead"));
 					// W9 fix — prefix title with short run label (first 8 chars of runId)
 					// so ambient notifications are scannable when multiple runs are
 					// in flight. Full runId remains in the notification object.

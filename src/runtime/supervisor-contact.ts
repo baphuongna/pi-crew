@@ -1,4 +1,4 @@
-import { appendEvent } from "../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
@@ -22,12 +22,12 @@ export function recordSupervisorContact(manifest: TeamRunManifest, payload: Omit
 		timestamp: new Date().toISOString(),
 	};
 	try {
-		appendEvent(manifest.eventsPath, {
+		appendEventBuffered(manifest.eventsPath, {
 			type: "supervisor.contact",
 			runId: manifest.runId,
 			taskId: payload.taskId,
 			data: fullPayload as unknown as Record<string, unknown>,
-		});
+		}).catch((e) => logInternalError("supervisor_contact.buffered", e, "type=supervisor.contact"));
 	} catch (error) {
 		logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
 	}

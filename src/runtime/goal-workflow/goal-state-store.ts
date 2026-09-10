@@ -16,7 +16,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../state/event-log/event-log.ts";
 import type { GoalLoopState, GoalLoopStatus } from "../../state/types.ts";
 import { createRunId } from "../../utils/ids.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -81,11 +81,11 @@ export class GoalStore {
 			mkdirSync(dirname(path), { recursive: true });
 			atomicWriteJson(path, next);
 			if (eventsPath) {
-				appendEvent(eventsPath, {
+				appendEventBuffered(eventsPath, {
 					type: "goal.state_changed",
 					runId: state.goalId,
 					data: { goalId: state.goalId, state: state.state },
-				});
+				}).catch((e) => logInternalError("goal_state_store.buffered", e, "type=goal.state_changed"));
 			}
 		} catch (error) {
 			logInternalError("goal-state-store.save", error, `goalId=${state.goalId}`);

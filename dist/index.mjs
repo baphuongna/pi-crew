@@ -26970,12 +26970,12 @@ function appendPlanRevision(manifest, record) {
     revisions.push(record);
     writePlanFile(manifest, revisions);
     const dropped = record.items.filter((i) => i.status === "dropped").length;
-    appendEvent(manifest.eventsPath, {
+    appendEventBuffered(manifest.eventsPath, {
       type: record.version === 1 ? "plan.created" : "plan.revised",
       runId: manifest.runId,
       message: record.version === 1 ? `Plan v1 created: ${record.items.length} item(s) in ${record.phases.length} phase(s)` : `Plan v${record.version} revised (${record.items.length} item(s), ${dropped} dropped)`,
       data: { planId: record.id, version: record.version, dropped }
-    });
+    }).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
     return record;
   });
 }
@@ -27006,12 +27006,12 @@ function setPlanApproval(manifest, approval) {
     };
     writePlanFile(manifest, revisions);
     if (approval.status !== "pending") {
-      appendEvent(manifest.eventsPath, {
+      appendEventBuffered(manifest.eventsPath, {
         type: approval.status === "approved" ? "plan.approved" : "plan.rejected",
         runId: manifest.runId,
         message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
         data: { planId: current.id, version: approval.planVersion, status: approval.status }
-      });
+      }).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
     }
     return current;
   });
@@ -32649,12 +32649,12 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
     fs55.mkdirSync(path42.dirname(controlPath), { recursive: true });
     atomicWriteFile(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}
 `);
-    appendEvent(manifest.eventsPath, {
+    appendEventBuffered(manifest.eventsPath, {
       type: "foreground.interrupt_requested",
       runId: manifest.runId,
       message: reason,
       data: { requestId: request.id, controlPath }
-    });
+    }).catch((e) => logInternalError("foreground_control.buffered", e, "type=foreground.interrupt_requested"));
     return request;
   } finally {
     releaseLock2();
@@ -42924,7 +42924,7 @@ async function executeHook(name, ctx) {
   };
 }
 function appendHookEvent(manifest, report) {
-  appendEvent(manifest.eventsPath, {
+  appendEventBuffered(manifest.eventsPath, {
     type: "hook.executed",
     runId: manifest.runId,
     message: `Hook ${report.hookName} completed with outcome=${report.outcome}${report.reason ? `: ${report.reason}` : ""}`,
@@ -42934,7 +42934,7 @@ function appendHookEvent(manifest, report) {
       durationMs: report.durationMs,
       reason: report.reason
     }
-  });
+  }).catch((e) => logInternalError("registry.buffered", e, "type=hook.executed"));
   runEventBus.emit({
     type: "effectiveness_changed",
     runId: manifest.runId,
@@ -42947,6 +42947,7 @@ var init_registry2 = __esm({
     "use strict";
     init_event_log();
     init_run_event_bus();
+    init_internal_error();
     registry = /* @__PURE__ */ new Map();
     _piCrewHookIds = /* @__PURE__ */ new Set();
     _nextHookId = 1;
@@ -43288,13 +43289,13 @@ async function handleCancel(params, ctx, deps) {
     }
     ctx.abortForegroundRun?.(fresh.manifest.runId);
     for (const taskId of abortResult.abortedIds) {
-      appendEvent(fresh.manifest.eventsPath, {
+      appendEventBuffered(fresh.manifest.eventsPath, {
         type: "task.cancelled",
         runId: fresh.manifest.runId,
         taskId,
         message: cancelMessage,
         data: cancelData
-      });
+      }).catch((e) => logInternalError("cancel.buffered", e, "type=task.cancelled"));
     }
     const updated = updateRunStatus(
       fresh.manifest,
@@ -46972,25 +46973,25 @@ function sweepDroppedPlanItems(initialManifest, initialTasks) {
             } : t2
           );
           cancelledTaskIds.push(task.id);
-          appendEvent(fresh.manifest.eventsPath, {
+          appendEventBuffered(fresh.manifest.eventsPath, {
             type: "plan.item.dropped",
             runId,
             taskId: task.id,
             message: `Task ${task.id} cancelled: plan item '${task.planItem}' dropped by re-plan v${freshRecord.version}.`,
             data: { itemId: task.planItem, planId: freshRecord.id, planVersion: freshRecord.version }
-          });
+          }).catch((e) => logInternalError("plan_replan.buffered", e, "type=plan.item.dropped"));
           changed = true;
         } else if ((task.status === "running" || task.status === "waiting" || task.status === "needs_attention") && !task.replanDroppedAt) {
           if (!appendSteeringAdvisory(fresh.manifest, task.id)) continue;
           tasks = tasks.map((t2) => t2.id === task.id ? { ...t2, replanDroppedAt: (/* @__PURE__ */ new Date()).toISOString() } : t2);
           advisedTaskIds.push(task.id);
-          appendEvent(fresh.manifest.eventsPath, {
+          appendEventBuffered(fresh.manifest.eventsPath, {
             type: "plan.item.dropped",
             runId,
             taskId: task.id,
             message: `Wrap-up advisory delivered to ${task.id}: plan item '${task.planItem}' dropped by re-plan v${freshRecord.version}.`,
             data: { itemId: task.planItem, planId: freshRecord.id, planVersion: freshRecord.version, softCancel: true }
-          });
+          }).catch((e) => logInternalError("plan_replan.buffered", e, "type=plan.item.dropped"));
           changed = true;
         }
       }
@@ -49476,12 +49477,12 @@ function recordSupervisorContact(manifest, payload) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
   try {
-    appendEvent(manifest.eventsPath, {
+    appendEventBuffered(manifest.eventsPath, {
       type: "supervisor.contact",
       runId: manifest.runId,
       taskId: payload.taskId,
       data: fullPayload
-    });
+    }).catch((e) => logInternalError("supervisor_contact.buffered", e, "type=supervisor.contact"));
   } catch (error) {
     logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
   }
@@ -57539,11 +57540,11 @@ var init_goal_state_store = __esm({
           mkdirSync35(dirname38(path104), { recursive: true });
           atomicWriteJson(path104, next);
           if (eventsPath) {
-            appendEvent(eventsPath, {
+            appendEventBuffered(eventsPath, {
               type: "goal.state_changed",
               runId: state2.goalId,
               data: { goalId: state2.goalId, state: state2.state }
-            });
+            }).catch((e) => logInternalError("goal_state_store.buffered", e, "type=goal.state_changed"));
           }
         } catch (error) {
           logInternalError("goal-state-store.save", error, `goalId=${state2.goalId}`);
@@ -64652,12 +64653,12 @@ function transitionStaleAsyncUnderLock(loaded, runCwd, runId) {
       } : task
     );
     saveRunTasks(failed, freshTasks);
-    appendEvent(failed.eventsPath, {
+    appendEventBuffered(failed.eventsPath, {
       type: "async.stale",
       runId: failed.runId,
       message: freshLiveness.detail,
       data: { pid: fresh.manifest.async.pid }
-    });
+    }).catch((e) => logInternalError("status.buffered", e, "type=async.stale"));
     transitioned = { manifest: failed, tasks: freshTasks };
   });
   return transitioned;
@@ -64719,7 +64720,7 @@ function handleStatus2(params, ctx) {
     const requestId3 = String(message.data?.requestId ?? "unknown");
     const timedOut = ack === "pending" && ackTimeoutMs !== void 0 && Number.isFinite(ageMs) && ageMs > ackTimeoutMs;
     if (timedOut && !ackTimeoutRequestIds.has(requestId3)) {
-      appendEvent(manifest.eventsPath, {
+      appendEventBuffered(manifest.eventsPath, {
         type: "agent.group_join.ack_timeout",
         runId: manifest.runId,
         message: "Group join delivery ack timed out; mailbox delivery remains the fallback.",
@@ -64731,7 +64732,7 @@ function handleStatus2(params, ctx) {
           ageMs,
           ackTimeoutMs
         }
-      });
+      }).catch((e) => logInternalError("status.buffered", e, "type=agent.group_join.ack_timeout"));
     }
     groupJoinLines.push(
       `- ${String(message.data?.partial) === "true" ? "partial" : "completed"} request=${requestId3} message=${message.id} ack=${timedOut ? "timeout" : ack}`
@@ -64867,6 +64868,7 @@ var init_status = __esm({
     init_state_store();
     init_usage();
     init_format_helpers();
+    init_internal_error();
     init_team_tool2();
     init_context();
     init_param_error();
@@ -67327,7 +67329,7 @@ async function executeTeamRun(input) {
         );
       }
     }
-    appendEvent(manifest.eventsPath, {
+    appendEventBuffered(manifest.eventsPath, {
       type: "run.goal_achievement",
       runId: manifest.runId,
       message: gaApplied.manifest.goalAchievementNote ?? "",
@@ -67337,7 +67339,7 @@ async function executeTeamRun(input) {
         reason: gaAssessment.reason,
         signals: gaAssessment.signals
       }
-    });
+    }).catch((e) => logInternalError("team-runner.buffered", e, "type=run.goal_achievement"));
     if (gaApplied.downgraded)
       logInternalError(
         "team-runner.goalAchievement.falseGreen",
@@ -70692,11 +70694,11 @@ Respond with ONLY a JSON object:
       }
       if (title === phaseState.currentPhase) return;
       if (phaseState.currentPhase !== void 0) {
-        appendEvent(manifest.eventsPath, {
+        appendEventBuffered(manifest.eventsPath, {
           type: "dwf.phase_completed",
           runId: manifest.runId,
           data: { phase: phaseState.currentPhase }
-        });
+        }).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_completed"));
       }
       phaseState.currentPhase = title;
       if (!phaseState.phases.includes(title)) {
@@ -70713,11 +70715,11 @@ Respond with ONLY a JSON object:
           );
         }
       }
-      appendEvent(manifest.eventsPath, {
+      appendEventBuffered(manifest.eventsPath, {
         type: "dwf.phase_started",
         runId: manifest.runId,
         data: { phase: title }
-      });
+      }).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_started"));
     },
     budget,
     log(message) {
@@ -70725,11 +70727,11 @@ Respond with ONLY a JSON object:
       if (wfState.logs.length < 1e3) {
         wfState.logs.push(text);
       }
-      appendEvent(manifest.eventsPath, {
+      appendEventBuffered(manifest.eventsPath, {
         type: "dwf.log",
         runId: manifest.runId,
         data: { message: text }
-      });
+      }).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.log"));
     },
     args() {
       return wfState.args;
@@ -72592,12 +72594,12 @@ async function dispatchKillStaleWorkers(ctx, runId) {
       };
     });
     saveRunTasks(loaded.manifest, tasks);
-    appendEvent(loaded.manifest.eventsPath, {
+    appendEventBuffered(loaded.manifest.eventsPath, {
       type: "worker.kill_stale",
       runId,
       message: `Marked ${count2} stale worker heartbeat(s) dead.`,
       data: { count: count2 }
-    });
+    }).catch((e) => logInternalError("run_action_dispatcher.buffered", e, "type=worker.kill_stale"));
     return {
       ok: true,
       message: `Marked ${count2} stale worker heartbeat(s) dead.`,
@@ -72627,6 +72629,7 @@ var init_run_action_dispatcher = __esm({
     init_diagnostic_export();
     init_event_log();
     init_state_store();
+    init_internal_error();
   }
 });
 
@@ -80269,7 +80272,7 @@ var init_heartbeat_watcher = __esm({
             this.lastLevel.set(key, level);
             if (level === "dead" && previous !== "dead") {
               this.opts.registry.counter("crew.heartbeat.dead_total", "Dead heartbeat detections").inc({ runId: run.runId });
-              appendEvent(loaded.manifest.eventsPath, {
+              appendEventBuffered(loaded.manifest.eventsPath, {
                 type: "crew.task.heartbeat_dead",
                 runId: run.runId,
                 taskId: task.id,
@@ -80277,7 +80280,7 @@ var init_heartbeat_watcher = __esm({
                 data: {
                   elapsedMs: Number.isFinite(elapsed2) ? elapsed2 : void 0
                 }
-              });
+              }).catch((e) => logInternalError("heartbeat_watcher.buffered", e, "type=crew.task.heartbeat_dead"));
               const runLabel2 = run.runId.slice(0, 8);
               this.opts.router.enqueue({
                 id: `dead_${run.runId}_${task.id}`,

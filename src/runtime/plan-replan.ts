@@ -22,7 +22,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { withRunLockSync } from "../state/coordination/locks.ts";
-import { appendEvent } from "../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../state/event-log/event-log.ts";
 import { getCurrentPlanRecord } from "../state/stores/plan-store.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -111,13 +111,13 @@ export function sweepDroppedPlanItems(initialManifest: TeamRunManifest, initialT
 							: t,
 					);
 					cancelledTaskIds.push(task.id);
-					appendEvent(fresh.manifest.eventsPath, {
+					appendEventBuffered(fresh.manifest.eventsPath, {
 						type: "plan.item.dropped",
 						runId,
 						taskId: task.id,
 						message: `Task ${task.id} cancelled: plan item '${task.planItem}' dropped by re-plan v${freshRecord.version}.`,
 						data: { itemId: task.planItem, planId: freshRecord.id, planVersion: freshRecord.version },
-					});
+					}).catch((e) => logInternalError("plan_replan.buffered", e, "type=plan.item.dropped"));
 					changed = true;
 				} else if (
 					(task.status === "running" || task.status === "waiting" || task.status === "needs_attention") &&
@@ -127,13 +127,13 @@ export function sweepDroppedPlanItems(initialManifest: TeamRunManifest, initialT
 					if (!appendSteeringAdvisory(fresh.manifest, task.id)) continue;
 					tasks = tasks.map((t) => (t.id === task.id ? { ...t, replanDroppedAt: new Date().toISOString() } : t));
 					advisedTaskIds.push(task.id);
-					appendEvent(fresh.manifest.eventsPath, {
+					appendEventBuffered(fresh.manifest.eventsPath, {
 						type: "plan.item.dropped",
 						runId,
 						taskId: task.id,
 						message: `Wrap-up advisory delivered to ${task.id}: plan item '${task.planItem}' dropped by re-plan v${freshRecord.version}.`,
 						data: { itemId: task.planItem, planId: freshRecord.id, planVersion: freshRecord.version, softCancel: true },
-					});
+					}).catch((e) => logInternalError("plan_replan.buffered", e, "type=plan.item.dropped"));
 					changed = true;
 				}
 			}

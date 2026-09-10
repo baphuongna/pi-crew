@@ -8,7 +8,7 @@ import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { canTransitionRunStatus } from "../state/contracts.ts";
-import { appendEvent, appendEventAsync, flushEventLogBuffer } from "../state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered, flushEventLogBuffer } from "../state/event-log/event-log.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -426,7 +426,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 				);
 			}
 		}
-		appendEvent(manifest.eventsPath, {
+		appendEventBuffered(manifest.eventsPath, {
 			type: "run.goal_achievement",
 			runId: manifest.runId,
 			message: gaApplied.manifest.goalAchievementNote ?? "",
@@ -436,7 +436,7 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 				reason: gaAssessment.reason,
 				signals: gaAssessment.signals,
 			},
-		});
+		}).catch((e) => logInternalError("team-runner.buffered", e, "type=run.goal_achievement"));
 		if (gaApplied.downgraded)
 			logInternalError(
 				"team-runner.goalAchievement.falseGreen",

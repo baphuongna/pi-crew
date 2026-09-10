@@ -10,10 +10,11 @@ import { verifyTaskCompletion } from "../../runtime/verification/completion-guar
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
-import { appendEvent, readEventsCursor } from "../../state/event-log/event-log.ts";
+import { appendEventBuffered, readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
 import { formatDuration } from "../../ui/format-helpers.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -93,12 +94,12 @@ export function transitionStaleAsyncUnderLock(
 		// async.stale (2026-08-10): sync append (byte-identical to pre-extract
 		// api.ts) so callers reading eventsPath immediately after status see
 		// the event — async fire-and-forget would race.
-		appendEvent(failed.eventsPath, {
+		appendEventBuffered(failed.eventsPath, {
 			type: "async.stale",
 			runId: failed.runId,
 			message: freshLiveness.detail,
 			data: { pid: fresh.manifest.async.pid },
-		});
+		}).catch((e) => logInternalError("status.buffered", e, "type=async.stale"));
 		transitioned = { manifest: failed, tasks: freshTasks };
 	});
 	return transitioned;
@@ -192,7 +193,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		const timedOut = ack === "pending" && ackTimeoutMs !== undefined && Number.isFinite(ageMs) && ageMs > ackTimeoutMs;
 		if (timedOut && !ackTimeoutRequestIds.has(requestId)) {
 			// ack_timeout: sync append (byte-identical to pre-extract api.ts).
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: "agent.group_join.ack_timeout",
 				runId: manifest.runId,
 				message: "Group join delivery ack timed out; mailbox delivery remains the fallback.",
@@ -204,7 +205,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 					ageMs,
 					ackTimeoutMs,
 				},
-			});
+			}).catch((e) => logInternalError("status.buffered", e, "type=agent.group_join.ack_timeout"));
 		}
 		groupJoinLines.push(
 			`- ${String(message.data?.partial) === "true" ? "partial" : "completed"} request=${requestId} message=${message.id} ack=${timedOut ? "timeout" : ack}`,

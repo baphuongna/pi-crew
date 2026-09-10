@@ -8589,7 +8589,7 @@
       "format": "esm"
     },
     "src/state/stores/plan-store.ts": {
-      "bytes": 11366,
+      "bytes": 11526,
       "imports": [
         {
           "path": "node:fs",
@@ -9395,7 +9395,7 @@
       "format": "esm"
     },
     "src/runtime/foreground-control.ts": {
-      "bytes": 5960,
+      "bytes": 6080,
       "imports": [
         {
           "path": "node:fs",
@@ -11370,7 +11370,7 @@
       "format": "esm"
     },
     "src/hooks/registry.ts": {
-      "bytes": 7246,
+      "bytes": 7402,
       "imports": [
         {
           "path": "src/state/event-log/event-log.ts",
@@ -11381,6 +11381,11 @@
           "path": "src/ui/run-event-bus.ts",
           "kind": "import-statement",
           "original": "../ui/run-event-bus.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         }
       ],
       "format": "esm"
@@ -11397,7 +11402,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/cancel.ts": {
-      "bytes": 18328,
+      "bytes": 18433,
       "imports": [
         {
           "path": "src/hooks/registry.ts",
@@ -12203,7 +12208,7 @@
       "format": "esm"
     },
     "src/prompt/scratchpad-lifecycle.ts": {
-      "bytes": 32786,
+      "bytes": 32893,
       "imports": [
         {
           "path": "node:fs",
@@ -12476,7 +12481,7 @@
       "format": "esm"
     },
     "src/runtime/plan-replan.ts": {
-      "bytes": 6868,
+      "bytes": 7060,
       "imports": [
         {
           "path": "node:fs",
@@ -12949,7 +12954,7 @@
       "format": "esm"
     },
     "src/runtime/supervisor-contact.ts": {
-      "bytes": 2582,
+      "bytes": 2690,
       "imports": [
         {
           "path": "src/state/event-log/event-log.ts",
@@ -14546,7 +14551,7 @@
       "format": "esm"
     },
     "src/runtime/goal-workflow/goal-state-store.ts": {
-      "bytes": 8494,
+      "bytes": 8600,
       "imports": [
         {
           "path": "node:fs",
@@ -15940,7 +15945,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/status.ts": {
-      "bytes": 19598,
+      "bytes": 19851,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -16016,6 +16021,11 @@
           "path": "src/ui/format-helpers.ts",
           "kind": "import-statement",
           "original": "../../ui/format-helpers.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
         },
         {
           "path": "src/extension/team-tool.ts",
@@ -16590,7 +16600,7 @@
       "format": "esm"
     },
     "src/runtime/team-runner.ts": {
-      "bytes": 59377,
+      "bytes": 59493,
       "imports": [
         {
           "path": "node:child_process",
@@ -17300,7 +17310,7 @@
       "format": "esm"
     },
     "src/runtime/goal-workflow/dynamic-workflow-context.ts": {
-      "bytes": 44131,
+      "bytes": 44446,
       "imports": [
         {
           "path": "node:crypto",
@@ -17819,7 +17829,7 @@
       "format": "esm"
     },
     "src/ui/run-action-dispatcher.ts": {
-      "bytes": 5939,
+      "bytes": 6112,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -17845,6 +17855,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/extension/team-tool.ts",
@@ -19668,7 +19683,7 @@
       "format": "esm"
     },
     "src/runtime/heartbeat/heartbeat-watcher.ts": {
-      "bytes": 10126,
+      "bytes": 10239,
       "imports": [
         {
           "path": "node:fs",
@@ -20943,7 +20958,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8008896
+      "bytes": 8011913
     },
     "dist/index.mjs": {
       "imports": [
@@ -23930,7 +23945,7 @@
           "bytesInOutput": 8424
         },
         "src/state/stores/plan-store.ts": {
-          "bytesInOutput": 6619
+          "bytesInOutput": 6771
         },
         "src/runtime/plan-approval.ts": {
           "bytesInOutput": 2889
@@ -24044,7 +24059,7 @@
           "bytesInOutput": 3291
         },
         "src/runtime/foreground-control.ts": {
-          "bytesInOutput": 4874
+          "bytesInOutput": 4986
         },
         "src/runtime/custom-tools/irc-tool.ts": {
           "bytesInOutput": 6051
@@ -24320,13 +24335,13 @@
           "bytesInOutput": 2101
         },
         "src/hooks/registry.ts": {
-          "bytesInOutput": 4427
+          "bytesInOutput": 4539
         },
         "src/extension/team-tool/intent-policy.ts": {
           "bytesInOutput": 1245
         },
         "src/extension/team-tool/cancel.ts": {
-          "bytesInOutput": 13591
+          "bytesInOutput": 13675
         },
         "src/config/drift-detector.ts": {
           "bytesInOutput": 5783
@@ -24431,7 +24446,7 @@
           "bytesInOutput": 1407
         },
         "src/runtime/plan-replan.ts": {
-          "bytesInOutput": 4715
+          "bytesInOutput": 4899
         },
         "src/runtime/recovery/retry-executor.ts": {
           "bytesInOutput": 2435
@@ -24506,7 +24521,7 @@
           "bytesInOutput": 2643
         },
         "src/runtime/supervisor-contact.ts": {
-          "bytesInOutput": 1442
+          "bytesInOutput": 1542
         },
         "src/runtime/task-runner/progress.ts": {
           "bytesInOutput": 5008
@@ -24647,7 +24662,7 @@
           "bytesInOutput": 10021
         },
         "src/runtime/goal-workflow/goal-state-store.ts": {
-          "bytesInOutput": 6992
+          "bytesInOutput": 7090
         },
         "src/runtime/verification/verification-integrity.ts": {
           "bytesInOutput": 1039
@@ -24788,7 +24803,7 @@
           "bytesInOutput": 3934
         },
         "src/extension/team-tool/status.ts": {
-          "bytesInOutput": 13879
+          "bytesInOutput": 14085
         },
         "src/extension/team-tool/dispatch/status.ts": {
           "bytesInOutput": 6689
@@ -24839,7 +24854,7 @@
           "bytesInOutput": 3398
         },
         "src/runtime/team-runner.ts": {
-          "bytesInOutput": 28822
+          "bytesInOutput": 28917
         },
         "src/utils/guards.ts": {
           "bytesInOutput": 174
@@ -24896,7 +24911,7 @@
           "bytesInOutput": 666
         },
         "src/runtime/goal-workflow/dynamic-workflow-context.ts": {
-          "bytesInOutput": 21999
+          "bytesInOutput": 22306
         },
         "src/runtime/goal-workflow/dynamic-workflow-runner.ts": {
           "bytesInOutput": 7607
@@ -24908,7 +24923,7 @@
           "bytesInOutput": 27443
         },
         "src/ui/run-action-dispatcher.ts": {
-          "bytesInOutput": 4017
+          "bytesInOutput": 4146
         },
         "src/ui/dashboard-panes/agents-pane.ts": {
           "bytesInOutput": 4531
@@ -25043,7 +25058,7 @@
           "bytesInOutput": 2716
         },
         "src/runtime/heartbeat/heartbeat-watcher.ts": {
-          "bytesInOutput": 6529
+          "bytesInOutput": 6634
         },
         "src/extension/registration/observability.ts": {
           "bytesInOutput": 7881
@@ -25217,7 +25232,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3362495
+      "bytes": 3364179
     }
   }
 }
