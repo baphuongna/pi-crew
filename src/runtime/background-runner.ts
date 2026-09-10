@@ -5,7 +5,7 @@ import { loadConfig } from "../config/config.ts";
 import { getCrewEnv } from "../config/env-vars.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { withRunLockSync } from "../state/coordination/locks.ts";
-import { appendEvent, appendEventFireAndForget } from "../state/event-log/event-log.ts";
+import { appendEvent, appendEventBuffered, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
@@ -251,11 +251,11 @@ export function startInterruptGuard(
 					/* best-effort ack — interruptHandled gate prevents re-fire */
 				}
 
-				appendEvent(manifest.eventsPath, {
+				appendEventBuffered(manifest.eventsPath, {
 					type: "async.interrupt_detected",
 					runId: manifest.runId,
 					message: "Background runner detected foreground interrupt — killing child processes and exiting.",
-				});
+				}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.interrupt_detected"));
 				// FIX: Terminate ALL child-pi processes IMMEDIATELY before exiting.
 				// Previously this was missing, causing orphaned child processes to run forever
 				// after the background-runner exited. terminateActiveChildPiProcesses sends
@@ -306,7 +306,7 @@ function setupUnhandledRejectionGuard(
 		console.error("[background-runner] Stack:", reason instanceof Error ? reason.stack : "N/A");
 		try {
 			if (state.eventsPath && state.runId) {
-				appendEvent(state.eventsPath, {
+				appendEventBuffered(state.eventsPath, {
 					type: "async.failed",
 					runId: state.runId,
 					message: `Unhandled rejection: ${message}`,
@@ -315,7 +315,7 @@ function setupUnhandledRejectionGuard(
 						stack: reason instanceof Error ? reason.stack : undefined,
 						handled: false,
 					},
-				});
+				}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.failed source=unhandledRejection"));
 			}
 		} catch (appendErr) {
 			console.error("[background-runner] Failed to write async.failed event:", appendErr);
@@ -372,12 +372,12 @@ function runCleanup(
 		console.log(`[background-runner] runCleanup: unregisterWorker error: ${errorMessage(error)}`);
 		if (eventsPath) {
 			try {
-				appendEvent(eventsPath, {
+				appendEventBuffered(eventsPath, {
 					type: "background.unregister_worker_failed",
 					runId: argValue("--run-id") ?? "unknown",
 					message: `unregisterWorker failed: ${errorMessage(error)}`,
 					data: { pid: process.pid },
-				});
+				}).catch((e) => logInternalError("background-runner.buffered", e, "type=background.unregister_worker_failed"));
 			} catch {
 				/* best-effort */
 			}
@@ -533,12 +533,12 @@ async function main(): Promise<void> {
 		const runId = argValue("--run-id");
 		if (runId && manifest.eventsPath) {
 			try {
-				appendEvent(manifest.eventsPath, {
+				appendEventBuffered(manifest.eventsPath, {
 					type: "async.sigterm_received_graceful_shutdown",
 					runId,
 					message: `SIGTERM received, graceful shutdown via abort pid=${process.pid}`,
 					data: { pid: process.pid, ppid: process.ppid },
-				});
+				}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.sigterm_received_graceful_shutdown"));
 			} catch {
 				/* best-effort */
 			}
@@ -591,12 +591,12 @@ async function main(): Promise<void> {
 			const codeStr = code === undefined ? "<none>" : String(code);
 			if (runId2 && manifest.eventsPath) {
 				try {
-					appendEvent(manifest.eventsPath, {
+					appendEventBuffered(manifest.eventsPath, {
 						type: "async.exit",
 						runId: runId2,
 						message: `Background runner exit(${codeStr}) pid=${process.pid}`,
 						data: { code, pid: process.pid },
-					});
+					}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.exit"));
 				} catch {
 					/* best-effort */
 				}
@@ -630,11 +630,11 @@ async function main(): Promise<void> {
 	// NOTE: intentionally no unref() — the guard keeps the event loop alive
 	// to prevent premature worker exit. See parent-guard.ts:86 for rationale.
 
-	appendEvent(manifest.eventsPath, {
+	appendEventBuffered(manifest.eventsPath, {
 		type: "async.started",
 		runId: manifest.runId,
 		data: { pid: process.pid },
-	});
+	}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.started"));
 	debugLog(`[background-runner] async.started written, pid=${process.pid}`);
 	writeAsyncStartMarker(manifest, {
 		pid: process.pid,
@@ -658,12 +658,12 @@ async function main(): Promise<void> {
 	const watchdogTimer = setTimeout(() => {
 		console.error(`[background-runner] WATCHDOG: run ${runId} exceeded ${MAX_BACKGROUND_RUN_MS}ms — aborting (zombie prevention)`);
 		try {
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: "async.watchdog_fired",
 				runId,
 				message: `Run exceeded ${MAX_BACKGROUND_RUN_MS}ms and was force-aborted to prevent a zombie background-runner process.`,
 				data: { maxRunMs: MAX_BACKGROUND_RUN_MS },
-			});
+			}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.watchdog_fired"));
 		} catch {
 			/* best-effort event log */
 		}
@@ -820,12 +820,12 @@ async function main(): Promise<void> {
 				updatedAt: new Date().toISOString(),
 			};
 			await saveRunManifestAsync(manifest);
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: "runtime.resolved",
 				runId: manifest.runId,
 				message: `Runtime resolved: ${runtime.kind} safety=${runtime.safety}`,
 				data: { runtimeResolution, async: true },
-			});
+			}).catch((e) => logInternalError("background-runner.buffered", e, "type=runtime.resolved"));
 			if (runtime.safety === "blocked")
 				throw new Error(runtime.reason ?? "Child worker execution is disabled; refusing to create no-op scaffold subagents.");
 			const executeWorkers = runtime.kind !== "scaffold";
@@ -885,11 +885,11 @@ async function main(): Promise<void> {
 		} // close if (!earlyResult) — team-run setup+execute done; earlyResult path skips to here
 		manifest = result!.manifest;
 		tasks = result!.tasks;
-		appendEvent(manifest.eventsPath, {
+		appendEventBuffered(manifest.eventsPath, {
 			type: "async.completed",
 			runId: manifest.runId,
 			data: { status: manifest.status, tasks: tasks.length },
-		});
+		}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.completed"));
 		console.log(`[background-runner] async.completed written, status=${manifest.status}`);
 		if (manifest.status === "failed" || manifest.status === "cancelled" || manifest.status === "blocked") process.exitCode = 1;
 	} catch (error) {
@@ -910,11 +910,11 @@ async function main(): Promise<void> {
 					const fresh = loaded?.manifest ?? manifest;
 					if (fresh) {
 						manifest = updateRunStatus(fresh, "failed", message);
-						appendEvent(manifest.eventsPath, {
+						appendEventBuffered(manifest.eventsPath, {
 							type: "async.failed",
 							runId: manifest.runId,
 							message,
-						});
+						}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.failed source=updateFailed"));
 					}
 					return fresh;
 				},
@@ -983,12 +983,12 @@ try {
 		const mRunId = argValue("--run-id");
 		if (mCwd && mRunId) {
 			const mEventsPath = createRunPaths(mCwd, mRunId).eventsPath;
-			appendEvent(mEventsPath, {
+			appendEventBuffered(mEventsPath, {
 				type: "async.failed",
 				runId: mRunId,
 				message: errorMessage(err),
 				data: { stack: err instanceof Error ? err.stack : undefined },
-			});
+			}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.failed source=catch"));
 		}
 	} catch {
 		/* best-effort — don't let event-write failure mask the original error */
