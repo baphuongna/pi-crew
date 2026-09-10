@@ -86088,8 +86088,8 @@ var CrewBroker = class {
       liveDeliveryStatus: "ok"
     });
   }
-  /** Phase 1.2: paginated inbox pull for the authenticated run/task. */
-  /** Phase 1.1: see ./protocol/msg-inbox.ts (M4 / WI-4.1 moved). */
+  /** Phase 1.2: paginated inbox pull — see ./protocol/msg-inbox.ts
+   * (M4 / WI-4.1 moved; label corrected 2026-09-10: Phase 1.1 = msg.send). */
   async handleMsgInbox(conn, id, params) {
     await handleMsgInbox(
       conn,
@@ -86102,8 +86102,9 @@ var CrewBroker = class {
       this.options.cwd
     );
   }
-  // Phase 1.5: events.since — bounded replay. See runEventBus.onWithReplay.
-  /** Phase 2: events.since — see ./protocol/events-replay.ts (M4 / WI-4.1 moved). */
+  /** Phase 1.5: events.since — bounded replay; clients resync after a missed
+   * live frame (queue overflow / reconnect). See ./protocol/events-replay.ts
+   * (M4 / WI-4.1 moved; Phase 2 = events.subscribe, not this). */
   async handleEventsSince(conn, id, params) {
     await handleEventsSince(
       conn,
@@ -86394,10 +86395,9 @@ var CrewBroker = class {
   waitAuthError(conn) {
     return waitAuthError(conn);
   }
-  /** ADR item 7: a disabled-gate rejection MUST leave a durable trace in
-   *  events.jsonl — the gate fails CLOSED but never SILENTLY. Fire-and-forget
-   *  async append (broker handlers must not block the event loop on the sync
-   *  event-log lock); an append failure is logged, never thrown. */
+  // (The "ADR item 7" doc that used to dangle here documents
+  // recordWaitPolicyRejection — see wait-auth.ts, where it belongs.
+  // Removed 2026-09-10, review F6.)
   // T3/R5 (ADR-5): delegate.request — governed-nesting admission + background
   // grandchild spawn with durable mailbox delivery (WP-5 step 5).
   // getDelegateNestedSlots: inlined at 4 call sites (5-line method; M4/WI-4.1).

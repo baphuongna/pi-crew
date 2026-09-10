@@ -20007,7 +20007,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 78499,
+      "bytes": 78432,
       "imports": [
         {
           "path": "node:crypto",
@@ -21095,7 +21095,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8024742
+      "bytes": 8024677
     },
     "dist/index.mjs": {
       "imports": [
@@ -25294,7 +25294,7 @@
           "bytesInOutput": 29892
         },
         "src/runtime/broker/crew-broker.ts": {
-          "bytesInOutput": 59796
+          "bytesInOutput": 59729
         },
         "src/utils/socket-path.ts": {
           "bytesInOutput": 3012
@@ -25393,7 +25393,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3364855
+      "bytes": 3364788
     }
   }
 }
