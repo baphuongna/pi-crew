@@ -17356,7 +17356,7 @@
       "format": "esm"
     },
     "src/runtime/goal-workflow/dynamic-workflow-runner.ts": {
-      "bytes": 15251,
+      "bytes": 15783,
       "imports": [
         {
           "path": "node:fs",
@@ -20923,7 +20923,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8005913
+      "bytes": 8006789
     },
     "dist/index.mjs": {
       "imports": [
@@ -24879,7 +24879,7 @@
           "bytesInOutput": 21999
         },
         "src/runtime/goal-workflow/dynamic-workflow-runner.ts": {
-          "bytesInOutput": 7083
+          "bytesInOutput": 7607
         },
         "src/extension/team-tool/run.ts": {
           "bytesInOutput": 26560
@@ -25197,7 +25197,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3360771
+      "bytes": 3361295
     }
   }
 }

@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { transformSync } from "esbuild";
 import { getCrewEnv } from "../../config/env-vars.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -154,21 +154,21 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	// code execution. Default-deny project workflows unless the user explicitly opts in via
 	// PI_CREW_TRUST_PROJECT_DWF=1. Builtin and user workflows proceed without restriction.
 	if (workflow.source === "project" && getCrewEnv("PI_CREW_TRUST_PROJECT_DWF") !== "1") {
-		appendEvent(eventsPath, {
+		appendEventBuffered(eventsPath, {
 			type: "dwf.trust_denied",
 			runId: manifest.runId,
 			data: { workflow: workflow.name, source: workflow.source, script: scriptPath },
-		});
+		}).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.trust_denied"));
 		throw new Error(
 			`Project dynamic workflow requires explicit trust. Set PI_CREW_TRUST_PROJECT_DWF=1 to allow execution of project .dwf.ts scripts.`,
 		);
 	}
 
-	appendEvent(eventsPath, {
+	appendEventBuffered(eventsPath, {
 		type: "dwf.started",
 		runId: manifest.runId,
 		data: { workflow: workflow.name, script: scriptPath },
-	});
+	}).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.started"));
 
 	// round-18 P2-3: resume/checkpoint. Load any existing checkpoint for this run's stateRoot.
 	// stateRoot is already <crewRoot>/state/runs/<runId>, so the checkpoint lands at
@@ -177,7 +177,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	const dwfStore = new DwfStore(manifest.stateRoot);
 	const resumedState = dwfStore.load();
 	if (resumedState) {
-		appendEvent(eventsPath, {
+		appendEventBuffered(eventsPath, {
 			type: "dwf.resumed",
 			runId: manifest.runId,
 			data: {
@@ -185,7 +185,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 				phases: resumedState.phases,
 				currentPhase: resumedState.currentPhase,
 			},
-		});
+		}).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.resumed"));
 	}
 
 	// ERR-1: Create a timeout AbortController so we can abort spawned children on script timeout.
@@ -251,13 +251,13 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		}
 	} catch (error) {
 		logInternalError("dynamic-workflow-runner.run", error, `runId=${manifest.runId}, workflow=${workflow.name}`);
-		appendEvent(eventsPath, {
+		appendEventBuffered(eventsPath, {
 			type: "dwf.failed",
 			runId: manifest.runId,
 			data: {
 				error: error instanceof Error ? error.message : String(error),
 			},
-		});
+		}).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.failed"));
 		// Re-throw so background-runner's error handling marks the run failed.
 		throw error;
 	}
@@ -286,19 +286,19 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	// last open phase is always terminated before dwf.completed.
 	const phaseState = getWorkflowPhaseState(ctx);
 	if (phaseState?.currentPhase !== undefined) {
-		appendEvent(eventsPath, {
+		appendEventBuffered(eventsPath, {
 			type: "dwf.phase_completed",
 			runId: manifest.runId,
 			data: { phase: phaseState.currentPhase },
-		});
+		}).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.phase_completed"));
 		phaseState.currentPhase = undefined;
 	}
 
-	appendEvent(eventsPath, {
+	appendEventBuffered(eventsPath, {
 		type: "dwf.completed",
 		runId: manifest.runId,
 		data: { workflow: workflow.name, summaryArtifact: summary.path },
-	});
+	}).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.completed"));
 
 	// round-18 P2-3: the run completed cleanly — delete the checkpoint so a fresh re-run
 	// (same runId) starts from scratch rather than resuming stale state.

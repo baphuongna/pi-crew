@@ -70983,24 +70983,24 @@ async function runDynamicWorkflow(input) {
   const eventsPath = manifest.eventsPath;
   const scriptPath = resolveScriptPath(workflow, manifest.cwd);
   if (workflow.source === "project" && getCrewEnv("PI_CREW_TRUST_PROJECT_DWF") !== "1") {
-    appendEvent(eventsPath, {
+    appendEventBuffered(eventsPath, {
       type: "dwf.trust_denied",
       runId: manifest.runId,
       data: { workflow: workflow.name, source: workflow.source, script: scriptPath }
-    });
+    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.trust_denied"));
     throw new Error(
       `Project dynamic workflow requires explicit trust. Set PI_CREW_TRUST_PROJECT_DWF=1 to allow execution of project .dwf.ts scripts.`
     );
   }
-  appendEvent(eventsPath, {
+  appendEventBuffered(eventsPath, {
     type: "dwf.started",
     runId: manifest.runId,
     data: { workflow: workflow.name, script: scriptPath }
-  });
+  }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.started"));
   const dwfStore = new DwfStore(manifest.stateRoot);
   const resumedState = dwfStore.load();
   if (resumedState) {
-    appendEvent(eventsPath, {
+    appendEventBuffered(eventsPath, {
       type: "dwf.resumed",
       runId: manifest.runId,
       data: {
@@ -71008,7 +71008,7 @@ async function runDynamicWorkflow(input) {
         phases: resumedState.phases,
         currentPhase: resumedState.currentPhase
       }
-    });
+    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.resumed"));
   }
   const timeoutController = new AbortController();
   const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
@@ -71053,13 +71053,13 @@ async function runDynamicWorkflow(input) {
     }
   } catch (error) {
     logInternalError("dynamic-workflow-runner.run", error, `runId=${manifest.runId}, workflow=${workflow.name}`);
-    appendEvent(eventsPath, {
+    appendEventBuffered(eventsPath, {
       type: "dwf.failed",
       runId: manifest.runId,
       data: {
         error: error instanceof Error ? error.message : String(error)
       }
-    });
+    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.failed"));
     throw error;
   }
   const final = getWorkflowFinalResult(ctx);
@@ -71073,18 +71073,18 @@ async function runDynamicWorkflow(input) {
   });
   const phaseState = getWorkflowPhaseState(ctx);
   if (phaseState?.currentPhase !== void 0) {
-    appendEvent(eventsPath, {
+    appendEventBuffered(eventsPath, {
       type: "dwf.phase_completed",
       runId: manifest.runId,
       data: { phase: phaseState.currentPhase }
-    });
+    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.phase_completed"));
     phaseState.currentPhase = void 0;
   }
-  appendEvent(eventsPath, {
+  appendEventBuffered(eventsPath, {
     type: "dwf.completed",
     runId: manifest.runId,
     data: { workflow: workflow.name, summaryArtifact: summary.path }
-  });
+  }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.completed"));
   dwfStore.delete();
   const summaryText = finalText.slice(0, 2e3);
   assertStructuredCloneable(summaryText, "manifest.summary (derived from final result)");
