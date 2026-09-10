@@ -25,36 +25,54 @@ import { randomUUID } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
-import {
-	appendMailboxMessageAsync,
-	type MailboxMessage,
-	type MailboxMessageKind,
-	type MailboxMessagePriority,
-	readMailbox,
-	registerMailboxAppendObserver,
-} from "../../state/coordination/mailbox.ts";
-import { appendEventAsync, readEventsCursor } from "../../state/event-log/event-log.ts";
+import { appendMailboxMessageAsync, type MailboxMessage, registerMailboxAppendObserver } from "../../state/coordination/mailbox.ts";
+import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
-import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import type { TeamTaskState } from "../../state/types.ts";
 import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../utils/ndjson.ts";
 import { redactSecretString } from "../../utils/redaction.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { getBrokerSocketPath, prepareBrokerSocketDir, removeStaleBrokerSocket } from "../../utils/socket-path.ts";
-import { type GrandchildSpawnInput, type GrandchildSpawnResult, spawnDelegateGrandchild } from "../delegate-spawn.ts";
+import { type GrandchildSpawnResult, spawnDelegateGrandchild } from "../delegate-spawn.ts";
 import { resolveCrewMaxDepth } from "../model/pi-args.ts";
 import { NestedSlotBudget } from "../scheduling/nested-slots.ts";
 import { evaluateDelegateAdmission } from "../spawn-policy.ts";
 import { type BrokerToken, BrokerTokenRegistry } from "./crew-broker-tokens.ts";
+import { recordDelegateEvent } from "./delegate/delegate-event.ts";
+import { fanoutMailboxMessage } from "./mailbox-observer/mailbox-fanout.ts";
+import type { CrewBrokerOptions, ServerConnection } from "./protocol/connection-state.ts";
+import { handleEventsSince } from "./protocol/events-replay.ts";
+import { loadRunForHello } from "./protocol/manifest-loader.ts";
+import { handleMsgInbox } from "./protocol/msg-inbox.ts";
+import {
+	BROKER_PROTOCOL,
+	isHelloParams,
+	isRequestObject,
+	parseMsgSendParams,
+	parseWaitRequestParams,
+	parseWaitResolveParams,
+	safeStringify,
+	WAIT_REQUEST_TIMEOUT_SEC_DEFAULT,
+	WAIT_REQUEST_TIMEOUT_SEC_MAX,
+} from "./protocol/request-parsers.ts";
+import { recordWaitPolicyRejection, waitAuthError } from "./protocol/wait-auth.ts";
 import { WaitStatusCache } from "./wait-status-cache.ts";
 
 /** Protocol version negotiated at `hello` time. Bump on breaking change. */
-const BROKER_PROTOCOL = 1;
+export { BROKER_PROTOCOL };
 
 /** Hard hello deadline (per spec). After 1s, the connection is closed with a
  *  generic auth/protocol code. */
-const HELLO_DEADLINE_MS = 1_000;
+export const HELLO_DEADLINE_MS = 1_000;
+
+/** Per-connection server-side state.
+ *  Moved to ./protocol/connection-state.ts (M4 / WI-4.1):
+ *   - interface CrewBrokerOptions
+ *   - interface ServerConnection
+ *  Both re-exported from connection-state.ts; the class body is unchanged.
+ */
 
 /** Task 10 (mux-surface A1 §5.2): run statuses after which every hello token
  *  is by definition stale — the run will never issue work again, so the error
@@ -65,95 +83,6 @@ const STALE_RUN_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", 
 
 /** Default per-connection outbound queue cap (events). */
 const DEFAULT_OUTBOUND_QUEUE_CAP = 256;
-
-export interface CrewBrokerOptions {
-	/** Root session ID used to derive the socket path. */
-	sessionId: string;
-	/** Pre-resolved socket path (skips re-derivation; useful for tests). */
-	socketPath?: string;
-	/** Frame cap in UTF-8 bytes. Default 256 KiB. */
-	maxFrameBytes?: number;
-	/** Per-connection outbound queue cap. Default 256. */
-	outboundQueueCap?: number;
-	/** Required: when false, start() is a no-op and the server never binds.
-	 *  Lets the lifecycle controller install the broker unconditionally and
-	 *  have a single kill switch. */
-	enabled: boolean;
-	/** CWD for `loadRunManifestById` (Phase 1 msg.send / msg.inbox resolution).
-	 *  When omitted, manifest-touching methods return no-manifest errors. */
-	cwd?: string;
-	/** Optional test seam: override the `net` module (allows fake-server tests). */
-	netModule?: typeof net;
-	/** Optional test seam: inject a pre-configured WaitStatusCache (e.g. one
-	 *  wrapping a loader spy). Production uses a plain cache — see
-	 *  wait-status-cache.ts (R10-3). */
-	waitStatusCache?: WaitStatusCache;
-	/** WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask item 7): capability
-	 *  gate for the `wait.*` methods. DEFAULT FALSE — fail-closed. When not
-	 *  explicitly true, wait.request/wait.resolve are rejected with a
-	 *  `policy-disabled` error AND a `policy.action` event is appended to the
-	 *  run's events.jsonl (never silent). The production wiring threads
-	 *  `config.broker.waitMethodsEnabled` here; tests pass it explicitly. */
-	waitMethodsEnabled?: boolean;
-	/** T3/R5 (ADR-5 §10): capability gate for the `delegate` surface. DEFAULT
-	 *  TRUE since D8 (spec v0.7) — nested spawning is open out of the box; the
-	 *  broker still fail-closes when the flag is anything but true. The
-	 *  production wiring threads `config.nesting.enabled` (loadConfig layers
-	 *  DEFAULT_NESTING.enabled=true; a user `false` closes the surface); tests
-	 *  pass it explicitly. Rejections are NEVER silent (delegate.rejected). */
-	nestingEnabled?: boolean;
-	/** Optional override for the nested-slot budget size (config nesting.maxSlots). */
-	nestingMaxSlots?: number;
-	nestingMaxDepth?: number;
-	nestingTrustedEscalation?: boolean;
-	/** Global worker semaphore size, used to size the nested-slot budget. */
-	globalWorkerSemaphore?: number;
-	/** Test seam / alternative spawner for delegate grandchildren. Production
-	 *  uses spawnDelegateGrandchild (direct runChildPi call-site, ADR-5 §2). */
-	grandchildSpawner?: (input: GrandchildSpawnInput) => Promise<GrandchildSpawnResult>;
-	/** Resolved model catalog (canonical provider/id strings) for admission-time
-	 *  model validation (ADR-5 §7). When omitted, model validation is skipped
-	 *  (documented gap — the production wiring must always supply it). */
-	modelCatalog?: () => string[] | undefined;
-	/** ADR-5 §9: mirrors config limits.serializeOnPathOverlap for the workspace
-	 *  admission gate. Default false. */
-	serializeOnPathOverlap?: boolean;
-}
-
-/** Per-connection server-side state. */
-interface ServerConnection {
-	socket: net.Socket;
-	decoder: NdjsonDecoder;
-	/** Whether the connection has completed `hello` successfully. */
-	authed: boolean;
-	/** Run id bound by hello. */
-	runId?: string;
-	/** Task id bound by hello. */
-	taskId?: string;
-	/** Role bound by hello: orchestrator can steer/msg-send; workers default. */
-	role?: "orchestrator" | "worker";
-	/** How the hello token matched the registry (ADR-0 item 6). Derived,
-	 *  non-secret metadata recorded at hello time so `wait.*` can reject a
-	 *  legacy bare-runId fallback match WITHOUT keeping the raw token on the
-	 *  connection (tokens stay confined to the heap-only registry). */
-	authMatchKind?: "compound" | "runId-fallback";
-	/** Task 10 fix round 2 (BUG #3): sha256 of the secret this connection
-	 *  authenticated with. Derived, one-way — never the plaintext token. The
-	 *  post-hello revocation check evaluates THIS digest so a revoke →
-	 *  re-issue window cannot let an old connection ride the freshly issued
-	 *  token for the same key. */
-	authedSecretHash?: string;
-	/** Outbound queue of encoded frames awaiting drain. */
-	outbound: Buffer[];
-	/** Set when the queue has hit the cap and a frame was dropped. */
-	needsResync: boolean;
-	/** Set when the connection is closing (idempotent). */
-	closed: boolean;
-	/** Timer for the hello deadline. */
-	helloTimer: NodeJS.Timeout | null;
-	/** Monotonic seq counter for outbound events (diagnostic). */
-	outboundSeq: number;
-}
 
 export class CrewBroker {
 	private readonly options: Required<Pick<CrewBrokerOptions, "sessionId" | "enabled" | "waitMethodsEnabled" | "nestingEnabled">> &
@@ -478,9 +407,7 @@ export class CrewBroker {
 		this.resolvedSocketPath = null;
 	}
 
-	// ------------------------------------------------------------------------
 	// Connection lifecycle
-	// ------------------------------------------------------------------------
 
 	private async handleConnection(sock: net.Socket): Promise<void> {
 		// B1 (Round 14): a connection event queued after stop() must not be
@@ -583,38 +510,11 @@ export class CrewBroker {
 	}
 
 	/**
-	 * Phase 1.3: push a durable-appended mailbox message to any connected
-	 * recipient for the message's run. Best-effort — silently skips
-	 * recipients that are offline (they recover via msg.inbox). Never throws.
+	 * Phase 1.3: see ./mailbox-observer/mailbox-fanout.ts (M4 / WI-4.1 moved).
+	 * Class method delegates with 1-line binding of connectionsByRun + writers.
 	 */
 	private fanoutMailboxMessage(msg: MailboxMessage): void {
-		const set = this.connectionsByRun.get(msg.runId);
-		if (!set || set.size === 0) return;
-		// Recipient delivery dedup lives in src/prompt/prompt-runtime.ts and is
-		// keyed by the same message id in this mailbox event and the steering JSONL.
-		const eventFrame = encodeBrokerFrame({
-			event: "mailbox.message",
-			data: { id: msg.id, from: msg.from, to: msg.to, body: msg.body, kind: msg.kind, priority: msg.priority },
-			seq: 0, // mailbox messages don't carry a TeamEvent seq; dedup by msg.id
-		});
-		for (const conn of set) {
-			if (conn.closed || !conn.authed) continue;
-			// Recipient filter: deliver to the addressed task, or to all if 'all'.
-			// Task 5b (§15.2 wake): "parent"-addressed messages land in the
-			// run-level inbox, whose live consumer is the run's orchestrator
-			// connection (role from the orchestrator token — its taskId never
-			// equals "parent"), so without this branch the wake frame would be
-			// filtered out and the orchestrator would only see the message on
-			// its next inbox poll.
-			const isRecipient =
-				!msg.to || msg.to === "all" || conn.taskId === msg.to || (msg.to === "parent" && conn.role === "orchestrator");
-			if (!isRecipient) continue;
-			try {
-				this.writeOrQueue(conn, eventFrame, false);
-			} catch {
-				/* a slow/dead recipient must not break fanout to others */
-			}
-		}
+		fanoutMailboxMessage(this.connectionsByRun, { writeOrQueue: (conn, buf, force) => this.writeOrQueue(conn, buf, force) }, msg);
 	}
 
 	private async handleData(conn: ServerConnection, chunk: Buffer): Promise<void> {
@@ -758,7 +658,7 @@ export class CrewBroker {
 			// is real, that is a stale token — reject, but say so, because the
 			// A2 remedy is a re-issue, not a retry. An unknown run/task keeps
 			// the generic auth error (no disclosure of which id was valid).
-			const loaded = this.loadRunForHello(runId);
+			const loaded = loadRunForHello(this.options.cwd, runId);
 			if (loaded && (loaded.tasks ?? []).some((t) => t.id === taskId)) {
 				this.sendErrorAndClose(
 					conn,
@@ -787,7 +687,7 @@ export class CrewBroker {
 			return;
 		}
 		if (resolved.role === "worker") {
-			const loaded = this.loadRunForHello(runId);
+			const loaded = loadRunForHello(this.options.cwd, runId);
 			if (loaded && STALE_RUN_STATUSES.has(loaded.manifest.status)) {
 				this.sendErrorAndClose(conn, id, "stale-token", "hello rejected: run is already terminal (stale token)");
 				return;
@@ -838,19 +738,9 @@ export class CrewBroker {
 	 *  is not on disk — callers treat that as "cannot classify" and keep the
 	 *  legacy generic-auth behavior (the heap registry stays the source of
 	 *  truth for authentication). */
-	private loadRunForHello(runId: string): { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined {
-		const cwd = this.options.cwd;
-		if (!cwd) return undefined;
-		try {
-			return loadRunManifestById(cwd, runId) ?? undefined;
-		} catch {
-			return undefined;
-		}
-	}
+	// loadRunForHello: inlined at the 2 call sites (was a 5-line method; M4/WI-4.1).
 
-	// ------------------------------------------------------------------------
 	// Outbound queue + drop-newest + needsResync
-	// ------------------------------------------------------------------------
 
 	private sendResult(conn: ServerConnection, id: string, result: unknown): void {
 		this.enqueueFrame(conn, { id, result });
@@ -941,9 +831,7 @@ export class CrewBroker {
 		}
 	}
 
-	// ------------------------------------------------------------------------
 	// Phase 1: msg.send + msg.inbox handlers
-	// ------------------------------------------------------------------------
 
 	/** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
 	private async handleMsgSend(conn: ServerConnection, id: string, params: unknown): Promise<void> {
@@ -1112,95 +1000,33 @@ export class CrewBroker {
 	}
 
 	/** Phase 1.2: paginated inbox pull for the authenticated run/task. */
+	/** Phase 1.1: see ./protocol/msg-inbox.ts (M4 / WI-4.1 moved). */
 	private async handleMsgInbox(conn: ServerConnection, id: string, params: unknown): Promise<void> {
-		if (!conn.runId) {
-			this.sendError(conn, id, "auth", "not authed");
-			return;
-		}
-		const parsed = parseMsgInboxParams(params);
-		if (!parsed) {
-			this.sendError(conn, id, "bad-params", "msg.inbox: invalid params");
-			return;
-		}
-		const cwd = this.options.cwd;
-		if (!cwd) {
-			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
-			return;
-		}
-		let manifest: Parameters<typeof readMailbox>[0];
-		try {
-			const loaded = loadRunManifestById(cwd, conn.runId);
-			if (!loaded) {
-				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-				return;
-			}
-			manifest = loaded.manifest;
-		} catch (err) {
-			this.sendError(conn, id, "no-manifest", (err as Error).message);
-			return;
-		}
-		const limit = Math.min(Math.max(parsed.limit ?? 100, 1), 1000);
-		const taskId = conn.taskId ?? undefined;
-		const all = readMailbox(manifest, "inbox", taskId);
-		const filtered = all.filter((m) => m.status !== "acknowledged");
-		const offset = parsed.cursor ? parseInt(parsed.cursor, 10) || 0 : 0;
-		const page = filtered.slice(offset, offset + limit);
-		const nextOffset = offset + page.length;
-		const hasMore = nextOffset < filtered.length;
-		this.sendResult(conn, id, {
-			messages: page,
-			nextCursor: hasMore ? String(nextOffset) : undefined,
-			hasMore,
-			total: filtered.length,
-		});
+		await handleMsgInbox(
+			conn,
+			id,
+			params,
+			{
+				sendError: (c, i, code, msg) => this.sendError(c, i, code, msg),
+				sendResult: (c, i, r) => this.sendResult(c, i, r),
+			},
+			this.options.cwd,
+		);
 	}
 
-	/**
-	 * Phase 1.5: events.since — bounded replay of structured events with seq >
-	 * sinceSeq from the durable log. Used by clients to resync after a missed
-	 * live frame (e.g. after a queue overflow or reconnect). Reuses the same
-	 * readEventsCursor + seq semantics as runEventBus.onWithReplay.
-	 */
+	// Phase 1.5: events.since — bounded replay. See runEventBus.onWithReplay.
+	/** Phase 2: events.since — see ./protocol/events-replay.ts (M4 / WI-4.1 moved). */
 	private async handleEventsSince(conn: ServerConnection, id: string, params: unknown): Promise<void> {
-		if (!conn.runId) {
-			this.sendError(conn, id, "auth", "not authed");
-			return;
-		}
-		const cwd = this.options.cwd;
-		if (!cwd) {
-			this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
-			return;
-		}
-		let eventsPath: string;
-		try {
-			const loaded = loadRunManifestById(cwd, conn.runId);
-			if (!loaded) {
-				this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-				return;
-			}
-			eventsPath = loaded.manifest.eventsPath;
-		} catch (err) {
-			this.sendError(conn, id, "no-manifest", (err as Error).message);
-			return;
-		}
-		const v = params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
-		const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
-		const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1000) : 1000;
-		try {
-			const result = readEventsCursor(eventsPath, { sinceSeq, limit });
-			// hasMore is true iff the total filtered count exceeds the page we
-			// returned. When `total === events.length` we are at the exact end
-			// of the stream (caller will discover this on the next call when
-			// `nextSeq` is unchanged from `sinceSeq`).
-			const hasMore = result.total > result.events.length;
-			this.sendResult(conn, id, {
-				events: result.events,
-				nextSeq: result.nextSeq,
-				hasMore,
-			});
-		} catch (err) {
-			this.sendError(conn, id, "replay-failed", (err as Error).message);
-		}
+		await handleEventsSince(
+			conn,
+			id,
+			params,
+			{
+				sendError: (c, i, code, msg) => this.sendError(c, i, code, msg),
+				sendResult: (c, i, r) => this.sendResult(c, i, r),
+			},
+			this.options.cwd,
+		);
 	}
 
 	/**
@@ -1510,25 +1336,11 @@ export class CrewBroker {
 		}
 	}
 
-	// ------------------------------------------------------------------------
 	// WP-2/R2: wait.request / wait.resolve (ADR-0 2026-08-17-waiting-producer-ask)
-	// ------------------------------------------------------------------------
 
-	/** Shared auth for wait.*: worker role + task-scoped (compound-key) token
-	 *  ONLY (ADR item 6). A legacy bare-runId fallback match is REJECTED with
-	 *  a migrate hint; the orchestrator token is rejected by role. Returns the
-	 *  error to send, or null when auth passes. */
+	// waitAuthError: protocol/wait-auth.ts (M4/WI-4.1).
 	private waitAuthError(conn: ServerConnection): { code: string; message: string } | null {
-		if (conn.role !== "worker" || conn.authMatchKind === undefined) {
-			return { code: "forbidden", message: "wait.* requires a worker task-scoped token" };
-		}
-		if (conn.authMatchKind !== "compound") {
-			return {
-				code: "forbidden",
-				message: "wait.* requires a task-scoped token; re-dispatch with PI_CREW_BROKER_TASK_ID",
-			};
-		}
-		return null;
+		return waitAuthError(conn);
 	}
 
 	/** ADR item 7: a disabled-gate rejection MUST leave a durable trace in
@@ -1537,12 +1349,7 @@ export class CrewBroker {
 	 *  event-log lock); an append failure is logged, never thrown. */
 	// T3/R5 (ADR-5): delegate.request — governed-nesting admission + background
 	// grandchild spawn with durable mailbox delivery (WP-5 step 5).
-	private getDelegateNestedSlots(): NestedSlotBudget {
-		if (!this.nestedSlots) {
-			this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
-		}
-		return this.nestedSlots;
-	}
+	// getDelegateNestedSlots: inlined at 4 call sites (5-line method; M4/WI-4.1).
 
 	private recordDelegateEvent(
 		manifest: { eventsPath: string; runId: string },
@@ -1556,15 +1363,7 @@ export class CrewBroker {
 		taskId: string,
 		data: Record<string, unknown>,
 	): void {
-		void appendEventAsync(manifest.eventsPath, {
-			type,
-			runId: manifest.runId,
-			taskId,
-			message: `${type}: ${JSON.stringify(data).slice(0, 200)}`,
-			data,
-		}).catch((err) =>
-			logInternalError("crew-broker.delegate.event", err instanceof Error ? err : new Error(String(err)), `runId=${manifest.runId}`),
-		);
+		recordDelegateEvent(manifest, type, taskId, data);
 	}
 
 	private async handleDelegateRequest(conn: ServerConnection, id: string, params: unknown): Promise<void> {
@@ -1677,7 +1476,11 @@ export class CrewBroker {
 					...(task.depth !== undefined ? { depth: task.depth } : {}),
 					...(task.allocation !== undefined ? { allocation: task.allocation } : {}),
 				},
-				slots: this.getDelegateNestedSlots().snapshot(),
+				slots: (() => {
+					if (!this.nestedSlots)
+						this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+					return this.nestedSlots;
+				})().snapshot(),
 				requested,
 				...(effectiveCatalog !== undefined ? { modelCatalog: effectiveCatalog } : {}),
 				// ADR-5 §12: the delegate surface is an escalation — trusted only by the
@@ -1697,11 +1500,28 @@ export class CrewBroker {
 				return { code: "policy-denied" as const, message: decision.message ?? decision.reason ?? "delegate denied" };
 			}
 			// Slot acquisition INSIDE the lock (no reserve-then-race refund window).
-			if (!this.getDelegateNestedSlots().tryAcquire(subId)) {
+			if (
+				!(() => {
+					if (!this.nestedSlots)
+						this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+					return this.nestedSlots;
+				})().tryAcquire(subId)
+			) {
 				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "slots-exhausted" });
 				return {
 					code: "policy-denied" as const,
-					message: `delegate rejected: nested spawn budget exhausted; ${this.getDelegateNestedSlots().statusLine}`,
+					message: `delegate rejected: nested spawn budget exhausted; ${
+						(
+							() => {
+								if (!this.nestedSlots)
+									this.nestedSlots = new NestedSlotBudget(
+										this.options.globalWorkerSemaphore ?? 4,
+										this.options.nestingMaxSlots,
+									);
+								return this.nestedSlots;
+							}
+						)().statusLine
+					}`,
 				};
 			}
 			// Reserve the requested budget pessimistically (ADR-5 §5): tokensSpent
@@ -1892,7 +1712,11 @@ export class CrewBroker {
 					}
 				}
 			} finally {
-				this.getDelegateNestedSlots().release(subId);
+				(() => {
+					if (!this.nestedSlots)
+						this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+					return this.nestedSlots;
+				})().release(subId);
 			}
 			this.recordDelegateEvent(loaded.manifest, outcome.timedOut ? "delegate.timed_out" : "delegate.completed", parentTaskId, {
 				subId,
@@ -1902,16 +1726,7 @@ export class CrewBroker {
 	}
 
 	private recordWaitPolicyRejection(manifest: { eventsPath: string; runId: string }, taskId: string, method: string): void {
-		const runId = manifest.runId;
-		void appendEventAsync(manifest.eventsPath, {
-			type: "policy.action",
-			runId,
-			taskId,
-			message: `${method} rejected: waitMethodsEnabled=false (fail-closed)`,
-			data: { action: method, reason: "wait-methods-disabled", policy: "broker.waitMethodsEnabled=false" },
-		}).catch((err) =>
-			logInternalError("crew-broker.wait.policy-event", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`),
-		);
+		recordWaitPolicyRejection(manifest, taskId, method);
 	}
 
 	/** WP-2/R2 step 4: park the calling task while its `ask` tool awaits a
@@ -2170,159 +1985,14 @@ export class CrewBroker {
 // Type guards (no `any`)
 // ============================================================================
 
-function isRequestObject(value: unknown): value is { id: string; method: string; params: unknown } {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-	const v = value as Record<string, unknown>;
-	if (typeof v.id !== "string" || v.id.length === 0 || v.id.length > 256) return false;
-	if (typeof v.method !== "string" || v.method.length === 0 || v.method.length > 64) return false;
-	// Method names are restricted to a small safe charset. This guards against
-	// odd inputs (control chars, very long names) reaching the dispatcher.
-	if (!/^[a-zA-Z][a-zA-Z0-9._-]{0,63}$/.test(v.method)) return false;
-	// params may be anything (validated per-method), but not undefined-shaped.
-	return "params" in v;
-}
-
-function isHelloParams(value: unknown): value is {
-	protocol: number;
-	runId: string;
-	taskId: string;
-	token: string;
-	role?: string;
-} {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-	const v = value as Record<string, unknown>;
-	if (v.protocol !== BROKER_PROTOCOL) {
-		// Force exact-type comparison (must be the number 1, not "1").
-		if (typeof v.protocol !== "number" || !Number.isInteger(v.protocol)) return false;
-	}
-	if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return false;
-	if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
-	if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
-	return true;
-}
-
-// ============================================================================
-// Phase 1 parameter parsers (module-level; no `any`)
-// ============================================================================
-
-interface MsgSendParams {
-	to: string | string[] | "all";
-	body: unknown;
-	kind?: MailboxMessageKind;
-	priority?: MailboxMessagePriority;
-	replyTo?: string;
-	/** Task 5b (§15.2): short subject echoed into the worker.message wake
-	 * event (bounded like the tool-side MSG_SUBJECT_MAX_CHARS). */
-	subject?: string;
-}
-
-function parseMsgSendParams(value: unknown): MsgSendParams | undefined {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-	const v = value as Record<string, unknown>;
-	const to = v.to;
-	if (typeof to !== "string" && !Array.isArray(to)) return undefined;
-	if (Array.isArray(to) && !to.every((s) => typeof s === "string" && s.length > 0)) return undefined;
-	if (typeof to === "string" && to.length === 0) return undefined;
-	if (v.body === undefined) return undefined;
-	const kind = v.kind as MailboxMessageKind | undefined;
-	if (kind !== undefined && !["message", "notify", "steer", "follow-up", "response", "group_join"].includes(kind)) {
-		return undefined;
-	}
-	const priority = v.priority as MailboxMessagePriority | undefined;
-	if (priority !== undefined && !["urgent", "normal", "low"].includes(priority)) {
-		return undefined;
-	}
-	const replyTo = typeof v.replyTo === "string" ? v.replyTo : undefined;
-	const subject = typeof v.subject === "string" && v.subject.length > 0 && v.subject.length <= 256 ? v.subject : undefined;
-	return { to: to as string | string[] | "all", body: v.body, kind, priority, replyTo, subject };
-}
-
-interface MsgInboxParams {
-	limit?: number;
-	cursor?: string;
-}
-
-function parseMsgInboxParams(value: unknown): MsgInboxParams | undefined {
-	if (value === undefined || value === null) return { limit: 100, cursor: undefined };
-	if (typeof value !== "object" || Array.isArray(value)) return undefined;
-	const v = value as Record<string, unknown>;
-	const limit = v.limit;
-	if (limit !== undefined && (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1)) {
-		return undefined;
-	}
-	const cursor = v.cursor;
-	if (cursor !== undefined && typeof cursor !== "string") return undefined;
-	return { limit: limit as number | undefined, cursor: cursor as string | undefined };
-}
-
-function safeStringify(value: unknown): string {
-	try {
-		return JSON.stringify(value) ?? "{}";
-	} catch {
-		return "{}";
-	}
-}
-
-// ============================================================================
-// WP-2/R2 wait.* parameter parsers (ADR-0 2026-08-17-waiting-producer-ask)
-// ============================================================================
-
-/** Server-side ceiling for the ask deadline (ADR P2-7): worker-controlled
- *  timeoutSec may NEVER exceed 1h — an unbounded timeout would pin slots and
- *  amplify I/O. Applied as deadline = now + min(timeoutSec, 3600). */
-const WAIT_REQUEST_TIMEOUT_SEC_MAX = 3600;
-/** Default ask timeout when the caller omits timeoutSec (ADR item 1). */
-const WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 600;
-/** Bounded question payload (defense-in-depth under the 256 KiB frame cap). */
-const WAIT_QUESTION_MAX_CHARS = 8192;
-/** Bounded answer-choice list: at most 16 options, 256 chars each. */
-const WAIT_OPTIONS_MAX = 16;
-const WAIT_OPTION_MAX_CHARS = 256;
-
-interface WaitRequestParams {
-	to: string;
-	question: string;
-	options?: string[];
-	timeoutSec?: number;
-}
-
-function parseWaitRequestParams(value: unknown): WaitRequestParams | undefined {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-	const v = value as Record<string, unknown>;
-	if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return undefined;
-	if (typeof v.question !== "string" || v.question.length === 0 || v.question.length > WAIT_QUESTION_MAX_CHARS) {
-		return undefined;
-	}
-	let options: string[] | undefined;
-	if (v.options !== undefined) {
-		if (!Array.isArray(v.options) || v.options.length === 0 || v.options.length > WAIT_OPTIONS_MAX) return undefined;
-		for (const o of v.options) {
-			if (typeof o !== "string" || o.length === 0 || o.length > WAIT_OPTION_MAX_CHARS) return undefined;
-		}
-		options = v.options as string[];
-	}
-	// timeoutSec is clamped server-side in the handler (max 3600); the parser
-	// only rejects non-finite values. Non-positive values clamp to 1s.
-	if (v.timeoutSec !== undefined && (typeof v.timeoutSec !== "number" || !Number.isFinite(v.timeoutSec))) {
-		return undefined;
-	}
-	return {
-		to: v.to,
-		question: v.question,
-		options,
-		timeoutSec: v.timeoutSec as number | undefined,
-	};
-}
-
-interface WaitResolveParams {
-	to: string;
-	questionId: string;
-}
-
-function parseWaitResolveParams(value: unknown): WaitResolveParams | undefined {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-	const v = value as Record<string, unknown>;
-	if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return undefined;
-	if (typeof v.questionId !== "string" || v.questionId.length === 0 || v.questionId.length > 128) return undefined;
-	return { to: v.to, questionId: v.questionId };
-}
+/** Moved to ./protocol/request-parsers.ts (M4 / WI-4.1):
+ *   - isRequestObject
+ *   - isHelloParams + BROKER_PROTOCOL
+ *   - parseMsgSendParams + MsgSendParams
+ *   - parseMsgInboxParams + MsgInboxParams
+ *   - parseWaitRequestParams + WaitRequestParams
+ *   - parseWaitResolveParams + WaitResolveParams
+ *   - safeStringify
+ *   - WAIT_* constants
+ *  Removed from this file; re-exported via "./protocol/request-parsers.ts".
+ */

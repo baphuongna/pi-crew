@@ -19893,6 +19893,102 @@
       ],
       "format": "esm"
     },
+    "src/runtime/broker/delegate/delegate-event.ts": {
+      "bytes": 1336,
+      "imports": [
+        {
+          "path": "src/state/event-log/event-log.ts",
+          "kind": "import-statement",
+          "original": "../../../state/event-log/event-log.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/broker/mailbox-observer/mailbox-fanout.ts": {
+      "bytes": 2363,
+      "imports": [
+        {
+          "path": "src/utils/ndjson.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/ndjson.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/broker/protocol/events-replay.ts": {
+      "bytes": 2522,
+      "imports": [
+        {
+          "path": "src/state/event-log/event-log.ts",
+          "kind": "import-statement",
+          "original": "../../../state/event-log/event-log.ts"
+        },
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../../state/stores/state-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/broker/protocol/manifest-loader.ts": {
+      "bytes": 794,
+      "imports": [
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../../state/stores/state-store.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/broker/protocol/request-parsers.ts": {
+      "bytes": 7659,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/broker/protocol/msg-inbox.ts": {
+      "bytes": 2410,
+      "imports": [
+        {
+          "path": "src/state/coordination/mailbox.ts",
+          "kind": "import-statement",
+          "original": "../../../state/coordination/mailbox.ts"
+        },
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/runtime/broker/protocol/request-parsers.ts",
+          "kind": "import-statement",
+          "original": "./request-parsers.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/broker/protocol/wait-auth.ts": {
+      "bytes": 2176,
+      "imports": [
+        {
+          "path": "src/state/event-log/event-log.ts",
+          "kind": "import-statement",
+          "original": "../../../state/event-log/event-log.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/broker/wait-status-cache.ts": {
       "bytes": 6097,
       "imports": [
@@ -19910,7 +20006,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 93468,
+      "bytes": 78391,
       "imports": [
         {
           "path": "node:crypto",
@@ -20001,6 +20097,41 @@
           "path": "src/runtime/broker/crew-broker-tokens.ts",
           "kind": "import-statement",
           "original": "./crew-broker-tokens.ts"
+        },
+        {
+          "path": "src/runtime/broker/delegate/delegate-event.ts",
+          "kind": "import-statement",
+          "original": "./delegate/delegate-event.ts"
+        },
+        {
+          "path": "src/runtime/broker/mailbox-observer/mailbox-fanout.ts",
+          "kind": "import-statement",
+          "original": "./mailbox-observer/mailbox-fanout.ts"
+        },
+        {
+          "path": "src/runtime/broker/protocol/events-replay.ts",
+          "kind": "import-statement",
+          "original": "./protocol/events-replay.ts"
+        },
+        {
+          "path": "src/runtime/broker/protocol/manifest-loader.ts",
+          "kind": "import-statement",
+          "original": "./protocol/manifest-loader.ts"
+        },
+        {
+          "path": "src/runtime/broker/protocol/msg-inbox.ts",
+          "kind": "import-statement",
+          "original": "./protocol/msg-inbox.ts"
+        },
+        {
+          "path": "src/runtime/broker/protocol/request-parsers.ts",
+          "kind": "import-statement",
+          "original": "./protocol/request-parsers.ts"
+        },
+        {
+          "path": "src/runtime/broker/protocol/wait-auth.ts",
+          "kind": "import-statement",
+          "original": "./protocol/wait-auth.ts"
         },
         {
           "path": "src/runtime/broker/wait-status-cache.ts",
@@ -20958,7 +21089,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8011913
+      "bytes": 8017931
     },
     "dist/index.mjs": {
       "imports": [
@@ -25154,7 +25285,7 @@
           "bytesInOutput": 29892
         },
         "src/runtime/broker/crew-broker.ts": {
-          "bytesInOutput": 68190
+          "bytesInOutput": 59796
         },
         "src/utils/socket-path.ts": {
           "bytesInOutput": 3012
@@ -25167,6 +25298,27 @@
         },
         "src/runtime/spawn-policy.ts": {
           "bytesInOutput": 3295
+        },
+        "src/runtime/broker/delegate/delegate-event.ts": {
+          "bytesInOutput": 433
+        },
+        "src/runtime/broker/mailbox-observer/mailbox-fanout.ts": {
+          "bytesInOutput": 801
+        },
+        "src/runtime/broker/protocol/events-replay.ts": {
+          "bytesInOutput": 1343
+        },
+        "src/runtime/broker/protocol/manifest-loader.ts": {
+          "bytesInOutput": 185
+        },
+        "src/runtime/broker/protocol/msg-inbox.ts": {
+          "bytesInOutput": 1395
+        },
+        "src/runtime/broker/protocol/request-parsers.ts": {
+          "bytesInOutput": 4096
+        },
+        "src/runtime/broker/protocol/wait-auth.ts": {
+          "bytesInOutput": 962
         },
         "src/runtime/broker/wait-status-cache.ts": {
           "bytesInOutput": 2412
@@ -25232,7 +25384,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3364179
+      "bytes": 3365394
     }
   }
 }

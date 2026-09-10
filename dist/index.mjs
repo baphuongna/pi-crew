@@ -84983,6 +84983,274 @@ function evaluateDelegateAdmission(input) {
 // src/runtime/broker/crew-broker.ts
 init_crew_broker_tokens();
 
+// src/runtime/broker/delegate/delegate-event.ts
+init_event_log();
+init_internal_error();
+function recordDelegateEvent(manifest, type, taskId, data) {
+  void appendEventAsync(manifest.eventsPath, {
+    type,
+    runId: manifest.runId,
+    taskId,
+    message: `${type}: ${JSON.stringify(data).slice(0, 200)}`,
+    data
+  }).catch(
+    (err2) => logInternalError("crew-broker.delegate.event", err2 instanceof Error ? err2 : new Error(String(err2)), `runId=${manifest.runId}`)
+  );
+}
+
+// src/runtime/broker/mailbox-observer/mailbox-fanout.ts
+init_ndjson();
+function fanoutMailboxMessage(connectionsByRun, writers, msg) {
+  const set = connectionsByRun.get(msg.runId);
+  if (!set || set.size === 0) return;
+  const eventFrame = encodeBrokerFrame({
+    event: "mailbox.message",
+    data: {
+      id: msg.id,
+      from: msg.from,
+      to: msg.to,
+      body: msg.body,
+      kind: msg.kind,
+      priority: msg.priority
+    },
+    seq: 0
+    // mailbox messages don't carry a TeamEvent seq; dedup by msg.id
+  });
+  for (const conn of set) {
+    if (conn.closed || !conn.authed) continue;
+    const isRecipient = !msg.to || msg.to === "all" || conn.taskId === msg.to || msg.to === "parent" && conn.role === "orchestrator";
+    if (!isRecipient) continue;
+    try {
+      writers.writeOrQueue(conn, eventFrame, false);
+    } catch {
+    }
+  }
+}
+
+// src/runtime/broker/protocol/events-replay.ts
+init_event_log();
+init_state_store();
+async function handleEventsSince(conn, id, params, helpers, cwd) {
+  if (!conn.runId) {
+    helpers.sendError(conn, id, "auth", "not authed");
+    return;
+  }
+  if (!cwd) {
+    helpers.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+    return;
+  }
+  let eventsPath;
+  try {
+    const loaded = loadRunManifestById(cwd, conn.runId);
+    if (!loaded) {
+      helpers.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+      return;
+    }
+    eventsPath = loaded.manifest.eventsPath;
+  } catch (err2) {
+    helpers.sendError(conn, id, "no-manifest", err2.message);
+    return;
+  }
+  const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
+  const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
+  const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1e3) : 1e3;
+  try {
+    const result4 = readEventsCursor(eventsPath, { sinceSeq, limit });
+    const hasMore = result4.total > result4.events.length;
+    helpers.sendResult(conn, id, {
+      events: result4.events,
+      nextSeq: result4.nextSeq,
+      hasMore
+    });
+  } catch (err2) {
+    helpers.sendError(conn, id, "replay-failed", err2.message);
+  }
+}
+
+// src/runtime/broker/protocol/manifest-loader.ts
+init_state_store();
+function loadRunForHello(cwd, runId) {
+  if (!cwd) return void 0;
+  try {
+    return loadRunManifestById(cwd, runId) ?? void 0;
+  } catch {
+    return void 0;
+  }
+}
+
+// src/runtime/broker/protocol/msg-inbox.ts
+init_mailbox();
+init_state_store();
+
+// src/runtime/broker/protocol/request-parsers.ts
+var BROKER_PROTOCOL = 1;
+function isRequestObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value;
+  if (typeof v.id !== "string" || v.id.length === 0 || v.id.length > 256) return false;
+  if (typeof v.method !== "string" || v.method.length === 0 || v.method.length > 64) return false;
+  if (!/^[a-zA-Z][a-zA-Z0-9._-]{0,63}$/.test(v.method)) return false;
+  return "params" in v;
+}
+function isHelloParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value;
+  if (v.protocol !== BROKER_PROTOCOL) {
+    if (typeof v.protocol !== "number" || !Number.isInteger(v.protocol)) return false;
+  }
+  if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return false;
+  if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
+  if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
+  return true;
+}
+function parseMsgSendParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  const to = v.to;
+  if (typeof to !== "string" && !Array.isArray(to)) return void 0;
+  if (Array.isArray(to) && !to.every((s) => typeof s === "string" && s.length > 0)) return void 0;
+  if (typeof to === "string" && to.length === 0) return void 0;
+  if (v.body === void 0) return void 0;
+  const kind = v.kind;
+  if (kind !== void 0 && !["message", "notify", "steer", "follow-up", "response", "group_join"].includes(kind)) {
+    return void 0;
+  }
+  const priority = v.priority;
+  if (priority !== void 0 && !["urgent", "normal", "low"].includes(priority)) {
+    return void 0;
+  }
+  const replyTo = typeof v.replyTo === "string" ? v.replyTo : void 0;
+  const subject = typeof v.subject === "string" && v.subject.length > 0 && v.subject.length <= 256 ? v.subject : void 0;
+  return { to, body: v.body, kind, priority, replyTo, subject };
+}
+function parseMsgInboxParams(value) {
+  if (value === void 0 || value === null) return { limit: 100, cursor: void 0 };
+  if (typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  const limit = v.limit;
+  if (limit !== void 0 && (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1)) {
+    return void 0;
+  }
+  const cursor = v.cursor;
+  if (cursor !== void 0 && typeof cursor !== "string") return void 0;
+  return { limit, cursor };
+}
+function safeStringify(value) {
+  try {
+    return JSON.stringify(value) ?? "{}";
+  } catch {
+    return "{}";
+  }
+}
+var WAIT_REQUEST_TIMEOUT_SEC_MAX = 3600;
+var WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 600;
+var WAIT_QUESTION_MAX_CHARS = 8192;
+var WAIT_OPTIONS_MAX = 16;
+var WAIT_OPTION_MAX_CHARS = 256;
+function parseWaitRequestParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return void 0;
+  if (typeof v.question !== "string" || v.question.length === 0 || v.question.length > WAIT_QUESTION_MAX_CHARS) {
+    return void 0;
+  }
+  let options;
+  if (v.options !== void 0) {
+    if (!Array.isArray(v.options) || v.options.length === 0 || v.options.length > WAIT_OPTIONS_MAX) return void 0;
+    for (const o of v.options) {
+      if (typeof o !== "string" || o.length === 0 || o.length > WAIT_OPTION_MAX_CHARS) return void 0;
+    }
+    options = v.options;
+  }
+  if (v.timeoutSec !== void 0 && (typeof v.timeoutSec !== "number" || !Number.isFinite(v.timeoutSec))) {
+    return void 0;
+  }
+  return {
+    to: v.to,
+    question: v.question,
+    options,
+    timeoutSec: v.timeoutSec
+  };
+}
+function parseWaitResolveParams(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const v = value;
+  if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return void 0;
+  if (typeof v.questionId !== "string" || v.questionId.length === 0 || v.questionId.length > 128) return void 0;
+  return { to: v.to, questionId: v.questionId };
+}
+
+// src/runtime/broker/protocol/msg-inbox.ts
+async function handleMsgInbox(conn, id, params, helpers, cwd) {
+  if (!conn.runId) {
+    helpers.sendError(conn, id, "auth", "not authed");
+    return;
+  }
+  const parsed = parseMsgInboxParams(params);
+  if (!parsed) {
+    helpers.sendError(conn, id, "bad-params", "msg.inbox: invalid params");
+    return;
+  }
+  if (!cwd) {
+    helpers.sendError(conn, id, "no-manifest", "broker has no cwd configured");
+    return;
+  }
+  let manifest;
+  try {
+    const loaded = loadRunManifestById(cwd, conn.runId);
+    if (!loaded) {
+      helpers.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
+      return;
+    }
+    manifest = loaded.manifest;
+  } catch (err2) {
+    helpers.sendError(conn, id, "no-manifest", err2.message);
+    return;
+  }
+  const limit = Math.min(Math.max(parsed.limit ?? 100, 1), 1e3);
+  const taskId = conn.taskId ?? void 0;
+  const all = readMailbox(manifest, "inbox", taskId);
+  const filtered = all.filter((m) => m.status !== "acknowledged");
+  const offset = parsed.cursor ? Number.parseInt(parsed.cursor, 10) || 0 : 0;
+  const page = filtered.slice(offset, offset + limit);
+  const nextOffset = offset + page.length;
+  const hasMore = nextOffset < filtered.length;
+  helpers.sendResult(conn, id, {
+    messages: page,
+    nextCursor: hasMore ? String(nextOffset) : void 0,
+    hasMore,
+    total: filtered.length
+  });
+}
+
+// src/runtime/broker/protocol/wait-auth.ts
+init_event_log();
+init_internal_error();
+function waitAuthError(conn) {
+  if (conn.role !== "worker" || conn.authMatchKind === void 0) {
+    return { code: "forbidden", message: "wait.* requires a worker task-scoped token" };
+  }
+  if (conn.authMatchKind !== "compound") {
+    return {
+      code: "forbidden",
+      message: "wait.* requires a task-scoped token; re-dispatch with PI_CREW_BROKER_TASK_ID"
+    };
+  }
+  return null;
+}
+function recordWaitPolicyRejection(manifest, taskId, method) {
+  const runId = manifest.runId;
+  void appendEventAsync(manifest.eventsPath, {
+    type: "policy.action",
+    runId,
+    taskId,
+    message: `${method} rejected: waitMethodsEnabled=false (fail-closed)`,
+    data: { action: method, reason: "wait-methods-disabled", policy: "broker.waitMethodsEnabled=false" }
+  }).catch(
+    (err2) => logInternalError("crew-broker.wait.policy-event", err2 instanceof Error ? err2 : new Error(String(err2)), `runId=${runId}`)
+  );
+}
+
 // src/runtime/broker/wait-status-cache.ts
 init_state_store();
 import * as fs123 from "node:fs";
@@ -85059,7 +85327,6 @@ var WaitStatusCache = class {
 };
 
 // src/runtime/broker/crew-broker.ts
-var BROKER_PROTOCOL = 1;
 var HELLO_DEADLINE_MS = 1e3;
 var STALE_RUN_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "cancelled"]);
 var DEFAULT_OUTBOUND_QUEUE_CAP = 256;
@@ -85311,9 +85578,7 @@ var CrewBroker = class {
     }
     this.resolvedSocketPath = null;
   }
-  // ------------------------------------------------------------------------
   // Connection lifecycle
-  // ------------------------------------------------------------------------
   async handleConnection(sock) {
     if (this.stopped) {
       sock.destroy();
@@ -85398,28 +85663,11 @@ var CrewBroker = class {
     }
   }
   /**
-   * Phase 1.3: push a durable-appended mailbox message to any connected
-   * recipient for the message's run. Best-effort — silently skips
-   * recipients that are offline (they recover via msg.inbox). Never throws.
+   * Phase 1.3: see ./mailbox-observer/mailbox-fanout.ts (M4 / WI-4.1 moved).
+   * Class method delegates with 1-line binding of connectionsByRun + writers.
    */
   fanoutMailboxMessage(msg) {
-    const set = this.connectionsByRun.get(msg.runId);
-    if (!set || set.size === 0) return;
-    const eventFrame = encodeBrokerFrame({
-      event: "mailbox.message",
-      data: { id: msg.id, from: msg.from, to: msg.to, body: msg.body, kind: msg.kind, priority: msg.priority },
-      seq: 0
-      // mailbox messages don't carry a TeamEvent seq; dedup by msg.id
-    });
-    for (const conn of set) {
-      if (conn.closed || !conn.authed) continue;
-      const isRecipient = !msg.to || msg.to === "all" || conn.taskId === msg.to || msg.to === "parent" && conn.role === "orchestrator";
-      if (!isRecipient) continue;
-      try {
-        this.writeOrQueue(conn, eventFrame, false);
-      } catch {
-      }
-    }
+    fanoutMailboxMessage(this.connectionsByRun, { writeOrQueue: (conn, buf, force) => this.writeOrQueue(conn, buf, force) }, msg);
   }
   async handleData(conn, chunk) {
     if (conn.closed) return;
@@ -85517,7 +85765,7 @@ var CrewBroker = class {
     }
     const resolved = this.tokens.tokenRoleWithMatchKind(runId, taskId, token);
     if (resolved === null) {
-      const loaded = this.loadRunForHello(runId);
+      const loaded = loadRunForHello(this.options.cwd, runId);
       if (loaded && (loaded.tasks ?? []).some((t2) => t2.id === taskId)) {
         this.sendErrorAndClose(
           conn,
@@ -85535,7 +85783,7 @@ var CrewBroker = class {
       return;
     }
     if (resolved.role === "worker") {
-      const loaded = this.loadRunForHello(runId);
+      const loaded = loadRunForHello(this.options.cwd, runId);
       if (loaded && STALE_RUN_STATUSES.has(loaded.manifest.status)) {
         this.sendErrorAndClose(conn, id, "stale-token", "hello rejected: run is already terminal (stale token)");
         return;
@@ -85578,18 +85826,8 @@ var CrewBroker = class {
    *  is not on disk — callers treat that as "cannot classify" and keep the
    *  legacy generic-auth behavior (the heap registry stays the source of
    *  truth for authentication). */
-  loadRunForHello(runId) {
-    const cwd = this.options.cwd;
-    if (!cwd) return void 0;
-    try {
-      return loadRunManifestById(cwd, runId) ?? void 0;
-    } catch {
-      return void 0;
-    }
-  }
-  // ------------------------------------------------------------------------
+  // loadRunForHello: inlined at the 2 call sites (was a 5-line method; M4/WI-4.1).
   // Outbound queue + drop-newest + needsResync
-  // ------------------------------------------------------------------------
   sendResult(conn, id, result4) {
     this.enqueueFrame(conn, { id, result: result4 });
   }
@@ -85667,9 +85905,7 @@ var CrewBroker = class {
       conn.outboundSeq += 1;
     }
   }
-  // ------------------------------------------------------------------------
   // Phase 1: msg.send + msg.inbox handlers
-  // ------------------------------------------------------------------------
   /** Phase 1.1: direct or broadcast mailbox write via the durable append path. */
   async handleMsgSend(conn, id, params) {
     if (!conn.runId) {
@@ -85803,90 +86039,32 @@ var CrewBroker = class {
     });
   }
   /** Phase 1.2: paginated inbox pull for the authenticated run/task. */
+  /** Phase 1.1: see ./protocol/msg-inbox.ts (M4 / WI-4.1 moved). */
   async handleMsgInbox(conn, id, params) {
-    if (!conn.runId) {
-      this.sendError(conn, id, "auth", "not authed");
-      return;
-    }
-    const parsed = parseMsgInboxParams(params);
-    if (!parsed) {
-      this.sendError(conn, id, "bad-params", "msg.inbox: invalid params");
-      return;
-    }
-    const cwd = this.options.cwd;
-    if (!cwd) {
-      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
-      return;
-    }
-    let manifest;
-    try {
-      const loaded = loadRunManifestById(cwd, conn.runId);
-      if (!loaded) {
-        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-        return;
-      }
-      manifest = loaded.manifest;
-    } catch (err2) {
-      this.sendError(conn, id, "no-manifest", err2.message);
-      return;
-    }
-    const limit = Math.min(Math.max(parsed.limit ?? 100, 1), 1e3);
-    const taskId = conn.taskId ?? void 0;
-    const all = readMailbox(manifest, "inbox", taskId);
-    const filtered = all.filter((m) => m.status !== "acknowledged");
-    const offset = parsed.cursor ? parseInt(parsed.cursor, 10) || 0 : 0;
-    const page = filtered.slice(offset, offset + limit);
-    const nextOffset = offset + page.length;
-    const hasMore = nextOffset < filtered.length;
-    this.sendResult(conn, id, {
-      messages: page,
-      nextCursor: hasMore ? String(nextOffset) : void 0,
-      hasMore,
-      total: filtered.length
-    });
+    await handleMsgInbox(
+      conn,
+      id,
+      params,
+      {
+        sendError: (c, i, code, msg) => this.sendError(c, i, code, msg),
+        sendResult: (c, i, r) => this.sendResult(c, i, r)
+      },
+      this.options.cwd
+    );
   }
-  /**
-   * Phase 1.5: events.since — bounded replay of structured events with seq >
-   * sinceSeq from the durable log. Used by clients to resync after a missed
-   * live frame (e.g. after a queue overflow or reconnect). Reuses the same
-   * readEventsCursor + seq semantics as runEventBus.onWithReplay.
-   */
+  // Phase 1.5: events.since — bounded replay. See runEventBus.onWithReplay.
+  /** Phase 2: events.since — see ./protocol/events-replay.ts (M4 / WI-4.1 moved). */
   async handleEventsSince(conn, id, params) {
-    if (!conn.runId) {
-      this.sendError(conn, id, "auth", "not authed");
-      return;
-    }
-    const cwd = this.options.cwd;
-    if (!cwd) {
-      this.sendError(conn, id, "no-manifest", "broker has no cwd configured");
-      return;
-    }
-    let eventsPath;
-    try {
-      const loaded = loadRunManifestById(cwd, conn.runId);
-      if (!loaded) {
-        this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-        return;
-      }
-      eventsPath = loaded.manifest.eventsPath;
-    } catch (err2) {
-      this.sendError(conn, id, "no-manifest", err2.message);
-      return;
-    }
-    const v = params && typeof params === "object" && !Array.isArray(params) ? params : {};
-    const sinceSeq = typeof v.sinceSeq === "number" && Number.isFinite(v.sinceSeq) ? Math.max(0, Math.floor(v.sinceSeq)) : 0;
-    const limit = typeof v.limit === "number" && Number.isFinite(v.limit) ? Math.min(Math.max(1, Math.floor(v.limit)), 1e3) : 1e3;
-    try {
-      const result4 = readEventsCursor(eventsPath, { sinceSeq, limit });
-      const hasMore = result4.total > result4.events.length;
-      this.sendResult(conn, id, {
-        events: result4.events,
-        nextSeq: result4.nextSeq,
-        hasMore
-      });
-    } catch (err2) {
-      this.sendError(conn, id, "replay-failed", err2.message);
-    }
+    await handleEventsSince(
+      conn,
+      id,
+      params,
+      {
+        sendError: (c, i, code, msg) => this.sendError(c, i, code, msg),
+        sendResult: (c, i, r) => this.sendResult(c, i, r)
+      },
+      this.options.cwd
+    );
   }
   /**
    * Phase 2: events.subscribe — live event-stream subscription.
@@ -86161,24 +86339,10 @@ var CrewBroker = class {
       this.sendError(conn, id, "escalate-failed", err2.message);
     }
   }
-  // ------------------------------------------------------------------------
   // WP-2/R2: wait.request / wait.resolve (ADR-0 2026-08-17-waiting-producer-ask)
-  // ------------------------------------------------------------------------
-  /** Shared auth for wait.*: worker role + task-scoped (compound-key) token
-   *  ONLY (ADR item 6). A legacy bare-runId fallback match is REJECTED with
-   *  a migrate hint; the orchestrator token is rejected by role. Returns the
-   *  error to send, or null when auth passes. */
+  // waitAuthError: protocol/wait-auth.ts (M4/WI-4.1).
   waitAuthError(conn) {
-    if (conn.role !== "worker" || conn.authMatchKind === void 0) {
-      return { code: "forbidden", message: "wait.* requires a worker task-scoped token" };
-    }
-    if (conn.authMatchKind !== "compound") {
-      return {
-        code: "forbidden",
-        message: "wait.* requires a task-scoped token; re-dispatch with PI_CREW_BROKER_TASK_ID"
-      };
-    }
-    return null;
+    return waitAuthError(conn);
   }
   /** ADR item 7: a disabled-gate rejection MUST leave a durable trace in
    *  events.jsonl — the gate fails CLOSED but never SILENTLY. Fire-and-forget
@@ -86186,22 +86350,9 @@ var CrewBroker = class {
    *  event-log lock); an append failure is logged, never thrown. */
   // T3/R5 (ADR-5): delegate.request — governed-nesting admission + background
   // grandchild spawn with durable mailbox delivery (WP-5 step 5).
-  getDelegateNestedSlots() {
-    if (!this.nestedSlots) {
-      this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
-    }
-    return this.nestedSlots;
-  }
+  // getDelegateNestedSlots: inlined at 4 call sites (5-line method; M4/WI-4.1).
   recordDelegateEvent(manifest, type, taskId, data) {
-    void appendEventAsync(manifest.eventsPath, {
-      type,
-      runId: manifest.runId,
-      taskId,
-      message: `${type}: ${JSON.stringify(data).slice(0, 200)}`,
-      data
-    }).catch(
-      (err2) => logInternalError("crew-broker.delegate.event", err2 instanceof Error ? err2 : new Error(String(err2)), `runId=${manifest.runId}`)
-    );
+    recordDelegateEvent(manifest, type, taskId, data);
   }
   async handleDelegateRequest(conn, id, params) {
     if (!conn.runId || !conn.taskId) {
@@ -86290,7 +86441,11 @@ var CrewBroker = class {
           ...task.depth !== void 0 ? { depth: task.depth } : {},
           ...task.allocation !== void 0 ? { allocation: task.allocation } : {}
         },
-        slots: this.getDelegateNestedSlots().snapshot(),
+        slots: (() => {
+          if (!this.nestedSlots)
+            this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+          return this.nestedSlots;
+        })().snapshot(),
         requested,
         ...effectiveCatalog !== void 0 ? { modelCatalog: effectiveCatalog } : {},
         // ADR-5 §12: the delegate surface is an escalation — trusted only by the
@@ -86309,11 +86464,22 @@ var CrewBroker = class {
         });
         return { code: "policy-denied", message: decision3.message ?? decision3.reason ?? "delegate denied" };
       }
-      if (!this.getDelegateNestedSlots().tryAcquire(subId)) {
+      if (!(() => {
+        if (!this.nestedSlots)
+          this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+        return this.nestedSlots;
+      })().tryAcquire(subId)) {
         this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "slots-exhausted" });
         return {
           code: "policy-denied",
-          message: `delegate rejected: nested spawn budget exhausted; ${this.getDelegateNestedSlots().statusLine}`
+          message: `delegate rejected: nested spawn budget exhausted; ${(() => {
+            if (!this.nestedSlots)
+              this.nestedSlots = new NestedSlotBudget(
+                this.options.globalWorkerSemaphore ?? 4,
+                this.options.nestingMaxSlots
+              );
+            return this.nestedSlots;
+          })().statusLine}`
         };
       }
       let reserved2 = 0;
@@ -86468,7 +86634,11 @@ ${sanitizedText}
           }
         }
       } finally {
-        this.getDelegateNestedSlots().release(subId);
+        (() => {
+          if (!this.nestedSlots)
+            this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+          return this.nestedSlots;
+        })().release(subId);
       }
       this.recordDelegateEvent(loaded.manifest, outcome.timedOut ? "delegate.timed_out" : "delegate.completed", parentTaskId, {
         subId,
@@ -86477,16 +86647,7 @@ ${sanitizedText}
     })();
   }
   recordWaitPolicyRejection(manifest, taskId, method) {
-    const runId = manifest.runId;
-    void appendEventAsync(manifest.eventsPath, {
-      type: "policy.action",
-      runId,
-      taskId,
-      message: `${method} rejected: waitMethodsEnabled=false (fail-closed)`,
-      data: { action: method, reason: "wait-methods-disabled", policy: "broker.waitMethodsEnabled=false" }
-    }).catch(
-      (err2) => logInternalError("crew-broker.wait.policy-event", err2 instanceof Error ? err2 : new Error(String(err2)), `runId=${runId}`)
-    );
+    recordWaitPolicyRejection(manifest, taskId, method);
   }
   /** WP-2/R2 step 4: park the calling task while its `ask` tool awaits a
    *  leader answer. Park = task.status "waiting" + task.waiting marker +
@@ -86721,101 +86882,6 @@ ${sanitizedText}
     this.sendResult(conn, id, { ok: true, taskId, questionId: parsed.questionId });
   }
 };
-function isRequestObject(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const v = value;
-  if (typeof v.id !== "string" || v.id.length === 0 || v.id.length > 256) return false;
-  if (typeof v.method !== "string" || v.method.length === 0 || v.method.length > 64) return false;
-  if (!/^[a-zA-Z][a-zA-Z0-9._-]{0,63}$/.test(v.method)) return false;
-  return "params" in v;
-}
-function isHelloParams(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const v = value;
-  if (v.protocol !== BROKER_PROTOCOL) {
-    if (typeof v.protocol !== "number" || !Number.isInteger(v.protocol)) return false;
-  }
-  if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return false;
-  if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return false;
-  if (typeof v.token !== "string" || v.token.length === 0 || v.token.length > 256) return false;
-  return true;
-}
-function parseMsgSendParams(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  const v = value;
-  const to = v.to;
-  if (typeof to !== "string" && !Array.isArray(to)) return void 0;
-  if (Array.isArray(to) && !to.every((s) => typeof s === "string" && s.length > 0)) return void 0;
-  if (typeof to === "string" && to.length === 0) return void 0;
-  if (v.body === void 0) return void 0;
-  const kind = v.kind;
-  if (kind !== void 0 && !["message", "notify", "steer", "follow-up", "response", "group_join"].includes(kind)) {
-    return void 0;
-  }
-  const priority = v.priority;
-  if (priority !== void 0 && !["urgent", "normal", "low"].includes(priority)) {
-    return void 0;
-  }
-  const replyTo = typeof v.replyTo === "string" ? v.replyTo : void 0;
-  const subject = typeof v.subject === "string" && v.subject.length > 0 && v.subject.length <= 256 ? v.subject : void 0;
-  return { to, body: v.body, kind, priority, replyTo, subject };
-}
-function parseMsgInboxParams(value) {
-  if (value === void 0 || value === null) return { limit: 100, cursor: void 0 };
-  if (typeof value !== "object" || Array.isArray(value)) return void 0;
-  const v = value;
-  const limit = v.limit;
-  if (limit !== void 0 && (typeof limit !== "number" || !Number.isFinite(limit) || limit < 1)) {
-    return void 0;
-  }
-  const cursor = v.cursor;
-  if (cursor !== void 0 && typeof cursor !== "string") return void 0;
-  return { limit, cursor };
-}
-function safeStringify(value) {
-  try {
-    return JSON.stringify(value) ?? "{}";
-  } catch {
-    return "{}";
-  }
-}
-var WAIT_REQUEST_TIMEOUT_SEC_MAX = 3600;
-var WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 600;
-var WAIT_QUESTION_MAX_CHARS = 8192;
-var WAIT_OPTIONS_MAX = 16;
-var WAIT_OPTION_MAX_CHARS = 256;
-function parseWaitRequestParams(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  const v = value;
-  if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return void 0;
-  if (typeof v.question !== "string" || v.question.length === 0 || v.question.length > WAIT_QUESTION_MAX_CHARS) {
-    return void 0;
-  }
-  let options;
-  if (v.options !== void 0) {
-    if (!Array.isArray(v.options) || v.options.length === 0 || v.options.length > WAIT_OPTIONS_MAX) return void 0;
-    for (const o of v.options) {
-      if (typeof o !== "string" || o.length === 0 || o.length > WAIT_OPTION_MAX_CHARS) return void 0;
-    }
-    options = v.options;
-  }
-  if (v.timeoutSec !== void 0 && (typeof v.timeoutSec !== "number" || !Number.isFinite(v.timeoutSec))) {
-    return void 0;
-  }
-  return {
-    to: v.to,
-    question: v.question,
-    options,
-    timeoutSec: v.timeoutSec
-  };
-}
-function parseWaitResolveParams(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  const v = value;
-  if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return void 0;
-  if (typeof v.questionId !== "string" || v.questionId.length === 0 || v.questionId.length > 128) return void 0;
-  return { to: v.to, questionId: v.questionId };
-}
 
 // src/extension/registration/lifecycle-handlers.ts
 init_child_pi();
