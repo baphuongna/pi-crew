@@ -16,9 +16,10 @@
 import { canTransitionTaskStatus, isTeamTaskStatus } from "../../../state/contracts.ts";
 import { withRunLockSync } from "../../../state/coordination/locks.ts";
 import { claimTask, releaseTaskClaim, transitionClaimedTaskStatus } from "../../../state/coordination/task-claims.ts";
-import { appendEvent } from "../../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks } from "../../../state/stores/state-store.ts";
 import type { TeamTaskState } from "../../../state/types.ts";
+import { logInternalError } from "../../../utils/internal-error.ts";
 import { RUN_NOT_FOUND_HINT } from "../run-not-found.ts";
 import type { ApiHandlerContext, ApiOperationHandler } from "./handler-context.ts";
 
@@ -92,7 +93,7 @@ export const handleClaimTask: ApiOperationHandler = (ctx) => {
 			const updatedTask = claimTask(freshTask, owner);
 			const tasks = fresh.tasks.map((item) => (item.id === freshTask.id ? updatedTask : item));
 			saveRunTasks(fresh.manifest, tasks);
-			appendEvent(fresh.manifest.eventsPath, {
+			appendEventBuffered(fresh.manifest.eventsPath, {
 				type: "task.claimed",
 				runId: fresh.manifest.runId,
 				taskId: freshTask.id,
@@ -101,7 +102,7 @@ export const handleClaimTask: ApiOperationHandler = (ctx) => {
 					token: "[REDACTED]",
 					leasedUntil: updatedTask.claim?.leasedUntil,
 				},
-			});
+			}).catch((e) => logInternalError("api.task-claims.buffered", e, "type=task.claimed"));
 			return result(JSON.stringify(updatedTask.claim, null, 2), {
 				action: "api",
 				status: "ok",
@@ -162,12 +163,12 @@ export const handleReleaseTaskClaim: ApiOperationHandler = (ctx) => {
 			const updatedTask = releaseTaskClaim(freshTask, owner, token);
 			const tasks = fresh.tasks.map((item) => (item.id === freshTask.id ? updatedTask : item));
 			saveRunTasks(fresh.manifest, tasks);
-			appendEvent(fresh.manifest.eventsPath, {
+			appendEventBuffered(fresh.manifest.eventsPath, {
 				type: "task.claim_released",
 				runId: fresh.manifest.runId,
 				taskId: freshTask.id,
 				data: { owner },
-			});
+			}).catch((e) => logInternalError("api.task-claims.buffered", e, "type=task.claim_released"));
 			return result(JSON.stringify(updatedTask, null, 2), {
 				action: "api",
 				status: "ok",
@@ -241,12 +242,12 @@ export const handleTransitionTaskStatus: ApiOperationHandler = (ctx) => {
 			const updatedTask = transitionClaimedTaskStatus(freshTask, owner, token, to);
 			const tasks = fresh.tasks.map((item) => (item.id === freshTask.id ? updatedTask : item));
 			saveRunTasks(fresh.manifest, tasks);
-			appendEvent(fresh.manifest.eventsPath, {
+			appendEventBuffered(fresh.manifest.eventsPath, {
 				type: "task.status_transitioned",
 				runId: fresh.manifest.runId,
 				taskId: freshTask.id,
 				data: { owner, status: to },
-			});
+			}).catch((e) => logInternalError("api.task-claims.buffered", e, "type=task.status_transitioned"));
 			return result(JSON.stringify(updatedTask, null, 2), {
 				action: "api",
 				status: "ok",

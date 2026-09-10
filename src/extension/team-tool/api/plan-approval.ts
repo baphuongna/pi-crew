@@ -8,7 +8,7 @@
 import { terminateLiveAgentsForRun } from "../../../runtime/live-session/live-agent-manager.ts";
 import { currentCrewRole, permissionForRole } from "../../../runtime/role-permission.ts";
 import { withRunLock } from "../../../state/coordination/locks.ts";
-import { appendEvent } from "../../../state/event-log/event-log.ts";
+import { appendEvent, appendEventBuffered } from "../../../state/event-log/event-log.ts";
 import { getCurrentPlanRecord, setPlanApproval } from "../../../state/stores/plan-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../../../state/stores/state-store.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
@@ -68,13 +68,13 @@ export const handleApprovePlan: ApiOperationHandler = async (hctx) => {
 			// plan id+version. Pre-v2 runs without a PlanRecord skip silently.
 			const currentRecord = getCurrentPlanRecord(manifest);
 			if (currentRecord) setPlanApproval(manifest, { status: "approved", planVersion: currentRecord.version, by: "api" });
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: "plan.approved",
 				runId: manifest.runId,
 				taskId: approval.planTaskId,
 				message: "Adaptive implementation plan approved; resume the run to execute mutating tasks.",
 				metadata: { provenance: "api" },
-			});
+			}).catch((e) => logInternalError("api.plan-approval.buffered", e, "type=plan.approved"));
 			return result(JSON.stringify(manifest.planApproval, null, 2), {
 				action: "api",
 				status: "ok",
@@ -150,13 +150,13 @@ export const handleCancelPlan: ApiOperationHandler = async (hctx) => {
 			const denyRecord = getCurrentPlanRecord(manifest);
 			if (denyRecord) setPlanApproval(manifest, { status: "rejected", planVersion: denyRecord.version, by: "api" });
 			saveRunTasks(manifest, tasks);
-			appendEvent(manifest.eventsPath, {
+			appendEventBuffered(manifest.eventsPath, {
 				type: "plan.cancelled",
 				runId: manifest.runId,
 				taskId: approval.planTaskId,
 				message: "Adaptive implementation plan was cancelled.",
 				metadata: { provenance: "api" },
-			});
+			}).catch((e) => logInternalError("api.plan-approval.buffered", e, "type=plan.cancelled"));
 			manifest = updateRunStatus(manifest, "cancelled", "Plan approval was cancelled.");
 			void terminateLiveAgentsForRun(manifest.runId, "cancelled", appendEvent, manifest.eventsPath).catch((error) =>
 				logInternalError("team-tool.cancel-plan.terminate", error, `runId=${manifest.runId}`),

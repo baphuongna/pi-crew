@@ -22,7 +22,8 @@ import {
 	appendSteeringMessage,
 	appendSteeringMessageAsync,
 } from "../../../state/coordination/mailbox.ts";
-import { appendEvent } from "../../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../../state/event-log/event-log.ts";
+import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
 export const handleNudgeAgent: ApiOperationHandler = (hctx) => {
@@ -54,13 +55,13 @@ export const handleNudgeAgent: ApiOperationHandler = (hctx) => {
 		priority: "normal",
 		data: { source: "nudge-agent" },
 	});
-	appendEvent(loaded.manifest.eventsPath, {
+	appendEventBuffered(loaded.manifest.eventsPath, {
 		type: "agent.nudged",
 		runId: loaded.manifest.runId,
 		taskId: agent.taskId,
 		message: messageText,
 		data: { agentId: agent.id, mailboxMessageId: message.id },
-	});
+	}).catch((e) => logInternalError("api.agent-control.buffered", e, "type=agent.nudged"));
 	ctx.events?.emit?.("crew.mailbox.message", {
 		runId: loaded.manifest.runId,
 		id: message.id,
@@ -314,7 +315,7 @@ export const handleLiveAgentControl: ApiOperationHandler = async (hctx) => {
 						: undefined;
 			publishLiveControlRealtime(request);
 			ctx.events?.emit?.("pi-crew:live-control", liveControlRealtimeMessage(request));
-			appendEvent(loaded.manifest.eventsPath, {
+			appendEventBuffered(loaded.manifest.eventsPath, {
 				type: "agent.control.queued",
 				runId: loaded.manifest.runId,
 				taskId: agent.taskId,
@@ -324,7 +325,7 @@ export const handleLiveAgentControl: ApiOperationHandler = async (hctx) => {
 					mailboxMessageId: mailboxMessage?.id,
 					realtime: true,
 				},
-			});
+			}).catch((e) => logInternalError("api.agent-control.buffered", e, "type=agent.control.queued"));
 			return result(JSON.stringify({ queued: true, request, mailboxMessage }, null, 2), {
 				action: "api",
 				status: "ok",

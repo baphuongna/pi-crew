@@ -9121,7 +9121,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api/agent-control.ts": {
-      "bytes": 11208,
+      "bytes": 11479,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -9152,6 +9152,11 @@
           "path": "src/state/event-log/event-log.ts",
           "kind": "import-statement",
           "original": "../../../state/event-log/event-log.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/internal-error.ts"
         }
       ],
       "format": "esm"
@@ -9173,7 +9178,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api/heartbeat.ts": {
-      "bytes": 3705,
+      "bytes": 3875,
       "imports": [
         {
           "path": "src/runtime/heartbeat/worker-heartbeat.ts",
@@ -9201,6 +9206,11 @@
           "original": "../../../state/stores/state-store.ts"
         },
         {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/internal-error.ts"
+        },
+        {
           "path": "src/extension/team-tool/run-not-found.ts",
           "kind": "import-statement",
           "original": "../run-not-found.ts"
@@ -9209,7 +9219,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api/mailbox.ts": {
-      "bytes": 7297,
+      "bytes": 7663,
       "imports": [
         {
           "path": "src/state/coordination/locks.ts",
@@ -9225,12 +9235,17 @@
           "path": "src/state/event-log/event-log.ts",
           "kind": "import-statement",
           "original": "../../../state/event-log/event-log.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/internal-error.ts"
         }
       ],
       "format": "esm"
     },
     "src/extension/team-tool/api/plan-approval.ts": {
-      "bytes": 6511,
+      "bytes": 6721,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -11098,7 +11113,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api/task-claims.ts": {
-      "bytes": 9572,
+      "bytes": 9941,
       "imports": [
         {
           "path": "src/state/contracts.ts",
@@ -11124,6 +11139,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/internal-error.ts"
         },
         {
           "path": "src/extension/team-tool/run-not-found.ts",
@@ -20923,7 +20943,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8006789
+      "bytes": 8008835
     },
     "dist/index.mjs": {
       "imports": [
@@ -23994,7 +24014,7 @@
           "bytesInOutput": 1274
         },
         "src/extension/team-tool/api/agent-control.ts": {
-          "bytesInOutput": 12231
+          "bytesInOutput": 12452
         },
         "src/runtime/heartbeat/worker-heartbeat.ts": {
           "bytesInOutput": 590
@@ -24003,13 +24023,13 @@
           "bytesInOutput": 241
         },
         "src/extension/team-tool/api/heartbeat.ts": {
-          "bytesInOutput": 3592
+          "bytesInOutput": 3712
         },
         "src/extension/team-tool/api/mailbox.ts": {
-          "bytesInOutput": 7754
+          "bytesInOutput": 8070
         },
         "src/extension/team-tool/api/plan-approval.ts": {
-          "bytesInOutput": 6524
+          "bytesInOutput": 6713
         },
         "src/runtime/agent-observability.ts": {
           "bytesInOutput": 4436
@@ -24273,7 +24293,7 @@
           "bytesInOutput": 1879
         },
         "src/extension/team-tool/api/task-claims.ts": {
-          "bytesInOutput": 8807
+          "bytesInOutput": 9126
         },
         "src/extension/team-tool/param-error.ts": {
           "bytesInOutput": 3579
@@ -25197,7 +25217,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3361295
+      "bytes": 3362460
     }
   }
 }

@@ -31157,6 +31157,7 @@ var init_agent_control = __esm({
     init_live_control_realtime();
     init_mailbox();
     init_event_log();
+    init_internal_error();
     handleNudgeAgent = (hctx) => {
       const { cfg, loaded, result: result4, paramRequired: paramRequired2, ctx } = hctx;
       const agentId = typeof cfg.agentId === "string" ? cfg.agentId : void 0;
@@ -31183,13 +31184,13 @@ var init_agent_control = __esm({
         priority: "normal",
         data: { source: "nudge-agent" }
       });
-      appendEvent(loaded.manifest.eventsPath, {
+      appendEventBuffered(loaded.manifest.eventsPath, {
         type: "agent.nudged",
         runId: loaded.manifest.runId,
         taskId: agent.taskId,
         message: messageText,
         data: { agentId: agent.id, mailboxMessageId: message.id }
-      });
+      }).catch((e) => logInternalError("api.agent-control.buffered", e, "type=agent.nudged"));
       ctx.events?.emit?.("crew.mailbox.message", {
         runId: loaded.manifest.runId,
         id: message.id,
@@ -31424,7 +31425,7 @@ var init_agent_control = __esm({
           }) : void 0;
           publishLiveControlRealtime(request);
           ctx.events?.emit?.("pi-crew:live-control", liveControlRealtimeMessage(request));
-          appendEvent(loaded.manifest.eventsPath, {
+          appendEventBuffered(loaded.manifest.eventsPath, {
             type: "agent.control.queued",
             runId: loaded.manifest.runId,
             taskId: agent.taskId,
@@ -31434,7 +31435,7 @@ var init_agent_control = __esm({
               mailboxMessageId: mailboxMessage?.id,
               realtime: true
             }
-          });
+          }).catch((e) => logInternalError("api.agent-control.buffered", e, "type=agent.control.queued"));
           return result4(JSON.stringify({ queued: true, request, mailboxMessage }, null, 2), {
             action: "api",
             status: "ok",
@@ -31503,6 +31504,7 @@ var init_heartbeat = __esm({
     init_locks();
     init_event_log();
     init_state_store();
+    init_internal_error();
     init_run_not_found();
     handleWriteHeartbeat = (hctx) => {
       const { cfg, loaded, result: result4, paramRequired: paramRequired2 } = hctx;
@@ -31567,12 +31569,12 @@ var init_heartbeat = __esm({
           );
           const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? { ...item, heartbeat } : item);
           saveRunTasks(fresh.manifest, tasks);
-          appendEvent(fresh.manifest.eventsPath, {
+          appendEventBuffered(fresh.manifest.eventsPath, {
             type: "worker.heartbeat",
             runId: fresh.manifest.runId,
             taskId: freshTask.id,
             data: { ...heartbeat }
-          });
+          }).catch((e) => logInternalError("api.heartbeat.buffered", e, "type=worker.heartbeat"));
           return result4(JSON.stringify(heartbeat, null, 2), {
             action: "api",
             status: "ok",
@@ -31607,6 +31609,7 @@ var init_mailbox2 = __esm({
     init_locks();
     init_mailbox();
     init_event_log();
+    init_internal_error();
     handleReadMailbox = (hctx) => {
       const { cfg, loaded, result: result4 } = hctx;
       const direction = cfg.direction === "inbox" || cfg.direction === "outbox" ? cfg.direction : void 0;
@@ -31707,11 +31710,11 @@ var init_mailbox2 = __esm({
             body,
             taskId
           });
-          appendEvent(loaded.manifest.eventsPath, {
+          appendEventBuffered(loaded.manifest.eventsPath, {
             type: "mailbox.message",
             runId: loaded.manifest.runId,
             data: { id: message.id, direction, from, to }
-          });
+          }).catch((e) => logInternalError("api.mailbox.buffered", e, "type=mailbox.message"));
           ctx.events?.emit?.("crew.mailbox.message", {
             runId: loaded.manifest.runId,
             id: message.id,
@@ -31762,13 +31765,13 @@ var init_mailbox2 = __esm({
         return withRunLockSync(loaded.manifest, () => {
           const message = readMailboxMessage(loaded.manifest, messageId);
           const delivery = acknowledgeMailboxMessage(loaded.manifest, messageId);
-          appendEvent(loaded.manifest.eventsPath, {
+          appendEventBuffered(loaded.manifest.eventsPath, {
             type: "mailbox.acknowledged",
             runId: loaded.manifest.runId,
             data: { messageId }
-          });
+          }).catch((e) => logInternalError("api.mailbox.buffered", e, "type=mailbox.acknowledged"));
           if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
-            appendEvent(loaded.manifest.eventsPath, {
+            appendEventBuffered(loaded.manifest.eventsPath, {
               type: "agent.group_join.acknowledged",
               runId: loaded.manifest.runId,
               message: "Group join delivery acknowledged via mailbox ack.",
@@ -31781,7 +31784,7 @@ var init_mailbox2 = __esm({
                 acknowledgedBy: "leader"
               },
               metadata: { provenance: "api" }
-            });
+            }).catch((e) => logInternalError("api.mailbox.buffered", e, "type=agent.group_join.acknowledged"));
           }
           ctx.events?.emit?.("crew.mailbox.acknowledged", {
             runId: loaded.manifest.runId,
@@ -31881,13 +31884,13 @@ var init_plan_approval2 = __esm({
           await saveRunManifestAsync(manifest);
           const currentRecord = getCurrentPlanRecord(manifest);
           if (currentRecord) setPlanApproval(manifest, { status: "approved", planVersion: currentRecord.version, by: "api" });
-          appendEvent(manifest.eventsPath, {
+          appendEventBuffered(manifest.eventsPath, {
             type: "plan.approved",
             runId: manifest.runId,
             taskId: approval.planTaskId,
             message: "Adaptive implementation plan approved; resume the run to execute mutating tasks.",
             metadata: { provenance: "api" }
-          });
+          }).catch((e) => logInternalError("api.plan-approval.buffered", e, "type=plan.approved"));
           return result4(JSON.stringify(manifest.planApproval, null, 2), {
             action: "api",
             status: "ok",
@@ -31958,13 +31961,13 @@ var init_plan_approval2 = __esm({
           const denyRecord = getCurrentPlanRecord(manifest);
           if (denyRecord) setPlanApproval(manifest, { status: "rejected", planVersion: denyRecord.version, by: "api" });
           saveRunTasks(manifest, tasks);
-          appendEvent(manifest.eventsPath, {
+          appendEventBuffered(manifest.eventsPath, {
             type: "plan.cancelled",
             runId: manifest.runId,
             taskId: approval.planTaskId,
             message: "Adaptive implementation plan was cancelled.",
             metadata: { provenance: "api" }
-          });
+          }).catch((e) => logInternalError("api.plan-approval.buffered", e, "type=plan.cancelled"));
           manifest = updateRunStatus(manifest, "cancelled", "Plan approval was cancelled.");
           void terminateLiveAgentsForRun(manifest.runId, "cancelled", appendEvent, manifest.eventsPath).catch(
             (error) => logInternalError("team-tool.cancel-plan.terminate", error, `runId=${manifest.runId}`)
@@ -41303,6 +41306,7 @@ var init_task_claims2 = __esm({
     init_task_claims();
     init_event_log();
     init_state_store();
+    init_internal_error();
     init_run_not_found();
     handleClaimTask = (ctx) => {
       const { cfg, loaded, result: result4, paramRequired: paramRequired2 } = ctx;
@@ -41341,7 +41345,7 @@ var init_task_claims2 = __esm({
           const updatedTask = claimTask(freshTask, owner);
           const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? updatedTask : item);
           saveRunTasks(fresh.manifest, tasks);
-          appendEvent(fresh.manifest.eventsPath, {
+          appendEventBuffered(fresh.manifest.eventsPath, {
             type: "task.claimed",
             runId: fresh.manifest.runId,
             taskId: freshTask.id,
@@ -41350,7 +41354,7 @@ var init_task_claims2 = __esm({
               token: "[REDACTED]",
               leasedUntil: updatedTask.claim?.leasedUntil
             }
-          });
+          }).catch((e) => logInternalError("api.task-claims.buffered", e, "type=task.claimed"));
           return result4(JSON.stringify(updatedTask.claim, null, 2), {
             action: "api",
             status: "ok",
@@ -41409,12 +41413,12 @@ var init_task_claims2 = __esm({
           const updatedTask = releaseTaskClaim(freshTask, owner, token);
           const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? updatedTask : item);
           saveRunTasks(fresh.manifest, tasks);
-          appendEvent(fresh.manifest.eventsPath, {
+          appendEventBuffered(fresh.manifest.eventsPath, {
             type: "task.claim_released",
             runId: fresh.manifest.runId,
             taskId: freshTask.id,
             data: { owner }
-          });
+          }).catch((e) => logInternalError("api.task-claims.buffered", e, "type=task.claim_released"));
           return result4(JSON.stringify(updatedTask, null, 2), {
             action: "api",
             status: "ok",
@@ -41484,12 +41488,12 @@ var init_task_claims2 = __esm({
           const updatedTask = transitionClaimedTaskStatus(freshTask, owner, token, to);
           const tasks = fresh.tasks.map((item) => item.id === freshTask.id ? updatedTask : item);
           saveRunTasks(fresh.manifest, tasks);
-          appendEvent(fresh.manifest.eventsPath, {
+          appendEventBuffered(fresh.manifest.eventsPath, {
             type: "task.status_transitioned",
             runId: fresh.manifest.runId,
             taskId: freshTask.id,
             data: { owner, status: to }
-          });
+          }).catch((e) => logInternalError("api.task-claims.buffered", e, "type=task.status_transitioned"));
           return result4(JSON.stringify(updatedTask, null, 2), {
             action: "api",
             status: "ok",

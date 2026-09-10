@@ -8,8 +8,9 @@
 import { touchWorkerHeartbeat } from "../../../runtime/heartbeat/worker-heartbeat.ts";
 import { isTerminalTaskStatus } from "../../../state/contracts.ts";
 import { withRunLockSync } from "../../../state/coordination/locks.ts";
-import { appendEvent } from "../../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks } from "../../../state/stores/state-store.ts";
+import { logInternalError } from "../../../utils/internal-error.ts";
 import { RUN_NOT_FOUND_HINT } from "../run-not-found.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
@@ -79,12 +80,12 @@ export const handleWriteHeartbeat: ApiOperationHandler = (hctx) => {
 			);
 			const tasks = fresh.tasks.map((item) => (item.id === freshTask.id ? { ...item, heartbeat } : item));
 			saveRunTasks(fresh.manifest, tasks);
-			appendEvent(fresh.manifest.eventsPath, {
+			appendEventBuffered(fresh.manifest.eventsPath, {
 				type: "worker.heartbeat",
 				runId: fresh.manifest.runId,
 				taskId: freshTask.id,
 				data: { ...heartbeat },
-			});
+			}).catch((e) => logInternalError("api.heartbeat.buffered", e, "type=worker.heartbeat"));
 			return result(JSON.stringify(heartbeat, null, 2), {
 				action: "api",
 				status: "ok",

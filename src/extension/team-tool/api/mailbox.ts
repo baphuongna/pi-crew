@@ -16,7 +16,8 @@ import {
 	readMailboxMessage,
 	validateMailbox,
 } from "../../../state/coordination/mailbox.ts";
-import { appendEvent } from "../../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../../state/event-log/event-log.ts";
+import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
 export const handleReadMailbox: ApiOperationHandler = (hctx) => {
@@ -129,11 +130,11 @@ export const handleSendMessage: ApiOperationHandler = (hctx) => {
 			// run-lock callback. Sync append (byte-identical to pre-extract
 			// api.ts) so consumers reading eventsPath immediately after the
 			// call see the event — async fire-and-forget would race.
-			appendEvent(loaded.manifest.eventsPath, {
+			appendEventBuffered(loaded.manifest.eventsPath, {
 				type: "mailbox.message",
 				runId: loaded.manifest.runId,
 				data: { id: message.id, direction, from, to },
-			});
+			}).catch((e) => logInternalError("api.mailbox.buffered", e, "type=mailbox.message"));
 			ctx.events?.emit?.("crew.mailbox.message", {
 				runId: loaded.manifest.runId,
 				id: message.id,
@@ -185,13 +186,13 @@ export const handleAckMessage: ApiOperationHandler = (hctx) => {
 		return withRunLockSync(loaded.manifest, () => {
 			const message = readMailboxMessage(loaded.manifest, messageId);
 			const delivery = acknowledgeMailboxMessage(loaded.manifest, messageId);
-			appendEvent(loaded.manifest.eventsPath, {
+			appendEventBuffered(loaded.manifest.eventsPath, {
 				type: "mailbox.acknowledged",
 				runId: loaded.manifest.runId,
 				data: { messageId },
-			});
+			}).catch((e) => logInternalError("api.mailbox.buffered", e, "type=mailbox.acknowledged"));
 			if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
-				appendEvent(loaded.manifest.eventsPath, {
+				appendEventBuffered(loaded.manifest.eventsPath, {
 					type: "agent.group_join.acknowledged",
 					runId: loaded.manifest.runId,
 					message: "Group join delivery acknowledged via mailbox ack.",
@@ -204,7 +205,7 @@ export const handleAckMessage: ApiOperationHandler = (hctx) => {
 						acknowledgedBy: "leader",
 					},
 					metadata: { provenance: "api" },
-				});
+				}).catch((e) => logInternalError("api.mailbox.buffered", e, "type=agent.group_join.acknowledged"));
 			}
 			ctx.events?.emit?.("crew.mailbox.acknowledged", {
 				runId: loaded.manifest.runId,
