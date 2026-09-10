@@ -6423,6 +6423,17 @@
       ],
       "format": "esm"
     },
+    "src/config/migration-validator.ts": {
+      "bytes": 3708,
+      "imports": [
+        {
+          "path": "src/config/env-vars.ts",
+          "kind": "import-statement",
+          "original": "./env-vars.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/model/runtime-warmup.ts": {
       "bytes": 8619,
       "imports": [],
@@ -8114,7 +8125,7 @@
       "format": "esm"
     },
     "src/state/stores/state-store.ts": {
-      "bytes": 55083,
+      "bytes": 55421,
       "imports": [
         {
           "path": "node:fs",
@@ -8589,7 +8600,7 @@
       "format": "esm"
     },
     "src/state/stores/plan-store.ts": {
-      "bytes": 11526,
+      "bytes": 12227,
       "imports": [
         {
           "path": "node:fs",
@@ -11370,7 +11381,7 @@
       "format": "esm"
     },
     "src/hooks/registry.ts": {
-      "bytes": 7402,
+      "bytes": 7457,
       "imports": [
         {
           "path": "src/state/event-log/event-log.ts",
@@ -11381,11 +11392,6 @@
           "path": "src/ui/run-event-bus.ts",
           "kind": "import-statement",
           "original": "../ui/run-event-bus.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
         }
       ],
       "format": "esm"
@@ -11402,7 +11408,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/cancel.ts": {
-      "bytes": 18433,
+      "bytes": 18752,
       "imports": [
         {
           "path": "src/hooks/registry.ts",
@@ -12208,7 +12214,7 @@
       "format": "esm"
     },
     "src/prompt/scratchpad-lifecycle.ts": {
-      "bytes": 32893,
+      "bytes": 32898,
       "imports": [
         {
           "path": "node:fs",
@@ -12481,7 +12487,7 @@
       "format": "esm"
     },
     "src/runtime/plan-replan.ts": {
-      "bytes": 7060,
+      "bytes": 7084,
       "imports": [
         {
           "path": "node:fs",
@@ -12902,7 +12908,7 @@
       "format": "esm"
     },
     "src/state/stores/ownership-map.ts": {
-      "bytes": 7878,
+      "bytes": 7903,
       "imports": [
         {
           "path": "node:fs",
@@ -12954,7 +12960,7 @@
       "format": "esm"
     },
     "src/runtime/supervisor-contact.ts": {
-      "bytes": 2690,
+      "bytes": 2773,
       "imports": [
         {
           "path": "src/state/event-log/event-log.ts",
@@ -14301,7 +14307,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/handle-settings.ts": {
-      "bytes": 18833,
+      "bytes": 19034,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -14551,7 +14557,7 @@
       "format": "esm"
     },
     "src/runtime/goal-workflow/goal-state-store.ts": {
-      "bytes": 8600,
+      "bytes": 8693,
       "imports": [
         {
           "path": "node:fs",
@@ -15010,7 +15016,7 @@
       "format": "esm"
     },
     "src/runtime/recovery/crash-recovery.ts": {
-      "bytes": 33124,
+      "bytes": 32395,
       "imports": [
         {
           "path": "node:fs",
@@ -15945,7 +15951,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/status.ts": {
-      "bytes": 19851,
+      "bytes": 19969,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -16021,11 +16027,6 @@
           "path": "src/ui/format-helpers.ts",
           "kind": "import-statement",
           "original": "../../ui/format-helpers.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
         },
         {
           "path": "src/extension/team-tool.ts",
@@ -16368,7 +16369,7 @@
       "format": "esm"
     },
     "src/runtime/finalize-run.ts": {
-      "bytes": 26455,
+      "bytes": 26609,
       "imports": [
         {
           "path": "node:fs",
@@ -17310,7 +17311,7 @@
       "format": "esm"
     },
     "src/runtime/goal-workflow/dynamic-workflow-context.ts": {
-      "bytes": 44446,
+      "bytes": 44559,
       "imports": [
         {
           "path": "node:crypto",
@@ -17386,7 +17387,7 @@
       "format": "esm"
     },
     "src/runtime/goal-workflow/dynamic-workflow-runner.ts": {
-      "bytes": 15783,
+      "bytes": 15461,
       "imports": [
         {
           "path": "node:fs",
@@ -18292,7 +18293,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 31288,
+      "bytes": 31489,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -19921,7 +19922,7 @@
       "format": "esm"
     },
     "src/runtime/broker/protocol/events-replay.ts": {
-      "bytes": 2522,
+      "bytes": 2706,
       "imports": [
         {
           "path": "src/state/event-log/event-log.ts",
@@ -19953,7 +19954,7 @@
       "format": "esm"
     },
     "src/runtime/broker/protocol/msg-inbox.ts": {
-      "bytes": 2410,
+      "bytes": 2518,
       "imports": [
         {
           "path": "src/state/coordination/mailbox.ts",
@@ -20006,7 +20007,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 78391,
+      "bytes": 78499,
       "imports": [
         {
           "path": "node:crypto",
@@ -20922,12 +20923,17 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 5847,
+      "bytes": 6465,
       "imports": [
         {
           "path": "src/config/config.ts",
           "kind": "import-statement",
           "original": "../config/config.ts"
+        },
+        {
+          "path": "src/config/migration-validator.ts",
+          "kind": "import-statement",
+          "original": "../config/migration-validator.ts"
         },
         {
           "path": "src/runtime/model/runtime-warmup.ts",
@@ -21089,7 +21095,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8018273
+      "bytes": 8024742
     },
     "dist/index.mjs": {
       "imports": [
@@ -24007,7 +24013,7 @@
           "bytesInOutput": 4462
         },
         "src/state/stores/state-store.ts": {
-          "bytesInOutput": 27569
+          "bytesInOutput": 27560
         },
         "src/ui/pi-ui-compat.ts": {
           "bytesInOutput": 1173
@@ -24076,7 +24082,7 @@
           "bytesInOutput": 8424
         },
         "src/state/stores/plan-store.ts": {
-          "bytesInOutput": 6771
+          "bytesInOutput": 6610
         },
         "src/runtime/plan-approval.ts": {
           "bytesInOutput": 2889
@@ -24466,13 +24472,13 @@
           "bytesInOutput": 2101
         },
         "src/hooks/registry.ts": {
-          "bytesInOutput": 4539
+          "bytesInOutput": 4427
         },
         "src/extension/team-tool/intent-policy.ts": {
           "bytesInOutput": 1245
         },
         "src/extension/team-tool/cancel.ts": {
-          "bytesInOutput": 13675
+          "bytesInOutput": 13591
         },
         "src/config/drift-detector.ts": {
           "bytesInOutput": 5783
@@ -24577,7 +24583,7 @@
           "bytesInOutput": 1407
         },
         "src/runtime/plan-replan.ts": {
-          "bytesInOutput": 4899
+          "bytesInOutput": 4715
         },
         "src/runtime/recovery/retry-executor.ts": {
           "bytesInOutput": 2435
@@ -24640,7 +24646,7 @@
           "bytesInOutput": 10244
         },
         "src/state/stores/ownership-map.ts": {
-          "bytesInOutput": 2081
+          "bytesInOutput": 2004
         },
         "src/runtime/heartbeat/worker-startup.ts": {
           "bytesInOutput": 2354
@@ -24652,7 +24658,7 @@
           "bytesInOutput": 2643
         },
         "src/runtime/supervisor-contact.ts": {
-          "bytesInOutput": 1542
+          "bytesInOutput": 1442
         },
         "src/runtime/task-runner/progress.ts": {
           "bytesInOutput": 5008
@@ -24778,7 +24784,7 @@
           "bytesInOutput": 4557
         },
         "src/extension/team-tool/handle-settings.ts": {
-          "bytesInOutput": 16981
+          "bytesInOutput": 17197
         },
         "src/extension/team-tool/workflow-manage.ts": {
           "bytesInOutput": 8636
@@ -24793,7 +24799,7 @@
           "bytesInOutput": 10021
         },
         "src/runtime/goal-workflow/goal-state-store.ts": {
-          "bytesInOutput": 7090
+          "bytesInOutput": 6992
         },
         "src/runtime/verification/verification-integrity.ts": {
           "bytesInOutput": 1039
@@ -24841,7 +24847,7 @@
           "bytesInOutput": 17036
         },
         "src/runtime/recovery/crash-recovery.ts": {
-          "bytesInOutput": 20241
+          "bytesInOutput": 19533
         },
         "src/ui/widget/widget-model.ts": {
           "bytesInOutput": 2438
@@ -24934,7 +24940,7 @@
           "bytesInOutput": 3934
         },
         "src/extension/team-tool/status.ts": {
-          "bytesInOutput": 14085
+          "bytesInOutput": 13879
         },
         "src/extension/team-tool/dispatch/status.ts": {
           "bytesInOutput": 6689
@@ -24961,7 +24967,7 @@
           "bytesInOutput": 3916
         },
         "src/runtime/finalize-run.ts": {
-          "bytesInOutput": 15059
+          "bytesInOutput": 15237
         },
         "src/runtime/goal-workflow/goal-achievement.ts": {
           "bytesInOutput": 2936
@@ -25042,10 +25048,10 @@
           "bytesInOutput": 666
         },
         "src/runtime/goal-workflow/dynamic-workflow-context.ts": {
-          "bytesInOutput": 22306
+          "bytesInOutput": 21999
         },
         "src/runtime/goal-workflow/dynamic-workflow-runner.ts": {
-          "bytesInOutput": 7607
+          "bytesInOutput": 7083
         },
         "src/extension/team-tool/run.ts": {
           "bytesInOutput": 26560
@@ -25111,7 +25117,7 @@
           "bytesInOutput": 15969
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 30117
+          "bytesInOutput": 30333
         },
         "src/extension/registration/commands/shared.ts": {
           "bytesInOutput": 16619
@@ -25201,7 +25207,10 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 1951
+          "bytesInOutput": 2223
+        },
+        "src/config/migration-validator.ts": {
+          "bytesInOutput": 1081
         },
         "src/ui/deploy-bundled-themes.ts": {
           "bytesInOutput": 1300
@@ -25384,7 +25393,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3365394
+      "bytes": 3364855
     }
   }
 }

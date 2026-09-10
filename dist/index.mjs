@@ -23652,7 +23652,7 @@ function saveRunManifest(manifest) {
   const cachedTasksSize = cachedBeforeInvalidate?.tasksSize ?? 0;
   invalidateRunCache(manifest.stateRoot);
   const manifestPath = path30.join(manifest.stateRoot, "manifest.json");
-  atomicWriteJsonCoalesced(manifestPath, manifest);
+  atomicWriteJson(manifestPath, manifest);
   const manifestStat = fs37.statSync(manifestPath);
   setManifestCache(manifest.stateRoot, {
     manifest,
@@ -26928,7 +26928,7 @@ function getCurrentPlanRecord(manifest) {
 function writePlanFile(manifest, revisions) {
   const file = { version: 1, revisions };
   fs43.mkdirSync(path33.dirname(planFilePath(manifest)), { recursive: true });
-  atomicWriteJsonCoalesced(planFilePath(manifest), file);
+  atomicWriteJson(planFilePath(manifest), file);
 }
 function assertRecordWellFormed(record) {
   const ids = /* @__PURE__ */ new Set();
@@ -26970,12 +26970,12 @@ function appendPlanRevision(manifest, record) {
     revisions.push(record);
     writePlanFile(manifest, revisions);
     const dropped = record.items.filter((i) => i.status === "dropped").length;
-    appendEventBuffered(manifest.eventsPath, {
+    appendEvent(manifest.eventsPath, {
       type: record.version === 1 ? "plan.created" : "plan.revised",
       runId: manifest.runId,
       message: record.version === 1 ? `Plan v1 created: ${record.items.length} item(s) in ${record.phases.length} phase(s)` : `Plan v${record.version} revised (${record.items.length} item(s), ${dropped} dropped)`,
       data: { planId: record.id, version: record.version, dropped }
-    }).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
+    });
     return record;
   });
 }
@@ -27006,12 +27006,12 @@ function setPlanApproval(manifest, approval) {
     };
     writePlanFile(manifest, revisions);
     if (approval.status !== "pending") {
-      appendEventBuffered(manifest.eventsPath, {
+      appendEvent(manifest.eventsPath, {
         type: approval.status === "approved" ? "plan.approved" : "plan.rejected",
         runId: manifest.runId,
         message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
         data: { planId: current.id, version: approval.planVersion, status: approval.status }
-      }).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
+      });
     }
     return current;
   });
@@ -42924,7 +42924,7 @@ async function executeHook(name, ctx) {
   };
 }
 function appendHookEvent(manifest, report) {
-  appendEventBuffered(manifest.eventsPath, {
+  appendEvent(manifest.eventsPath, {
     type: "hook.executed",
     runId: manifest.runId,
     message: `Hook ${report.hookName} completed with outcome=${report.outcome}${report.reason ? `: ${report.reason}` : ""}`,
@@ -42934,7 +42934,7 @@ function appendHookEvent(manifest, report) {
       durationMs: report.durationMs,
       reason: report.reason
     }
-  }).catch((e) => logInternalError("registry.buffered", e, "type=hook.executed"));
+  });
   runEventBus.emit({
     type: "effectiveness_changed",
     runId: manifest.runId,
@@ -42947,7 +42947,6 @@ var init_registry2 = __esm({
     "use strict";
     init_event_log();
     init_run_event_bus();
-    init_internal_error();
     registry = /* @__PURE__ */ new Map();
     _piCrewHookIds = /* @__PURE__ */ new Set();
     _nextHookId = 1;
@@ -43289,13 +43288,13 @@ async function handleCancel(params, ctx, deps) {
     }
     ctx.abortForegroundRun?.(fresh.manifest.runId);
     for (const taskId of abortResult.abortedIds) {
-      appendEventBuffered(fresh.manifest.eventsPath, {
+      appendEvent(fresh.manifest.eventsPath, {
         type: "task.cancelled",
         runId: fresh.manifest.runId,
         taskId,
         message: cancelMessage,
         data: cancelData
-      }).catch((e) => logInternalError("cancel.buffered", e, "type=task.cancelled"));
+      });
     }
     const updated = updateRunStatus(
       fresh.manifest,
@@ -46973,25 +46972,25 @@ function sweepDroppedPlanItems(initialManifest, initialTasks) {
             } : t2
           );
           cancelledTaskIds.push(task.id);
-          appendEventBuffered(fresh.manifest.eventsPath, {
+          appendEvent(fresh.manifest.eventsPath, {
             type: "plan.item.dropped",
             runId,
             taskId: task.id,
             message: `Task ${task.id} cancelled: plan item '${task.planItem}' dropped by re-plan v${freshRecord.version}.`,
             data: { itemId: task.planItem, planId: freshRecord.id, planVersion: freshRecord.version }
-          }).catch((e) => logInternalError("plan_replan.buffered", e, "type=plan.item.dropped"));
+          });
           changed = true;
         } else if ((task.status === "running" || task.status === "waiting" || task.status === "needs_attention") && !task.replanDroppedAt) {
           if (!appendSteeringAdvisory(fresh.manifest, task.id)) continue;
           tasks = tasks.map((t2) => t2.id === task.id ? { ...t2, replanDroppedAt: (/* @__PURE__ */ new Date()).toISOString() } : t2);
           advisedTaskIds.push(task.id);
-          appendEventBuffered(fresh.manifest.eventsPath, {
+          appendEvent(fresh.manifest.eventsPath, {
             type: "plan.item.dropped",
             runId,
             taskId: task.id,
             message: `Wrap-up advisory delivered to ${task.id}: plan item '${task.planItem}' dropped by re-plan v${freshRecord.version}.`,
             data: { itemId: task.planItem, planId: freshRecord.id, planVersion: freshRecord.version, softCancel: true }
-          }).catch((e) => logInternalError("plan_replan.buffered", e, "type=plan.item.dropped"));
+          });
           changed = true;
         }
       }
@@ -49294,7 +49293,6 @@ function readOwnershipMap(manifest) {
 function upsertOwnershipEntry(manifest, entry) {
   try {
     withRunLockSync(manifest, () => {
-      flushPendingAtomicWrites(ownershipMapPath(manifest));
       const fresh = readOwnershipMap(manifest);
       const prev = fresh.entries[entry.taskId] ?? {};
       const merged = {
@@ -49305,7 +49303,7 @@ function upsertOwnershipEntry(manifest, entry) {
       };
       const clean = Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== void 0));
       fresh.entries[entry.taskId] = clean;
-      atomicWriteJsonCoalesced(ownershipMapPath(manifest), fresh, void 0, { compact: true });
+      atomicWriteJson(ownershipMapPath(manifest), fresh, { compact: true });
     });
   } catch (error) {
     logInternalError("ownership-map.write", error, `taskId=${entry.taskId}, runId=${entry.runId}`);
@@ -49477,12 +49475,12 @@ function recordSupervisorContact(manifest, payload) {
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   };
   try {
-    appendEventBuffered(manifest.eventsPath, {
+    appendEvent(manifest.eventsPath, {
       type: "supervisor.contact",
       runId: manifest.runId,
       taskId: payload.taskId,
       data: fullPayload
-    }).catch((e) => logInternalError("supervisor_contact.buffered", e, "type=supervisor.contact"));
+    });
   } catch (error) {
     logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
   }
@@ -56456,7 +56454,10 @@ var init_handle_settings = __esm({
       "ui.dashboardPlacement": "center",
       "ui.dashboardWidth": 72,
       "ui.autoOpenDashboard": false,
-      "ui.widgetPlacement": "aboveEditor",
+      // G17 sync (2026-09-10 review): canonical DEFAULT_UI.widgetPlacement =
+      // "bottom" (defaults.ts / install.mjs / project-init) — was drifted
+      // "aboveEditor" in this duplicated EFFECTIVE_DEFAULTS map.
+      "ui.widgetPlacement": "bottom",
       "autonomous.enabled": true,
       "autonomous.injectPolicy": true,
       "autonomous.preferAsyncForLongTasks": false,
@@ -57540,11 +57541,11 @@ var init_goal_state_store = __esm({
           mkdirSync35(dirname38(path104), { recursive: true });
           atomicWriteJson(path104, next);
           if (eventsPath) {
-            appendEventBuffered(eventsPath, {
+            appendEvent(eventsPath, {
               type: "goal.state_changed",
               runId: state2.goalId,
               data: { goalId: state2.goalId, state: state2.state }
-            }).catch((e) => logInternalError("goal_state_store.buffered", e, "type=goal.state_changed"));
+            });
           }
         } catch (error) {
           logInternalError("goal-state-store.save", error, `goalId=${state2.goalId}`);
@@ -60540,22 +60541,22 @@ async function applyRecoveryPlan(plan, ctx, registry2) {
     const fresh = loadRunManifestById(ctx.cwd, plan.runId);
     if (!fresh) throw new Error(`Run '${plan.runId}' not found.`);
     if (fresh.manifest.status === "completed" || fresh.manifest.status === "failed" || fresh.manifest.status === "cancelled") {
-      appendEventBuffered(fresh.manifest.eventsPath, {
+      appendEvent(fresh.manifest.eventsPath, {
         type: "crew.run.recovery_skipped",
         runId: plan.runId,
         message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
         data: { status: fresh.manifest.status }
-      }).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.recovery_skipped"));
+      });
       return;
     }
     appendHookEvent(fresh.manifest, hookReport);
     if (hookReport.outcome === "block") {
-      appendEventBuffered(fresh.manifest.eventsPath, {
+      appendEvent(fresh.manifest.eventsPath, {
         type: "crew.run.recovery_blocked",
         runId: plan.runId,
         message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
         data: { hookOutcome: "block", reason: hookReport.reason }
-      }).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.recovery_blocked"));
+      });
       return;
     }
     const reset = new Set(plan.resumableTasks);
@@ -60576,7 +60577,7 @@ async function applyRecoveryPlan(plan, ctx, registry2) {
       } : task
     );
     saveRunTasks(fresh.manifest, tasks);
-    appendEventBuffered(fresh.manifest.eventsPath, {
+    appendEvent(fresh.manifest.eventsPath, {
       type: "crew.run.resumed",
       runId: plan.runId,
       message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
@@ -60584,7 +60585,7 @@ async function applyRecoveryPlan(plan, ctx, registry2) {
         recoveredFromSeq: plan.lastEventSeq,
         resumableTasks: plan.resumableTasks
       }
-    }).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.resumed"));
+    });
     registry2?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
   });
 }
@@ -60594,12 +60595,12 @@ function declineRecoveryPlan(plan, ctx) {
   withRunLockSync(loaded.manifest, () => {
     const fresh = loadRunManifestById(ctx.cwd, plan.runId);
     if (!fresh) return;
-    appendEventBuffered(fresh.manifest.eventsPath, {
+    appendEvent(fresh.manifest.eventsPath, {
       type: "crew.run.recovery_declined",
       runId: plan.runId,
       message: "Interrupted run was not resumed.",
       data: { recoveredFromSeq: plan.lastEventSeq }
-    }).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.recovery_declined"));
+    });
     updateRunStatus(fresh.manifest, "cancelled", "interrupted-not-resumed");
   });
 }
@@ -60644,12 +60645,12 @@ function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThreshol
       const fresh = loadRunManifestById(cwd, manifest.runId);
       if (!fresh) return;
       if (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked") {
-        appendEventBuffered(loaded.manifest.eventsPath, {
+        appendEvent(loaded.manifest.eventsPath, {
           type: "crew.run.orphan_skip",
           runId: manifest.runId,
           message: `Skipped orphan cancellation: status is '${fresh.manifest.status}' (was 'running'/'blocked' at initial scan)`,
           data: { currentStatus: fresh.manifest.status }
-        }).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.orphan_skip"));
+        });
         return;
       }
       const now_iso = new Date(now).toISOString();
@@ -60677,7 +60678,7 @@ function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThreshol
         }
       }
       updateRunStatus(fresh.manifest, "cancelled", `Orphaned run: owner session ${ownerId} no longer exists`);
-      appendEventBuffered(fresh.manifest.eventsPath, {
+      appendEvent(fresh.manifest.eventsPath, {
         type: "crew.run.orphan_cancelled",
         runId: manifest.runId,
         message: `Auto-cancelled orphaned run (owner: ${ownerId})`,
@@ -60685,7 +60686,7 @@ function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThreshol
           ownerSessionId: ownerId,
           cancelledTasks: repairedTasks.filter((t2) => t2.status === "cancelled").length
         }
-      }).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.orphan_cancelled"));
+      });
       cancelled.push(manifest.runId);
       cancelledRun = true;
     });
@@ -60907,12 +60908,12 @@ function reconcileAllStaleRuns(cwd, manifestCache2, now = Date.now(), currentSes
         void terminateLiveAgentsForRun(fresh.manifest.runId, "failed", appendEvent, fresh.manifest.eventsPath).catch(
           (error) => logInternalError("crash-recovery.reconcile.terminate", error, `runId=${fresh.manifest.runId}`, "warn")
         );
-        appendEventBuffered(fresh.manifest.eventsPath, {
+        appendEvent(fresh.manifest.eventsPath, {
           type: "crew.run.reconciled_stale",
           runId,
           message: result4.detail,
           data: { verdict: result4.verdict }
-        }).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.reconciled_stale"));
+        });
       }
       if (result4.verdict !== "healthy") {
         results.push(result4);
@@ -64653,12 +64654,12 @@ function transitionStaleAsyncUnderLock(loaded, runCwd, runId) {
       } : task
     );
     saveRunTasks(failed, freshTasks);
-    appendEventBuffered(failed.eventsPath, {
+    appendEvent(failed.eventsPath, {
       type: "async.stale",
       runId: failed.runId,
       message: freshLiveness.detail,
       data: { pid: fresh.manifest.async.pid }
-    }).catch((e) => logInternalError("status.buffered", e, "type=async.stale"));
+    });
     transitioned = { manifest: failed, tasks: freshTasks };
   });
   return transitioned;
@@ -64720,7 +64721,7 @@ function handleStatus2(params, ctx) {
     const requestId3 = String(message.data?.requestId ?? "unknown");
     const timedOut = ack === "pending" && ackTimeoutMs !== void 0 && Number.isFinite(ageMs) && ageMs > ackTimeoutMs;
     if (timedOut && !ackTimeoutRequestIds.has(requestId3)) {
-      appendEventBuffered(manifest.eventsPath, {
+      appendEvent(manifest.eventsPath, {
         type: "agent.group_join.ack_timeout",
         runId: manifest.runId,
         message: "Group join delivery ack timed out; mailbox delivery remains the fallback.",
@@ -64732,7 +64733,7 @@ function handleStatus2(params, ctx) {
           ageMs,
           ackTimeoutMs
         }
-      }).catch((e) => logInternalError("status.buffered", e, "type=agent.group_join.ack_timeout"));
+      });
     }
     groupJoinLines.push(
       `- ${String(message.data?.partial) === "true" ? "partial" : "completed"} request=${requestId3} message=${message.id} ack=${timedOut ? "timeout" : ack}`
@@ -64868,7 +64869,6 @@ var init_status = __esm({
     init_state_store();
     init_usage();
     init_format_helpers();
-    init_internal_error();
     init_team_tool2();
     init_context();
     init_param_error();
@@ -65778,7 +65778,9 @@ function applyPolicy(manifest, tasks, limits) {
       taskId: item.taskId,
       message: item.message,
       data: { action: item.action, reason: item.reason }
-    }).catch((e) => logInternalError("finalize-run.buffered", e, "type=policy.action"));
+    }).catch(
+      (e) => logInternalError("finalize-run.buffered", e, `type=${item.action === "escalate" ? "policy.escalated" : "policy.action"}`)
+    );
   for (const item of recoveryLedger.entries)
     appendEventBuffered(manifest.eventsPath, {
       type: item.state === "escalation_required" ? "recovery.escalated" : "recovery.attempted",
@@ -65791,7 +65793,13 @@ function applyPolicy(manifest, tasks, limits) {
         attempt: item.attempt,
         state: item.state
       }
-    }).catch((e) => logInternalError("finalize-run.buffered", e, "type=recovery.attempted"));
+    }).catch(
+      (e) => logInternalError(
+        "finalize-run.buffered",
+        e,
+        `type=${item.state === "escalation_required" ? "recovery.escalated" : "recovery.attempted"}`
+      )
+    );
   return {
     ...manifest,
     updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -70694,11 +70702,11 @@ Respond with ONLY a JSON object:
       }
       if (title === phaseState.currentPhase) return;
       if (phaseState.currentPhase !== void 0) {
-        appendEventBuffered(manifest.eventsPath, {
+        appendEvent(manifest.eventsPath, {
           type: "dwf.phase_completed",
           runId: manifest.runId,
           data: { phase: phaseState.currentPhase }
-        }).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_completed"));
+        });
       }
       phaseState.currentPhase = title;
       if (!phaseState.phases.includes(title)) {
@@ -70715,11 +70723,11 @@ Respond with ONLY a JSON object:
           );
         }
       }
-      appendEventBuffered(manifest.eventsPath, {
+      appendEvent(manifest.eventsPath, {
         type: "dwf.phase_started",
         runId: manifest.runId,
         data: { phase: title }
-      }).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_started"));
+      });
     },
     budget,
     log(message) {
@@ -70727,11 +70735,11 @@ Respond with ONLY a JSON object:
       if (wfState.logs.length < 1e3) {
         wfState.logs.push(text);
       }
-      appendEventBuffered(manifest.eventsPath, {
+      appendEvent(manifest.eventsPath, {
         type: "dwf.log",
         runId: manifest.runId,
         data: { message: text }
-      }).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.log"));
+      });
     },
     args() {
       return wfState.args;
@@ -70989,24 +70997,24 @@ async function runDynamicWorkflow(input) {
   const eventsPath = manifest.eventsPath;
   const scriptPath = resolveScriptPath(workflow, manifest.cwd);
   if (workflow.source === "project" && getCrewEnv("PI_CREW_TRUST_PROJECT_DWF") !== "1") {
-    appendEventBuffered(eventsPath, {
+    appendEvent(eventsPath, {
       type: "dwf.trust_denied",
       runId: manifest.runId,
       data: { workflow: workflow.name, source: workflow.source, script: scriptPath }
-    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.trust_denied"));
+    });
     throw new Error(
       `Project dynamic workflow requires explicit trust. Set PI_CREW_TRUST_PROJECT_DWF=1 to allow execution of project .dwf.ts scripts.`
     );
   }
-  appendEventBuffered(eventsPath, {
+  appendEvent(eventsPath, {
     type: "dwf.started",
     runId: manifest.runId,
     data: { workflow: workflow.name, script: scriptPath }
-  }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.started"));
+  });
   const dwfStore = new DwfStore(manifest.stateRoot);
   const resumedState = dwfStore.load();
   if (resumedState) {
-    appendEventBuffered(eventsPath, {
+    appendEvent(eventsPath, {
       type: "dwf.resumed",
       runId: manifest.runId,
       data: {
@@ -71014,7 +71022,7 @@ async function runDynamicWorkflow(input) {
         phases: resumedState.phases,
         currentPhase: resumedState.currentPhase
       }
-    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.resumed"));
+    });
   }
   const timeoutController = new AbortController();
   const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
@@ -71059,13 +71067,13 @@ async function runDynamicWorkflow(input) {
     }
   } catch (error) {
     logInternalError("dynamic-workflow-runner.run", error, `runId=${manifest.runId}, workflow=${workflow.name}`);
-    appendEventBuffered(eventsPath, {
+    appendEvent(eventsPath, {
       type: "dwf.failed",
       runId: manifest.runId,
       data: {
         error: error instanceof Error ? error.message : String(error)
       }
-    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.failed"));
+    });
     throw error;
   }
   const final = getWorkflowFinalResult(ctx);
@@ -71079,18 +71087,18 @@ async function runDynamicWorkflow(input) {
   });
   const phaseState = getWorkflowPhaseState(ctx);
   if (phaseState?.currentPhase !== void 0) {
-    appendEventBuffered(eventsPath, {
+    appendEvent(eventsPath, {
       type: "dwf.phase_completed",
       runId: manifest.runId,
       data: { phase: phaseState.currentPhase }
-    }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.phase_completed"));
+    });
     phaseState.currentPhase = void 0;
   }
-  appendEventBuffered(eventsPath, {
+  appendEvent(eventsPath, {
     type: "dwf.completed",
     runId: manifest.runId,
     data: { workflow: workflow.name, summaryArtifact: summary.path }
-  }).catch((e) => logInternalError("dwf-runner.buffered", e, "type=dwf.completed"));
+  });
   dwfStore.delete();
   const summaryText = finalText.slice(0, 2e3);
   assertStructuredCloneable(summaryText, "manifest.summary (derived from final result)");
@@ -75286,7 +75294,10 @@ var init_settings_overlay = __esm({
       "ui.dashboardPlacement": "center",
       "ui.dashboardWidth": 72,
       "ui.autoOpenDashboard": false,
-      "ui.widgetPlacement": "aboveEditor",
+      // G17 sync (2026-09-10 review): canonical DEFAULT_UI.widgetPlacement =
+      // "bottom" (defaults.ts / install.mjs / project-init) — was drifted
+      // "aboveEditor" in this duplicated EFFECTIVE_DEFAULTS map.
+      "ui.widgetPlacement": "bottom",
       "autonomous.enabled": true,
       "autonomous.injectPolicy": true,
       "autonomous.preferAsyncForLongTasks": false,
@@ -80935,6 +80946,45 @@ var init_resilient_edit = __esm({
 
 // src/extension/register.ts
 init_config();
+
+// src/config/migration-validator.ts
+init_env_vars();
+function validateEnv(env = process.env) {
+  const warnings = [];
+  if (!env || typeof env !== "object") return { warnings, hasWarnings: false };
+  for (const [name, spec] of Object.entries(CREW_ENV_VARS)) {
+    let value;
+    try {
+      value = env[name];
+    } catch {
+      value = void 0;
+    }
+    if (value === void 0) continue;
+    if (spec.deprecated !== void 0) {
+      const lower = spec.deprecated.toLowerCase();
+      if (lower === "dead" || lower === "removed" || lower.startsWith("reverted")) {
+        warnings.push({
+          scope: "env-var",
+          name,
+          severity: "removed",
+          message: `${name} is ${spec.deprecated}; setting it has no effect`,
+          policy: spec.deprecated
+        });
+      } else {
+        warnings.push({
+          scope: "env-var",
+          name,
+          severity: "deprecated",
+          message: `${name} is deprecated (${spec.deprecated}); prefer the canonical name`,
+          policy: spec.deprecated
+        });
+      }
+    }
+  }
+  return { warnings, hasWarnings: warnings.length > 0 };
+}
+
+// src/extension/register.ts
 init_runtime_warmup();
 init_peer_dep();
 
@@ -90202,6 +90252,13 @@ function registerPiTeams(pi) {
   resetTimings();
   time("register:start");
   installChildProcessAbortShield();
+  const envWarnings = validateEnv(process.env);
+  if (envWarnings.warnings.length > 0) {
+    console.warn(
+      `[pi-crew] ${envWarnings.warnings.length} deprecated env var(s) in use:
+` + envWarnings.warnings.map((w) => `  ${w.name}: ${w.message}`).join("\n")
+    );
+  }
   startRuntimeWarmup();
   primePeerDep().catch(() => void 0);
   deployBundledThemes();
