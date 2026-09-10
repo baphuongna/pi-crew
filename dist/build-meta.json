@@ -9395,7 +9395,7 @@
       "format": "esm"
     },
     "src/runtime/foreground-control.ts": {
-      "bytes": 6080,
+      "bytes": 6409,
       "imports": [
         {
           "path": "node:fs",
@@ -21089,7 +21089,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8017915
+      "bytes": 8018273
     },
     "dist/index.mjs": {
       "imports": [

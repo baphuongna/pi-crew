@@ -149,6 +149,11 @@ export function writeForegroundInterruptRequest(
 					/* no pid file — fall through to sleep */
 				}
 				// Brief sleep to avoid CPU spinning
+				// WI-7.3 (M7 spec §5): kept sync. Making this async would force
+				// requestForegroundControl() + its caller chain async (10+
+				// callers in message-tool/lifecycle paths). 10ms spin per
+				// iteration is bounded by the 5s timeout above (max ~500 iters
+				// = 5s total worst-case block, matching the lock-timeout).
 				sleepSync(10);
 			}
 		}
