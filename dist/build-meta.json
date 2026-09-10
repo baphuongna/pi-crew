@@ -7865,7 +7865,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi/child-pi.ts": {
-      "bytes": 52952,
+      "bytes": 54092,
       "imports": [
         {
           "path": "node:child_process",
@@ -13044,7 +13044,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/child-executor.ts": {
-      "bytes": 48294,
+      "bytes": 49936,
       "imports": [
         {
           "path": "node:fs",
@@ -21095,7 +21095,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8025101
+      "bytes": 8028752
     },
     "dist/index.mjs": {
       "imports": [
@@ -23989,7 +23989,7 @@
           "bytesInOutput": 2909
         },
         "src/runtime/child-pi/child-pi.ts": {
-          "bytesInOutput": 27075
+          "bytesInOutput": 27115
         },
         "src/extension/crew-cleanup.ts": {
           "bytesInOutput": 3103
@@ -24673,7 +24673,7 @@
           "bytesInOutput": 810
         },
         "src/runtime/task-runner/child-executor.ts": {
-          "bytesInOutput": 27233
+          "bytesInOutput": 28194
         },
         "src/worktree/worktree-manager.ts": {
           "bytesInOutput": 26666
@@ -25393,7 +25393,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3364799
+      "bytes": 3365800
     }
   }
 }

@@ -723,6 +723,44 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						logInternalError("task-runner.on-json-event", err as Error, `taskId=${task.id}`);
 					}
 				},
+				onSurfaceActivity: (event) => {
+					// F1 fix (battery 2026-09-10): surface workers have no stdout pipe, so
+					// onJsonEvent/onStdoutLine never fire and task liveness state starves.
+					// Reuses the SAME throttled persisters as the stdout path:
+					// persistHeartbeat (1s) touches lastSeenAt + persists task state;
+					// persistChildProgress (coalesced) appends task.progress to the RUN
+					// event log - a DIFFERENT file than the per-agent log being tailed, so
+					// no watch->append loop. NEVER call appendCrewAgentEventBuffered here:
+					// the worker already wrote this event to the tailed file itself.
+					try {
+						const pidFromStart =
+							event?.type === "worker.started" && typeof event.pid === "number" ? event.pid : undefined;
+						if (pidFromStart !== undefined) {
+							// Surface pid was previously never persisted into task state - the
+							// heartbeat-watcher PID-liveness gate (alive -> downgrade dead->stale)
+							// had nothing to check. Pin it once from the worker.started self-report.
+							task = {
+								...task,
+								heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), {
+									pid: pidFromStart,
+								}),
+							};
+						}
+						task = {
+							...task,
+								agentProgress: applyAgentProgressEvent(
+								task.agentProgress ?? emptyCrewAgentProgress(),
+								event,
+								task.startedAt,
+							),
+						};
+						tasks = updateTask(tasks, task);
+						persistHeartbeat();
+						persistChildProgress(event);
+					} catch (err) {
+						logInternalError("task-runner.on-surface-activity", err as Error, `taskId=${task.id}`);
+					}
+				},
 			});
 		} finally {
 			// R10-5 (Wave 2B item 4): task-boundary flush — land every buffered

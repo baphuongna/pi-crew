@@ -22334,6 +22334,7 @@ async function trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv,
       }
       const bridgeEvent = bridgeEventFromJsonEvent(runId, taskId2, event);
       if (bridgeEvent) runEventBus.emit({ type: "worker_status", runId, taskId: taskId2, data: bridgeEvent });
+      input.onSurfaceActivity?.(event);
     });
   }
   let exitInfo;
@@ -50176,6 +50177,32 @@ async function runChildProcessTask(ctx) {
             persistChildProgress(event);
           } catch (err2) {
             logInternalError("task-runner.on-json-event", err2, `taskId=${task.id}`);
+          }
+        },
+        onSurfaceActivity: (event) => {
+          try {
+            const pidFromStart = event?.type === "worker.started" && typeof event.pid === "number" ? event.pid : void 0;
+            if (pidFromStart !== void 0) {
+              task = {
+                ...task,
+                heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), {
+                  pid: pidFromStart
+                })
+              };
+            }
+            task = {
+              ...task,
+              agentProgress: applyAgentProgressEvent(
+                task.agentProgress ?? emptyCrewAgentProgress(),
+                event,
+                task.startedAt
+              )
+            };
+            tasks = updateTask(tasks, task);
+            persistHeartbeat();
+            persistChildProgress(event);
+          } catch (err2) {
+            logInternalError("task-runner.on-surface-activity", err2, `taskId=${task.id}`);
           }
         }
       });

@@ -157,6 +157,17 @@ export interface ChildPiRunInput {
 	onSpawn?: (pid: number) => void;
 	/** Structured lifecycle events for durable logging (spawn, crash, timeout, kill, exit). */
 	onLifecycleEvent?: (event: ChildPiLifecycleEvent) => void;
+	/** F1 fix (battery 2026-09-10): task-state activity bridge for SURFACE workers.
+	 * Surface workers have no stdout pipe, so onJsonEvent/onStdoutLine never fire
+	 * and task.heartbeat/agentProgress starve - the heartbeat-watcher then flags a
+	 * healthy pane worker dead (~340s) and the stale-reconciler cancels the run
+	 * (observed live: run team_20260910161234, worker productive 7min in pane
+	 * w2:p8Z, 0 task.progress events). This callback receives every event tailed
+	 * from the per-agent recorder log so the CALLER can update task liveness state.
+	 * Contract: the callback MUST NOT append to the per-agent events file being
+	 * tailed (watch->append loop - see event-log-tail-source.ts header); task-state
+	 * persist + run-level task.progress are safe (different files). */
+	onSurfaceActivity?: (event: Record<string, unknown>) => void;
 	maxDepth?: number;
 	finalDrainMs?: number;
 	/** F12: early-exit the drain when stdout has been silent for this many ms
@@ -492,6 +503,10 @@ async function trySurfaceBranch(
 			}
 			const bridgeEvent = bridgeEventFromJsonEvent(runId, taskId, event);
 			if (bridgeEvent) runEventBus.emit({ type: "worker_status", runId, taskId, data: bridgeEvent });
+			// F1 fix (battery 2026-09-10): feed the same tailed event to the task-state
+			// bridge so child-executor can keep task.heartbeat/agentProgress fresh for
+			// surface workers (see ChildPiRunInput.onSurfaceActivity doc).
+			input.onSurfaceActivity?.(event as Record<string, unknown>);
 		});
 	}
 	let exitInfo: SurfaceExitInfo;

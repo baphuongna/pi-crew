@@ -458,6 +458,56 @@ test("T9: events from the per-agent log reach runEventBus as worker_status (dash
 	}
 });
 
+test("F1 (battery 2026-09-10): tailed events reach onSurfaceActivity — task liveness bridge cho pane workers", async () => {
+	const { workRoot, launchDir } = await setup();
+	try {
+		const provider = fakeSurfaceProvider();
+		provider.autoExitAfterSend = false; // giữ pane sống để tail kịp phát event
+		const agentLog = join(workRoot, "state", "runs", "run_surface_1", "agents", "01_explore", "events.jsonl");
+		const activity: Array<Record<string, unknown>> = [];
+		const done = runChildPi(
+			makeRunInput(workRoot, {
+				surface: { providers: { tmux: provider }, baseDir: launchDir },
+				onSurfaceActivity: (event: Record<string, unknown>) => activity.push(event),
+			}),
+		);
+
+		for (let i = 0; i < 100 && provider.sentCommands.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+		await new Promise((r) => setTimeout(r, 30));
+		mkdirSync(join(workRoot, "state", "runs", "run_surface_1", "agents", "01_explore"), { recursive: true });
+		// worker.started mang pid — child-executor pin pid này vào task.heartbeat để
+		// PID-liveness gate của heartbeat-watcher có gì đó để kiểm tra.
+		appendFileSync(
+			agentLog,
+			`${JSON.stringify({ seq: 1, time: "2026-09-10T16:12:37.000Z", event: { type: "worker.started", pid: 4242 } })}\n`,
+			"utf-8",
+		);
+		appendFileSync(
+			agentLog,
+			`${JSON.stringify({ seq: 2, time: "2026-09-10T16:12:40.000Z", event: { type: "message_start" } })}\n`,
+			"utf-8",
+		);
+		appendFileSync(
+			agentLog,
+			`${JSON.stringify({ seq: 3, time: "2026-09-10T16:13:35.000Z", event: { type: "message_end", message: { role: "assistant", usage: { input: 1, output: 2 } } } })}\n`,
+			"utf-8",
+		);
+		for (let i = 0; i < 100 && activity.length < 3; i++) await new Promise((r) => setTimeout(r, 10));
+
+		provider.fireExit("pane-closed");
+		const result = await done;
+
+		assert.ok(result.surface, "fixture này phải đi đúng nhánh surface");
+		assert.ok(activity.length >= 3, `phải nhận đủ 3 activity event, nhận ${activity.length}: ${JSON.stringify(activity)}`);
+		assert.equal(activity[0]?.type, "worker.started");
+		assert.equal(activity[0]?.pid, 4242, "worker.started phải mang pid cho heartbeat pid-gate");
+		assert.equal(activity[1]?.type, "message_start");
+		assert.equal(activity[2]?.type, "message_end");
+	} finally {
+		cleanup(workRoot, launchDir);
+	}
+});
+
 /** Agent fixture có systemPrompt thật để kích hoạt đường tạo tempDir. */ function makeAgentWithSystemPrompt() {
 	return {
 		name: "executor",
