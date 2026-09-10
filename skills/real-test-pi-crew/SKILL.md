@@ -32,14 +32,20 @@ triggers:
   - "delegate tool test"
   - "ask tool test"
   - "nested agent test"
-  - "tier 1 / tier 2 / tier 3 / tier 4 / tier 5 / tier 6 / tier 7 / tier 8 / tier 9 / tier 10"
+  - "tier 1 / tier 2 / tier 3 / tier 4 / tier 5 / tier 6 / tier 7 / tier 8 / tier 9 / tier 10 / tier 11"
+  - "read-your-writes"
+  - "delayed write regression"
+  - "coalesce regression"
+  - "wc-gate"
+  - "migration validator warning"
+  - "slow tier"
 ---
 
 # real-test-pi-crew
 
 End-to-end verification discipline for pi-crew changes. Distilled from the broker Phase-4 rollout (commits `1cb2dca` → `d599578` → `612e18b` → `4186284`, July 2026). The pain this skill prevents: shipping code that compiles + unit-tests-green but breaks in the user's live Pi session, or hangs the verifier worker.
 
-**When to use**: after any change to `src/runtime/broker/*.ts` (broker + tokens + issuer), `src/ui/`, `src/config/`, `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi/*.ts` (worker spawn/kill/steering), `src/runtime/surface/*.ts` (MuxSurface providers, degrade, launch script), `src/prompt/*.ts` (worker-side tools: ask / message / delegate / surface-worker recorder), `src/runtime/goal-workflow/plan-templates.ts`, `src/runtime/team-runner.ts` or `src/runtime/task-runner/**` (scheduler / execution — Tier 7 smoke), `src/state/**` (durable state — Tier 7 + 9a events/status), `src/runtime/live-session/**` + `src/runtime/custom-tools/*` (live-session mode + worker custom tools), `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently. Surface changes additionally require Tier 10 (surface-mode battery) because surface is fail-closed: every failure degrades to headless and the run still goes green — only pane-level evidence proves the panes engaged.
+**When to use**: after any change to `src/runtime/broker/*.ts` (broker + tokens + issuer), `src/ui/`, `src/config/` (incl. `src/config/migration-validator.ts`), `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi/*.ts` (worker spawn/kill/steering), `src/runtime/surface/*.ts` (MuxSurface providers, degrade, launch script), `src/prompt/*.ts` (worker-side tools: ask / message / delegate / surface-worker recorder), `src/runtime/goal-workflow/plan-templates.ts`, `src/runtime/team-runner.ts` or `src/runtime/task-runner/**` (scheduler / execution — Tier 7 smoke), `src/state/**` (durable state — Tier 7 + 9a events/status + **Tier 11a read-your-writes**), `src/runtime/live-session/**` + `src/runtime/custom-tools/*` (live-session mode + worker custom tools), `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, `.github/workflows/*.yml` (CI env — Tier 11e), `scripts/wc-gate.mjs` (Tier 11b), or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently. Surface changes additionally require Tier 10 (surface-mode battery) because surface is fail-closed: every failure degrades to headless and the run still goes green — only pane-level evidence proves the panes engaged.
 
 > **Path map (2026-08-26 reorg + A1)**: `src/runtime/crew-broker*.ts` → `src/runtime/broker/`; `src/runtime/child-pi*.ts` → `src/runtime/child-pi/`; `src/runtime/plan-templates.ts` (flat) → `src/runtime/goal-workflow/plan-templates.ts`; NEW dirs `src/runtime/surface/` and `src/prompt/`. Test files moved with them (`test/unit/crew-broker-*.test.ts` → `test/unit/runtime/broker/`, `test/unit/keybinding-map.parity.test.ts` → `test/unit/ui/`, ...).
 
@@ -95,9 +101,10 @@ The skill maps to existing CI gates as follows:
 | `npm test:critical` (manual / pre-commit) | Tier 1 | n/a — not in CI by default |
 | `PI_CREW_BROKER=0 npm run test:critical` | Tier 2 (env kill switch path) | n/a — manual |
 | `npm run typecheck` | Tier 3 | `.github/workflows/*.yml` (every PR) |
-| Bundle-staleness check | Tier 3 last step | `scripts/check-bundle-staleness.mjs` |
-| Multi-OS CI | n/a (skill is local) | `.github/workflows/*.yml` — Linux + macOS + Windows |
-| Full `npm test` (>5 min) | n/a — too slow for in-loop | CI only |
+| `npm run check:wc-gate` | Tier 11b | **in BOTH `ci` and `ci:fast` scripts** (`package.json:71-72`) + explicit step in `.github/workflows/ci.yml:66-71` (since `09dda842` — was `ci:fast`-only, i.e. advisory) |
+| Bundle-staleness check | Tier 3 last step | `scripts/check-bundle-staleness.mjs`; `--committed-hash` mode = Tier 11j release gate |
+| Full `npm test` (= unit 819 files + integration 31) | n/a — too slow for in-loop | CI only; slow tier (3 files) is a SEPARATE glob `test:integration:slow` — only `npm run test:full` includes it |
+| `PI_CREW_SMOKE=1` env | Tier 11e | set ONLY in `weekly-smoke.yml` (auth-gated); nightly.yml deliberately does NOT (comment at `:24`) |
 
 To add Tier 1 to a pre-commit hook:
 
@@ -127,7 +134,7 @@ To add Tier 1 to CI as a fast-feedback gate (under 30s):
 
 **What**: run the curated 14-file fast subset.
 
-**Why this exists**: full `npm run test:unit` runs 810 files (was 642 at skill-writing time — it keeps growing), several minutes. Verifier worker response timeout would kill the worker mid-run → run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
+**Why this exists**: full `npm run test:unit` runs 819 files (was 642 at skill-writing time — it keeps growing), several minutes. Verifier worker response timeout would kill the worker mid-run → run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
 
 **How**:
 
@@ -591,6 +598,114 @@ herdr chỉ được detect khi **chính pi session đang chạy trong một her
 
 ---
 
+## Tier 11 — Remediation regression battery (v0.10.5 deep-review fixes)
+
+**What**: verify the v0.10.5 remediation invariants hold — the P0 read-your-writes revert (`b6eba80f`), the P1 enforcement/wiring hardening (`09dda842`), the broker doc-nit de-stack (`4ebd2ce4`), and the CI/test-tier reshuffle (`09dda842` + `2fb2b426`).
+
+**Why this is its own tier**: the remediation fixed bugs that ALL of Tiers 1–10 missed — 18 hidden test failures from a delayed-write conversion (test:critical contains no stores/dwf/recovery tests), a production default-drift (`ui.widgetPlacement`), a deterministic-red CI env (`PI_CREW_SMOKE=1` in nightly), and a gate that existed but was never enforced (wc-gate). These need their own pin checks so the same classes don't regress.
+
+**When required**: any change to `src/state/**` write paths (stores, atomic-write, event-log buffering), `src/config/migration-validator.ts` or its wiring, `scripts/wc-gate.mjs` or the `ci` scripts, `.github/workflows/*` env, `src/ui/settings-overlay.ts` / `handle-settings.ts` EFFECTIVE_DEFAULTS, or before a release cut.
+
+### 11a. Read-your-writes (the P0 revert core)
+
+**The rule (hard-won, `b6eba80f`)**: MỌI site có reader đồng bộ ngay sau write — test read-your-writes assertion, same-poll display, reload-inside-lock, cross-process reader — KHÔNG được convert sang buffered/coalesced, KỂ CẢ terminal-type buffered (flushPromise.then microtask chain ≠ same-tick). The WI-2.2 coalesce ("last value wins" + 50ms window) broke 3 public sync APIs: `plan-store loadPlanRecords`, `readOwnershipMap`, `loadRunManifestById` → 18 hidden test failures (plan-store 11, ownership-map 3, state-store 4).
+
+```bash
+# 1. stores stay on sync atomicWriteJson (coalesce reverted):
+grep -c "atomicWriteJson" src/state/stores/plan-store.ts src/state/stores/ownership-map.ts  # >=1 each
+# 2. terminal-state events are sync appendEvent (crash-recovery design comment at :221
+#    (file lives at src/runtime/recovery/crash-recovery.ts after the runtime reorg)
+grep -n "Log the event first" src/runtime/recovery/crash-recovery.ts   # design intent: sync
+# 3. buffered-site census — snapshot & audit:
+grep -rln "appendEventBuffered" src/ | wc -l   # 16 files / ~70 raw matches (incl. imports+definition) at v0.10.5; audited live conversions = 43; EVERY new site needs the reader-audit
+# 4. the full gate — test:critical has NO stores/dwf/recovery coverage:
+npm run test:unit    # 819 files, ~7500 tests, 15-18 min under load — MANDATORY after any delayed-write conversion program
+```
+
+### 11b. wc-gate enforcement (M4 done-gate)
+
+```bash
+npm run check:wc-gate                                  # exit 0, "max NNNN lines (limit 2000)"
+node -e "const p=require('./package.json').scripts; console.log(p.ci.includes('check:wc-gate'), p['ci:fast'].includes('check:wc-gate'))"  # true true
+grep -n "wc-gate" .github/workflows/ci.yml             # explicit step (since 09dda842; was ci:fast-only = advisory)
+```
+
+### 11c. Migration validator (M5 WI-5.6, warn-only)
+
+Wired in `register.ts:62-74` — AFTER `installChildProcessAbortShield`, BEFORE `startRuntimeWarmup`; `console.warn`, never throws (spec: "warning không fail").
+
+```bash
+# offline (no pi session needed):
+node --experimental-strip-types --no-warnings -e \
+  'import("./src/config/migration-validator.ts").then(m=>console.log(JSON.stringify(m.validateEnv({PI_CREW_BROKER_DIAG_UI:"1",PI_CREW_SAFE_BASH:"1"}))))'
+# expect: warnings[] with severity "removed" for BOTH keys; hasWarnings true
+# live: PI_CREW_BROKER_DIAG_UI=1 pi …  → startup prints "[pi-crew] 1 deprecated env var(s) in use:" and boots normally
+```
+
+### 11d. Slow-tier hygiene (M3 tiering)
+
+```bash
+ls test/integration/slow/    # exactly 3: full-feature-smoke, phase5-observability, ui-performance
+# the fast globs must NOT match slow/ (disjoint globs — test:full dup was a real bug):
+grep -o "'test/unit/\*\*/\*.test.ts'\|'test/integration/\*.test.ts'" package.json
+npm run test:integration:slow   # separate glob, 600s timeout
+```
+
+### 11e. Nightly env regression (deterministic-red trap)
+
+`PI_CREW_SMOKE=1` arms HB-003a real-binary smoke which needs a pi binary + `PI_AUTH_JSON` — GH runners have neither → deterministic red. It is set ONLY in `weekly-smoke.yml` (auth-gated arm).
+
+```bash
+grep -n "PI_CREW_SMOKE" .github/workflows/nightly.yml      # comment ONLY (":24 deliberately NOT setting")
+grep -n "PI_CREW_SMOKE" .github/workflows/weekly-smoke.yml # PI_CREW_SMOKE: "1" (:25)
+```
+
+### 11f. Event-log reject format
+
+Buffered-append rejections must carry `type=<event-type>[<distinguisher>]` so ops can bisect a failed append to its event kind:
+
+```bash
+grep -rn 'type=\${' src/prompt/scratchpad-lifecycle.ts src/runtime/finalize-run.ts
+# scratchpad-lifecycle:92  type=${type}
+# finalize-run:242        ternary escalate/policy.action · :260 recovery.escalated/recovery.attempted
+```
+
+### 11g. widgetPlacement G17 default-drift
+
+The drift: duplicated EFFECTIVE_DEFAULTS maps hardcoded `"aboveEditor"` while `defaults.ts`/`install.mjs`/`project-init` said `"bottom"` — the suite never compared them. NOTE `aboveEditor` remains a VALID enum value (schema/types/pi-widget mapping); only the DEFAULT was wrong.
+
+```bash
+grep -rn '"ui.widgetPlacement"' src/ui/settings-overlay.ts src/extension/team-tool/handle-settings.ts  # both :"bottom"
+# live: team-settings get ui.widgetPlacement → bottom
+```
+
+### 11h. Worktree-twins stability (flaky→fixed)
+
+Pre-fix flaked ~8% idle / ~50% under load (`try{return promise}finally{rmSync}` cleanup race); fixed by awaiting INSIDE the try. Run 3× consecutively — all green:
+
+```bash
+for i in 1 2 3; do node --experimental-strip-types --no-warnings --test test/unit/worktree/worktree-twins-contract.test.ts 2>&1 | grep -E "^# (pass|fail)"; done
+```
+
+### 11i. Export-surface + slash parity pinning
+
+```bash
+grep -nE "export.*(HELLO_DEADLINE_MS)|export \{ BROKER_PROTOCOL" src/runtime/broker/crew-broker.ts  # 0 hits (dead exports removed, 09dda842)
+grep -n "MUST_INCLUDE" test/unit/extension/slash-command-parity.test.ts   # 5 core: team-run, teams, team-help, crew-view, crew-brief
+```
+
+### 11j. Bundle committed-hash (release gate)
+
+Tier 3 checks disk-vs-session; this checks COMMITTED dist vs a fresh build — the gate that catches "src edited, bundle forgot":
+
+```bash
+node scripts/check-bundle-staleness.mjs --committed-hash   # "OK: committed dist matches a fresh build"
+```
+
+**Acceptance**: every sub-check above returns the expected value; 11a item 4 is the ONLY expensive one (mandatory after conversion programs, skippable for doc-only changes).
+
+---
+
 ## Anti-patterns (the cost is real, observed in this session)
 
 | Anti-pattern | Cost | Where fixed | Reference |
@@ -619,6 +734,12 @@ herdr chỉ được detect khi **chính pi session đang chạy trong một her
 | chain run with `workflow:"chain"` forwarded to steps | Every chain step fails in ~58ms with an EMPTY error string — looks like a parse failure but isn't. `chain-dispatch` forwards `params.workflow` ("chain") into executor overrides; each step then runs the "chain" workflow via the normal `executeTeamRun` path and fails fast + silently. | Open (issue #44) | Omit `workflow` when invoking `action:'run' chain=...` — chain then runs 2/2 success (~308s). See `docs/bugs/chain-workflow-forward-quirk.md`. |
 | **Env allow-list strip mux vars — async surface chết ở tầng env, không phải tầng gate** (battery 2026-08-30 Finding 2): gate async-run đã bỏ nhưng `BACKGROUND_RUNNER_ENV_ALLOWLIST` vẫn strip `TMUX`/`HERDR_*` → detached runner thấy `no-mux` → async headless mãi mãi. Gate telemetry (`asyncRun:true` trong env snapshot) nói đúng — không gate async — nhưng env detection fail vì biến bị cắt trước khi process chào. Unit test allow-list không catch (list "đúng" theo nghĩa cũ); chỉ async run LIVE với mux mới lộ. | `f0a41a16` (2026-08-30) | Mọi env var mà `src/runtime/surface/*` đọc phải có trong `BACKGROUND_RUNNER_ENV_ALLOWLIST` (pin test `test/unit/runtime/core/async-runner.test.ts` "forwards mux env"). Thêm env detection mới → thêm vào allow-list + pin test cùng lúc. |
 | **`set <array-key> []` là no-op** (battery 2026-08-30 Finding 3): `parseStringList` normalize `[]` → `undefined` → patch mất key → `mergeConfig` giữ list cũ trên đĩa; `Effective` hiển thị sai giá trị đã set. `unset` vẫn hoạt động (workaround). | `5a31ccf6` (2026-08-30) | `[]` tường minh là GIÁ TRỊ, không phải unset. Test round-trip: set → get → soi config trên đĩa (test/unit/config/surface-config.test.ts F3 block). |
+| **Convert write-site sang buffered/coalesced khi CÓ reader đồng bộ ngay sau write** (P0 remediation 2026-09-10, `b6eba80f`): 29 site bị revert. WI-2.2 coalesce ("last value wins" + 50ms window) làm hỏng 3 public sync APIs (plan-store `loadPlanRecords`, `readOwnershipMap`, `loadRunManifestById`) → 18 hidden test failures mà test:critical KHÔNG bắt (không chứa stores/dwf/recovery). Kể cả terminal-type `appendEventBuffered` vẫn qua `flushPromise.then(...)` microtask chain → KHÔNG same-tick → cancel.ts task.cancelled phải revert về sync. | `b6eba80f` | **Read-your-writes exclusion rule**: reader-after-write = never convert (any flush-latency > 0 breaks the contract). Sau MỌI conversion program: full `npm run test:unit` bắt buộc. Xem Tier 11a. |
+| **Gate tồn tại nhưng không được enforce** (P1 remediation, `09dda842`): wc-gate wired chỉ vào `ci:fast` — full `ci` script và tất cả GitHub workflows không chạy nó → một commit phình crew-broker.ts quá 2000 dòng vẫn PR-green. "Có script check" ≠ "gate được enforce". | `09dda842` | Gate mới phải vào: (1) script `ci`, (2) workflow yml step, (3) done-criteria của skill. Xem Tier 11b. |
+| **Set CI env cho arm không có dependency của nó** (P0/P1 remediation): `PI_CREW_SMOKE=1` trong nightly.yml arm HB-003a cần pi binary + `PI_AUTH_JSON` — GH runner không có → deterministic red, không phải flake. | `b6eba80f` | Mỗi env var CI: liệt kê dependency (binary/auth/socket) trước khi set; arm auth-gated (weekly-smoke) mới được set. Xem Tier 11e. |
+| **Fix finding của reviewer mà không tự verify** (deep review 2026-09-10): 1 trong 4 HIGH findings là false positive — "background-runner exit-loss" thực tế được cover bởi EL-2 `flushBufferedQueuesSync()` (sync lock + appendFileSync + fsync) trên `process.on("exit")` tại event-log.ts:1227. Fix theo finding mù quáng sẽ ĐÃ THÊM regression. | n/a (process) | Mọi finding trước khi fix: trace counter-evidence (exit handlers, sync flush paths). Finding = hypothesis, không phải fact. |
+| **Duplicated defaults map drift (G17-class)** (P0 remediation, `b6eba80f`): 2 bản EFFECTIVE_DEFAULTS (`settings-overlay.ts`, `handle-settings.ts`) hardcode `"aboveEditor"` trong khi nguồn chân lý (defaults.ts/install.mjs) nói `"bottom"` — suite không có test so 2 bản với nhau, drift sống sót qua 7500 tests. | `b6eba80f` | Defaults phải có MỘT nguồn chân lý, hoặc test so các bản sao. Live probe: `team-settings get <key>`. Xem Tier 11g. |
+| **Test vacuous — assert trên fixture chứ không trên wiring** (P1 remediation, `09dda842`): migration-validator test 2 từng assert key tự chế không có trong registry → luôn pass dù validator chưa được wire vào registerPiTeams. | `09dda842` | Test phải dùng key THẬT từ registry (`PI_CREW_BROKER_DIAG_UI` severity "removed"), và wiring test phải prove call-site (register.ts:68), không chỉ prove pure function. |
 
 ---
 
@@ -774,6 +895,15 @@ Use this to answer "đủ full tính năng chưa?" without re-deriving. Every us
 | Doctor / health / zombies + orphan panes | `src/extension/team-tool/doctor.ts` | 9a doctor + T10a test #3 |
 | Model fallback chain | `src/config/types.ts` (modelFallback) | unit tests + 9b sync run (auto-tail chay ngầm) |
 | State perf (fsync coalescing, event-log tail) | `src/state/` | bench `scripts/run-bench.mjs` (b5/b11-b13) — không cần battery live |
+| Delayed-write conversions / read-your-writes (v0.10.5 remediation) | `src/state/` atomic-write, `appendEventBuffered` sites | T11a (stores sync + census + full test:unit gate) |
+| wc-gate ≤ 2000 lines (M4 done-gate) | `scripts/wc-gate.mjs` | T11b + CI (`ci` script + ci.yml step) |
+| Migration validator (deprecated env warn) | `src/config/migration-validator.ts`, wired `register.ts:68` | T11c (offline validateEnv + live startup warn) |
+| Slow tier (3 heavy tests) | `test/integration/slow/` | T11d (disjoint globs + separate run) |
+| CI env sanity (SMOKE arm) | `.github/workflows/nightly.yml` / `weekly-smoke.yml` | T11e (grep pins) |
+| Event-log reject format | `scratchpad-lifecycle.ts:92`, `finalize-run.ts:242,260` | T11f |
+| ui.widgetPlacement default | `settings-overlay.ts:351`, `handle-settings.ts:43` | T11g + live team-settings get |
+| Worktree twins contract | `src/worktree/worktree-manager.ts` | T11h (3× consecutive runs) |
+| Bundle committed-hash gate | `scripts/check-bundle-staleness.mjs --committed-hash` | T11j |
 
 ---
 
@@ -790,6 +920,9 @@ The skill mentions specific commits, line numbers, and version pins. As the code
 | Verify Tier 7 verifier prompts still say `test:critical` | Each workflow file edit | `grep "Run FAST checks" workflows/*.workflow.md` |
 | Verify Tier 10 surface refs | Each `src/runtime/surface/**` edit | `ls test/system/surface-*.e2e.test.ts` + grep `MAX_SURFACE_WORKERS` in resolve-surface.ts — cap/config shape may drift between A1 → A2 |
 | Verify herdr wire details | Each herdr release bump | `herdr api schema --json` vs `src/runtime/surface/herdr-provider.ts` (envelope/pane.read source/1-conn-per-request were verified on herdr 0.8.2) |
+| Verify Tier 11 census numbers | Each `src/state/**` write-path commit | `grep -rln "appendEventBuffered" src/ \| wc -l` — update the 16-file / 43-conversion anchor in 11a when it drifts |
+| Verify wc-gate still enforced | Each `package.json` / ci.yml edit | `node -e "require('./package.json').scripts.ci.includes('check:wc-gate')"` + grep ci.yml — a gate removed from `ci` reverts to advisory |
+| Verify migration-validator wiring | Each `register.ts` refactor | `grep -n validateEnv src/extension/register.ts` — must stay after `installChildProcessAbortShield`, before `startRuntimeWarmup`, warn-only |
 
 The skill does NOT need to be updated for every commit — only when the cited lines/files move. Consider it a "living reference" not a "live spec".
 
@@ -836,6 +969,18 @@ tmux list-panes -a -F '#{pane_id} #{pane_title} #{pane_pid}'  # during run: pane
 #   E2E suite (must run inside tmux):
 node --experimental-strip-types --test --test-concurrency=1 --test-timeout=120000 test/system/surface-tmux.e2e.test.ts
 #   doctor orphan panes: team action='doctor' focus='zombies'
+# Tier 11 (v0.10.5 remediation regression)
+npm run check:wc-gate                                          # 11b: exit 0, max <= 2000
+node -e "const p=require('./package.json').scripts; console.log(p.ci.includes('check:wc-gate'))"  # 11b: true
+node --experimental-strip-types --no-warnings -e 'import("./src/config/migration-validator.ts").then(m=>console.log(JSON.stringify(m.validateEnv({PI_CREW_BROKER_DIAG_UI:"1"}))))'  # 11c
+ls test/integration/slow/                                      # 11d: 3 files
+grep -n "PI_CREW_SMOKE" .github/workflows/nightly.yml          # 11e: comment only, NOT set
+grep -rn 'type=\${' src/prompt/scratchpad-lifecycle.ts         # 11f: reject format
+grep -rn '"ui.widgetPlacement"' src/ui/settings-overlay.ts src/extension/team-tool/handle-settings.ts  # 11g: bottom
+for i in 1 2 3; do node --experimental-strip-types --no-warnings --test test/unit/worktree/worktree-twins-contract.test.ts 2>&1 | grep -E '^# (pass|fail)'; done  # 11h
+grep -rln 'appendEventBuffered' src/ | wc -l                   # 11a: census (16 files @ v0.10.5)
+node scripts/check-bundle-staleness.mjs --committed-hash      # 11j: OK
+#   11a full gate (after ANY delayed-write conversion program): npm run test:unit  # ~7500 tests, 15-18 min
 ```
 
 ---
@@ -854,6 +999,7 @@ Before claiming "tested":
 - [ ] Tier 9: feature battery — **required if you touched `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, any `Type.Unsafe({...})` schema, or any armed-role tool list (`agents/*.md` / `src/config/role-tools.ts`)**. 9a read-only batch all return clean; one probe per 9b spawn path (sync / async / chain / `Agent` / `crew_agent`+`get_subagent_result`) completes with `consistency=1`. Run 9c–9f only when the change touches their code path; **at least one full 9c/9e/9f sweep per release is recommended so the battery stays proven** (see `real-test-2026-08-11-scratchpad-I-batch.md`); 9d (destructive) requires explicit user confirmation. **After every run: `git status` to catch unauthorized agent edits.**
 - [ ] **Output report**: save `docs/real-test/reports/real-test-<YYYY-MM-DD>-<slug>.md` from `skills/real-test-pi-crew/REPORT-TEMPLATE.md`, filled DURING the run with per-tier evidence (counts/md5/runId) — not reconstructed from memory afterward. This is what makes past runs verifiable instead of trust-the-summary.
 - [ ] Tier 10: surface battery — **required if you touched `src/runtime/surface/**`, `src/prompt/surface-worker.ts`, the surface branch of `src/runtime/child-pi/child-pi.ts`, or the surface config keys**. 10a E2E 3/3 per backend available (tmux trong tmux; herdr ngoài tmux + socket sống — skip vì thiếu mux là correct-by-design nhưng KHÔNG tính pass cho backend đó); 10b live run với session ĐÃ reload bundle mới (xem Anti-patterns "file-md5 only") + `visibleAgents` set + pane-level evidence (pane id/title during run, `worker.surface_spawned`/`worker.surface_closed` events, pane auto-closed after — KHÔNG dùng `manifest.surface.panes` làm evidence engage, xem Anti-patterns "panes == {}"); 10c herdr live chỉ khi pi chạy trong herdr pane (skip kèm lý do nếu không).
+- [ ] Tier 11: remediation regression battery — **required if you touched `src/state/**` write paths, `migration-validator.ts`/its wiring, `scripts/wc-gate.mjs` or `ci` scripts, `.github/workflows/*` env, EFFECTIVE_DEFAULTS maps, or you are cutting a release**. Sub-checks a–j per Tier 11; 11a item 4 (full `test:unit`) mandatory after any delayed-write conversion program, skippable for doc-only changes. Record: buffered-site census count, wc-gate max, staleness `--committed-hash` result.
 
 **"All tiers pass" is a claim that needs per-row evidence.** Tier 9 means 9a **and** 9b **and** whichever of 9c–9f applies to the change — not "9a passed, therefore 9 passed". Tier 10 means pane-level evidence exists, not "run went green" (surface fail-closes to headless on every failure, so green proves nothing). If any required item above is unchecked or lacks concrete evidence (a number, an md5, a runId, a pane id), the answer to "is it tested?" is **no** — say so explicitly instead of rounding up to "pass".
 

@@ -37,6 +37,7 @@ This artifact exists so past runs are verifiable (see SKILL.md "Output report").
 | 10a surface E2E | ✅/❌/⏭️ | tmux 3/3 (spawn+self-close / kill-pane→degrade / doctor orphan) + herdr 3/3 — or skip reason per backend (no `$TMUX`/CI/no socket/in tmux for herdr) |
 | 10b live surface run | ✅/❌/⏭️ | `visibleAgents='<set>'`, pane ids+titles during run, `worker.surface_spawned`/`worker.surface_closed` events (+ no `surface.degraded`), panes auto-closed. NOTE: `manifest.surface.panes` is `{}` at run END even on success (released on pane close) — engage-evidence is the EVENTS + `manifest.surface.provider`/`workerPids` |
 | 10c herdr path | ✅/❌/⏭️ | ran in herdr pane / skipped (not in herdr pane) |
+| 11 remediation regression | ✅/❌/⏭️ | sub-checks run + evidence: 11a buffered-site census `<n>` files (full test:unit `<pass>/<tests>` if run) · 11b wc-gate max `<n>`/2000 + in `ci` · 11c validator warn `<key>` → severity · 11d slow tier 3 files disjoint · 11e nightly SMOKE not-set · 11f reject format sites · 11g widgetPlacement bottom · 11h twins 3× green · 11i dead-export 0 + MUST_INCLUDE 5 · 11j committed-hash OK |
 
 Legend: ✅ pass with evidence · ❌ fail (root cause below) · ⏭️ skipped (justify why)
 
