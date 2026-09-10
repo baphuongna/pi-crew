@@ -60174,7 +60174,18 @@ function isTaskHeartbeatStale(task, now) {
   const elapsed2 = Math.min(heartbeatAge, activityAge);
   if (elapsed2 <= NO_PID_HEARTBEAT_STALE_MS) return false;
   const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
-  if (taskPid && checkProcessLiveness(taskPid).alive) return false;
+  const pidAlive = taskPid ? checkProcessLiveness(taskPid).alive : false;
+  if (taskPid && pidAlive) return false;
+  if (process.env.PI_CREW_DEBUG_STALE === "1") {
+    try {
+      fs93.appendFileSync(
+        "/tmp/pi-crew-f1-debug.log",
+        `${JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), taskId: task.id, status: task.status, taskPid, pidAlive, heartbeatAge, activityAge, hbLastSeen: task.heartbeat?.lastSeenAt })}
+`
+      );
+    } catch {
+    }
+  }
   return true;
 }
 function getRunningTaskStaleness(tasks, now) {

@@ -14960,7 +14960,7 @@
       "format": "esm"
     },
     "src/runtime/stale-reconciler.ts": {
-      "bytes": 32877,
+      "bytes": 33549,
       "imports": [
         {
           "path": "node:fs",
@@ -21095,7 +21095,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8029636
+      "bytes": 8030646
     },
     "dist/index.mjs": {
       "imports": [
@@ -24844,7 +24844,7 @@
           "bytesInOutput": 2240
         },
         "src/runtime/stale-reconciler.ts": {
-          "bytesInOutput": 17229
+          "bytesInOutput": 17637
         },
         "src/runtime/recovery/crash-recovery.ts": {
           "bytesInOutput": 19533
@@ -25393,7 +25393,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3365993
+      "bytes": 3366401
     }
   }
 }
