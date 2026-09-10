@@ -20,3 +20,33 @@
 1. **EPIPE in child-pi path — CLOSED** (main table already marked this closed 2026-08-10; this stale pointer now matches it): `src/runtime/model/model-fallback.ts` treats `/epipe/i` and `/broken pipe/i` as retryable (a fresh child on the next fallback model usually recovers; auth/billing `NON_RETRYABLE` patterns are checked first so an auth error mentioning EPIPE stays non-retryable), and `src/runtime/scratchpad/guest.ts:69` treats `EPIPE`/`ERR_STREAM_DESTROYED` as benign shutdown noise.
 2. **Timeout layer interplay — CLOSED** (main table already marked this closed 2026-08-10; this stale pointer now matches it): `test/unit/runtime/timeout-layer-contract.test.ts` asserts the 3-layer composition (`EXECUTE_CELL_TIMEOUT_MS` per-cell innermost → `RESPONSE_TIMEOUT_MS` no-output watchdog → `taskTimeoutMs` whole-task outermost).
 3. **wedge (closed note)** — Phase 1 added `ping-before-execute` (`scratchpad-lifecycle.ts:480`) so a wedged scratchpad guest is detected before the next cell; the guest wedge is no longer only bounded by the 120s cell timeout. (A wedged worker EVENT LOOP — sync infinite loop — is still only bounded by the cell timeout + parent SIGKILL; that is the accepted backstop.)
+
+## Status refresh — 2026-09-10 (M2–M7 close)
+
+Per spec §5 M3 acceptance §5 ("failure-mode-inventory declared gaps
+cập nhật trạng thái THẬT (không copy số cũ)"). Re-verified:
+
+| Gap | Status this round | Evidence |
+|---|---|---|
+| EPIPE in child-pi path | CLOSED (unchanged) | `docs/decisions/2026-09-10-wi-3-2b-epipe-coverage-evaluation.md` |
+| Timeout layer interplay | CLOSED + extended | 4 new mutation tests in `test/unit/config/timeout-config-mutation.test.ts` |
+| sleepSync deadlock (v0.9.26) | ADR-KEEP (deferred asyncify) | `docs/decisions/2026-09-10-wi-7-3-sleep-sync-keep-most.md` |
+| Heartbeat source divergence | CLOSED + parity test | `test/unit/runtime/heartbeat/heartbeat-source-parity.test.ts` (5/5) |
+| Append-event sync flood | CLOSED | 51/51 M2a + 21/21 M2b conversions + 3/6 WI-2.2 (75 total) |
+| Slot-budget deadlock (R2 P1-1) | CLOSED (head designed-for-mixed) | `pi-crew/docs/m2-targets-and-framework.md` §lock-contract |
+| crew-broker >2000 line gate | CLOSED (1998 lines) | `scripts/wc-gate.mjs` + `pi-crew/docs/decisions/...` |
+
+### Known accepted risks (not closed, by design)
+
+- **SEC-008 EPERM Lock Stealing** (`state/coordination/locks.ts:49-67`):
+  fails open on EPERM. Accepted per docs/trust-model.md.
+  Target: N/A — accepted risk.
+- **scratchpad I5 metric emit** (contracts.ts:155-157 declared, 0
+  emissions in run data): DEFER until emit-path wires + ≥5 multi-step
+  runs accumulate. See `docs/decisions/2026-09-10-wi-5-2-scratchpad-defer.md`.
+- **DWF sandbox** (isolated-vm rewrite): DEFER until shared-host or
+  marketplace use case emerges. See `docs/decisions/2026-09-10-wi-6-2-...md`.
+- **Broker protocol v2**: NO-GO. See `docs/decisions/2026-09-10-wi-6-3-...md`.
+
+These are declared, not hidden.
+
