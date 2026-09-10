@@ -344,3 +344,64 @@ describe("crash-recovery: waiting/waitState survive restore (WP-2/R2 audit)", ()
 		assert.deepEqual(reloaded.manifest.waitState, waitState);
 	});
 });
+
+
+// ── F1 part 2 (battery 2026-09-10): reconciler PID-liveness gate ──────────
+// A surface worker's recorder only flushes at turn boundaries — one slow LLM
+// turn (observed live: 6.7min, run team_20260910171307) freezes lastSeenAt
+// while the worker process is alive. The reconciler must NOT repair a task
+// whose heartbeat pid is still alive (parity with heartbeat-watcher's gate).
+
+describe("F1 part 2 (battery 2026-09-10): reconciler PID-liveness gate", () => {
+	// A surface worker's recorder only flushes at turn boundaries — one slow LLM
+	// turn (observed live: 6.7min, run team_20260910171307) freezes lastSeenAt
+	// while the worker process is alive. The reconciler must NOT repair a task
+	// whose heartbeat pid is still alive (parity with heartbeat-watcher's gate).
+
+	it("stale heartbeat but ALIVE worker pid → NOT repaired (slow LLM turn mid-flight)", () => {
+		const manifest = makeManifest(); // no async pid → no-PID branch
+		const task = makeWaitingTask({
+			status: "running",
+			waiting: undefined,
+			heartbeat: {
+				workerId: "task-1",
+				pid: process.pid, // ALIVE by construction — this very test process
+				lastSeenAt: iso(NOW - 6 * 60_000), // 6min stale, past the 5min threshold
+				alive: true,
+			},
+		});
+		const result = reconcileStaleRun(manifest, [task], NOW);
+		assert.equal(result.repaired, false, `alive pid must shield the task, got: ${result.detail}`);
+	});
+
+	it("stale heartbeat with DEAD worker pid → repaired as before (true zombie)", () => {
+		const manifest = makeManifest();
+		const task = makeWaitingTask({
+			status: "running",
+			waiting: undefined,
+			heartbeat: {
+				workerId: "task-1",
+				pid: DEAD_PID, // guaranteed-dead pid (existing suite convention)
+				lastSeenAt: iso(NOW - 6 * 60_000),
+				alive: true,
+			},
+		});
+		const result = reconcileStaleRun(manifest, [task], NOW);
+		assert.equal(result.repaired, true, "dead pid + stale heartbeat must still repair");
+	});
+
+	it("stale heartbeat with NO pid → repaired as before (legacy/no-surface tasks)", () => {
+		const manifest = makeManifest();
+		const task = makeWaitingTask({
+			status: "running",
+			waiting: undefined,
+			heartbeat: {
+				workerId: "task-1",
+				lastSeenAt: iso(NOW - 6 * 60_000),
+				alive: true,
+			},
+		});
+		const result = reconcileStaleRun(manifest, [task], NOW);
+		assert.equal(result.repaired, true, "no pid + stale heartbeat keeps legacy zombie repair");
+	});
+});

@@ -270,10 +270,20 @@ function isTaskHeartbeatStale(task: TeamTaskState, now: number): boolean {
 	// Compute elapsed from both sources and use the fresher (minimum) one,
 	// mirroring heartbeat-watcher logic: if either source has recent activity,
 	// the task is not stale even if the other is stale.
-	const heartbeatAge = Number.isFinite(heartbeatAt) ? now - heartbeatAt : Infinity;
-	const activityAge = Number.isFinite(activityAt) ? now - activityAt : Infinity;
+	const heartbeatAge = Number.isFinite(heartbeatAt) ? now - heartbeatAt : Number.MAX_SAFE_INTEGER;
+	const activityAge = Number.isFinite(activityAt) ? now - activityAt : Number.MAX_SAFE_INTEGER;
 	const elapsed = Math.min(heartbeatAge, activityAge);
-	return elapsed > NO_PID_HEARTBEAT_STALE_MS;
+	if (elapsed <= NO_PID_HEARTBEAT_STALE_MS) return false;
+	// F1 part 2 (battery 2026-09-10, live evidence run team_20260910171307): a
+	// surface worker's recorder only flushes at turn boundaries — one slow LLM
+	// turn (observed: 6.7min) freezes lastSeenAt/lastActivityAt while the worker
+	// process is alive and mid-turn. The heartbeat-watcher already has a
+	// PID-liveness gate for exactly this ("alive → downgrade dead→stale"); the
+	// reconciler MUST apply the same gate before repairing, or it kills healthy
+	// runs at the 5-minute mark mid-turn. A truly dead pid still repairs as before.
+	const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
+	if (taskPid && checkProcessLiveness(taskPid).alive) return false;
+	return true;
 }
 
 /**

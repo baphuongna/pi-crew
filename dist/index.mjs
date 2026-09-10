@@ -60169,10 +60169,13 @@ function isTaskHeartbeatStale(task, now) {
   const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
   const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
   if (!Number.isFinite(heartbeatAt) && !Number.isFinite(activityAt)) return false;
-  const heartbeatAge = Number.isFinite(heartbeatAt) ? now - heartbeatAt : Infinity;
-  const activityAge = Number.isFinite(activityAt) ? now - activityAt : Infinity;
+  const heartbeatAge = Number.isFinite(heartbeatAt) ? now - heartbeatAt : Number.MAX_SAFE_INTEGER;
+  const activityAge = Number.isFinite(activityAt) ? now - activityAt : Number.MAX_SAFE_INTEGER;
   const elapsed2 = Math.min(heartbeatAge, activityAge);
-  return elapsed2 > NO_PID_HEARTBEAT_STALE_MS;
+  if (elapsed2 <= NO_PID_HEARTBEAT_STALE_MS) return false;
+  const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
+  if (taskPid && checkProcessLiveness(taskPid).alive) return false;
+  return true;
 }
 function getRunningTaskStaleness(tasks, now) {
   const runningTasks = tasks.filter((t2) => t2.status === "running" || t2.status === "waiting");
