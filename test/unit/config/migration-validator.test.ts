@@ -31,14 +31,22 @@ describe("WI-5.6 migration validator", () => {
 		assert.equal(legacyWarn.severity, "deprecated", `expected severity=deprecated for legacy guard; got ${legacyWarn.severity}`);
 	});
 
-	it("removed env keys produce a 'removed' severity warning", () => {
+	it("removed/dead env keys produce a 'removed' severity warning", () => {
+		// REVIEW FIX (2026-09-10): use REAL registry entries — the previous
+		// fake key (PI_CREW_SUPERSEDED_NAME) is not in CREW_ENV_VARS, so the
+		// removed-branch was never exercised (vacuous test).
 		const fakeEnv = {
-			PI_CREW_SUPERSEDED_NAME: "1", // an arbitrary removed entry
+			PI_CREW_BROKER_DIAG_UI: "1", // env-vars.ts: deprecated: "removed"
+			PI_CREW_SAFE_BASH: "1", // env-vars.ts: deprecated: "dead"
 		};
 		const result = validateEnv(fakeEnv);
-		// Note: this may yield zero warnings if the registry entry is not
-		// present; the test asserts the validator DOES NOT throw either way.
-		assert.ok(Array.isArray(result.warnings), "warnings must always be an array (no exceptions)");
+		assert.equal(result.hasWarnings, true);
+		const removedWarn = result.warnings.find((w) => w.name === "PI_CREW_BROKER_DIAG_UI");
+		assert.ok(removedWarn, "expected a warning for PI_CREW_BROKER_DIAG_UI");
+		assert.equal(removedWarn.severity, "removed", `got ${removedWarn.severity}`);
+		const deadWarn = result.warnings.find((w) => w.name === "PI_CREW_SAFE_BASH");
+		assert.ok(deadWarn, "expected a warning for PI_CREW_SAFE_BASH");
+		assert.equal(deadWarn.severity, "removed", `dead must also map to severity=removed; got ${deadWarn.severity}`);
 	});
 
 	it("config-level deprecated key warns", () => {

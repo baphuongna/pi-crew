@@ -6,13 +6,15 @@
  *   "Migration validator: test case cũ config + key deprecated →
  *    warning không fail."
  *
- * Key principles (additive-only):
- *   - Deprecated: emit warning, KEEP the value, do not fail.
- *   - Removed:   emit warning, set to undefined, do not fail.
- *   - Unknown:   emit warning, KEEP the value, do not fail.
- *   - Hardcoded: emit warning only if user explicitly overrides; not fail.
+ * Key principles (additive-only, READ-ONLY — the validator never mutates
+ * env or config):
+ *   - Deprecated: emit warning (severity "deprecated"), keep the value,
+ *     do not fail.
+ *   - Removed/dead/reverted: emit warning (severity "removed"), do not
+ *     fail, do NOT delete the key (cleanup is a separate concern).
+ *   - Keys not in the registry are not scanned (registry-driven scan).
  *
- * Returns an array of entries; never throws.
+ * Returns an advisory list; never throws.
  */
 
 import { CREW_ENV_VARS } from "./env-vars.ts";
@@ -20,7 +22,7 @@ import { CREW_ENV_VARS } from "./env-vars.ts";
 export interface ValidationWarning {
 	scope: "env-var" | "config-key";
 	name: string;
-	severity: "deprecated" | "removed" | "unknown";
+	severity: "deprecated" | "removed";
 	message: string;
 	/** Optional policy note from the registry entry. */
 	policy?: string;
@@ -37,10 +39,7 @@ export interface EnvValidationResult {
 export function validateEnv(env: NodeJS.ProcessEnv = process.env): EnvValidationResult {
 	const warnings: ValidationWarning[] = [];
 	if (!env || typeof env !== "object") return { warnings, hasWarnings: false };
-	const seen = new Set<string>();
 	for (const [name, spec] of Object.entries(CREW_ENV_VARS)) {
-		seen.add(name);
-		if (spec.mirror) seen.add(spec.mirror);
 		let value: string | undefined;
 		try {
 			value = (env as Record<string, string | undefined>)[name];

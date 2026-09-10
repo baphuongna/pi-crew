@@ -89,7 +89,7 @@ function emitScratchpadMetric(
 			runId,
 			taskId: env[PI_CREW_TASK_ID_ENV],
 			data,
-		}).catch((e) => logInternalError("scratchpad_lifecycle.buffered", e, "unknown"));
+		}).catch((e) => logInternalError("scratchpad_lifecycle.buffered", e, `type=${type}`));
 	} catch {
 		// Metric is best-effort — drop the event, never the cell.
 	}

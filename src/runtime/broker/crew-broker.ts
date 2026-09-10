@@ -60,12 +60,13 @@ import {
 import { recordWaitPolicyRejection, waitAuthError } from "./protocol/wait-auth.ts";
 import { WaitStatusCache } from "./wait-status-cache.ts";
 
-/** Protocol version negotiated at `hello` time. Bump on breaking change. */
-export { BROKER_PROTOCOL };
+/** Protocol version negotiated at `hello` time. Bump on breaking change.
+ * (Re-export removed 2026-09-10 — zero consumers; defined + exported in
+ * request-parsers.ts.) */
 
 /** Hard hello deadline (per spec). After 1s, the connection is closed with a
- *  generic auth/protocol code. */
-export const HELLO_DEADLINE_MS = 1_000;
+ *  generic auth/protocol code. (Unexported 2026-09-10 — zero consumers.) */
+const HELLO_DEADLINE_MS = 1_000;
 
 /** Per-connection server-side state.
  *  Moved to ./protocol/connection-state.ts (M4 / WI-4.1):

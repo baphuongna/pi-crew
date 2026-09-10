@@ -12,8 +12,14 @@
  *      the TypeBox schema (PiTeamsConfigSchema). If someone adds a
  *      setting to the overlay but forgets to add it to the schema, this
  *      test fails.
- *   2. Type compatibility: the setting's `type` (boolean/number/enum/
- *      string/agent/action) matches the schema's TypeBox kind.
+ *
+ * NOT covered (comment corrected 2026-09-10, review C6): type
+ * compatibility between the overlay's `type` field and the schema's
+ * TypeBox kind is NOT checked — the old header claimed it, but no such
+ * code exists (changing an overlay setting boolean→string with an
+ * unchanged schema still passes). Schema-only paths (no overlay entry)
+ * and overlay default VALUES are also unguarded — the widgetPlacement
+ * G17 drift lived exactly in that gap until the 2026-09-10 review.
  *
  * Mutation demo (in commit message): if you add `id: "limits.foo"` to
  * SETTINGS without adding `foo` to PiTeamsLimitsConfigSchema, this test
@@ -95,16 +101,12 @@ describe("WI-3.3 settings-overlay ↔ schema sync", () => {
 			// dispatch a callback like theme switching)
 			// We don't have the type here, so allow any setting that has a
 			// catch-all ancestor (e.g., agents.* with additionalProperties).
-			// Walk the full id — the FULL path must match an exact schema
-			// path (leaf or intermediate object). A prefix match like
-			// `limits` matching `limits.maxConcurrentWorkers_FOO` is a false
-			// positive, so we require the complete id.
-			const parts = id.split(".");
-			let cur = "";
+			// The FULL path must match an exact schema path (leaf or
+			// intermediate object). A prefix match like `limits` matching
+			// `limits.maxConcurrentWorkers_FOO` is a false positive, so we
+			// require the complete id. (Dead partial-path loop removed
+			// 2026-09-10 — `cur` was computed but never used.)
 			let found = false;
-			for (const p of parts) {
-				cur = cur ? `${cur}.${p}` : p;
-			}
 			// Full id must be in schema (as leaf OR as nested Object path).
 			// Or the FINAL key must match a catch-all prefix (`agents.*`).
 			if (schemaPaths.has(id)) {

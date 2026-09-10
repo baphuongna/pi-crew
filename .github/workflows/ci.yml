@@ -63,6 +63,12 @@ jobs:
         run: |
           npm run check:conflict-markers
           npm run check:lazy-imports
+      - name: wc-gate (M4 done-gate ≤2000 lines)
+        # REVIEW FIX (2026-09-10): enforce the 2000-line done-gate in PR CI,
+        # not just local ci:fast. Spec §12 Gate 2 requires no src/runtime
+        # module above 2000 lines — without this step a future commit could
+        # grow crew-broker.ts past the gate and still pass CI green.
+        run: npm run check:wc-gate
       - name: Committed dist hash gate (WI-1.2)
         # Verify the COMMITTED dist/ bundle matches what the checked-out src
         # would produce — catches "src edited + committed but dist not rebuilt

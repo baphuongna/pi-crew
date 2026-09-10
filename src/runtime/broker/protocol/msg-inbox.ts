@@ -1,5 +1,6 @@
 /**
- * msg-inbox.ts — Phase 1.1 msg.inbox broker handler.
+ * msg-inbox.ts — Phase 1.2 msg.inbox broker handler (Phase 1.1 = msg.send;
+ * label corrected 2026-09-10 per review F3 — it was mislabeled 1.1 at extraction).
  *
  * Moved from crew-broker.ts (M4 / WI-4.1) — pure move, no behavior change.
  * Operates on a connection + writers adapter + cwd. Top-level function so

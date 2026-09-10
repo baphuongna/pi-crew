@@ -238,7 +238,9 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
 			taskId: item.taskId,
 			message: item.message,
 			data: { action: item.action, reason: item.reason },
-		}).catch((e) => logInternalError("finalize-run.buffered", e, "type=policy.action"));
+		}).catch((e) =>
+			logInternalError("finalize-run.buffered", e, `type=${item.action === "escalate" ? "policy.escalated" : "policy.action"}`),
+		);
 	for (const item of recoveryLedger.entries)
 		appendEventBuffered(manifest.eventsPath, {
 			type: item.state === "escalation_required" ? "recovery.escalated" : "recovery.attempted",
@@ -251,7 +253,13 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
 				attempt: item.attempt,
 				state: item.state,
 			},
-		}).catch((e) => logInternalError("finalize-run.buffered", e, "type=recovery.attempted"));
+		}).catch((e) =>
+			logInternalError(
+				"finalize-run.buffered",
+				e,
+				`type=${item.state === "escalation_required" ? "recovery.escalated" : "recovery.attempted"}`,
+			),
+		);
 	return {
 		...manifest,
 		updatedAt: new Date().toISOString(),

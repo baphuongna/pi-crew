@@ -3,10 +3,15 @@
  * wc-gate.mjs — Enforce the M4 done-gate: no module under src/runtime/ may
  * exceed 2000 lines (spec §5 M4 acceptance).
  *
- * Exits 0 on green, 1 on violation. Run via npm run wc:gate.
+ * Exits 0 on green, 1 on violation. Run via `npm run check:wc-gate`
+ * (also part of `ci` / `ci:fast` and the per-PR ci.yml workflow).
+ *
+ * REVIEW FIX (2026-09-10, shard-B F2): single-pass scan — the previous
+ * version walked + read every file twice (violations pass, then top-5
+ * pass); `stat` import was unused; readFile is imported once at top.
  */
 
-import { readdir, stat } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
 const ROOT = new URL("../src/runtime/", import.meta.url).pathname;
@@ -27,7 +32,7 @@ async function* walk(dir) {
 
 /** Naive line counter — wc -l parity for ASCII source. */
 async function lineCount(p) {
-	const src = await (await import("node:fs/promises")).readFile(p, "utf8");
+	const src = await readFile(p, "utf8");
 	if (src.length === 0) return 0;
 	// Subtract 1 if file ends with newline (wc -l behaviour)
 	let n = 1;
@@ -35,12 +40,14 @@ async function lineCount(p) {
 	return src.endsWith("\n") ? n - 1 : n;
 }
 
+// Single pass: collect every (path, count) once; violations and top-5 both
+// derive from it.
+const all = [];
 const violations = [];
 for await (const p of walk(ROOT)) {
 	const n = await lineCount(p);
-	if (n > LIMIT) {
-		violations.push(`${n}\t${p}`);
-	}
+	all.push({ p, n });
+	if (n > LIMIT) violations.push(`${n}\t${p}`);
 }
 
 if (violations.length > 0) {
@@ -50,11 +57,6 @@ if (violations.length > 0) {
 	process.exit(1);
 }
 
-// Top-3 largest (non-violations) for visibility.
-const all = [];
-for await (const p of walk(ROOT)) {
-	all.push({ p, n: await lineCount(p) });
-}
 all.sort((a, b) => b.n - a.n);
 console.log(`wc-gate OK — ${all.length} files, max ${all[0].n} lines (limit ${LIMIT}).`);
 console.log("Top 5 largest:");

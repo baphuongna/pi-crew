@@ -1,5 +1,8 @@
 /**
- * events-replay.ts — Phase 2 events.since handler.
+ * events-replay.ts — Phase 1.5 events.since handler (label corrected
+ * 2026-09-10 per review F4 — "Phase 2" is events.subscribe). Used by clients
+ * to resync after a missed live frame (e.g. after a queue overflow or
+ * reconnect).
  *
  * Moved from crew-broker.ts (M4 / WI-4.1) — pure move, no behavior change.
  * Operates only on the connection + a writers adapter (sendError/sendResult).

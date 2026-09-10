@@ -4,19 +4,25 @@
  * Per spec R3 addendum: "heartbeat unification có liveness/parity test
  * (3 nguồn heartbeat không lệch phase)".
  *
- * The 3 sources:
- *   1. `task.heartbeat` — WorkerHeartbeatState field on tasks.json
- *   2. `<stateRoot>/heartbeat.json` — team-runner-owned file
- *   3. `crew.heartbeat.staleness_ms` metric — observability gauge
+ * SCOPE NOTE (corrected 2026-09-10, review C4): this file tests the SHARED
+ * helper semantics used by 2 of the 3 sources — `task.heartbeat`
+ * (heartbeat-watcher.ts) and the `crew.heartbeat.staleness_ms` metric gauge
+ * (heartbeat-aggregator.ts), both of which consume WorkerHeartbeatState via
+ * heartbeatAgeMs(). The 3rd source, `<stateRoot>/heartbeat.json`, is written
+ * by team-runner with a DIFFERENT shape ({pid, at, runId, kind,
+ * lastTaskUpdateAt}) and aged by a separate mtime-based `heartbeatAgeMs`
+ * twin (crash-recovery.ts:432) — it does NOT share lastSeenAt formatting
+ * with the other two. Full 3-source unification remains open (WI-7.4 ADR).
  *
  * This test asserts:
  *   - Given a synthetic WorkerHeartbeatState with a known `lastSeenAt`,
- *     all 3 sources return the same `heartbeatAgeMs` value (within 1ms
- *     for clock drift between writes).
- *   - The `heartbeatAgeMs` helper is consistent across the codebase.
+ *     the shared helper returns consistent ages for both consumers.
+ *   - The `heartbeatAgeMs` helper semantics (0 at creation, +Infinity when
+ *     missing, monotonic touch) hold.
  *
  * What this test does NOT cover:
  *   - herdr graceful-kill-by-pid (deferred — see WI-7.4 ADR).
+ *   - heartbeat.json mtime-twin parity (see scope note above).
  *   - Multi-source divergence under concurrent write (out of scope;
  *     the writers all use `Date.now()` as a shared clock).
  */
@@ -38,14 +44,12 @@ describe("WI-7.4 heartbeat source parity", () => {
 		assert.ok(age >= 0 && age < 5, `age=${age} should be near 0`);
 	});
 
-	it("heartbeatAgeMs returns +Infinity for missing heartbeat (consistent across sources)", () => {
+	it("heartbeatAgeMs returns +Infinity for missing heartbeat (consistent across consumers)", () => {
 		const ageMissing = heartbeatAgeMs(undefined, Date.now());
 		assert.equal(ageMissing, Number.POSITIVE_INFINITY);
-		// Other sources must use the same primitive — verify by importing
-		// the same helper from one location. The other 2 sources
-		// (heartbeat.json + metric) both consume the same lastSeenAt
-		// string format, so an undefined-shape input yields Infinity
-		// identically.
+		// Both helper consumers (heartbeat-watcher + metric gauge) call this
+		// same primitive with the WorkerHeartbeatState shape; an undefined
+		// input yields +Infinity identically for both.
 	});
 
 	it("touchWorkerHeartbeat updates lastSeenAt (parity across writes)", () => {

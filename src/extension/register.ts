@@ -18,6 +18,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../config/config.ts";
+import { validateEnv } from "../config/migration-validator.ts";
 import { startRuntimeWarmup } from "../runtime/model/runtime-warmup.ts";
 import { primePeerDep } from "../runtime/peer-dep.ts";
 import { deployBundledThemes } from "../ui/deploy-bundled-themes.ts";
@@ -59,6 +60,18 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 	// uncaughtException that kills pi (see child-process-shield.ts for the
 	// full crash chain — /crew-view mid-run crash).
 	installChildProcessAbortShield();
+
+	// WI-5.6 wiring (review remediation 2026-09-10): surface deprecated /
+	// removed / reverted PI_CREW_* env keys as ONE consolidated startup
+	// warning — warn, never fail (spec M5 acceptance). validateEnv is a pure
+	// scanner over the env-registry (env-vars.ts) and never throws.
+	const envWarnings = validateEnv(process.env);
+	if (envWarnings.warnings.length > 0) {
+		console.warn(
+			`[pi-crew] ${envWarnings.warnings.length} deprecated env var(s) in use:\n` +
+				envWarnings.warnings.map((w) => `  ${w.name}: ${w.message}`).join("\n"),
+		);
+	}
 
 	startRuntimeWarmup();
 	primePeerDep().catch(() => undefined);

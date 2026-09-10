@@ -58,6 +58,18 @@ function collectCommands(root: string): CommandEntry[] {
 }
 
 describe("WI-5.5 slash-command parity", () => {
+	// REVIEW FIX (2026-09-10, C5): bounds alone let up-to-3 command removals
+	// (incl. `team` itself) pass silently. The must-include list pins the
+	// core command surface; the 28..45 range stays as a cheap ceiling.
+	const MUST_INCLUDE = ["team-run", "teams", "team-help", "crew-view", "crew-brief"];
+
+	it("core commands must be present (must-include list)", () => {
+		const root = path.join(import.meta.dirname ?? __dirname, "../../../src");
+		const unique = new Set(collectCommands(root).map((e) => e.name));
+		const absent = MUST_INCLUDE.filter((c) => !unique.has(c));
+		assert.deepEqual(absent, [], `core commands missing from registration: ${absent.join(", ")}`);
+	});
+
 	it("command count within sanity range (28..45)", () => {
 		const root = path.join(import.meta.dirname ?? __dirname, "../../../src");
 		const entries = collectCommands(root);

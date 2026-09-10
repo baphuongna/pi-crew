@@ -26,9 +26,12 @@ import { RESPONSE_TIMEOUT_MS } from "../../../src/runtime/child-pi/child-pi-cons
 
 describe("WI-3.2a timeout config-mutation detection", () => {
 	it("RESPONSE_TIMEOUT_MS matches defaults.responseTimeoutMs (re-derived)", () => {
-		// Catches anyone who "tunes" defaults but forgets the wrapping
-		// constant in child-pi-constants.ts would still equal the new value
-		// on next cold-restart.
+		// Decoupling TRIPWIRE (comment corrected 2026-09-10, review C-low):
+		// child-pi-constants.ts ASSIGNS this constant FROM
+		// DEFAULT_CHILD_PI.responseTimeoutMs, so equality is guaranteed while
+		// that wiring holds — this test only fires if someone rewrites the
+		// constant to an independent literal (decoupling it from defaults).
+		// The actual layer ordering is guarded by the tests below.
 		assert.equal(
 			RESPONSE_TIMEOUT_MS,
 			DEFAULT_CHILD_PI.responseTimeoutMs,
