@@ -23652,7 +23652,7 @@ function saveRunManifest(manifest) {
   const cachedTasksSize = cachedBeforeInvalidate?.tasksSize ?? 0;
   invalidateRunCache(manifest.stateRoot);
   const manifestPath = path30.join(manifest.stateRoot, "manifest.json");
-  atomicWriteJson(manifestPath, manifest);
+  atomicWriteJsonCoalesced(manifestPath, manifest);
   const manifestStat = fs37.statSync(manifestPath);
   setManifestCache(manifest.stateRoot, {
     manifest,
@@ -26928,7 +26928,7 @@ function getCurrentPlanRecord(manifest) {
 function writePlanFile(manifest, revisions) {
   const file = { version: 1, revisions };
   fs43.mkdirSync(path33.dirname(planFilePath(manifest)), { recursive: true });
-  atomicWriteJson(planFilePath(manifest), file);
+  atomicWriteJsonCoalesced(planFilePath(manifest), file);
 }
 function assertRecordWellFormed(record) {
   const ids = /* @__PURE__ */ new Set();
@@ -49304,7 +49304,7 @@ function upsertOwnershipEntry(manifest, entry) {
       };
       const clean = Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== void 0));
       fresh.entries[entry.taskId] = clean;
-      atomicWriteJson(ownershipMapPath(manifest), fresh, { compact: true });
+      atomicWriteJsonCoalesced(ownershipMapPath(manifest), fresh, void 0, { compact: true });
     });
   } catch (error) {
     logInternalError("ownership-map.write", error, `taskId=${entry.taskId}, runId=${entry.runId}`);

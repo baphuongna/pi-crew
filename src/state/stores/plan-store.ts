@@ -26,7 +26,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { atomicWriteJson } from "../atomic-write.ts";
+import { atomicWriteJsonCoalesced } from "../atomic-write.ts";
 import { withRunLockSync } from "../coordination/locks.ts";
 import { appendEvent } from "../event-log/event-log.ts";
 import type { PlanItemRecord, PlanRecord, TeamRunManifest, TeamTaskState } from "../types.ts";
@@ -74,7 +74,7 @@ export function getCurrentPlanRecord(manifest: TeamRunManifest): PlanRecord | un
 function writePlanFile(manifest: TeamRunManifest, revisions: PlanRecord[]): void {
 	const file: PlanFile = { version: 1, revisions };
 	fs.mkdirSync(path.dirname(planFilePath(manifest)), { recursive: true });
-	atomicWriteJson(planFilePath(manifest), file);
+	atomicWriteJsonCoalesced(planFilePath(manifest), file);
 }
 
 /** ADR-4 §3: item ids are unique per revision; carried-over items keep their

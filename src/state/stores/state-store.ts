@@ -502,7 +502,7 @@ export function saveRunManifest(manifest: TeamRunManifest): void {
 	// which is always safe.
 	invalidateRunCache(manifest.stateRoot);
 	const manifestPath = path.join(manifest.stateRoot, "manifest.json");
-	atomicWriteJson(manifestPath, manifest);
+	atomicWriteJsonCoalesced(manifestPath, manifest);
 	// FIX: Re-populate cache with actual mtime/size so loadRunManifestById
 	// doesn't miss the cache on next read. Without this, every load until
 	// TTL expires would hit disk because cached 0 !== any real mtime.

@@ -26,7 +26,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { atomicWriteJson, flushPendingAtomicWrites } from "../atomic-write.ts";
+import { atomicWriteJsonCoalesced, flushPendingAtomicWrites } from "../atomic-write.ts";
 import { withRunLockSync } from "../coordination/locks.ts";
 import type { TeamRunManifest } from "../types.ts";
 
@@ -118,7 +118,7 @@ export function upsertOwnershipEntry(manifest: TeamRunManifest, entry: Ownership
 			// filtering here keeps the in-memory merge honest.
 			const clean = Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== undefined)) as OwnershipEntry;
 			fresh.entries[entry.taskId] = clean;
-			atomicWriteJson(ownershipMapPath(manifest), fresh, { compact: true });
+			atomicWriteJsonCoalesced(ownershipMapPath(manifest), fresh, undefined, { compact: true });
 		});
 	} catch (error) {
 		// Best-effort — a failure here must not break the spawn/steer caller.

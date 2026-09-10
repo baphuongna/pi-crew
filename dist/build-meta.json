@@ -8114,7 +8114,7 @@
       "format": "esm"
     },
     "src/state/stores/state-store.ts": {
-      "bytes": 55074,
+      "bytes": 55083,
       "imports": [
         {
           "path": "node:fs",
@@ -8589,7 +8589,7 @@
       "format": "esm"
     },
     "src/state/stores/plan-store.ts": {
-      "bytes": 11348,
+      "bytes": 11366,
       "imports": [
         {
           "path": "node:fs",
@@ -12897,7 +12897,7 @@
       "format": "esm"
     },
     "src/state/stores/ownership-map.ts": {
-      "bytes": 7849,
+      "bytes": 7878,
       "imports": [
         {
           "path": "node:fs",
@@ -20943,7 +20943,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8008835
+      "bytes": 8008896
     },
     "dist/index.mjs": {
       "imports": [
@@ -23861,7 +23861,7 @@
           "bytesInOutput": 4462
         },
         "src/state/stores/state-store.ts": {
-          "bytesInOutput": 27560
+          "bytesInOutput": 27569
         },
         "src/ui/pi-ui-compat.ts": {
           "bytesInOutput": 1173
@@ -23930,7 +23930,7 @@
           "bytesInOutput": 8424
         },
         "src/state/stores/plan-store.ts": {
-          "bytesInOutput": 6610
+          "bytesInOutput": 6619
         },
         "src/runtime/plan-approval.ts": {
           "bytesInOutput": 2889
@@ -24494,7 +24494,7 @@
           "bytesInOutput": 10244
         },
         "src/state/stores/ownership-map.ts": {
-          "bytesInOutput": 2064
+          "bytesInOutput": 2081
         },
         "src/runtime/heartbeat/worker-startup.ts": {
           "bytesInOutput": 2354
@@ -25217,7 +25217,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3362460
+      "bytes": 3362495
     }
   }
 }
