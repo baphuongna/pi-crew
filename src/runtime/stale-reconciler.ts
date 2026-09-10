@@ -282,7 +282,22 @@ function isTaskHeartbeatStale(task: TeamTaskState, now: number): boolean {
 	// reconciler MUST apply the same gate before repairing, or it kills healthy
 	// runs at the 5-minute mark mid-turn. A truly dead pid still repairs as before.
 	const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
-	if (taskPid && checkProcessLiveness(taskPid).alive) return false;
+	const pidAlive = taskPid ? checkProcessLiveness(taskPid).alive : false;
+	if (taskPid && pidAlive) return false;
+	if (process.env.PI_CREW_DEBUG_STALE === "1") {
+		// F1 forensic (battery 2026-09-10): sidecar log of every STALE verdict so
+		// live repros can show exactly what the reconciler saw (pid present? alive?
+		// elapsed?) — the reconciler may run in ANY host process, hence a fixed
+		// sidecar path instead of console.
+		try {
+			fs.appendFileSync(
+				"/tmp/pi-crew-f1-debug.log",
+				`${JSON.stringify({ ts: new Date().toISOString(), taskId: task.id, status: task.status, taskPid, pidAlive, heartbeatAge, activityAge, hbLastSeen: task.heartbeat?.lastSeenAt })}\n`,
+			);
+		} catch {
+			/* best-effort forensic log */
+		}
+	}
 	return true;
 }
 
