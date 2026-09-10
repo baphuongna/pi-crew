@@ -53,11 +53,12 @@ Top 5 largest:
 - 79 sync call-sites census
 
 ### M2 — Runtime Performance Closure (test-first)
-- WI-2.1 conversions: 51/51 sites (M2a, top-7 file-groups)
-- WI-2.1 conversions: 21/21 sites (M2b, 13 files)
-- WI-2.2 coalesce: 3/6 sites
+- WI-2.1 M2a: 38/51 sites live (13 reverted: dwf-runner 6 + crash-recovery 7 — read-your-writes)
+- WI-2.1 M2b: 5/18 sites live (13 reverted incl. registry hook.executed — all read-your-writes violations)
+- WI-2.2 coalesce: 3 sites converted → **ALL 3 REVERTED** (broke read-your-writes at every site; hidden unit-test failures found by deep review)
 - WI-2.3 cold-boot: closed by ADR (400ms acceptable)
 - Recovery test: 2/2 event-log-buffered
+- NET M2: 43 live buffered conversions (38 M2a + 5 M2b), 0 coalesced file writes
 
 ### M3 — Test Architecture & Safety Net
 - nightly.yml + test:integration:slow + test:full scripts
@@ -130,3 +131,48 @@ this run covers M2-M7 in one cycle so v0.10.5 captures all).
 If pre-M1 → v0.10.4 has been cut, v0.10.5 cleanly slots in.
 
 Bundle: dist/index.mjs 3286.5 KB (3.3 MB)
+
+## Deep-review remediation (2026-09-10, same day)
+
+5-agent adversarial review (4 shards + invariants) of ALL changes found and fixed:
+
+**Fixed (P0):**
+- WI-2.2 fully REVERTED — all 3 coalesced-write sites (plan-store,
+  ownership-map, state-store saveRunManifest) broke read-your-writes;
+  18 hidden unit-test failures (test:critical gap — stores/ not in the
+  critical set)
+- 26 M2 event-emission sites REVERTED to sync appendEvent (read-your-
+  writes / same-poll contracts): status ×2, plan-store ×2, dwf-context ×3,
+  dwf-runner ×6, crash-recovery ×7, goal-state ×1, supervisor ×1,
+  plan-replan ×2, cancel ×1, registry ×1
+  — each verified against its unit tests (dwf-setresult, cancel-ownership,
+  goal-p1b-cas, supervisor-contact-edge, plan-replan, recovery-hooks,
+  hooks, stores/*)
+- nightly.yml: dropped PI_CREW_SMOKE=1 (would arm real-binary smoke tests
+  needing pi + PI_AUTH_JSON on a hosted runner → deterministic red)
+- worktree-twins test: fixed try/finally rmSync race (flaky exit-128,
+  verified 1/12 idle)
+- widgetPlacement G17 drift: 2 duplicated EFFECTIVE_DEFAULTS maps fixed
+  "aboveEditor" → canonical "bottom"
+
+**Fixed (P1/P2):**
+- migration-validator wired into registerPiTeams startup (warn-only) +
+  vacuous test replaced with real registry entries + dead `seen` set removed
+- wc-gate enforced in full `ci` script AND per-PR ci.yml (was ci:fast-only)
+- test:full duplication resolved: 3 slow tests moved to
+  test/integration/slow/ (31+3 disjoint globs)
+- 5 reject-format sites fixed (type= real event types, ternary-aware)
+- phase labels corrected (msg-inbox 1.2, events-replay 1.5); dead exports
+  removed; wc-gate single-pass; false test comments corrected
+  (heartbeat 3-source scope, schema-sync type-compat claim, timeout t1)
+- slash-command parity: must-include list for 5 core commands
+
+**Review false positive (verified, NOT fixed):**
+- background-runner exit-path event loss — event-log already registers
+  process.on("exit") → flushBufferedQueuesSync() (EL-2, sync+fsync);
+  process.exit(1) triggers it. Reviewer missed the handler.
+
+**Claim corrections:**
+- M2b was 18 sites, not 21 (commit msg bullet list sums to 18)
+- Total M2 conversions: 43 live (38 M2a + 5 M2b after remediation reverts),
+  not 75; plus 0 of 3 WI-2.2 coalesce sites survive
