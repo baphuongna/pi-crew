@@ -56,12 +56,24 @@ jobs:
       - name: Format check
         run: npm run format:check
       - name: Checks (conflict markers / lazy imports)
-        # check:bundle-staleness is intentionally excluded — it is mtime-based
-        # (newest src/ vs dist/index.mjs) and only meaningful locally, since a
-        # fresh `git checkout` on CI resets all file mtimes to ~now.
+        # check:bundle-staleness DEFAULT (mtime) mode is intentionally excluded
+        # here — mtimes are meaningless on a fresh CI checkout (all files get
+        # ~now). The CONTENT-based committed-dist gate runs in the
+        # "Committed dist hash gate" step below, BEFORE 'Build bundle'.
         run: |
           npm run check:conflict-markers
           npm run check:lazy-imports
+      - name: Committed dist hash gate (WI-1.2)
+        # Verify the COMMITTED dist/ bundle matches what the checked-out src
+        # would produce — catches "src edited + committed but dist not rebuilt
+        # + recommitted" (the stale-bundle incident class).
+        # MUST run BEFORE 'Build bundle': that step rebuilds dist/, so any dist
+        # check placed after it compares fresh-vs-fresh — a tautology that is
+        # always green. This gate reads the committed blobs AS-IS
+        # (git show HEAD:dist/...) and builds the expected side into a scratch
+        # dir (dist/ on disk is never touched). Cross-OS safe: content is
+        # CRLF-normalized before hashing — see script header, clauses (1)-(3).
+        run: node scripts/check-bundle-staleness.mjs --committed-hash
       - name: Build bundle
         # Required by test:bundle — the shipped bundle must be exercised by CI
         # to catch the "all tests green but shipped artifact broken" class of

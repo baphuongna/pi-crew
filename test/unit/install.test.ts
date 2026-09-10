@@ -25,8 +25,10 @@ test("install.mjs respects PI_TEAMS_HOME and writes default UI config", () => {
 		const config = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
 			ui?: Record<string, unknown>;
 		};
+		// WI-1b.2 (G17): widgetPlacement must track DEFAULT_UI ("bottom"),
+		// enforced by test/unit/install-defaults-sync.test.ts.
 		assert.deepEqual(config.ui, {
-			widgetPlacement: "aboveEditor",
+			widgetPlacement: "bottom",
 			widgetMaxLines: 8,
 			powerbar: true,
 			dashboardPlacement: "center",

@@ -82,7 +82,7 @@ Goal: open the CI/team use cases without expanding the trust surface.
 |----|--------|--------|--------------|
 | R4-1 | Webhook notifications on run completion | M | backlog US-030 |
 | R4-2 | GitHub Actions helper (report results as PR comment) | M | backlog US-031 |
-| R4-3 | Interactive run dashboard in TUI (non-blocking, event-driven) | M | backlog US-020; relies on runEventBus replay |
+| R4-3 | Interactive run dashboard in TUI (non-blocking, event-driven) | M | ✅ shipped — `/team-dashboard` command (`src/extension/registration/commands/dashboard.ts`), `RunDashboard` + panes under `src/ui/` with tests `test/unit/ui/run-dashboard.test.ts`; status updated 2026-09 (was stale `backlog US-020`) |
 | R4-4 | Shared/networked artifact store review (reopens E.2/scratchpad HMAC) | S | only after R2-2 ships |
 
 **Done gate:** a CI pipeline can post a run report to a PR; a second machine

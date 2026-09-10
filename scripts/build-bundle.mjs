@@ -25,7 +25,16 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 
-const distDir = path.join(root, "dist");
+// PI_CREW_BUNDLE_OUT lets the committed-dist hash gate
+// (scripts/check-bundle-staleness.mjs --committed-hash, WI-1.2) build a
+// throwaway copy of the bundle into a scratch dir WITHOUT touching dist/ —
+// required so that gate can hash the committed dist as-is (spec R2 P1-SEC-3
+// clause 3: no rebuild before compare). The scratch dir MUST sit at the same
+// depth as dist/ (directly under the repo root): esbuild computes sourcemap
+// "sources" relative to the outfile, and matching dist/'s depth keeps the
+// .map byte-identical to a dist/ build.
+const outDirOverride = process.env.PI_CREW_BUNDLE_OUT;
+const distDir = outDirOverride ? path.resolve(root, outDirOverride) : path.join(root, "dist");
 fs.mkdirSync(distDir, { recursive: true });
 
 const start = Date.now();

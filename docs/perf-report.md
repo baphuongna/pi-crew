@@ -1,6 +1,77 @@
-# pi-crew Performance Report (v0.9.62)
+# pi-crew Performance Report — BASELINE 2026-09-10 (WI-1.1)
 
-> Real measured numbers from the benchmark suite in `bench/b*.bench.ts`,
+> **Noise protocol**: 3 full runs of `npm run bench` (~3 min each, sequential, idle-ish machine).
+> Values below are **p50 of 3 runs**; spread = (max−min)/p50. Raw JSON: `bench/results/2026-09-10T05-{04,07,11}-*.json`.
+> This section is the **M1 baseline** referenced by spec `pi-crew-upgrade-spec.md` — M2 targets MUST re-derive from here (R1/R2 rule: do not inherit v0.9.62 numbers).
+
+## 0. Environment
+
+| Key | Value |
+|---|---|
+| HEAD | `f80700af` (sau dist-commit WI-1.3) |
+| Node | `v22.23.1` |
+| Platform | linux @ bom-Inspiron-7559 |
+| Date | 2026-09-10T05:04–05:14Z |
+| Method | `npm run bench` ×3, p50+spread |
+
+## 1. Baseline table (p50 of 3 runs)
+
+| bench | case | metric | p50 (3 runs) | spread | min | max |
+|---|---|---|---|---|---|---|
+| b1.child-spawn.real | n1 | perChildAvgMs (ms) | 403.8 | 5.0% | 386.3 | 406.4 |
+| b1.child-spawn.real | n5 | perChildAvgMs (ms) | 399.5 | 15.2% | 385.2 | 446.0 |
+| b1.child-spawn.real | n10 | perChildAvgMs (ms) | 400.5 | 53.2% | 386.5 | 599.7 |
+| b12.fsync-counts | appendEventSyncNonTerminal | wallMs (fsync-calls) | 11.5 | 30.6% | 10.7 | 14.2 |
+| b12.fsync-counts | appendEventSyncTerminal | wallMs (fsync-calls) | 15.9 | 15.1% | 13.8 | 16.2 |
+| b12.fsync-counts | appendEventBufferedNonTerminalBatch8 | wallMs (fsync-calls) | 9.700 | 56.6% | 7.460 | 12.950 |
+| b12.fsync-counts | tasksCheckpointNonTerminalFlagOff | wallMs (fsync-calls) | 28.0 | 30.4% | 24.4 | 32.9 |
+| b12.fsync-counts | tasksCheckpointNonTerminalFlagOn | wallMs (fsync-calls) | 5.080 | 63.0% | 1.990 | 5.190 |
+| b12.fsync-counts | appendMailboxMessageDeliveryMark | wallMs (fsync-calls) | 1.870 | 145.5% | 1.540 | 4.260 |
+| b12.fsync-counts | coalescedDrain4FilesOneDir | wallMs (fsync-calls) | 39.6 | 4.2% | 38.3 | 40.0 |
+| b13.retrieval-latency | retrievalColdRepoRoot | wallMs (ms) | 63.0 | 14.3% | 62.0 | 71.0 |
+| b13.retrieval-latency | retrievalWarmCacheHit | wallMs (ms) | 7.000 | 28.6% | 6.000 | 8.000 |
+| b2.broker-roundtrip | n1 | wallMs (ms) | 0.520 | 9.6% | 0.470 | 0.520 |
+| b2.broker-roundtrip | n100 | wallMs (ms) | 13.0 | 4.1% | 12.7 | 13.2 |
+| b2.broker-roundtrip | n1000 | wallMs (ms) | 100.8 | 11.7% | 99.7 | 111.5 |
+| b3.state-store-jsonl | n10 | jsonlWriteMs (ms) | 0.090 | 22.2% | 0.080 | 0.100 |
+| b3.state-store-jsonl | n100 | jsonlWriteMs (ms) | 0.140 | 21.4% | 0.120 | 0.150 |
+| b3.state-store-jsonl | n1000 | jsonlWriteMs (ms) | 0.730 | 24.7% | 0.690 | 0.870 |
+| b4.event-log | n100 | syncAppendMs (ms) | 77.7 | 7.7% | 76.7 | 82.6 |
+| b4.event-log | n1000 | syncAppendMs (ms) | 572.7 | 2.9% | 565.5 | 581.8 |
+| b4.event-log | n10000 | syncAppendMs (ms) | 0.000 | 0.0% | 0.000 | 0.000 |
+| b5.deep-tracking | n1 | taskCount (ms) | 3.000 | 0.0% | 3.000 | 3.000 |
+| b5.deep-tracking | n10 | taskCount (ms) | 30.0 | 0.0% | 30.0 | 30.0 |
+| b5.deep-tracking | n50 | taskCount (ms) | 150.0 | 0.0% | 150.0 | 150.0 |
+| b6.usage-tracking | n1000 | taskCount (ms) | 1000.0 | 0.0% | 1000.0 | 1000.0 |
+| b6.usage-tracking | n10000 | taskCount (ms) | 10000.0 | 0.0% | 10000.0 | 10000.0 |
+| b6.usage-tracking | n100000 | taskCount (ms) | 100000.0 | 0.0% | 100000.0 | 100000.0 |
+| b8.artifact-worktree | n1 | writeMs (ms) | 24.1 | 14.7% | 24.0 | 27.5 |
+| b8.artifact-worktree | n10 | writeMs (ms) | 161.1 | 1.2% | 160.5 | 162.4 |
+| b8.artifact-worktree | n100 | writeMs (ms) | 1524.3 | 12.7% | 1429.4 | 1623.5 |
+
+## 2. Key findings — số cũ (v0.9.62, 2026-08-06) ĐÃ STALE
+
+1. **b1 cold boot: ~400ms/worker** (n1 p50 403.8ms; n5 399.5ms) — KHÔNG phải ~1.27s như report cũ. Spread n10 = 53% (nhiễu cao ở concurrent spawn — M2/WI-2.3 cần noise-floor-aware target).
+2. **b4 sync append: 0.57–0.78 ms/event amortized** (n100: 77.7ms/100ev = 0.78ms/ev; n1000: 572.7ms/1000ev = 0.57ms/ev) — KHÔNG phải ~14ms/event. Premise "~50× win khi chuyển buffered" của nghiên cứu gốc **phải được đo lại** trước khi WI-2.1 commit effort — có thể phần lớn win đã được hiện thực trong các vòng perf trước. Case n10000 = 0.000 (skip marker — cần kiểm tra bench harness).
+3. b2 broker roundtrip ~0.52ms (n1) — ổn định (spread 4–12%).
+4. b3 state-store jsonl writes: 0.09–0.73ms — rẻ, không phải bottleneck.
+5. b8 artifact worktree: 24ms (n1) → 1.5s (n100) — tuyến tính theo số file.
+6. Các metric có spread >50% (b12 nhiều case, b1 n10): chỉ dùng làm tham chiếu, không làm gate.
+
+## 3. True full-suite duration (đo ngoài worker env — session chính, không env leak)
+
+| Suite | Kết quả (2026-09-10, load avg 8–10) |
+|---|---|
+| `test:fast` (critical 102 + bundle 2) | 14.8s, 104/104 pass |
+| `test:unit` (full ~800 file) | **>900s — không hoàn tất trong 15 phút budget** (bị cut) — số chính xác chờ M3/WI-3.0 đo trên máy idle/CI runner |
+| `test:integration` | chưa đo (M3) |
+
+Chi tiết + note flaky timeout: `docs/test-tiering-phase1.md`.
+
+---
+
+# [HISTORICAL] pi-crew Performance Report (v0.9.62, 2026-08-06)
+
 > captured via `node scripts/run-bench.mjs` on this machine.
 
 ## 0. Environment

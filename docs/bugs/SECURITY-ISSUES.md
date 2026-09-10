@@ -4,6 +4,7 @@
 **Date:** 2026-06-03 (updated for v0.9.0)  
 **Original Date:** 2026-05-25  
 **Related Issues:** GitHub Issue #16  
+**Trust-model canonical:** the single-source trust-model doc is `docs/trust-model.md`, owned by the upgrade program M6/WI-6.1 — until it lands, do not duplicate trust-model content; this file and `docs/decisions/` remain the security reference.  
 **Severity classification:** Per [OWASP Agent Security](https://github.com/OWASP/www-project-agent-security-for-llm-applications) and [AgentThreatBench](https://github.com/vgudur-dev/AgentThreatBench)
 
 ---

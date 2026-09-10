@@ -41,6 +41,9 @@ Slash commands are manual actions triggered from the Pi chat. Autonomous tool us
 | `/team-mascot` | Toggle the mascot overlay |
 | **`/team-goal`** | **v0.9.0** Start autonomous goal loop (sub-actions: `start/status/pause/resume/stop/step/clear`) |
 | **`/workflows`** | **v0.9.0** List static + dynamic workflows (`.dwf.ts`) |
+| `/crew-view <runId> <taskId>` | Open an agent's live full-screen transcript view (thin alias for the inline-panel pane wiring; never switches sessions) |
+| `/crew-back` | Close the agent transcript view and return to the main conversation |
+| `/team-vibes [on\|off\|speed on\|off\|capacity on\|off]` | Toggle crew-vibes speed + context meters (on/off, speed, capacity) |
 
 **Removed (v0.10.1 docs hygiene):** `/team-orchestrate`, `/team-schedule`,
 `/team-scheduled`, `/team-search`, `/team-graph` — phantom entries; none of

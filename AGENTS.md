@@ -69,7 +69,8 @@ npm test
 
 - `src/extension/team-tool.ts` — main tool actions
 - `src/runtime/team-runner.ts` — workflow scheduler
-- `src/runtime/task-runner.ts` — task execution and artifacts
+- `src/runtime/task-runner.ts` + `src/runtime/task-runner/` — task execution and artifacts (thin entry + phase modules: pre-execution, child-executor, post-execution, …)
+- `src/runtime/child-pi/` — child Pi process runtime (spawn/streams/kill/steering/timers/transcript modules)
 - `src/state/` — durable state/event/artifact store
 - `src/worktree/` — worktree creation and cleanup
 - `agents/`, `teams/`, `workflows/` — builtin resources

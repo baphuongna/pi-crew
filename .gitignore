@@ -39,8 +39,10 @@ __pycache__/
 *.pyc
 .claude/
 # Per-run generated perf reports (259+ files, runtime output — curated ones
-# live in docs/perf-report.md / docs/perf-analysis.md)
+# live in docs/perf-report.md / docs/perf-analysis.md; bulk runs archived
+# under docs/archive/ since 2026-09, still runtime output — not committed)
 docs/perf-report-team_*
+docs/archive/perf-report-team_*
 # Benchmark result output (bench sources b*.bench.ts ARE tracked)
 bench/results/
 

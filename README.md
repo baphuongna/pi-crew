@@ -698,7 +698,11 @@ the `goal` action's completion-guarantee loop to builtin workflows.
 
 | Key path | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ui.widgetPlacement` | `aboveEditor \| belowEditor` | `aboveEditor` | Where the status widget renders. |
+| `ui.widgetPlacement` | `aboveEditor \| belowEditor \| bottom` | `bottom` | Where the status widget renders. `bottom` docks inside the crew-vibes footer (very bottom of the screen), falling back to `belowEditor` when no footer sink exists. |
+| `ui.widgetRowStyle` | `compact \| detailed` | `compact` | Per-agent row layout in the widget (`compact` = one width-budgeted line per agent; `detailed` = two-line tree). |
+| `ui.inlinePanel` | `boolean` | `true` | Keyboard-navigable agent rows under the prompt (`↓` from an empty prompt). Yields to any extension that owns the editor component. |
+| `ui.refreshMs` | `number` | `1000` | Internal UI refresh cadence default (not a user-settable `ui.*` schema key — kept here for completeness). |
+| `ui.widgetDefaultFrameMs` | `number` | `1000` | Internal widget frame-budget default (not a user-settable `ui.*` schema key — kept here for completeness). |
 | `ui.widgetMaxLines` | `number` | `8` | Max lines shown by the widget. |
 | `ui.powerbar` | `boolean` | `true` | Show the power bar. |
 | `ui.dashboardPlacement` | `center \| right` | `center` | Dashboard screen position. |

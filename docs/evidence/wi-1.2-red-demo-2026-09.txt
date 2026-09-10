@@ -1,0 +1,95 @@
+================================================================================
+WI-1.2 RED DEMO — committed-dist hash gate catches stale committed dist
+Date: 2026-09-10 04:03 UTC
+Repo HEAD at demo time: f80700af0f18de15f94a49003f8c2825e323d7c5 (chore(dist): rebuild + commit bundle from src@627f59c9 (WI-1.3 dist hygiene))
+Machine: Linux 6.17.0-35-generic x86_64 / Node v22.23.1 / esbuild 0.28.1
+Reproduces the GH CI step 'Committed dist hash gate (WI-1.2)' locally
+(.github/workflows/ci.yml — runs BEFORE 'Build bundle').
+================================================================================
+
+=== [0] BASELINE: dist clean + gate GREEN ===
+$ git status --short dist/
+(empty output above = dist clean)
+
+$ node scripts/check-bundle-staleness.mjs --committed-hash
+[build-bundle] dist/index.mjs 3281.0 KB in 410 ms
+[check-bundle-staleness] committed-hash gate: committed dist (as-is, git show HEAD:dist/*) vs fresh build from current src/
+  dist/index.mjs         MATCH  sha256(committed)=a72d92e72eeab333… sha256(fresh)=a72d92e72eeab333… (3359792 B vs 3359792 B)
+  dist/index.mjs.map     MATCH  sha256(committed)=a247d534b418f2b1… sha256(fresh)=a247d534b418f2b1… (8004335 B vs 8004335 B)
+  dist/build-meta.json   MATCH  sha256(committed)=43198f4c58af4ba5… sha256(fresh)=43198f4c58af4ba5… (763870 B vs 763894 B)
+[check-bundle-staleness] OK: committed dist matches a fresh build from current src.
+exit code: 0
+
+=== [1] RED: edit ONE src file (append a comment) — dist NOT rebuilt ===
+$ printf '\n// wi-1.2 red-demo marker (temporary)\n' >> src/config/defaults.ts
+ src/config/defaults.ts | 2 ++
+ 1 file changed, 2 insertions(+)
+
+Simulates: contributor edits src, commits, but forgets to rebuild+commit dist.
+$ node scripts/check-bundle-staleness.mjs --committed-hash
+[build-bundle] dist/index.mjs 3281.0 KB in 342 ms
+[check-bundle-staleness] committed-hash gate: committed dist (as-is, git show HEAD:dist/*) vs fresh build from current src/
+  dist/index.mjs         MATCH  sha256(committed)=a72d92e72eeab333… sha256(fresh)=a72d92e72eeab333… (3359792 B vs 3359792 B)
+  dist/index.mjs.map     DIFFER sha256(committed)=a247d534b418f2b1… sha256(fresh)=44143ea41edb0c50… (8004335 B vs 8004376 B)
+  dist/build-meta.json   DIFFER sha256(committed)=43198f4c58af4ba5… sha256(fresh)=e2b125ef602dc06f… (763870 B vs 763894 B)
+[check-bundle-staleness] FAIL: committed dist/ is STALE — src changed without rebuilding + recommitting dist.
+  → run `npm run build:bundle`, then commit the bundle: git add -f dist/ && git commit -- dist
+  (This gate runs BEFORE the rebuild step by design — a dist check after rebuilding is tautological.)
+exit code: 1
+
+=== [2] TAUTOLOGY-CATCH PROOF: rebuild dist (CI's next step 'Build bundle') ===
+The OLD hole: any dist check AFTER this rebuild step compares fresh-vs-fresh
+and is always green. The new gate hashes the COMMITTED blob, so it must
+STAY RED even after rebuilding dist/ on disk.
+$ npm run build:bundle   # simulates the 'Build bundle' CI step that runs AFTER the gate
+[build-bundle] dist/index.mjs 3281.0 KB in 377 ms
+$ git status --short dist/   # dist on disk is now dirty (newer content than committed)
+ M dist/build-meta.json
+ M dist/index.mjs.map
+
+$ node scripts/check-bundle-staleness.mjs --committed-hash   # re-run gate AFTER rebuild
+[build-bundle] dist/index.mjs 3281.0 KB in 372 ms
+[check-bundle-staleness] committed-hash gate: committed dist (as-is, git show HEAD:dist/*) vs fresh build from current src/
+  dist/index.mjs         MATCH  sha256(committed)=a72d92e72eeab333… sha256(fresh)=a72d92e72eeab333… (3359792 B vs 3359792 B)
+  dist/index.mjs.map     DIFFER sha256(committed)=a247d534b418f2b1… sha256(fresh)=44143ea41edb0c50… (8004335 B vs 8004376 B)
+  dist/build-meta.json   DIFFER sha256(committed)=43198f4c58af4ba5… sha256(fresh)=e2b125ef602dc06f… (763870 B vs 763894 B)
+[check-bundle-staleness] FAIL: committed dist/ is STALE — src changed without rebuilding + recommitting dist.
+  → run `npm run build:bundle`, then commit the bundle: git add -f dist/ && git commit -- dist
+  (This gate runs BEFORE the rebuild step by design — a dist check after rebuilding is tautological.)
+exit code: 1
+>>> Gate still FAILS after rebuild => the tautology false-green vector is CLOSED.
+>>> (A rebuild can never satisfy this gate; only rebuilding AND committing dist does.)
+
+=== [3] RESTORE: revert demo edits ===
+$ git checkout -- dist/ src/config/defaults.ts
+$ git status --short dist/ src/
+(empty output above = both clean)
+
+=== [4] GREEN RE-VERIFICATION ===
+$ node scripts/check-bundle-staleness.mjs --committed-hash
+[build-bundle] dist/index.mjs 3281.0 KB in 368 ms
+[check-bundle-staleness] committed-hash gate: committed dist (as-is, git show HEAD:dist/*) vs fresh build from current src/
+  dist/index.mjs         MATCH  sha256(committed)=a72d92e72eeab333… sha256(fresh)=a72d92e72eeab333… (3359792 B vs 3359792 B)
+  dist/index.mjs.map     MATCH  sha256(committed)=a247d534b418f2b1… sha256(fresh)=a247d534b418f2b1… (8004335 B vs 8004335 B)
+  dist/build-meta.json   MATCH  sha256(committed)=43198f4c58af4ba5… sha256(fresh)=43198f4c58af4ba5… (763870 B vs 763894 B)
+[check-bundle-staleness] OK: committed dist matches a fresh build from current src.
+exit code: 0
+
+$ npm run check:bundle-staleness   # default mode — exercises mtime heuristic + content fallback
+[check-bundle-staleness] mtime heuristic flags staleness (newest src: src/config/defaults.ts). Confirming with content-hash build…
+  .bundle-gate.tmp/index.mjs      3.2mb ⚠️
+  .bundle-gate.tmp/index.mjs.map  7.6mb
+⚡ Done in 324ms
+[build-bundle] dist/index.mjs 3281.0 KB in 348 ms
+  dist/index.mjs         MATCH  sha256(working)=a72d92e72eeab333… sha256(fresh)=a72d92e72eeab333… (3359792 B vs 3359792 B)
+  dist/index.mjs.map     MATCH  sha256(working)=a247d534b418f2b1… sha256(fresh)=a247d534b418f2b1… (8004335 B vs 8004335 B)
+  dist/build-meta.json   MATCH  sha256(working)=43198f4c58af4ba5… sha256(fresh)=43198f4c58af4ba5… (763870 B vs 763894 B)
+[check-bundle-staleness] OK: mtime was heuristically stale but dist content is identical to a fresh build from src/ (e.g. src was checked out / reverted after the last build). No rebuild needed.
+exit code: 0
+(Note: the reverted src file has a fresh mtime, so the mtime heuristic trips;
+ the content-hash confirmation arbitrates and correctly stays GREEN.)
+
+================================================================================
+END OF DEMO. Summary: gate RED on stale committed dist (exit 1), stays RED
+after in-place rebuild (tautology closed), GREEN after proper revert.
+================================================================================

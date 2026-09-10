@@ -31,7 +31,19 @@ of the full ~6,500-test `npm run check` which takes minutes):
 npm run test:critical && npm run typecheck && npm run build:bundle
 ```
 
-4. Verify package contents:
+4. Verify dist is clean and current ("dist clean check", WI-1.3):
+
+```bash
+git status --short dist/                          # must print NOTHING (clean)
+node scripts/check-bundle-staleness.mjs --committed-hash   # must exit 0
+```
+
+A dirty or stale committed dist silently ships old code (the v0.9.x
+stale-bundle incident class). If either check fails: `npm run build:bundle`,
+then commit the bundle — `git add -f dist/ && git commit -- dist`
+(dist/ is gitignored, so `-f` is required).
+
+5. Verify package contents:
 
 ```bash
 npm pack --dry-run
@@ -44,7 +56,7 @@ Confirm bundled skills ship (the `real-test-pi-crew` skill references
 npm pack --dry-run 2>&1 | grep -E 'skills/|pty_probe'
 ```
 
-5. Verify local install in Pi:
+6. Verify local install in Pi:
 
 ```bash
 pi install ./pi-crew
@@ -52,7 +64,7 @@ pi install ./pi-crew
 /team-validate
 ```
 
-6. Publish when ready:
+7. Publish when ready:
 
 ```bash
 npm publish --access public

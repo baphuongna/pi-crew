@@ -2,7 +2,7 @@
 
 `pi-crew` is a Pi package for coordinated multi-agent work. It is intentionally durable-first: every run is represented on disk, every task has a state record, and child workers stream progress into JSONL/status files so foreground sessions, background jobs, dashboards, and later restarts all read the same source of truth.
 
-**Current version:** v0.9.0 — 100+ rounds of code review hardening (see [CHANGELOG.md](../CHANGELOG.md)).
+**Current version:** v0.10.3 — 100+ rounds of code review hardening (see [CHANGELOG.md](../CHANGELOG.md)).
 
 ## Layers
 
@@ -79,11 +79,11 @@ The extension layer should remain thin: user input is normalized into tool param
 
 ### Task runner
 
-`src/runtime/task-runner.ts` executes one task. It prepares workspace/worktree context, renders a task prompt, chooses model candidates from Pi configuration, launches a child Pi process by default, and writes result artifacts. Scaffold mode is explicit dry-run only.
+`src/runtime/task-runner.ts` (thin entry, ~230 lines) executes one task; branch bodies live in `src/runtime/task-runner/` modules (`pre-execution.ts`, `child-executor.ts`, `post-execution.ts`, `live-executor.ts`, `scaffold-executor.ts`, …). It prepares workspace/worktree context, renders a task prompt, chooses model candidates from Pi configuration, launches a child Pi process by default, and writes result artifacts. Scaffold mode is explicit dry-run only.
 
 ### Child Pi runtime
 
-`src/runtime/child-pi.ts` is the default worker runtime. It:
+`src/runtime/child-pi/child-pi.ts` is the default worker runtime (split into the `src/runtime/child-pi/` module — `child-pi-spawn.ts`, `child-pi-streams.ts`, `child-pi-kill.ts`, `child-pi-steering.ts`, `child-pi-timers.ts`, `child-pi-transcript.ts`, `child-pi-constants.ts`). It:
 
 - launches real `pi` child processes,
 - hides Windows console windows with `windowsHide: true`,
@@ -98,7 +98,7 @@ The extension layer should remain thin: user input is normalized into tool param
 
 ### Concurrency and policy
 
-`src/runtime/concurrency.ts` picks batch size from explicit limits, team settings, workflow settings, or built-in defaults. User-provided `limits.maxConcurrentWorkers` is hard-capped by default to prevent local DoS; `limits.allowUnboundedConcurrency=true` is an explicit opt-out and emits an observability event.
+`src/runtime/scheduling/concurrency.ts` picks batch size from explicit limits, team settings, workflow settings, or built-in defaults. User-provided `limits.maxConcurrentWorkers` is hard-capped by default to prevent local DoS; `limits.allowUnboundedConcurrency=true` is an explicit opt-out and emits an observability event.
 
 `src/runtime/policy-engine.ts` applies closeout and safety policy decisions such as limit exceeded, failed task blocking, stale workers, and green-contract failures.
 
