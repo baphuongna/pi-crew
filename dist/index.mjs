@@ -15093,7 +15093,7 @@ function buildPiWorkerArgs(input) {
   if (!resolvedModel && effectiveThinking && effectiveThinking !== "off" && isValidThinkingLevel(effectiveThinking)) {
     args.push("--thinking", effectiveThinking);
   }
-  const CONTROL_TOOLS = ["ask", "delegate"];
+  const CONTROL_TOOLS = ["ask", "delegate", "message"];
   if (input.agent.disableTools === true) {
     args.push("--no-tools");
   } else {

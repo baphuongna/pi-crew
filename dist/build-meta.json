@@ -6959,7 +6959,7 @@
       "format": "esm"
     },
     "src/runtime/model/pi-args.ts": {
-      "bytes": 28542,
+      "bytes": 28944,
       "imports": [
         {
           "path": "node:fs",
@@ -21095,7 +21095,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8024677
+      "bytes": 8025101
     },
     "dist/index.mjs": {
       "imports": [
@@ -23854,7 +23854,7 @@
           "bytesInOutput": 3493
         },
         "src/runtime/model/pi-args.ts": {
-          "bytesInOutput": 15873
+          "bytesInOutput": 15884
         },
         "src/ui/inline-panel/view-session-store.ts": {
           "bytesInOutput": 395
@@ -25393,7 +25393,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3364788
+      "bytes": 3364799
     }
   }
 }

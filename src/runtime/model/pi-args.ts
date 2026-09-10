@@ -281,7 +281,12 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 
 	// D5 (spec v0.7 §6): default loadout = FULL session (như main session).
 	// --no-extensions/--no-skills/--tools CHỈ xuất hiện khi agent .md khai explicit.
-	const CONTROL_TOOLS = ["ask", "delegate"] as const;
+	// "message" MUST stay in CONTROL_TOOLS: it is registered by prompt-runtime
+	// behind the PI_CREW_MSG_ENABLED dormant-env gate (child-pi-spawn.ts sets it
+	// unconditionally), but pi's --tools allowlist filters the tool SURFACE — a
+	// control tool missing here is invisible to every frontmatter-pinned worker
+	// (battery 2026-09-10: message dead for all builtin roles since f843e14a).
+	const CONTROL_TOOLS = ["ask", "delegate", "message"] as const;
 	if (input.agent.disableTools === true) {
 		args.push("--no-tools"); // capability-locked agents giữ hành vi (goal-judge)
 	} else {

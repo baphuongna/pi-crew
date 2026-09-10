@@ -37,6 +37,10 @@ test("explicit frontmatter tools → lock + auto-add control tools", () => {
 	assert.ok(list.includes("read") && list.includes("grep"), "declared tools present");
 	assert.ok(list.includes("ask"), "ask control tool auto-added");
 	assert.ok(list.includes("delegate"), "delegate control tool auto-added");
+	// Battery 2026-09-10 finding: message was missing from CONTROL_TOOLS → the
+	// --tools allowlist hid the D9 message tool from every frontmatter-pinned
+	// worker (all builtin agents) despite the env gate being set. Pin it.
+	assert.ok(list.includes("message"), "message control tool auto-added (battery 2026-09-10)");
 });
 
 test("inheritSkills:false vẫn tắt skills khi agent khai explicit", () => {
