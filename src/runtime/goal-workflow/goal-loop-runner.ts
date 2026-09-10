@@ -20,7 +20,7 @@ import { createRequire } from "node:module";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { loadConfig } from "../../config/config.ts";
 import { effectiveRunConfig } from "../../extension/team-tool/config-patch.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { collectRunMetrics } from "../../state/stores/run-metrics.ts";
 import { createRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
@@ -121,7 +121,7 @@ export const realGoalEvaluator = async (
 				const drift = compareSnapshot(snapshot.snapshot, current);
 				if (drift.length > 0) {
 					verificationCompromised = drift;
-					appendEvent(turnManifest.eventsPath, {
+					appendEventBuffered(turnManifest.eventsPath, {
 						type: "goal.verification_compromised",
 						runId: turnRunId,
 						data: {
@@ -129,7 +129,7 @@ export const realGoalEvaluator = async (
 							driftedFiles: drift,
 							phase: "T_snap",
 						},
-					});
+					}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.verification_compromised phase=T_snap"));
 				}
 			} catch (error) {
 				logInternalError("goal-loop.integritySnap", error, `goalId=${goal.goalId} phase=T_snap`);
@@ -201,7 +201,7 @@ export const realGoalEvaluator = async (
 							const postDrift = compareSnapshot(snapshot.snapshot, post);
 							if (postDrift.length > 0) {
 								verificationCompromised = postDrift;
-								appendEvent(turnManifest.eventsPath, {
+								appendEventBuffered(turnManifest.eventsPath, {
 									type: "goal.verification_compromised",
 									runId: turnRunId,
 									data: {
@@ -209,7 +209,9 @@ export const realGoalEvaluator = async (
 										driftedFiles: postDrift,
 										phase: "T_verify_done",
 									},
-								});
+								}).catch((e) =>
+									logInternalError("goal-loop.buffered", e, "type=goal.verification_compromised phase=T_verify_done"),
+								);
 							}
 						} catch (error) {
 							logInternalError("goal-loop.integritySnap", error, `goalId=${goal.goalId} phase=T_verify_done`);
@@ -521,7 +523,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 	const workflow = resolveGoalTurnWorkflow(goal);
 	const agents = input.deps.discoverAgents(goal.cwd);
 
-	appendEvent(eventsPath, {
+	appendEventBuffered(eventsPath, {
 		type: "goal.loop_start",
 		runId: manifest.runId,
 		data: {
@@ -529,7 +531,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 			objective: goal.objective,
 			maxTurns: goal.maxTurns,
 		},
-	});
+	}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.loop_start"));
 
 	// P1g (RFC v0.5 §P1g, cold-review #2 BLOCKING fix): acquire the workspace lock for the
 	// goal's lifetime. This serializes concurrent goals targeting the same cwd (workspaceMode:
@@ -545,14 +547,14 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 	} catch (error) {
 		logInternalError("goal-loop.workspaceLock", error, `goalId=${goal.goalId} cwd=${goal.cwd}`);
 		goal = safeSetStatus(store, goal.goalId, "blocked", goal, eventsPath);
-		appendEvent(eventsPath, {
+		appendEventBuffered(eventsPath, {
 			type: "goal.workspace_lock_failed",
 			runId: manifest.runId,
 			data: {
 				goalId: goal.goalId,
 				error: error instanceof Error ? error.message : String(error),
 			},
-		});
+		}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.workspace_lock_failed"));
 		return { manifest, tasks: [], goalState: goal };
 	}
 
@@ -570,7 +572,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 			if (goal.budgetUnlimited !== true && goal.budgetTotal !== undefined && goal.budgetTotal > 0 && goal.budgetAbort !== undefined) {
 				if (goal.budgetUsed >= goal.budgetAbort * goal.budgetTotal) {
 					goal = safeSetStatus(store, goal.goalId, "budget_exceeded", goal, eventsPath);
-					appendEvent(eventsPath, {
+					appendEventBuffered(eventsPath, {
 						type: "goal.budget_warning",
 						runId: manifest.runId,
 						data: {
@@ -579,11 +581,11 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 							budgetTotal: goal.budgetTotal,
 							threshold: "abort",
 						},
-					});
+					}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.budget_warning threshold=abort"));
 					break;
 				}
 				if (goal.budgetUsed >= (goal.budgetWarning ?? 0.8) * goal.budgetTotal) {
-					appendEvent(eventsPath, {
+					appendEventBuffered(eventsPath, {
 						type: "goal.budget_warning",
 						runId: manifest.runId,
 						data: {
@@ -592,12 +594,12 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 							budgetTotal: goal.budgetTotal,
 							threshold: "warning",
 						},
-					});
+					}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.budget_warning threshold=warning"));
 				}
 			}
 
 			const turnIndex = goal.turnsUsed + 1;
-			appendEvent(eventsPath, {
+			appendEventBuffered(eventsPath, {
 				type: "goal.turn_start",
 				runId: manifest.runId,
 				data: {
@@ -605,7 +607,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 					turn: turnIndex,
 					maxTurns: goal.maxTurns,
 				},
-			});
+			}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.turn_start"));
 
 			// ── TURN: fresh manifest per turn (G2) + executeTeamRun ──────────────────
 			const turnGoalText = composeGoalPrompt(goal);
@@ -630,7 +632,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 			// Fix round-6: re-check state AFTER patching (user may have paused/stopped in the inter-turn gap).
 			// Without this, a pause that lands between store.patch and executeTeamRun lets one extra turn run.
 			if (goal.state !== "running") {
-				appendEvent(eventsPath, {
+				appendEventBuffered(eventsPath, {
 					type: "goal.loop_end",
 					runId: manifest.runId,
 					data: {
@@ -638,7 +640,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 						state: goal.state,
 						reason: "state changed before turn spawn",
 					},
-				});
+				}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.loop_end reason=state_changed"));
 				break;
 			}
 			registerActiveRun(created.manifest);
@@ -688,7 +690,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 			const turnStatus = turnResult.manifest.status;
 			if (turnStatus === "blocked" || turnStatus === "failed") {
 				goal = safeSetStatus(store, goal.goalId, "blocked", goal, eventsPath);
-				appendEvent(eventsPath, {
+				appendEventBuffered(eventsPath, {
 					type: "goal.turn_terminal_status",
 					runId: manifest.runId,
 					data: {
@@ -697,7 +699,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 						turnRunId: created.manifest.runId,
 						turnStatus,
 					},
-				});
+				}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.turn_terminal_status"));
 				break;
 			}
 
@@ -735,7 +737,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 					eventsPath,
 				) ?? goal;
 
-			appendEvent(eventsPath, {
+			appendEventBuffered(eventsPath, {
 				type: "goal.turn_evaluated",
 				runId: manifest.runId,
 				data: {
@@ -744,9 +746,9 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 					achieved: verdict.achieved,
 					reason: verdict.reason,
 				},
-			});
+			}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.turn_evaluated"));
 			if (!verdict.achieved && goal.nextTurnFeedback) {
-				appendEvent(eventsPath, {
+				appendEventBuffered(eventsPath, {
 					type: "goal.feedback_steered",
 					runId: manifest.runId,
 					data: {
@@ -754,7 +756,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 						turn: turnIndex,
 						feedback: goal.nextTurnFeedback,
 					},
-				});
+				}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.feedback_steered"));
 			}
 
 			// ── STOP CONDITIONS (round-7: re-read disk before applying — external cancel/pause wins) ─
@@ -781,7 +783,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				const stuck = store.compareAndSetStatus(goal.goalId, "running", "stuck", eventsPath);
 				if (stuck) {
 					goal = stuck;
-					appendEvent(eventsPath, {
+					appendEventBuffered(eventsPath, {
 						type: "goal.stuck",
 						runId: manifest.runId,
 						data: {
@@ -789,7 +791,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 							turn: goal.turnsUsed,
 							lastReasons: goal.verdicts.slice(-3).map((v) => v.reason.slice(0, 200)),
 						},
-					});
+					}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.stuck"));
 					break;
 				}
 			}
@@ -811,7 +813,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 		} catch {
 			/* best-effort */
 		}
-		appendEvent(eventsPath, {
+		appendEventBuffered(eventsPath, {
 			type: "goal.loop_end",
 			runId: manifest.runId,
 			data: {
@@ -820,7 +822,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				turnsUsed: goal.turnsUsed,
 				budgetUsed: goal.budgetUsed,
 			},
-		});
+		}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.loop_end reason=normal"));
 	}
 
 	return { manifest, tasks: [], goalState: goal };
