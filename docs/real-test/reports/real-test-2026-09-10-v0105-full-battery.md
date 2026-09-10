@@ -55,3 +55,11 @@
 
 ## Verdict
 **11/11 tier chạy, PASS với 2 HIGH findings — 1 đã fix+verify live (`1bde7b40`, message tool), 1 mở work item (F1 surface heartbeat-blind).** v0.10.5 + fix an toàn ship cho headless (mọi đường dùng chính); surface mode nên bật `visibleAgents` thận trọng với run >5 phút cho tới khi F1 được fix.
+
+## Addendum — dead-worker notification + competing root-cause audit (23:45+07)
+
+Dashboard notifier sau đó báo "Run team_20260910161234_78ef8f7526550282 has 1 dead worker(s)". Thẩm định:
+
+- **Không có worker chết thật.** pid 2397306 exit sạch (0) SAU khi hoàn thành battery; agent record `01_explore` = `completed` (16:19:24.967), `manifest.status = "completed"`, result artifact nằm ở `.crew/artifacts/.../results/01_explore.txt`. Dead-worker flag là mặt sách vở của F1: run-level `run.failed` + 4 tasks cancelled (reconcile 16:18) trong khi state-level agent/manifest completed (worker viết bản ghi sau khi bị "tuyên bố chết"). R vô nghĩa (việc đã xong), K vô nghĩa (pid gone). Khuyến nghị: ignore; hoặc `team action='forget' runId=...` (destructive — cần confirm user) để xóa residue.
+
+- **Thuyết đối lập của W1 worker bị bác.** Final report của worker (viết post-mortem) tự root-cause message-missing là "bundle-vs-source drift: khối đăng ký message-tool không có trong dist/index.mjs" (grep literal 0 matches — đúng sự thật, kể cả bundle MỚI sau fix). Nhưng `pi-args.ts:17` cho thấy `PROMPT_RUNTIME_EXTENSION_PATH = <packageRoot>/src/prompt/prompt-runtime.ts` — **worker-side extension load từ LIVE SOURCE theo thiết kế**, không từ dist. Registration luôn có đủ ask/delegate/message cho CẢ worker MSG-1 lẫn MSG-2; trình phân biệt duy nhất là `--tools` allowlist do PARENT build (parent cũ = CONTROL_TOOLS không message → lọc; parent mới = có message → hiện). Cả hai observation (MSG-1 thiếu / MSG-2 có) được giải thích trọn vẹn bởi allowlist — fix `1bde7b40` đứng vững. Bài học battery: worker tự-điều-tra không thấy được cơ chế `--extension` source-path của host (giống anti-pattern "worker không thấy host gate inputs" của Tier 10).
