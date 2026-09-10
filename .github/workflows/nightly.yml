@@ -1,0 +1,61 @@
+name: Nightly Full Test Suite
+
+# WI-3.0 (M3 spec §5): nightly scheduled run of the FULL test suite to
+# catch coverage rot that the per-PR CI gate misses (slow tier, env vars
+# beyond the gate runner). Distinct from:
+#   - ci.yml: per-PR push/PR gate (fast subset, test:critical, <1 min)
+#   - weekly-smoke.yml: Monday 9am UTC weekly smoke (shells out to pi binary)
+#   - smoke.yml: manual LLM-billed smoke (expensive, on-demand)
+#
+# This nightly runs the FULL test suite once a day off-peak to surface
+# regressions before the weekly canary. Scheduled at 03:00 UTC = 22:00 EST
+# (off-peak for North America + Europe), minimizing noise for in-flight PRs.
+#
+# Failure notification: GH default (email to commit author + watchers on the
+# repo). For team alerts, configure in repo Settings → Notifications.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Daily 03:00 UTC (off-peak)
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Use the same env as CI for parity. Lockfile + bundle + tests are run on
+  # the same Node 22 + ubuntu-latest matrix as the per-PR gate, so a green
+  # nightly = a green PR can be merged.
+  PI_CREW_SMOKE: "1"
+
+jobs:
+  full-suite:
+    name: ubuntu-latest / Node 22 (full suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # cap to 30min — if slower, gate fails; investigate
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Print platform diagnostics
+        run: |
+          node -p "JSON.stringify({ platform: process.platform, arch: process.arch, node: process.version, cwd: process.cwd() }, null, 2)"
+          npm --version
+      - name: Install dependencies
+        run: npm ci
+      - name: Build bundle
+        # Bundle must be present because test harness loads dist/index.mjs.
+        run: npm run build:bundle
+      - name: Run full test suite (unit + integration + slow tier)
+        # WI-3.1: this exercises `test:full` = test:unit + test:integration
+        # (default 300s timeout) + test:integration:slow (3 known-slow tests,
+        # 600s timeout). Capped at 30min by job-level timeout.
+        run: |
+          echo "=== Start: $(date -u) ==="
+          time npm run test:full
+          echo "=== End: $(date -u) ==="
+        env:
+          # WI-3.0c: explicit env marker so nightly runs on a defined runner
+          # (ubuntu-latest + Node 22). Future: pin to a hosted runner spec.
+          PI_CREW_CI_MODE: "nightly"
