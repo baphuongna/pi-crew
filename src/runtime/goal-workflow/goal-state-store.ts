@@ -16,7 +16,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
-import { appendEventBuffered } from "../../state/event-log/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import type { GoalLoopState, GoalLoopStatus } from "../../state/types.ts";
 import { createRunId } from "../../utils/ids.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -81,11 +81,14 @@ export class GoalStore {
 			mkdirSync(dirname(path), { recursive: true });
 			atomicWriteJson(path, next);
 			if (eventsPath) {
-				appendEventBuffered(eventsPath, {
+				// REVIEW FIX (2026-09-10): reverted M2b buffered conversion —
+				// goal.state_changed is read back synchronously by CAS tests and
+				// goal status display; low-frequency transition event.
+				appendEvent(eventsPath, {
 					type: "goal.state_changed",
 					runId: state.goalId,
 					data: { goalId: state.goalId, state: state.state },
-				}).catch((e) => logInternalError("goal_state_store.buffered", e, "type=goal.state_changed"));
+				});
 			}
 		} catch (error) {
 			logInternalError("goal-state-store.save", error, `goalId=${state.goalId}`);

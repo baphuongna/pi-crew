@@ -21,10 +21,12 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Use the same env as CI for parity. Lockfile + bundle + tests are run on
-  # the same Node 22 + ubuntu-latest matrix as the per-PR gate, so a green
-  # nightly = a green PR can be merged.
-  PI_CREW_SMOKE: "1"
+  # REVIEW FIX (2026-09-10): deliberately NOT setting PI_CREW_SMOKE=1 here.
+  # That var arms the HB-003a real-binary smoke tests inside test:unit
+  # (child-pi-steer-backpressure), which require a `pi` binary +
+  # PI_AUTH_JSON that hosted runners do not have — nightly would be
+  # deterministically red on its first run. weekly-smoke.yml (which runs
+  # only test:smoke with an auth gate) covers the real-binary path.
 
 jobs:
   full-suite:

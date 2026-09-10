@@ -37,7 +37,10 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"ui.dashboardPlacement": "center",
 	"ui.dashboardWidth": 72,
 	"ui.autoOpenDashboard": false,
-	"ui.widgetPlacement": "aboveEditor",
+	// G17 sync (2026-09-10 review): canonical DEFAULT_UI.widgetPlacement =
+	// "bottom" (defaults.ts / install.mjs / project-init) — was drifted
+	// "aboveEditor" in this duplicated EFFECTIVE_DEFAULTS map.
+	"ui.widgetPlacement": "bottom",
 	"autonomous.enabled": true,
 	"autonomous.injectPolicy": true,
 	"autonomous.preferAsyncForLongTasks": false,

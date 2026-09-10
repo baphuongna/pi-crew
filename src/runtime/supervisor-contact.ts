@@ -1,4 +1,4 @@
-import { appendEventBuffered } from "../state/event-log/event-log.ts";
+import { appendEvent } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 
@@ -22,12 +22,15 @@ export function recordSupervisorContact(manifest: TeamRunManifest, payload: Omit
 		timestamp: new Date().toISOString(),
 	};
 	try {
-		appendEventBuffered(manifest.eventsPath, {
+		// REVIEW FIX (2026-09-10): reverted M2b buffered conversion —
+		// supervisor.contact events are read back synchronously (tests +
+		// contact-history display); low-frequency by design.
+		appendEvent(manifest.eventsPath, {
 			type: "supervisor.contact",
 			runId: manifest.runId,
 			taskId: payload.taskId,
 			data: fullPayload as unknown as Record<string, unknown>,
-		}).catch((e) => logInternalError("supervisor_contact.buffered", e, "type=supervisor.contact"));
+		});
 	} catch (error) {
 		logInternalError("supervisor-contact.record", error, `runId=${manifest.runId} taskId=${payload.taskId}`);
 	}

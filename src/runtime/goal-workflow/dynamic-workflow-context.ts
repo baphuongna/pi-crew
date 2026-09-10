@@ -27,7 +27,7 @@ import type { TSchema } from "@sinclair/typebox";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
 import { appendMailboxMessage, readMailbox } from "../../state/coordination/mailbox.ts";
-import { appendEventBuffered } from "../../state/event-log/event-log.ts";
+import { appendEvent } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
@@ -687,12 +687,16 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			// Idempotency: same phase title → no event, no state change.
 			if (title === phaseState.currentPhase) return;
 			// Close out the previous open phase BEFORE the new one opens.
+			// REVIEW FIX (2026-09-10): reverted M2a buffered conversion — phase
+			// transitions are low-frequency AND read back synchronously (tests,
+			// checkpoint resume; dwf-setresult rounds 12/14/18 assert the events
+			// file immediately after the run).
 			if (phaseState.currentPhase !== undefined) {
-				appendEventBuffered(manifest.eventsPath, {
+				appendEvent(manifest.eventsPath, {
 					type: "dwf.phase_completed",
 					runId: manifest.runId,
 					data: { phase: phaseState.currentPhase },
-				}).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_completed"));
+				});
 			}
 			phaseState.currentPhase = title;
 			// Dedup append with hard cap to bound memory; events still flow.
@@ -710,11 +714,12 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					);
 				}
 			}
-			appendEventBuffered(manifest.eventsPath, {
+			// REVIEW FIX (2026-09-10): reverted M2a buffered conversion — see phase_completed.
+			appendEvent(manifest.eventsPath, {
 				type: "dwf.phase_started",
 				runId: manifest.runId,
 				data: { phase: title },
-			}).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.phase_started"));
+			});
 		},
 		budget,
 		log(message: unknown): void {
@@ -724,11 +729,12 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			if (wfState.logs.length < 1000) {
 				wfState.logs.push(text);
 			}
-			appendEventBuffered(manifest.eventsPath, {
+			// REVIEW FIX (2026-09-10): reverted M2a buffered conversion — see phase().
+			appendEvent(manifest.eventsPath, {
 				type: "dwf.log",
 				runId: manifest.runId,
 				data: { message: text },
-			}).catch((e) => logInternalError("dynamic_workflow_context.buffered", e, "type=dwf.log"));
+			});
 		},
 		args<T = unknown>(): T {
 			// round-14 P1-5: typed workflow args sourced from manifest (via opts.args).

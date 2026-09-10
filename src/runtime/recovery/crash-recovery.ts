@@ -4,7 +4,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
-import { appendEvent, appendEventBuffered, scanSequence } from "../../state/event-log/event-log.ts";
+import { appendEvent, scanSequence } from "../../state/event-log/event-log.ts";
 import { readActiveRunRegistry, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import type { TeamTaskState } from "../../state/types.ts";
@@ -156,22 +156,22 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 		if (fresh.manifest.status === "completed" || fresh.manifest.status === "failed" || fresh.manifest.status === "cancelled") {
 			// Run reached a terminal status while the recovery hook was running —
 			// do NOT reset it (no task reset, no status change).
-			appendEventBuffered(fresh.manifest.eventsPath, {
+			appendEvent(fresh.manifest.eventsPath, {
 				type: "crew.run.recovery_skipped",
 				runId: plan.runId,
 				message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
 				data: { status: fresh.manifest.status },
-			}).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.recovery_skipped"));
+			});
 			return;
 		}
 		appendHookEvent(fresh.manifest, hookReport);
 		if (hookReport.outcome === "block") {
-			appendEventBuffered(fresh.manifest.eventsPath, {
+			appendEvent(fresh.manifest.eventsPath, {
 				type: "crew.run.recovery_blocked",
 				runId: plan.runId,
 				message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
 				data: { hookOutcome: "block", reason: hookReport.reason },
-			}).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.recovery_blocked"));
+			});
 			return;
 		}
 
@@ -195,7 +195,7 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 				: task,
 		);
 		saveRunTasks(fresh.manifest, tasks);
-		appendEventBuffered(fresh.manifest.eventsPath, {
+		appendEvent(fresh.manifest.eventsPath, {
 			type: "crew.run.resumed",
 			runId: plan.runId,
 			message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
@@ -203,7 +203,7 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 				recoveredFromSeq: plan.lastEventSeq,
 				resumableTasks: plan.resumableTasks,
 			},
-		}).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.resumed"));
+		});
 		registry?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
 	});
 }
@@ -218,12 +218,12 @@ export function declineRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionConte
 		const fresh = loadRunManifestById(ctx.cwd, plan.runId); // NOTE: inside withRunLockSync - consistent read
 		if (!fresh) return;
 		// Log the event first — if appendEvent fails, state remains consistent.
-		appendEventBuffered(fresh.manifest.eventsPath, {
+		appendEvent(fresh.manifest.eventsPath, {
 			type: "crew.run.recovery_declined",
 			runId: plan.runId,
 			message: "Interrupted run was not resumed.",
 			data: { recoveredFromSeq: plan.lastEventSeq },
-		}).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.recovery_declined"));
+		});
 		updateRunStatus(fresh.manifest, "cancelled", "interrupted-not-resumed");
 	});
 }
@@ -327,12 +327,12 @@ export function cancelOrphanedRuns(
 			if (!fresh) return;
 			if (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked") {
 				// Status changed between initial check (line 109) and acquiring the lock — normal concurrent update, not an orphan
-				appendEventBuffered(loaded.manifest.eventsPath, {
+				appendEvent(loaded.manifest.eventsPath, {
 					type: "crew.run.orphan_skip",
 					runId: manifest.runId,
 					message: `Skipped orphan cancellation: status is '${fresh.manifest.status}' (was 'running'/'blocked' at initial scan)`,
 					data: { currentStatus: fresh.manifest.status },
-				}).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.orphan_skip"));
+				});
 				return;
 			}
 
@@ -366,7 +366,7 @@ export function cancelOrphanedRuns(
 				}
 			}
 			updateRunStatus(fresh.manifest, "cancelled", `Orphaned run: owner session ${ownerId} no longer exists`);
-			appendEventBuffered(fresh.manifest.eventsPath, {
+			appendEvent(fresh.manifest.eventsPath, {
 				type: "crew.run.orphan_cancelled",
 				runId: manifest.runId,
 				message: `Auto-cancelled orphaned run (owner: ${ownerId})`,
@@ -374,7 +374,7 @@ export function cancelOrphanedRuns(
 					ownerSessionId: ownerId,
 					cancelledTasks: repairedTasks.filter((t) => t.status === "cancelled").length,
 				},
-			}).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.orphan_cancelled"));
+			});
 			cancelled.push(manifest.runId);
 			cancelledRun = true;
 		});
@@ -745,12 +745,12 @@ export function reconcileAllStaleRuns(
 				void terminateLiveAgentsForRun(fresh.manifest.runId, "failed", appendEvent, fresh.manifest.eventsPath).catch((error) =>
 					logInternalError("crash-recovery.reconcile.terminate", error, `runId=${fresh.manifest.runId}`, "warn"),
 				);
-				appendEventBuffered(fresh.manifest.eventsPath, {
+				appendEvent(fresh.manifest.eventsPath, {
 					type: "crew.run.reconciled_stale",
 					runId,
 					message: result.detail,
 					data: { verdict: result.verdict },
-				}).catch((e) => logInternalError("crash-recovery.buffered", e, "type=crew.run.reconciled_stale"));
+				});
 			}
 			if (result.verdict !== "healthy") {
 				results.push(result);

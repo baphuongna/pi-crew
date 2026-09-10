@@ -26,9 +26,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { atomicWriteJsonCoalesced } from "../atomic-write.ts";
+import { atomicWriteJson } from "../atomic-write.ts";
 import { withRunLockSync } from "../coordination/locks.ts";
-import { appendEventBuffered } from "../event-log/event-log.ts";
+import { appendEvent } from "../event-log/event-log.ts";
 import type { PlanItemRecord, PlanRecord, TeamRunManifest, TeamTaskState } from "../types.ts";
 
 interface PlanFile {
@@ -74,7 +74,14 @@ export function getCurrentPlanRecord(manifest: TeamRunManifest): PlanRecord | un
 function writePlanFile(manifest: TeamRunManifest, revisions: PlanRecord[]): void {
 	const file: PlanFile = { version: 1, revisions };
 	fs.mkdirSync(path.dirname(planFilePath(manifest)), { recursive: true });
-	atomicWriteJsonCoalesced(planFilePath(manifest), file);
+	// REVIEW FIX (2026-09-10): reverted WI-2.2's coalesced conversion.
+	// `loadPlanRecords` is the PUBLIC read API and every caller expects
+	// read-your-writes (getCurrentPlanRecord, plan-replan, handleStatus); a
+	// 50ms coalesce window made the mutators' own reload-inside-lock read
+	// stale state (lost-update) and broke plan-store.test.ts 11/15. Plan
+	// writes are low-frequency (revision append / linkage / approval) — the
+	// coalesce win is negligible. Same exclusion rule as status.ts A2/A4.
+	atomicWriteJson(planFilePath(manifest), file);
 }
 
 /** ADR-4 §3: item ids are unique per revision; carried-over items keep their
@@ -141,7 +148,11 @@ export function appendPlanRevision(manifest: TeamRunManifest, record: PlanRecord
 		revisions.push(record);
 		writePlanFile(manifest, revisions);
 		const dropped = record.items.filter((i) => i.status === "dropped").length;
-		appendEventBuffered(manifest.eventsPath, {
+		// REVIEW FIX (2026-09-10): reverted M2b buffered conversion — plan lifecycle
+		// events are low-frequency and consumers (plan-store tests, status display)
+		// expect read-your-writes; also removes the policy-A catch (sync errors
+		// propagate to the producer inside the lock, as at base).
+		appendEvent(manifest.eventsPath, {
 			type: record.version === 1 ? "plan.created" : "plan.revised",
 			runId: manifest.runId,
 			message:
@@ -149,7 +160,7 @@ export function appendPlanRevision(manifest: TeamRunManifest, record: PlanRecord
 					? `Plan v1 created: ${record.items.length} item(s) in ${record.phases.length} phase(s)`
 					: `Plan v${record.version} revised (${record.items.length} item(s), ${dropped} dropped)`,
 			data: { planId: record.id, version: record.version, dropped },
-		}).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
+		});
 		return record;
 	});
 }
@@ -199,13 +210,14 @@ export function setPlanApproval(
 		// ADR-4 §9: events for approval MUTATIONS. `pending` emits none — the
 		// request surface (ensurePlanApprovalRequested) appends its own
 		// plan.approval_required event.
+		// REVIEW FIX (2026-09-10): reverted M2b buffered conversion — see above.
 		if (approval.status !== "pending") {
-			appendEventBuffered(manifest.eventsPath, {
+			appendEvent(manifest.eventsPath, {
 				type: approval.status === "approved" ? "plan.approved" : "plan.rejected",
 				runId: manifest.runId,
 				message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
 				data: { planId: current.id, version: approval.planVersion, status: approval.status },
-			}).catch((e) => logInternalError("plan_store.buffered", e, "unknown"));
+			});
 		}
 		return current;
 	});

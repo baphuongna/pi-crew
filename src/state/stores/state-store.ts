@@ -502,7 +502,12 @@ export function saveRunManifest(manifest: TeamRunManifest): void {
 	// which is always safe.
 	invalidateRunCache(manifest.stateRoot);
 	const manifestPath = path.join(manifest.stateRoot, "manifest.json");
-	atomicWriteJsonCoalesced(manifestPath, manifest);
+	// REVIEW FIX (2026-09-10): reverted WI-2.2's coalesced conversion —
+	// saveRunManifest is a SYNCHRONOUS persist by name/contract (tests assert
+	// it, broker loadRunManifestById is a cross-process reader, and the
+	// statSync-based cache repopulation below needs the real post-write
+	// mtime/size). The 50ms coalesce window broke all three.
+	atomicWriteJson(manifestPath, manifest);
 	// FIX: Re-populate cache with actual mtime/size so loadRunManifestById
 	// doesn't miss the cache on next read. Without this, every load until
 	// TTL expires would hit disk because cached 0 !== any real mtime.

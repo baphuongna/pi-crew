@@ -26,7 +26,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logInternalError } from "../../utils/internal-error.ts";
-import { atomicWriteJsonCoalesced, flushPendingAtomicWrites } from "../atomic-write.ts";
+import { atomicWriteJson } from "../atomic-write.ts";
 import { withRunLockSync } from "../coordination/locks.ts";
 import type { TeamRunManifest } from "../types.ts";
 
@@ -100,9 +100,10 @@ export function readOwnershipMap(manifest: TeamRunManifest): OwnershipMapFile {
 export function upsertOwnershipEntry(manifest: TeamRunManifest, entry: OwnershipEntry): void {
 	try {
 		withRunLockSync(manifest, () => {
-			// Defeat the atomic-write coalescer's stale-read window: force any
-			// pending buffered write for THIS file to land before we reload.
-			flushPendingAtomicWrites(ownershipMapPath(manifest));
+			// REVIEW FIX (2026-09-10): reverted WI-2.2's coalesced conversion (and
+			// its flush-before-reload guard). The map is small, written at spawn /
+			// steer frequency (not a hot loop), and round-trip readers expect
+			// read-your-writes immediately after upsert returns.
 			const fresh = readOwnershipMap(manifest);
 			const prev = fresh.entries[entry.taskId] ?? {};
 			const merged: OwnershipEntry = {
@@ -118,7 +119,7 @@ export function upsertOwnershipEntry(manifest: TeamRunManifest, entry: Ownership
 			// filtering here keeps the in-memory merge honest.
 			const clean = Object.fromEntries(Object.entries(merged).filter(([, value]) => value !== undefined)) as OwnershipEntry;
 			fresh.entries[entry.taskId] = clean;
-			atomicWriteJsonCoalesced(ownershipMapPath(manifest), fresh, undefined, { compact: true });
+			atomicWriteJson(ownershipMapPath(manifest), fresh, { compact: true });
 		});
 	} catch (error) {
 		// Best-effort — a failure here must not break the spawn/steer caller.

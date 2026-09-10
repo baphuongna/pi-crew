@@ -10,7 +10,7 @@ import {
 } from "../../runtime/process/cancellation.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
-import { appendEvent, appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
@@ -392,13 +392,19 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 		}
 		ctx.abortForegroundRun?.(fresh.manifest.runId);
 		for (const taskId of abortResult.abortedIds) {
-			appendEventBuffered(fresh.manifest.eventsPath, {
+			// REVIEW FIX (2026-09-10): reverted M2b buffered conversion. Although
+			// task.cancelled is a TERMINAL type (buffered terminal path bypasses
+			// the 20ms buffer), that path still resolves via a microtask chain
+			// (flushPromise.then(appendEvent)) — NOT same-tick. Cancel tests and
+			// the immediately-following updateRunStatus reader need same-tick
+			// durability, so plain sync appendEvent (base behavior).
+			appendEvent(fresh.manifest.eventsPath, {
 				type: "task.cancelled",
 				runId: fresh.manifest.runId,
 				taskId,
 				message: cancelMessage,
 				data: cancelData,
-			}).catch((e) => logInternalError("cancel.buffered", e, "type=task.cancelled"));
+			});
 		}
 		const updated = updateRunStatus(
 			fresh.manifest,

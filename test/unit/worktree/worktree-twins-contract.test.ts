@@ -42,22 +42,25 @@ function initGitRepo(dir: string): void {
 }
 
 describe("WI-4.3 contract: findGitRoot ≡ findGitRootAsync", () => {
-	it("both return the same canonical root for the repo cwd", () => {
+	it("both return the same canonical root for the repo cwd", async () => {
 		const repo = makeRepoTemp("pi-crew-twin-");
 		try {
 			initGitRepo(repo);
 			const syncRoot = findGitRoot(repo);
 			// Give async a clean cache so we're comparing behavior, not cache.
 			clearGitRootCache();
-			return findGitRootAsync(repo).then((asyncRoot) => {
-				assert.equal(syncRoot, asyncRoot, "sync and async must resolve to the same root");
-			});
+			// REVIEW FIX (2026-09-10): await INSIDE the try. The previous
+			// `return promise; finally { rmSync }` form ran the finally
+			// synchronously at return — deleting the repo while the spawned
+			// `git rev-parse` child was still in flight (flaky exit-128).
+			const asyncRoot = await findGitRootAsync(repo);
+			assert.equal(syncRoot, asyncRoot, "sync and async must resolve to the same root");
 		} finally {
 			fs.rmSync(repo, { recursive: true, force: true });
 		}
 	});
 
-	it("both return the same root when called from a subdirectory", () => {
+	it("both return the same root when called from a subdirectory", async () => {
 		const repo = makeRepoTemp("pi-crew-twin-");
 		try {
 			initGitRepo(repo);
@@ -65,9 +68,9 @@ describe("WI-4.3 contract: findGitRoot ≡ findGitRootAsync", () => {
 			fs.mkdirSync(sub, { recursive: true });
 			const syncRoot = findGitRoot(sub);
 			clearGitRootCache();
-			return findGitRootAsync(sub).then((asyncRoot) => {
-				assert.equal(syncRoot, asyncRoot, "sync and async must resolve subdirs identically");
-			});
+			// REVIEW FIX (2026-09-10): await INSIDE the try — see test 1 note.
+			const asyncRoot = await findGitRootAsync(sub);
+			assert.equal(syncRoot, asyncRoot, "sync and async must resolve subdirs identically");
 		} finally {
 			fs.rmSync(repo, { recursive: true, force: true });
 		}
