@@ -65743,12 +65743,12 @@ function applyPolicy(manifest, tasks, limits) {
       createdAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     decisions = [...decisions, branchDecision];
-    appendEvent(manifest.eventsPath, {
+    appendEventBuffered(manifest.eventsPath, {
       type: "branch.stale",
       runId: manifest.runId,
       message: branchFreshness.message,
       data: { branchFreshness }
-    });
+    }).catch((e) => logInternalError("finalize-run.buffered", e, "type=branch.stale"));
   }
   const policyArtifact = writeArtifact(manifest.artifactsRoot, {
     kind: "metadata",
@@ -65766,15 +65766,15 @@ function applyPolicy(manifest, tasks, limits) {
 `
   });
   for (const item of decisions)
-    appendEvent(manifest.eventsPath, {
+    appendEventBuffered(manifest.eventsPath, {
       type: item.action === "escalate" ? "policy.escalated" : "policy.action",
       runId: manifest.runId,
       taskId: item.taskId,
       message: item.message,
       data: { action: item.action, reason: item.reason }
-    });
+    }).catch((e) => logInternalError("finalize-run.buffered", e, "type=policy.action"));
   for (const item of recoveryLedger.entries)
-    appendEvent(manifest.eventsPath, {
+    appendEventBuffered(manifest.eventsPath, {
       type: item.state === "escalation_required" ? "recovery.escalated" : "recovery.attempted",
       runId: manifest.runId,
       taskId: item.taskId,
@@ -65785,7 +65785,7 @@ function applyPolicy(manifest, tasks, limits) {
         attempt: item.attempt,
         state: item.state
       }
-    });
+    }).catch((e) => logInternalError("finalize-run.buffered", e, "type=recovery.attempted"));
   return {
     ...manifest,
     updatedAt: (/* @__PURE__ */ new Date()).toISOString(),

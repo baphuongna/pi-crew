@@ -19,7 +19,7 @@ import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
 import { flushPendingAtomicWrites } from "../state/atomic-write.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
-import { appendEvent, appendEventAsync, appendEventFireAndForget, readEvents } from "../state/event-log/event-log.ts";
+import { appendEventAsync, appendEventBuffered, appendEventFireAndForget, readEvents } from "../state/event-log/event-log.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/stores/artifact-store.ts";
 import { HealthStore } from "../state/stores/health-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
@@ -211,12 +211,12 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
 			createdAt: new Date().toISOString(),
 		};
 		decisions = [...decisions, branchDecision];
-		appendEvent(manifest.eventsPath, {
+		appendEventBuffered(manifest.eventsPath, {
 			type: "branch.stale",
 			runId: manifest.runId,
 			message: branchFreshness.message,
 			data: { branchFreshness },
-		});
+		}).catch((e) => logInternalError("finalize-run.buffered", e, "type=branch.stale"));
 	}
 	const policyArtifact = writeArtifact(manifest.artifactsRoot, {
 		kind: "metadata",
@@ -232,15 +232,15 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
 		content: `${JSON.stringify(recoveryLedger, null, 2)}\n`,
 	});
 	for (const item of decisions)
-		appendEvent(manifest.eventsPath, {
+		appendEventBuffered(manifest.eventsPath, {
 			type: item.action === "escalate" ? "policy.escalated" : "policy.action",
 			runId: manifest.runId,
 			taskId: item.taskId,
 			message: item.message,
 			data: { action: item.action, reason: item.reason },
-		});
+		}).catch((e) => logInternalError("finalize-run.buffered", e, "type=policy.action"));
 	for (const item of recoveryLedger.entries)
-		appendEvent(manifest.eventsPath, {
+		appendEventBuffered(manifest.eventsPath, {
 			type: item.state === "escalation_required" ? "recovery.escalated" : "recovery.attempted",
 			runId: manifest.runId,
 			taskId: item.taskId,
@@ -251,7 +251,7 @@ function applyPolicy(manifest: TeamRunManifest, tasks: TeamTaskState[], limits?:
 				attempt: item.attempt,
 				state: item.state,
 			},
-		});
+		}).catch((e) => logInternalError("finalize-run.buffered", e, "type=recovery.attempted"));
 	return {
 		...manifest,
 		updatedAt: new Date().toISOString(),

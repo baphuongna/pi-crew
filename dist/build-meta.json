@@ -16338,7 +16338,7 @@
       "format": "esm"
     },
     "src/runtime/finalize-run.ts": {
-      "bytes": 26176,
+      "bytes": 26455,
       "imports": [
         {
           "path": "node:fs",
@@ -20923,7 +20923,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8005463
+      "bytes": 8005913
     },
     "dist/index.mjs": {
       "imports": [
@@ -24795,7 +24795,7 @@
           "bytesInOutput": 3916
         },
         "src/runtime/finalize-run.ts": {
-          "bytesInOutput": 14788
+          "bytesInOutput": 15059
         },
         "src/runtime/goal-workflow/goal-achievement.ts": {
           "bytesInOutput": 2936
@@ -25197,7 +25197,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3360500
+      "bytes": 3360771
     }
   }
 }
