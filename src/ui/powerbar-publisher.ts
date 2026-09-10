@@ -41,13 +41,9 @@ function hasPowerbarConsumer(events: EventBus): boolean {
 	}
 }
 
-function setStatusFallback(ctx: StatusContext, text: string | undefined): void {
-	try {
-		if (ctx?.hasUI) ctx.ui?.setStatus?.("pi-crew", text);
-	} catch (error) {
-		logInternalError("powerbar.statusFallback", error);
-	}
-}
+// setStatusFallback removed (WI-5.1 / docs/decisions/2026-09-10): 0 callers,
+// function was deliberately-unused; crew-widget owns the "pi-crew" status
+// bar surface (see test/unit/ui/powerbar-publisher.test.ts:227).
 
 function safeEmit(events: EventBus, event: string, data: unknown): void {
 	try {

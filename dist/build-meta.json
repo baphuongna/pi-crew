@@ -14798,7 +14798,7 @@
       "format": "esm"
     },
     "src/ui/powerbar-publisher.ts": {
-      "bytes": 19939,
+      "bytes": 19936,
       "imports": [
         {
           "path": "node:fs",
@@ -21089,7 +21089,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8017931
+      "bytes": 8017915
     },
     "dist/index.mjs": {
       "imports": [
