@@ -1,6 +1,9 @@
 ---
 name: systematic-debugging
-description: "Four-phase debugging discipline with refuse gates."
+description: >
+  Four-phase debugging discipline with refuse gates.
+  When NOT to use: trivial fixes where root cause is obvious; production incidents needing immediate rollback (use post-mortem after).
+
 origin: pi-crew
 triggers:
   - "debug this"

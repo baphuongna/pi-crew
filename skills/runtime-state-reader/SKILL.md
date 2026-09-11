@@ -1,6 +1,9 @@
 ---
 name: runtime-state-reader
-description: Safe read-only navigation of pi-crew run state.
+description: >
+  Safe read-only navigation of pi-crew run state.
+  When NOT to use: write actions or mutations (use state-mutation-locking); configuration changes (use resource-discovery-config).
+
 origin: pi-crew
 triggers:
   - "inspect manifest"

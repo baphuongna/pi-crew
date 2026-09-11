@@ -1,6 +1,9 @@
 ---
 name: orchestration
-description: "Multi-phase orchestration for planners and executors."
+description: >
+  Multi-phase orchestration for planners and executors.
+  When NOT to use: single-task edits (use delegation-patterns); pure read-only audits (use read-only-explorer); one-shot questions (use ask).
+
 origin: pi-crew
 triggers:
   - "orchestrate this"

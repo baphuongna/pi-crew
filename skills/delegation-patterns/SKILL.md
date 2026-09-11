@@ -1,6 +1,9 @@
 ---
 name: delegation-patterns
-description: "Subagent/team delegation workflow."
+description: >
+  Subagent/team delegation workflow.
+  When NOT to use: pure read-only investigation (use read-only-explorer); pre-planning analysis (use scrutinize).
+
 origin: pi-crew
 triggers:
   - "delegate this"

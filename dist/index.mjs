@@ -29874,7 +29874,6 @@ __export(skill_instructions_exports, {
 });
 import * as fs50 from "node:fs";
 import * as path38 from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
 import * as os11 from "node:os";
 function isValidSkillName(name) {
   return name.length > 0 && name.length <= MAX_SKILL_NAME_CHARS && isSafePathId(name);
@@ -30124,10 +30123,11 @@ var init_skill_instructions = __esm({
   "src/runtime/skill-instructions.ts"() {
     "use strict";
     init_internal_error();
+    init_paths();
     init_safe_paths();
     init_skill_effectiveness();
     init_peer_dep();
-    PACKAGE_SKILLS_DIR = path38.resolve(path38.dirname(fileURLToPath4(import.meta.url)), "..", "..", "skills");
+    PACKAGE_SKILLS_DIR = path38.join(packageRoot(), "skills");
     MAX_SKILL_CHARS = 1500;
     MAX_TOTAL_CHARS = 6e3;
     MAX_SKILL_NAME_CHARS = 80;
@@ -32305,7 +32305,6 @@ var init_validate = __esm({
 import * as fs54 from "node:fs";
 import * as os12 from "node:os";
 import * as path40 from "node:path";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
 function listSkillDirs(cwd) {
   return [
     { root: PACKAGE_SKILLS_DIR2, source: "package" },
@@ -32423,9 +32422,10 @@ var init_discover_skills = __esm({
     "use strict";
     init_peer_dep();
     init_internal_error();
+    init_paths();
     init_safe_paths();
     init_validate();
-    PACKAGE_SKILLS_DIR2 = path40.resolve(path40.dirname(fileURLToPath5(import.meta.url)), "..", "..", "skills");
+    PACKAGE_SKILLS_DIR2 = path40.join(packageRoot(), "skills");
     CACHE_TTL_MS = 3e4;
     cache2 = null;
     lastDiagnostics = [];
@@ -46534,14 +46534,14 @@ var init_protocol = __esm({
 });
 
 // src/runtime/scratchpad/engine.ts
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 var SNAPSHOT_MAX_BYTES, GUEST_PATH;
 var init_engine = __esm({
   "src/runtime/scratchpad/engine.ts"() {
     "use strict";
     init_protocol();
     SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
-    GUEST_PATH = fileURLToPath6(new URL("./guest.ts", import.meta.url));
+    GUEST_PATH = fileURLToPath4(new URL("./guest.ts", import.meta.url));
   }
 });
 
@@ -57252,15 +57252,13 @@ import { spawn as spawn6 } from "node:child_process";
 import * as fs89 from "node:fs";
 import { createRequire as createRequire6 } from "node:module";
 import * as path69 from "node:path";
-import { fileURLToPath as fileURLToPath7, pathToFileURL as pathToFileURL2 } from "node:url";
-function packageRootFromRuntime() {
-  return path69.resolve(path69.dirname(fileURLToPath7(import.meta.url)), "..", "..");
-}
+import { pathToFileURL as pathToFileURL2 } from "node:url";
 function jitiRegisterPathFromPackageJson(packageJsonPath) {
   return path69.join(path69.dirname(packageJsonPath), "lib", "jiti-register.mjs");
 }
-function resolveJitiRegisterPath(packageRoot2 = packageRootFromRuntime(), exists = fs89.existsSync) {
-  let current = path69.resolve(packageRoot2);
+function resolveJitiRegisterPath(pkgRoot, exists = fs89.existsSync) {
+  const effectiveRoot = pkgRoot ?? packageRoot();
+  let current = path69.resolve(effectiveRoot);
   const root = path69.parse(current).root;
   while (true) {
     const candidate = path69.join(current, "node_modules", "jiti", "lib", "jiti-register.mjs");
@@ -57313,7 +57311,7 @@ function buildLoaderUnavailableMessage(searchedFrom) {
 }
 function getBackgroundRunnerCommand(runnerPath, cwd, runId, loaderInput = resolveTypeScriptLoader(), reportDirectory) {
   const loader = normalizeLoaderInput(loaderInput);
-  if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRootFromRuntime()));
+  if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRoot()));
   const memoryLimit = "--max-old-space-size=512";
   const reportOn = !(getCrewEnv("PI_CREW_BG_REPORT_ON_FATAL") === "0" || getCrewEnv("PI_TEAMS_BG_REPORT_ON_FATAL") === "0");
   const reportDir = reportDirectory ?? path69.dirname(runnerPath);
@@ -57354,7 +57352,7 @@ async function spawnBackgroundTeamRun(manifest) {
   const childEnv = buildBackgroundRunnerEnv(peerDepDir ? { ...filteredEnv, [PEER_DEP_DIR_ENV]: peerDepDir } : filteredEnv);
   const loader = resolveTypeScriptLoader();
   if (!loader) {
-    const message = buildLoaderUnavailableMessage(packageRootFromRuntime());
+    const message = buildLoaderUnavailableMessage(packageRoot());
     await appendEventAsync(manifest.eventsPath, {
       type: "async.failed",
       runId: manifest.runId,
@@ -67218,7 +67216,7 @@ __export(team_runner_exports, {
 import { spawn as spawn7 } from "node:child_process";
 import * as fs104 from "node:fs";
 import * as path83 from "node:path";
-import { fileURLToPath as fileURLToPath8 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 function startTeamRunHeartbeat(stateRoot, runId) {
   const heartbeatPath = path83.join(stateRoot, "heartbeat.json");
   const writeHeartbeat = () => {
@@ -67245,8 +67243,8 @@ function startTeamRunHeartbeat(stateRoot, runId) {
 function perfScriptPath(scriptName) {
   try {
     const candidates = [
-      fileURLToPath8(new URL(`../../scripts/${scriptName}`, import.meta.url)),
-      fileURLToPath8(new URL(`../scripts/${scriptName}`, import.meta.url))
+      fileURLToPath5(new URL(`../../scripts/${scriptName}`, import.meta.url)),
+      fileURLToPath5(new URL(`../scripts/${scriptName}`, import.meta.url))
     ];
     return candidates.find((p) => fs104.existsSync(p));
   } catch {
@@ -82945,6 +82943,29 @@ function registerCrewMessageRenderers(pi) {
   pi.registerMessageRenderer?.("crew:resume-directive", renderResumeDirective);
 }
 
+// src/extension/post-init-skill-check.ts
+init_skill_instructions();
+async function runPostInitSkillCheck(cwd) {
+  const result4 = renderSkillInstructions({ cwd, role: "executor" });
+  const total = result4.names.length;
+  const missingMatches = result4.block.match(/Skill '([^']+)' was selected but no SKILL\.md file was found/g);
+  const missing = missingMatches ? missingMatches.map((m) => m.match(/'([^']+)'/)[1]) : [];
+  const resolved = total - missing.length;
+  let severity;
+  let message;
+  if (resolved === total) {
+    severity = "ok";
+    message = `All ${total} default skills resolved`;
+  } else if (resolved === 0) {
+    severity = "error";
+    message = `0/${total} default skills resolved \u2014 likely bundle stale. Run \`npm run build:bundle\`.`;
+  } else {
+    severity = "warn";
+    message = `${resolved}/${total} default skills resolved \u2014 degraded: ${missing.join(", ")}`;
+  }
+  return { total, resolved, missing, severity, message };
+}
+
 // src/extension/registration/command-registration.ts
 init_config();
 init_powerbar_publisher();
@@ -84551,7 +84572,6 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
 init_config();
 import * as fs118 from "node:fs";
 import * as path94 from "node:path";
-import { fileURLToPath as fileURLToPath9 } from "node:url";
 
 // src/runtime/per-write-validator.ts
 import { readFileSync as readFileSync92 } from "node:fs";
@@ -84622,6 +84642,7 @@ function buildValidationBlocker(filePath, error) {
 }
 
 // src/extension/registration/hook-registration.ts
+init_paths();
 init_safe_paths();
 
 // src/extension/team-tool/destructive-gate.ts
@@ -84654,7 +84675,7 @@ function installResourcesDiscoverHook(pi, ctx) {
     pi.on("resources_discover", () => {
       const sessionCwd = ctx.currentCtx?.cwd ?? process.cwd();
       const skillDir = path94.resolve(sessionCwd, "skills");
-      const extSkillDir = path94.resolve(path94.dirname(fileURLToPath9(import.meta.url)), "..", "..", "skills");
+      const extSkillDir = path94.join(packageRoot(), "skills");
       const paths = [];
       if (fs118.existsSync(extSkillDir)) paths.push(extSkillDir);
       if (skillDir !== extSkillDir && fs118.existsSync(skillDir)) {
@@ -90299,7 +90320,7 @@ function installCrossExtensionWiring(pi, ctx) {
 }
 
 // src/extension/register.ts
-function registerPiTeams(pi) {
+async function registerPiTeams(pi) {
   resetTimings();
   time("register:start");
   installChildProcessAbortShield();
@@ -90349,6 +90370,12 @@ function registerPiTeams(pi) {
   } catch (err2) {
     console.warn("[pi-crew] crew-vibes initialization failed:", err2 instanceof Error ? err2.message : err2);
   }
+  const skillCheck = await runPostInitSkillCheck(process.cwd());
+  if (skillCheck.severity === "error") {
+    console.error(`[pi-crew] ${skillCheck.message}`);
+  } else if (skillCheck.severity === "warn") {
+    console.warn(`[pi-crew] ${skillCheck.message}`);
+  }
 }
 
 // index.bundle.ts
@@ -90359,6 +90386,7 @@ function index_bundle_default(pi) {
 export {
   index_bundle_default as default,
   registerPiTeams,
+  runPostInitSkillCheck,
   waitForRun
 };
 //# sourceMappingURL=index.mjs.map

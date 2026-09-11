@@ -1,14 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { TeamRole } from "../teams/team-config.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { packageRoot } from "../utils/paths.ts";
 import { isSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { CONFIDENCE_THRESHOLDS, getWeightedSkillsForRole, registerSkillEffectivenessHooks } from "./skill-effectiveness.ts";
 
-const PACKAGE_SKILLS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+const PACKAGE_SKILLS_DIR = path.join(packageRoot(), "skills");
 
 import * as os from "node:os";
 // peer-dep.ts resolves @earendil-works/pi-coding-agent robustly across install
@@ -121,8 +121,24 @@ function collectTaskSkillNames(input: ResolveTaskSkillsInput | undefined): strin
 	if (input.agent?.skills?.length) names.push(...input.agent.skills);
 	if (Array.isArray(input.teamRole?.skills)) names.push(...input.teamRole.skills);
 	if (Array.isArray(input.step?.skills)) names.push(...input.step.skills);
-	if (Array.isArray(input.override)) names.push(...input.override);
-	return unique(names);
+	// SKILL-HYGIENE-2: support wildcard (`*`) and denylist (`!name`) syntax in override.
+	// - `*` is a marker (no-op; defaults already included via defaultSkillsForRole).
+	// - `!name` removes `name` from the final selection.
+	// - Other names are added (existing additive behavior).
+	const denylist = new Set<string>();
+	if (Array.isArray(input.override)) {
+		for (const item of input.override) {
+			if (item === "*") {
+				// wildcard marker; defaults already in names via defaultSkillsForRole
+			} else if (item.startsWith("!")) {
+				denylist.add(item.slice(1));
+			} else {
+				names.push(item);
+			}
+		}
+	}
+	if (denylist.size === 0) return unique(names);
+	return unique(names).filter((n) => !denylist.has(n));
 }
 
 export function resolveTaskSkillNames(input: ResolveTaskSkillsInput): string[] {

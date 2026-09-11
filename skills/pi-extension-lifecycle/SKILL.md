@@ -1,6 +1,9 @@
 ---
 name: pi-extension-lifecycle
-description: Pi extension lifecycle and registration patterns.
+description: >
+  Pi extension lifecycle and registration patterns.
+  When NOT to use: single registration event (use direct API calls); for child worker lifecycle (use child-pi-spawning).
+
 origin: pi-crew
 triggers:
   - "add extension"

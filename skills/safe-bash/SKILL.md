@@ -1,6 +1,9 @@
 ---
 name: safe-bash
-description: "Safe shell-command workflow."
+description: >
+  Safe shell-command workflow.
+  When NOT to use: subprocess orchestration (use child-pi-spawning); destructive operations without sandbox (use ownership-session-security).
+
 origin: pi-crew
 triggers:
   - "run this command"

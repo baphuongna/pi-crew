@@ -1,6 +1,9 @@
 ---
 name: scrutinize
-description: "Outsider-perspective review questioning intent before tracing code."
+description: >
+  Outsider-perspective review questioning intent before tracing code.
+  When NOT to use: implementation work (use systematic-debugging); trivial one-line fixes that don't warrant outsider review.
+
 origin: pi-crew
 triggers:
   - "scrutinize this"

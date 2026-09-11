@@ -1,6 +1,9 @@
 ---
 name: git-master
-description: "Commit and release hygiene for safe version-control work."
+description: >
+  Commit and release hygiene for safe version-control work.
+  When NOT to use: experimental branches (use worktree-isolation); force-push or history rewrites (use scrutinize first).
+
 origin: pi-crew
 triggers:
   - "commit this"

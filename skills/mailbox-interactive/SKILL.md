@@ -1,6 +1,9 @@
 ---
 name: mailbox-interactive
-description: "Interactive waiting-task and mailbox workflow."
+description: >
+  Interactive waiting-task and mailbox workflow.
+  When NOT to use: fire-and-forget background tasks; non-interactive worker contact.
+
 origin: pi-crew
 triggers:
   - "respond to worker"

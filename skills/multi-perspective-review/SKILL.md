@@ -1,6 +1,9 @@
 ---
 name: multi-perspective-review
-description: "Multi-perspective code review with simpler-alternative pass."
+description: >
+  Multi-perspective code review with simpler-alternative pass.
+  When NOT to use: deep adversarial analysis (use council); simple code review without quality concerns.
+
 origin: pi-crew
 triggers:
   - "review this"

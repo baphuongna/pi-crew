@@ -1,6 +1,9 @@
 ---
 name: post-mortem
-description: "Write engineering RCA record after bug is fixed."
+description: >
+  Write engineering RCA record after bug is fixed.
+  When NOT to use: unresolved bugs (use systematic-debugging first); minor fixes that don't warrant RCA.
+
 origin: pi-crew
 triggers:
   - "post-mortem"

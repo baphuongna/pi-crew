@@ -1,6 +1,9 @@
 ---
 name: read-only-explorer
-description: "Read-only exploration and audit workflow."
+description: >
+  Read-only exploration and audit workflow.
+  When NOT to use: any task that needs write actions; deep adversarial analysis (use council); quick one-line lookups (use bash directly).
+
 origin: pi-crew
 triggers:
   - "explore code"

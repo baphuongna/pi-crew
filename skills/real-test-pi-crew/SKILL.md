@@ -1,6 +1,9 @@
 ---
 name: real-test-pi-crew
-description: "End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, a live feature-action battery (team tool + subagent tools), and a surface-mode battery (workers in real tmux/herdr panes, degrade-to-headless)."
+description: >
+  End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, a live feature-action battery (team tool + subagent tools), and a surface-mode battery (workers in real tmux/herdr panes, degrade-to-headless).
+  When NOT to use: unit tests for isolated modules (use test runner directly); pure test execution.
+
 origin: pi-crew
 triggers:
   - "test the change"

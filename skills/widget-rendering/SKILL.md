@@ -1,6 +1,9 @@
 ---
 name: widget-rendering
-description: "Pi TUI crew widget data sources, display priority, and rendering performance."
+description: >
+  Pi TUI crew widget data sources, display priority, and rendering performance.
+  When NOT to use: non-TUI displays; backend data sources without widget context (use runtime-state-reader).
+
 origin: pi-crew
 triggers:
   - "empty agent"

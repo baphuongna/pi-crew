@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { getCrewEnv } from "../config/env-vars.ts";
 import { appendEventAsync } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
@@ -26,17 +26,14 @@ export type LoaderSpec = { kind: "jiti"; path: string } | { kind: "strip-types" 
 
 type LoaderInput = LoaderSpec | string | false | undefined;
 
-function packageRootFromRuntime(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
 function jitiRegisterPathFromPackageJson(packageJsonPath: string): string {
 	return path.join(path.dirname(packageJsonPath), "lib", "jiti-register.mjs");
 }
 
-export function resolveJitiRegisterPath(packageRoot = packageRootFromRuntime(), exists: FileExists = fs.existsSync): string | undefined {
-	// Walk upward from packageRoot looking for node_modules/jiti/lib/jiti-register.mjs
-	let current = path.resolve(packageRoot);
+export function resolveJitiRegisterPath(pkgRoot: string | undefined, exists: FileExists = fs.existsSync): string | undefined {
+	const effectiveRoot = pkgRoot ?? packageRoot();
+	// Walk upward from effectiveRoot looking for node_modules/jiti/lib/jiti-register.mjs
+	let current = path.resolve(effectiveRoot);
 	const root = path.parse(current).root;
 	while (true) {
 		const candidate = path.join(current, "node_modules", "jiti", "lib", "jiti-register.mjs");
@@ -115,7 +112,7 @@ export function getBackgroundRunnerCommand(
 	reportDirectory?: string,
 ): { args: string[]; loader: "jiti" | "strip-types" } {
 	const loader = normalizeLoaderInput(loaderInput);
-	if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRootFromRuntime()));
+	if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRoot()));
 	// Limit V8 heap to 512MB for the background runner to avoid triggering the
 	// Linux OOM killer. The runner itself is lightweight — it delegates work to
 	// child Pi processes — so 512MB is generous. Without this limit, Node.js
@@ -289,7 +286,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 
 	const loader = resolveTypeScriptLoader();
 	if (!loader) {
-		const message = buildLoaderUnavailableMessage(packageRootFromRuntime());
+		const message = buildLoaderUnavailableMessage(packageRoot());
 		// FIX-08: use async event append to avoid sleepSync event-loop blocking.
 		await appendEventAsync(manifest.eventsPath, {
 			type: "async.failed",

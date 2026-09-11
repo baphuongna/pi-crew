@@ -16,10 +16,10 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { asRecord, loadConfig } from "../../config/config.ts";
 import { buildValidationBlocker, extractPathFromInput, validateWrittenFile } from "../../runtime/per-write-validator.ts";
+import { packageRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { shouldBlockDestructiveTeamAction } from "../team-tool/destructive-gate.ts";
 import type { RegistrationContext } from "./registration-types.ts";
@@ -48,7 +48,7 @@ function installResourcesDiscoverHook(pi: ExtensionAPI, ctx: RegistrationContext
 		pi.on("resources_discover", () => {
 			const sessionCwd = ctx.currentCtx?.cwd ?? process.cwd();
 			const skillDir = path.resolve(sessionCwd, "skills");
-			const extSkillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+			const extSkillDir = path.join(packageRoot(), "skills");
 			const paths: string[] = [];
 			if (fs.existsSync(extSkillDir)) paths.push(extSkillDir);
 			if (skillDir !== extSkillDir && fs.existsSync(skillDir)) {

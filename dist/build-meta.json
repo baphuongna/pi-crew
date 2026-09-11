@@ -8991,7 +8991,7 @@
       "format": "esm"
     },
     "src/runtime/skill-instructions.ts": {
-      "bytes": 15799,
+      "bytes": 15760,
       "imports": [
         {
           "path": "node:fs",
@@ -9004,14 +9004,14 @@
           "external": true
         },
         {
-          "path": "node:url",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/paths.ts",
+          "kind": "import-statement",
+          "original": "../utils/paths.ts"
         },
         {
           "path": "src/utils/safe-paths.ts",
@@ -9324,7 +9324,7 @@
       "format": "esm"
     },
     "src/skills/discover-skills.ts": {
-      "bytes": 8318,
+      "bytes": 8279,
       "imports": [
         {
           "path": "node:fs",
@@ -9342,11 +9342,6 @@
           "external": true
         },
         {
-          "path": "node:url",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "src/runtime/peer-dep.ts",
           "kind": "import-statement",
           "original": "../runtime/peer-dep.ts"
@@ -9355,6 +9350,11 @@
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/paths.ts",
+          "kind": "import-statement",
+          "original": "../utils/paths.ts"
         },
         {
           "path": "src/utils/safe-paths.ts",
@@ -14471,7 +14471,7 @@
       "format": "esm"
     },
     "src/runtime/async-runner.ts": {
-      "bytes": 16919,
+      "bytes": 16797,
       "imports": [
         {
           "path": "node:child_process",
@@ -18895,6 +18895,17 @@
       ],
       "format": "esm"
     },
+    "src/extension/post-init-skill-check.ts": {
+      "bytes": 1162,
+      "imports": [
+        {
+          "path": "src/runtime/skill-instructions.ts",
+          "kind": "import-statement",
+          "original": "../runtime/skill-instructions.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/registration/command-registration.ts": {
       "bytes": 2225,
       "imports": [
@@ -19373,7 +19384,7 @@
       "format": "esm"
     },
     "src/extension/registration/hook-registration.ts": {
-      "bytes": 4839,
+      "bytes": 4803,
       "imports": [
         {
           "path": "node:fs",
@@ -19386,11 +19397,6 @@
           "external": true
         },
         {
-          "path": "node:url",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "src/config/config.ts",
           "kind": "import-statement",
           "original": "../../config/config.ts"
@@ -19399,6 +19405,11 @@
           "path": "src/runtime/per-write-validator.ts",
           "kind": "import-statement",
           "original": "../../runtime/per-write-validator.ts"
+        },
+        {
+          "path": "src/utils/paths.ts",
+          "kind": "import-statement",
+          "original": "../../utils/paths.ts"
         },
         {
           "path": "src/utils/safe-paths.ts",
@@ -20913,7 +20924,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 6465,
+      "bytes": 6805,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -20991,6 +21002,11 @@
           "original": "./message-renderers.ts"
         },
         {
+          "path": "src/extension/post-init-skill-check.ts",
+          "kind": "import-statement",
+          "original": "./post-init-skill-check.ts"
+        },
+        {
           "path": "src/extension/registration/command-registration.ts",
           "kind": "import-statement",
           "original": "./registration/command-registration.ts"
@@ -21064,12 +21080,17 @@
       "format": "esm"
     },
     "index.bundle.ts": {
-      "bytes": 1144,
+      "bytes": 1260,
       "imports": [
         {
           "path": "src/extension/register.ts",
           "kind": "import-statement",
           "original": "./src/extension/register.ts"
+        },
+        {
+          "path": "src/extension/post-init-skill-check.ts",
+          "kind": "import-statement",
+          "original": "./src/extension/post-init-skill-check.ts"
         },
         {
           "path": "src/runtime/run-tracker.ts",
@@ -21085,7 +21106,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8031672
+      "bytes": 8033558
     },
     "dist/index.mjs": {
       "imports": [
@@ -21750,11 +21771,6 @@
           "external": true
         },
         {
-          "path": "node:url",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "node:os",
           "kind": "import-statement",
           "external": true
@@ -21796,11 +21812,6 @@
         },
         {
           "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:url",
           "kind": "import-statement",
           "external": true
         },
@@ -22845,11 +22856,6 @@
           "external": true
         },
         {
-          "path": "node:url",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
@@ -22988,6 +22994,7 @@
       "exports": [
         "default",
         "registerPiTeams",
+        "runPostInitSkillCheck",
         "waitForRun"
       ],
       "entryPoint": "index.bundle.ts",
@@ -24127,7 +24134,7 @@
           "bytesInOutput": 8702
         },
         "src/runtime/skill-instructions.ts": {
-          "bytesInOutput": 12471
+          "bytesInOutput": 12380
         },
         "src/schema/team-tool-schema.ts": {
           "bytesInOutput": 17088
@@ -24175,7 +24182,7 @@
           "bytesInOutput": 6631
         },
         "src/skills/discover-skills.ts": {
-          "bytesInOutput": 4302
+          "bytesInOutput": 4211
         },
         "src/runtime/capability-inventory.ts": {
           "bytesInOutput": 3291
@@ -24781,7 +24788,7 @@
           "bytesInOutput": 7803
         },
         "src/runtime/async-runner.ts": {
-          "bytesInOutput": 10021
+          "bytesInOutput": 9861
         },
         "src/runtime/goal-workflow/goal-state-store.ts": {
           "bytesInOutput": 6992
@@ -25192,7 +25199,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 2223
+          "bytesInOutput": 2493
         },
         "src/config/migration-validator.ts": {
           "bytesInOutput": 1081
@@ -25242,6 +25249,9 @@
         "src/extension/message-renderers.ts": {
           "bytesInOutput": 2457
         },
+        "src/extension/post-init-skill-check.ts": {
+          "bytesInOutput": 923
+        },
         "src/extension/registration/command-registration.ts": {
           "bytesInOutput": 1223
         },
@@ -25264,7 +25274,7 @@
           "bytesInOutput": 6592
         },
         "src/extension/registration/hook-registration.ts": {
-          "bytesInOutput": 2139
+          "bytesInOutput": 2044
         },
         "src/runtime/per-write-validator.ts": {
           "bytesInOutput": 2209
@@ -25378,7 +25388,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3366455
+      "bytes": 3367279
     }
   }
 }

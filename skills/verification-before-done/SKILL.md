@@ -1,6 +1,9 @@
 ---
 name: verification-before-done
-description: "Evidence before claims."
+description: >
+  Evidence before claims.
+  When NOT to use: mid-task self-correction (use scrutinize); pure execution tasks where output IS evidence.
+
 origin: pi-crew
 triggers:
   - "done"

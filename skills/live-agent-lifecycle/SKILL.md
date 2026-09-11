@@ -1,6 +1,9 @@
 ---
 name: live-agent-lifecycle
-description: "Live agent registration, workspace isolation, termination, and eviction workflow."
+description: >
+  Live agent registration, workspace isolation, termination, and eviction workflow.
+  When NOT to use: static extension registration patterns (use pi-extension-lifecycle); ownership disputes (use ownership-session-security).
+
 origin: pi-crew
 triggers:
   - "register agent"

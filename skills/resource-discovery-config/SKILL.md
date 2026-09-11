@@ -1,6 +1,9 @@
 ---
 name: resource-discovery-config
-description: "pi-crew resource and configuration discovery workflow."
+description: >
+  pi-crew resource and configuration discovery workflow.
+  When NOT to use: runtime state questions (use runtime-state-reader); model-specific config (use model-routing-context).
+
 origin: pi-crew
 triggers:
   - "discover agents"

@@ -1,6 +1,9 @@
 ---
 name: model-routing-context
-description: Model routing, parent context, thinking level, and prompt construction workflow. Use when changing model fallback, child Pi args, inherited context, task prompts, or compact-read behavior.
+description: >
+  Model routing, parent context, thinking level, and prompt construction workflow. Use when changing model fallback, child Pi args, inherited context, task prompts, or compact-read behavior.
+  When NOT to use: project-level config (use resource-discovery-config); routing for non-pi-crew agents.
+
 origin: pi-crew
 triggers:
   - "change model"

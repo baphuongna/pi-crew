@@ -2,6 +2,50 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — bundle skill resolution + skill metadata upgrades (2026-09-11)
+
+### fix(bundle): PACKAGE_SKILLS_DIR resolves via `packageRoot()` instead of broken `import.meta.url` walk-up
+
+Four files used `path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills")` to locate the shipped skills directory. The pattern works from source mode but is **broken in bundle mode** (single `dist/index.mjs`): `import.meta.url` points at the bundle root, so `.. ..` resolves to the parent of the consuming project — typically the wrong location. Workers silently received zero skill guidance while the rest of the extension loaded normally.
+
+All four call sites switched to `path.join(packageRoot(), "skills")`. `packageRoot()` walks upward from `import.meta.url` looking for a `package.json` whose `name` field equals `"pi-crew"`; it already had a `.. ..` fallback for symlinked/global installs.
+
+Files touched:
+
+- `src/runtime/skill-instructions.ts` — `PACKAGE_SKILLS_DIR`
+- `src/skills/discover-skills.ts` — `PACKAGE_SKILLS_DIR`
+- `src/extension/registration/hook-registration.ts` — inline `extSkillDir` in `installResourcesDiscoverHook`
+- `src/runtime/async-runner.ts` — deleted the dangling `packageRootFromRuntime()` helper; the file already imported `packageRoot()` but used the broken helper. Param renamed `packageRoot` → `pkgRoot` at the call site to avoid shadowing the imported util.
+
+### feat(extension): post-init skill resolution check (`SKILL-HYGIENE-1`)
+
+A new `runPostInitSkillCheck(cwd)` runs at the tail of `registerPiTeams()`. It calls `renderSkillInstructions({ cwd, role: 'executor' })` and counts how many of the default-role skills resolved to a real `SKILL.md` on disk. Severity is `ok` when all resolve, `warn` when some are missing, `error` when **none** resolve (the signature of a stale bundle). Warnings/errors go to `console.warn` / `console.error` so the user sees degraded skill coverage at startup instead of after a worker has already produced subpar output.
+
+`registerPiTeams` is now `async` (returns `Promise<void>`); the synchronous hook installation still completes before the first await, so callers that discard the return value (`pi-extensions/register-extensions.ts`, the default export of `index.bundle.ts`) are unaffected.
+
+`runPostInitSkillCheck` is also exported from `index.bundle.ts` so the new `test/unit/bundle-skill-resolution.test.ts` can exercise the shipped bundle directly — it asserts the bundle, when imported from `dist/index.mjs`, reports `severity === "ok"` for the default executor skills.
+
+### feat(skills): add "When NOT to use" to every SKILL.md frontmatter (`SKILL-META-1`)
+
+All 34 SKILL.md descriptions are now multi-line `description: >` blocks. The last paragraph is a sentence that begins with `When NOT to use:` and names the skills (or plain conditions) that *should not* trigger this one. The cross-references are real — every skill mentioned in a "When NOT" line points to another skill that exists in this repo.
+
+YAML parsing goes through the `yaml` package (`eemeli/yaml`), which handles folded scalars correctly; verified by parsing all 34 files post-edit (0 errors).
+
+### feat(skills): support `*` wildcard and `!name` denylist in skill selection (`SKILL-HYGIENE-2`)
+
+`collectTaskSkillNames` now interprets two new tokens inside `input.override`:
+
+- `"*"` — a no-op marker; documented as the way to spell "give me the role defaults plus whatever else I'm listing". Reserved for future expansion (e.g., expand to "all package skills").
+- `"!name"` — remove `name` from the final selection, even if it would otherwise be present (role default, agent skill, team-role skill, or step skill).
+
+Five new tests in `test/unit/runtime/core/skill-instructions.test.ts` cover the syntax: single denylist, `*` + multi-denylist, additive override still works, denylist of a name not in the set is a no-op, and `"*"` alone returns the defaults.
+
+### tests
+
+- `test/unit/bundle-skill-resolution.test.ts` (new) — loads `dist/index.mjs` and verifies the boot check reports `severity: "ok"` for the executor default skills. Acts as a regression guard against the bundle skill-resolution bug.
+- `test/integration/extension-skill-resolution.test.ts` — updated to use `packageRoot()` so it asserts against the same resolution path the production code uses.
+- `test/unit/runtime/core/skill-instructions.test.ts` — 5 new tests for `SKILL-HYGIENE-2`.
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

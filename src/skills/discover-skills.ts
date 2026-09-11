@@ -1,15 +1,15 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 // peer-dep.ts resolves @earendil-works/pi-coding-agent robustly across install
 // layouts. See src/runtime/peer-dep.ts (split-scope install fix).
 import { getAgentDir } from "../runtime/peer-dep.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { packageRoot } from "../utils/paths.ts";
 import { isSafePathId, resolveContainedPath, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { parseSkillFrontmatter, type SkillValidationError, validateSkillFrontmatter } from "./validate.ts";
 
-const PACKAGE_SKILLS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+const PACKAGE_SKILLS_DIR = path.join(packageRoot(), "skills");
 
 const CACHE_TTL_MS = 30_000; // 30 seconds
 let cache: { skills: SkillDescriptor[]; cachedAt: number; cwd: string } | null = null;

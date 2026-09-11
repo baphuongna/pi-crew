@@ -5,7 +5,7 @@ description: >
   architecture choice, or plan. Anti-anchoring: each role receives ONLY the question,
   not conversation history. Aggregates votes into consensus recommendation with dissent tracking.
   Use when facing critical decisions, architecture choices, security tradeoffs, or plan reviews
-  where single-perspective analysis is insufficient.
+  where single-perspective analysis is insufficient. When NOT to use: trivial choices where consensus adds no value; time-critical decisions that can't afford 3 parallel reviews.
 origin: ECC/skills/council
 ---
 

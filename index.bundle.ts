@@ -17,9 +17,11 @@
  *     this chicken-and-egg entirely.
  */
 import { registerPiTeams } from "./src/extension/register.ts";
+import { runPostInitSkillCheck } from "./src/extension/post-init-skill-check.ts";
 import { waitForRun } from "./src/runtime/run-tracker.ts";
 
 export { waitForRun, registerPiTeams };
+export { runPostInitSkillCheck };
 export default function (pi: Parameters<typeof registerPiTeams>[0]): void {
 	registerPiTeams(pi);
 }

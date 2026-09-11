@@ -3,14 +3,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { packageRoot } from "../../src/utils/paths.ts";
 
 /**
  * Integration test for the "in-place extension loading" pattern introduced
  * in oh-my-pi commit c5e3698f4 (2026-06-02). Pi-crew's `resources_discover`
- * handler in src/extension/register.ts:1734 uses
+ * handler in src/extension/register.ts uses
  *
- *     path.dirname(fileURLToPath(import.meta.url)) + "/../../skills"
+ *     path.join(packageRoot(), "skills")
  *
  * to locate the shipped skills. The new in-place loader keeps
  * `import.meta.url` pointing at the real source path (instead of a
@@ -22,8 +22,7 @@ import { fileURLToPath } from "node:url";
  * package layout (skills/ sibling to src/) without mocking.
  */
 test("pi-crew skill directory resolves from import.meta.url (in-place loader compat)", () => {
-	const here = path.dirname(fileURLToPath(import.meta.url));
-	const extSkillDir = path.resolve(here, "..", "..", "skills");
+	const extSkillDir = path.join(packageRoot(), "skills");
 
 	assert.ok(fs.existsSync(extSkillDir), `skill dir should exist at ${extSkillDir}`);
 	const entries = fs.readdirSync(extSkillDir, { withFileTypes: true });
@@ -45,8 +44,7 @@ test("pi-crew skill directory resolves from import.meta.url (in-place loader com
 test("session-scope skill dir is independent of extension-scope skill dir (no collision)", () => {
 	const tmpCwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-scope-isolated-"));
 	try {
-		const here = path.dirname(fileURLToPath(import.meta.url));
-		const extSkillDir = path.resolve(here, "..", "..", "skills");
+		const extSkillDir = path.join(packageRoot(), "skills");
 		const sessionSkillDir = path.resolve(tmpCwd, "skills");
 
 		assert.notEqual(extSkillDir, sessionSkillDir, "session and ext skill dirs must differ");
