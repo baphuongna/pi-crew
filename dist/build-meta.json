@@ -6279,7 +6279,7 @@
       "format": "esm"
     },
     "src/config/config-validation.ts": {
-      "bytes": 33001,
+      "bytes": 33062,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -8991,7 +8991,7 @@
       "format": "esm"
     },
     "src/runtime/skill-instructions.ts": {
-      "bytes": 15760,
+      "bytes": 16385,
       "imports": [
         {
           "path": "node:fs",
@@ -12862,7 +12862,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/prompt-builder.ts": {
-      "bytes": 14755,
+      "bytes": 15194,
       "imports": [
         {
           "path": "src/extension/knowledge-injection.ts",
@@ -19383,8 +19383,13 @@
       "imports": [],
       "format": "esm"
     },
+    "src/extension/registration/tool-loop-guard.ts": {
+      "bytes": 8569,
+      "imports": [],
+      "format": "esm"
+    },
     "src/extension/registration/hook-registration.ts": {
-      "bytes": 4803,
+      "bytes": 5420,
       "imports": [
         {
           "path": "node:fs",
@@ -19420,6 +19425,11 @@
           "path": "src/extension/team-tool/destructive-gate.ts",
           "kind": "import-statement",
           "original": "../team-tool/destructive-gate.ts"
+        },
+        {
+          "path": "src/extension/registration/tool-loop-guard.ts",
+          "kind": "import-statement",
+          "original": "./tool-loop-guard.ts"
         }
       ],
       "format": "esm"
@@ -21106,7 +21116,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8033558
+      "bytes": 8048227
     },
     "dist/index.mjs": {
       "imports": [
@@ -23768,7 +23778,7 @@
           "bytesInOutput": 1325
         },
         "src/config/config-validation.ts": {
-          "bytesInOutput": 27173
+          "bytesInOutput": 27236
         },
         "src/config/config-merge.ts": {
           "bytesInOutput": 4765
@@ -23870,7 +23880,7 @@
           "bytesInOutput": 11592
         },
         "src/state/event-log/event-log.ts": {
-          "bytesInOutput": 26317
+          "bytesInOutput": 26321
         },
         "src/ui/run-event-bus.ts": {
           "bytesInOutput": 11114
@@ -24134,7 +24144,7 @@
           "bytesInOutput": 8702
         },
         "src/runtime/skill-instructions.ts": {
-          "bytesInOutput": 12380
+          "bytesInOutput": 12682
         },
         "src/schema/team-tool-schema.ts": {
           "bytesInOutput": 17088
@@ -24635,7 +24645,7 @@
           "bytesInOutput": 9695
         },
         "src/runtime/task-runner/prompt-builder.ts": {
-          "bytesInOutput": 10244
+          "bytesInOutput": 10417
         },
         "src/state/stores/ownership-map.ts": {
           "bytesInOutput": 2004
@@ -25274,13 +25284,16 @@
           "bytesInOutput": 6592
         },
         "src/extension/registration/hook-registration.ts": {
-          "bytesInOutput": 2044
+          "bytesInOutput": 2317
         },
         "src/runtime/per-write-validator.ts": {
           "bytesInOutput": 2209
         },
         "src/extension/team-tool/destructive-gate.ts": {
           "bytesInOutput": 714
+        },
+        "src/extension/registration/tool-loop-guard.ts": {
+          "bytesInOutput": 4923
         },
         "src/extension/registration/lazy-configurers.ts": {
           "bytesInOutput": 2495
@@ -25346,7 +25359,7 @@
           "bytesInOutput": 5264
         },
         "src/ui/inline-panel/agent-pane.ts": {
-          "bytesInOutput": 10430
+          "bytesInOutput": 10433
         },
         "src/ui/inline-panel/crew-editor.ts": {
           "bytesInOutput": 4198
@@ -25388,7 +25401,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3367279
+      "bytes": 3373070
     }
   }
 }

@@ -22,6 +22,7 @@ import { buildValidationBlocker, extractPathFromInput, validateWrittenFile } fro
 import { packageRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { shouldBlockDestructiveTeamAction } from "../team-tool/destructive-gate.ts";
+import { installToolLoopGuard } from "./tool-loop-guard.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 
 /**
@@ -35,6 +36,22 @@ export function installPiHooks(pi: ExtensionAPI, ctx: RegistrationContext): void
 	installResourcesDiscoverHook(pi, ctx);
 	installToolCallHook(pi, ctx);
 	installToolResultHook(pi, ctx);
+	installToolLoopGuardIfEnabled(pi, ctx);
+}
+
+/**
+ * ARCH-1: dispatch loop guard — warn at 3 identical results, block read-only
+ * tools at 5. Toggle via runtime.reliability.loopGuard (default on), mirroring
+ * perWriteValidation.
+ */
+function installToolLoopGuardIfEnabled(pi: ExtensionAPI, ctx: RegistrationContext): void {
+	try {
+		const cwd = ctx.currentCtx?.cwd ?? process.cwd();
+		if (loadConfig(cwd).config.reliability?.loopGuard === false) return;
+	} catch {
+		/* config read failure: keep the guard on (fail-safe) */
+	}
+	installToolLoopGuard(pi);
 }
 
 /**

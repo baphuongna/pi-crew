@@ -80,6 +80,27 @@ Batch-4 routing references re-pointed to the real agents: executor's design/arch
 
 Deferred from AGENT-1: `observer` (LOW, no vision use case yet), `councillor-<seat>` per-seat agents (AGENT-5, needs council-skill integration), `fixer` (subsumed by the Batch-4 executor upgrade).
 
+### feat(runtime): tool loop guard at the dispatch path (ARCH-1)
+
+A session re-issuing the exact same tool call (same tool, identical arguments) with byte-identical results is how model-side infinite loops present — pi-crew has a recorded run where a worker re-verified the same completed files 14+ times. New `src/extension/registration/tool-loop-guard.ts` (ported from OMO-slim's tool-loop-guard hook, adapted to pi's `tool_call`/`tool_result` surface):
+
+- The counter advances only in `tool_result` and only when args AND output are identical — a call that returns NEW information resets the run, so a legitimate re-read after a file changed can never accumulate toward a block.
+- Warn at 3 confirmed identical results (corrective text appended to the tool result). Hard-block at 5 for read-only file tools only (`read`/`grep`/`glob`/`find`/`ls`); `bash`/`edit`/`write` stay warn-only (identical repeats may be legitimate retries).
+- `ask` is treated as a wait-style tool (its contract is "stop and wait"): keyed by name only, warn at 2 completed calls, the 3rd call within a turn is refused; any completed non-ask tool resets the turn.
+- Delegation/result-polling tools (`team`, `crew_agent`, `Agent`, `get_subagent_result`) are exempt — identical repeats there are legitimate supervision.
+- Scope is per-process (each worker is its own process); tracked fingerprints are FIFO-bounded at 512. Fingerprints are key-order-insensitive (`stableStringify`), so paginated or reordered-args calls never trip the guard.
+- Toggle: `runtime.reliability.loopGuard: false` (default on, mirroring `perWriteValidation`; field added to config types + validation).
+
+12 new tests in `test/unit/extension/registration/tool-loop-guard.test.ts` cover warn/block thresholds, new-output reset, intervening-call reset, warn-only tools, exemptions, pagination-distinctness, the ask wait-guard, FIFO eviction, and the hook wiring on a fake Pi.
+
+### perf(runtime): byte-stable worker prefix — per-task values move to the dynamic suffix (ARCH-3)
+
+`renderTaskPrompt`'s stablePrefix embedded per-task values (`Task ID`, `Task cwd`, and the coordination bridge's `Mailbox target` line), so sibling workers in the same batch produced different prefixes and missed provider KV-cache hits on every call. Per-task identity now lives at the top of the dynamic suffix (`Task ID` / `Task cwd` / `Mailbox target`); the prefix keeps only run-level values (Run ID, Team, Workflow, State/Artifacts/Events roots, Workspace mode) plus role/coordination/tree blocks shared across siblings.
+
+`coordinationBridgeInstructions(task)` gains an optional `{ includeMailboxTarget }` (default `true`, preserving the existing `pre-execution.ts` mailbox usage and its tests); the stable-prefix call site passes `false`.
+
+New byte-identity test: two siblings sharing a manifest + step produce a `stablePrefix` that is `strictEqual`-identical, while each `dynamicSuffix` carries its own task identity. 19/19 prompt-builder tests pass.
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

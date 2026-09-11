@@ -275,6 +275,14 @@ export interface CrewReliabilityConfig {
 	 */
 	perWriteValidation?: boolean;
 	/**
+	 * Tool loop guard (ARCH-1). Warns at 3 consecutive identical tool results
+	 * (identical args + byte-identical output) and hard-blocks read-only file
+	 * tools (read/grep/glob/find/ls) at 5 — the model-side infinite-loop
+	 * failure mode. `ask` repeats within a turn are warned at 2 and the 3rd
+	 * call refused. Default: true (opt-out). Set to `false` to disable.
+	 */
+	loopGuard?: boolean;
+	/**
 	 * Opt-in model scope enforcement (F7). When true, subagent model choices
 	 * that fall outside the user's pi `enabledModels` allowlist are flagged:
 	 * caller-supplied out-of-scope → hard error before spawn; frontmatter-

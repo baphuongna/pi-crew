@@ -11253,6 +11253,7 @@ function parseReliabilityConfig(value) {
     forcePreflight: parseWithSchema(Type.Boolean(), obj.forcePreflight),
     ambientStatusInjection: parseWithSchema(Type.Boolean(), obj.ambientStatusInjection),
     perWriteValidation: parseWithSchema(Type.Boolean(), obj.perWriteValidation),
+    loopGuard: parseWithSchema(Type.Boolean(), obj.loopGuard),
     scopeModels: parseWithSchema(Type.Boolean(), obj.scopeModels)
   };
   return Object.values(reliability).some((entry) => entry !== void 0) ? reliability : void 0;
@@ -17345,10 +17346,10 @@ function dedupeTerminalEvents(events) {
   const seen = /* @__PURE__ */ new Set();
   const output = [];
   for (const event of events) {
-    const fingerprint = event.metadata?.fingerprint;
-    if (fingerprint && TERMINAL_EVENT_TYPES.has(event.type)) {
-      if (seen.has(fingerprint)) continue;
-      seen.add(fingerprint);
+    const fingerprint2 = event.metadata?.fingerprint;
+    if (fingerprint2 && TERMINAL_EVENT_TYPES.has(event.type)) {
+      if (seen.has(fingerprint2)) continue;
+      seen.add(fingerprint2);
     }
     output.push(event);
   }
@@ -29911,8 +29912,19 @@ function collectTaskSkillNames(input) {
   if (input.agent?.skills?.length) names.push(...input.agent.skills);
   if (Array.isArray(input.teamRole?.skills)) names.push(...input.teamRole.skills);
   if (Array.isArray(input.step?.skills)) names.push(...input.step.skills);
-  if (Array.isArray(input.override)) names.push(...input.override);
-  return unique(names);
+  const denylist = /* @__PURE__ */ new Set();
+  if (Array.isArray(input.override)) {
+    for (const item of input.override) {
+      if (item === "*") {
+      } else if (item.startsWith("!")) {
+        denylist.add(item.slice(1));
+      } else {
+        names.push(item);
+      }
+    }
+  }
+  if (denylist.size === 0) return unique(names);
+  return unique(names).filter((n) => !denylist.has(n));
 }
 function resolveTaskSkillNames(input) {
   return collectTaskSkillNames(input).slice(0, MAX_SELECTED_SKILLS);
@@ -49079,10 +49091,11 @@ function readOnlyRoleInstructions(role) {
     "- Your final RESULT TEXT is persisted automatically by the runner (as a result artifact and, if the step declares `output:`, to a shared file). To deliver a plan, report, or findings, EMIT THEM AS TEXT in your final result \u2014 do NOT try to write a file yourself."
   ].join("\n");
 }
-function coordinationBridgeInstructions(task) {
+function coordinationBridgeInstructions(task, opts) {
+  const includeMailboxTarget = opts?.includeMailboxTarget ?? true;
   return [
     "# Crew Coordination Channel",
-    `Mailbox target for this task: ${task.id}`,
+    ...includeMailboxTarget ? [`Mailbox target for this task: ${task.id}`] : [],
     "Use the run mailbox contract for coordination with the leader/orchestrator:",
     "- If blocked or uncertain, report the blocker in your final result and, when mailbox tools/API are available, send an inbox/outbox message addressed to the leader.",
     "- Never guess implementation details that materially affect decisions. If the `ask` tool is available and you need a clarification, a decision, or a missing requirement before you can proceed safely, call `ask` and wait \u2014 a parked question is cheaper than a wrong build.",
@@ -49212,8 +49225,6 @@ async function renderTaskPrompt(manifest, step, task, agent, skillBlock = "", pr
     `State root: ${manifest.stateRoot}`,
     `Artifacts root: ${manifest.artifactsRoot}`,
     `Events path: ${manifest.eventsPath}`,
-    `Task ID: ${task.id}`,
-    `Task cwd: ${task.cwd}`,
     `Workspace mode: ${manifest.workspaceMode}`,
     "",
     "Protocol:",
@@ -49224,7 +49235,7 @@ async function renderTaskPrompt(manifest, step, task, agent, skillBlock = "", pr
     "",
     readOnlyRoleInstructions(task.role),
     "",
-    coordinationBridgeInstructions(task),
+    coordinationBridgeInstructions(task, { includeMailboxTarget: false }),
     "",
     stableComponents.treeBlock,
     "",
@@ -49238,6 +49249,9 @@ async function renderTaskPrompt(manifest, step, task, agent, skillBlock = "", pr
     stableComponents.knowledgeFragment
   ].filter(Boolean).join("\n");
   const dynamicSuffix = [
+    `Task ID: ${task.id}`,
+    `Task cwd: ${task.cwd}`,
+    `Mailbox target: ${task.id}`,
     `Goal:
 ${manifest.goal}`,
     "",
@@ -84664,11 +84678,170 @@ function shouldBlockDestructiveTeamAction(action, input) {
   return `Destructive action '${action}' requires confirm=true${action === "delete" ? " (or force=true to bypass reference checks)" : ""}.`;
 }
 
+// src/extension/registration/tool-loop-guard.ts
+var LOOP_GUARD_WARN_AT = 3;
+var LOOP_GUARD_BLOCK_AT = 5;
+var LOOP_GUARD_EXEMPT = {
+  team: true,
+  crew_agent: true,
+  Agent: true,
+  get_subagent_result: true
+};
+var LOOP_GUARD_BLOCK_TOOLS = {
+  read: true,
+  grep: true,
+  glob: true,
+  find: true,
+  ls: true
+};
+var WAIT_TOOL = "ask";
+var WAIT_GUARD_WARN_AT = 2;
+var WAIT_GUARD_BLOCK_AT = 2;
+var MAX_TRACKED_FINGERPRINTS = 512;
+var LOOP_GUARD_MARKER = "[REPEATED TOOL CALLS - STOP]";
+var WAIT_GUARD_MARKER = "[REPEATED WAIT TOOL - END TURN]";
+var LOOP_GUARD_WARNING = `
+${LOOP_GUARD_MARKER}
+
+You have issued the exact same tool call with identical arguments ${LOOP_GUARD_WARN_AT} times in a row and received identical results. This is an infinite loop and you are making no progress.
+
+STOP repeating this call. Instead:
+1. Reconsider what you are looking for \u2014 the result above already contains what this call can tell you.
+2. If you need different information, make a DIFFERENT call (different path, pattern, or tool).
+3. If the task is actually done, produce your final answer now instead of calling more tools.
+`;
+var WAIT_GUARD_WARNING = `
+${WAIT_GUARD_MARKER}
+
+You have called \`ask\` ${WAIT_GUARD_WARN_AT} times in this turn. Its contract is to stop and wait \u2014 do not call it again in the same turn.
+
+STOP calling tools that wait. Continue with what you can do, or produce your final answer; the reply arrives as a separate message later.
+`;
+function stableStringify(value) {
+  return JSON.stringify(sortValue(value));
+}
+function sortValue(value) {
+  if (Array.isArray(value)) return value.map(sortValue);
+  if (value && typeof value === "object") {
+    const record = value;
+    const out = {};
+    for (const key of Object.keys(record).sort()) {
+      out[key] = sortValue(record[key]);
+    }
+    return out;
+  }
+  return value;
+}
+function fingerprint(tool, args) {
+  return `${tool.toLowerCase()}:${stableStringify(args ?? null)}`;
+}
+function createLoopGuardState() {
+  const runs = /* @__PURE__ */ new Map();
+  let lastFingerprint = null;
+  let waitRunCount = 0;
+  function evictIfNeeded() {
+    while (runs.size > MAX_TRACKED_FINGERPRINTS) {
+      const oldest = runs.keys().next().value;
+      if (oldest === void 0) break;
+      runs.delete(oldest);
+    }
+  }
+  function onToolResult(tool, args, output) {
+    const toolLower = tool.toLowerCase();
+    if (toolLower === WAIT_TOOL) {
+      waitRunCount += 1;
+      if (waitRunCount === WAIT_GUARD_WARN_AT) return [{ type: "text", text: WAIT_GUARD_WARNING }];
+      return [];
+    }
+    waitRunCount = 0;
+    if (LOOP_GUARD_EXEMPT[tool]) return [];
+    const fp = fingerprint(tool, args);
+    const outputKey = stableStringify(output);
+    const state2 = runs.get(fp) ?? { runCount: 0, lastOutput: null };
+    if (fp !== lastFingerprint) {
+      state2.runCount = 0;
+    }
+    if (state2.lastOutput === outputKey) {
+      state2.runCount += 1;
+    } else {
+      state2.runCount = 1;
+      state2.lastOutput = outputKey;
+    }
+    runs.set(fp, state2);
+    evictIfNeeded();
+    lastFingerprint = fp;
+    if (state2.runCount === LOOP_GUARD_WARN_AT) {
+      return [{ type: "text", text: LOOP_GUARD_WARNING }];
+    }
+    return [];
+  }
+  function onToolCall(tool, args) {
+    const toolLower = tool.toLowerCase();
+    if (toolLower === WAIT_TOOL) {
+      if (waitRunCount >= WAIT_GUARD_BLOCK_AT) {
+        return {
+          block: true,
+          reason: `pi-crew loop guard: \`ask\` called ${waitRunCount} times this turn \u2014 its contract is to wait. End your turn; the reply arrives as a separate message.`
+        };
+      }
+      return {};
+    }
+    if (LOOP_GUARD_EXEMPT[tool]) return {};
+    if (!LOOP_GUARD_BLOCK_TOOLS[toolLower]) return {};
+    const fp = fingerprint(tool, args);
+    const state2 = runs.get(fp);
+    if (state2 && state2.runCount >= LOOP_GUARD_BLOCK_AT) {
+      return {
+        block: true,
+        reason: `pi-crew loop guard: this exact ${tool} call (identical arguments) has returned identical results ${state2.runCount} times in a row. Make a DIFFERENT call (different path, pattern, or tool), or produce your final answer.`
+      };
+    }
+    return {};
+  }
+  function reset() {
+    runs.clear();
+    lastFingerprint = null;
+    waitRunCount = 0;
+  }
+  return { onToolResult, onToolCall, reset };
+}
+function installToolLoopGuard(pi) {
+  const state2 = createLoopGuardState();
+  try {
+    pi.on("tool_call", async (event) => {
+      const verdict = state2.onToolCall(event.toolName, event.input);
+      if (verdict.block) {
+        return { block: true, reason: verdict.reason };
+      }
+      return void 0;
+    });
+  } catch {
+  }
+  try {
+    pi.on("tool_result", (event) => {
+      const appends = state2.onToolResult(event.toolName, event.input, event.content);
+      if (appends.length === 0) return void 0;
+      const existing = Array.isArray(event.content) ? event.content : [];
+      return { content: [...existing, ...appends] };
+    });
+  } catch {
+  }
+}
+
 // src/extension/registration/hook-registration.ts
 function installPiHooks(pi, ctx) {
   installResourcesDiscoverHook(pi, ctx);
   installToolCallHook(pi, ctx);
   installToolResultHook(pi, ctx);
+  installToolLoopGuardIfEnabled(pi, ctx);
+}
+function installToolLoopGuardIfEnabled(pi, ctx) {
+  try {
+    const cwd = ctx.currentCtx?.cwd ?? process.cwd();
+    if (loadConfig(cwd).config.reliability?.loopGuard === false) return;
+  } catch {
+  }
+  installToolLoopGuard(pi);
 }
 function installResourcesDiscoverHook(pi, ctx) {
   try {
@@ -87521,10 +87694,10 @@ var CrewAgentPane = class {
       this.lastTranscriptReadAt = Date.now();
     }
     const items = this.lastItems;
-    const fingerprint = this.bodyFingerprint(items, width);
-    if (fingerprint !== this.bodyKey) {
+    const fingerprint2 = this.bodyFingerprint(items, width);
+    if (fingerprint2 !== this.bodyKey) {
       this.cachedBody = this.buildBody(items, width);
-      this.bodyKey = fingerprint;
+      this.bodyKey = fingerprint2;
     }
     const body = this.cachedBody;
     const header = this.headerLines(manifest, width);
