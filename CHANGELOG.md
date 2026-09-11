@@ -113,6 +113,26 @@ New byte-identity test: two siblings sharing a manifest + step produce a `stable
 
 **ARCH-4 (live-session fallback loop) — SKIPPED, ADR conflict.** The proposal suggested porting the child-executor model-fallback retry loop into `live-session-runtime.ts`. ADR 2026-08-15 (runtime-convergence, decision (a)) froze the live-session path — "no new features may be added to live-session without revisiting this ADR" — and its Round-4 evaluation explicitly marked the fallback-loop port option **NOT sound** (abandon SDK delegation or build a parallel fallback layer, 3–5 days for a worse design). Implementing ARCH-4 would override a standing decision record; revisit the ADR first if live-session fallback ever becomes a real requirement.
 
+### feat(agents): body upgrades for the remaining eight roles (AGENT-UPGRADE-1/2/5/7/8/9/10/11)
+
+Completes the agent-body track: all 11 builtin role bodies now carry output contracts, boundaries, and anti-patterns (Batch 4 did executor/explorer/reviewer).
+
+Full rewrites (six one-line stubs → substantive bodies, frontmatter untouched):
+
+- **analyst** — pre-planning clarifier with an explicit analyst-vs-planner boundary (what/why vs how), an `ANALYSIS_BRIEF` output block whose AMBIGUITIES are triaged MUST-RESOLVE / DEFER-TO-USER / SAFE-TO-DEFAULT, and a `HANDOFF_TO_PLANNER` paragraph the planner converts directly to phases. Tool guidance reflects the agent's actual grant (no shell/write).
+- **planner** — STRUCTURES-not-executes stance, `PLAN` output block with PHASES/DEPENDENCIES/OWNERSHIP/VERIFICATION_GATES/ROLLBACK_PLAN, anti-patterns against scope-splitting for review convenience and unverifiable success criteria.
+- **critic** — explicit timing boundary (PRE-execution on PLANS; an implementation review request is rejected and routed to reviewer), critique targets (missing steps, unsafe assumptions, over/under-engineering, ownership conflicts, unverifiable gates), `CRITIQUE_VERDICT: PROCEED|REVISE|BLOCK` block.
+- **security-reviewer** — STRIDE threat-model framing per finding; loads the priority list from `skills/security-priority.json` (graceful when `detecting-*` skills are absent); audit commands are LEFT FOR the executor in DEPENDENCY_RISKS since this agent has no shell access (host-difference adaptation); `SECURITY_REVIEW` block with attack_scenario required for CRITICAL.
+- **test-engineer** — test-level decision matrix (unit/integration/E2E/contract/property/snapshot — pick the lowest sufficient level), flaky-test detection taxonomy with a pass-3x stability rule, `TEST_STRATEGY` block including exact COMMANDS and explicit NOT_TESTED.
+- **writer** — voice/audience discipline (why-before-what, calibrate to nearby docs, no marketing prose), `DOC_SUMMARY` block with AUDIENCE/STRUCTURE/INTERNAL_REFS, unverifiable sections marked DRAFT.
+
+Additions to the two gold-standard bodies:
+
+- **verifier** — mandatory `REVIEW_ATTEMPT: <X of 3>` stamp added to the output block plus a Review budget section (re-review priorities; INCONCLUSIVE-on-exhaustion rule), matching the reviewer/skill Budget pattern from Batch 3.
+- **cold-verifier** — same budget stamp + section (re-attempts prioritize prior CLAIMS_REFUTED follow-ups; no re-litigating confirmed claims). The proposal's invocation-guidance section was already covered by its existing "What makes you different from verifier" section, so it was not duplicated.
+
+AGENT-2 (merge analyst+planner) remains un-exercised by design: both roles now have distinct lane contracts, and merging is a structural change (DEFAULT_ROLE_SKILLS, team role mappings) outside body-upgrade scope.
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

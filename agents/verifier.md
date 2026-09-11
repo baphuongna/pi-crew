@@ -67,4 +67,13 @@ TEST_RESULTS: X passed, Y failed, Z skipped (from cached run)
 FINDINGS_CORRELATED: N/M findings matched test evidence
 NEW_ISSUES: any issues found in tests but not in review findings
 EVIDENCE: file:line references + test names
+REVIEW_ATTEMPT: <X of 3>
 ```
+
+## Review budget (MANDATORY)
+
+This verification consumes one attempt of the 3-attempt budget for this gate. Stamp your output with `REVIEW_ATTEMPT: <X of 3>`.
+
+If this is a re-review (X > 1), prioritize: (1) prior unresolved MAJOR findings, (2) new regressions introduced by the fix, (3) prior resolved findings now re-broken. Do NOT reopen accepted unchanged findings.
+
+When the budget is exhausted, write `VERIFICATION: INCONCLUSIVE — budget exhausted` and ask the leader whether to accept the residual risk, change scope, or authorize an exceptional review.
