@@ -2,7 +2,7 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
-## [0.10.5] — waitForRun honours user-scope state root (2026-09-11)
+## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)
 
@@ -24,9 +24,23 @@ transcript (artifact paths under `~/.pi/agent/extensions/pi-crew/artifacts/…`)
 - Regression test: user-scope run in a markerless cwd (isolated
   `PI_TEAMS_HOME`) — the waiter must poll through the user-scope dir and
   resolve on terminal status instead of throwing.
-- Same-family defect (NOT fixed here, tracked in #55): `background-runner.ts`
-  computes `background.log` + `exit-code.txt` paths via `projectCrewRoot` too,
-  so those diagnostics silently go missing for user-scope runs.
+- Same-family fix (#55, also in this release): `background-runner.ts` computed
+  `background.log` + `exit-code.txt` paths via `projectCrewRoot` too, so those
+  diagnostics silently went missing for user-scope runs — degrading exactly
+  the crash evidence needed to diagnose them. Both sites now resolve via the
+  exported `backgroundLogPath()` / `backgroundExitCodePath()` helpers built on
+  `createRunPaths` (scope-aware; runId boundary hardening preserved). Ships as
+  source — no dist rebuild needed for this half.
+
+### test: macOS ENOTEMPTY teardown race — shared `teardownCwd` helper
+
+Third and fourth occurrence of the class (CI runs 34557602253 / 34558219451:
+`resume-checkpoint`, `wait-request-broker`): a run's last artifact writes race
+the recursive `rmSync` in test teardown — `rimrafSync` throws ENOTEMPTY when a
+file lands between its unlink pass and a directory rmdir. Extracted the
+5×200ms sleepSync retry (previously copy-pasted in resume-cancel `8197f054`
+and role-tools-integration `6a271822`) into `test/fixtures/teardown-cwd.ts`
+and switched both affected files to it.
 
 ## [0.10.3] — MuxSurface: workers in real panes + per-team-run tabs (2026-09-01)
 
