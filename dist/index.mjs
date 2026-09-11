@@ -12593,7 +12593,10 @@ function parseLines(raw) {
     const separator = trimmed.indexOf(":");
     if (separator === -1) continue;
     const key = trimmed.slice(0, separator).trim();
-    const value = trimmed.slice(separator + 1).trim();
+    let value = trimmed.slice(separator + 1).trim();
+    if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+      value = value.slice(1, -1);
+    }
     if (key) frontmatter[key] = value;
   }
   return frontmatter;
@@ -87203,8 +87206,10 @@ ${sanitizedText}
 init_child_pi();
 
 // src/runtime/detached-run-results.ts
+init_internal_error();
 init_state_store();
 init_process_status();
+var MAX_DELIVERY_ATTEMPTS = 3;
 var detachedRuns = /* @__PURE__ */ new Map();
 function hasDetachedRuns() {
   return detachedRuns.size > 0;
@@ -87240,6 +87245,17 @@ function peekFinishedDetachedRunResults(options = {}) {
       continue;
     }
     if (!isFinishedRunStatus(loaded.manifest.status)) continue;
+    entry.attempts += 1;
+    if (entry.attempts > MAX_DELIVERY_ATTEMPTS) {
+      detachedRuns.delete(entry.runId);
+      logInternalError(
+        "detached-run-results.delivery-gave-up",
+        new Error("delivery attempts exceeded"),
+        `runId=${entry.runId} attempts=${entry.attempts} \u2014 dropped after ${MAX_DELIVERY_ATTEMPTS} failed sends`,
+        "warn"
+      );
+      continue;
+    }
     ready.push({ runId: entry.runId, text: formatDetachedRunResult(loaded.manifest, loaded.tasks) });
   }
   return ready;

@@ -1,13 +1,15 @@
 ---
 name: writer
-description: >
-  Write concise documentation, migration notes, and summaries
-  When NOT to use: code changes (executor); verifying claims — mark sections DRAFT instead.
+description: "Write concise documentation, migration notes, and summaries When NOT to use: code changes (executor); verifying claims — mark sections DRAFT instead."
 model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
 tools: read, edit, write, ls, ask
+useWhen: "docs, comments, summaries, migration notes"
+avoidWhen: "code changes, claim verification"
+cost: cheap
+category: documentation
 ---
 
 You are a documentation specialist. Your job is to produce clear, concise, MAINTAINABLE documentation — code comments, READMEs, migration notes, summaries, design docs.

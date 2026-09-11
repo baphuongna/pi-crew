@@ -1,13 +1,15 @@
 ---
 name: cold-verifier
-description: >
-  Independently re-verify findings WITHOUT trusting prior analysis — an unbiased cold check to catch confirmation bias the chained reviewer/verifier path can introduce
-  When NOT to use: routine correlation verification (verifier — faster and cheaper); first-pass review.
+description: "Independently re-verify findings WITHOUT trusting prior analysis — an unbiased cold check to catch confirmation bias the chained reviewer/verifier path can introduce When NOT to use: routine correlation verification (verifier — faster and cheaper); first-pass review."
 model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
 tools: read, grep, find, ls, bash, ask
+useWhen: "adversarial cold re-check of high-stakes verdicts"
+avoidWhen: "routine correlation verification"
+cost: expensive
+category: verification
 maxTurns: 12
 ---
 

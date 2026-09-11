@@ -143,6 +143,20 @@ Closes the three remaining gaps in the PROMPT track (PROMPT-3 explorer tool matr
 
 **PROMPT-5 (agent side) — "When NOT to use" in every agent description.** All 17 agent frontmatter descriptions converted to folded scalars (`description: >`) with an appended "When NOT to use: …" line naming the correct alternative lane (executor → designer/oracle/explorer; reviewer → critic/security-reviewer; verifier → cold-verifier/test-engineer; councillors → invoke via the council skill; etc.). Matches the skill-side pattern from Batch 2 (34/34); YAML parse verified 17/17.
 
+### feat(policy+agents): routing metadata, orchestrator agent, delivery retry bound, CONTEXT.md (AGENT-4 + P2-1/2/7/8)
+
+**P2-1 — routing metadata on every agent (discovery-derived routing cards).** All 17 agents (now 18 with orchestrator) carry flat frontmatter routing keys — `useWhen` / `avoidWhen` / `cost` / `category` — which `buildResourceRoutingGuidance` already renders into the leader's injected "Available Resources" policy. Zero drift by construction: the routing table IS the discovery output; no second copy exists to go stale.
+
+**AGENT-4 — `agents/orchestrator.md` (18th builtin).** The delegated-orchestration specialist: five workflow phases (route → dispatch → monitor → reconcile → verify), communication rules (no preamble, honest pushback, one-line routing decisions), background-task discipline (poll before re-acting; duplicate dispatch of a running task is an error), and an `ORCHESTRATION_SUMMARY` output contract. Canonical-source decision recorded in the body: the discovered resources guidance is the SINGLE routing authority — the orchestrator body encodes process only and defers to live discovery, eliminating the two-copies drift the proposal flagged.
+
+**P2-7 — bounded detached-run delivery.** The detached-run registry retried a failing `sendMessage` every tick, forever. Each peek of a finished run now counts as an attempt; after 3 failed sends the entry is dropped with a `delivery-gave-up` warning log instead of retrying indefinitely.
+
+**P2-8 — `CONTEXT.md`.** Orientation map: 15-entry glossary (run, manifest, broker, live agent, surface, detach, deadletter, waitState, task packet, stablePrefix split, bundle) plus a Flagged section documenting the six quirks that bite (broker SIGTERM on long silent bash, wait-request-broker 180s flake, frozen live-session ADR, line-based agent frontmatter parser, committed-but-ignored dist, packageRoot-only skill resolution).
+
+**Fix caught in-flight — agent frontmatter vs folded YAML.** Batch 9's folded-scalar agent descriptions broke discovery: `utils/frontmatter.ts`'s line-based parser read `description: >` literally as `">"`. Descriptions are back to single-line (quoted, since they contain ": "), and `parseLines` now strips one pair of symmetric surrounding double quotes — so quoted values behave identically for every consumer. Verified both directions: pi-crew discovery (17/17 descriptions with When NOT, 17/17 routing parsed, no quote leakage) AND strict `yaml`-package parsing (17/17). The 30 frontmatter/workflows tests and 49 agent tests confirm the shared-parser change is safe for teams/workflows.
+
+**P2-2 verified-done** (detached/goal/anchor/chain tool outputs already carry next-step guards). **P2-3 deferred**: the broker handshake is already versioned; a mailbox marker needs a real cross-version consumer before it earns its complexity. P2-9/P2-10 remain deferred (M-effort docs/package work).
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

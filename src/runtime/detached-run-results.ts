@@ -11,6 +11,7 @@
  * The registry is in-process; a pending result is parked while an agent view is
  * open so the worker's own view session never receives the parent's report.
  */
+import { logInternalError } from "../utils/internal-error.ts";
 import { loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { isFinishedRunStatus } from "./process-status.ts";
@@ -18,14 +19,22 @@ import { isFinishedRunStatus } from "./process-status.ts";
 interface DetachedRun {
 	runId: string;
 	cwd: string;
+	/** Delivery attempts (P2-7). Each peek of a finished run is one attempt;
+	 * a successful send forgets the entry, so the counter only accumulates on
+	 * repeated send failures. Bounded at MAX_DELIVERY_ATTEMPTS to stop an
+	 * indefinitely-failing send from retrying every tick forever. */
+	attempts: number;
 }
+
+/** P2-7: give up after this many delivery attempts and log the drop. */
+const MAX_DELIVERY_ATTEMPTS = 3;
 
 const detachedRuns = new Map<string, DetachedRun>();
 
 /** Record a run whose foreground waiter was released by a view switch. */
 export function markRunDetached(runId: string, cwd: string): void {
 	if (!runId || !cwd) return;
-	detachedRuns.set(runId, { runId, cwd });
+	detachedRuns.set(runId, { runId, cwd, attempts: 0 });
 }
 
 /** Cheap guard for hot paths (render tick): nothing to do when empty. */
@@ -84,6 +93,20 @@ export function peekFinishedDetachedRunResults(options: { inViewSession?: boolea
 			continue;
 		}
 		if (!isFinishedRunStatus(loaded.manifest.status)) continue;
+		// P2-7: bounded delivery — drop after MAX_DELIVERY_ATTEMPTS failed
+		// cycles (a successful send forgets the entry, so reaching here again
+		// means the previous send threw).
+		entry.attempts += 1;
+		if (entry.attempts > MAX_DELIVERY_ATTEMPTS) {
+			detachedRuns.delete(entry.runId);
+			logInternalError(
+				"detached-run-results.delivery-gave-up",
+				new Error("delivery attempts exceeded"),
+				`runId=${entry.runId} attempts=${entry.attempts} — dropped after ${MAX_DELIVERY_ATTEMPTS} failed sends`,
+				"warn",
+			);
+			continue;
+		}
 		ready.push({ runId: entry.runId, text: formatDetachedRunResult(loaded.manifest, loaded.tasks) });
 	}
 	return ready;

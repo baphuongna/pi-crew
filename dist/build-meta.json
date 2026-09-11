@@ -6575,7 +6575,7 @@
       "format": "esm"
     },
     "src/utils/frontmatter.ts": {
-      "bytes": 2111,
+      "bytes": 2428,
       "imports": [],
       "format": "esm"
     },
@@ -20154,8 +20154,13 @@
       "format": "esm"
     },
     "src/runtime/detached-run-results.ts": {
-      "bytes": 3652,
+      "bytes": 4691,
       "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
         {
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
@@ -21116,7 +21121,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8050919
+      "bytes": 8052714
     },
     "dist/index.mjs": {
       "imports": [
@@ -23808,7 +23813,7 @@
           "bytesInOutput": 2966
         },
         "src/utils/frontmatter.ts": {
-          "bytesInOutput": 1900
+          "bytesInOutput": 2015
         },
         "src/runtime/role-permission.ts": {
           "bytesInOutput": 1050
@@ -25341,7 +25346,7 @@
           "bytesInOutput": 2412
         },
         "src/runtime/detached-run-results.ts": {
-          "bytesInOutput": 1469
+          "bytesInOutput": 1924
         },
         "src/runtime/session-resources.ts": {
           "bytesInOutput": 463
@@ -25401,7 +25406,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3374397
+      "bytes": 3374967
     }
   }
 }

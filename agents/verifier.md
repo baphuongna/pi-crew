@@ -1,13 +1,15 @@
 ---
 name: verifier
-description: >
-  Verify that implementation satisfies the requested goal
-  When NOT to use: adversarial cold re-checks of high-stakes verdicts (cold-verifier); authoring new tests (test-engineer).
+description: "Verify that implementation satisfies the requested goal When NOT to use: adversarial cold re-checks of high-stakes verdicts (cold-verifier); authoring new tests (test-engineer)."
 model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
 tools: read, grep, find, ls, bash, scratchpad, ask
+useWhen: "correlating findings against fresh test evidence"
+avoidWhen: "adversarial re-checks, authoring new tests"
+cost: cheap
+category: verification
 maxTurns: 15
 ---
 
