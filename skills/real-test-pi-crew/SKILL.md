@@ -768,6 +768,7 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | `ask` tool fast-fails "proceed with best judgment" | `broker.waitMethodsEnabled: false` somewhere (user config can re-close the default) | `team-settings get broker.waitMethodsEnabled`; expect `true` (default since `ceb9a68d`); grep events.jsonl for `policy.action` |
 | `delegate` rejects with a policy message | By design when depth cap hit (`maxDepth: 4`) or `nesting.enabled: false` in USER config (sensitive — project cannot flip) | Check depth in the rejection payload; `delegate.rejected` event in events.jsonl confirms the structured (non-silent) path |
 | herdr provider never engages | pi is not itself running inside a herdr pane (design: no socket guessing) | Run pi inside herdr, then `runtime.surface.mode` auto/`herdr`; verify `~/.config/herdr/herdr.sock` responds |
+| Surface run >5 phút bị stale-reconcile giết oan (worker khỏe, pane sống) | F1 (đã fix f12f4f5d + af2f8eb4): recorder chỉ flush ở turn boundary → lastSeen đóng băng giữa turn; reconciler cũ time-based không pid-gate. **Bẫy đa host**: MỘT pi session chạy bundle cũ cũng đủ giết run của session khác (sweep quét mọi runs) — tát cả host phải cùng version | Kiểm tra mọi pi process cùng bundle (`ps` lstart vs dist mtime); `PI_CREW_DEBUG_STALE=1` sidecar /tmp/pi-crew-f1-debug.log ghi mọi verdict STALE để bắt hung thủ; kỳ vọng sidecar rỗng khi mọi host đã fix |
 
 ## Performance budget (per-tier soft limits)
 
