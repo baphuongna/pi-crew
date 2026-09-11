@@ -22,7 +22,7 @@ import {
 	appendSteeringMessage,
 	appendSteeringMessageAsync,
 } from "../../../state/coordination/mailbox.ts";
-import { appendEventBuffered } from "../../../state/event-log/event-log.ts";
+import { appendEvent, appendEventBuffered } from "../../../state/event-log/event-log.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
@@ -55,13 +55,19 @@ export const handleNudgeAgent: ApiOperationHandler = (hctx) => {
 		priority: "normal",
 		data: { source: "nudge-agent" },
 	});
-	appendEventBuffered(loaded.manifest.eventsPath, {
-		type: "agent.nudged",
-		runId: loaded.manifest.runId,
-		taskId: agent.taskId,
-		message: messageText,
-		data: { agentId: agent.id, mailboxMessageId: message.id },
-	}).catch((e) => logInternalError("api.agent-control.buffered", e, "type=agent.nudged"));
+	// Read-your-writes (CI 2026-09-11, phase8 integration): the nudge caller
+	// reads events.jsonl synchronously right after dispatch — sync appendEvent.
+	try {
+		appendEvent(loaded.manifest.eventsPath, {
+			type: "agent.nudged",
+			runId: loaded.manifest.runId,
+			taskId: agent.taskId,
+			message: messageText,
+			data: { agentId: agent.id, mailboxMessageId: message.id },
+		});
+	} catch (e) {
+		logInternalError("api.agent-control.append", e, "type=agent.nudged");
+	}
 	ctx.events?.emit?.("crew.mailbox.message", {
 		runId: loaded.manifest.runId,
 		id: message.id,

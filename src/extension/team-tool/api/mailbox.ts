@@ -16,7 +16,7 @@ import {
 	readMailboxMessage,
 	validateMailbox,
 } from "../../../state/coordination/mailbox.ts";
-import { appendEventBuffered } from "../../../state/event-log/event-log.ts";
+import { appendEvent, appendEventBuffered } from "../../../state/event-log/event-log.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
@@ -186,26 +186,38 @@ export const handleAckMessage: ApiOperationHandler = (hctx) => {
 		return withRunLockSync(loaded.manifest, () => {
 			const message = readMailboxMessage(loaded.manifest, messageId);
 			const delivery = acknowledgeMailboxMessage(loaded.manifest, messageId);
-			appendEventBuffered(loaded.manifest.eventsPath, {
-				type: "mailbox.acknowledged",
-				runId: loaded.manifest.runId,
-				data: { messageId },
-			}).catch((e) => logInternalError("api.mailbox.buffered", e, "type=mailbox.acknowledged"));
-			if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
-				appendEventBuffered(loaded.manifest.eventsPath, {
-					type: "agent.group_join.acknowledged",
+			// Read-your-writes (CI 2026-09-11, phase4 integration): the ack API
+			// returns and callers/tests read events.jsonl synchronously right after —
+			// buffered append flushes later (bufferMs window), so the events were
+			// missing at read. Sync appendEvent (base behavior, b6eba80f pattern).
+			try {
+				appendEvent(loaded.manifest.eventsPath, {
+					type: "mailbox.acknowledged",
 					runId: loaded.manifest.runId,
-					message: "Group join delivery acknowledged via mailbox ack.",
-					data: {
-						requestId: message.data.requestId,
-						messageId,
-						batchId: message.data.batchId,
-						partial: message.data.partial,
-						acknowledgedAt: delivery.updatedAt,
-						acknowledgedBy: "leader",
-					},
-					metadata: { provenance: "api" },
-				}).catch((e) => logInternalError("api.mailbox.buffered", e, "type=agent.group_join.acknowledged"));
+					data: { messageId },
+				});
+			} catch (e) {
+				logInternalError("api.mailbox.append", e, "type=mailbox.acknowledged");
+			}
+			if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
+				try {
+					appendEvent(loaded.manifest.eventsPath, {
+						type: "agent.group_join.acknowledged",
+						runId: loaded.manifest.runId,
+						message: "Group join delivery acknowledged via mailbox ack.",
+						data: {
+							requestId: message.data.requestId,
+							messageId,
+							batchId: message.data.batchId,
+							partial: message.data.partial,
+							acknowledgedAt: delivery.updatedAt,
+							acknowledgedBy: "leader",
+						},
+						metadata: { provenance: "api" },
+					});
+				} catch (e) {
+					logInternalError("api.mailbox.append", e, "type=agent.group_join.acknowledged");
+				}
 			}
 			ctx.events?.emit?.("crew.mailbox.acknowledged", {
 				runId: loaded.manifest.runId,

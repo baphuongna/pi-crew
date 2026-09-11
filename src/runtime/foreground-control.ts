@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { atomicWriteFile } from "../state/atomic-write.ts";
-import { appendEventBuffered } from "../state/event-log/event-log.ts";
+import { appendEvent } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { sleepSync } from "../utils/sleep.ts";
@@ -185,12 +185,20 @@ export function writeForegroundInterruptRequest(
 		};
 		fs.mkdirSync(path.dirname(controlPath), { recursive: true });
 		atomicWriteFile(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}\n`);
-		appendEventBuffered(manifest.eventsPath, {
-			type: "foreground.interrupt_requested",
-			runId: manifest.runId,
-			message: reason,
-			data: { requestId: request.id, controlPath },
-		}).catch((e) => logInternalError("foreground_control.buffered", e, "type=foreground.interrupt_requested"));
+		// Read-your-writes (CI 2026-09-11, phase6 integration): for a fresh
+		// manifest this may be the FIRST event — buffered append leaves
+		// events.jsonl nonexistent at the sync read right after (ENOENT).
+		// Sync appendEvent (base behavior, b6eba80f pattern).
+		try {
+			appendEvent(manifest.eventsPath, {
+				type: "foreground.interrupt_requested",
+				runId: manifest.runId,
+				message: reason,
+				data: { requestId: request.id, controlPath },
+			});
+		} catch (e) {
+			logInternalError("foreground_control.append", e, "type=foreground.interrupt_requested");
+		}
 		return request;
 	} finally {
 		releaseLock();

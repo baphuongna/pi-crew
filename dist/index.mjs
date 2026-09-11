@@ -31185,13 +31185,17 @@ var init_agent_control = __esm({
         priority: "normal",
         data: { source: "nudge-agent" }
       });
-      appendEventBuffered(loaded.manifest.eventsPath, {
-        type: "agent.nudged",
-        runId: loaded.manifest.runId,
-        taskId: agent.taskId,
-        message: messageText,
-        data: { agentId: agent.id, mailboxMessageId: message.id }
-      }).catch((e) => logInternalError("api.agent-control.buffered", e, "type=agent.nudged"));
+      try {
+        appendEvent(loaded.manifest.eventsPath, {
+          type: "agent.nudged",
+          runId: loaded.manifest.runId,
+          taskId: agent.taskId,
+          message: messageText,
+          data: { agentId: agent.id, mailboxMessageId: message.id }
+        });
+      } catch (e) {
+        logInternalError("api.agent-control.append", e, "type=agent.nudged");
+      }
       ctx.events?.emit?.("crew.mailbox.message", {
         runId: loaded.manifest.runId,
         id: message.id,
@@ -31766,26 +31770,34 @@ var init_mailbox2 = __esm({
         return withRunLockSync(loaded.manifest, () => {
           const message = readMailboxMessage(loaded.manifest, messageId);
           const delivery = acknowledgeMailboxMessage(loaded.manifest, messageId);
-          appendEventBuffered(loaded.manifest.eventsPath, {
-            type: "mailbox.acknowledged",
-            runId: loaded.manifest.runId,
-            data: { messageId }
-          }).catch((e) => logInternalError("api.mailbox.buffered", e, "type=mailbox.acknowledged"));
-          if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
-            appendEventBuffered(loaded.manifest.eventsPath, {
-              type: "agent.group_join.acknowledged",
+          try {
+            appendEvent(loaded.manifest.eventsPath, {
+              type: "mailbox.acknowledged",
               runId: loaded.manifest.runId,
-              message: "Group join delivery acknowledged via mailbox ack.",
-              data: {
-                requestId: message.data.requestId,
-                messageId,
-                batchId: message.data.batchId,
-                partial: message.data.partial,
-                acknowledgedAt: delivery.updatedAt,
-                acknowledgedBy: "leader"
-              },
-              metadata: { provenance: "api" }
-            }).catch((e) => logInternalError("api.mailbox.buffered", e, "type=agent.group_join.acknowledged"));
+              data: { messageId }
+            });
+          } catch (e) {
+            logInternalError("api.mailbox.append", e, "type=mailbox.acknowledged");
+          }
+          if (message?.data?.kind === "group_join" && typeof message.data.requestId === "string") {
+            try {
+              appendEvent(loaded.manifest.eventsPath, {
+                type: "agent.group_join.acknowledged",
+                runId: loaded.manifest.runId,
+                message: "Group join delivery acknowledged via mailbox ack.",
+                data: {
+                  requestId: message.data.requestId,
+                  messageId,
+                  batchId: message.data.batchId,
+                  partial: message.data.partial,
+                  acknowledgedAt: delivery.updatedAt,
+                  acknowledgedBy: "leader"
+                },
+                metadata: { provenance: "api" }
+              });
+            } catch (e) {
+              logInternalError("api.mailbox.append", e, "type=agent.group_join.acknowledged");
+            }
           }
           ctx.events?.emit?.("crew.mailbox.acknowledged", {
             runId: loaded.manifest.runId,
@@ -32650,12 +32662,16 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
     fs55.mkdirSync(path42.dirname(controlPath), { recursive: true });
     atomicWriteFile(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}
 `);
-    appendEventBuffered(manifest.eventsPath, {
-      type: "foreground.interrupt_requested",
-      runId: manifest.runId,
-      message: reason,
-      data: { requestId: request.id, controlPath }
-    }).catch((e) => logInternalError("foreground_control.buffered", e, "type=foreground.interrupt_requested"));
+    try {
+      appendEvent(manifest.eventsPath, {
+        type: "foreground.interrupt_requested",
+        runId: manifest.runId,
+        message: reason,
+        data: { requestId: request.id, controlPath }
+      });
+    } catch (e) {
+      logInternalError("foreground_control.append", e, "type=foreground.interrupt_requested");
+    }
     return request;
   } finally {
     releaseLock2();

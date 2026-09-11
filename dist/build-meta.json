@@ -9132,7 +9132,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api/agent-control.ts": {
-      "bytes": 11479,
+      "bytes": 11658,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -9230,7 +9230,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/api/mailbox.ts": {
-      "bytes": 7663,
+      "bytes": 8024,
       "imports": [
         {
           "path": "src/state/coordination/locks.ts",
@@ -9406,7 +9406,7 @@
       "format": "esm"
     },
     "src/runtime/foreground-control.ts": {
-      "bytes": 6409,
+      "bytes": 6681,
       "imports": [
         {
           "path": "node:fs",
@@ -21095,7 +21095,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8030539
+      "bytes": 8031567
     },
     "dist/index.mjs": {
       "imports": [
@@ -24166,7 +24166,7 @@
           "bytesInOutput": 1274
         },
         "src/extension/team-tool/api/agent-control.ts": {
-          "bytesInOutput": 12452
+          "bytesInOutput": 12491
         },
         "src/runtime/heartbeat/worker-heartbeat.ts": {
           "bytesInOutput": 590
@@ -24178,7 +24178,7 @@
           "bytesInOutput": 3712
         },
         "src/extension/team-tool/api/mailbox.ts": {
-          "bytesInOutput": 8070
+          "bytesInOutput": 8198
         },
         "src/extension/team-tool/api/plan-approval.ts": {
           "bytesInOutput": 6713
@@ -24196,7 +24196,7 @@
           "bytesInOutput": 3291
         },
         "src/runtime/foreground-control.ts": {
-          "bytesInOutput": 4986
+          "bytesInOutput": 5015
         },
         "src/runtime/custom-tools/irc-tool.ts": {
           "bytesInOutput": 6051
@@ -25393,7 +25393,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3366337
+      "bytes": 3366533
     }
   }
 }
