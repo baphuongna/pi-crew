@@ -58,6 +58,16 @@ Four skills now carry a `## Self-restraint` section anchored on "Creating nothin
 
 Skills: `scrutinize` (also has Budget), `requirements-to-task-packet`, `model-routing-context`, `resource-discovery-config`.
 
+### feat(agents): body upgrades for executor / explorer / reviewer (AGENT-UPGRADE-3/4/6)
+
+The three highest-traffic role bodies were one-paragraph stubs. They now carry the OMO-slim craft patterns, adapted to pi's actual toolset. Frontmatter (tool grants, model routing, context inheritance) is untouched — only the `systemPromptMode: replace` body changed.
+
+- **executor** — hard denial list (no context research, no subagent spawning unless instructed, no design work, no scope expansion, no completion claims without evidence), an `EXEC_SUMMARY/CHANGES/VERIFICATION/OMITTED/REJECT` output block, and four explicit reject-and-route criteria.
+- **explorer** — tool selection matrix mapped to pi's real tools (`grep`/`glob`/`find`/`read`/`ls`, bash only for pipelines, never `cat`-dumping), an `EXPLORER_RESULT/FILES/ANSWER/UNCERTAIN/ROUTING` output block, a ~10-tool-call budget per question, and read-only boundaries.
+- **reviewer** — a pre/post execution boundary vs critic, a mandatory 3-attempt review budget with `review attempt X of 3` stamping (matching the Batch-3 skill Budget pattern), and a `REVIEW/MAJORS/MINORS/NOT_VERIFIED/SECURITY_NOTES/REVIEW_ATTEMPT` output block.
+
+Host-difference adaptations from the OMO-slim source: `ast_grep_search`/`apply_patch` dropped (no pi equivalents), `@designer`/`oracle`/`librarian` routing re-pointed to leader-escalation (those agents don't exist yet — re-point when AGENT-1..5 lands), and the executor subagent denial softened to "unless the task explicitly instructs delegation" because executor's frontmatter grants the `delegate` tool.
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)
