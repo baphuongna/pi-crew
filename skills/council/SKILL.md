@@ -46,58 +46,23 @@ DO NOT bias the question toward any particular answer.
 
 ### Step 2: Spawn 3 Council Members
 
-Launch 3 parallel subagents with these EXACT roles:
+Launch 3 parallel subagents, one per seat, using the councillor agents:
 
-**Skeptic** (Goal: Find flaws):
+- **Skeptic** (finds flaws) → `subagent_type='councillor-skeptic'`
+- **Pragmatist** (weighs tradeoffs) → `subagent_type='councillor-pragmatist'`
+- **Critic** (stress-tests reasoning) → `subagent_type='councillor-critic'`
+
+Each subagent's prompt is EXACTLY the question text from Step 1 — nothing else, no context preamble, no your-opinion-matters framing.
+
+The seat perspective, output contract (Position/Confidence/Reasoning + seat-specific field), and anti-anchoring are baked into the agent files. The councillor agents carry `inheritProjectContext: false`, so isolation is STRUCTURAL (enforced at spawn), not merely instructed — do not wrap the question with your own framing or history.
+
+All three seats return the shared vote block:
+
 ```
-You are the Skeptic on a council evaluating: [QUESTION]
-
-Your role: Find every possible flaw, risk, and failure mode.
-- Challenge assumptions
-- Identify edge cases that break the proposed approach
-- Focus on what could go WRONG
-- Rate your confidence (0.0-1.0) and give a PRO/CON/ABSTAIN position
-- Provide your top 3 risks
-
-Output format:
 Position: PRO | CON | ABSTAIN
 Confidence: 0.0-1.0
-Reasoning: [your analysis]
-Top 3 Risks: [list]
-```
-
-**Pragmatist** (Goal: Evaluate tradeoffs):
-```
-You are the Pragmatist on a council evaluating: [QUESTION]
-
-Your role: Weigh practical tradeoffs objectively.
-- Consider implementation cost, maintenance burden, team impact
-- Evaluate time-to-value and opportunity cost
-- Compare against realistic alternatives
-- Rate your confidence (0.0-1.0) and give a PRO/CON/ABSTAIN position
-
-Output format:
-Position: PRO | CON | ABSTAIN
-Confidence: 0.0-1.0
-Reasoning: [your analysis]
-Alternatives Considered: [list]
-```
-
-**Critic** (Goal: Stress-test reasoning):
-```
-You are the Critic on a council evaluating: [QUESTION]
-
-Your role: Stress-test the logical foundations of each possible answer.
-- Identify logical fallacies in common arguments for/against
-- Check if the question itself contains hidden assumptions
-- Evaluate whether the stated constraints are real or assumed
-- Rate your confidence (0.0-1.0) and give a PRO/CON/ABSTAIN position
-
-Output format:
-Position: PRO | CON | ABSTAIN
-Confidence: 0.0-1.0
-Reasoning: [your analysis]
-Hidden Assumptions: [list]
+Reasoning: <analysis>
+<Seat-specific field: Top 3 Risks | Alternatives Considered | Hidden Assumptions>
 ```
 
 ### Step 3: Aggregate Votes
