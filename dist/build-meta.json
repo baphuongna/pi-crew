@@ -8933,7 +8933,7 @@
       "format": "esm"
     },
     "src/runtime/run-tracker.ts": {
-      "bytes": 6978,
+      "bytes": 7120,
       "imports": [
         {
           "path": "node:fs",
@@ -8941,19 +8941,9 @@
           "external": true
         },
         {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../state/stores/state-store.ts"
-        },
-        {
-          "path": "src/utils/paths.ts",
-          "kind": "import-statement",
-          "original": "../utils/paths.ts"
         },
         {
           "path": "src/runtime/process-status.ts",
@@ -21095,7 +21085,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8031567
+      "bytes": 8031672
     },
     "dist/index.mjs": {
       "imports": [
@@ -21736,11 +21726,6 @@
         },
         {
           "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -24133,7 +24118,7 @@
           "bytesInOutput": 9211
         },
         "src/runtime/run-tracker.ts": {
-          "bytesInOutput": 2642
+          "bytesInOutput": 2566
         },
         "src/runtime/crew-hooks.ts": {
           "bytesInOutput": 4057
@@ -25300,7 +25285,7 @@
           "bytesInOutput": 3012
         },
         "src/runtime/delegate-spawn.ts": {
-          "bytesInOutput": 2774
+          "bytesInOutput": 2772
         },
         "src/runtime/scheduling/nested-slots.ts": {
           "bytesInOutput": 1309
@@ -25393,7 +25378,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3366533
+      "bytes": 3366455
     }
   }
 }
