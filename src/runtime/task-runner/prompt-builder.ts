@@ -293,9 +293,13 @@ export async function renderTaskPrompt(
 		"",
 		toolGuidanceBlock(agent),
 		"",
-		// O4: project knowledge (.crew/knowledge.md) — workers don't load the
-		// pi-crew extension (spawned with --no-extensions), so before_agent_start
-		// never fires for them. Inject here so every worker sees project knowledge.
+		// O4 (ARCH-2 corrected): project knowledge (.crew/knowledge.md). Builtin
+		// workers don't load the pi-crew extension (agents declare no `extensions:`
+		// in frontmatter), so before_agent_start knowledge injection doesn't fire
+		// for them — and the knowledge-injection hook now early-returns on
+		// PI_CREW_KIND=subagent, so even agents that DO declare the extension
+		// can't double-inject. This prompt-builder fragment is the single source
+		// of worker project knowledge.
 		stableComponents.knowledgeFragment,
 	]
 		.filter(Boolean)

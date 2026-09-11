@@ -101,6 +101,18 @@ A session re-issuing the exact same tool call (same tool, identical arguments) w
 
 New byte-identity test: two siblings sharing a manifest + step produce a `stablePrefix` that is `strictEqual`-identical, while each `dynamicSuffix` carries its own task identity. 19/19 prompt-builder tests pass.
 
+### fix(runtime): ARCH-2/5/6/7 — knowledge-injection guard, watchdog wake cap, release import smoke, dist path-leak gate
+
+**ARCH-2 (double-injection guard).** The knowledge-injection hook's docstring claimed workers are spawned `--no-extensions` — stale: `pi-args.ts` runs extension discovery like the main session, and a child loads an extension whenever the agent's frontmatter declares `extensions:`. Builtin agents declare none, so no double-injection occurs today — but any agent that does declare pi-crew would get knowledge twice (hook + prompt-builder fragment). The `before_agent_start` handler now early-returns on `PI_CREW_KIND=subagent`, making main-session hooks main-session-only regardless of how the child was spawned; the docstring and the prompt-builder O4 comment now describe the real mechanism. Prompt-builder remains the single source of worker project knowledge.
+
+**ARCH-5 (watchdog wake cap).** `startForegroundWatchdog` dripped a "run appears hung" notice every interval (~24 notices/2h) once a run looked orphaned. A per-run closure counter now caps notices at 2, sends one final hand-off message ("going quiet now — intervene or leave it"), then stays silent while continuing to monitor; the counter resets whenever the run leaves the hung state.
+
+**ARCH-6 (clean-install import smoke).** `release-smoke.mjs` previously verified the tarball by checking files exist — a green in-repo bundle test can coexist with a broken packed artifact. The smoke now installs the pi host's optional peers (`@earendil-works/pi-*` at the devDep-pinned `^0.84.0` — the bundle keeps them external by design), then `import()`s the installed `dist/index.mjs` and shape-checks `registerPiTeams`/`waitForRun`/`runPostInitSkillCheck`/`default`. The very first run caught the peer-context gap this documentation now records.
+
+**ARCH-7 (dist path-leak gate).** `check-bundle-staleness.mjs` gains a leak scan: `index.mjs`/`build-meta.json` are line-scanned for the repo-root literal, `/home/<user>/…`, `/Users/<user>/…`, and `C:\Users\…`; `index.mjs.map` is checked structurally (`sources[]` + `sourceRoot` must be relative) because its `sourcesContent` embeds verbatim tracked source whose comments may legitimately mention `/home/…` paths. Patterns require a username segment, so legitimate literals like the `validPrefixes` entry `"/home/"` don't trip. Verified: clean dist passes; planted leaks (bundle line + absolute map source) each fail with file:line reports.
+
+**ARCH-4 (live-session fallback loop) — SKIPPED, ADR conflict.** The proposal suggested porting the child-executor model-fallback retry loop into `live-session-runtime.ts`. ADR 2026-08-15 (runtime-convergence, decision (a)) froze the live-session path — "no new features may be added to live-session without revisiting this ADR" — and its Round-4 evaluation explicitly marked the fallback-loop port option **NOT sound** (abandon SDK delegation or build a parallel fallback layer, 3–5 days for a worse design). Implementing ARCH-4 would override a standing decision record; revisit the ADR first if live-session fallback ever becomes a real requirement.
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

@@ -48547,6 +48547,7 @@ function buildKnowledgeFragment(cwd, query) {
 }
 function registerKnowledgeInjection(pi) {
   pi.on("before_agent_start", (event) => {
+    if (process.env.PI_CREW_KIND === "subagent") return;
     const options = event.systemPromptOptions ?? {};
     const cwd = typeof options.cwd === "string" ? options.cwd : process.cwd();
     const fragment = buildKnowledgeFragment(cwd);
@@ -49243,9 +49244,13 @@ async function renderTaskPrompt(manifest, step, task, agent, skillBlock = "", pr
     "",
     toolGuidanceBlock(agent),
     "",
-    // O4: project knowledge (.crew/knowledge.md) — workers don't load the
-    // pi-crew extension (spawned with --no-extensions), so before_agent_start
-    // never fires for them. Inject here so every worker sees project knowledge.
+    // O4 (ARCH-2 corrected): project knowledge (.crew/knowledge.md). Builtin
+    // workers don't load the pi-crew extension (agents declare no `extensions:`
+    // in frontmatter), so before_agent_start knowledge injection doesn't fire
+    // for them — and the knowledge-injection hook now early-returns on
+    // PI_CREW_KIND=subagent, so even agents that DO declare the extension
+    // can't double-inject. This prompt-builder fragment is the single source
+    // of worker project knowledge.
     stableComponents.knowledgeFragment
   ].filter(Boolean).join("\n");
   const dynamicSuffix = [
@@ -78487,6 +78492,8 @@ function startForegroundWatchdog(opts) {
   const maxMonitorMs = opts.maxMonitorMs ?? DEFAULT_MAX_MONITOR_MS;
   const startTime = Date.now();
   if (activeWatchdogs.has(runId)) return;
+  let consecutiveHungNotices = 0;
+  const HUNG_NOTICE_CAP = 2;
   const check = () => {
     if (Date.now() - startTime > maxMonitorMs) {
       activeWatchdogs.delete(runId);
@@ -78514,13 +78521,23 @@ function startForegroundWatchdog(opts) {
       const now = Date.now();
       if (isLikelyOrphanedActiveRun(manifest, agents, now)) {
         const detail = `status=${manifest.status}, updatedAt=${manifest.updatedAt}, agents=${agents.length}`;
+        consecutiveHungNotices += 1;
         try {
-          pi.sendUserMessage(
-            `pi-crew watchdog: run ${runId} appears hung (${detail}). Consider running team action='cancel' runId='${runId}' or team action='doctor'.`,
-            { deliverAs: "followUp" }
-          );
+          if (consecutiveHungNotices <= HUNG_NOTICE_CAP) {
+            pi.sendUserMessage(
+              `pi-crew watchdog: run ${runId} appears hung (${detail}). Consider running team action='cancel' runId='${runId}' or team action='doctor'.`,
+              { deliverAs: "followUp" }
+            );
+          } else if (consecutiveHungNotices === HUNG_NOTICE_CAP + 1) {
+            pi.sendUserMessage(
+              `pi-crew watchdog: run ${runId} is still hung after ${consecutiveHungNotices} checks \u2014 going quiet now. Intervene via team action='cancel' runId='${runId}', team action='doctor', or leave it; a completion notice will still fire.`,
+              { deliverAs: "followUp" }
+            );
+          }
         } catch {
         }
+      } else {
+        consecutiveHungNotices = 0;
       }
     } catch {
     }

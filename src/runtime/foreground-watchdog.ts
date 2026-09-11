@@ -69,6 +69,13 @@ export function startForegroundWatchdog(opts: WatchdogOptions): void {
 	// Don't stack watchdogs for the same run
 	if (activeWatchdogs.has(runId)) return;
 
+	// ARCH-5: cap consecutive no-progress wake notices at 2, then send one
+	// final guidance message and go quiet — a ~24-notices/2h drip trains the
+	// user to ignore the watchdog. Reset on any sign of progress (run ends or
+	// leaves the hung state).
+	let consecutiveHungNotices = 0;
+	const HUNG_NOTICE_CAP = 2;
+
 	const check = (): void => {
 		// Check if max monitor time exceeded
 		if (Date.now() - startTime > maxMonitorMs) {
@@ -105,15 +112,27 @@ export function startForegroundWatchdog(opts: WatchdogOptions): void {
 			const now = Date.now();
 			if (isLikelyOrphanedActiveRun(manifest, agents, now)) {
 				const detail = `status=${manifest.status}, updatedAt=${manifest.updatedAt}, agents=${agents.length}`;
+				consecutiveHungNotices += 1;
 				try {
-					pi.sendUserMessage(
-						`pi-crew watchdog: run ${runId} appears hung (${detail}). Consider running team action='cancel' runId='${runId}' or team action='doctor'.`,
-						{ deliverAs: "followUp" },
-					);
+					if (consecutiveHungNotices <= HUNG_NOTICE_CAP) {
+						pi.sendUserMessage(
+							`pi-crew watchdog: run ${runId} appears hung (${detail}). Consider running team action='cancel' runId='${runId}' or team action='doctor'.`,
+							{ deliverAs: "followUp" },
+						);
+					} else if (consecutiveHungNotices === HUNG_NOTICE_CAP + 1) {
+						// One-time handoff, then silence — still monitoring, no more drips.
+						pi.sendUserMessage(
+							`pi-crew watchdog: run ${runId} is still hung after ${consecutiveHungNotices} checks — going quiet now. Intervene via team action='cancel' runId='${runId}', team action='doctor', or leave it; a completion notice will still fire.`,
+							{ deliverAs: "followUp" },
+						);
+					}
 				} catch {
 					/* non-critical */
 				}
-				// Don't stop — keep monitoring. The assistant or user may intervene.
+				// Keep monitoring (ARCH-5: silently past the cap — no more notices).
+			} else {
+				// Run is alive and progressing — reset the no-progress wake counter.
+				consecutiveHungNotices = 0;
 			}
 		} catch {
 			// Non-critical — skip this check

@@ -437,13 +437,21 @@ export function buildKnowledgeFragment(cwd: string, query?: KnowledgeQuery): str
 
 /**
  * Register the knowledge-injection hook. Appends project knowledge to the
- * MAIN session's system prompt on `before_agent_start`. This hook does NOT
- * fire for crew workers: they are spawned with `--no-extensions`, so the
- * extension layer (and this hook) never loads in their process. Workers
- * instead receive knowledge via `buildKnowledgeFragment(task.cwd)` injected
- * into their prompt stablePrefix by `prompt-builder.ts`. Do NOT "fix" this
- * perceived gap by making the hook reach workers — it would cause
- * double-injection. (Verified by research workflow 2026-06-28.)
+ * MAIN session's system prompt on `before_agent_start`.
+ *
+ * Worker knowledge path (ARCH-2 corrected): children are NOT spawned with
+ * `--no-extensions` anymore — `pi-args.ts` runs extension discovery like
+ * the main session, but a child only loads an extension when the agent's
+ * frontmatter declares it (`extensions:`; builtin pi-crew agents declare
+ * none, so in practice workers never load pi-crew). Workers instead receive
+ * knowledge via `buildKnowledgeFragment(task.cwd)` injected into their
+ * prompt stablePrefix by `prompt-builder.ts`.
+ *
+ * Defense-in-depth: if an agent DOES declare the pi-crew extension, this
+ * hook would fire in the worker process and double-inject knowledge (once
+ * here, once via prompt-builder). The `PI_CREW_KIND=subagent` early-return
+ * below keeps main-session hooks main-session-only regardless of how the
+ * child was spawned. Do NOT remove it.
  *
  * The hook calls buildKnowledgeFragment(cwd) with NO query — so the main
  * session gets conventions-only (no session-log noise), which is the right
@@ -452,6 +460,10 @@ export function buildKnowledgeFragment(cwd: string, query?: KnowledgeQuery): str
  */
 export function registerKnowledgeInjection(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event: BeforeAgentStartEvent) => {
+		// ARCH-2: never fire in child worker processes — knowledge reaches
+		// workers via prompt-builder's stablePrefix fragment; firing here too
+		// would double-inject.
+		if (process.env.PI_CREW_KIND === "subagent") return;
 		const options =
 			(
 				event as BeforeAgentStartEvent & {

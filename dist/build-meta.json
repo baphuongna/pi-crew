@@ -12779,7 +12779,7 @@
       "format": "esm"
     },
     "src/extension/knowledge-injection.ts": {
-      "bytes": 18454,
+      "bytes": 19067,
       "imports": [
         {
           "path": "node:fs",
@@ -12862,7 +12862,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/prompt-builder.ts": {
-      "bytes": 15194,
+      "bytes": 15450,
       "imports": [
         {
           "path": "src/extension/knowledge-injection.ts",
@@ -19286,7 +19286,7 @@
       "format": "esm"
     },
     "src/runtime/foreground-watchdog.ts": {
-      "bytes": 4546,
+      "bytes": 5532,
       "imports": [
         {
           "path": "src/state/stores/state-store.ts",
@@ -21116,7 +21116,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8048227
+      "bytes": 8050517
     },
     "dist/index.mjs": {
       "imports": [
@@ -24633,7 +24633,7 @@
           "bytesInOutput": 1490
         },
         "src/extension/knowledge-injection.ts": {
-          "bytesInOutput": 8785
+          "bytesInOutput": 8842
         },
         "src/runtime/agent-memory.ts": {
           "bytesInOutput": 2842
@@ -24645,7 +24645,7 @@
           "bytesInOutput": 9695
         },
         "src/runtime/task-runner/prompt-builder.ts": {
-          "bytesInOutput": 10417
+          "bytesInOutput": 10681
         },
         "src/state/stores/ownership-map.ts": {
           "bytesInOutput": 2004
@@ -25161,7 +25161,7 @@
           "bytesInOutput": 4187
         },
         "src/runtime/foreground-watchdog.ts": {
-          "bytesInOutput": 2662
+          "bytesInOutput": 3300
         },
         "src/extension/async-notifier.ts": {
           "bytesInOutput": 6227
@@ -25401,7 +25401,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3373070
+      "bytes": 3374029
     }
   }
 }
