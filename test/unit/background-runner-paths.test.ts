@@ -52,8 +52,12 @@ test("background diagnostic paths keep PROJECT scope (.crew) for git cwds (issue
 		const repoRoot = findRepoRoot(proj);
 		assert.ok(repoRoot, "fixture with .git must resolve a repo root");
 
+		// macOS CI: tmpdir is /var/folders/… but projectCrewRoot canonicalizes
+		// through realpath (/private/var/…, bug-029 parity) — build the expected
+		// path from the realpathed fixture or the comparison fails on darwin.
+		const projReal = fs.realpathSync(proj);
 		const runId = "bg_paths_project_scope";
-		const stateRoot = path.join(proj, ".crew", "state", "runs", runId);
+		const stateRoot = path.join(projReal, ".crew", "state", "runs", runId);
 		assert.equal(backgroundLogPath(proj, runId), path.join(stateRoot, "background.log"));
 		assert.equal(backgroundExitCodePath(proj, runId), path.join(stateRoot, "exit-code.txt"));
 	} finally {
