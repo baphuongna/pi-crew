@@ -2,6 +2,32 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.10.5] — waitForRun honours user-scope state root (2026-09-11)
+
+### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)
+
+`waitForRun`'s slow-path attempt-0 probe joined `projectCrewRoot(cwd)`
+(`<cwd>/.crew/state/runs/…`) to test run-directory existence. But runs created in
+a **markerless (non-git) cwd** are routed to **user scope**
+(`userCrewRoot()` = `~/.pi/agent/extensions/pi-crew/`) by `createRunPaths` →
+`scopeBaseRoot` — the exact scope resolution `loadRunManifestById` uses when
+reading. Result: the run executed fine (STATUS/STEER/SUMMARY all worked), while
+`team action=run` and every `team action=wait` **instantly** threw
+`Run not found` — so the agent believed the crew had failed and duplicated the
+work itself while it kept running in the background. Reproduced from the #54
+transcript (artifact paths under `~/.pi/agent/extensions/pi-crew/artifacts/…`).
+
+- The probe now resolves through the exported, pure `createRunPaths(cwd,
+  runId).stateRoot` — the same scope-aware resolver used at run creation, so
+  project scope (incl. the `.pi/teams/` fallback, issue #29) and user scope
+  both resolve correctly.
+- Regression test: user-scope run in a markerless cwd (isolated
+  `PI_TEAMS_HOME`) — the waiter must poll through the user-scope dir and
+  resolve on terminal status instead of throwing.
+- Same-family defect (NOT fixed here, tracked in #55): `background-runner.ts`
+  computes `background.log` + `exit-code.txt` paths via `projectCrewRoot` too,
+  so those diagnostics silently go missing for user-scope runs.
+
 ## [0.10.3] — MuxSurface: workers in real panes + per-team-run tabs (2026-09-01)
 
 128 commits since v0.10.2. The headline feature is **MuxSurface A1** (spec

@@ -246,3 +246,40 @@ test("waitForRun times out if run never finishes and no promise is registered", 
 		clearRunPromisesForTest();
 	}
 });
+
+// Issue #54: waitForRun's slow-path probe must honour the USER scope that run
+// creation routes markerless (non-git) cwds to. It previously joined
+// projectCrewRoot(cwd) — i.e. <cwd>/.crew/state/runs — which never exists for a
+// user-scope run, so RUN/WAIT instantly threw "Run not found" while the crew
+// kept running (STATUS/STEER/SUMMARY worked via the scope-aware resolver).
+test("waitForRun honours user scope for markerless cwds (issue #54)", async () => {
+	const previousHome = process.env.PI_TEAMS_HOME;
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-user-home-"));
+	process.env.PI_TEAMS_HOME = home;
+	// Markerless cwd: no .crew/.pi marker anywhere up to the tmpdir boundary, so
+	// createRunManifest routes this run to USER scope under the isolated home.
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-"));
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "user-scope run" });
+		saveRunManifest({ ...created.manifest, status: "running" as const });
+
+		// Flip the still-running run to terminal shortly after the poller starts;
+		// the waiter must poll through the user-scope dir and resolve (not throw).
+		setTimeout(() => {
+			saveRunManifest({
+				...created.manifest,
+				status: "completed" as const,
+				updatedAt: new Date().toISOString(),
+			});
+		}, 150);
+
+		const result = await waitForRun(created.manifest.runId, cwd, { timeoutMs: 5000 });
+		assert.equal(result.manifest.status, "completed");
+	} finally {
+		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = previousHome;
+		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(home, { recursive: true, force: true });
+		clearRunPromisesForTest();
+	}
+});

@@ -1,8 +1,6 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
-import { loadRunManifestById } from "../state/stores/state-store.ts";
+import { createRunPaths, loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
-import { projectCrewRoot } from "../utils/paths.ts";
 import { isFinishedRunStatus } from "./process-status.ts";
 
 export interface RunWaitResult {
@@ -149,11 +147,14 @@ export async function waitForRun(
 		}
 		if (attempt === 0) {
 			// Early exit: if the run directory doesn't exist, don't waste time polling.
-			// Use projectCrewRoot() to honour the .pi/teams/ fallback for .pi-based
-			// projects (see issue #29). Without this, the hardcoded `.crew/state/runs/`
-			// path never resolves in projects that use the `.pi/` layout, the throw
-			// escapes via subagent-manager.ts:281, and pi crashes with uncaughtException.
-			const runDir = path.join(projectCrewRoot(cwd), "state", "runs", runId);
+			// Resolve through createRunPaths (scopeBaseRoot) so the probe matches where
+			// runs are CREATED: project scope — incl. the .pi/teams/ fallback for
+			// .pi-based projects (issue #29) — for cwds under a repo root, and USER
+			// scope for markerless cwds (issue #54). The previous projectCrewRoot(cwd)
+			// join always looked at <cwd>/.crew/state/runs for a markerless cwd, so
+			// RUN/WAIT instantly threw "Run not found" while the user-scope crew kept
+			// running. createRunPaths is pure path math (no mkdir), so it is safe here.
+			const runDir = createRunPaths(cwd, runId).stateRoot;
 			if (!fs.existsSync(runDir)) {
 				throw new Error(`Run ${runId} not found. No run directory at ${runDir}`);
 			}
