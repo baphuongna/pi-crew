@@ -52,6 +52,7 @@ import { BrokerTokenRegistry } from "../../../../src/runtime/broker/crew-broker-
 import type { TeamEvent } from "../../../../src/state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import { encodeBrokerFrame, NdjsonDecoder } from "../../../../src/utils/ndjson.ts";
+import { teardownCwd } from "../../../fixtures/teardown-cwd.ts";
 
 // ----------------------------------------------------------------------------
 // Helpers
@@ -331,7 +332,7 @@ test("wait.request: compound-key token parks task+manifest (status unchanged, cl
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -371,7 +372,7 @@ test("wait.request: legacy bare-runId fallback token rejected with migrate hint,
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -409,7 +410,7 @@ test("wait.request: cross-task 'to' rejected server-side, nothing parked", async
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -459,7 +460,7 @@ test("wait.request: flag off (default) → policy-disabled error AND policy.acti
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -530,7 +531,7 @@ test("wait.resolve: parked task resolves waiting→running, waitState cleared, e
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -561,7 +562,7 @@ test("wait.resolve: flag off → policy-disabled error AND policy.action event",
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -593,7 +594,7 @@ test("revokeTaskToken: valid hello ok → revoke → re-hello with the old token
 		client2.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -619,7 +620,7 @@ test("revokeTaskToken: already-authed connection is rejected at the next request
 		await new Promise<void>((resolve) => client.socket.once("close", () => resolve()));
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -644,7 +645,7 @@ test("hello: run terminal (completed) → 'stale-token' even though the token st
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -669,7 +670,7 @@ test("hello: wrong token + ACTIVE run + matching taskId → 'stale-token', not g
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -711,7 +712,7 @@ test("hello: wrong token + unknown taskId (run active) + unknown run → generic
 		client2.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -757,7 +758,7 @@ test("revokeTaskToken + re-issue: respawned worker authenticates with the fresh 
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -799,7 +800,7 @@ test("revokeTaskToken: already-authed connection STAYS revoked across a re-issue
 		client2.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -826,7 +827,7 @@ test("revokeTaskToken: orchestrator role is exempt from the revoked check (hello
 		client.close();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });
 
@@ -853,6 +854,6 @@ test("P1 wiring: disabled waitMethodsEnabled rejects wait.request with the polic
 		client.socket.destroy();
 	} finally {
 		await broker.stop();
-		fs.rmSync(scaff.cwd, { recursive: true, force: true });
+		teardownCwd(scaff.cwd);
 	}
 });

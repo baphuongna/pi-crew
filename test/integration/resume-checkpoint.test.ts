@@ -6,6 +6,7 @@ import test from "node:test";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { readEvents } from "../../src/state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../src/state/stores/state-store.ts";
+import { teardownCwd } from "../fixtures/teardown-cwd.ts";
 
 function restoreEnv(name: string, previous: string | undefined): void {
 	if (previous === undefined) delete process.env[name];
@@ -66,7 +67,7 @@ test("resume recovers running task with child-stdout-final checkpoint from trans
 	} finally {
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
 		restoreEnv("PI_CREW_ALLOW_MOCK", previousAllowMock);
-		fs.rmSync(cwd, { recursive: true, force: true });
+		teardownCwd(cwd);
 	}
 });
 
@@ -117,6 +118,6 @@ test("resume recovers running task with artifact-written checkpoint without reru
 	} finally {
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
 		restoreEnv("PI_CREW_ALLOW_MOCK", previousAllowMock);
-		fs.rmSync(cwd, { recursive: true, force: true });
+		teardownCwd(cwd);
 	}
 });
