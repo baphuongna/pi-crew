@@ -83,3 +83,17 @@ Stop before saying done if you are using words like "should", "probably", "looks
 - **Don't** use fuzzy language like "seems", "probably", "looks like"
 - **Don't** skip providing verification commands for claims
 - **Don't** claim done if you're still using hypotheses instead of evidence
+
+## Budget
+
+This skill applies a 3-attempt budget: 1 initial + max 2 re-attempts.
+
+Stamp every invocation:
+
+```
+attempt X of 3 (Y attempts remaining)
+```
+
+An attempt is one fresh verification run (identify command → run → read output → compare to claim). Re-attempt when output contradicts the claim or reveals a new failure mode.
+
+Re-attempts only when the previous attempt materially changes the decision or risk. Do NOT spend a re-attempt on mechanical changes or already-resolved findings. When exhausted, escalate to the user with options (accept risk / change scope / exceptional budget).

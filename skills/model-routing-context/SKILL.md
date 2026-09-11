@@ -153,3 +153,9 @@ npx tsc --noEmit
 node --experimental-strip-types --test test/unit/model-inheritance.test.ts test/unit/model-precedence.test.ts test/unit/task-output-context-security.test.ts test/unit/extension-api-surface.test.ts
 npm test
 ```
+
+## Self-restraint
+
+"Creating nothing is a valid result." If the evidence does not support a meaningful change, say so explicitly rather than inventing one. The next attempt may find stronger evidence; an invented change now damages trust in every future report.
+
+"Creating nothing" here means the current model routing is adequate — no changes needed. Inventing routing rules or fallback chains without evidence of failure adds complexity and masks real routing bugs.

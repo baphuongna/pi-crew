@@ -161,3 +161,17 @@ Before finalizing a council result, verify:
 - [ ] Consensus level computed from vote pattern
 - [ ] Dissent explicitly documented (not hidden)
 - [ ] Recommendation includes actionable next steps
+
+## Budget
+
+This skill applies a 3-attempt budget: 1 initial + max 2 re-attempts.
+
+Stamp every invocation:
+
+```
+attempt X of 3 (Y attempts remaining)
+```
+
+An attempt is one full council round (3 adversarial agents → aggregate → consensus). Re-attempt when votes deadlock or dissent reveals information the first round missed.
+
+Re-attempts only when the previous attempt materially changes the decision or risk. Do NOT spend a re-attempt on mechanical changes or already-resolved findings. When exhausted, escalate to the user with options (accept risk / change scope / exceptional budget).

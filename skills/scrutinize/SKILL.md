@@ -87,3 +87,23 @@ If ANY answer is NO → Stop. Complete scrutiny requirements before reporting.
 - **One simpler-alternative pass is MANDATORY.** Skip only if user says "don't question scope."
 - **Distinguish claim from verification.** "The PR says X" and "I traced X and confirmed" are different.
 - **No flattery, no hedging.** State the finding.
+
+## Budget
+
+This skill applies a 3-attempt budget: 1 initial + max 2 re-attempts.
+
+Stamp every invocation:
+
+```
+attempt X of 3 (Y attempts remaining)
+```
+
+An attempt is one full outsider-perspective review pass. Re-attempt when the review uncovers intent-level questions that change the approach.
+
+Re-attempts only when the previous attempt materially changes the decision or risk. Do NOT spend a re-attempt on mechanical changes or already-resolved findings. When exhausted, escalate to the user with options (accept risk / change scope / exceptional budget).
+
+## Self-restraint
+
+"Creating nothing is a valid result." If the evidence does not support a meaningful change, say so explicitly rather than inventing one. The next attempt may find stronger evidence; an invented change now damages trust in every future report.
+
+"Creating nothing" here means concluding the intent was sound and the approach justified — no findings needed. An invented finding to justify the review round damages trust in every future review.

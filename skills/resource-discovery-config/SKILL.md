@@ -61,3 +61,9 @@ node --experimental-strip-types --test test/unit/config-schema-validation.test.t
 npm test
 npm pack --dry-run
 ```
+
+## Self-restraint
+
+"Creating nothing is a valid result." If the evidence does not support a meaningful change, say so explicitly rather than inventing one. The next attempt may find stronger evidence; an invented change now damages trust in every future report.
+
+"Creating nothing" here means the current discovery already finds what consumers need. Registering resources nobody uses pollutes the discovery surface and slows every lookup.

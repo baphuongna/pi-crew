@@ -111,3 +111,9 @@ If ANY answer is NO → Stop. Complete task packet before dispatching.
 - Buried assumptions.
 - Expanding scope because context remains.
 - Treating tests as proof when the requirement was never asserted.
+
+## Self-restraint
+
+"Creating nothing is a valid result." If the evidence does not support a meaningful change, say so explicitly rather than inventing one. The next attempt may find stronger evidence; an invented change now damages trust in every future report.
+
+"Creating nothing" here means the requirements are already actionable as-is — no packet needed. Inventing scope or splitting trivial work into packets adds overhead without value.

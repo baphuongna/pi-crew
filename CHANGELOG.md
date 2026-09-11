@@ -46,6 +46,18 @@ Five new tests in `test/unit/runtime/core/skill-instructions.test.ts` cover the 
 - `test/integration/extension-skill-resolution.test.ts` — updated to use `packageRoot()` so it asserts against the same resolution path the production code uses.
 - `test/unit/runtime/core/skill-instructions.test.ts` — 5 new tests for `SKILL-HYGIENE-2`.
 
+### feat(skills): attempt-budget stamps on gate/review skills (`SKILL-META-2`)
+
+Six skills now carry a `## Budget` section defining a 3-attempt budget (1 initial + max 2 re-attempts) with a stamped `attempt X of 3 (Y attempts remaining)` protocol. Each section names what counts as an attempt for that skill and the re-attempt trigger; all six share the same exhaustion rule — escalate to the user with options (accept risk / change scope / exceptional budget) rather than looping silently.
+
+Skills: `orchestration`, `delegation-patterns`, `scrutinize`, `council`, `verification-before-done`, `multi-perspective-review`.
+
+### feat(skills): self-restraint language on over-create-prone skills (`SKILL-META-3`)
+
+Four skills now carry a `## Self-restraint` section anchored on "Creating nothing is a valid result." Each spells out what no-change means for that skill — e.g. for `scrutinize`, concluding the intent was sound IS the finding; for `resource-discovery-config`, not registering unused resources IS success. This counters the tendency to invent work (findings, scope, routing rules, registrations) to justify an invocation.
+
+Skills: `scrutinize` (also has Budget), `requirements-to-task-packet`, `model-routing-context`, `resource-discovery-config`.
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)
