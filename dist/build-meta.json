@@ -13044,7 +13044,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/child-executor.ts": {
-      "bytes": 49936,
+      "bytes": 49894,
       "imports": [
         {
           "path": "node:fs",
@@ -21095,7 +21095,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8030646
+      "bytes": 8030539
     },
     "dist/index.mjs": {
       "imports": [
@@ -24673,7 +24673,7 @@
           "bytesInOutput": 810
         },
         "src/runtime/task-runner/child-executor.ts": {
-          "bytesInOutput": 28194
+          "bytesInOutput": 28130
         },
         "src/worktree/worktree-manager.ts": {
           "bytesInOutput": 26666
@@ -25393,7 +25393,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3366401
+      "bytes": 3366337
     }
   }
 }

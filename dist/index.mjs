@@ -50192,11 +50192,7 @@ async function runChildProcessTask(ctx) {
             }
             task = {
               ...task,
-              agentProgress: applyAgentProgressEvent(
-                task.agentProgress ?? emptyCrewAgentProgress(),
-                event,
-                task.startedAt
-              )
+              agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt)
             };
             tasks = updateTask(tasks, task);
             persistHeartbeat();

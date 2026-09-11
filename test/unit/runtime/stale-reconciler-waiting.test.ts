@@ -345,7 +345,6 @@ describe("crash-recovery: waiting/waitState survive restore (WP-2/R2 audit)", ()
 	});
 });
 
-
 // ── F1 part 2 (battery 2026-09-10): reconciler PID-liveness gate ──────────
 // A surface worker's recorder only flushes at turn boundaries — one slow LLM
 // turn (observed live: 6.7min, run team_20260910171307) freezes lastSeenAt

@@ -733,8 +733,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 					// no watch->append loop. NEVER call appendCrewAgentEventBuffered here:
 					// the worker already wrote this event to the tailed file itself.
 					try {
-						const pidFromStart =
-							event?.type === "worker.started" && typeof event.pid === "number" ? event.pid : undefined;
+						const pidFromStart = event?.type === "worker.started" && typeof event.pid === "number" ? event.pid : undefined;
 						if (pidFromStart !== undefined) {
 							// Surface pid was previously never persisted into task state - the
 							// heartbeat-watcher PID-liveness gate (alive -> downgrade dead->stale)
@@ -748,11 +747,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 						}
 						task = {
 							...task,
-								agentProgress: applyAgentProgressEvent(
-								task.agentProgress ?? emptyCrewAgentProgress(),
-								event,
-								task.startedAt,
-							),
+							agentProgress: applyAgentProgressEvent(task.agentProgress ?? emptyCrewAgentProgress(), event, task.startedAt),
 						};
 						tasks = updateTask(tasks, task);
 						persistHeartbeat();
