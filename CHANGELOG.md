@@ -68,6 +68,18 @@ The three highest-traffic role bodies were one-paragraph stubs. They now carry t
 
 Host-difference adaptations from the OMO-slim source: `ast_grep_search`/`apply_patch` dropped (no pi equivalents), `@designer`/`oracle`/`librarian` routing re-pointed to leader-escalation (those agents don't exist yet — re-point when AGENT-1..5 lands), and the executor subagent denial softened to "unless the task explicitly instructs delegation" because executor's frontmatter grants the `delegate` tool.
 
+### feat(agents): new specialist agents — librarian, oracle, designer (AGENT-1a/1b/1c)
+
+Three specialist agents fill the gaps OMO-slim exposed. Builtin agent count goes 11 → 14; discovery is automatic from `packageRoot()/agents`.
+
+- **librarian** — documentation and dependency-source research. Answers library/API questions from evidence on disk (`node_modules/` source, README, CHANGELOG, package tests), with version-stamped answers, an official-vs-community evidence label, and an explicit UNCERTAIN channel for anything requiring web access (workers have no web tools; the agent says so instead of guessing from memory). Output block: `LIBRARIAN_RESULT/SOURCES/ANSWER/OFFICIAL_OR_COMMUNITY/CONFIDENCE/UNCERTAIN`.
+- **oracle** — strategic technical advisor (escalation tier, read-only). Handles architecture decisions, hard-bug hypothesis ranking, and simplification/YAGNI review. Carries a routing boundary vs analyst/critic/reviewer so it declines non-strategic asks. Output block: `ORACLE_ADVICE/REASONING/OPTIONS_CONSIDERED/SIMPLIFICATION/CONFIDENCE/ROUTING`.
+- **designer** — UI/UX specialist covering web frontends and terminal UIs. Six design principles (typography, color, motion, spatial, depth, match-vision-to-execution) plus a Design Handoff Discipline section (tokens, states, geometry, out-of-scope list). Has edit/write tools to implement design scope. Output block: `DESIGN_VERDICT/DECISIONS/HANDOFF/NOTES/OPEN_QUESTIONS`.
+
+Batch-4 routing references re-pointed to the real agents: executor's design/architecture rejects now route to `designer`/`oracle` (was leader-escalation placeholders); explorer's external-docs flag now routes to `librarian`.
+
+Deferred from AGENT-1: `observer` (LOW, no vision use case yet), `councillor-<seat>` per-seat agents (AGENT-5, needs council-skill integration), `fixer` (subsumed by the Batch-4 executor upgrade).
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

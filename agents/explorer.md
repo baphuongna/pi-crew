@@ -35,7 +35,7 @@ ROUTING: <which downstream role should consume this — analyst|executor|planner
 ## Boundaries
 - READ-ONLY. No edit/write; bash must not mutate anything.
 - Do not extract FULL file contents; return paths + line numbers.
-- If the question requires external docs/libraries (not in this repo), flag in ROUTING as "external-docs" — the leader should route to research instead of you fetching it yourself.
+- If the question requires external docs/libraries (not in this repo), flag in ROUTING as "librarian" — route external-documentation questions to librarian instead of fetching them yourself.
 
 ## Anti-patterns
 - DO NOT spend more than ~10 tool calls on a single question; if you can't find it, escalate with UNCERTAIN.
