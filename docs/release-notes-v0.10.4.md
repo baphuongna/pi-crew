@@ -1,4 +1,4 @@
-# v0.10.5 — pi-crew upgrade program completion
+# v0.10.4 — pi-crew upgrade program completion
 
 **Date**: 2026-09-10
 **Scope**: full spec execution M1–M7 (10-15 ngày calendar compressed by direct execution)
@@ -125,10 +125,10 @@ Bench M2 target was b4 buffered ≤0.6 ms/ev amortized. Empirical:
 
 ## Release
 
-Suggested version: **v0.10.5** (per spec §13 calendar: M2 → v0.10.5;
-this run covers M2-M7 in one cycle so v0.10.5 captures all).
+Suggested version: **v0.10.4** (per spec §13 calendar: M2 → v0.10.4;
+this run covers M2-M7 in one cycle so v0.10.4 captures all).
 
-If pre-M1 → v0.10.4 has been cut, v0.10.5 cleanly slots in.
+If pre-M1 → v0.10.4 has been cut, v0.10.4 cleanly slots in.
 
 Bundle: dist/index.mjs 3286.5 KB (3.3 MB)
 
