@@ -77,3 +77,17 @@ Dashboard notifier sau đó báo "Run team_20260910161234_78ef8f7526550282 has 1
 **Kết luận F1**: cả 2 fix đúng và đã unit+live-verify từng phần; điều kiện đóng là MỌI pi host trên máy chạy bundle ≥ af2f8eb4 (không còn reconciler cũ nào quét). Bước chốt: restart mọi session pi, chạy SURFACE-LIVE-4 — kỳ vọng sidecar (nếu set) ghi verdict không-stale hoặc không có verdict, run hoàn thành 3/3.
 
 **Test-isolation finding**: child-pi-surface test 13 (FINDING-3 default-silence) đọc USER config thật qua safeLoadSurfaceConfig — bẩn user config (`visibleAgents ["*"]` từ battery) làm test đỏ; nên pin config tường minh trong test (follow-up).
+
+## Addendum 3 — F1 CLOSED: SURFACE-LIVE-4 final verification (06:46–07:03+07)
+
+Sau khi mọi pi host chạy bundle ≥ af2f8eb4 (main session restart 06:45:34, PID 2598501, bundle a23335b7). Run `team_20260910234700_06a299029d2fa1cc` (fast-fix, surface tmux, visibleAgents ["*"]):
+
+| Phase | Ngưỡng chết cũ | Kết quả |
+|---|---|---|
+| 01_explore — LLM turn 6.5 phút im lặng (23:47:04→23:54:33) | stale 5 phút @ ~23:52 | ✅ Sống: pid 2599180 pinned, progress 4→11 khi flush, completed nguyên vẹn |
+| 02_execute — bash sleep 420s (23:54:37→00:02:00) | stale 5 phút @ ~23:59 | ✅ Sống: pid 2602691, completed, kết quả `SURFACE-LIVE-4-OK` |
+| 03_verify | — | ✅ completed 00:02:29 |
+
+Tổng: **3/3 completed, progress=40, heartbeat_dead=0, reconciled=0, run.failed=0, sidecar 0 verdict STALE**. Surface engagement đầy đủ: 3 `worker.spawned surface_spawned`, manifest `surface.provider: "tmux"`, workerPids cả 3 task. Session chính (đã fix) quét tự do suốt run — đúng kịch bản từng giết LIVE-1/2/3 — không gây hại.
+
+**F1 ĐÓNG.** Cơ chế: bridge (f12f4f5d) + reconciler pid-gate (af2f8eb4) + forensic sidecar (7372af37). Điều kiện duy trì: mọi pi host phải cùng version (một host cũ đủ giết run của host khác — bài học multi-host sweep). Residual đã ghi: turn im lặng >5 phút giờ an toàn nhờ pid alive; pid chết thì repair như cũ.
