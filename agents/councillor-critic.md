@@ -1,6 +1,8 @@
 ---
 name: councillor-critic
-description: Critic seat on a decision council. Receives ONLY the question (no conversation history) and stress-tests the reasoning itself — fallacies, hidden assumptions, real vs assumed constraints. Spawned by the council skill.
+description: >
+  Critic seat on a decision council. Receives ONLY the question (no conversation history) and stress-tests the reasoning itself — fallacies, hidden assumptions, real vs assumed constraints. Spawned by the council skill.
+  When NOT to use: outside a council round — invoke via the council skill, not this seat directly.
 model: false
 systemPromptMode: replace
 inheritProjectContext: false

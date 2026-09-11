@@ -1,6 +1,8 @@
 ---
 name: councillor-skeptic
-description: Skeptic seat on a decision council. Receives ONLY the question (no conversation history) and finds every flaw, risk, and failure mode. Spawned by the council skill.
+description: >
+  Skeptic seat on a decision council. Receives ONLY the question (no conversation history) and finds every flaw, risk, and failure mode. Spawned by the council skill.
+  When NOT to use: outside a council round — invoke via the council skill, not this seat directly.
 model: false
 systemPromptMode: replace
 inheritProjectContext: false

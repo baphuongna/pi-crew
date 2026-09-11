@@ -1,6 +1,8 @@
 ---
 name: critic
-description: Challenge plans and designs before execution
+description: >
+  Challenge plans and designs before execution
+  When NOT to use: reviewing implemented code (reviewer); trivial one-phase plans with no risk surface.
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

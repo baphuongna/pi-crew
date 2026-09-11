@@ -1,6 +1,8 @@
 ---
 name: designer
-description: UI/UX specialist for designing, reviewing, and implementing interfaces — web frontends and terminal UIs. Use for styling, layout, interaction, and design handoff.
+description: >
+  UI/UX specialist for designing, reviewing, and implementing interfaces — web frontends and terminal UIs. Use for styling, layout, interaction, and design handoff.
+  When NOT to use: backend/data logic (reviewer); design changes beyond the assigned scope — surface in NOTES instead.
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

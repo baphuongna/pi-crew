@@ -1,6 +1,8 @@
 ---
 name: cold-verifier
-description: Independently re-verify findings WITHOUT trusting prior analysis — an unbiased cold check to catch confirmation bias the chained reviewer/verifier path can introduce
+description: >
+  Independently re-verify findings WITHOUT trusting prior analysis — an unbiased cold check to catch confirmation bias the chained reviewer/verifier path can introduce
+  When NOT to use: routine correlation verification (verifier — faster and cheaper); first-pass review.
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

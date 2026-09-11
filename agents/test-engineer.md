@@ -1,6 +1,8 @@
 ---
 name: test-engineer
-description: Design and implement test strategy for a change
+description: >
+  Design and implement test strategy for a change
+  When NOT to use: implementing the feature under test (executor); one-off verification runs (verifier).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

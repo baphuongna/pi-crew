@@ -1,6 +1,8 @@
 ---
 name: analyst
-description: Analyze requirements, ambiguity, and hidden constraints
+description: >
+  Analyze requirements, ambiguity, and hidden constraints
+  When NOT to use: structuring the how (planner); post-implementation verification (verifier).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

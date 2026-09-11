@@ -1,6 +1,8 @@
 ---
 name: librarian
-description: Documentation and dependency-source research. Use for library internals, version behavior, README/CHANGELOG archaeology, and node_modules source analysis.
+description: >
+  Documentation and dependency-source research. Use for library internals, version behavior, README/CHANGELOG archaeology, and node_modules source analysis.
+  When NOT to use: repo-local code mapping (explorer); web fetching — no web tools, flag UNCERTAIN instead.
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

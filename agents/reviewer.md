@@ -1,6 +1,8 @@
 ---
 name: reviewer
-description: Review code changes for correctness, maintainability, and regressions
+description: >
+  Review code changes for correctness, maintainability, and regressions
+  When NOT to use: pre-execution plan critique (critic); security threat-modeling (security-reviewer).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

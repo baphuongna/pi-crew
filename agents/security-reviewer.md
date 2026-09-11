@@ -1,6 +1,8 @@
 ---
 name: security-reviewer
-description: Review changes for security vulnerabilities and trust-boundary issues
+description: >
+  Review changes for security vulnerabilities and trust-boundary issues
+  When NOT to use: general correctness/style review (reviewer); running audits yourself — no shell access, route audit commands to executor.
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

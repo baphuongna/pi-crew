@@ -1,6 +1,8 @@
 ---
 name: explorer
-description: Fast codebase discovery and file/symbol mapping
+description: >
+  Fast codebase discovery and file/symbol mapping
+  When NOT to use: write-actions of any kind; external docs lookup (librarian); deep adversarial analysis (council).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

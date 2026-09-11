@@ -12862,7 +12862,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/prompt-builder.ts": {
-      "bytes": 15450,
+      "bytes": 15810,
       "imports": [
         {
           "path": "src/extension/knowledge-injection.ts",
@@ -21116,7 +21116,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8050517
+      "bytes": 8050919
     },
     "dist/index.mjs": {
       "imports": [
@@ -24645,7 +24645,7 @@
           "bytesInOutput": 9695
         },
         "src/runtime/task-runner/prompt-builder.ts": {
-          "bytesInOutput": 10681
+          "bytesInOutput": 11049
         },
         "src/state/stores/ownership-map.ts": {
           "bytesInOutput": 2004
@@ -25401,7 +25401,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3374029
+      "bytes": 3374397
     }
   }
 }

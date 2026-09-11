@@ -1,6 +1,8 @@
 ---
 name: councillor-pragmatist
-description: Pragmatist seat on a decision council. Receives ONLY the question (no conversation history) and weighs practical tradeoffs — cost, maintenance, time-to-value, alternatives. Spawned by the council skill.
+description: >
+  Pragmatist seat on a decision council. Receives ONLY the question (no conversation history) and weighs practical tradeoffs — cost, maintenance, time-to-value, alternatives. Spawned by the council skill.
+  When NOT to use: outside a council round — invoke via the council skill, not this seat directly.
 model: false
 systemPromptMode: replace
 inheritProjectContext: false

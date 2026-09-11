@@ -133,6 +133,16 @@ Additions to the two gold-standard bodies:
 
 AGENT-2 (merge analyst+planner) remains un-exercised by design: both roles now have distinct lane contracts, and merging is a structural change (DEFAULT_ROLE_SKILLS, team role mappings) outside body-upgrade scope.
 
+### feat(prompt): worker-side prompt track complete (PROMPT-1 AC + PROMPT-2 + PROMPT-5 agent-side)
+
+Closes the three remaining gaps in the PROMPT track (PROMPT-3 explorer tool matrix and PROMPT-4 review budgets landed in Batches 3–8).
+
+**PROMPT-2 — universal task-rejection instruction.** The worker scaffold's Protocol block (stablePrefix, every role) gains the lane-guard line ported from OMO-slim's task-rejection with improved phrasing: "If a task falls outside your role, do not attempt partial work. Return a concise rejection to the leader naming the lane that should own it." This complements the per-agent reject sections (executor/critic/etc.) with a scaffold-level default for every role, including future ones.
+
+**PROMPT-1 AC — CI-enforced output contracts.** New `test/unit/agents/agent-output-contracts.test.ts` walks the discovered builtin agents and asserts each body carries an `## Output format` heading with a fenced output block. A stub agent with no output contract now fails CI before it can ship (all 17 pass; threshold asserts ≥17 so growth is covered).
+
+**PROMPT-5 (agent side) — "When NOT to use" in every agent description.** All 17 agent frontmatter descriptions converted to folded scalars (`description: >`) with an appended "When NOT to use: …" line naming the correct alternative lane (executor → designer/oracle/explorer; reviewer → critic/security-reviewer; verifier → cold-verifier/test-engineer; councillors → invoke via the council skill; etc.). Matches the skill-side pattern from Batch 2 (34/34); YAML parse verified 17/17.
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

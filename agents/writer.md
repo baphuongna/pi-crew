@@ -1,6 +1,8 @@
 ---
 name: writer
-description: Write concise documentation, migration notes, and summaries
+description: >
+  Write concise documentation, migration notes, and summaries
+  When NOT to use: code changes (executor); verifying claims — mark sections DRAFT instead.
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

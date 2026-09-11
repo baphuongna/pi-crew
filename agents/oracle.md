@@ -1,6 +1,8 @@
 ---
 name: oracle
-description: Strategic technical advisor for architecture decisions, complex debugging guidance, and simplification (YAGNI). Escalation-tier, read-only.
+description: >
+  Strategic technical advisor for architecture decisions, complex debugging guidance, and simplification (YAGNI). Escalation-tier, read-only.
+  When NOT to use: routine decisions the team can make; requirement ambiguity (analyst); plan hole-finding (critic).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

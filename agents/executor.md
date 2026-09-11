@@ -1,6 +1,8 @@
 ---
 name: executor
-description: Implement planned code changes
+description: >
+  Implement planned code changes
+  When NOT to use: design/UX decisions (designer), architecture calls (oracle), exploration-heavy discovery (explorer).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

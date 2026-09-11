@@ -1,6 +1,8 @@
 ---
 name: verifier
-description: Verify that implementation satisfies the requested goal
+description: >
+  Verify that implementation satisfies the requested goal
+  When NOT to use: adversarial cold re-checks of high-stakes verdicts (cold-verifier); authoring new tests (test-engineer).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true

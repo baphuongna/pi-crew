@@ -49233,6 +49233,10 @@ async function renderTaskPrompt(manifest, step, task, agent, skillBlock = "", pr
     "- Report blockers and verification evidence in the final result.",
     "- Do not claim completion without evidence.",
     "- Follow the Task Packet contract below; escalate if any contract field is impossible to satisfy.",
+    // PROMPT-2 (port of OMO-slim task-rejection, improved phrasing): a
+    // universal lane-guard for every role — complements the per-agent reject
+    // sections in agents/*.md with a scaffold-level instruction.
+    "- If a task falls outside your role, do not attempt partial work. Return a concise rejection to the leader naming the lane that should own it.",
     "",
     readOnlyRoleInstructions(task.role),
     "",

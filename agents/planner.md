@@ -1,6 +1,8 @@
 ---
 name: planner
-description: Create an execution plan with clear sequencing and risk notes
+description: >
+  Create an execution plan with clear sequencing and risk notes
+  When NOT to use: requirements clarification (analyst); executing phases (executor).
 model: false
 systemPromptMode: replace
 inheritProjectContext: true
