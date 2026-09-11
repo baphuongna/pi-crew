@@ -13,8 +13,9 @@
 
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("../src/runtime/", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("../src/runtime/", import.meta.url));
 const LIMIT = 2000;
 
 /** @param {string} dir @returns {AsyncGenerator<string>} */

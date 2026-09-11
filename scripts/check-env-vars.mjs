@@ -63,8 +63,9 @@
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const FAMILY_RE = /^(PI_CREW_[A-Z0-9_]+|PI_TEAMS_[A-Z0-9_]+)$/;
 const DOT_RE = /process\.env\??\.(PI_CREW_[A-Z0-9_]+|PI_TEAMS_[A-Z0-9_]+)/g;

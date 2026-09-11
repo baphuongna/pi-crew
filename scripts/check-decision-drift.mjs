@@ -28,8 +28,9 @@
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = new URL("..", import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const DECISIONS_DIR = join(ROOT, "docs/decisions");
 
 const TOKEN_RE = /\b(PI_CREW_[A-Z][A-Z0-9_]*|PI_TEAMS_[A-Z][A-Z0-9_]*)\b/g;

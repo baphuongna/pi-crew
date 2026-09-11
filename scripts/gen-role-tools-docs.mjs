@@ -40,7 +40,7 @@ for (const role of Object.keys(ROLE_TOOL_CONFIGS)) {
 }
 
 const out = lines.join("");
-const outPath = path.resolve(path.dirname(new URL("", import.meta.url).pathname), "..", "docs", "role-tools.md");
+const outPath = path.resolve(path.dirname(fileURLToPath(new URL("", import.meta.url))), "..", "docs", "role-tools.md");
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, out);
 console.log(`Wrote ${outPath} (${Object.keys(ROLE_TOOL_CONFIGS).length} roles)`);
