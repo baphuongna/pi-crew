@@ -10,7 +10,6 @@ import { createRunPaths, loadRunManifestById, saveRunManifestAsync, updateRunSta
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { errorMessage } from "../utils/guards.ts";
-import { projectCrewRoot } from "../utils/paths.ts";
 import { assertSafePathId } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 // Heavy runtime — lazy-loaded to avoid pulling team-runner into background-runner
@@ -158,6 +157,27 @@ export const BENIGN_SIGNALS = new Set([
  */
 export function signalEventType(sig: string): "async.signal" | "async.failed" {
 	return BENIGN_SIGNALS.has(sig) ? "async.signal" : "async.failed";
+}
+
+/**
+ * Scope-aware diagnostic paths for the background runner (issue #55, follows
+ * the #54 fix in run-tracker.ts). Runs created in a markerless (non-git) cwd
+ * live under userCrewRoot() — resolved via the same createRunPaths/
+ * scopeBaseRoot chain used at run CREATION — while project cwds keep .crew/ or
+ * the .pi/teams/ fallback (issue #29). Pure path math: createRunPaths asserts
+ * the runId (R11-2 boundary hardening preserved) and never touches the fs.
+ *
+ * These must stay (cwd, runId)-derived: both sites run BEFORE the manifest is
+ * loaded (the console redirect is the FIRST thing main() does; exitCodePath is
+ * computed at module load), so manifest.stateRoot is not available yet.
+ */
+export function backgroundLogPath(cwd: string, runId: string): string {
+	return path.join(createRunPaths(cwd, runId).stateRoot, "background.log");
+}
+
+/** exit-code.txt sibling of background.log — same scope resolution (#55). */
+export function backgroundExitCodePath(cwd: string, runId: string): string {
+	return path.join(createRunPaths(cwd, runId).stateRoot, "exit-code.txt");
 }
 
 /**
@@ -421,10 +441,12 @@ async function main(): Promise<void> {
 		// best-effort try/catch so the hardening is never silently swallowed).
 		assertSafePathId("runId", _runId);
 		try {
-			// Use projectCrewRoot() so the background log lives next to the
-			// manifest in either .crew/state/runs/ or .pi/teams/state/runs/
-			// depending on the project's chosen layout (issue #29).
-			const logPath = path.join(projectCrewRoot(_cwd), "state", "runs", _runId, "background.log");
+			// Scope-aware (issue #55): resolve via createRunPaths so the log lands
+			// next to the manifest for BOTH project cwds (.crew/ or the .pi/teams/
+			// fallback, issue #29) and markerless cwds (user scope, issue #54). The
+			// previous projectCrewRoot join silently dropped the console redirect
+			// for user-scope runs — exactly the log needed to diagnose them.
+			const logPath = backgroundLogPath(_cwd, _runId);
 			logFd = fs.openSync(logPath, "a");
 			const origWrite =
 				(_prefix: string) =>
@@ -478,8 +500,11 @@ async function main(): Promise<void> {
 		// IIFE runs at MODULE LOAD, so an unsafe runId throws before the runner
 		// starts (intended fail-fast, matching run-import.ts:105 pattern).
 		assertSafePathId("runId", runId);
-		// Use projectCrewRoot() to honour the .pi/teams/ fallback (issue #29).
-		return path.join(projectCrewRoot(cwd), "state", "runs", runId, "exit-code.txt");
+		// Scope-aware (issue #55): same resolution as backgroundLogPath — project
+		// scope (.crew/ or .pi/teams/, issue #29) or user scope (#54). The
+		// previous projectCrewRoot join never landed exit-code.txt for user-scope
+		// runs, hiding non-zero exit diagnostics.
+		return backgroundExitCodePath(cwd, runId);
 	})();
 	if (exitCodePath) {
 		process.on("exit", (code) => {
