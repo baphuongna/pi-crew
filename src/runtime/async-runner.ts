@@ -346,6 +346,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 	// leaves the runner creds-less (= previous behavior), never throws.
 	try {
 		let line: string;
+		// LAZY: broker issuer only when a handshake payload needs minting.
 		const { getActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
 		const issuer = getActiveBrokerIssuer();
 		if (issuer) {
@@ -355,6 +356,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 			// BEFORE dispatch (tasksPath exists on the manifest); dynamic workflows
 			// that plan tasks inside the runner get no creds (follow-up: broker-side
 			// mint RPC).
+			// LAZY: state-store pulls the whole stores chain into the async runner.
 			const { loadRunManifestByIdAsync } = await import("../state/stores/state-store.ts");
 			const loaded = await loadRunManifestByIdAsync(manifest.cwd, manifest.runId);
 			const runTasks = loaded?.tasks ?? [];

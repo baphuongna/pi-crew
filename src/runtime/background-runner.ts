@@ -537,7 +537,9 @@ async function main(): Promise<void> {
 		const raw = await readStdinFirstLine();
 		const payload = raw ? parseStdinBrokerPayload(raw, runId) : undefined;
 		if (payload) {
+			// LAZY: broker issuer module has process-level side effects at load.
 			const { setActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
+			// LAZY: pi-args pulls the model registry chain.
 			const { resolveCrewMaxDepth } = await import("./model/pi-args.ts");
 			// Static issuer scoped to THIS run, serving PRE-MINTED per-task COMPOUND
 			// tokens — wait.* rejects bare-runId tokens (ADR-0 item 6), so the v1

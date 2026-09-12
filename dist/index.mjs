@@ -71905,18 +71905,15 @@ ${dwfResult.manifest.summary ?? ""}`,
           "then re-block until the run finishes:",
           `  team action='wait' runId='${updatedManifest.runId}'`
         );
-        return result(
-          lines.join("\n"),
-          {
-            action: "run",
-            status: "ok",
-            runId: updatedManifest.runId,
-            artifactsRoot: updatedManifest.artifactsRoot,
-            taskId: w.taskId,
-            questionId: w.questionId,
-            waiting: true
-          }
-        );
+        return result(lines.join("\n"), {
+          action: "run",
+          status: "ok",
+          runId: updatedManifest.runId,
+          artifactsRoot: updatedManifest.artifactsRoot,
+          taskId: w.taskId,
+          questionId: w.questionId,
+          waiting: true
+        });
       }
       if (completed.detached) {
         return result(

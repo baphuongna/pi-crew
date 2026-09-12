@@ -1883,6 +1883,7 @@ export class CrewBroker {
 		// Import kept lazy to avoid a static broker→run-tracker edge at module
 		// load; there is no cycle (run-tracker has no broker import).
 		try {
+			// LAZY: run-tracker import kept lazy to avoid a static broker→run-tracker edge at module load (F1 push, no cycle).
 			const { resolveRunPromise } = await import("../run-tracker.ts");
 			const freshPark = loadRunManifestById(this.options.cwd!, runId);
 			if (freshPark) {

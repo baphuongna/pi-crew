@@ -8933,7 +8933,7 @@
       "format": "esm"
     },
     "src/runtime/run-tracker.ts": {
-      "bytes": 10170,
+      "bytes": 10164,
       "imports": [
         {
           "path": "node:fs",
@@ -12084,7 +12084,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker-client.ts": {
-      "bytes": 27050,
+      "bytes": 27040,
       "imports": [
         {
           "path": "node:crypto",
@@ -12312,7 +12312,7 @@
       "format": "esm"
     },
     "src/prompt/prompt-runtime.ts": {
-      "bytes": 54395,
+      "bytes": 54388,
       "imports": [
         {
           "path": "node:fs",
@@ -14471,7 +14471,7 @@
       "format": "esm"
     },
     "src/runtime/async-runner.ts": {
-      "bytes": 19939,
+      "bytes": 20079,
       "imports": [
         {
           "path": "node:child_process",
@@ -17463,7 +17463,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 37936,
+      "bytes": 37930,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -18906,7 +18906,7 @@
       "format": "esm"
     },
     "src/extension/post-init-skill-check.ts": {
-      "bytes": 1162,
+      "bytes": 1164,
       "imports": [
         {
           "path": "src/runtime/skill-instructions.ts",
@@ -20028,7 +20028,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 79599,
+      "bytes": 79720,
       "imports": [
         {
           "path": "node:crypto",
@@ -21136,7 +21136,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8072841
+      "bytes": 8073074
     },
     "dist/index.mjs": {
       "imports": [
@@ -25076,7 +25076,7 @@
           "bytesInOutput": 7083
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 27906
+          "bytesInOutput": 27860
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 27443
@@ -25421,7 +25421,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3382771
+      "bytes": 3382725
     }
   }
 }
