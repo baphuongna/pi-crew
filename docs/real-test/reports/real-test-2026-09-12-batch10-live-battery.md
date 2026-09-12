@@ -68,3 +68,21 @@ G17-class settings drift: `reliability.loopGuard` (+4 pre-existing boolean sibli
 
 ## Verdict
 **Tiers 1–8, 10a, 11, 12: PASS with evidence above. Tier 9: PASS for every path EXCEPT the ask round-trip leg, which is broken by F4 (async, systemic) and F1 (sync).** The battery did exactly what it exists for: three real defects found (one fixed live), zero false-green on the new Tier 12.
+
+---
+
+## Fix session appendix (same day, commits 88988971 → ad614070)
+
+| Finding | Fix | Verification |
+|---|---|---|
+| F1 sync park-release | `RunWaitResult.waiting` + broker `resolveRunPromise` push + run.ts WAITING branch (question + respond/wait recovery commands) | **Unit-proven**: wait-request-broker "pushes the question to a registered sync foreground waiter" (22/22). Live tool-level proof pending a sync worker that actually asks (3 probe attempts inconclusive: 2× probe-LLM mangled the chain param, 1× explorer deferred without asking — nondeterminism, not a fix failure) |
+| F2 deadline race | server default 600→480 (request-parsers) **and** client default 600→480 (ASK_TIMEOUT_SEC_DEFAULT — the ask tool always sent an explicit value, so the first fix alone changed nothing; caught by the live probe's "deadline in 600s") | pins updated (wait-request-broker + ask-tool-lifecycle); both suites green |
+| F4 async broker creds | v1 (per-run token) → caught live: waitAuthError rejects bare-runId tokens for wait.* (ADR-0 item 6) → **v2: per-task COMPOUND tokens pre-minted at dispatch, {v:2,...,tasks:{id:token}} on stdin** (token never touches disk — heap→pipe→heap; env route stays closed by design) | **LIVE-PROVEN**: async run team_20260912043817 — executor connected through the handshake and delivered a full structured ask (`ask.requested` event, 5 options). Handshake round-trip pinned by unit test (v1 shape rejected) |
+| F5 (found during fix) request hangs on half-dead sockets | per-request RPC timeout (default 15s; ask passes deadline+5s) + new BrokerErrorCode `request-timeout`; cleared on settle + close | 2 new client tests (lost-frame → typed fallback; happy path unaffected); critical now 104/104 |
+| F3 settings drift | already fixed during battery (3d978969) | parity guard test |
+
+**Follow-ups opened by the fix session** (not regressions — pre-existing gaps surfaced by deeper probing):
+1. Root cause of response-frame loss on half-dead handshake sockets (explorer `code=close` + executor silent loss in the same run) — needs a reproduction; F5 makes it non-fatal.
+2. Expired-ask reconciliation: dispatch-batch requeue flips the task, but a parked worker only wakes via its own ask timeout — with F5 the worst case is now deadline+5s; a runner-side reconciliation of live-but-parked workers is the cleaner end-state.
+3. Dynamic-workflow async runs still creds-less (tasks planned inside the runner can't be pre-minted) — needs a broker-side mint RPC.
+4. The stuck run (team_20260912043817) was cancelled after evidence capture; worker was killed with it.
