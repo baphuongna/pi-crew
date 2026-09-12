@@ -253,16 +253,17 @@ export function buildBackgroundRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.Process
 	return { ...env, PI_CREW_ASYNC_RUN: "1" };
 }
 
-/** F4: the ONE line written to the background-runner's stdin carrying the
- * per-run broker credential. Kept as a pure exported function so tests can
- * pin the WRITER format against the READER parser (background-runner.ts
- * parseStdinBrokerPayload) — a drift between the two silently breaks the
- * handshake for every async run. */
+/** F4 v2: the ONE line written to the background-runner's stdin carrying
+ * PER-TASK compound broker tokens (see stdin-handshake.ts for why compound —
+ * ADR-0 item 6 rejects bare-runId tokens for wait.*). Kept pure + exported so
+ * tests pin the WRITER format against the READER parser — a drift between
+ * the two silently breaks coordination for every async run. */
 export function buildBrokerStdinLine(
 	runId: string,
-	creds: { socketPath: string; token: string },
+	socketPath: string,
+	tasks: Record<string, string>,
 ): string {
-	return `${JSON.stringify({ v: 1, runId, socketPath: creds.socketPath, token: creds.token })}\n`;
+	return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
 }
 
 export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise<SpawnBackgroundTeamRunResult> {
@@ -351,9 +352,35 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		let line: string;
 		const { getActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
 		const issuer = getActiveBrokerIssuer();
-		const creds = issuer ? await issuer(manifest.runId) : undefined;
-		line = creds ? buildBrokerStdinLine(manifest.runId, creds) : "\n";
-		child.stdin?.write(line);
+		if (issuer) {
+			// F4 v2: pre-mint a COMPOUND (runId+taskId) token for every task of the
+			// run — wait.* rejects bare-runId tokens (ADR-0 item 6), so the legacy
+			// issuer(runId) shortcut left every park forbidden. Tasks are persisted
+			// BEFORE dispatch (tasksPath exists on the manifest); dynamic workflows
+			// that plan tasks inside the runner get no creds (follow-up: broker-side
+			// mint RPC).
+			const { loadRunManifestByIdAsync } = await import("../state/stores/state-store.ts");
+			const loaded = await loadRunManifestByIdAsync(manifest.cwd, manifest.runId);
+			const runTasks = loaded?.tasks ?? [];
+			const tasks: Record<string, string> = {};
+			let socketPath: string | undefined;
+			for (const task of runTasks) {
+				if (!task?.id) continue;
+				const creds = await issuer(manifest.runId, task.id);
+				if (creds) {
+					tasks[task.id] = creds.token;
+					socketPath ??= creds.socketPath;
+				}
+			}
+			if (socketPath && Object.keys(tasks).length > 0) {
+				line = buildBrokerStdinLine(manifest.runId, socketPath, tasks);
+				child.stdin?.write(line);
+			} else {
+				child.stdin?.write("\n");
+			}
+		} else {
+			child.stdin?.write("\n");
+		}
 	} catch {
 		/* best-effort: runner proceeds creds-less */
 	}

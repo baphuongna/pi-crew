@@ -541,16 +541,23 @@ async function main(): Promise<void> {
 		if (payload) {
 			const { setActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
 			const { resolveCrewMaxDepth } = await import("./model/pi-args.ts");
-			const creds = { socketPath: payload.socketPath, token: payload.token };
-			// Static issuer scoped to THIS run only. Depth-cap parity with the
-			// parent-side issueForChild gate (lifecycle-handlers.ts:1130-1136):
-			// no credentials at/over maxDepth (env containment at the cap).
-			setActiveBrokerIssuer(async (rid, _taskId, childDepth) => {
+			// Static issuer scoped to THIS run, serving PRE-MINTED per-task COMPOUND
+			// tokens — wait.* rejects bare-runId tokens (ADR-0 item 6), so the v1
+			// single-token shortcut left every park forbidden. Unknown taskIds
+			// (dynamic workflows planned in-runner) get NO creds — follow-up:
+			// broker-side mint RPC. Depth-cap parity with the parent-side
+			// issueForChild gate (lifecycle-handlers.ts:1130-1136).
+			setActiveBrokerIssuer(async (rid, taskId, childDepth) => {
 				if (rid !== payload.runId) return undefined;
 				if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;
-				return creds;
+				if (!taskId) return undefined;
+				const token = payload.tasks[taskId];
+				if (!token) return undefined;
+				return { socketPath: payload.socketPath, token };
 			});
-			debugLog(`[broker] stdin handshake accepted for run ${runId} (socket ${payload.socketPath})`);
+			debugLog(
+				`[broker] stdin handshake accepted for run ${runId} (${Object.keys(payload.tasks).length} task tokens, socket ${payload.socketPath})`,
+			);
 		} else {
 			debugLog(`[broker] no stdin creds payload — runner proceeds broker-less (pre-F4 behavior)`);
 		}

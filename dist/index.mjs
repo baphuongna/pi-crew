@@ -57422,8 +57422,8 @@ function getBackgroundRunnerCommand(runnerPath, cwd, runId, loaderInput = resolv
 function buildBackgroundRunnerEnv(env) {
   return { ...env, PI_CREW_ASYNC_RUN: "1" };
 }
-function buildBrokerStdinLine(runId, creds) {
-  return `${JSON.stringify({ v: 1, runId, socketPath: creds.socketPath, token: creds.token })}
+function buildBrokerStdinLine(runId, socketPath, tasks) {
+  return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}
 `;
 }
 async function spawnBackgroundTeamRun(manifest) {
@@ -57466,9 +57466,29 @@ async function spawnBackgroundTeamRun(manifest) {
     let line4;
     const { getActiveBrokerIssuer: getActiveBrokerIssuer2 } = await Promise.resolve().then(() => (init_broker_issuer(), broker_issuer_exports));
     const issuer = getActiveBrokerIssuer2();
-    const creds = issuer ? await issuer(manifest.runId) : void 0;
-    line4 = creds ? buildBrokerStdinLine(manifest.runId, creds) : "\n";
-    child.stdin?.write(line4);
+    if (issuer) {
+      const { loadRunManifestByIdAsync: loadRunManifestByIdAsync2 } = await Promise.resolve().then(() => (init_state_store(), state_store_exports));
+      const loaded = await loadRunManifestByIdAsync2(manifest.cwd, manifest.runId);
+      const runTasks = loaded?.tasks ?? [];
+      const tasks = {};
+      let socketPath;
+      for (const task of runTasks) {
+        if (!task?.id) continue;
+        const creds = await issuer(manifest.runId, task.id);
+        if (creds) {
+          tasks[task.id] = creds.token;
+          socketPath ??= creds.socketPath;
+        }
+      }
+      if (socketPath && Object.keys(tasks).length > 0) {
+        line4 = buildBrokerStdinLine(manifest.runId, socketPath, tasks);
+        child.stdin?.write(line4);
+      } else {
+        child.stdin?.write("\n");
+      }
+    } else {
+      child.stdin?.write("\n");
+    }
   } catch {
   }
   try {

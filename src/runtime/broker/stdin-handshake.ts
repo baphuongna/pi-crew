@@ -15,12 +15,18 @@
  * the runner.
  */
 
-/** The one-line payload async-runner writes to the runner's stdin. */
+/** The one-line payload async-runner writes to the runner's stdin carrying
+ * PER-TASK compound tokens. v2 (ADR-0 2026-08-17 item 6): wait.* accepts
+ * task-scoped (compound) tokens ONLY — the legacy bare-runId token
+ * authenticates the connection but waitAuthError rejects its parks with
+ * `forbidden`. The dispatching session pre-mints a compound token for every
+ * task in the manifest (they exist before dispatch); dynamic-workflow tasks
+ * planned inside the runner get NO creds (follow-up: broker mint RPC). */
 export interface StdinBrokerPayload {
-	v: 1;
+	v: 2;
 	runId: string;
 	socketPath: string;
-	token: string;
+	tasks: Record<string, string>;
 }
 
 /** Parse + validate one handshake line. Rejects wrong version, wrong run
@@ -30,11 +36,15 @@ export function parseStdinBrokerPayload(raw: string, expectedRunId: string): Std
 		const obj: unknown = JSON.parse(raw.trim());
 		if (!obj || typeof obj !== "object") return undefined;
 		const o = obj as Record<string, unknown>;
-		if (o.v !== 1) return undefined;
+		if (o.v !== 2) return undefined;
 		if (o.runId !== expectedRunId) return undefined;
 		if (typeof o.socketPath !== "string" || o.socketPath.length === 0) return undefined;
-		if (typeof o.token !== "string" || o.token.length === 0) return undefined;
-		return { v: 1, runId: o.runId, socketPath: o.socketPath, token: o.token };
+		const tasks = o.tasks;
+		if (!tasks || typeof tasks !== "object" || Array.isArray(tasks)) return undefined;
+		for (const [id, tok] of Object.entries(tasks)) {
+			if (id.length === 0 || typeof tok !== "string" || tok.length === 0) return undefined;
+		}
+		return { v: 2, runId: o.runId, socketPath: o.socketPath, tasks: tasks as Record<string, string> };
 	} catch {
 		return undefined;
 	}
