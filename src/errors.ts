@@ -64,7 +64,7 @@ const DEFAULT_HELP: Record<ErrorCode, string | undefined> = {
 	[ErrorCode.RunStale]:
 		"The worker stopped heartbeating and was treated as a zombie. Re-run the team (resume or fresh); if it recurs, check `runtime.executeWorkers` / system load.",
 	[ErrorCode.ModelOutOfScope]:
-		"The requested model is not in your pi `enabledModels` allowlist. Either pick a model listed in `enabledModels` (settings.json) or extend the allowlist. The scope gate is opt-in — disable `runtime.reliability.scopeModels` to allow any model.",
+		"The requested model is not in your pi `enabledModels` allowlist. Either pick a model listed in `enabledModels` (settings.json) or extend the allowlist. The scope gate is opt-in — disable `reliability.scopeModels` to allow any model.",
 };
 
 /**

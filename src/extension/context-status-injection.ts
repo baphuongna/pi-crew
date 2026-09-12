@@ -28,7 +28,7 @@
  * - `emitContext` already wraps handlers in try/catch and emits errors instead
  *   of crashing the loop (Pi `runner.ts:933`), so a throw here can't break the
  *   agent — but we also guard defensively.
- * - Opt-out: `runtime.reliability.ambientStatusInjection: false` in config.
+ * - Opt-out: `reliability.ambientStatusInjection: false` in config.
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -163,7 +163,7 @@ export function handleContextEvent(event: ContextEvent, cwd: string, sessionId?:
  * Register the ambient-status `context` event handler. Reads the project cwd
  * from the session context on each call (crew state is per-project).
  *
- * Pass `enabled: false` (from `runtime.reliability.ambientStatusInjection`) to
+ * Pass `enabled: false` (from `reliability.ambientStatusInjection`) to
  * disable the feature without unwiring the handler.
  */
 export function registerContextStatusInjection(pi: ExtensionAPI, opts: { enabled?: boolean } = {}): void {

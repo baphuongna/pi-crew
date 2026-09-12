@@ -10606,7 +10606,8 @@ var init_config_schema = __esm({
         forcePreflight: Type.Optional(Type.Boolean()),
         ambientStatusInjection: Type.Optional(Type.Boolean()),
         perWriteValidation: Type.Optional(Type.Boolean()),
-        scopeModels: Type.Optional(Type.Boolean())
+        scopeModels: Type.Optional(Type.Boolean()),
+        loopGuard: Type.Optional(Type.Boolean())
       },
       { additionalProperties: false }
     );
@@ -15400,7 +15401,7 @@ var init_errors3 = __esm({
       [ErrorCode.EventLogLockTimeout]: "Another process holds the event-log lock. Check for orphaned `.mkdirlock` directories or stale pi-crew processes, then retry.",
       [ErrorCode.DepthLimitExceeded]: "A pipeline/chain exceeded the recursion depth limit, which usually indicates a circular stage dependency. Review step `dependsOn` chains.",
       [ErrorCode.RunStale]: "The worker stopped heartbeating and was treated as a zombie. Re-run the team (resume or fresh); if it recurs, check `runtime.executeWorkers` / system load.",
-      [ErrorCode.ModelOutOfScope]: "The requested model is not in your pi `enabledModels` allowlist. Either pick a model listed in `enabledModels` (settings.json) or extend the allowlist. The scope gate is opt-in \u2014 disable `runtime.reliability.scopeModels` to allow any model."
+      [ErrorCode.ModelOutOfScope]: "The requested model is not in your pi `enabledModels` allowlist. Either pick a model listed in `enabledModels` (settings.json) or extend the allowlist. The scope gate is opt-in \u2014 disable `reliability.scopeModels` to allow any model."
     };
     CrewError = class extends Error {
       code;
@@ -56531,6 +56532,11 @@ var init_handle_settings = __esm({
       "reliability.autoRetry": false,
       "reliability.autoRecover": false,
       "reliability.cleanupOrphanedTempDirs": true,
+      "reliability.loopGuard": true,
+      "reliability.perWriteValidation": true,
+      "reliability.ambientStatusInjection": true,
+      "reliability.forcePreflight": false,
+      "reliability.scopeModels": false,
       "telemetry.enabled": false,
       "notifications.enabled": false
     };
@@ -56610,6 +56616,11 @@ var init_handle_settings = __esm({
       "reliability.autoRetry",
       "reliability.autoRecover",
       "reliability.cleanupOrphanedTempDirs",
+      "reliability.loopGuard",
+      "reliability.perWriteValidation",
+      "reliability.ambientStatusInjection",
+      "reliability.forcePreflight",
+      "reliability.scopeModels",
       "reliability.deadletterThreshold",
       "reliability.retryPolicy.maxAttempts",
       "reliability.retryPolicy.backoffMs",
@@ -75334,6 +75345,41 @@ var init_settings_overlay = __esm({
         description: "Remove /tmp/pi-crew-* directories after reconciliation (1h age threshold)."
       },
       {
+        id: "reliability.loopGuard",
+        label: "Tool Loop Guard",
+        type: "boolean",
+        tab: "advanced",
+        description: "Warn at 3 / block at 5 identical consecutive read-only tool results (ARCH-1)."
+      },
+      {
+        id: "reliability.perWriteValidation",
+        label: "Per-Write Validation",
+        type: "boolean",
+        tab: "advanced",
+        description: "Validate state writes as they are made (default on)."
+      },
+      {
+        id: "reliability.ambientStatusInjection",
+        label: "Ambient Status Injection",
+        type: "boolean",
+        tab: "advanced",
+        description: "Inject a compact crew-status note into context on every LLM call while runs are in-flight."
+      },
+      {
+        id: "reliability.forcePreflight",
+        label: "Force Preflight (audit override)",
+        type: "boolean",
+        tab: "advanced",
+        description: "Skip usage-threshold BLOCK/WARN preflight. Default false (enforce). Audit/debug only."
+      },
+      {
+        id: "reliability.scopeModels",
+        label: "Scope Models (F7)",
+        type: "boolean",
+        tab: "advanced",
+        description: "Enforce user enabledModels allowlist on subagent model choices. Default false."
+      },
+      {
         id: "telemetry.enabled",
         label: "Telemetry",
         type: "boolean",
@@ -75383,6 +75429,11 @@ var init_settings_overlay = __esm({
       "reliability.autoRetry": false,
       "reliability.autoRecover": false,
       "reliability.cleanupOrphanedTempDirs": true,
+      "reliability.loopGuard": true,
+      "reliability.perWriteValidation": true,
+      "reliability.ambientStatusInjection": true,
+      "reliability.forcePreflight": false,
+      "reliability.scopeModels": false,
       "telemetry.enabled": false,
       "notifications.enabled": false
     };

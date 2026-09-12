@@ -1,7 +1,7 @@
 /**
  * model-scope.ts — Opt-in model-scope enforcement (F7).
  *
- * When `runtime.reliability.scopeModels` is enabled, subagent model choices
+ * When `reliability.scopeModels` is enabled, subagent model choices
  * that fall outside the user's pi `enabledModels` allowlist are flagged:
  *   - Caller-supplied (per-spawn override / step / team role) out-of-scope
  *     → HARD ERROR to orchestrator (fail fast before spawn).
@@ -128,7 +128,7 @@ export function checkModelScope(
  * Read the user's `enabledModels` allowlist from pi's SettingsManager.
  * Returns an empty array when the SettingsManager export is unavailable, the
  * allowlist is unset, or any error occurs (best-effort, never throws). The
- * caller should still gate on `runtime.reliability.scopeModels` — an empty
+ * caller should still gate on `reliability.scopeModels` — an empty
  * patterns array is a no-op (nothing to enforce against).
  *
  * @internal Only the runtime spawn layers should call this. Pure module: pure

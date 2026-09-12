@@ -25,7 +25,7 @@
  * main session is one more, so module-level state needs no session keying.
  * Tracked fingerprints are FIFO-bounded to guard memory in long sessions.
  *
- * Toggle: runtime.reliability.loopGuard = false in config disables install
+ * Toggle: reliability.loopGuard = false in config disables install
  * (mirrors perWriteValidation).
  */
 

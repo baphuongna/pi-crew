@@ -41,7 +41,7 @@ export function installPiHooks(pi: ExtensionAPI, ctx: RegistrationContext): void
 
 /**
  * ARCH-1: dispatch loop guard — warn at 3 identical results, block read-only
- * tools at 5. Toggle via runtime.reliability.loopGuard (default on), mirroring
+ * tools at 5. Toggle via reliability.loopGuard (default on), mirroring
  * perWriteValidation.
  */
 function installToolLoopGuardIfEnabled(pi: ExtensionAPI, ctx: RegistrationContext): void {
@@ -114,7 +114,7 @@ function installToolCallHook(_pi: ExtensionAPI, _ctx: RegistrationContext): void
  * tool result on failure — catches malformed config the moment it's
  * written, not at the next load. Latency-safe by construction: no process
  * spawn, one disk read ONLY for validated extensions, dedup'd by content.
- * Toggle via runtime.reliability.perWriteValidation (default true).
+ * Toggle via reliability.perWriteValidation (default true).
  * Process-spawning validators (.js/.sh/.py) are a future opt-in.
  */
 function installToolResultHook(_pi: ExtensionAPI, _ctx: RegistrationContext): void {

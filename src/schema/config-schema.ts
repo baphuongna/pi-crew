@@ -270,6 +270,7 @@ export const PiTeamsReliabilityConfigSchema = Type.Object(
 		ambientStatusInjection: Type.Optional(Type.Boolean()),
 		perWriteValidation: Type.Optional(Type.Boolean()),
 		scopeModels: Type.Optional(Type.Boolean()),
+		loopGuard: Type.Optional(Type.Boolean()),
 	},
 	{ additionalProperties: false },
 );

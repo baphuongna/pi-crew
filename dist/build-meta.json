@@ -6253,7 +6253,7 @@
       "format": "esm"
     },
     "src/schema/config-schema.ts": {
-      "bytes": 16662,
+      "bytes": 16706,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6943,7 +6943,7 @@
       "format": "esm"
     },
     "src/extension/context-status-injection.ts": {
-      "bytes": 7727,
+      "bytes": 7711,
       "imports": [
         {
           "path": "src/utils/session-utils.ts",
@@ -6995,7 +6995,7 @@
       "format": "esm"
     },
     "src/errors.ts": {
-      "bytes": 9495,
+      "bytes": 9487,
       "imports": [],
       "format": "esm"
     },
@@ -8817,7 +8817,7 @@
       "format": "esm"
     },
     "src/runtime/model/model-scope.ts": {
-      "bytes": 5929,
+      "bytes": 5913,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -10896,7 +10896,7 @@
       "format": "esm"
     },
     "src/runtime/live-session/live-session-runtime.ts": {
-      "bytes": 50748,
+      "bytes": 50740,
       "imports": [
         {
           "path": "src/agents/agent-config.ts",
@@ -13034,7 +13034,7 @@
       "format": "esm"
     },
     "src/runtime/task-runner/child-executor.ts": {
-      "bytes": 49894,
+      "bytes": 49886,
       "imports": [
         {
           "path": "node:fs",
@@ -14297,7 +14297,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/handle-settings.ts": {
-      "bytes": 19034,
+      "bytes": 19384,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -18283,7 +18283,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 31489,
+      "bytes": 32739,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -19384,12 +19384,12 @@
       "format": "esm"
     },
     "src/extension/registration/tool-loop-guard.ts": {
-      "bytes": 8569,
+      "bytes": 8561,
       "imports": [],
       "format": "esm"
     },
     "src/extension/registration/hook-registration.ts": {
-      "bytes": 5420,
+      "bytes": 5404,
       "imports": [
         {
           "path": "node:fs",
@@ -21121,7 +21121,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8052714
+      "bytes": 8055232
     },
     "dist/index.mjs": {
       "imports": [
@@ -23777,7 +23777,7 @@
           "bytesInOutput": 127
         },
         "src/schema/config-schema.ts": {
-          "bytesInOutput": 17277
+          "bytesInOutput": 17327
         },
         "src/config/suggestions.ts": {
           "bytesInOutput": 1325
@@ -23867,7 +23867,7 @@
           "bytesInOutput": 395
         },
         "src/errors.ts": {
-          "bytesInOutput": 8109
+          "bytesInOutput": 8101
         },
         "src/utils/redaction.ts": {
           "bytesInOutput": 9094
@@ -24791,7 +24791,7 @@
           "bytesInOutput": 4557
         },
         "src/extension/team-tool/handle-settings.ts": {
-          "bytesInOutput": 17197
+          "bytesInOutput": 17597
         },
         "src/extension/team-tool/workflow-manage.ts": {
           "bytesInOutput": 8636
@@ -25124,7 +25124,7 @@
           "bytesInOutput": 15969
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 30333
+          "bytesInOutput": 31803
         },
         "src/extension/registration/commands/shared.ts": {
           "bytesInOutput": 16619
@@ -25406,7 +25406,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3374967
+      "bytes": 3376879
     }
   }
 }

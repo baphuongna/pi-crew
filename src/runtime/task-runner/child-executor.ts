@@ -107,7 +107,7 @@ async function appendBackgroundLogAsync(bgLogPath: string, eventLine: string): P
 
 /**
  * F7: resolve the enabledModels allowlist for the child-process spawn path,
- * but only if `runtime.reliability.scopeModels` is ON. Returns [] (no-op)
+ * but only if `reliability.scopeModels` is ON. Returns [] (no-op)
  * when the toggle is off or the allowlist is empty. Best-effort: any failure
  * to read config or the allowlist silently disables the gate so spawn is
  * never blocked by a misconfiguration.
