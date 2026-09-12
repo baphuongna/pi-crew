@@ -770,6 +770,41 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		// Wait for the foreground run to complete and return actual results.
 		try {
 			const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: fgDeadline.deadlineMs });
+			if (completed.waiting) {
+				// F1 (2026-09-12 live battery): a task parked on `ask` released this
+				// waiter — return the QUESTION so the leader can answer inline
+				// instead of blocking until the response watchdog kills the
+				// parked worker. Run keeps executing in the foreground-run lane.
+				const w = completed.waiting;
+				const secondsLeft = Math.max(0, Math.round((w.deadline - Date.now()) / 1000));
+				const lines = [
+					`pi-crew run WAITING for your answer: ${updatedManifest.runId}`,
+					`Team: ${team.name} · Workflow: ${workflow.name}`,
+					`Task ${w.taskId} (${w.questionId.substring(0, 8)}) parked on ask — ${secondsLeft}s until the deadline (then the worker proceeds with best judgment):`,
+					"",
+					`Q: ${w.question}`,
+				];
+				if (w.options?.length) {
+					lines.push("", "Options:", ...w.options.map((o, i) => `  ${i + 1}. ${o}`));
+				}
+				lines.push(
+					"",
+					"Answer now (run keeps executing):",
+					`  team action='respond' taskId='${w.taskId}' message='<your answer>'`,
+					"then re-block until the run finishes:",
+					`  team action='wait' runId='${updatedManifest.runId}'`,
+				);
+				return result(lines.join("\n"), {
+					action: "run",
+					status: "ok",
+					runId: updatedManifest.runId,
+					artifactsRoot: updatedManifest.artifactsRoot,
+					taskId: w.taskId,
+					questionId: w.questionId,
+					waiting: true,
+				},
+				);
+			}
 			if (completed.detached) {
 				// The waiter was released so this turn can settle (agent view
 				// switch); the run keeps executing and reports on completion.

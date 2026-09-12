@@ -9,6 +9,19 @@ export interface RunWaitResult {
 	/** True when the waiter was released early by `detachRunPromise` while the
 	 *  run itself keeps executing (see that function). */
 	detached?: boolean;
+	/** F1 (2026-09-12 live battery): set when the waiter was released early
+	 * because a task PARKED on `ask` — the broker pushes this via
+	 * `resolveRunPromise` so the sync caller's tool call returns with the
+	 * question instead of blocking until the watchdog kills the worker. The
+	 * run keeps executing; the leader answers via `team action='respond'`
+	 * then re-blocks via `team action='wait'`. */
+	waiting?: {
+		taskId: string;
+		questionId: string;
+		question: string;
+		deadline: number;
+		options?: string[];
+	};
 }
 
 export interface ActiveRunPromise {

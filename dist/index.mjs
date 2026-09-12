@@ -17697,6 +17697,13 @@ var init_run_event_bus = __esm({
 });
 
 // src/runtime/broker/broker-issuer.ts
+var broker_issuer_exports = {};
+__export(broker_issuer_exports, {
+  getActiveBrokerIssuer: () => getActiveBrokerIssuer,
+  getActiveBrokerRevoker: () => getActiveBrokerRevoker,
+  setActiveBrokerIssuer: () => setActiveBrokerIssuer,
+  setActiveBrokerRevoker: () => setActiveBrokerRevoker
+});
 function setActiveBrokerIssuer(issuer) {
   activeIssuer = issuer;
 }
@@ -29428,6 +29435,17 @@ var init_i18n = __esm({
 });
 
 // src/runtime/run-tracker.ts
+var run_tracker_exports = {};
+__export(run_tracker_exports, {
+  clearRunPromisesForTest: () => clearRunPromisesForTest,
+  detachRunPromise: () => detachRunPromise,
+  hasActiveRunPromise: () => hasActiveRunPromise,
+  hasPendingRunDetach: () => hasPendingRunDetach,
+  registerRunPromise: () => registerRunPromise,
+  rejectRunPromise: () => rejectRunPromise,
+  resolveRunPromise: () => resolveRunPromise,
+  waitForRun: () => waitForRun
+});
 import * as fs49 from "node:fs";
 function registerRunPromise(runId) {
   detachRequests.delete(runId);
@@ -29440,6 +29458,22 @@ function registerRunPromise(runId) {
   const entry = { promise, resolve: resolve27, reject };
   activeRunPromises.set(runId, entry);
   return entry;
+}
+function detachRunPromise(runId, cwd) {
+  const loaded = loadRunManifestById(cwd, runId);
+  if (!loaded) return false;
+  const entry = activeRunPromises.get(runId);
+  if (entry) {
+    activeRunPromises.delete(runId);
+    detachRequests.delete(runId);
+    entry.resolve({ ...loaded, detached: true });
+    return true;
+  }
+  detachRequests.add(runId);
+  return true;
+}
+function hasPendingRunDetach(runId) {
+  return detachRequests.has(runId);
 }
 function resolveRunPromise(runId, result4) {
   const entry = activeRunPromises.get(runId);
@@ -29499,6 +29533,16 @@ async function waitForRun(runId, cwd, options = {}) {
     attempt++;
   }
   throw new Error(`waitForRun timed out after ${timeoutMs}ms`);
+}
+function hasActiveRunPromise(runId) {
+  return activeRunPromises.has(runId);
+}
+function clearRunPromisesForTest() {
+  detachRequests.clear();
+  for (const entry of activeRunPromises.values()) {
+    entry.reject(new Error("Cleared by test"));
+  }
+  activeRunPromises.clear();
 }
 var activeRunPromises, detachRequests;
 var init_run_tracker = __esm({
@@ -57378,6 +57422,10 @@ function getBackgroundRunnerCommand(runnerPath, cwd, runId, loaderInput = resolv
 function buildBackgroundRunnerEnv(env) {
   return { ...env, PI_CREW_ASYNC_RUN: "1" };
 }
+function buildBrokerStdinLine(runId, creds) {
+  return `${JSON.stringify({ v: 1, runId, socketPath: creds.socketPath, token: creds.token })}
+`;
+}
 async function spawnBackgroundTeamRun(manifest) {
   const runnerPath = path69.join(packageRoot(), "src", "runtime", "background-runner.ts");
   const logPath = path69.join(manifest.stateRoot, "background.log");
@@ -57404,11 +57452,29 @@ async function spawnBackgroundTeamRun(manifest) {
     cwd: manifest.cwd,
     detached: true,
     setsid: true,
-    stdio: ["ignore", "pipe", "pipe"],
+    // F4 (2026-09-12 live battery): stdin is a PIPE — broker credentials
+    // travel heap → pipe → heap right after spawn (see below). Previously
+    // "ignore", which (together with the env allowlist and the missing
+    // runner-side issuer) left EVERY async worker broker-less: ask/message
+    // fell back to "proceed with best judgment" silently.
+    stdio: ["pipe", "pipe", "pipe"],
     env: childEnv,
     windowsHide: true
   };
   const child = spawn6(process.execPath, command.args, spawnOpts);
+  try {
+    let line4;
+    const { getActiveBrokerIssuer: getActiveBrokerIssuer2 } = await Promise.resolve().then(() => (init_broker_issuer(), broker_issuer_exports));
+    const issuer = getActiveBrokerIssuer2();
+    const creds = issuer ? await issuer(manifest.runId) : void 0;
+    line4 = creds ? buildBrokerStdinLine(manifest.runId, creds) : "\n";
+    child.stdin?.write(line4);
+  } catch {
+  }
+  try {
+    child.stdin?.end();
+  } catch {
+  }
   child.stdout?.destroy();
   const STDERR_CAPTURE_LIMIT = 256 * 1024;
   const stderrChunks = [];
@@ -71781,6 +71847,39 @@ ${dwfResult.manifest.summary ?? ""}`,
     }, updatedManifest.runId);
     try {
       const completed = await waitForRun(updatedManifest.runId, resolvedCtx.cwd, { timeoutMs: fgDeadline.deadlineMs });
+      if (completed.waiting) {
+        const w = completed.waiting;
+        const secondsLeft = Math.max(0, Math.round((w.deadline - Date.now()) / 1e3));
+        const lines = [
+          `pi-crew run WAITING for your answer: ${updatedManifest.runId}`,
+          `Team: ${team.name} \xB7 Workflow: ${workflow.name}`,
+          `Task ${w.taskId} (${w.questionId.substring(0, 8)}) parked on ask \u2014 ${secondsLeft}s until the deadline (then the worker proceeds with best judgment):`,
+          "",
+          `Q: ${w.question}`
+        ];
+        if (w.options?.length) {
+          lines.push("", "Options:", ...w.options.map((o, i) => `  ${i + 1}. ${o}`));
+        }
+        lines.push(
+          "",
+          "Answer now (run keeps executing):",
+          `  team action='respond' taskId='${w.taskId}' message='<your answer>'`,
+          "then re-block until the run finishes:",
+          `  team action='wait' runId='${updatedManifest.runId}'`
+        );
+        return result(
+          lines.join("\n"),
+          {
+            action: "run",
+            status: "ok",
+            runId: updatedManifest.runId,
+            artifactsRoot: updatedManifest.artifactsRoot,
+            taskId: w.taskId,
+            questionId: w.questionId,
+            waiting: true
+          }
+        );
+      }
       if (completed.detached) {
         return result(
           [
@@ -85513,7 +85612,7 @@ function safeStringify(value) {
   }
 }
 var WAIT_REQUEST_TIMEOUT_SEC_MAX = 3600;
-var WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 600;
+var WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 480;
 var WAIT_QUESTION_MAX_CHARS = 8192;
 var WAIT_OPTIONS_MAX = 16;
 var WAIT_OPTION_MAX_CHARS = 256;
@@ -87148,6 +87247,24 @@ ${sanitizedText}
       timeoutSec: clampSec,
       clamped
     });
+    try {
+      const { resolveRunPromise: resolveRunPromise2 } = await Promise.resolve().then(() => (init_run_tracker(), run_tracker_exports));
+      const freshPark = loadRunManifestById(this.options.cwd, runId);
+      if (freshPark) {
+        resolveRunPromise2(runId, {
+          manifest: freshPark.manifest,
+          tasks: freshPark.tasks,
+          waiting: {
+            taskId,
+            questionId,
+            question: parsed.question,
+            deadline,
+            ...parsed.options ? { options: parsed.options } : {}
+          }
+        });
+      }
+    } catch {
+    }
   }
   /** WP-2/R2: terminal report of the parked `ask` tool — flips the task
    *  waiting→running and clears the park coordination state. Scoped to

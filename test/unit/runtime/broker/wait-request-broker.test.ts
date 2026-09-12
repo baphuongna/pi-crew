@@ -475,13 +475,15 @@ test("wait.resolve: parked task resolves waiting→running, waitState cleared, e
 	try {
 		const client = await rawConnect(socketPath);
 		await hello(client, scaff.runId, scaff.taskId, token);
-		// Park first (default timeout: 600s, unclamped).
+		// Park first (F2: default timeout is 480s — must stay strictly below the
+		// 600s response watchdog so the parked worker wakes before being killed;
+		// unclamped).
 		client.socket.write(encodeBrokerFrame({ id: "w1", method: "wait.request", params: { to: scaff.taskId, question: "Continue?" } }));
 		const park = (await client.waitForFrame((f) => (f as { id?: string })?.id === "w1")) as {
 			result?: { ok?: boolean; questionId?: string; timeoutSec?: number; clamped?: boolean };
 		};
 		assert.equal(park.result?.ok, true);
-		assert.equal(park.result?.timeoutSec, 600, "default timeoutSec is 600");
+		assert.equal(park.result?.timeoutSec, 480, "default timeoutSec is 480 (F2: < response watchdog 600s)");
 		assert.equal(park.result?.clamped, false);
 		const questionId = park.result?.questionId ?? "";
 		assert.ok(questionId.length > 0, "park result must carry a questionId");

@@ -1873,6 +1873,34 @@ export class CrewBroker {
 			timeoutSec: clampSec,
 			clamped,
 		});
+		// F1 (2026-09-12 live battery): release the sync foreground waiter with
+		// the question. Without this, the only entity that can answer (the
+		// leader LLM) stays suspended inside its own `team` tool call until the
+		// response watchdog kills the parked worker (evidence:
+		// team_20260912014448 — parked 01:46:01, response_timeout 01:56:01, tool
+		// call returned only after the failure). resolveRunPromise is a no-op
+		// when no waiter is registered (async/detached runs poll instead).
+		// Import kept lazy to avoid a static broker→run-tracker edge at module
+		// load; there is no cycle (run-tracker has no broker import).
+		try {
+			const { resolveRunPromise } = await import("../run-tracker.ts");
+			const freshPark = loadRunManifestById(this.options.cwd!, runId);
+			if (freshPark) {
+				resolveRunPromise(runId, {
+					manifest: freshPark.manifest,
+					tasks: freshPark.tasks,
+					waiting: {
+						taskId,
+						questionId,
+						question: parsed.question,
+						deadline,
+						...(parsed.options ? { options: parsed.options } : {}),
+					},
+				});
+			}
+		} catch {
+			/* best-effort push: a failure here must not fail the park itself */
+		}
 	}
 
 	/** WP-2/R2: terminal report of the parked `ask` tool — flips the task

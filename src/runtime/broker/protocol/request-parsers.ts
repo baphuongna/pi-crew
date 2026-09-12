@@ -118,8 +118,16 @@ export function safeStringify(value: unknown): string {
  *  timeoutSec may NEVER exceed 1h — an unbounded timeout would pin slots and
  *  amplify I/O. Applied as deadline = now + min(timeoutSec, 3600). */
 export const WAIT_REQUEST_TIMEOUT_SEC_MAX = 3600;
-/** Default ask timeout when the caller omits timeoutSec (ADR item 1). */
-export const WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 600;
+/** Default ask timeout when the caller omits timeoutSec (ADR item 1).
+ * F2 (2026-09-12 live battery): MUST stay strictly below the worker response
+ * watchdog (`DEFAULT_CHILD_PI.responseTimeoutMs` = 600s). A parked worker
+ * emits NO output, so the watchdog counts the whole park; at 600==600 the
+ * kill raced the wake and the worker died at its own deadline
+ * (team_20260912014448: parked 01:46:01, response_timeout 01:56:01). 480s
+ * leaves 120s grace for the worker to wake, answer its fallback, and finish
+ * the turn. MAX stays 3600 (ADR P2-7) — a park longer than ~600s needs
+ * PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS raised to survive the watchdog. */
+export const WAIT_REQUEST_TIMEOUT_SEC_DEFAULT = 480;
 /** Bounded question payload (defense-in-depth under the 256 KiB frame cap). */
 export const WAIT_QUESTION_MAX_CHARS = 8192;
 /** Bounded answer-choice list: at most 16 options, 256 chars each. */

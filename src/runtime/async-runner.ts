@@ -253,6 +253,18 @@ export function buildBackgroundRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.Process
 	return { ...env, PI_CREW_ASYNC_RUN: "1" };
 }
 
+/** F4: the ONE line written to the background-runner's stdin carrying the
+ * per-run broker credential. Kept as a pure exported function so tests can
+ * pin the WRITER format against the READER parser (background-runner.ts
+ * parseStdinBrokerPayload) — a drift between the two silently breaks the
+ * handshake for every async run. */
+export function buildBrokerStdinLine(
+	runId: string,
+	creds: { socketPath: string; token: string },
+): string {
+	return `${JSON.stringify({ v: 1, runId, socketPath: creds.socketPath, token: creds.token })}\n`;
+}
+
 export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise<SpawnBackgroundTeamRunResult> {
 	// FIX (2026-07-02, perf review F-critical): use packageRoot() instead of
 	// import.meta.url-relative path. The previous path.resolve walks
@@ -315,11 +327,41 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		cwd: manifest.cwd,
 		detached: true,
 		setsid: true,
-		stdio: ["ignore", "pipe", "pipe"],
+		// F4 (2026-09-12 live battery): stdin is a PIPE — broker credentials
+		// travel heap → pipe → heap right after spawn (see below). Previously
+		// "ignore", which (together with the env allowlist and the missing
+		// runner-side issuer) left EVERY async worker broker-less: ask/message
+		// fell back to "proceed with best judgment" silently.
+		stdio: ["pipe", "pipe", "pipe"],
 		env: childEnv,
 		windowsHide: true,
 	} as unknown as Parameters<typeof spawn>[2];
 	const child = spawn(process.execPath, command.args, spawnOpts);
+	// F4: hand the runner a per-run broker credential over stdin. The env
+	// route is CLOSED BY DESIGN — BACKGROUND_RUNNER_ENV_ALLOWLIST cannot carry
+	// PI_CREW_BROKER_TOKEN (secret-suffixed names are rejected by the
+	// sanitizeEnvSecrets validator, and a PI_CREW_BROKER_* glob is flagged
+	// isDangerousGlob). The token never touches disk (invariant,
+	// lifecycle-handlers.ts:990) and dies with the parent session (heap-only
+	// registry). issuer(runId) without taskId mints the LEGACY per-run token,
+	// which the registry accepts for any task of the run via its bare-runId
+	// fallback (crew-broker-tokens.ts get()). Best-effort: any failure here
+	// leaves the runner creds-less (= previous behavior), never throws.
+	try {
+		let line: string;
+		const { getActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
+		const issuer = getActiveBrokerIssuer();
+		const creds = issuer ? await issuer(manifest.runId) : undefined;
+		line = creds ? buildBrokerStdinLine(manifest.runId, creds) : "\n";
+		child.stdin?.write(line);
+	} catch {
+		/* best-effort: runner proceeds creds-less */
+	}
+	try {
+		child.stdin?.end();
+	} catch {
+		/* EPIPE: runner already died — the spawn error handling below owns that */
+	}
 	// Round 27 (BUG 3) history: the piped stdout/stderr were previously destroyed
 	// immediately to avoid a pipe-buffer deadlock (child writes >64KB with nobody
 	// draining → hang). BUT destroying stderr ALSO swallowed native crash

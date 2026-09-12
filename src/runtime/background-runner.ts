@@ -48,6 +48,12 @@ import { registryFromModelContext } from "./model/session-model.ts";
 import { unregisterWorker } from "./orphan-worker-registry.ts";
 import { startParentGuard, stopParentGuard } from "./parent-guard.ts";
 import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.ts";
+// F4: broker creds handshake helpers live in broker/stdin-handshake.ts
+// (pure module — background-runner runs await main() at module scope, so
+// importing THIS file from tests would boot the runner).
+import { parseStdinBrokerPayload, readStdinFirstLine } from "./broker/stdin-handshake.ts";
+
+
 
 /**
  * Debug logger gated behind PI_CREW_DEBUG env var. Writes to background.log
@@ -523,6 +529,34 @@ async function main(): Promise<void> {
 	const cwd = argValue("--cwd");
 	const runId = argValue("--run-id");
 	if (!cwd || !runId) throw new Error("Usage: background-runner.ts --cwd <cwd> --run-id <runId>");
+	// F4 (2026-09-12 live battery): broker creds arrive on STDIN from the
+	// dispatching session (heap → pipe → heap; token never written to disk).
+	// Without this, every async worker loses ask/message/mailbox/steer — the
+	// env route is closed (allowlist rejects secret-suffixed tokens) and no
+	// extension lifecycle runs here to register an issuer. Best-effort:
+	// absent/invalid payload = creds-less runner = previous behavior.
+	try {
+		const raw = await readStdinFirstLine();
+		const payload = raw ? parseStdinBrokerPayload(raw, runId) : undefined;
+		if (payload) {
+			const { setActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
+			const { resolveCrewMaxDepth } = await import("./model/pi-args.ts");
+			const creds = { socketPath: payload.socketPath, token: payload.token };
+			// Static issuer scoped to THIS run only. Depth-cap parity with the
+			// parent-side issueForChild gate (lifecycle-handlers.ts:1130-1136):
+			// no credentials at/over maxDepth (env containment at the cap).
+			setActiveBrokerIssuer(async (rid, _taskId, childDepth) => {
+				if (rid !== payload.runId) return undefined;
+				if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;
+				return creds;
+			});
+			debugLog(`[broker] stdin handshake accepted for run ${runId} (socket ${payload.socketPath})`);
+		} else {
+			debugLog(`[broker] no stdin creds payload — runner proceeds broker-less (pre-F4 behavior)`);
+		}
+	} catch {
+		/* best-effort: never fail boot over coordination creds */
+	}
 	// FIX Issue #3: Wrap in withRunLockSync to prevent concurrent background-runners
 	// for the same runId from reading stale manifest state. If lock cannot be
 	// be acquired within 5s, fail immediately rather than proceeding with stale data.

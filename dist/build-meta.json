@@ -8933,7 +8933,7 @@
       "format": "esm"
     },
     "src/runtime/run-tracker.ts": {
-      "bytes": 7120,
+      "bytes": 7645,
       "imports": [
         {
           "path": "node:fs",
@@ -14471,7 +14471,7 @@
       "format": "esm"
     },
     "src/runtime/async-runner.ts": {
-      "bytes": 16797,
+      "bytes": 18919,
       "imports": [
         {
           "path": "node:child_process",
@@ -14542,6 +14542,11 @@
           "path": "src/runtime/peer-dep.ts",
           "kind": "import-statement",
           "original": "./peer-dep.ts"
+        },
+        {
+          "path": "src/runtime/broker/broker-issuer.ts",
+          "kind": "dynamic-import",
+          "original": "./broker/broker-issuer.ts"
         }
       ],
       "format": "esm"
@@ -17453,7 +17458,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 36044,
+      "bytes": 37445,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -19960,7 +19965,7 @@
       "format": "esm"
     },
     "src/runtime/broker/protocol/request-parsers.ts": {
-      "bytes": 7659,
+      "bytes": 8246,
       "imports": [],
       "format": "esm"
     },
@@ -20018,7 +20023,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 78432,
+      "bytes": 79599,
       "imports": [
         {
           "path": "node:crypto",
@@ -20149,6 +20154,11 @@
           "path": "src/runtime/broker/wait-status-cache.ts",
           "kind": "import-statement",
           "original": "./wait-status-cache.ts"
+        },
+        {
+          "path": "src/runtime/run-tracker.ts",
+          "kind": "dynamic-import",
+          "original": "../run-tracker.ts"
         }
       ],
       "format": "esm"
@@ -21121,7 +21131,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8055232
+      "bytes": 8063792
     },
     "dist/index.mjs": {
       "imports": [
@@ -23891,7 +23901,7 @@
           "bytesInOutput": 11114
         },
         "src/runtime/broker/broker-issuer.ts": {
-          "bytesInOutput": 398
+          "bytesInOutput": 687
         },
         "src/runtime/compaction/compact-stages/bounded-tail.ts": {
           "bytesInOutput": 2161
@@ -24140,7 +24150,7 @@
           "bytesInOutput": 9211
         },
         "src/runtime/run-tracker.ts": {
-          "bytesInOutput": 2566
+          "bytesInOutput": 3724
         },
         "src/runtime/crew-hooks.ts": {
           "bytesInOutput": 4057
@@ -24803,7 +24813,7 @@
           "bytesInOutput": 7803
         },
         "src/runtime/async-runner.ts": {
-          "bytesInOutput": 9861
+          "bytesInOutput": 10813
         },
         "src/runtime/goal-workflow/goal-state-store.ts": {
           "bytesInOutput": 6992
@@ -25061,7 +25071,7 @@
           "bytesInOutput": 7083
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 26560
+          "bytesInOutput": 27859
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 27443
@@ -25307,7 +25317,7 @@
           "bytesInOutput": 29892
         },
         "src/runtime/broker/crew-broker.ts": {
-          "bytesInOutput": 59729
+          "bytesInOutput": 60320
         },
         "src/utils/socket-path.ts": {
           "bytesInOutput": 3012
@@ -25406,7 +25416,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3376879
+      "bytes": 3381168
     }
   }
 }
