@@ -12073,7 +12073,7 @@
       "format": "esm"
     },
     "src/utils/ndjson.ts": {
-      "bytes": 4745,
+      "bytes": 4775,
       "imports": [
         {
           "path": "src/runtime/broker/crew-broker-tokens.ts",
@@ -12084,7 +12084,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker-client.ts": {
-      "bytes": 25027,
+      "bytes": 27050,
       "imports": [
         {
           "path": "node:crypto",
@@ -12312,7 +12312,7 @@
       "format": "esm"
     },
     "src/prompt/prompt-runtime.ts": {
-      "bytes": 53482,
+      "bytes": 53746,
       "imports": [
         {
           "path": "node:fs",
@@ -21136,7 +21136,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8065915
+      "bytes": 8068439
     },
     "dist/index.mjs": {
       "imports": [

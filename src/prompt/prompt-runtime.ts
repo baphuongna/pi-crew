@@ -700,7 +700,10 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 			try {
 				const requestParams: Record<string, unknown> = { to: taskId, question: params.question, timeoutSec };
 				if (params.options) requestParams.options = params.options;
-				const parked = await client.request("wait.request", requestParams);
+				// F5: cap the RPC itself at the ask deadline + 5s grace — a response
+				// frame lost on a half-dead socket must not outlive the deadline the
+				// worker is prepared to wait anyway (fallback notice → proceed).
+				const parked = await client.request("wait.request", requestParams, { timeoutMs: timeoutSec * 1000 + 5_000 });
 				if (!parked.ok) {
 					// Policy rejection, auth failure, connect failure — all fast-fail.
 					const code = parked.errorCode ?? "request-failed";

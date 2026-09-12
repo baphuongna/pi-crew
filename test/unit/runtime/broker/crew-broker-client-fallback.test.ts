@@ -447,3 +447,84 @@ test("client: token never persisted — happy-path request completes without fs 
 	// are exercised in integration tests). The fact that the happy path
 	// completed cleanly is the indirect verification.
 });
+
+test("client: F5 request-timeout — lost response frame on a half-dead socket rejects typed, not forever", async () => {
+	const fake = makeFakeNet();
+	fake.defaultSetup = (sock) => {
+		setImmediate(() => sock.fireConnect());
+	};
+	const client = makeClient(fake);
+	// Hello completes normally, then the request frame is written and NO
+	// response ever arrives (half-dead socket: no close, no error, no data).
+	const promise = client.request("wait.request", { to: "task-test", question: "q?" }, { timeoutMs: 60_000 });
+	let helloFrame: string | undefined;
+	for (let i = 0; i < 1000; i++) {
+		const sock = fake.lastSocket;
+		if (sock) {
+			helloFrame = sock.text.split("\n").find((l) => l.includes('"method":"hello"'));
+			if (helloFrame) break;
+		}
+		await new Promise<void>((r) => setImmediate(r));
+	}
+	assert.ok(fake.lastSocket && helloFrame, "expected a hello frame to be written");
+	const helloId = (JSON.parse(helloFrame!) as { id: string }).id;
+	fake.lastSocket!.fireFrame({ id: helloId, result: { protocol: 1, ok: true } });
+	let reqFrame: string | undefined;
+	for (let i = 0; i < 1000; i++) {
+		reqFrame = fake
+			.lastSocket!.text.split("\n")
+			.reverse()
+			.find((l) => l.includes('"method":"wait.request"'));
+		if (reqFrame) break;
+		await new Promise<void>((r) => setImmediate(r));
+	}
+	assert.ok(reqFrame, "expected the wait.request frame to be written");
+	// NO reply is fired. The injected timer seam compresses the 60s timeout to
+	// ~100ms wall-clock; the promise must settle typed instead of hanging.
+	const result = await promise;
+	assert.equal(result.ok, false);
+	if (result.ok === false) {
+		assert.equal(result.fallback, true);
+		assert.equal(result.errorCode, "request-timeout");
+	}
+	// Sticky fallback after the timeout.
+	const after = await client.request("ping", null);
+	assert.equal(after.ok, false);
+	await client.close();
+});
+
+test("client: F5 request-timeout cleared on normal settle — happy path unaffected", async () => {
+	const fake = makeFakeNet();
+	fake.defaultSetup = (sock) => {
+		setImmediate(() => sock.fireConnect());
+	};
+	const client = makeClient(fake);
+	const promise = client.request("ping", null, { timeoutMs: 60_000 });
+	let helloFrame: string | undefined;
+	for (let i = 0; i < 1000; i++) {
+		const sock = fake.lastSocket;
+		if (sock) {
+			helloFrame = sock.text.split("\n").find((l) => l.includes('"method":"hello"'));
+			if (helloFrame) break;
+		}
+		await new Promise<void>((r) => setImmediate(r));
+	}
+	const helloId = (JSON.parse(helloFrame!) as { id: string }).id;
+	fake.lastSocket!.fireFrame({ id: helloId, result: { protocol: 1, ok: true } });
+	let pingFrame: string | undefined;
+	for (let i = 0; i < 1000; i++) {
+		pingFrame = fake
+			.lastSocket!.text.split("\n")
+			.reverse()
+			.find((l) => l.includes('"method":"ping"'));
+		if (pingFrame) break;
+		await new Promise<void>((r) => setImmediate(r));
+	}
+	const pingId = (JSON.parse(pingFrame!) as { id: string }).id;
+	fake.lastSocket!.fireFrame({ id: pingId, result: { pong: true } });
+	for (let i = 0; i < 50; i++) await new Promise<void>((r) => setImmediate(r));
+	const result = await promise;
+	assert.equal(result.ok, true);
+	assert.equal(client.pendingCount, 0, "pending map empty after settle (timer cleared, entry consumed)");
+	await client.close();
+});
