@@ -58,6 +58,7 @@ import {
 	WAIT_REQUEST_TIMEOUT_SEC_MAX,
 } from "./protocol/request-parsers.ts";
 import { recordWaitPolicyRejection, waitAuthError } from "./protocol/wait-auth.ts";
+import { pushWaitingToForegroundWaiter } from "./wait-push.ts";
 import { WaitStatusCache } from "./wait-status-cache.ts";
 
 /** Protocol version negotiated at `hello` time. Bump on breaking change.
@@ -1194,22 +1195,13 @@ export class CrewBroker {
 		await pollUntilDone();
 	}
 
-	/**
-	 * Phase 3: steer.push — push steering message to a running worker.
-	 *
-	 * Dual-write strategy for durability:
-	 *  1. Mailbox append (appendMailboxMessageAsync) — feeds the live broker
-	 *     fanout to connected subscribers AND persists to the mailbox inbox
-	 *     JSONL for later read.
-	 *  2. Steering-file append — writes the steer body to
-	 *     ${artifactsRoot}/steering/${taskId}.jsonl, the same file the
-	 *     child's pollSteering() polls via PI_CREW_STEERING_FILE. This is
-	 *     the durable fallback: even if the recipient child's broker connection is down, the
-	 *     child picks up the steer on its next poll tick.
-	 *
-	 * A steering-file write failure does NOT fail the steer push — the
-	 * mailbox write (1) has already succeeded.
-	 */
+	/** Phase 3: steer.push — push steering message to a running worker.
+	 *  Dual-write for durability: (1) mailbox append feeds the live broker
+	 *  fanout AND persists to the inbox JSONL; (2) steering-file append writes
+	 *  ${artifactsRoot}/steering/${taskId}.jsonl — the durable fallback the
+	 *  child's pollSteering() polls via PI_CREW_STEERING_FILE even when its
+	 *  broker connection is down. A steering-file write failure does NOT fail
+	 *  the push — the mailbox write has already succeeded. */
 	private async handleSteerPush(conn: ServerConnection, id: string, params: unknown): Promise<void> {
 		if (conn.role !== "orchestrator") {
 			this.sendError(conn, id, "forbidden", "steer.push requires orchestrator role");
@@ -1874,34 +1866,16 @@ export class CrewBroker {
 			clamped,
 		});
 		// F1 (2026-09-12 live battery): release the sync foreground waiter with
-		// the question. Without this, the only entity that can answer (the
-		// leader LLM) stays suspended inside its own `team` tool call until the
-		// response watchdog kills the parked worker (evidence:
-		// team_20260912014448 — parked 01:46:01, response_timeout 01:56:01, tool
-		// call returned only after the failure). resolveRunPromise is a no-op
-		// when no waiter is registered (async/detached runs poll instead).
-		// Import kept lazy to avoid a static broker→run-tracker edge at module
-		// load; there is no cycle (run-tracker has no broker import).
-		try {
-			// LAZY: run-tracker import kept lazy to avoid a static broker→run-tracker edge at module load (F1 push, no cycle).
-			const { resolveRunPromise } = await import("../run-tracker.ts");
-			const freshPark = loadRunManifestById(this.options.cwd!, runId);
-			if (freshPark) {
-				resolveRunPromise(runId, {
-					manifest: freshPark.manifest,
-					tasks: freshPark.tasks,
-					waiting: {
-						taskId,
-						questionId,
-						question: parsed.question,
-						deadline,
-						...(parsed.options ? { options: parsed.options } : {}),
-					},
-				});
-			}
-		} catch {
-			/* best-effort push: a failure here must not fail the park itself */
-		}
+		// the question (evidence + design notes in broker/wait-push.ts).
+		await pushWaitingToForegroundWaiter({
+			cwd: this.options.cwd,
+			runId,
+			taskId,
+			questionId,
+			question: parsed.question,
+			deadline,
+			...(parsed.options ? { options: parsed.options } : {}),
+		});
 	}
 
 	/** WP-2/R2: terminal report of the parked `ask` tool — flips the task
@@ -2015,14 +1989,6 @@ export class CrewBroker {
 // Type guards (no `any`)
 // ============================================================================
 
-/** Moved to ./protocol/request-parsers.ts (M4 / WI-4.1):
- *   - isRequestObject
- *   - isHelloParams + BROKER_PROTOCOL
- *   - parseMsgSendParams + MsgSendParams
- *   - parseMsgInboxParams + MsgInboxParams
- *   - parseWaitRequestParams + WaitRequestParams
- *   - parseWaitResolveParams + WaitResolveParams
- *   - safeStringify
- *   - WAIT_* constants
- *  Removed from this file; re-exported via "./protocol/request-parsers.ts".
- */
+/** Parsers/constants moved to ./protocol/request-parsers.ts (M4 / WI-4.1):
+ *  hello/msg/wait params + safeStringify + WAIT_* constants — re-exported
+ *  from there. */

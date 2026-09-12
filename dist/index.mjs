@@ -85755,6 +85755,29 @@ function recordWaitPolicyRejection(manifest, taskId, method) {
   );
 }
 
+// src/runtime/broker/wait-push.ts
+init_state_store();
+async function pushWaitingToForegroundWaiter(params) {
+  try {
+    const { resolveRunPromise: resolveRunPromise2 } = await Promise.resolve().then(() => (init_run_tracker(), run_tracker_exports));
+    const freshPark = loadRunManifestById(params.cwd ?? process.cwd(), params.runId);
+    if (freshPark) {
+      resolveRunPromise2(params.runId, {
+        manifest: freshPark.manifest,
+        tasks: freshPark.tasks,
+        waiting: {
+          taskId: params.taskId,
+          questionId: params.questionId,
+          question: params.question,
+          deadline: params.deadline,
+          ...params.options ? { options: params.options } : {}
+        }
+      });
+    }
+  } catch {
+  }
+}
+
 // src/runtime/broker/wait-status-cache.ts
 init_state_store();
 import * as fs123 from "node:fs";
@@ -86712,22 +86735,13 @@ var CrewBroker = class {
     });
     await pollUntilDone();
   }
-  /**
-   * Phase 3: steer.push — push steering message to a running worker.
-   *
-   * Dual-write strategy for durability:
-   *  1. Mailbox append (appendMailboxMessageAsync) — feeds the live broker
-   *     fanout to connected subscribers AND persists to the mailbox inbox
-   *     JSONL for later read.
-   *  2. Steering-file append — writes the steer body to
-   *     ${artifactsRoot}/steering/${taskId}.jsonl, the same file the
-   *     child's pollSteering() polls via PI_CREW_STEERING_FILE. This is
-   *     the durable fallback: even if the recipient child's broker connection is down, the
-   *     child picks up the steer on its next poll tick.
-   *
-   * A steering-file write failure does NOT fail the steer push — the
-   * mailbox write (1) has already succeeded.
-   */
+  /** Phase 3: steer.push — push steering message to a running worker.
+   *  Dual-write for durability: (1) mailbox append feeds the live broker
+   *  fanout AND persists to the inbox JSONL; (2) steering-file append writes
+   *  ${artifactsRoot}/steering/${taskId}.jsonl — the durable fallback the
+   *  child's pollSteering() polls via PI_CREW_STEERING_FILE even when its
+   *  broker connection is down. A steering-file write failure does NOT fail
+   *  the push — the mailbox write has already succeeded. */
   async handleSteerPush(conn, id, params) {
     if (conn.role !== "orchestrator") {
       this.sendError(conn, id, "forbidden", "steer.push requires orchestrator role");
@@ -87282,24 +87296,15 @@ ${sanitizedText}
       timeoutSec: clampSec,
       clamped
     });
-    try {
-      const { resolveRunPromise: resolveRunPromise2 } = await Promise.resolve().then(() => (init_run_tracker(), run_tracker_exports));
-      const freshPark = loadRunManifestById(this.options.cwd, runId);
-      if (freshPark) {
-        resolveRunPromise2(runId, {
-          manifest: freshPark.manifest,
-          tasks: freshPark.tasks,
-          waiting: {
-            taskId,
-            questionId,
-            question: parsed.question,
-            deadline,
-            ...parsed.options ? { options: parsed.options } : {}
-          }
-        });
-      }
-    } catch {
-    }
+    await pushWaitingToForegroundWaiter({
+      cwd: this.options.cwd,
+      runId,
+      taskId,
+      questionId,
+      question: parsed.question,
+      deadline,
+      ...parsed.options ? { options: parsed.options } : {}
+    });
   }
   /** WP-2/R2: terminal report of the parked `ask` tool — flips the task
    *  waiting→running and clears the park coordination state. Scoped to

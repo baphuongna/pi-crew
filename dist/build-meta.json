@@ -20011,6 +20011,22 @@
       ],
       "format": "esm"
     },
+    "src/runtime/broker/wait-push.ts": {
+      "bytes": 1827,
+      "imports": [
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/runtime/run-tracker.ts",
+          "kind": "dynamic-import",
+          "original": "../run-tracker.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/broker/wait-status-cache.ts": {
       "bytes": 6097,
       "imports": [
@@ -20028,7 +20044,7 @@
       "format": "esm"
     },
     "src/runtime/broker/crew-broker.ts": {
-      "bytes": 79720,
+      "bytes": 78327,
       "imports": [
         {
           "path": "node:crypto",
@@ -20156,14 +20172,14 @@
           "original": "./protocol/wait-auth.ts"
         },
         {
+          "path": "src/runtime/broker/wait-push.ts",
+          "kind": "import-statement",
+          "original": "./wait-push.ts"
+        },
+        {
           "path": "src/runtime/broker/wait-status-cache.ts",
           "kind": "import-statement",
           "original": "./wait-status-cache.ts"
-        },
-        {
-          "path": "src/runtime/run-tracker.ts",
-          "kind": "dynamic-import",
-          "original": "../run-tracker.ts"
         }
       ],
       "format": "esm"
@@ -21136,7 +21152,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8073074
+      "bytes": 8073776
     },
     "dist/index.mjs": {
       "imports": [
@@ -25322,7 +25338,7 @@
           "bytesInOutput": 29892
         },
         "src/runtime/broker/crew-broker.ts": {
-          "bytesInOutput": 60320
+          "bytesInOutput": 59690
         },
         "src/utils/socket-path.ts": {
           "bytesInOutput": 3012
@@ -25356,6 +25372,9 @@
         },
         "src/runtime/broker/protocol/wait-auth.ts": {
           "bytesInOutput": 962
+        },
+        "src/runtime/broker/wait-push.ts": {
+          "bytesInOutput": 708
         },
         "src/runtime/broker/wait-status-cache.ts": {
           "bytesInOutput": 2412
@@ -25421,7 +25440,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3382725
+      "bytes": 3382839
     }
   }
 }
