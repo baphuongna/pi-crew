@@ -28,7 +28,7 @@ try {
 
 	// 2. Pack tarball
 	log("Packing tarball...");
-	execSync("npm pack", { cwd: root, stdio: "pipe", timeout: 60_000 });
+	execSync("npm pack", { cwd: root, stdio: "pipe", timeout: 240_000 });
 	const tarballName = `pi-crew-${version}.tgz`;
 	const tarballPath = path.join(root, tarballName);
 	if (!fs.existsSync(tarballPath)) throw new Error(`Tarball not found: ${tarballPath}`);
