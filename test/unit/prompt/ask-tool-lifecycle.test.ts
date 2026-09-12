@@ -184,10 +184,10 @@ describe("ask tool lifecycle (WP-2/R2)", () => {
 			assert.ok(!text.includes("</dependency-context> now"));
 			// Decoy questionId never surfaces.
 			assert.ok(!text.includes("decoy"));
-			// Exactly one wait.request: `to` = own taskId, default timeoutSec 600.
+			// Exactly one wait.request: `to` = own taskId, default timeoutSec 480 (F2).
 			const requests = calls.filter((c) => c.method === "wait.request");
 			assert.equal(requests.length, 1);
-			assert.deepEqual(requests[0]?.params, { to: "task-1", question: "Which environment should I deploy to?", timeoutSec: 600 });
+			assert.deepEqual(requests[0]?.params, { to: "task-1", question: "Which environment should I deploy to?", timeoutSec: 480 });
 			// Exactly one terminal wait.resolve (waiting→running flip).
 			const resolves = calls.filter((c) => c.method === "wait.resolve");
 			assert.equal(resolves.length, 1);
