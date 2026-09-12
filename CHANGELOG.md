@@ -2,7 +2,7 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
-## [Unreleased] — bundle skill resolution + skill metadata upgrades (2026-09-11)
+## [0.10.6] — agent/skill resource layer + broker coordination fixes (2026-09-12)
 
 ### fix(bundle): PACKAGE_SKILLS_DIR resolves via `packageRoot()` instead of broken `import.meta.url` walk-up
 
@@ -156,6 +156,44 @@ Closes the three remaining gaps in the PROMPT track (PROMPT-3 explorer tool matr
 **Fix caught in-flight — agent frontmatter vs folded YAML.** Batch 9's folded-scalar agent descriptions broke discovery: `utils/frontmatter.ts`'s line-based parser read `description: >` literally as `">"`. Descriptions are back to single-line (quoted, since they contain ": "), and `parseLines` now strips one pair of symmetric surrounding double quotes — so quoted values behave identically for every consumer. Verified both directions: pi-crew discovery (17/17 descriptions with When NOT, 17/17 routing parsed, no quote leakage) AND strict `yaml`-package parsing (17/17). The 30 frontmatter/workflows tests and 49 agent tests confirm the shared-parser change is safe for teams/workflows.
 
 **P2-2 verified-done** (detached/goal/anchor/chain tool outputs already carry next-step guards). **P2-3 deferred**: the broker handshake is already versioned; a mailbox marker needs a real cross-version consumer before it earns its complexity. P2-9/P2-10 remain deferred (M-effort docs/package work).
+
+### fix(settings): `reliability.*` keys addressable via team-settings (G17-class drift caught live)
+
+The live battery caught `reliability.loopGuard` rejected as an unknown key: the schema (`PiTeamsConfigSchema`) had the five `reliability` booleans but `handle-settings` KNOWN_KEYS/EFFECTIVE_DEFAULTS and the settings-overlay EFFECTIVE_DEFAULTS map did not — the three-to-four duplicated settings maps drifted. Added the entries to both maps + a two-directional parity guard test (`reliability-settings-parity.test.ts`: every boolean schema key under `reliability.*` must exist in both maps) so the drift class cannot silently recur. Also corrected 7 comments citing the wrong `runtime.reliability.*` path.
+
+### fix(coordination): sync `team run` returns when a task parks on `ask` — F1, two rounds
+
+**Round 1** (live-battery finding F1): a sync `team run` whose worker parked on `ask` blocked the leader's tool call until the response watchdog killed the parked worker. `RunWaitResult` gained a `waiting` payload; the broker's park handler pushes it via `resolveRunPromise`; `run.ts` returns the question verbatim + `respond`/`wait` recovery commands while the run keeps executing. Chain runs inherit (steps route through the same handler).
+
+**Round 2** (the battery re-run REFUTED round 1 — run `team_20260912053049` still blocked 626s): two deeper causes. (a) register/await race — `waitForRun` starts immediately after `startForegroundRun` (void) while `executeTeamRunCore` registers its promise only after several awaits, so the waiter landed on the polling path where the push is invisible; worse, `resolveRunPromise` DELETED the entry after resolving, orphaning a register+resolve that lands between poll ticks. Fixed three ways: `run.ts` pre-registers (idempotent `registerRunPromise`), the polling loop re-checks the registry each tick, and `resolveRunPromise` writes a bounded tombstone (Map, limit 32) a polling waiter consumes. (b) the worker LLM passed an explicit `timeoutSec: 600` — new `ASK_TIMEOUT_SEC_CEILING = 480` clamps the effective deadline regardless of model-passed values.
+
+**Live proof** (run `team_20260912055021`): park → leader respond **6.7s** later → worker wakes, echoes the answer verbatim, creates the marker → 3/3 tasks in 3m30s (previously 626s block + worker death).
+
+### fix(broker): F2 — ask deadline no longer races the response watchdog
+
+Both defaults moved 600→480 (server `WAIT_REQUEST_TIMEOUT_SEC_DEFAULT`, client `ASK_TIMEOUT_SEC_DEFAULT` — the client leg was the one that mattered: the ask tool always sent an explicit value) plus the round-2 ceiling clamp above. A parked worker emits no output, so any deadline ≥ the 600s watchdog is a guaranteed kill; 480 leaves 120s grace for wake + fallback + turn.
+
+### fix(broker): F4 — detached async workers regain broker connectivity via a stdin handshake
+
+`BACKGROUND_RUNNER_ENV_ALLOWLIST` strips broker credentials (by design — the env route stays closed), so async workers lost ask/message/mailbox/steer entirely. The per-run spawn now pipes **per-task compound tokens** over stdin (`{v:2, tasks:{id:token}}`; v1 per-run tokens were rejected live by ADR-0 item 6 — wait.* requires task-scoped tokens). Heap→pipe→heap: the token never touches disk. The detached runner registers a static issuer scoped to that run with depth-cap parity to the parent-side gate. Live-proven: an async worker connected through the handshake and delivered a full structured ask (run `team_20260912043817`). Dynamic-workflow runs (tasks planned inside the runner) still need a broker-side mint RPC — documented follow-up.
+
+### fix(broker): F5 — per-request RPC timeout on the broker client
+
+Found during the F4 live probe: a response frame lost on a half-dead socket produced neither a response nor a close event, and `client.request` had no timeout — the worker hung forever past its own deadline (the deadline check ran AFTER `await request`). `request(method, params, {timeoutMs = 15000})` arms the timer before the write, funnels rejection into the typed fallback path (new `request-timeout` BrokerErrorCode), and clears it on every settle path + close. `ask` passes `deadline+5s` so a lost frame can never outlive the deadline the worker already accepted.
+
+### refactor(broker): crew-broker.ts back under the 2000-line gate
+
+The F1 additions pushed `crew-broker.ts` to 2028 lines (M4 wc-gate fails at 2000). Extracted the foreground-waiter push into `src/runtime/broker/wait-push.ts` (LAZY-imported — no static broker→run-tracker edge) and compacted two stale doc blocks. 2028 → 1994.
+
+### CI gate hygiene (caught by PR #56's checks)
+
+Biome import-sort + `noUnsafeOptionalChaining` fixes, a repo-wide `biome format` pass, `// LAZY:` markers on the five fix-session dynamic imports, and the wait-push extraction above. Root-cause lesson recorded in-commit: all three first failures had passed "local gates" because exit codes were masked by `2>&1 | tail -1` pipes — gates must check exit codes directly.
+
+### docs
+
+- `skills/real-test-pi-crew/SKILL.md` — Tier 12 (resource-contract battery: dual-parser proof, guidance render with budget-truncation caveat, output contracts), triggers +14, staleness path-leak scan, corrected Tier 4 immediate-vs-rebuild claim (plan-templates.ts IS bundled)
+- `CONTEXT.md` — repo orientation: 15-term glossary + 6 flagged quirks
+- `docs/real-test/reports/real-test-2026-09-12-batch10-live-battery.md` — full T1-12 battery report + findings F1-F5 + fix-session appendix + round-2 re-run
 
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
