@@ -71,7 +71,7 @@ import * as path from "node:path";
 import { t } from "../../i18n.ts";
 import { hasAsyncStartMarker } from "../../runtime/async-marker.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
-import { waitForRun } from "../../runtime/run-tracker.ts";
+import { registerRunPromise, waitForRun } from "../../runtime/run-tracker.ts";
 import { collectRunMetrics } from "../../state/stores/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
@@ -710,6 +710,13 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	if (executeWorkers && ctx.startForegroundRun) {
 		// CORE-8: unified deadline — resolves params > config > 1h default.
 		const fgDeadline = resolveRunDeadline(ctx, params, executedConfig);
+		// F1 register/await race fix (2026-09-12): the waitForRun below runs
+		// immediately after startForegroundRun returns (void), while
+		// executeTeamRunCore registers its promise only after several awaits —
+		// the waiter could land on the polling path and MISS the broker's
+		// waiting-push. Pre-register here so the medium path is guaranteed;
+		// registerRunPromise is idempotent (the core's later call is a no-op).
+		registerRunPromise(updatedManifest.runId);
 		ctx.onRunStarted?.(updatedManifest.runId);
 		const fgSignal = fgDeadline.signal;
 		let fgAbortListener: (() => void) | undefined;

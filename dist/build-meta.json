@@ -8933,7 +8933,7 @@
       "format": "esm"
     },
     "src/runtime/run-tracker.ts": {
-      "bytes": 7645,
+      "bytes": 10170,
       "imports": [
         {
           "path": "node:fs",
@@ -12312,7 +12312,7 @@
       "format": "esm"
     },
     "src/prompt/prompt-runtime.ts": {
-      "bytes": 53746,
+      "bytes": 54395,
       "imports": [
         {
           "path": "node:fs",
@@ -17463,7 +17463,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/run.ts": {
-      "bytes": 37445,
+      "bytes": 37936,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -21136,7 +21136,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8068439
+      "bytes": 8072839
     },
     "dist/index.mjs": {
       "imports": [
@@ -24155,7 +24155,7 @@
           "bytesInOutput": 9211
         },
         "src/runtime/run-tracker.ts": {
-          "bytesInOutput": 3724
+          "bytesInOutput": 4601
         },
         "src/runtime/crew-hooks.ts": {
           "bytesInOutput": 4057
@@ -25076,7 +25076,7 @@
           "bytesInOutput": 7083
         },
         "src/extension/team-tool/run.ts": {
-          "bytesInOutput": 27859
+          "bytesInOutput": 27906
         },
         "src/extension/team-tool.ts": {
           "bytesInOutput": 27443
@@ -25421,7 +25421,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3381847
+      "bytes": 3382771
     }
   }
 }

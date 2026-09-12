@@ -29448,6 +29448,8 @@ __export(run_tracker_exports, {
 });
 import * as fs49 from "node:fs";
 function registerRunPromise(runId) {
+  const existing = activeRunPromises.get(runId);
+  if (existing) return existing;
   detachRequests.delete(runId);
   let resolve27;
   let reject;
@@ -29481,6 +29483,11 @@ function resolveRunPromise(runId, result4) {
     entry.resolve(result4);
     activeRunPromises.delete(runId);
   }
+  resolvedRunResults.set(runId, result4);
+  if (resolvedRunResults.size > RESOLVED_TOMBSTONE_LIMIT) {
+    const oldest = resolvedRunResults.keys().next().value;
+    if (oldest !== void 0) resolvedRunResults.delete(oldest);
+  }
 }
 function rejectRunPromise(runId, reason) {
   const entry = activeRunPromises.get(runId);
@@ -29488,6 +29495,16 @@ function rejectRunPromise(runId, reason) {
     entry.reject(reason);
     activeRunPromises.delete(runId);
   }
+}
+function raceRunPromise(entry, timeoutMs, deadline) {
+  let timer;
+  const remaining = Math.max(0, deadline - Date.now());
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`waitForRun timed out after ${timeoutMs}ms`)), remaining);
+  });
+  return Promise.race([entry.promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 async function waitForRun(runId, cwd, options = {}) {
   const { timeoutMs = 3e5, pollIntervalMs = 500 } = options;
@@ -29501,23 +29518,15 @@ async function waitForRun(runId, cwd, options = {}) {
     return { ...loaded, detached: true };
   }
   const entry = activeRunPromises.get(runId);
-  if (entry) {
-    let timer;
-    const timeoutPromise = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`waitForRun timed out after ${timeoutMs}ms`)), timeoutMs);
-    });
-    try {
-      return await Promise.race([entry.promise, timeoutPromise]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
+  if (entry) return await raceRunPromise(entry, timeoutMs, deadline);
   let attempt = 0;
   while (Date.now() < deadline) {
     if (detachRequests.delete(runId)) {
       const current = loadRunManifestById(cwd, runId);
       if (current) return { ...current, detached: true };
     }
+    const entryNow = activeRunPromises.get(runId);
+    if (entryNow) return await raceRunPromise(entryNow, timeoutMs, deadline);
     if (attempt === 0) {
       const runDir = createRunPaths(cwd, runId).stateRoot;
       if (!fs49.existsSync(runDir)) {
@@ -29527,6 +29536,11 @@ async function waitForRun(runId, cwd, options = {}) {
     const fresh = loadRunManifestById(cwd, runId);
     if (fresh && isFinishedRunStatus(fresh.manifest.status)) {
       return fresh;
+    }
+    const tombstone = resolvedRunResults.get(runId);
+    if (tombstone) {
+      resolvedRunResults.delete(runId);
+      return tombstone;
     }
     const delay = Math.min(pollIntervalMs, 50 * 2 ** Math.min(attempt, 6));
     await new Promise((r) => setTimeout(r, delay));
@@ -29539,12 +29553,13 @@ function hasActiveRunPromise(runId) {
 }
 function clearRunPromisesForTest() {
   detachRequests.clear();
+  resolvedRunResults.clear();
   for (const entry of activeRunPromises.values()) {
     entry.reject(new Error("Cleared by test"));
   }
   activeRunPromises.clear();
 }
-var activeRunPromises, detachRequests;
+var activeRunPromises, detachRequests, resolvedRunResults, RESOLVED_TOMBSTONE_LIMIT;
 var init_run_tracker = __esm({
   "src/runtime/run-tracker.ts"() {
     "use strict";
@@ -29552,6 +29567,8 @@ var init_run_tracker = __esm({
     init_process_status();
     activeRunPromises = /* @__PURE__ */ new Map();
     detachRequests = /* @__PURE__ */ new Set();
+    resolvedRunResults = /* @__PURE__ */ new Map();
+    RESOLVED_TOMBSTONE_LIMIT = 32;
   }
 });
 
@@ -71820,6 +71837,7 @@ ${dwfResult.manifest.summary ?? ""}`,
   const executeWorkers = runtime.kind !== "scaffold";
   if (executeWorkers && ctx.startForegroundRun) {
     const fgDeadline = resolveRunDeadline(ctx, params, executedConfig);
+    registerRunPromise(updatedManifest.runId);
     ctx.onRunStarted?.(updatedManifest.runId);
     const fgSignal = fgDeadline.signal;
     let fgAbortListener;

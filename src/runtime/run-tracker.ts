@@ -43,7 +43,22 @@ const activeRunPromises = new Map<string, ActiveRunPromise>();
  */
 const detachRequests = new Set<string>();
 
+/** F1 tombstones (2026-09-12): resolveRunPromise deletes the live entry after
+ *  resolving it, so a register+resolve landing BETWEEN two poll ticks of a
+ *  slow-path waiter orphaned the payload (the waiter held no reference to the
+ *  entry). A waiter on the polling path consumes the tombstone instead.
+ *  Bounded — oldest evicted past the limit (detached runs never wait). */
+const resolvedRunResults = new Map<string, RunWaitResult>();
+const RESOLVED_TOMBSTONE_LIMIT = 32;
+
 export function registerRunPromise(runId: string): ActiveRunPromise {
+	// Idempotent (F1 live-probe fix, 2026-09-12): run.ts pre-registers BEFORE
+	// startForegroundRun so the waitForRun that runs immediately after can hit
+	// the medium path; executeTeamRunCore's later `void registerRunPromise(...)`
+	// must NOT overwrite the entry (an overwrite strands waiters holding the
+	// old promise — the waiting-push would resolve a promise nobody awaits).
+	const existing = activeRunPromises.get(runId);
+	if (existing) return existing;
 	detachRequests.delete(runId);
 	let resolve!: (value: RunWaitResult) => void;
 	let reject!: (reason: unknown) => void;
@@ -96,6 +111,13 @@ export function resolveRunPromise(runId: string, result: RunWaitResult): void {
 		entry.resolve(result);
 		activeRunPromises.delete(runId);
 	}
+	// F1 tombstone: a slow-path waiter (register/await race, or register+resolve
+	// between two ticks) must still see the push. Cheap Map.set; bounded above.
+	resolvedRunResults.set(runId, result);
+	if (resolvedRunResults.size > RESOLVED_TOMBSTONE_LIMIT) {
+		const oldest = resolvedRunResults.keys().next().value;
+		if (oldest !== undefined) resolvedRunResults.delete(oldest);
+	}
 }
 
 export function rejectRunPromise(runId: string, reason: unknown): void {
@@ -104,6 +126,21 @@ export function rejectRunPromise(runId: string, reason: unknown): void {
 		entry.reject(reason);
 		activeRunPromises.delete(runId);
 	}
+}
+
+function raceRunPromise(
+	entry: ActiveRunPromise,
+	timeoutMs: number,
+	deadline: number,
+): Promise<RunWaitResult> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const remaining = Math.max(0, deadline - Date.now());
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`waitForRun timed out after ${timeoutMs}ms`)), remaining);
+	});
+	return Promise.race([entry.promise, timeoutPromise]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
 }
 
 /**
@@ -135,17 +172,7 @@ export async function waitForRun(
 
 	// Medium path: foreground promise registered in this process
 	const entry = activeRunPromises.get(runId);
-	if (entry) {
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const timeoutPromise = new Promise<never>((_, reject) => {
-			timer = setTimeout(() => reject(new Error(`waitForRun timed out after ${timeoutMs}ms`)), timeoutMs);
-		});
-		try {
-			return await Promise.race([entry.promise, timeoutPromise]);
-		} finally {
-			if (timer) clearTimeout(timer);
-		}
-	}
+	if (entry) return await raceRunPromise(entry, timeoutMs, deadline);
 
 	// Slow path: background run — poll with exponential backoff capped at pollIntervalMs.
 	// This path is ALSO taken by a foreground run whose executeTeamRun has not
@@ -158,6 +185,14 @@ export async function waitForRun(
 			const current = loadRunManifestById(cwd, runId);
 			if (current) return { ...current, detached: true };
 		}
+		// F1 live-probe fix (2026-09-12): a foreground promise may appear AFTER
+		// this waiter started (register/await race — the waiting-push from the
+		// broker resolves the ENTRY, which the polling loop would otherwise
+		// never observe). Re-check each tick and switch to the promise path with
+		// the REMAINING budget; evidence team_20260912053049 (parked 05:31:14,
+		// push no-op'd, waiter polled until the watchdog killed the worker).
+		const entryNow = activeRunPromises.get(runId);
+		if (entryNow) return await raceRunPromise(entryNow, timeoutMs, deadline);
 		if (attempt === 0) {
 			// Early exit: if the run directory doesn't exist, don't waste time polling.
 			// Resolve through createRunPaths (scopeBaseRoot) so the probe matches where
@@ -176,6 +211,15 @@ export async function waitForRun(
 		if (fresh && isFinishedRunStatus(fresh.manifest.status)) {
 			return fresh;
 		}
+		// F1 tombstone: a push that resolved (and evicted) the live entry between
+		// ticks lands here — consume it so the leader sees the question, not a
+		// 600s block. Terminal-on-disk above still wins (a finished run outranks
+		// a stale waiting payload).
+		const tombstone = resolvedRunResults.get(runId);
+		if (tombstone) {
+			resolvedRunResults.delete(runId);
+			return tombstone;
+		}
 		const delay = Math.min(pollIntervalMs, 50 * 2 ** Math.min(attempt, 6)); // max ~3.2s
 		await new Promise((r) => setTimeout(r, delay));
 		attempt++;
@@ -190,6 +234,7 @@ export function hasActiveRunPromise(runId: string): boolean {
 
 export function clearRunPromisesForTest(): void {
 	detachRequests.clear();
+	resolvedRunResults.clear();
 	for (const entry of activeRunPromises.values()) {
 		entry.reject(new Error("Cleared by test"));
 	}
