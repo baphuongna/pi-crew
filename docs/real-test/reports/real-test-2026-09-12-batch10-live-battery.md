@@ -86,3 +86,32 @@ G17-class settings drift: `reliability.loopGuard` (+4 pre-existing boolean sibli
 2. Expired-ask reconciliation: dispatch-batch requeue flips the task, but a parked worker only wakes via its own ask timeout — with F5 the worst case is now deadline+5s; a runner-side reconciliation of live-but-parked workers is the cleaner end-state.
 3. Dynamic-workflow async runs still creds-less (tasks planned inside the runner can't be pre-minted) — needs a broker-side mint RPC.
 4. The stuck run (team_20260912043817) was cancelled after evidence capture; worker was killed with it.
+
+---
+
+## Re-run battery after fix round 2 (2026-09-12 afternoon, commit "F1 round 2")
+
+Context: the morning fix session shipped F1/F2/F4/F5; user restarted Pi (host PID 3805573 start 12:07:30 > dist mtime 11:57:42 → new bundle live). Battery re-run per skill, fix-focused.
+
+**First re-probe REFUTED the morning F1/F2 fixes** (run team_20260912053049): sync ask-probe still blocked 626s; parked worker killed by the 600s response watchdog (park 05:31:14.283 → response_timeout 05:41:14.252 = exactly 600000ms). Two deeper root causes found by timeline tracing:
+
+1. **register/await race**: `waitForRun` runs immediately after `startForegroundRun` (void) while `executeTeamRunCore` registers its promise only after several awaits → waiter lands on the POLLING path where `resolveRunPromise`'s waiting-push is invisible. Worse: `resolveRunPromise` DELETES the map entry after resolving — a register+resolve landing between poll ticks orphans the promise entirely (reproduced standalone, not test-infra).
+2. **explicit timeoutSec override**: the worker LLM passed `timeoutSec: 600` explicitly (transcript-evidenced) — the 480 defaults (F2 legs 1+2) never applied; deadline raced the watchdog again.
+
+Fixes (same-day commit "fix(coordination): F1 round 2"): run.ts pre-registers before startForegroundRun (idempotent `registerRunPromise`); waitForRun slow path re-checks `activeRunPromises` each tick; `resolveRunPromise` writes a bounded tombstone (Map, limit 32) consumed by polling waiters; new `ASK_TIMEOUT_SEC_CEILING = 480` clamps the EFFECTIVE deadline regardless of model-passed values.
+
+**Battery evidence after round 2** (probe via fresh `pi -p` sessions in dedicated tmux — the main session still runs the pre-round-2 bundle; probes load the rebuilt dist):
+
+| Tier | Result |
+|---|---|
+| T1 critical | 104/104 (~13.5s) |
+| T2 kill-switch | BROKER=0 104/104 · BROKER=1 104/104 |
+| T3 | typecheck 0 · bundle 3303.5 KB · staleness 0 · committed-hash MATCH |
+| T4/8 | probe sessions = new bundle (R4 early-return behavior proves live code) |
+| 9a | list/settings/doctor/graph/recommend ✓ — **G17 live**: `reliability.loopGuard = true (default)`, no "unknown key" |
+| 9b-W ask round-trip SYNC | **FULL LIVE PROOF** — run team_20260912055021: park 05:50:36.285 → leader respond 05:50:42.953 (**6.7s** — only possible if the sync call returned the WAITING payload early) → ask.answered → task.resumed 05:50:43.347 → worker echoed the answer verbatim + created /tmp/pi-crew-f1r4.txt → 3/3 completed 05:53:52 (3m30s total vs 626s death before) |
+| 9b async | run team_20260912055450 completed 3/3 (workers self-resolved, no ask — known nondeterminism; F4 stdin-handshake ask evidence stands from team_20260912043817) |
+| New unit pins | run-tracker 11/11 (late-register race via tombstone + idempotent register) · ask-tool-lifecycle 8/8 (explicit-600→480 clamp) |
+| T10/T12 | skipped — no surface/resource-.md changes this round |
+
+Known noise (not findings): `[state-store] loadRunManifestByIdAsync: retry loop detected instability` best-effort warning during run; probe preflight cost warnings. Repo clean after all runs (0 unauthorized edits).
