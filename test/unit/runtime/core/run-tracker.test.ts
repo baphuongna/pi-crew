@@ -332,7 +332,11 @@ test("registerRunPromise is idempotent: a second registration returns the SAME e
 		const first = registerRunPromise(runId);
 		const second = registerRunPromise(runId);
 		assert.equal(first, second, "no overwrite — run.ts pre-register and executeTeamRunCore's register must share one entry");
-		resolveRunPromise(runId, { manifest: {} as never, tasks: [], waiting: { taskId: "t", questionId: "q", question: "?", deadline: 1 } });
+		resolveRunPromise(runId, {
+			manifest: {} as never,
+			tasks: [],
+			waiting: { taskId: "t", questionId: "q", question: "?", deadline: 1 },
+		});
 		const r = await first.promise;
 		assert.ok(r.waiting);
 	} finally {

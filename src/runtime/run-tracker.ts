@@ -128,11 +128,7 @@ export function rejectRunPromise(runId: string, reason: unknown): void {
 	}
 }
 
-function raceRunPromise(
-	entry: ActiveRunPromise,
-	timeoutMs: number,
-	deadline: number,
-): Promise<RunWaitResult> {
+function raceRunPromise(entry: ActiveRunPromise, timeoutMs: number, deadline: number): Promise<RunWaitResult> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const remaining = Math.max(0, deadline - Date.now());
 	const timeoutPromise = new Promise<never>((_, reject) => {

@@ -258,11 +258,7 @@ export function buildBackgroundRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.Process
  * ADR-0 item 6 rejects bare-runId tokens for wait.*). Kept pure + exported so
  * tests pin the WRITER format against the READER parser — a drift between
  * the two silently breaks coordination for every async run. */
-export function buildBrokerStdinLine(
-	runId: string,
-	socketPath: string,
-	tasks: Record<string, string>,
-): string {
+export function buildBrokerStdinLine(runId: string, socketPath: string, tasks: Record<string, string>): string {
 	return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
 }
 

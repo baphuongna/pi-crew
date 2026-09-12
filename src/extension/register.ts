@@ -130,9 +130,9 @@ export async function registerPiTeams(pi: ExtensionAPI): Promise<void> {
 	}
 
 	const skillCheck = await runPostInitSkillCheck(process.cwd());
-	if (skillCheck.severity === 'error') {
+	if (skillCheck.severity === "error") {
 		console.error(`[pi-crew] ${skillCheck.message}`);
-	} else if (skillCheck.severity === 'warn') {
+	} else if (skillCheck.severity === "warn") {
 		console.warn(`[pi-crew] ${skillCheck.message}`);
 	}
 }

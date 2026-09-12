@@ -53,8 +53,6 @@ import { unregisterWorker } from "./orphan-worker-registry.ts";
 import { startParentGuard, stopParentGuard } from "./parent-guard.ts";
 import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.ts";
 
-
-
 /**
  * Debug logger gated behind PI_CREW_DEBUG env var. Writes to background.log
  * (console is redirected there). Eliminates log noise in normal operation

@@ -809,8 +809,7 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 					taskId: w.taskId,
 					questionId: w.questionId,
 					waiting: true,
-				},
-				);
+				});
 			}
 			if (completed.detached) {
 				// The waiter was released so this turn can settle (agent view

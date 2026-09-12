@@ -13,7 +13,9 @@ test("shipped bundle resolves default skills correctly", async () => {
 	}
 
 	const mod = (await import(BUNDLE)) as Record<string, unknown>;
-	const checkFn = mod.runPostInitSkillCheck as (cwd: string) => Promise<{ total: number; resolved: number; missing: string[]; severity: string; message: string }>;
+	const checkFn = mod.runPostInitSkillCheck as (
+		cwd: string,
+	) => Promise<{ total: number; resolved: number; missing: string[]; severity: string; message: string }>;
 
 	if (typeof checkFn !== "function") {
 		assert.fail("runPostInitSkillCheck not exported from bundle");

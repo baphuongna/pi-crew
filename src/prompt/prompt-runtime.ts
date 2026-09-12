@@ -699,13 +699,10 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 				);
 			}
 			// Client-side mirror of the server clamp (P2-7) + the F2 ceiling: the
-		// broker clamps ≤3600 again, but the CEILING here is the one that keeps
-		// the park window strictly inside the 600s response watchdog — an
-		// explicit model value (observed: 600) must NOT override it.
-		const timeoutSec = Math.min(
-			Math.max(1, Math.floor(params.timeoutSec ?? ASK_TIMEOUT_SEC_DEFAULT)),
-			ASK_TIMEOUT_SEC_CEILING,
-		);
+			// broker clamps ≤3600 again, but the CEILING here is the one that keeps
+			// the park window strictly inside the 600s response watchdog — an
+			// explicit model value (observed: 600) must NOT override it.
+			const timeoutSec = Math.min(Math.max(1, Math.floor(params.timeoutSec ?? ASK_TIMEOUT_SEC_DEFAULT)), ASK_TIMEOUT_SEC_CEILING);
 			const client = deps.makeBrokerClient
 				? deps.makeBrokerClient({ runId, taskId, socketPath, token })
 				: new CrewBrokerClient({ runId, taskId, socketPath, token });

@@ -348,22 +348,22 @@ describe("ask tool lifecycle (WP-2/R2)", () => {
 	});
 });
 
-	it("F2 ceiling: an explicit model timeoutSec ≥ watchdog is clamped to 480 (team_20260912053049)", async () => {
-		const state = makeTempAskState();
-		try {
-			const questionId = "22222222-2222-4222-8222-222222222222";
-			const { surface, calls } = makeMockBrokerClient(() => ({
-				ok: true,
-				value: { status: "answered", questionId, answer: "no", answeredAt: new Date().toISOString() },
-			}));
-			const tool = createAskTool({ env: state.env, makeBrokerClient: () => surface });
-			await runAsk(tool, { question: "Override staging?", options: ["yes", "no"], timeoutSec: 600 });
-			const req = calls.find((c) => c.method === "wait.request");
-			assert.ok(req, "wait.request recorded");
-			// The EFFECTIVE deadline must stay strictly below the 600s response
-			// watchdog — the model's explicit 600 must NOT pass through.
-			assert.equal((req.params as { timeoutSec?: number }).timeoutSec, 480);
-		} finally {
-			state.cleanup();
-		}
-	});
+it("F2 ceiling: an explicit model timeoutSec ≥ watchdog is clamped to 480 (team_20260912053049)", async () => {
+	const state = makeTempAskState();
+	try {
+		const questionId = "22222222-2222-4222-8222-222222222222";
+		const { surface, calls } = makeMockBrokerClient(() => ({
+			ok: true,
+			value: { status: "answered", questionId, answer: "no", answeredAt: new Date().toISOString() },
+		}));
+		const tool = createAskTool({ env: state.env, makeBrokerClient: () => surface });
+		await runAsk(tool, { question: "Override staging?", options: ["yes", "no"], timeoutSec: 600 });
+		const req = calls.find((c) => c.method === "wait.request");
+		assert.ok(req, "wait.request recorded");
+		// The EFFECTIVE deadline must stay strictly below the 600s response
+		// watchdog — the model's explicit 600 must NOT pass through.
+		assert.equal((req.params as { timeoutSec?: number }).timeoutSec, 480);
+	} finally {
+		state.cleanup();
+	}
+});

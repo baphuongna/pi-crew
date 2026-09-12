@@ -163,11 +163,7 @@ export class CrewBrokerClient {
 	 * Never throws. The caller can continue using file-based fallback paths
 	 * without unwrapping anything.
 	 */
-	async request<T = unknown>(
-		method: string,
-		params: unknown,
-		opts?: { timeoutMs?: number },
-	): Promise<BrokerClientResult<T>> {
+	async request<T = unknown>(method: string, params: unknown, opts?: { timeoutMs?: number }): Promise<BrokerClientResult<T>> {
 		if (this._mode === "fallback") {
 			return { ok: false, fallback: true, errorCode: "fallback-sticky" };
 		}
