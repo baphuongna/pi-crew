@@ -87412,8 +87412,8 @@ ${sanitizedText}
 init_child_pi();
 
 // src/runtime/detached-run-results.ts
-init_internal_error();
 init_state_store();
+init_internal_error();
 init_process_status();
 var MAX_DELIVERY_ATTEMPTS = 3;
 var detachedRuns = /* @__PURE__ */ new Map();

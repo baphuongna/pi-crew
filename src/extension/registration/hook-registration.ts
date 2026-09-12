@@ -22,8 +22,8 @@ import { buildValidationBlocker, extractPathFromInput, validateWrittenFile } fro
 import { packageRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { shouldBlockDestructiveTeamAction } from "../team-tool/destructive-gate.ts";
-import { installToolLoopGuard } from "./tool-loop-guard.ts";
 import type { RegistrationContext } from "./registration-types.ts";
+import { installToolLoopGuard } from "./tool-loop-guard.ts";
 
 /**
  * Register all non-lifecycle event hooks on the ExtensionAPI.

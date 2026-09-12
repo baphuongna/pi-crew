@@ -4,8 +4,8 @@ import {
 	createLoopGuardState,
 	fingerprint,
 	installToolLoopGuard,
-	stableStringify,
 	LOOP_GUARD_MARKER,
+	stableStringify,
 	WAIT_GUARD_MARKER,
 } from "../../../../src/extension/registration/tool-loop-guard.ts";
 

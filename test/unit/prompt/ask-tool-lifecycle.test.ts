@@ -362,7 +362,7 @@ describe("ask tool lifecycle (WP-2/R2)", () => {
 			assert.ok(req, "wait.request recorded");
 			// The EFFECTIVE deadline must stay strictly below the 600s response
 			// watchdog — the model's explicit 600 must NOT pass through.
-			assert.equal((req?.params as { timeoutSec?: number }).timeoutSec, 480);
+			assert.equal((req.params as { timeoutSec?: number }).timeoutSec, 480);
 		} finally {
 			state.cleanup();
 		}

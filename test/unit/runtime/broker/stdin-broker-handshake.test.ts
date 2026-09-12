@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseStdinBrokerPayload } from "../../../../src/runtime/broker/stdin-handshake.ts";
 import { buildBrokerStdinLine } from "../../../../src/runtime/async-runner.ts";
+import { parseStdinBrokerPayload } from "../../../../src/runtime/broker/stdin-handshake.ts";
 
 /**
  * F4 (2026-09-12 live battery): detached workers lost ALL broker connectivity

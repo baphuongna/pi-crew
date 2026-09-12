@@ -11,9 +11,10 @@
  * The registry is in-process; a pending result is parked while an agent view is
  * open so the worker's own view session never receives the parent's report.
  */
-import { logInternalError } from "../utils/internal-error.ts";
+
 import { loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 import { isFinishedRunStatus } from "./process-status.ts";
 
 interface DetachedRun {

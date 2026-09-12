@@ -20169,17 +20169,17 @@
       "format": "esm"
     },
     "src/runtime/detached-run-results.ts": {
-      "bytes": 4691,
+      "bytes": 4692,
       "imports": [
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        },
         {
           "path": "src/state/stores/state-store.ts",
           "kind": "import-statement",
           "original": "../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
         },
         {
           "path": "src/runtime/process-status.ts",
@@ -21136,7 +21136,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8072839
+      "bytes": 8072841
     },
     "dist/index.mjs": {
       "imports": [

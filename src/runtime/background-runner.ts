@@ -41,6 +41,10 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 
 import { logInternalError } from "../utils/internal-error.ts";
 import { writeAsyncStartMarker } from "./async-marker.ts";
+// F4: broker creds handshake helpers live in broker/stdin-handshake.ts
+// (pure module — background-runner runs await main() at module scope, so
+// importing THIS file from tests would boot the runner).
+import { parseStdinBrokerPayload, readStdinFirstLine } from "./broker/stdin-handshake.ts";
 import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "./model/runtime-resolver.ts";
@@ -48,10 +52,6 @@ import { registryFromModelContext } from "./model/session-model.ts";
 import { unregisterWorker } from "./orphan-worker-registry.ts";
 import { startParentGuard, stopParentGuard } from "./parent-guard.ts";
 import { expandParallelResearchWorkflow } from "./scheduling/parallel-research.ts";
-// F4: broker creds handshake helpers live in broker/stdin-handshake.ts
-// (pure module — background-runner runs await main() at module scope, so
-// importing THIS file from tests would boot the runner).
-import { parseStdinBrokerPayload, readStdinFirstLine } from "./broker/stdin-handshake.ts";
 
 
 
