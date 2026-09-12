@@ -35,10 +35,11 @@ function readOnlyRoleInstructions(role: string): string {
 	].join("\n");
 }
 
-export function coordinationBridgeInstructions(task: TeamTaskState): string {
+export function coordinationBridgeInstructions(task: TeamTaskState, opts?: { includeMailboxTarget?: boolean }): string {
+	const includeMailboxTarget = opts?.includeMailboxTarget ?? true;
 	return [
 		"# Crew Coordination Channel",
-		`Mailbox target for this task: ${task.id}`,
+		...(includeMailboxTarget ? [`Mailbox target for this task: ${task.id}`] : []),
 		"Use the run mailbox contract for coordination with the leader/orchestrator:",
 		"- If blocked or uncertain, report the blocker in your final result and, when mailbox tools/API are available, send an inbox/outbox message addressed to the leader.",
 		"- Never guess implementation details that materially affect decisions. If the `ask` tool is available and you need a clarification, a decision, or a missing requirement before you can proceed safely, call `ask` and wait — a parked question is cheaper than a wrong build.",
@@ -262,7 +263,10 @@ export async function renderTaskPrompt(
 	// computation for parallel siblings in the same batch.
 	const stableComponents = precomputedStableComponents ?? (await computeStablePrefixComponents(manifest, step, task, agent));
 
-	// Stable prefix: role instructions, coordination, workspace tree — rarely changes
+	// Stable prefix: role instructions, coordination, workspace tree — rarely changes.
+	// ARCH-3 (byte-stable worker prefix): per-task values (Task ID, Task cwd, mailbox
+	// target) live in dynamicSuffix so siblings sharing a run+role produce a
+	// byte-identical prefix and hit provider KV-cache across the batch.
 	const stablePrefix = [
 		"# pi-crew Worker Runtime Context",
 		`Run ID: ${manifest.runId}`,
@@ -271,8 +275,6 @@ export async function renderTaskPrompt(
 		`State root: ${manifest.stateRoot}`,
 		`Artifacts root: ${manifest.artifactsRoot}`,
 		`Events path: ${manifest.eventsPath}`,
-		`Task ID: ${task.id}`,
-		`Task cwd: ${task.cwd}`,
 		`Workspace mode: ${manifest.workspaceMode}`,
 		"",
 		"Protocol:",
@@ -280,10 +282,14 @@ export async function renderTaskPrompt(
 		"- Report blockers and verification evidence in the final result.",
 		"- Do not claim completion without evidence.",
 		"- Follow the Task Packet contract below; escalate if any contract field is impossible to satisfy.",
+		// PROMPT-2 (port of OMO-slim task-rejection, improved phrasing): a
+		// universal lane-guard for every role — complements the per-agent reject
+		// sections in agents/*.md with a scaffold-level instruction.
+		"- If a task falls outside your role, do not attempt partial work. Return a concise rejection to the leader naming the lane that should own it.",
 		"",
 		readOnlyRoleInstructions(task.role),
 		"",
-		coordinationBridgeInstructions(task),
+		coordinationBridgeInstructions(task, { includeMailboxTarget: false }),
 		"",
 		stableComponents.treeBlock,
 		"",
@@ -291,9 +297,13 @@ export async function renderTaskPrompt(
 		"",
 		toolGuidanceBlock(agent),
 		"",
-		// O4: project knowledge (.crew/knowledge.md) — workers don't load the
-		// pi-crew extension (spawned with --no-extensions), so before_agent_start
-		// never fires for them. Inject here so every worker sees project knowledge.
+		// O4 (ARCH-2 corrected): project knowledge (.crew/knowledge.md). Builtin
+		// workers don't load the pi-crew extension (agents declare no `extensions:`
+		// in frontmatter), so before_agent_start knowledge injection doesn't fire
+		// for them — and the knowledge-injection hook now early-returns on
+		// PI_CREW_KIND=subagent, so even agents that DO declare the extension
+		// can't double-inject. This prompt-builder fragment is the single source
+		// of worker project knowledge.
 		stableComponents.knowledgeFragment,
 	]
 		.filter(Boolean)
@@ -301,6 +311,9 @@ export async function renderTaskPrompt(
 
 	// Dynamic suffix: goal, step, skills, task packet, dependency context, memory — changes per task
 	const dynamicSuffix = [
+		`Task ID: ${task.id}`,
+		`Task cwd: ${task.cwd}`,
+		`Mailbox target: ${task.id}`,
 		`Goal:\n${manifest.goal}`,
 		"",
 		`Step: ${step.id}`,

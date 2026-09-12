@@ -242,6 +242,68 @@ if (!existsSync(distPath)) {
 	process.exit(0);
 }
 
+// ---------------------------------------------------------------------------
+// ARCH-7: dist path-leak scan — fail the gate on absolute-path literals.
+// The canonicalize() step above normalizes the repo root for HASH stability,
+// but a build that actually embeds /home/<user>/... or /Users/<user>/... into
+// the shipped artifacts leaks the build machine's layout to every consumer.
+// Patterns require a username-like segment after /home//Users/, so legitimate
+// literals like the validPrefixes list entry "/home/" do not trip the scan.
+// ---------------------------------------------------------------------------
+
+function scanDistPathLeaks() {
+	const leakPatterns = [
+		root, // the repo root literal in any form
+		/\/home\/[A-Za-z0-9_.-]+\//, // /home/<user>/...
+		/\/Users\/[A-Za-z0-9_.-]+\//, // /Users/<user>/... (macOS)
+		/C:\\\\Users\\\\[A-Za-z0-9_.-]+\\\\/, // C:\Users\<user>\... (Windows)
+	];
+	// index.mjs + build-meta.json get the full line scan. The .map is handled
+	// structurally below: its sourcesContent embeds verbatim tracked source,
+	// whose own comments may legitimately mention /home/... (false positive).
+	const files = ["index.mjs", "build-meta.json"];
+	const hits = [];
+	for (const file of files) {
+		const p = path.join(root, "dist", file);
+		if (!existsSync(p)) continue;
+		const lines = readFileSync(p, "utf-8").split("\n");
+		lines.forEach((line, i) => {
+			for (const pattern of leakPatterns) {
+				const lit = typeof pattern === "string" ? pattern : null;
+				if (lit ? line.includes(lit) : pattern.test(line)) {
+					hits.push(`${file}:${i + 1}: ${line.trim().slice(0, 120)}`);
+					break;
+				}
+			}
+		});
+	}
+	// Structural check for the map: sources[] and sourceRoot must be relative.
+	const mapPath = path.join(root, "dist", "index.mjs.map");
+	if (existsSync(mapPath)) {
+		try {
+			const map = JSON.parse(readFileSync(mapPath, "utf-8"));
+			if (map.sourceRoot && (map.sourceRoot.startsWith("/") || /^[A-Za-z]:[\\\\/]/.test(map.sourceRoot))) {
+				hits.push(`index.mjs.map: absolute sourceRoot: ${String(map.sourceRoot).slice(0, 120)}`);
+			}
+			for (let i = 0; i < (map.sources ?? []).length; i++) {
+				const s = map.sources[i];
+				if (typeof s === "string" && (s.startsWith("/") || /^[A-Za-z]:[\\\\/]/.test(s))) {
+					hits.push(`index.mjs.map: absolute sources[${i}]: ${s.slice(0, 120)}`);
+			}
+			}
+		} catch {
+			hits.push("index.mjs.map: unparseable JSON (cannot verify structural path cleanliness)");
+		}
+	}
+	if (hits.length > 0) {
+		console.error("[check-bundle-staleness] ARCH-7 path-leak scan FAILED — absolute build-machine paths in dist:");
+		for (const hit of hits) console.error(`  ${hit}`);
+		console.error("Rebuild the bundle from a checkout without absolute-path sources, or fix the esbuild config.");
+		process.exit(1);
+	}
+}
+scanDistPathLeaks();
+
 const distMtimeMs = statSync(distPath).mtimeMs;
 
 // `git ls-files src` lists tracked files; untracked new .ts files are added

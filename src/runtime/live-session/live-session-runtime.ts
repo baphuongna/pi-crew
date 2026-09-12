@@ -273,7 +273,7 @@ function numberField(obj: Record<string, unknown> | undefined, keys: string[]): 
 
 /**
  * F7: resolve the enabledModels allowlist for the current project, but only
- * if the `runtime.reliability.scopeModels` toggle is ON. Returns an empty
+ * if the `reliability.scopeModels` toggle is ON. Returns an empty
  * array when the toggle is off or no allowlist is configured — the routing
  * gate treats empty patterns as "no enforcement" (no-op). Best-effort:
  * any failure to read the toggle or the allowlist silently disables the gate

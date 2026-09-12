@@ -2,6 +2,161 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — bundle skill resolution + skill metadata upgrades (2026-09-11)
+
+### fix(bundle): PACKAGE_SKILLS_DIR resolves via `packageRoot()` instead of broken `import.meta.url` walk-up
+
+Four files used `path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills")` to locate the shipped skills directory. The pattern works from source mode but is **broken in bundle mode** (single `dist/index.mjs`): `import.meta.url` points at the bundle root, so `.. ..` resolves to the parent of the consuming project — typically the wrong location. Workers silently received zero skill guidance while the rest of the extension loaded normally.
+
+All four call sites switched to `path.join(packageRoot(), "skills")`. `packageRoot()` walks upward from `import.meta.url` looking for a `package.json` whose `name` field equals `"pi-crew"`; it already had a `.. ..` fallback for symlinked/global installs.
+
+Files touched:
+
+- `src/runtime/skill-instructions.ts` — `PACKAGE_SKILLS_DIR`
+- `src/skills/discover-skills.ts` — `PACKAGE_SKILLS_DIR`
+- `src/extension/registration/hook-registration.ts` — inline `extSkillDir` in `installResourcesDiscoverHook`
+- `src/runtime/async-runner.ts` — deleted the dangling `packageRootFromRuntime()` helper; the file already imported `packageRoot()` but used the broken helper. Param renamed `packageRoot` → `pkgRoot` at the call site to avoid shadowing the imported util.
+
+### feat(extension): post-init skill resolution check (`SKILL-HYGIENE-1`)
+
+A new `runPostInitSkillCheck(cwd)` runs at the tail of `registerPiTeams()`. It calls `renderSkillInstructions({ cwd, role: 'executor' })` and counts how many of the default-role skills resolved to a real `SKILL.md` on disk. Severity is `ok` when all resolve, `warn` when some are missing, `error` when **none** resolve (the signature of a stale bundle). Warnings/errors go to `console.warn` / `console.error` so the user sees degraded skill coverage at startup instead of after a worker has already produced subpar output.
+
+`registerPiTeams` is now `async` (returns `Promise<void>`); the synchronous hook installation still completes before the first await, so callers that discard the return value (`pi-extensions/register-extensions.ts`, the default export of `index.bundle.ts`) are unaffected.
+
+`runPostInitSkillCheck` is also exported from `index.bundle.ts` so the new `test/unit/bundle-skill-resolution.test.ts` can exercise the shipped bundle directly — it asserts the bundle, when imported from `dist/index.mjs`, reports `severity === "ok"` for the default executor skills.
+
+### feat(skills): add "When NOT to use" to every SKILL.md frontmatter (`SKILL-META-1`)
+
+All 34 SKILL.md descriptions are now multi-line `description: >` blocks. The last paragraph is a sentence that begins with `When NOT to use:` and names the skills (or plain conditions) that *should not* trigger this one. The cross-references are real — every skill mentioned in a "When NOT" line points to another skill that exists in this repo.
+
+YAML parsing goes through the `yaml` package (`eemeli/yaml`), which handles folded scalars correctly; verified by parsing all 34 files post-edit (0 errors).
+
+### feat(skills): support `*` wildcard and `!name` denylist in skill selection (`SKILL-HYGIENE-2`)
+
+`collectTaskSkillNames` now interprets two new tokens inside `input.override`:
+
+- `"*"` — a no-op marker; documented as the way to spell "give me the role defaults plus whatever else I'm listing". Reserved for future expansion (e.g., expand to "all package skills").
+- `"!name"` — remove `name` from the final selection, even if it would otherwise be present (role default, agent skill, team-role skill, or step skill).
+
+Five new tests in `test/unit/runtime/core/skill-instructions.test.ts` cover the syntax: single denylist, `*` + multi-denylist, additive override still works, denylist of a name not in the set is a no-op, and `"*"` alone returns the defaults.
+
+### tests
+
+- `test/unit/bundle-skill-resolution.test.ts` (new) — loads `dist/index.mjs` and verifies the boot check reports `severity: "ok"` for the executor default skills. Acts as a regression guard against the bundle skill-resolution bug.
+- `test/integration/extension-skill-resolution.test.ts` — updated to use `packageRoot()` so it asserts against the same resolution path the production code uses.
+- `test/unit/runtime/core/skill-instructions.test.ts` — 5 new tests for `SKILL-HYGIENE-2`.
+
+### feat(skills): attempt-budget stamps on gate/review skills (`SKILL-META-2`)
+
+Six skills now carry a `## Budget` section defining a 3-attempt budget (1 initial + max 2 re-attempts) with a stamped `attempt X of 3 (Y attempts remaining)` protocol. Each section names what counts as an attempt for that skill and the re-attempt trigger; all six share the same exhaustion rule — escalate to the user with options (accept risk / change scope / exceptional budget) rather than looping silently.
+
+Skills: `orchestration`, `delegation-patterns`, `scrutinize`, `council`, `verification-before-done`, `multi-perspective-review`.
+
+### feat(skills): self-restraint language on over-create-prone skills (`SKILL-META-3`)
+
+Four skills now carry a `## Self-restraint` section anchored on "Creating nothing is a valid result." Each spells out what no-change means for that skill — e.g. for `scrutinize`, concluding the intent was sound IS the finding; for `resource-discovery-config`, not registering unused resources IS success. This counters the tendency to invent work (findings, scope, routing rules, registrations) to justify an invocation.
+
+Skills: `scrutinize` (also has Budget), `requirements-to-task-packet`, `model-routing-context`, `resource-discovery-config`.
+
+### feat(agents): body upgrades for executor / explorer / reviewer (AGENT-UPGRADE-3/4/6)
+
+The three highest-traffic role bodies were one-paragraph stubs. They now carry the OMO-slim craft patterns, adapted to pi's actual toolset. Frontmatter (tool grants, model routing, context inheritance) is untouched — only the `systemPromptMode: replace` body changed.
+
+- **executor** — hard denial list (no context research, no subagent spawning unless instructed, no design work, no scope expansion, no completion claims without evidence), an `EXEC_SUMMARY/CHANGES/VERIFICATION/OMITTED/REJECT` output block, and four explicit reject-and-route criteria.
+- **explorer** — tool selection matrix mapped to pi's real tools (`grep`/`glob`/`find`/`read`/`ls`, bash only for pipelines, never `cat`-dumping), an `EXPLORER_RESULT/FILES/ANSWER/UNCERTAIN/ROUTING` output block, a ~10-tool-call budget per question, and read-only boundaries.
+- **reviewer** — a pre/post execution boundary vs critic, a mandatory 3-attempt review budget with `review attempt X of 3` stamping (matching the Batch-3 skill Budget pattern), and a `REVIEW/MAJORS/MINORS/NOT_VERIFIED/SECURITY_NOTES/REVIEW_ATTEMPT` output block.
+
+Host-difference adaptations from the OMO-slim source: `ast_grep_search`/`apply_patch` dropped (no pi equivalents), `@designer`/`oracle`/`librarian` routing re-pointed to leader-escalation (those agents don't exist yet — re-point when AGENT-1..5 lands), and the executor subagent denial softened to "unless the task explicitly instructs delegation" because executor's frontmatter grants the `delegate` tool.
+
+### feat(agents): new specialist agents — librarian, oracle, designer (AGENT-1a/1b/1c)
+
+Three specialist agents fill the gaps OMO-slim exposed. Builtin agent count goes 11 → 14; discovery is automatic from `packageRoot()/agents`.
+
+- **librarian** — documentation and dependency-source research. Answers library/API questions from evidence on disk (`node_modules/` source, README, CHANGELOG, package tests), with version-stamped answers, an official-vs-community evidence label, and an explicit UNCERTAIN channel for anything requiring web access (workers have no web tools; the agent says so instead of guessing from memory). Output block: `LIBRARIAN_RESULT/SOURCES/ANSWER/OFFICIAL_OR_COMMUNITY/CONFIDENCE/UNCERTAIN`.
+- **oracle** — strategic technical advisor (escalation tier, read-only). Handles architecture decisions, hard-bug hypothesis ranking, and simplification/YAGNI review. Carries a routing boundary vs analyst/critic/reviewer so it declines non-strategic asks. Output block: `ORACLE_ADVICE/REASONING/OPTIONS_CONSIDERED/SIMPLIFICATION/CONFIDENCE/ROUTING`.
+- **designer** — UI/UX specialist covering web frontends and terminal UIs. Six design principles (typography, color, motion, spatial, depth, match-vision-to-execution) plus a Design Handoff Discipline section (tokens, states, geometry, out-of-scope list). Has edit/write tools to implement design scope. Output block: `DESIGN_VERDICT/DECISIONS/HANDOFF/NOTES/OPEN_QUESTIONS`.
+
+Batch-4 routing references re-pointed to the real agents: executor's design/architecture rejects now route to `designer`/`oracle` (was leader-escalation placeholders); explorer's external-docs flag now routes to `librarian`.
+
+Deferred from AGENT-1: `observer` (LOW, no vision use case yet), `councillor-<seat>` per-seat agents (AGENT-5, needs council-skill integration), `fixer` (subsumed by the Batch-4 executor upgrade).
+
+### feat(runtime): tool loop guard at the dispatch path (ARCH-1)
+
+A session re-issuing the exact same tool call (same tool, identical arguments) with byte-identical results is how model-side infinite loops present — pi-crew has a recorded run where a worker re-verified the same completed files 14+ times. New `src/extension/registration/tool-loop-guard.ts` (ported from OMO-slim's tool-loop-guard hook, adapted to pi's `tool_call`/`tool_result` surface):
+
+- The counter advances only in `tool_result` and only when args AND output are identical — a call that returns NEW information resets the run, so a legitimate re-read after a file changed can never accumulate toward a block.
+- Warn at 3 confirmed identical results (corrective text appended to the tool result). Hard-block at 5 for read-only file tools only (`read`/`grep`/`glob`/`find`/`ls`); `bash`/`edit`/`write` stay warn-only (identical repeats may be legitimate retries).
+- `ask` is treated as a wait-style tool (its contract is "stop and wait"): keyed by name only, warn at 2 completed calls, the 3rd call within a turn is refused; any completed non-ask tool resets the turn.
+- Delegation/result-polling tools (`team`, `crew_agent`, `Agent`, `get_subagent_result`) are exempt — identical repeats there are legitimate supervision.
+- Scope is per-process (each worker is its own process); tracked fingerprints are FIFO-bounded at 512. Fingerprints are key-order-insensitive (`stableStringify`), so paginated or reordered-args calls never trip the guard.
+- Toggle: `runtime.reliability.loopGuard: false` (default on, mirroring `perWriteValidation`; field added to config types + validation).
+
+12 new tests in `test/unit/extension/registration/tool-loop-guard.test.ts` cover warn/block thresholds, new-output reset, intervening-call reset, warn-only tools, exemptions, pagination-distinctness, the ask wait-guard, FIFO eviction, and the hook wiring on a fake Pi.
+
+### perf(runtime): byte-stable worker prefix — per-task values move to the dynamic suffix (ARCH-3)
+
+`renderTaskPrompt`'s stablePrefix embedded per-task values (`Task ID`, `Task cwd`, and the coordination bridge's `Mailbox target` line), so sibling workers in the same batch produced different prefixes and missed provider KV-cache hits on every call. Per-task identity now lives at the top of the dynamic suffix (`Task ID` / `Task cwd` / `Mailbox target`); the prefix keeps only run-level values (Run ID, Team, Workflow, State/Artifacts/Events roots, Workspace mode) plus role/coordination/tree blocks shared across siblings.
+
+`coordinationBridgeInstructions(task)` gains an optional `{ includeMailboxTarget }` (default `true`, preserving the existing `pre-execution.ts` mailbox usage and its tests); the stable-prefix call site passes `false`.
+
+New byte-identity test: two siblings sharing a manifest + step produce a `stablePrefix` that is `strictEqual`-identical, while each `dynamicSuffix` carries its own task identity. 19/19 prompt-builder tests pass.
+
+### fix(runtime): ARCH-2/5/6/7 — knowledge-injection guard, watchdog wake cap, release import smoke, dist path-leak gate
+
+**ARCH-2 (double-injection guard).** The knowledge-injection hook's docstring claimed workers are spawned `--no-extensions` — stale: `pi-args.ts` runs extension discovery like the main session, and a child loads an extension whenever the agent's frontmatter declares `extensions:`. Builtin agents declare none, so no double-injection occurs today — but any agent that does declare pi-crew would get knowledge twice (hook + prompt-builder fragment). The `before_agent_start` handler now early-returns on `PI_CREW_KIND=subagent`, making main-session hooks main-session-only regardless of how the child was spawned; the docstring and the prompt-builder O4 comment now describe the real mechanism. Prompt-builder remains the single source of worker project knowledge.
+
+**ARCH-5 (watchdog wake cap).** `startForegroundWatchdog` dripped a "run appears hung" notice every interval (~24 notices/2h) once a run looked orphaned. A per-run closure counter now caps notices at 2, sends one final hand-off message ("going quiet now — intervene or leave it"), then stays silent while continuing to monitor; the counter resets whenever the run leaves the hung state.
+
+**ARCH-6 (clean-install import smoke).** `release-smoke.mjs` previously verified the tarball by checking files exist — a green in-repo bundle test can coexist with a broken packed artifact. The smoke now installs the pi host's optional peers (`@earendil-works/pi-*` at the devDep-pinned `^0.84.0` — the bundle keeps them external by design), then `import()`s the installed `dist/index.mjs` and shape-checks `registerPiTeams`/`waitForRun`/`runPostInitSkillCheck`/`default`. The very first run caught the peer-context gap this documentation now records.
+
+**ARCH-7 (dist path-leak gate).** `check-bundle-staleness.mjs` gains a leak scan: `index.mjs`/`build-meta.json` are line-scanned for the repo-root literal, `/home/<user>/…`, `/Users/<user>/…`, and `C:\Users\…`; `index.mjs.map` is checked structurally (`sources[]` + `sourceRoot` must be relative) because its `sourcesContent` embeds verbatim tracked source whose comments may legitimately mention `/home/…` paths. Patterns require a username segment, so legitimate literals like the `validPrefixes` entry `"/home/"` don't trip. Verified: clean dist passes; planted leaks (bundle line + absolute map source) each fail with file:line reports.
+
+**ARCH-4 (live-session fallback loop) — SKIPPED, ADR conflict.** The proposal suggested porting the child-executor model-fallback retry loop into `live-session-runtime.ts`. ADR 2026-08-15 (runtime-convergence, decision (a)) froze the live-session path — "no new features may be added to live-session without revisiting this ADR" — and its Round-4 evaluation explicitly marked the fallback-loop port option **NOT sound** (abandon SDK delegation or build a parallel fallback layer, 3–5 days for a worse design). Implementing ARCH-4 would override a standing decision record; revisit the ADR first if live-session fallback ever becomes a real requirement.
+
+### feat(agents): body upgrades for the remaining eight roles (AGENT-UPGRADE-1/2/5/7/8/9/10/11)
+
+Completes the agent-body track: all 11 builtin role bodies now carry output contracts, boundaries, and anti-patterns (Batch 4 did executor/explorer/reviewer).
+
+Full rewrites (six one-line stubs → substantive bodies, frontmatter untouched):
+
+- **analyst** — pre-planning clarifier with an explicit analyst-vs-planner boundary (what/why vs how), an `ANALYSIS_BRIEF` output block whose AMBIGUITIES are triaged MUST-RESOLVE / DEFER-TO-USER / SAFE-TO-DEFAULT, and a `HANDOFF_TO_PLANNER` paragraph the planner converts directly to phases. Tool guidance reflects the agent's actual grant (no shell/write).
+- **planner** — STRUCTURES-not-executes stance, `PLAN` output block with PHASES/DEPENDENCIES/OWNERSHIP/VERIFICATION_GATES/ROLLBACK_PLAN, anti-patterns against scope-splitting for review convenience and unverifiable success criteria.
+- **critic** — explicit timing boundary (PRE-execution on PLANS; an implementation review request is rejected and routed to reviewer), critique targets (missing steps, unsafe assumptions, over/under-engineering, ownership conflicts, unverifiable gates), `CRITIQUE_VERDICT: PROCEED|REVISE|BLOCK` block.
+- **security-reviewer** — STRIDE threat-model framing per finding; loads the priority list from `skills/security-priority.json` (graceful when `detecting-*` skills are absent); audit commands are LEFT FOR the executor in DEPENDENCY_RISKS since this agent has no shell access (host-difference adaptation); `SECURITY_REVIEW` block with attack_scenario required for CRITICAL.
+- **test-engineer** — test-level decision matrix (unit/integration/E2E/contract/property/snapshot — pick the lowest sufficient level), flaky-test detection taxonomy with a pass-3x stability rule, `TEST_STRATEGY` block including exact COMMANDS and explicit NOT_TESTED.
+- **writer** — voice/audience discipline (why-before-what, calibrate to nearby docs, no marketing prose), `DOC_SUMMARY` block with AUDIENCE/STRUCTURE/INTERNAL_REFS, unverifiable sections marked DRAFT.
+
+Additions to the two gold-standard bodies:
+
+- **verifier** — mandatory `REVIEW_ATTEMPT: <X of 3>` stamp added to the output block plus a Review budget section (re-review priorities; INCONCLUSIVE-on-exhaustion rule), matching the reviewer/skill Budget pattern from Batch 3.
+- **cold-verifier** — same budget stamp + section (re-attempts prioritize prior CLAIMS_REFUTED follow-ups; no re-litigating confirmed claims). The proposal's invocation-guidance section was already covered by its existing "What makes you different from verifier" section, so it was not duplicated.
+
+AGENT-2 (merge analyst+planner) remains un-exercised by design: both roles now have distinct lane contracts, and merging is a structural change (DEFAULT_ROLE_SKILLS, team role mappings) outside body-upgrade scope.
+
+### feat(prompt): worker-side prompt track complete (PROMPT-1 AC + PROMPT-2 + PROMPT-5 agent-side)
+
+Closes the three remaining gaps in the PROMPT track (PROMPT-3 explorer tool matrix and PROMPT-4 review budgets landed in Batches 3–8).
+
+**PROMPT-2 — universal task-rejection instruction.** The worker scaffold's Protocol block (stablePrefix, every role) gains the lane-guard line ported from OMO-slim's task-rejection with improved phrasing: "If a task falls outside your role, do not attempt partial work. Return a concise rejection to the leader naming the lane that should own it." This complements the per-agent reject sections (executor/critic/etc.) with a scaffold-level default for every role, including future ones.
+
+**PROMPT-1 AC — CI-enforced output contracts.** New `test/unit/agents/agent-output-contracts.test.ts` walks the discovered builtin agents and asserts each body carries an `## Output format` heading with a fenced output block. A stub agent with no output contract now fails CI before it can ship (all 17 pass; threshold asserts ≥17 so growth is covered).
+
+**PROMPT-5 (agent side) — "When NOT to use" in every agent description.** All 17 agent frontmatter descriptions converted to folded scalars (`description: >`) with an appended "When NOT to use: …" line naming the correct alternative lane (executor → designer/oracle/explorer; reviewer → critic/security-reviewer; verifier → cold-verifier/test-engineer; councillors → invoke via the council skill; etc.). Matches the skill-side pattern from Batch 2 (34/34); YAML parse verified 17/17.
+
+### feat(policy+agents): routing metadata, orchestrator agent, delivery retry bound, CONTEXT.md (AGENT-4 + P2-1/2/7/8)
+
+**P2-1 — routing metadata on every agent (discovery-derived routing cards).** All 17 agents (now 18 with orchestrator) carry flat frontmatter routing keys — `useWhen` / `avoidWhen` / `cost` / `category` — which `buildResourceRoutingGuidance` already renders into the leader's injected "Available Resources" policy. Zero drift by construction: the routing table IS the discovery output; no second copy exists to go stale.
+
+**AGENT-4 — `agents/orchestrator.md` (18th builtin).** The delegated-orchestration specialist: five workflow phases (route → dispatch → monitor → reconcile → verify), communication rules (no preamble, honest pushback, one-line routing decisions), background-task discipline (poll before re-acting; duplicate dispatch of a running task is an error), and an `ORCHESTRATION_SUMMARY` output contract. Canonical-source decision recorded in the body: the discovered resources guidance is the SINGLE routing authority — the orchestrator body encodes process only and defers to live discovery, eliminating the two-copies drift the proposal flagged.
+
+**P2-7 — bounded detached-run delivery.** The detached-run registry retried a failing `sendMessage` every tick, forever. Each peek of a finished run now counts as an attempt; after 3 failed sends the entry is dropped with a `delivery-gave-up` warning log instead of retrying indefinitely.
+
+**P2-8 — `CONTEXT.md`.** Orientation map: 15-entry glossary (run, manifest, broker, live agent, surface, detach, deadletter, waitState, task packet, stablePrefix split, bundle) plus a Flagged section documenting the six quirks that bite (broker SIGTERM on long silent bash, wait-request-broker 180s flake, frozen live-session ADR, line-based agent frontmatter parser, committed-but-ignored dist, packageRoot-only skill resolution).
+
+**Fix caught in-flight — agent frontmatter vs folded YAML.** Batch 9's folded-scalar agent descriptions broke discovery: `utils/frontmatter.ts`'s line-based parser read `description: >` literally as `">"`. Descriptions are back to single-line (quoted, since they contain ": "), and `parseLines` now strips one pair of symmetric surrounding double quotes — so quoted values behave identically for every consumer. Verified both directions: pi-crew discovery (17/17 descriptions with When NOT, 17/17 routing parsed, no quote leakage) AND strict `yaml`-package parsing (17/17). The 30 frontmatter/workflows tests and 49 agent tests confirm the shared-parser change is safe for teams/workflows.
+
+**P2-2 verified-done** (detached/goal/anchor/chain tool outputs already carry next-step guards). **P2-3 deferred**: the broker handshake is already versioned; a mailbox marker needs a real cross-version consumer before it earns its complexity. P2-9/P2-10 remain deferred (M-effort docs/package work).
+
 ## [0.10.5] — user-scope runs: waitForRun + background diagnostics (2026-09-11)
 
 ### fix: RUN/WAIT instantly errored "Run not found" for user-scope runs (#54)

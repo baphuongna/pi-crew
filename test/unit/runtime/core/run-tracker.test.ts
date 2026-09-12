@@ -283,3 +283,63 @@ test("waitForRun honours user scope for markerless cwds (issue #54)", async () =
 		clearRunPromisesForTest();
 	}
 });
+
+test("F1 register/await race: a late-registered promise releases a waiter already on the polling path", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-race-"));
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		const created = createRunManifest({ cwd, team, workflow, goal: "test" });
+		const running = {
+			...created.manifest,
+			status: "running" as const,
+			updatedAt: new Date().toISOString(),
+		};
+		saveRunManifest(running);
+
+		// The waiter starts BEFORE any promise is registered — exactly the live
+		// shape (team_20260912053049): waitForRun runs right after
+		// startForegroundRun returns, executeTeamRunCore registers later.
+		const waiter = waitForRun(created.manifest.runId, cwd, { timeoutMs: 5000, pollIntervalMs: 50 });
+		await wait(120); // a few slow-path poll ticks with NO entry
+		const entry = registerRunPromise(created.manifest.runId);
+		resolveRunPromise(created.manifest.runId, {
+			manifest: running,
+			tasks: [],
+			waiting: {
+				taskId: "01_explore",
+				questionId: "aaaaaaaa-1111-4111-8111-111111111111",
+				question: "Create the marker file?",
+				deadline: Date.now() + 480_000,
+				options: ["yes", "no"],
+			},
+		});
+		const result = await waiter;
+		assert.ok(result.waiting, "waiter released with the waiting push");
+		assert.equal(result.waiting?.taskId, "01_explore");
+		assert.equal(result.waiting?.question, "Create the marker file?");
+		// The entry's promise must NOT be stranded resolved-but-unawaited —
+		// a second waiter still sees the resolved waiting payload.
+		assert.equal(await entry.promise.then((r) => r.waiting?.taskId), "01_explore");
+	} finally {
+		clearRunPromisesForTest();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("registerRunPromise is idempotent: a second registration returns the SAME entry", async () => {
+	const runId = "race-idem-run";
+	try {
+		const first = registerRunPromise(runId);
+		const second = registerRunPromise(runId);
+		assert.equal(first, second, "no overwrite — run.ts pre-register and executeTeamRunCore's register must share one entry");
+		resolveRunPromise(runId, {
+			manifest: {} as never,
+			tasks: [],
+			waiting: { taskId: "t", questionId: "q", question: "?", deadline: 1 },
+		});
+		const r = await first.promise;
+		assert.ok(r.waiting);
+	} finally {
+		clearRunPromisesForTest();
+	}
+});

@@ -1,6 +1,9 @@
 ---
 name: event-log-tracing
-description: "Structured event logging for worker lifecycle, live agents, crash recovery."
+description: >
+  Structured event logging for worker lifecycle, live agents, crash recovery.
+  When NOT to use: high-level metrics dashboards (use observability-reliability); for runtime state inspection (use runtime-state-reader).
+
 origin: pi-crew
 triggers:
   - "event log"

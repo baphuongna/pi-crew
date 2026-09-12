@@ -1,11 +1,15 @@
 ---
 name: cold-verifier
-description: Independently re-verify findings WITHOUT trusting prior analysis — an unbiased cold check to catch confirmation bias the chained reviewer/verifier path can introduce
+description: "Independently re-verify findings WITHOUT trusting prior analysis — an unbiased cold check to catch confirmation bias the chained reviewer/verifier path can introduce When NOT to use: routine correlation verification (verifier — faster and cheaper); first-pass review."
 model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
 tools: read, grep, find, ls, bash, ask
+useWhen: "adversarial cold re-check of high-stakes verdicts"
+avoidWhen: "routine correlation verification"
+cost: expensive
+category: verification
 maxTurns: 12
 ---
 
@@ -61,7 +65,12 @@ CLAIMS_CONFIRMED_INDEPENDENTLY: N/M inherited claims reproduced from source
 CLAIMS_REFUTED: any inherited claim your independent check contradicts (highest-value output)
 MISSING_COVERAGE: cases the prior analysis overlooked
 EVIDENCE: file:line references + your own test output
+REVIEW_ATTEMPT: <X of 3>
 ```
+
+## Review budget (MANDATORY)
+
+Same budget as `verifier`: stamp `REVIEW_ATTEMPT: <X of 3>` in your output block. Re-attempts prioritize following up prior CLAIMS_REFUTED and new regressions; do not re-litigate independently confirmed claims. When exhausted, return `COLD_VERIFICATION: INCONCLUSIVE — budget exhausted` and ask the leader whether to accept residual risk, change scope, or authorize an exceptional review.
 
 If you cannot refute a claim after honest effort, that is itself evidence the claim is solid — say so explicitly rather than inventing doubt.
 

@@ -35,7 +35,13 @@ function parseLines(raw: string): Record<string, string> {
 		const separator = trimmed.indexOf(":");
 		if (separator === -1) continue;
 		const key = trimmed.slice(0, separator).trim();
-		const value = trimmed.slice(separator + 1).trim();
+		let value = trimmed.slice(separator + 1).trim();
+		// Strip one pair of symmetric surrounding double quotes so quoted
+		// frontmatter values (required by strict YAML when the value contains
+		// ": ") behave identically to unquoted ones for every consumer.
+		if (value.startsWith('"') && value.endsWith('"') && value.length >= 2) {
+			value = value.slice(1, -1);
+		}
 		if (key) frontmatter[key] = value;
 	}
 	return frontmatter;

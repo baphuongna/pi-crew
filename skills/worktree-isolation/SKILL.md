@@ -1,6 +1,9 @@
 ---
 name: worktree-isolation
-description: "Conflict-safe git worktree workflow."
+description: >
+  Conflict-safe git worktree workflow.
+  When NOT to use: non-git changes (use direct edit); single-commit patches (use git-master).
+
 origin: pi-crew
 triggers:
   - "create worktree"

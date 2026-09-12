@@ -1,6 +1,9 @@
 ---
 name: state-mutation-locking
-description: "Durable state mutation and locking workflow."
+description: >
+  Durable state mutation and locking workflow.
+  When NOT to use: read-only inspection (use runtime-state-reader); single-process non-concurrent edits.
+
 origin: pi-crew
 triggers:
   - "modify manifest"

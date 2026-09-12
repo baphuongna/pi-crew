@@ -475,13 +475,15 @@ test("wait.resolve: parked task resolves waiting→running, waitState cleared, e
 	try {
 		const client = await rawConnect(socketPath);
 		await hello(client, scaff.runId, scaff.taskId, token);
-		// Park first (default timeout: 600s, unclamped).
+		// Park first (F2: default timeout is 480s — must stay strictly below the
+		// 600s response watchdog so the parked worker wakes before being killed;
+		// unclamped).
 		client.socket.write(encodeBrokerFrame({ id: "w1", method: "wait.request", params: { to: scaff.taskId, question: "Continue?" } }));
 		const park = (await client.waitForFrame((f) => (f as { id?: string })?.id === "w1")) as {
 			result?: { ok?: boolean; questionId?: string; timeoutSec?: number; clamped?: boolean };
 		};
 		assert.equal(park.result?.ok, true);
-		assert.equal(park.result?.timeoutSec, 600, "default timeoutSec is 600");
+		assert.equal(park.result?.timeoutSec, 480, "default timeoutSec is 480 (F2: < response watchdog 600s)");
 		assert.equal(park.result?.clamped, false);
 		const questionId = park.result?.questionId ?? "";
 		assert.ok(questionId.length > 0, "park result must carry a questionId");
@@ -855,5 +857,37 @@ test("P1 wiring: disabled waitMethodsEnabled rejects wait.request with the polic
 	} finally {
 		await broker.stop();
 		teardownCwd(scaff.cwd);
+	}
+});
+
+test("F1: wait.request pushes the question to a registered sync foreground waiter (resolveRunPromise)", async () => {
+	const scaff = await scaffoldRunningTask("f1push");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd, waitMethodsEnabled: true });
+	const token = broker.issueRunToken(scaff.runId, scaff.taskId);
+	// Register the foreground waiter exactly like team-tool run.ts does for a
+	// sync run — the broker's park must release it with the waiting payload.
+	const { registerRunPromise } = await import("../../../../src/runtime/run-tracker.ts");
+	const entry = registerRunPromise(scaff.runId);
+	const waiter = entry.promise;
+	try {
+		const client = await rawConnect(socketPath);
+		await hello(client, scaff.runId, scaff.taskId, token);
+		client.socket.write(
+			encodeBrokerFrame({
+				id: "f1-1",
+				method: "wait.request",
+				params: { to: scaff.taskId, question: "Authorize the override?", options: ["yes", "no"], timeoutSec: 60 },
+			}),
+		);
+		const settled = await waiter;
+		assert.ok(settled.waiting, "waiter released with a waiting payload");
+		assert.equal(settled.waiting?.taskId, scaff.taskId);
+		assert.equal(settled.waiting?.question, "Authorize the override?");
+		assert.deepEqual(settled.waiting?.options, ["yes", "no"]);
+		assert.ok(typeof settled.waiting?.questionId === "string" && settled.waiting.questionId.length > 0);
+		assert.ok(typeof settled.waiting?.deadline === "number");
+		await client.close();
+	} finally {
+		await broker.stop();
 	}
 });

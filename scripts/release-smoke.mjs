@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -42,6 +43,15 @@ try {
 		// 4. Install packed tarball
 		run(`npm install ${tarballPath}`, tmpDir);
 
+		// 4b. Provide the optional pi peers the bundle keeps external — in real
+		// deployments the pi HOST supplies these; a naked install legitimately
+		// lacks them. Installing the devDep-pinned versions simulates the host
+		// so the import smoke (6b) tests the tarball artifact, not peer absence.
+		run(
+			"npm install @earendil-works/pi-agent-core@^0.84.0 @earendil-works/pi-ai@^0.84.0 @earendil-works/pi-coding-agent@^0.84.0 @earendil-works/pi-tui@^0.84.0",
+			tmpDir,
+		);
+
 		// 5. Verify extension loads
 		const pkgPath = path.join(tmpDir, "node_modules", "pi-crew", "package.json");
 		if (!fs.existsSync(pkgPath)) throw new Error("pi-crew package not found in node_modules");
@@ -55,6 +65,21 @@ try {
 		} else {
 			throw new Error("Could not find extension register entrypoint");
 		}
+
+		// 6b. ARCH-6: clean-install import smoke — actually import the installed
+		// bundle and shape-check its exports. Ports bundle-load.test.ts from the
+		// in-repo dist to the tarball-installed artifact, catching CJS-shim /
+		// external-resolution / tree-shaking breaks that "file exists" checks
+		// cannot. A green in-repo test can coexist with a broken packed tarball
+		// (files excluded from npm pack, postinstall drift) — this closes that gap.
+		const installedBundle = path.join(tmpDir, "node_modules", "pi-crew", "dist", "index.mjs");
+		if (!fs.existsSync(installedBundle)) throw new Error(`Installed bundle missing: ${installedBundle}`);
+		const mod = await import(pathToFileURL(installedBundle).href);
+		for (const name of ["registerPiTeams", "waitForRun", "runPostInitSkillCheck"]) {
+			if (typeof mod[name] !== "function") throw new Error(`installed bundle: ${name} export missing/broken`);
+		}
+		if (typeof mod.default !== "function") throw new Error("installed bundle: default export (Pi extension entry) missing");
+		log("  Import smoke: tarball-installed bundle loads; exports OK (registerPiTeams/waitForRun/runPostInitSkillCheck/default)");
 
 		// 7. Verify version consistency
 		if (pkg.version !== version) {

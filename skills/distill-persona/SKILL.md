@@ -1,6 +1,9 @@
 ---
 name: distill-persona
-description: Distill a person's (or field's) thinking into a runnable pi skill — research, extract, validate, generate. REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
+description: >
+  Distill a person's (or field's) thinking into a runnable pi skill — research, extract, validate, generate. REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
+  When NOT to use: software engineering conventions (use distill-software); pure research without distillation (use research).
+
 origin: local
 triggers:
   - "distill a persona"

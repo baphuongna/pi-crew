@@ -1,6 +1,9 @@
 ---
 name: ownership-session-security
-description: "Session ownership and authorization workflow."
+description: >
+  Session ownership and authorization workflow.
+  When NOT to use: general session lifecycle questions (use live-agent-lifecycle); for non-session auth issues.
+
 origin: pi-crew
 triggers:
   - "cancel run"

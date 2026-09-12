@@ -224,7 +224,7 @@ export function rewriteTeamWorkerPrompt(prompt: string, options: { inheritProjec
 
 // ── WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask): worker-side `ask` tool ──
 // Binding ADR items 1, 4, 5:
-//   1. `ask({ question, options?, timeoutSec? = 600 })` — the SERVER clamps
+//   1. `ask({ question, options?, timeoutSec? = 480 })` — the SERVER clamps
 //      timeoutSec ≤ 3600 (P2-7); the client mirrors the clamp defensively.
 //   4. Option-(b) delivery: poll the run mailbox stream
 //      (<PI_CREW_STATE_ROOT>/mailbox via readAllMailboxMessages) every 500ms
@@ -282,8 +282,22 @@ export function effectiveSteeringInterval(realtimeActive: boolean): number {
 	return realtimeActive ? STEER_POLL_ACTIVE_MS : STEER_POLL_IDLE_MS;
 }
 
-const ASK_TIMEOUT_SEC_DEFAULT = 600;
+// F2 (2026-09-12 live battery): 480, NOT 600 — a parked worker emits no
+// output, so the 600s response watchdog counts the whole park; at 600==600
+// the kill raced the wake (team_20260912014448). 480s leaves 120s grace for
+// the worker to wake, answer its fallback, and finish the turn. This client
+// default must stay in lockstep with the server default
+// (WAIT_REQUEST_TIMEOUT_SEC_DEFAULT) — an explicit value here overrides the
+// server default, so fixing only the broker side changed nothing.
+const ASK_TIMEOUT_SEC_DEFAULT = 480;
 const ASK_TIMEOUT_SEC_MAX = 3600;
+/** F2 live-probe follow-up (2026-09-12, team_20260912053049): the model may
+ * pass an EXPLICIT timeoutSec (it passed 600, racing the watchdog again
+ * despite the 480 default). The EFFECTIVE deadline is clamped to this
+ * ceiling regardless of what the model asks for — a parked worker emits no
+ * output, so any deadline ≥ the 600s response watchdog is a guaranteed kill.
+ * Must stay strictly below RESPONSE_TIMEOUT_MS/1000 (child-pi-constants). */
+const ASK_TIMEOUT_SEC_CEILING = 480;
 /** Client-side mirrors of the broker's parseWaitRequestParams bounds — the
  *  typebox schema below enforces them at the tool-call boundary so an
  *  out-of-bounds ask fails validation BEFORE a park is attempted. */
@@ -684,16 +698,21 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 					"[ask] unavailable: no broker connection (PI_CREW_BROKER_SOCKET / PI_CREW_BROKER_TOKEN / PI_CREW_BROKER_RUN_ID / PI_CREW_STATE_ROOT absent — scaffold or mock mode) — proceed with best judgment; do not call ask again.",
 				);
 			}
-			// Client-side mirror of the server clamp (P2-7): the broker clamps
-			// again, so this only shortens the park window the model believes in.
-			const timeoutSec = Math.min(Math.max(1, Math.floor(params.timeoutSec ?? ASK_TIMEOUT_SEC_DEFAULT)), ASK_TIMEOUT_SEC_MAX);
+			// Client-side mirror of the server clamp (P2-7) + the F2 ceiling: the
+			// broker clamps ≤3600 again, but the CEILING here is the one that keeps
+			// the park window strictly inside the 600s response watchdog — an
+			// explicit model value (observed: 600) must NOT override it.
+			const timeoutSec = Math.min(Math.max(1, Math.floor(params.timeoutSec ?? ASK_TIMEOUT_SEC_DEFAULT)), ASK_TIMEOUT_SEC_CEILING);
 			const client = deps.makeBrokerClient
 				? deps.makeBrokerClient({ runId, taskId, socketPath, token })
 				: new CrewBrokerClient({ runId, taskId, socketPath, token });
 			try {
 				const requestParams: Record<string, unknown> = { to: taskId, question: params.question, timeoutSec };
 				if (params.options) requestParams.options = params.options;
-				const parked = await client.request("wait.request", requestParams);
+				// F5: cap the RPC itself at the ask deadline + 5s grace — a response
+				// frame lost on a half-dead socket must not outlive the deadline the
+				// worker is prepared to wait anyway (fallback notice → proceed).
+				const parked = await client.request("wait.request", requestParams, { timeoutMs: timeoutSec * 1000 + 5_000 });
 				if (!parked.ok) {
 					// Policy rejection, auth failure, connect failure — all fast-fail.
 					const code = parked.errorCode ?? "request-failed";

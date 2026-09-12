@@ -41,6 +41,10 @@ async function executeTeamRun(...args: Parameters<typeof ExecuteTeamRunFn>): Pro
 
 import { logInternalError } from "../utils/internal-error.ts";
 import { writeAsyncStartMarker } from "./async-marker.ts";
+// F4: broker creds handshake helpers live in broker/stdin-handshake.ts
+// (pure module — background-runner runs await main() at module scope, so
+// importing THIS file from tests would boot the runner).
+import { parseStdinBrokerPayload, readStdinFirstLine } from "./broker/stdin-handshake.ts";
 import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "./model/runtime-resolver.ts";
@@ -523,6 +527,43 @@ async function main(): Promise<void> {
 	const cwd = argValue("--cwd");
 	const runId = argValue("--run-id");
 	if (!cwd || !runId) throw new Error("Usage: background-runner.ts --cwd <cwd> --run-id <runId>");
+	// F4 (2026-09-12 live battery): broker creds arrive on STDIN from the
+	// dispatching session (heap → pipe → heap; token never written to disk).
+	// Without this, every async worker loses ask/message/mailbox/steer — the
+	// env route is closed (allowlist rejects secret-suffixed tokens) and no
+	// extension lifecycle runs here to register an issuer. Best-effort:
+	// absent/invalid payload = creds-less runner = previous behavior.
+	try {
+		const raw = await readStdinFirstLine();
+		const payload = raw ? parseStdinBrokerPayload(raw, runId) : undefined;
+		if (payload) {
+			// LAZY: broker issuer module has process-level side effects at load.
+			const { setActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
+			// LAZY: pi-args pulls the model registry chain.
+			const { resolveCrewMaxDepth } = await import("./model/pi-args.ts");
+			// Static issuer scoped to THIS run, serving PRE-MINTED per-task COMPOUND
+			// tokens — wait.* rejects bare-runId tokens (ADR-0 item 6), so the v1
+			// single-token shortcut left every park forbidden. Unknown taskIds
+			// (dynamic workflows planned in-runner) get NO creds — follow-up:
+			// broker-side mint RPC. Depth-cap parity with the parent-side
+			// issueForChild gate (lifecycle-handlers.ts:1130-1136).
+			setActiveBrokerIssuer(async (rid, taskId, childDepth) => {
+				if (rid !== payload.runId) return undefined;
+				if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;
+				if (!taskId) return undefined;
+				const token = payload.tasks[taskId];
+				if (!token) return undefined;
+				return { socketPath: payload.socketPath, token };
+			});
+			debugLog(
+				`[broker] stdin handshake accepted for run ${runId} (${Object.keys(payload.tasks).length} task tokens, socket ${payload.socketPath})`,
+			);
+		} else {
+			debugLog(`[broker] no stdin creds payload — runner proceeds broker-less (pre-F4 behavior)`);
+		}
+	} catch {
+		/* best-effort: never fail boot over coordination creds */
+	}
 	// FIX Issue #3: Wrap in withRunLockSync to prevent concurrent background-runners
 	// for the same runId from reading stale manifest state. If lock cannot be
 	// be acquired within 5s, fail immediately rather than proceeding with stale data.

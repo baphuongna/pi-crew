@@ -23,6 +23,12 @@ export interface TeamToolDetails {
 		durationMs?: number;
 		consistencyScore?: number;
 	};
+	/** F1 (2026-09-12): set when a run returned early because a task parked on
+	 * `ask` — the tool result carries the question; answer via respond then
+	 * re-block via wait. */
+	taskId?: string;
+	questionId?: string;
+	waiting?: boolean;
 	/** Structured data for programmatic consumption (e.g. TUI widgets). */
 	data?: Record<string, unknown>;
 }

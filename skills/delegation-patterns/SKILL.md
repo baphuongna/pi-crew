@@ -1,6 +1,9 @@
 ---
 name: delegation-patterns
-description: "Subagent/team delegation workflow."
+description: >
+  Subagent/team delegation workflow.
+  When NOT to use: pure read-only investigation (use read-only-explorer); pre-planning analysis (use scrutinize).
+
 origin: pi-crew
 triggers:
   - "delegate this"
@@ -118,3 +121,17 @@ npx tsc --noEmit
 node --experimental-strip-types --test test/unit/team-recommendation.test.ts test/unit/task-output-context-security.test.ts test/integration/phase3-runtime.test.ts
 npm test
 ```
+
+## Budget
+
+This skill applies a 3-attempt budget: 1 initial + max 2 re-attempts.
+
+Stamp every invocation:
+
+```
+attempt X of 3 (Y attempts remaining)
+```
+
+An attempt is one delegation decision (choose agent/team → dispatch → collect). Re-attempt when the delegation target fails or returns unusable output.
+
+Re-attempts only when the previous attempt materially changes the decision or risk. Do NOT spend a re-attempt on mechanical changes or already-resolved findings. When exhausted, escalate to the user with options (accept risk / change scope / exceptional budget).

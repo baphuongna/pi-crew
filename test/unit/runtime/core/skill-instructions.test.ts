@@ -522,3 +522,44 @@ test("getSkillCacheStats returns hitRate field", () => {
 	clearSkillInstructionCache();
 	resetSkillCacheStats();
 });
+
+// SKILL-HYGIENE-2: wildcard/denylist syntax tests
+test("collectTaskSkillNames: denylist removes named skill from defaults", () => {
+	const role = "executor";
+	const defaults = defaultSkillsForRole(role);
+	if (defaults.length === 0) return;
+	const victim = defaults[0];
+	const result = resolveTaskSkillNames({ role, override: [`!${victim}`] });
+	assert.ok(!result.includes(victim), `${victim} should be denylisted`);
+	assert.equal(result.length, defaults.length - 1, "denylist removes exactly 1");
+});
+
+test("collectTaskSkillNames: wildcard + denylist combo", () => {
+	const role = "executor";
+	const defaults = defaultSkillsForRole(role);
+	if (defaults.length < 2) return;
+	const v1 = defaults[0];
+	const v2 = defaults[1];
+	const result = resolveTaskSkillNames({ role, override: ["*", `!${v1}`, `!${v2}`] });
+	assert.ok(!result.includes(v1), `${v1} should be denylisted`);
+	assert.ok(!result.includes(v2), `${v2} should be denylisted`);
+	assert.equal(result.length, defaults.length - 2);
+});
+
+test("collectTaskSkillNames: additive override preserved (existing behavior)", () => {
+	const result = resolveTaskSkillNames({ role: "executor", teamRole: { skills: false }, override: ["safe-bash"] });
+	assert.ok(result.includes("safe-bash"), `safe-bash should be in result: ${result.join(",")}`);
+});
+
+test("collectTaskSkillNames: denylist for skill not in defaults = no-op", () => {
+	const defaults = defaultSkillsForRole("executor");
+	const result = resolveTaskSkillNames({ role: "executor", override: ["!nonexistent-skill"] });
+	assert.equal(result.length, defaults.length, "denylisting missing skill is no-op");
+});
+
+test("collectTaskSkillNames: wildcard marker alone = defaults (no-op)", () => {
+	const role = "executor";
+	const defaults = defaultSkillsForRole(role);
+	const result = resolveTaskSkillNames({ role, override: ["*"] });
+	assert.equal(result.length, defaults.length, "wildcard alone returns defaults");
+});

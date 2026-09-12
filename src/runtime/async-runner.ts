@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import { getCrewEnv } from "../config/env-vars.ts";
 import { appendEventAsync } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
@@ -26,17 +26,14 @@ export type LoaderSpec = { kind: "jiti"; path: string } | { kind: "strip-types" 
 
 type LoaderInput = LoaderSpec | string | false | undefined;
 
-function packageRootFromRuntime(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
 function jitiRegisterPathFromPackageJson(packageJsonPath: string): string {
 	return path.join(path.dirname(packageJsonPath), "lib", "jiti-register.mjs");
 }
 
-export function resolveJitiRegisterPath(packageRoot = packageRootFromRuntime(), exists: FileExists = fs.existsSync): string | undefined {
-	// Walk upward from packageRoot looking for node_modules/jiti/lib/jiti-register.mjs
-	let current = path.resolve(packageRoot);
+export function resolveJitiRegisterPath(pkgRoot: string | undefined, exists: FileExists = fs.existsSync): string | undefined {
+	const effectiveRoot = pkgRoot ?? packageRoot();
+	// Walk upward from effectiveRoot looking for node_modules/jiti/lib/jiti-register.mjs
+	let current = path.resolve(effectiveRoot);
 	const root = path.parse(current).root;
 	while (true) {
 		const candidate = path.join(current, "node_modules", "jiti", "lib", "jiti-register.mjs");
@@ -115,7 +112,7 @@ export function getBackgroundRunnerCommand(
 	reportDirectory?: string,
 ): { args: string[]; loader: "jiti" | "strip-types" } {
 	const loader = normalizeLoaderInput(loaderInput);
-	if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRootFromRuntime()));
+	if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRoot()));
 	// Limit V8 heap to 512MB for the background runner to avoid triggering the
 	// Linux OOM killer. The runner itself is lightweight — it delegates work to
 	// child Pi processes — so 512MB is generous. Without this limit, Node.js
@@ -256,6 +253,15 @@ export function buildBackgroundRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.Process
 	return { ...env, PI_CREW_ASYNC_RUN: "1" };
 }
 
+/** F4 v2: the ONE line written to the background-runner's stdin carrying
+ * PER-TASK compound broker tokens (see stdin-handshake.ts for why compound —
+ * ADR-0 item 6 rejects bare-runId tokens for wait.*). Kept pure + exported so
+ * tests pin the WRITER format against the READER parser — a drift between
+ * the two silently breaks coordination for every async run. */
+export function buildBrokerStdinLine(runId: string, socketPath: string, tasks: Record<string, string>): string {
+	return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
+}
+
 export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise<SpawnBackgroundTeamRunResult> {
 	// FIX (2026-07-02, perf review F-critical): use packageRoot() instead of
 	// import.meta.url-relative path. The previous path.resolve walks
@@ -289,7 +295,7 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 
 	const loader = resolveTypeScriptLoader();
 	if (!loader) {
-		const message = buildLoaderUnavailableMessage(packageRootFromRuntime());
+		const message = buildLoaderUnavailableMessage(packageRoot());
 		// FIX-08: use async event append to avoid sleepSync event-loop blocking.
 		await appendEventAsync(manifest.eventsPath, {
 			type: "async.failed",
@@ -318,11 +324,69 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 		cwd: manifest.cwd,
 		detached: true,
 		setsid: true,
-		stdio: ["ignore", "pipe", "pipe"],
+		// F4 (2026-09-12 live battery): stdin is a PIPE — broker credentials
+		// travel heap → pipe → heap right after spawn (see below). Previously
+		// "ignore", which (together with the env allowlist and the missing
+		// runner-side issuer) left EVERY async worker broker-less: ask/message
+		// fell back to "proceed with best judgment" silently.
+		stdio: ["pipe", "pipe", "pipe"],
 		env: childEnv,
 		windowsHide: true,
 	} as unknown as Parameters<typeof spawn>[2];
 	const child = spawn(process.execPath, command.args, spawnOpts);
+	// F4: hand the runner a per-run broker credential over stdin. The env
+	// route is CLOSED BY DESIGN — BACKGROUND_RUNNER_ENV_ALLOWLIST cannot carry
+	// PI_CREW_BROKER_TOKEN (secret-suffixed names are rejected by the
+	// sanitizeEnvSecrets validator, and a PI_CREW_BROKER_* glob is flagged
+	// isDangerousGlob). The token never touches disk (invariant,
+	// lifecycle-handlers.ts:990) and dies with the parent session (heap-only
+	// registry). issuer(runId) without taskId mints the LEGACY per-run token,
+	// which the registry accepts for any task of the run via its bare-runId
+	// fallback (crew-broker-tokens.ts get()). Best-effort: any failure here
+	// leaves the runner creds-less (= previous behavior), never throws.
+	try {
+		let line: string;
+		// LAZY: broker issuer only when a handshake payload needs minting.
+		const { getActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
+		const issuer = getActiveBrokerIssuer();
+		if (issuer) {
+			// F4 v2: pre-mint a COMPOUND (runId+taskId) token for every task of the
+			// run — wait.* rejects bare-runId tokens (ADR-0 item 6), so the legacy
+			// issuer(runId) shortcut left every park forbidden. Tasks are persisted
+			// BEFORE dispatch (tasksPath exists on the manifest); dynamic workflows
+			// that plan tasks inside the runner get no creds (follow-up: broker-side
+			// mint RPC).
+			// LAZY: state-store pulls the whole stores chain into the async runner.
+			const { loadRunManifestByIdAsync } = await import("../state/stores/state-store.ts");
+			const loaded = await loadRunManifestByIdAsync(manifest.cwd, manifest.runId);
+			const runTasks = loaded?.tasks ?? [];
+			const tasks: Record<string, string> = {};
+			let socketPath: string | undefined;
+			for (const task of runTasks) {
+				if (!task?.id) continue;
+				const creds = await issuer(manifest.runId, task.id);
+				if (creds) {
+					tasks[task.id] = creds.token;
+					socketPath ??= creds.socketPath;
+				}
+			}
+			if (socketPath && Object.keys(tasks).length > 0) {
+				line = buildBrokerStdinLine(manifest.runId, socketPath, tasks);
+				child.stdin?.write(line);
+			} else {
+				child.stdin?.write("\n");
+			}
+		} else {
+			child.stdin?.write("\n");
+		}
+	} catch {
+		/* best-effort: runner proceeds creds-less */
+	}
+	try {
+		child.stdin?.end();
+	} catch {
+		/* EPIPE: runner already died — the spawn error handling below owns that */
+	}
 	// Round 27 (BUG 3) history: the piped stdout/stderr were previously destroyed
 	// immediately to avoid a pipe-buffer deadlock (child writes >64KB with nobody
 	// draining → hang). BUT destroying stderr ALSO swallowed native crash

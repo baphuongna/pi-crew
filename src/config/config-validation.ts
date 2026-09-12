@@ -640,6 +640,7 @@ function parseReliabilityConfig(value: unknown): CrewReliabilityConfig | undefin
 		forcePreflight: parseWithSchema(Type.Boolean(), obj.forcePreflight),
 		ambientStatusInjection: parseWithSchema(Type.Boolean(), obj.ambientStatusInjection),
 		perWriteValidation: parseWithSchema(Type.Boolean(), obj.perWriteValidation),
+		loopGuard: parseWithSchema(Type.Boolean(), obj.loopGuard),
 		scopeModels: parseWithSchema(Type.Boolean(), obj.scopeModels),
 	};
 	return Object.values(reliability).some((entry) => entry !== undefined) ? reliability : undefined;

@@ -1,6 +1,9 @@
 ---
 name: workspace-isolation
-description: "Workspace isolation boundaries."
+description: >
+  Workspace isolation boundaries.
+  When NOT to use: concurrent edits within same repo (use worktree-isolation); non-git projects.
+
 origin: pi-crew
 triggers:
   - "workspace isolation"

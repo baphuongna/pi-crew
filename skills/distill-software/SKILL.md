@@ -1,6 +1,9 @@
 ---
 name: distill-software
-description: Distill software engineering expertise — an engineer's judgment, a codebase's conventions, or a domain's practice — and APPLY it to a TARGET project (never outputs a reusable skill file). REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
+description: >
+  Distill software engineering expertise — an engineer's judgment, a codebase's conventions, or a domain's practice — and APPLY it to a TARGET project (never outputs a reusable skill file). REQUIRED — read the full skill file first (multi-phase protocol with machine-checked gates); run the validate-run script on <run-dir> before claiming done — ALL-GREEN required.
+  When NOT to use: person/figure thinking patterns (use distill-persona); generic engineering questions (use research).
+
 origin: local
 triggers:
   - "distill a codebase"

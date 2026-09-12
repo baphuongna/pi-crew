@@ -1,6 +1,9 @@
 ---
 name: child-pi-spawning
-description: "Child Pi worker spawning, lifecycle callbacks, and failure modes."
+description: >
+  Child Pi worker spawning, lifecycle callbacks, and failure modes.
+  When NOT to use: non-Pi subprocess execution (use safe-bash); for general async reliability (use async-worker-recovery).
+
 origin: pi-crew
 triggers:
   - "worker crashed"

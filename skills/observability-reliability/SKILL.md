@@ -1,6 +1,9 @@
 ---
 name: observability-reliability
-description: "Metrics, diagnostics, correlation, retry, deadletter, and recovery evidence workflow."
+description: >
+  Metrics, diagnostics, correlation, retry, deadletter, and recovery evidence workflow.
+  When NOT to use: one-off event capture (use event-log-tracing); pure recovery logic (use async-worker-recovery).
+
 origin: pi-crew
 triggers:
   - "add metrics"

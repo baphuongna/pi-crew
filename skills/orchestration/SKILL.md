@@ -1,6 +1,9 @@
 ---
 name: orchestration
-description: "Multi-phase orchestration for planners and executors."
+description: >
+  Multi-phase orchestration for planners and executors.
+  When NOT to use: single-task edits (use delegation-patterns); pure read-only audits (use read-only-explorer); one-shot questions (use ask).
+
 origin: pi-crew
 triggers:
   - "orchestrate this"
@@ -174,3 +177,17 @@ npm test
 ```
 
 For orchestrated work: run the gate commands appropriate to the target subproject after each phase, and again after final phase.
+
+## Budget
+
+This skill applies a 3-attempt budget: 1 initial + max 2 re-attempts.
+
+Stamp every invocation:
+
+```
+attempt X of 3 (Y attempts remaining)
+```
+
+An attempt is one full multi-phase orchestration pass (plan → execute → verify). Re-attempt when a phase fails verification or the plan materially changes mid-run.
+
+Re-attempts only when the previous attempt materially changes the decision or risk. Do NOT spend a re-attempt on mechanical changes or already-resolved findings. When exhausted, escalate to the user with options (accept risk / change scope / exceptional budget).

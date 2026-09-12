@@ -32,6 +32,7 @@ import { registerCrewShortcuts } from "./crew-shortcuts.ts";
 import { registerCrewVibes } from "./crew-vibes/index.ts";
 import { registerKnowledgeInjection } from "./knowledge-injection.ts";
 import { registerCrewMessageRenderers } from "./message-renderers.ts";
+import { runPostInitSkillCheck } from "./post-init-skill-check.ts";
 import { registerPiCommands } from "./registration/command-registration.ts";
 import { buildRegistrationContext } from "./registration/context-builder.ts";
 import { importCrashRecovery, purgeStaleActiveRunIndexSyncIfLoaded } from "./registration/crash-recovery-cache.ts";
@@ -50,7 +51,7 @@ export { __test__subagentSpawnParams };
 /**
  * Pi extension entry point. See module-level docstring for the full pipeline.
  */
-export function registerPiTeams(pi: ExtensionAPI): void {
+export async function registerPiTeams(pi: ExtensionAPI): Promise<void> {
 	resetTimings();
 	time("register:start");
 
@@ -126,6 +127,13 @@ export function registerPiTeams(pi: ExtensionAPI): void {
 		registerCrewVibes(pi);
 	} catch (err) {
 		console.warn("[pi-crew] crew-vibes initialization failed:", err instanceof Error ? err.message : err);
+	}
+
+	const skillCheck = await runPostInitSkillCheck(process.cwd());
+	if (skillCheck.severity === "error") {
+		console.error(`[pi-crew] ${skillCheck.message}`);
+	} else if (skillCheck.severity === "warn") {
+		console.warn(`[pi-crew] ${skillCheck.message}`);
 	}
 }
 

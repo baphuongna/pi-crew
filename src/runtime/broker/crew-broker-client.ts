@@ -42,6 +42,14 @@ const BROKER_PROTOCOL = 1;
 /** Per-attempt timeout for connect + hello. */
 const CONNECT_HELLO_TIMEOUT_MS = 5_000;
 
+/** F5 (2026-09-12 live probe): default per-request RPC timeout. A response
+ * frame lost on a half-dead socket (no close event — observed live: worker
+ * stuck inside `await client.request("wait.request")` past its own ask
+ * deadline, because the deadline check lives AFTER the request resolves)
+ * would otherwise hang the caller forever. Callers with a longer natural
+ * cap (ask: timeoutSec) pass their own timeoutMs. */
+const REQUEST_TIMEOUT_DEFAULT_MS = 15_000;
+
 /** Bounded backoff schedule (ms). At most 4 attempts means 3 retries after
  *  the first failure. Jitter is ±25%. */
 const BACKOFF_SCHEDULE_MS: readonly number[] = [50, 100, 200, 400, 800] as const;
@@ -83,6 +91,8 @@ interface PendingRequest {
 	method: string;
 	resolve: (value: unknown) => void;
 	reject: (err: Error) => void;
+	/** F5: per-request timeout timer; cleared on settle + close. */
+	timer?: NodeJS.Timeout;
 }
 
 export class CrewBrokerClient {
@@ -153,7 +163,7 @@ export class CrewBrokerClient {
 	 * Never throws. The caller can continue using file-based fallback paths
 	 * without unwrapping anything.
 	 */
-	async request<T = unknown>(method: string, params: unknown): Promise<BrokerClientResult<T>> {
+	async request<T = unknown>(method: string, params: unknown, opts?: { timeoutMs?: number }): Promise<BrokerClientResult<T>> {
 		if (this._mode === "fallback") {
 			return { ok: false, fallback: true, errorCode: "fallback-sticky" };
 		}
@@ -176,9 +186,26 @@ export class CrewBrokerClient {
 		// Send the request. Send a frame FIRST so the server's hello gate
 		// cannot reject it as "method other than hello".
 		const id = `r-${randomUUID()}`;
+		let entry: PendingRequest | undefined;
 		const promise = new Promise<unknown>((resolve, reject) => {
-			this.pending.set(id, { id, method, resolve, reject });
+			entry = { id, method, resolve, reject };
+			this.pending.set(id, entry);
 		});
+		// F5: arm the per-request timeout BEFORE the write — a frame lost on a
+		// half-dead socket produces neither a response nor a close, and the
+		// caller would hang forever (observed live on a parked ask worker).
+		// Rejecting the pending entry funnels into the existing catch below
+		// (typed errorCode + enterFallbackOnce), so no new code path is needed.
+		const timeoutMs = opts?.timeoutMs ?? REQUEST_TIMEOUT_DEFAULT_MS;
+		const requestTimer: NodeJS.Timeout = (this.options.setTimeoutFn ?? ((cb: () => void, ms: number) => setTimeout(cb, ms)))(
+			() => {
+				const pendingEntry = this.pending.get(id);
+				this.pending.delete(id);
+				pendingEntry?.reject(new BrokerError("request-timeout", `no response for ${method} within ${timeoutMs}ms`));
+			},
+			Math.max(1, Math.floor(timeoutMs)),
+		);
+		if (entry) entry.timer = requestTimer;
 		try {
 			const frame = encodeBrokerFrame({ id, method, params });
 			// Write may emit EPIPE etc. We don't await drain here — the response
@@ -206,6 +233,15 @@ export class CrewBrokerClient {
 			const code = err instanceof BrokerError ? err.code : "request-failed";
 			this.enterFallbackOnce(code, err);
 			return { ok: false, fallback: true, errorCode: code };
+		} finally {
+			// F5: disarm the per-request timeout on ANY settle path (response,
+			// broker-error envelope, socket rejection) so late timer fires cannot
+			// reject an already-consumed pending entry.
+			try {
+				(this.options.clearTimeoutFn ?? ((t: NodeJS.Timeout) => clearTimeout(t)))(requestTimer);
+			} catch {
+				/* best-effort */
+			}
 		}
 	}
 
@@ -278,6 +314,13 @@ export class CrewBrokerClient {
 		// Resolving with undefined would have made request() return
 		// {ok:true, value:undefined}, which is misleading.
 		for (const [, p] of this.pending) {
+			if (p.timer) {
+				try {
+					(this.options.clearTimeoutFn ?? ((t: NodeJS.Timeout) => clearTimeout(t)))(p.timer);
+				} catch {
+					/* best-effort */
+				}
+			}
 			p.reject(new BrokerError("close", "client closed"));
 		}
 		this.pending.clear();

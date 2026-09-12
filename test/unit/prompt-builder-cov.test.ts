@@ -181,6 +181,37 @@ describe("renderOutputSchemaBlock", () => {
 // ── renderTaskPrompt ────────────────────────────────────────────────────
 
 describe("renderTaskPrompt", () => {
+	it("ARCH-3: siblings sharing a step produce a byte-identical stablePrefix", async () => {
+		const tmpDir = createTrackedTempDir("pi-crew-pb-byteid-");
+		try {
+			const manifest = makeManifest(tmpDir);
+			const step: WorkflowStep = {
+				id: "01",
+				role: "executor",
+				task: "Write a test for {goal}",
+			};
+			const taskA = makeTask({ id: "01_exec-a", cwd: tmpDir });
+			const taskB = makeTask({ id: "01_exec-b", cwd: tmpDir });
+
+			const resultA = await renderTaskPrompt(manifest, step, taskA);
+			const resultB = await renderTaskPrompt(manifest, step, taskB);
+
+			assert.strictEqual(
+				resultA.stablePrefix,
+				resultB.stablePrefix,
+				"stablePrefix must be byte-identical for siblings sharing run+role (KV-cache hit)",
+			);
+			// Per-task identity moved to the dynamic suffix
+			assert.ok(!resultA.stablePrefix.includes(taskA.id), "stablePrefix must not embed task id");
+			assert.ok(resultA.dynamicSuffix.includes(`Task ID: ${taskA.id}`), "dynamicSuffix carries task id");
+			assert.ok(resultA.dynamicSuffix.includes(`Mailbox target: ${taskA.id}`), "dynamicSuffix carries mailbox target");
+			assert.ok(resultB.dynamicSuffix.includes(`Task ID: ${taskB.id}`), "sibling dynamicSuffix carries its own task id");
+			assert.notStrictEqual(resultA.dynamicSuffix, resultB.dynamicSuffix, "dynamicSuffix differs per task");
+		} finally {
+			removeTrackedTempDir(tmpDir);
+		}
+	});
+
 	it("renders with minimal manifest and task", async () => {
 		const tmpDir = createTrackedTempDir("pi-crew-pb-");
 

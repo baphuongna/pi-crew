@@ -1,6 +1,9 @@
 ---
 name: real-test-pi-crew
-description: "End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, a live feature-action battery (team tool + subagent tools), and a surface-mode battery (workers in real tmux/herdr panes, degrade-to-headless)."
+description: >
+  End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, a live feature-action battery (team tool + subagent tools), a surface-mode battery (workers in real tmux/herdr panes, degrade-to-headless), and a resource-contract battery (agent .md frontmatter dual-parse, routing render, output contracts).
+  When NOT to use: unit tests for isolated modules (use test runner directly); pure test execution.
+
 origin: pi-crew
 triggers:
   - "test the change"
@@ -39,15 +42,29 @@ triggers:
   - "wc-gate"
   - "migration validator warning"
   - "slow tier"
+  - "agent frontmatter"
+  - "folded scalar"
+  - "agent body change"
+  - "routing metadata"
+  - "output contract"
+  - "loop guard"
+  - "post-init skill check"
+  - "resource contract"
+  - "sigterm"
+  - "silent bash"
+  - "worker killed mid command"
+  - "tier 12"
 ---
 
 # real-test-pi-crew
 
 End-to-end verification discipline for pi-crew changes. Distilled from the broker Phase-4 rollout (commits `1cb2dca` → `d599578` → `612e18b` → `4186284`, July 2026). The pain this skill prevents: shipping code that compiles + unit-tests-green but breaks in the user's live Pi session, or hangs the verifier worker.
 
-**When to use**: after any change to `src/runtime/broker/*.ts` (broker + tokens + issuer), `src/ui/`, `src/config/` (incl. `src/config/migration-validator.ts`), `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi/*.ts` (worker spawn/kill/steering), `src/runtime/surface/*.ts` (MuxSurface providers, degrade, launch script), `src/prompt/*.ts` (worker-side tools: ask / message / delegate / surface-worker recorder), `src/runtime/goal-workflow/plan-templates.ts`, `src/runtime/team-runner.ts` or `src/runtime/task-runner/**` (scheduler / execution — Tier 7 smoke), `src/state/**` (durable state — Tier 7 + 9a events/status + **Tier 11a read-your-writes**), `src/runtime/live-session/**` + `src/runtime/custom-tools/*` (live-session mode + worker custom tools), `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, `.github/workflows/*.yml` (CI env — Tier 11e), `scripts/wc-gate.mjs` (Tier 11b), or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently. Surface changes additionally require Tier 10 (surface-mode battery) because surface is fail-closed: every failure degrades to headless and the run still goes green — only pane-level evidence proves the panes engaged.
+**When to use**: after any change to `src/runtime/broker/*.ts` (broker + tokens + issuer), `src/ui/`, `src/config/` (incl. `src/config/migration-validator.ts`), `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi/*.ts` (worker spawn/kill/steering), `src/runtime/surface/*.ts` (MuxSurface providers, degrade, launch script), `src/prompt/*.ts` (worker-side tools: ask / message / delegate / surface-worker recorder), `src/runtime/goal-workflow/plan-templates.ts`, `src/runtime/team-runner.ts` or `src/runtime/task-runner/**` (scheduler / execution — Tier 7 smoke), `src/state/**` (durable state — Tier 7 + 9a events/status + **Tier 11a read-your-writes**), `src/runtime/live-session/**` + `src/runtime/custom-tools/*` (live-session mode + worker custom tools), `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, `.github/workflows/*.yml` (CI env — Tier 11e), `scripts/wc-gate.mjs` (Tier 11b), or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently. Surface changes additionally require Tier 10 (surface-mode battery) because surface is fail-closed: every failure degrades to headless and the run still goes green — only pane-level evidence proves the panes engaged. Resource `.md` changes (agent bodies/frontmatter, skill metadata, discovery, frontmatter parsing) additionally require **Tier 12** (resource-contract battery) because the agent/team/workflow frontmatter parser is line-based, not YAML — a folded scalar parses as `">"` for every consumer while all other tiers stay green.
 
 > **Path map (2026-08-26 reorg + A1)**: `src/runtime/crew-broker*.ts` → `src/runtime/broker/`; `src/runtime/child-pi*.ts` → `src/runtime/child-pi/`; `src/runtime/plan-templates.ts` (flat) → `src/runtime/goal-workflow/plan-templates.ts`; NEW dirs `src/runtime/surface/` and `src/prompt/`. Test files moved with them (`test/unit/crew-broker-*.test.ts` → `test/unit/runtime/broker/`, `test/unit/keybinding-map.parity.test.ts` → `test/unit/ui/`, ...).
+
+> **2026-09-11 update (Batch-1..10, branch `fix/bundle-skill-resolution-and-skill-meta`, tip `aa899a1e`)**: builtin agents 17 → **18** (librarian, oracle, designer, 3 councillors, orchestrator); every agent carries flat routing metadata; NEW **Tier 12** (resource-contract battery) for `agents/*.md` / `skills/*/SKILL.md` / discovery / frontmatter changes; staleness gate gained a path-leak scan (ARCH-7); `scripts/release-smoke.mjs` gained a tarball import + peer-install gate (ARCH-6); two new operational quirks documented (broker SIGTERM on long silent bash; `wait-request-broker.test.ts` 180s-per-file load flake). Orientation doc: `CONTEXT.md`.
 
 ## Core principle: disk ≠ live Pi
 
@@ -65,7 +82,7 @@ The 3-way resolution order for `dist/index.mjs` (per `index.ts:1-25`):
 
 > **Note on version pins**: this skill mentions specific versions (v0.9.17, v0.9.46, v0.9.47) as anchors for *when a behavior was introduced*, not as a constraint on which version the skill applies to. The verification discipline (Tiers 1–10) applies to every pi-crew release. Verify the version pin is still accurate via `git log --oneline -- index.ts` and `git log --oneline -- src/ui/run-dashboard.ts`.
 
-**Workflow files are runtime data** — `workflows/*.workflow.md` and task prompt strings inside `src/runtime/goal-workflow/plan-templates.ts` are loaded per-call, NOT bundled. Edits take effect immediately, no rebuild needed.
+**Resource `.md` files are runtime data too** — `agents/*.md` and `skills/*/SKILL.md` load at RUN-CONSTRUCTION time from the package dir (they are NOT embedded in `dist/index.mjs`): edits take effect on the next team run / discovery call (discovery cache TTL ~30s — `invalidateAgentDiscoveryCache()` forces a fresh read), with NO bundle rebuild and NO Pi restart. `workflows/*.workflow.md` and task prompt strings inside `src/runtime/goal-workflow/plan-templates.ts` are the same: loaded per-call, NOT bundled. (Caveat: `src/` TypeScript that CONSUMES these files still follows the bundle rule below.)
 
 **The most common silent-failure mode**: edit `src/`, run `npm test` (pass!), rebuild bundle (good md5!), but the session still has the old code because Pi wasn't `/quit`-ed + reopened.
 
@@ -102,8 +119,10 @@ The skill maps to existing CI gates as follows:
 | `PI_CREW_BROKER=0 npm run test:critical` | Tier 2 (env kill switch path) | n/a — manual |
 | `npm run typecheck` | Tier 3 | `.github/workflows/*.yml` (every PR) |
 | `npm run check:wc-gate` | Tier 11b | **in BOTH `ci` and `ci:fast` scripts** (`package.json:71-72`) + explicit step in `.github/workflows/ci.yml:66-71` (since `09dda842` — was `ci:fast`-only, i.e. advisory) |
-| Bundle-staleness check | Tier 3 last step | `scripts/check-bundle-staleness.mjs`; `--committed-hash` mode = Tier 11j release gate |
-| Full `npm test` (= unit 819 files + integration 31) | n/a — too slow for in-loop | CI only; slow tier (3 files) is a SEPARATE glob `test:integration:slow` — only `npm run test:full` includes it |
+| Bundle-staleness check (incl. **ARCH-7 path-leak scan** since `7d18508b` — line-scans `dist/index.mjs` + structural sourcemap check for tracked-source leaks) | Tier 3 last step | `scripts/check-bundle-staleness.mjs`; `--committed-hash` mode = Tier 11j release gate |
+| `npm run test:bundle` (bundle import smoke, 2 tests) | Tier 3 post-build sanity | `test/unit/bundle-load.test.ts` |
+| `node scripts/release-smoke.mjs` (manual, release cut) | Tier 3/11j companion | ARCH-6: installs pi-* peer deps, `import()`s the tarball-installed bundle (`:77`), shape-checks exports |
+| Full `npm test` (= unit 823 files + integration 31) | n/a — too slow for in-loop | CI only; slow tier (3 files) is a SEPARATE glob `test:integration:slow` — only `npm run test:full` includes it |
 | `PI_CREW_SMOKE=1` env | Tier 11e | set ONLY in `weekly-smoke.yml` (auth-gated); nightly.yml deliberately does NOT (comment at `:24`) |
 
 To add Tier 1 to a pre-commit hook:
@@ -134,7 +153,7 @@ To add Tier 1 to CI as a fast-feedback gate (under 30s):
 
 **What**: run the curated 14-file fast subset.
 
-**Why this exists**: full `npm run test:unit` runs 819 files (was 642 at skill-writing time — it keeps growing), several minutes. Verifier worker response timeout would kill the worker mid-run → run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
+**Why this exists**: full `npm run test:unit` runs 823 files (was 642 at skill-writing time — it keeps growing), several minutes. Verifier worker response timeout would kill the worker mid-run → run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
 
 **How**:
 
@@ -209,6 +228,7 @@ All three must show `# pass 101 # fail 0`. Measured times in this session (2026-
 npm run typecheck    # ~20s, exits 0 with "strip-types import ok"
 npm run build:bundle # <1s, prints "[build-bundle] dist/index.mjs NNNN KB in NNN ms"
 md5sum dist/index.mjs
+node scripts/check-bundle-staleness.mjs   # ARCH-7: staleness + path-leak scan — exit 0
 ```
 
 Compare the printed md5 against what the user's Pi session loaded. If they differ → the session is running stale bundle.
@@ -222,7 +242,7 @@ Compare the printed md5 against what the user's Pi session loaded. If they diffe
 | Bundle builder | `scripts/build-bundle.mjs` (esbuild-based, bundles `index.bundle.ts` → `dist/index.mjs`) |
 | Bundle resolution rule | `index.ts:1-25` (entrypoint docstring); also `scripts/build-bundle.mjs:14-20` (entrypoint preference); **symlink is live for source files but the bundled `dist/index.mjs` is loaded** |
 | Postinstall hook | `scripts/postinstall.mjs:43` — best-effort bundle rebuild; falls back to strip-types if esbuild missing |
-| Bundle md5 anchors | `1cc4d55e18add7b9a036c569143320b6` (Phase-4 flip, ~2.78 MB) → `16e29d053bd370e24f40df147dadcb79` (v0.9.66, 2026-08-11) → `9b557ac106b82e1ee33d39dd0d6c7dd7` (post-MuxSurface-A1 main, 2026-08-27). **Always check current**: `md5sum dist/index.mjs` |
+| Bundle md5 anchors | `1cc4d55e18add7b9a036c569143320b6` (Phase-4 flip, ~2.78 MB) → `16e29d053bd370e24f40df147dadcb79` (v0.9.66, 2026-08-11) → `9b557ac106b82e1ee33d39dd0d6c7dd7` (post-MuxSurface-A1 main, 2026-08-27) → `945720b1ad25673d86e263cdd834532f` (post-Batch-10 branch tip `aa899a1e`, 2026-09-11, ~3.30 MB). **Always check current**: `md5sum dist/index.mjs` |
 
 ---
 
@@ -232,7 +252,8 @@ Compare the printed md5 against what the user's Pi session loaded. If they diffe
 
 **The immediate-vs-rebuild rule** (which edits take effect without a rebuild):
 - `workflows/*.workflow.md` edits → **immediate**, no rebuild, no restart
-- `src/runtime/goal-workflow/plan-templates.ts` `taskTemplate` strings → **immediate**, runtime data
+- `agents/*.md` + `skills/*/SKILL.md` edits → **immediate** — runtime data loaded from the package dir per discovery/run (cache TTL ~30s); NOT embedded in `dist/index.mjs`
+- `src/runtime/goal-workflow/plan-templates.ts` → **needs rebuild** (correction of the pre-v0.9.17 claim above): it is `src/` TypeScript imported by the bundle, so its `taskTemplate` strings ship inside `dist/index.mjs` — edit → `build:bundle` → restart
 - Everything else (`src/` edits, `package.json`) → must `npm run build:bundle` THEN user `/quit` + reopen Pi
 
 **How to verify in this session**:
@@ -367,7 +388,7 @@ else:
 
 **What**: prove the verifier worker completes within `RESPONSE_TIMEOUT_MS` (**600s since the stuck-worker hardening — was 300s when this skill was distilled; `DEFAULT_CHILD_PI.responseTimeoutMs = 10 * 60_000`**).
 
-**Why this is its own tier**: `test:critical` covers unit-level invariants, but the verifier LLM is a separate failure mode — it reads the verifier prompt from `src/runtime/goal-workflow/plan-templates.ts:144, 147` (taskTemplate strings) or from `workflows/*.workflow.md` (workflow verifier sections), then decides which bash command to run. If the prompt says "Run tests" without specifying which, the LLM runs `npm test` (810+ files) and the worker gets killed by the response timeout with exit 143.
+**Why this is its own tier**: `test:critical` covers unit-level invariants, but the verifier LLM is a separate failure mode — it reads the verifier prompt from `src/runtime/goal-workflow/plan-templates.ts:144, 147` (taskTemplate strings) or from `workflows/*.workflow.md` (workflow verifier sections), then decides which bash command to run. If the prompt says "Run tests" without specifying which, the LLM runs `npm test` (823 files) and the worker gets killed by the response timeout with exit 143.
 
 **How** (from parent Pi session — `team` is a tool, not a shell command):
 
@@ -409,6 +430,7 @@ The `team` tool is described in the agent's system prompt. Use `team action='sta
 
 1. **Verifier LLM runs `npm test`** (full unit + integration suite, >4 min) instead of `npm run test:critical`. Symptom: worker killed with exit 143 at the response timeout (300s historically — the measured runs below predate the bump to 600s). Fix: rewrite the verifier prompt to specify the exact fast command AND include "Do NOT run `npm test` or `npm run test:unit`".
 2. **Verifier LLM improvises** with a clean-cache `npm test` run anyway. The cache directive ("cache to `.crew/cache/`", "do NOT re-run") catches this — the second worker that observes a cached log should not re-run.
+3. **Broker SIGTERMs the worker mid long-silent-bash** (Batch-1 postmortem, `postmortem-batch-1-sigterm.md`): a worker running ONE >5–10 min command (full `npm test` ≈ 10 min) emits no LLM activity; the broker's responsiveness check kills it mid-run — exit 143 WHILE the command is still running, not a 600s response timeout. The transcript shows the command started and never returned. Work is usually intact (manual re-run was green); the kill is the "hang". Fix direction: split long suites into <5 min chunks or emit progress between commands. Tracked as `CONTEXT.md` Flagged #1.
 
 ---
 
@@ -619,7 +641,7 @@ grep -n "Log the event first" src/runtime/recovery/crash-recovery.ts   # design 
 # 3. buffered-site census — snapshot & audit:
 grep -rln "appendEventBuffered" src/ | wc -l   # 16 files / ~70 raw matches (incl. imports+definition) at v0.10.5; audited live conversions = 43; EVERY new site needs the reader-audit
 # 4. the full gate — test:critical has NO stores/dwf/recovery coverage:
-npm run test:unit    # 819 files, ~7500 tests, 15-18 min under load — MANDATORY after any delayed-write conversion program
+npm run test:unit    # 823 files, ~7500 tests, 15-18 min under load — MANDATORY after any delayed-write conversion program
 ```
 
 ### 11b. wc-gate enforcement (M4 done-gate)
@@ -706,6 +728,86 @@ node scripts/check-bundle-staleness.mjs --committed-hash   # "OK: committed dist
 
 ---
 
+## Tier 12 — Resource-contract battery (agent .md + skill metadata)
+
+**What**: prove agent frontmatter/bodies and skill metadata still parse and render after edits — through BOTH parsers and into the routing guidance the leader sees.
+
+**Why this is its own tier**: `agents/*.md` are contracts — frontmatter grants tools and routing metadata (`useWhen`/`avoidWhen`/`cost`/`category`), the body IS the child's system prompt (`systemPromptMode: replace`), and the `## Output format` section is test-enforced. The agent/team/workflow frontmatter parser (`src/utils/frontmatter.ts`, `parseLines`) is **line-based, not YAML** — a folded scalar (`description: >`) parses as the literal string `">"` for EVERY consumer while typecheck/lint/test:critical all stay green (real regression: Batch 9, all 17 agents; fixed in `aa899a1e` by restoring single-line quoted values + teaching `parseLines` to strip symmetric quotes). Skills are exempt (they go through the real `yaml` package — folded scalars are FINE in `skills/*/SKILL.md`). Only a dual-parse probe catches this class.
+
+**When required**: any change to `agents/*.md`, `skills/*/SKILL.md`, `src/agents/discover-agents.ts`, `src/skills/discover-skills.ts`, `src/utils/frontmatter.ts`, `src/runtime/skill-instructions.ts` (skill override resolution), or `src/extension/autonomous-policy.ts` (guidance render).
+
+**Frontmatter contract rules** (agents/teams/workflows — the line-based parser):
+- values stay **single-line**; a value containing `": "` MUST be wrapped in symmetric double quotes (`parseLines` strips them, `aa899a1e`)
+- NEVER folded scalars (`key: >` / `key: |`) — they parse as `">"` / `"|"` (`CONTEXT.md` Flagged #4)
+- routing keys are FLAT top-level CSV — `useWhen: "a, b"`, `avoidWhen: "…"`, `cost: cheap`, `category: orchestration` (parsed at `src/agents/discover-agents.ts:388-391`; a nested `routing:` block is silently ignored)
+
+**How**:
+
+```bash
+# 12a. Output contracts — every builtin agent must have '## Output format' + fenced block:
+node --experimental-strip-types --no-warnings --test --test-force-exit test/unit/agents/agent-output-contracts.test.ts
+# 1 test iterating ALL builtin agents (18 @ 2026-09-11)
+
+# 12b. BOTH-parser proof (discovery + strict YAML) — ALWAYS invalidate the discovery cache first:
+node --experimental-strip-types --no-warnings -e '
+import("./src/agents/discover-agents.ts").then(mod => {
+  mod.invalidateAgentDiscoveryCache();
+  const list = mod.discoverAgents(process.cwd()).builtin;
+  const bad = list.filter(a => !a.description?.includes("When NOT to use:") || a.description.startsWith(String.fromCharCode(34)));
+  const noRoute = list.filter(a => !a.routing?.useWhen);
+  console.log("agents:", list.length, "| bad desc:", bad.length, "| no routing:", noRoute.length);
+});'
+# expect: agents: 18 | bad desc: 0 | no routing: 0
+node -e '
+const yaml=require("yaml"),fs=require("fs");let ok=0,fail=[];
+for (const f of fs.readdirSync("agents")){
+  const m=/^---\r?\n([\s\S]*?)\r?\n---/.exec(fs.readFileSync("agents/"+f,"utf-8"));
+  if(!m)continue;
+  try{const p=yaml.parse(m[1]);if(p.name&&p.description)ok++;}catch{fail.push(f);}
+}
+console.log("strict YAML:",ok,"ok /",fail.length,"fail",fail.length?JSON.stringify(fail):"");'
+# expect: strict YAML: 18 ok / 0 fail
+
+# 12c. Routing guidance renders (leader-side):
+node --experimental-strip-types --no-warnings -e '
+import("./src/agents/discover-agents.ts").then(async da=>{
+  const pol=await import("./src/extension/autonomous-policy.ts");
+  da.invalidateAgentDiscoveryCache();
+  const g=pol.buildResourceRoutingGuidance(process.cwd(),40000);
+  const agentLines=g.split("\n").filter(l=>l.startsWith("- ")&&!/defaultWorkflow=|roles=|steps=/.test(l)&&/\((builtin|project|user)\):/.test(l));
+  const withRoute=agentLines.filter(l=>l.includes("useWhen="));
+  console.log("rendered agent lines:",agentLines.length,"| with useWhen:",withRoute.length,
+    "| orchestrator:",g.includes("- orchestrator ("),"| verifier:",g.includes("- verifier ("));
+});'
+# expect: every rendered AGENT line carries useWhen= (workflow lines legitimately lack it).
+# The list is BUDGET-TRUNCATED BY DESIGN — at 40000 chars ~16/18 agents render; the tail
+# (alphabetically last: verifier, writer) is cut first. Accept: with-route == agent-lines,
+# newest agent (orchestrator) present, count >= 15. Do NOT assert 18/18 — truncation is correct.
+
+# 12d. Fast unit batteries for the resource layer:
+node --experimental-strip-types --no-warnings --test --test-force-exit \
+  test/unit/bundle-skill-resolution.test.ts \
+  test/unit/extension/registration/tool-loop-guard.test.ts \
+  test/unit/runtime/core/skill-instructions.test.ts
+# packageRoot skill resolution + loop guard (12 tests) + skill override wildcard `*` / denylist `!name` (26 tests)
+```
+
+**Acceptance**: 12a green; 12b BOTH parsers clean (18/18 descriptions with When-NOT, 0 quote leakage, 18/18 routing, 0 strict-YAML fails); 12c every rendered agent line carries `useWhen=` (budget-truncation is by design — see the note in 12c); 12d all pass. Agent/skill-only changes need NO bundle rebuild (runtime-loaded from the package dir) — but `src/` changes in the same commit still follow the Tier 3 bundle rule.
+
+**References**:
+
+| What | Where |
+|---|---|
+| Line-based parser + quote-strip | `src/utils/frontmatter.ts` (`parseLines`) — quote-strip added in `aa899a1e` |
+| Flat routing keys parse | `src/agents/discover-agents.ts:388-391, 476` |
+| Output-contract AC | `test/unit/agents/agent-output-contracts.test.ts` (Batch 9, `06c5d7ca`) |
+| Skill override `*`/`!name` | `src/runtime/skill-instructions.ts` (`collectTaskSkillNames`, Batch 1+2 `c97bc578`) |
+| Guidance builder | `src/extension/autonomous-policy.ts` (`buildResourceRoutingGuidance`) |
+| Orchestrator (18th agent) | `agents/orchestrator.md` (Batch 10 `aa899a1e`) — process-only body; discovery guidance is the single routing authority |
+| Quirk registry | `CONTEXT.md` — glossary + Flagged (#1 broker SIGTERM, #4 frontmatter parser) |
+
+---
+
 ## Anti-patterns (the cost is real, observed in this session)
 
 | Anti-pattern | Cost | Where fixed | Reference |
@@ -716,7 +818,7 @@ node scripts/check-bundle-staleness.mjs --committed-hash   # "OK: committed dist
 | Test using real `loadConfig()` to mock config | Flaky when env / disk config changes | `612e18b` | `test/unit/runtime/broker/crew-broker-server-gate.test.ts:78` (use `brokerEnv: "0"` instead of `flagOn: false`) |
 | Source edit seen immediately | No, requires bundle rebuild + reload | n/a (permanent) | `index.ts:1-25` — bundle resolution rules |
 | Skip disabled-path proof | `effectiveEnabled()` regression slips through | n/a (permanent) | Tier 2 above |
-| `npm run test:unit` against the full suite (810 files now, 642 then) | several minutes; mis-judges verifier runtime | n/a (permanent) | Tier 1 above |
+| `npm run test:unit` against the full suite (823 files now, 642 then) | several minutes; mis-judges verifier runtime | n/a (permanent) | Tier 1 above |
 | Skip typecheck | TS errors slip past `test:critical` (which uses `--test-timeout=30000`) | n/a (permanent) | Tier 3 above |
 | Run `pi` from a stale bundle | Session shows old behavior despite src/ edits | n/a (permanent) | `scripts/check-bundle-staleness.mjs` — CI gate |
 | Test by reading code | Proves nothing about runtime | n/a (permanent) | All tiers above |
@@ -740,6 +842,9 @@ node scripts/check-bundle-staleness.mjs --committed-hash   # "OK: committed dist
 | **Fix finding của reviewer mà không tự verify** (deep review 2026-09-10): 1 trong 4 HIGH findings là false positive — "background-runner exit-loss" thực tế được cover bởi EL-2 `flushBufferedQueuesSync()` (sync lock + appendFileSync + fsync) trên `process.on("exit")` tại event-log.ts:1227. Fix theo finding mù quáng sẽ ĐÃ THÊM regression. | n/a (process) | Mọi finding trước khi fix: trace counter-evidence (exit handlers, sync flush paths). Finding = hypothesis, không phải fact. |
 | **Duplicated defaults map drift (G17-class)** (P0 remediation, `b6eba80f`): 2 bản EFFECTIVE_DEFAULTS (`settings-overlay.ts`, `handle-settings.ts`) hardcode `"aboveEditor"` trong khi nguồn chân lý (defaults.ts/install.mjs) nói `"bottom"` — suite không có test so 2 bản với nhau, drift sống sót qua 7500 tests. | `b6eba80f` | Defaults phải có MỘT nguồn chân lý, hoặc test so các bản sao. Live probe: `team-settings get <key>`. Xem Tier 11g. |
 | **Test vacuous — assert trên fixture chứ không trên wiring** (P1 remediation, `09dda842`): migration-validator test 2 từng assert key tự chế không có trong registry → luôn pass dù validator chưa được wire vào registerPiTeams. | `09dda842` | Test phải dùng key THẬT từ registry (`PI_CREW_BROKER_DIAG_UI` severity "removed"), và wiring test phải prove call-site (register.ts:68), không chỉ prove pure function. |
+| **Folded YAML scalar (`key: >`) in agent/team/workflow frontmatter** (Batch-9 regression, fixed `aa899a1e`): `utils/frontmatter.ts` is line-based — folded descriptions parsed as literal `">"` for ALL 17 agents while typecheck/lint/test:critical stayed green (skills unaffected: real `yaml` package). Symptom: guidance renders `name (builtin): >`, When-NOT text missing. | `aa899a1e` | Agent/teams/workflows frontmatter values stay single-line; quote values containing `": "` (parser strips symmetric quotes); run the Tier 12b dual-parse probe after EVERY resource `.md` frontmatter edit. Folded scalars remain fine in `skills/*/SKILL.md` only. |
+| **Worker killed mid long-silent-bash** (Batch-1 postmortem): one >5–10 min command (full `npm test` ≈ 10 min) emits no LLM activity → the broker's responsiveness check SIGTERMs the worker mid-run — exit 143 WHILE the command runs, not a 600s response timeout. Work was intact; manual re-run green — the kill WAS the "hang". | n/a (quirk — `CONTEXT.md` Flagged #1; P2 candidate) | Split long suites into <5 min chunks or emit progress between commands. On exit-143-mid-command: re-run manually BEFORE diagnosing a code bug. Postmortem: `postmortem-batch-1-sigterm.md` (workspace root). |
+| **Treating `wait-request-broker.test.ts` load-timeout as a product bug**: the test runner's per-file 180s timeout is below this file's full-suite runtime under parallel load — fails only with the whole suite, passes in isolation. Pre-existing flake, NOT a regression from your change. | n/a (test infra) | Re-run the single file before fixing anything: `node scripts/test-runner.mjs test/unit/runtime/broker/wait-request-broker.test.ts`. Green in isolation = infra flake; move on. |
 
 ---
 
@@ -769,6 +874,9 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | `delegate` rejects with a policy message | By design when depth cap hit (`maxDepth: 4`) or `nesting.enabled: false` in USER config (sensitive — project cannot flip) | Check depth in the rejection payload; `delegate.rejected` event in events.jsonl confirms the structured (non-silent) path |
 | herdr provider never engages | pi is not itself running inside a herdr pane (design: no socket guessing) | Run pi inside herdr, then `runtime.surface.mode` auto/`herdr`; verify `~/.config/herdr/herdr.sock` responds |
 | Surface run >5 phút bị stale-reconcile giết oan (worker khỏe, pane sống) | F1 (đã fix f12f4f5d + af2f8eb4): recorder chỉ flush ở turn boundary → lastSeen đóng băng giữa turn; reconciler cũ time-based không pid-gate. **Bẫy đa host**: MỘT pi session chạy bundle cũ cũng đủ giết run của session khác (sweep quét mọi runs) — tát cả host phải cùng version | Kiểm tra mọi pi process cùng bundle (`ps` lstart vs dist mtime); `PI_CREW_DEBUG_STALE=1` sidecar /tmp/pi-crew-f1-debug.log ghi mọi verdict STALE để bắt hung thủ; kỳ vọng sidecar rỗng khi mọi host đã fix |
+| Worker exits 143 WHILE a long bash command is still running (no LLM-activity window before the kill) | Broker responsiveness SIGTERM on silent long commands (`CONTEXT.md` Flagged #1) — distinct from `RESPONSE_TIMEOUT_MS` (600s no-response) | Split the command; emit progress between steps; re-run the suite manually — work is usually intact. See `postmortem-batch-1-sigterm.md` |
+| Full `test:unit` fails ONLY on `wait-request-broker.test.ts` under parallel load | Per-file 180s runner timeout vs the file's real runtime (passes isolated) | `node scripts/test-runner.mjs test/unit/runtime/broker/wait-request-broker.test.ts` — green in isolation = infra flake, not a regression |
+| Guidance / `team action='list'` shows an agent description as `>` or missing When-NOT text | Folded-scalar frontmatter (`description: >`) — the line-based parser reads `>` literally (CONTEXT.md Flagged #4) | Restore the single-line value (double-quote it if it contains `": "`); re-run the Tier 12b dual-parse probe |
 
 ## Performance budget (per-tier soft limits)
 
@@ -862,6 +970,7 @@ The "skill stack" for a typical pi-crew change:
 6. tier 7 (smoke team)           ← this skill, if plan/workflow change
 7. tier 9 (feature battery)      ← this skill, if schema/tool-surface change
 8. tier 10 (surface battery)     ← this skill, if surface/pane change
+8b. tier 12 (resource contracts) ← this skill, if agents/skills .md or discovery change
 9. commit + push
 10. verify-before-complete       ← make the "done" claim with evidence
 ```
@@ -905,6 +1014,16 @@ Use this to answer "đủ full tính năng chưa?" without re-deriving. Every us
 | ui.widgetPlacement default | `settings-overlay.ts:351`, `handle-settings.ts:43` | T11g + live team-settings get |
 | Worktree twins contract | `src/worktree/worktree-manager.ts` | T11h (3× consecutive runs) |
 | Bundle committed-hash gate | `scripts/check-bundle-staleness.mjs --committed-hash` | T11j |
+| Agent routing metadata (`useWhen`/`avoidWhen`/`cost`/`category`; 18 agents) | `agents/*.md` frontmatter; parsed `src/agents/discover-agents.ts:388-391` | T12b (dual parse) + T12c (guidance render) |
+| Agent output contracts (`## Output format` + fenced block, all builtins) | enforced by `test/unit/agents/agent-output-contracts.test.ts` | T12a |
+| Orchestrator agent (18th builtin, delegated orchestration) | `agents/orchestrator.md` | 9a `team action='list'` shows 18 + T12 |
+| Skill override wildcard/denylist (`*`, `!name`) | `src/runtime/skill-instructions.ts` (`collectTaskSkillNames`) | T12d (skill-instructions unit tests) |
+| Tool loop guard (read-only tools warn@3/block@5; ask wait-guard) | `src/extension/registration/tool-loop-guard.ts`; config `runtime.reliability.loopGuard` | `tool-loop-guard.test.ts` (12 tests, T12d) + live: same read-only tool 5× → structured block; exempt tools (team/Agent/…) unaffected |
+| Post-init skill check (SKILL.md presence/severity) | `src/extension/post-init-skill-check.ts`, wired `register.ts:132` | startup log probe: `[pi-crew] …` warn/error only when skills broken |
+| Detached-run delivery bound (3 attempts → drop + warn) | `src/runtime/detached-run-results.ts` (`MAX_DELIVERY_ATTEMPTS`) | unit tests |
+| Byte-stable worker prefix (ARCH-3) | `src/runtime/task-runner/prompt-builder.ts` stablePrefix/dynamicSuffix split | byte-identity unit test (strictEqual) |
+| Release tarball import gate (ARCH-6) | `scripts/release-smoke.mjs` (installs pi-* peers, `import()`s installed bundle `:77`, shape-checks exports) | release cut: `node scripts/release-smoke.mjs` |
+| Bundle path-leak scan (ARCH-7) | `scripts/check-bundle-staleness.mjs` (line-scan dist + structural sourcemap check) | T3 staleness run + T11j |
 
 ---
 
@@ -923,7 +1042,11 @@ The skill mentions specific commits, line numbers, and version pins. As the code
 | Verify herdr wire details | Each herdr release bump | `herdr api schema --json` vs `src/runtime/surface/herdr-provider.ts` (envelope/pane.read source/1-conn-per-request were verified on herdr 0.8.2) |
 | Verify Tier 11 census numbers | Each `src/state/**` write-path commit | `grep -rln "appendEventBuffered" src/ \| wc -l` — update the 16-file / 43-conversion anchor in 11a when it drifts |
 | Verify wc-gate still enforced | Each `package.json` / ci.yml edit | `node -e "require('./package.json').scripts.ci.includes('check:wc-gate')"` + grep ci.yml — a gate removed from `ci` reverts to advisory |
-| Verify migration-validator wiring | Each `register.ts` refactor | `grep -n validateEnv src/extension/register.ts` — must stay after `installChildProcessAbortShield`, before `startRuntimeWarmup`, warn-only |
+| Verify migration-validator wiring | Each `register.ts` refactor | `grep -n validateEnv src/extension/register.ts` — must stay after `installChildProcessAbortShield`, before `startRuntimeWarmup`, warn-only. ALSO `grep -n runPostInitSkillCheck src/extension/register.ts` (:132) — async post-init, warn/error only |
+| Verify builtin agent count + contracts | Each `agents/*.md` commit | Tier 12a/12b — **18 @ 2026-09-11** (`aa899a1e`); update this skill's count when it changes |
+| Verify frontmatter stays single-line/quoted | Each `agents/`, `teams/`, `workflows/` `.md` edit | Tier 12b dual-parse probe — BOTH discovery and strict `yaml` must pass |
+| Verify staleness leak-scan still runs | Each `check-bundle-staleness.mjs` edit | `node scripts/check-bundle-staleness.mjs` after `build:bundle` — exit 0 (staleness + path-leak) |
+| Verify release-smoke peer pins + import gate | Each `release-smoke.mjs` edit / release cut | `node scripts/release-smoke.mjs` — peer install + import + shape checks green |
 
 The skill does NOT need to be updated for every commit — only when the cited lines/files move. Consider it a "living reference" not a "live spec".
 
@@ -981,6 +1104,13 @@ grep -rn '"ui.widgetPlacement"' src/ui/settings-overlay.ts src/extension/team-to
 for i in 1 2 3; do node --experimental-strip-types --no-warnings --test test/unit/worktree/worktree-twins-contract.test.ts 2>&1 | grep -E '^# (pass|fail)'; done  # 11h
 grep -rln 'appendEventBuffered' src/ | wc -l                   # 11a: census (16 files @ v0.10.5)
 node scripts/check-bundle-staleness.mjs --committed-hash      # 11j: OK
+# Tier 12 (resource contracts — agents/skills .md + discovery changes)
+node --experimental-strip-types --no-warnings --test --test-force-exit test/unit/agents/agent-output-contracts.test.ts  # 12a
+node --experimental-strip-types --no-warnings -e 'import("./src/agents/discover-agents.ts").then(m=>{m.invalidateAgentDiscoveryCache();const l=m.discoverAgents(process.cwd()).builtin;console.log("agents:",l.length,"| bad desc:",l.filter(a=>!a.description?.includes("When NOT to use:")).length,"| no routing:",l.filter(a=>!a.routing?.useWhen).length);})'  # 12b: 18 | 0 | 0
+node -e 'const yaml=require("yaml"),fs=require("fs");let ok=0;for(const f of fs.readdirSync("agents")){const m=/^---\r?\n([\s\S]*?)\r?\n---/.exec(fs.readFileSync("agents/"+f,"utf-8"));if(m){try{if(yaml.parse(m[1]).name)ok++;}catch{}}}console.log("strict YAML:",ok)'  # 12b: 18
+node --experimental-strip-types --no-warnings --test --test-force-exit test/unit/bundle-skill-resolution.test.ts test/unit/extension/registration/tool-loop-guard.test.ts test/unit/runtime/core/skill-instructions.test.ts  # 12d
+node scripts/check-bundle-staleness.mjs                              # staleness + ARCH-7 path-leak scan (also after every build:bundle)
+node scripts/release-smoke.mjs                                       # release cut: peer install + tarball import + shape check (ARCH-6)
 #   11a full gate (after ANY delayed-write conversion program): npm run test:unit  # ~7500 tests, 15-18 min
 ```
 
@@ -1001,6 +1131,7 @@ Before claiming "tested":
 - [ ] **Output report**: save `docs/real-test/reports/real-test-<YYYY-MM-DD>-<slug>.md` from `skills/real-test-pi-crew/REPORT-TEMPLATE.md`, filled DURING the run with per-tier evidence (counts/md5/runId) — not reconstructed from memory afterward. This is what makes past runs verifiable instead of trust-the-summary.
 - [ ] Tier 10: surface battery — **required if you touched `src/runtime/surface/**`, `src/prompt/surface-worker.ts`, the surface branch of `src/runtime/child-pi/child-pi.ts`, or the surface config keys**. 10a E2E 3/3 per backend available (tmux trong tmux; herdr ngoài tmux + socket sống — skip vì thiếu mux là correct-by-design nhưng KHÔNG tính pass cho backend đó); 10b live run với session ĐÃ reload bundle mới (xem Anti-patterns "file-md5 only") + `visibleAgents` set + pane-level evidence (pane id/title during run, `worker.surface_spawned`/`worker.surface_closed` events, pane auto-closed after — KHÔNG dùng `manifest.surface.panes` làm evidence engage, xem Anti-patterns "panes == {}"); 10c herdr live chỉ khi pi chạy trong herdr pane (skip kèm lý do nếu không).
 - [ ] Tier 11: remediation regression battery — **required if you touched `src/state/**` write paths, `migration-validator.ts`/its wiring, `scripts/wc-gate.mjs` or `ci` scripts, `.github/workflows/*` env, EFFECTIVE_DEFAULTS maps, or you are cutting a release**. Sub-checks a–j per Tier 11; 11a item 4 (full `test:unit`) mandatory after any delayed-write conversion program, skippable for doc-only changes. Record: buffered-site census count, wc-gate max, staleness `--committed-hash` result.
+- [ ] Tier 12: resource-contract battery — **required if you touched `agents/*.md`, `skills/*/SKILL.md`, `src/agents/discover-agents.ts`, `src/skills/discover-skills.ts`, `src/utils/frontmatter.ts`, `src/runtime/skill-instructions.ts`, or `src/extension/autonomous-policy.ts`**. 12a contracts green; 12b BOTH parsers clean (agent count — **18 @ 2026-09-11** — 0 bad descriptions, 0 missing routing, 0 strict-YAML fails); 12c every rendered agent line carries `useWhen=` (budget-truncated by design; newest agent visible); 12d unit batteries pass. Agent/skill-only changes need NO bundle rebuild (runtime-loaded from the package dir) — `src/` changes in the same commit still follow the Tier 3 bundle rule.
 
 **"All tiers pass" is a claim that needs per-row evidence.** Tier 9 means 9a **and** 9b **and** whichever of 9c–9f applies to the change — not "9a passed, therefore 9 passed". Tier 10 means pane-level evidence exists, not "run went green" (surface fail-closes to headless on every failure, so green proves nothing). If any required item above is unchecked or lacks concrete evidence (a number, an md5, a runId, a pane id), the answer to "is it tested?" is **no** — say so explicitly instead of rounding up to "pass".
 
@@ -1067,6 +1198,28 @@ Workflow files:
 - `workflows/default.workflow.md:31` — verifier prompt
 - `workflows/plan-execute.workflow.md:30` — verifier prompt
 - `workflows/review.workflow.md:31` — verifier prompt
+
+Resource-contract files (Tier 12):
+- `src/utils/frontmatter.ts` — LINE-BASED parser (`parseLines`): single-line values, symmetric-quote strip (`aa899a1e`); folded scalars unsupported for agents/teams/workflows (skills use the real `yaml` package — folded OK there)
+- `src/agents/discover-agents.ts:388-391, 476` — flat routing keys (`useWhen`/`avoidWhen`/`cost`/`category` as top-level CSV); discovery cache TTL ~30s (`invalidateAgentDiscoveryCache()`)
+- `src/extension/autonomous-policy.ts` — `buildResourceRoutingGuidance` renders routing cards into the leader's injected policy (the single canonical routing source)
+- `src/runtime/skill-instructions.ts` — `collectTaskSkillNames`: `*` wildcard + `!name` denylist skill overrides
+- `src/extension/registration/tool-loop-guard.ts` — ARCH-1 loop guard: read-only tools warn@3/block@5, ask wait-guard warn@2/block@3rd, FIFO 512; exempts team/crew_agent/Agent/get_subagent_result; config `runtime.reliability.loopGuard`
+- `src/extension/post-init-skill-check.ts` (32L) — SKILL.md presence check; wired async at `register.ts:132`, warn/error log only
+- `src/runtime/detached-run-results.ts` — `MAX_DELIVERY_ATTEMPTS = 3`; drop + `detached-run-results.delivery-gave-up` log
+- `test/unit/agents/agent-output-contracts.test.ts` — output-contract AC across ALL builtin agents
+- `test/unit/bundle-skill-resolution.test.ts` + `test/unit/extension/registration/tool-loop-guard.test.ts` (12 tests) + `test/unit/runtime/core/skill-instructions.test.ts` (26 tests)
+- `scripts/release-smoke.mjs` — ARCH-6: installs pi-* peers, `import()`s the tarball-installed bundle (`:77`), shape-checks exports
+- `CONTEXT.md` — repo orientation: glossary + Flagged quirks (#1 broker SIGTERM, #2 wait-broker flake, #4 frontmatter parser)
+
+Batch-1..10 wave (branch `fix/bundle-skill-resolution-and-skill-meta`, 2026-09-11, base v0.10.5):
+- `c97bc578` — BUG-1 packageRoot skill resolution + SKILL-HYGIENE-1 post-init check + SKILL-HYGIENE-2 `*`/`!name` + SKILL-META-1 (34 skills When-NOT — folded OK for skills)
+- `3de89a2f` / `07c5e014` / `24c63c75` / `b120187f` — skill Budget/Self-restraint + agent body upgrades (all roles; librarian/oracle/designer added)
+- `60e2cb96` — councillor agents (`inheritProjectContext: false`, deny-all-write toolset)
+- `d36ad4eb` — ARCH-1 tool loop guard + ARCH-3 byte-stable prefix
+- `7d18508b` — ARCH-2/5/6/7 (ARCH-4 skipped per ADR 2026-08-15 — live-session frozen)
+- `06c5d7ca` — PROMPT-1/2/5 (output-contract AC, task-rejection line, agent When-NOT — introduced the folded-scalar regression)
+- `aa899a1e` — Batch 10: routing metadata (18 agents), orchestrator, delivery bound, CONTEXT.md, folded-scalar fix + quote-strip
 
 Commits (chronological, the patterns they introduced):
 - `1cb2dca` — `test:critical` script + plan-templates verifier fix

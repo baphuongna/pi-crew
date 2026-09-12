@@ -17,7 +17,15 @@ export const MAX_BROKER_FRAME_BYTES = 256 * 1024;
 // BrokerError — typed protocol errors
 // ============================================================================
 
-export type BrokerErrorCode = "oversize-frame" | "auth" | "protocol" | "timeout" | "close" | "not-implemented" | "rate-limit";
+export type BrokerErrorCode =
+	| "oversize-frame"
+	| "auth"
+	| "protocol"
+	| "timeout"
+	| "request-timeout"
+	| "close"
+	| "not-implemented"
+	| "rate-limit";
 
 export class BrokerError extends Error {
 	readonly code: BrokerErrorCode;

@@ -16,13 +16,14 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { asRecord, loadConfig } from "../../config/config.ts";
 import { buildValidationBlocker, extractPathFromInput, validateWrittenFile } from "../../runtime/per-write-validator.ts";
+import { packageRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { shouldBlockDestructiveTeamAction } from "../team-tool/destructive-gate.ts";
 import type { RegistrationContext } from "./registration-types.ts";
+import { installToolLoopGuard } from "./tool-loop-guard.ts";
 
 /**
  * Register all non-lifecycle event hooks on the ExtensionAPI.
@@ -35,6 +36,22 @@ export function installPiHooks(pi: ExtensionAPI, ctx: RegistrationContext): void
 	installResourcesDiscoverHook(pi, ctx);
 	installToolCallHook(pi, ctx);
 	installToolResultHook(pi, ctx);
+	installToolLoopGuardIfEnabled(pi, ctx);
+}
+
+/**
+ * ARCH-1: dispatch loop guard — warn at 3 identical results, block read-only
+ * tools at 5. Toggle via reliability.loopGuard (default on), mirroring
+ * perWriteValidation.
+ */
+function installToolLoopGuardIfEnabled(pi: ExtensionAPI, ctx: RegistrationContext): void {
+	try {
+		const cwd = ctx.currentCtx?.cwd ?? process.cwd();
+		if (loadConfig(cwd).config.reliability?.loopGuard === false) return;
+	} catch {
+		/* config read failure: keep the guard on (fail-safe) */
+	}
+	installToolLoopGuard(pi);
 }
 
 /**
@@ -48,7 +65,7 @@ function installResourcesDiscoverHook(pi: ExtensionAPI, ctx: RegistrationContext
 		pi.on("resources_discover", () => {
 			const sessionCwd = ctx.currentCtx?.cwd ?? process.cwd();
 			const skillDir = path.resolve(sessionCwd, "skills");
-			const extSkillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skills");
+			const extSkillDir = path.join(packageRoot(), "skills");
 			const paths: string[] = [];
 			if (fs.existsSync(extSkillDir)) paths.push(extSkillDir);
 			if (skillDir !== extSkillDir && fs.existsSync(skillDir)) {
@@ -97,7 +114,7 @@ function installToolCallHook(_pi: ExtensionAPI, _ctx: RegistrationContext): void
  * tool result on failure — catches malformed config the moment it's
  * written, not at the next load. Latency-safe by construction: no process
  * spawn, one disk read ONLY for validated extensions, dedup'd by content.
- * Toggle via runtime.reliability.perWriteValidation (default true).
+ * Toggle via reliability.perWriteValidation (default true).
  * Process-spawning validators (.js/.sh/.py) are a future opt-in.
  */
 function installToolResultHook(_pi: ExtensionAPI, _ctx: RegistrationContext): void {
