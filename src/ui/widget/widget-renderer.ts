@@ -128,6 +128,13 @@ export interface WidgetRenderOptions {
 	 * schedules builder never reads the clock itself.
 	 */
 	now?: Date;
+	/**
+	 * True when the CREW-VIBES FOOTER owns the schedules segment (its meter
+	 * line, where the retired capacity stage used to live). The widget then
+	 * must NOT paint the line itself — the dock path renders through the
+	 * footer, so painting it here too would duplicate `⏰ …` on screen.
+	 */
+	noSchedulesLine?: boolean;
 }
 
 /** Short display form of a model id: `zai/glm-5.3` → `glm-5.3`. */
@@ -353,7 +360,7 @@ export function buildWidgetLines(
 	const focused = options.focused === true;
 	// Tier C: one injected clock for the schedules line (options.now pins it in
 	// tests; the pure builder above never reads the clock itself).
-	const schedLine = schedulesWidgetLine(cwd, options.now ?? new Date());
+	const schedLine = options.noSchedulesLine ? undefined : schedulesWidgetLine(cwd, options.now ?? new Date());
 	// Match the legacy `buildCrewWidgetLines` API: when no runs are supplied,
 	// auto-fetch via activeWidgetRuns(cwd). Otherwise widgets calling with
 	// only `(cwd, frame)` would render an empty line set (regression vs. the

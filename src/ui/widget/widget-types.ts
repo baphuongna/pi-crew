@@ -26,6 +26,11 @@ export interface CrewWidgetModel {
 	workspaceId?: string;
 	/** Per-agent row layout; defaults to the historical two-line tree. */
 	rowStyle?: import("./widget-renderer.ts").WidgetRowStyle;
+	/** True when the crew-vibes footer owns the schedules segment — the dock
+	 * path renders through the footer's meter line, so the widget itself must
+	 * not paint the `⏰ …` line (would duplicate). Slot mode keeps painting
+	 * it. Maintained by updateCrewWidget on every update. */
+	dockedInFooter?: boolean;
 }
 
 export interface CrewWidgetState {

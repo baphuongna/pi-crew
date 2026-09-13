@@ -61539,7 +61539,7 @@ function schedulesWidgetLine(cwd, now) {
 function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
   const rowStyle = options.rowStyle ?? "detailed";
   const focused = options.focused === true;
-  const schedLine = schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
+  const schedLine = options.noSchedulesLine ? void 0 : schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
   const runs = providedRuns ?? activeWidgetRuns(cwd);
   if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
   const runningGlyph = spinnerFrame("widget-header");
@@ -62306,7 +62306,8 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
       snapshotCache,
       preloadManifests: preloadedManifests,
       workspaceId,
-      rowStyle
+      rowStyle,
+      dockedInFooter: dockInFooter
     };
   else {
     state2.model.cwd = ctx.cwd;
@@ -62318,6 +62319,7 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.model.preloadManifests = preloadedManifests;
     state2.model.workspaceId = workspaceId;
     state2.model.rowStyle = rowStyle;
+    state2.model.dockedInFooter = dockInFooter;
   }
   if (dockInFooter) {
     if (state2.slotInstalled) {
@@ -62567,7 +62569,7 @@ var init_widget = __esm({
         }
         const panel = panelDisplayState();
         const schedNow = /* @__PURE__ */ new Date();
-        const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
+        const schedLine = this.model.dockedInFooter ? void 0 : schedulesWidgetLine(this.model.cwd, schedNow);
         const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
         const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
@@ -62578,7 +62580,7 @@ var init_widget = __esm({
             runs,
             this.model.notificationCount ?? 0,
             width,
-            { rowStyle: this.model.rowStyle, now: schedNow, ...panel }
+            { rowStyle: this.model.rowStyle, now: schedNow, noSchedulesLine: this.model.dockedInFooter === true, ...panel }
           ).map((line4, index) => {
             if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
@@ -82326,24 +82328,6 @@ var DEFAULT_CONFIG2 = {
     providerRefreshMs: 12e4
   }
 };
-var FALLBACK_CAPACITY_ICONS = [
-  "\u25CB ",
-  // ○ empty circle (lean)
-  "\u25D4 ",
-  // ◔ circle with dot (chonking)
-  "\u25D1 ",
-  // ◑ circle half filled (chonky)
-  "\u25CF ",
-  // ● filled circle (big chonk)
-  "\u2B24 ",
-  // ⬤ large filled circle (mega chonk)
-  "\u2B22 "
-  // ⬢ filled hexagon (oh lawd)
-];
-function capacityIcons() {
-  if (isWebTerminal()) return FALLBACK_CAPACITY_ICONS;
-  return hasCrewFontFile() ? DEFAULT_CONFIG2.capacity.icons : FALLBACK_CAPACITY_ICONS;
-}
 function asRecord12(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -82473,13 +82457,6 @@ function intervalForSpeed(config, speed) {
   if (speed === null || !Number.isFinite(speed) || speed <= 0) return config.defaultIntervalMs;
   return Math.max(config.minIntervalMs, Math.min(config.maxIntervalMs, Math.round(config.scale / speed)));
 }
-function capacityIndex(percent, levels = 6) {
-  if (percent === null || percent === void 0 || !Number.isFinite(percent)) return 0;
-  return Math.max(0, Math.min(levels - 1, Math.floor(Math.max(0, Math.min(100, percent)) / 100 * levels)));
-}
-function isDangerStage(index, levels) {
-  return index >= Math.max(0, levels - 2);
-}
 
 // src/extension/crew-vibes/footer.ts
 init_dock_footer();
@@ -82529,29 +82506,6 @@ function crewIndicatorFrames(theme) {
   const frames = crewFrames();
   if (!theme) return [...frames];
   return frames.map((frame) => theme.fg("accent", frame));
-}
-function formatCapacityPrefix(config, usage) {
-  const display = config.tokenDisplay;
-  if (display === "off") return "";
-  if (display === "percentage") {
-    return `${usage.percent === null ? "?" : Math.round(Math.max(0, Math.min(999, usage.percent)))}% `;
-  }
-  return `${usage.tokens === null ? "?" : formatCount(usage.tokens)} `;
-}
-function colorStage(theme, index, levels, text) {
-  if (!theme || text.length === 0) return text;
-  return theme.fg(isDangerStage(index, levels) ? "error" : "success", text);
-}
-function renderCapacity(theme, config, usage) {
-  const icons = capacityIcons();
-  const levels = icons.length;
-  const index = capacityIndex(usage.percent, levels);
-  const icon = icons[index] ?? icons[0];
-  const label = config.labels[index] ?? config.labels[0];
-  const prefix = theme ? theme.fg("muted", formatCapacityPrefix(config, usage)) : formatCapacityPrefix(config, usage);
-  const coloredIcon = colorStage(theme, index, levels, icon);
-  const afterIcon = config.showLabel ? `  ${colorStage(theme, index, levels, label)}` : " ";
-  return `${prefix}${coloredIcon}${afterIcon}`;
 }
 function setSpeedStatus(ctx, config, text) {
   if (!ctx?.hasUI) return;
@@ -82763,26 +82717,33 @@ var CrewVibesFooter = class {
     if (w >= width) return truncateToWidth(text, width, "\u2026");
     return " ".repeat(width - w) + text;
   }
-  /** Capacity + provider quota. Uses the REAL render width, so the quota is
+  /** Schedules + provider quota. Uses the REAL render width, so the quota is
    * never chopped. When both do not fit on one line, wrap to two lines
-   * (capacity above, quota right-aligned below) per the chosen behavior. */
+   * (schedules above, quota right-aligned below).
+   *
+   * Maintainer decision (2026-09-13): the capacity stage meter (context
+   * token count + Orbit/Cruise/Warp/… glyph) was RETIRED from the footer —
+   * it duplicated the context percent already shown on the stats line and
+   * carried no actionable signal. Its slot now carries the Tier-C schedules
+   * segment, which previously lived on its own dock line below the footer
+   * (one screen line saved; `renderCapacity` remains exported for tests). */
   buildMeterLines(width) {
     const config = this.source.getConfig();
     if (!config.enabled) return [];
-    const capText = config.capacity.enabled ? renderCapacity(this.theme, config.capacity, getCapacityUsage(this.ctx)) : void 0;
+    const schedText = schedulesWidgetLine(this.ctx.sessionManager.getCwd(), /* @__PURE__ */ new Date());
     const quotaText = config.capacity.providerUsage ? renderProviderUsage(this.theme, this.source.getQuotaUsage()) : void 0;
-    if (!capText && !quotaText) return [];
-    if (capText && !quotaText) return [truncateToWidth(capText, width, "\u2026")];
-    if (!capText && quotaText) return [this.rightAlign(quotaText, width)];
-    const cap = capText;
+    if (!schedText && !quotaText) return [];
+    if (schedText && !quotaText) return [truncateToWidth(schedText, width, "\u2026")];
+    if (!schedText && quotaText) return [this.rightAlign(quotaText, width)];
+    const sched = schedText;
     const quota = quotaText;
-    const capWidth = visibleWidth(cap);
+    const schedWidth = visibleWidth(sched);
     const quotaWidth = visibleWidth(quota);
-    if (capWidth + 1 + quotaWidth <= width) {
-      const pad2 = Math.max(1, width - capWidth - quotaWidth);
-      return [cap + " ".repeat(pad2) + quota];
+    if (schedWidth + 1 + quotaWidth <= width) {
+      const pad2 = Math.max(1, width - schedWidth - quotaWidth);
+      return [sched + " ".repeat(pad2) + quota];
     }
-    return [truncateToWidth(cap, width, "\u2026"), this.rightAlign(quota, width)];
+    return [truncateToWidth(sched, width, "\u2026"), this.rightAlign(quota, width)];
   }
   /** Dock lines registered by the crew widget (`widgetPlacement: "bottom"`):
    *  painted as the very last block of the footer, below the quota/meters.

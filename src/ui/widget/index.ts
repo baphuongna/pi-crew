@@ -370,7 +370,10 @@ class CrewWidgetComponent implements WidgetComponent {
 		// the painted line can never straddle a minute bucket and disagree with
 		// the cache key for a tick.
 		const schedNow = new Date();
-		const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
+		// dockedInFooter: the footer's meter line owns the schedules segment in
+		// the dock path — painting it here too would duplicate the `⏰ …` line
+		// (slot mode keeps painting it; see WidgetRenderOptions.noSchedulesLine).
+		const schedLine = this.model.dockedInFooter ? undefined : schedulesWidgetLine(this.model.cwd, schedNow);
 		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
 
 		// The spinner-frame swap only belongs on the LEGACY header, whose line 0
@@ -386,7 +389,7 @@ class CrewWidgetComponent implements WidgetComponent {
 				runs,
 				this.model.notificationCount ?? 0,
 				width,
-				{ rowStyle: this.model.rowStyle, now: schedNow, ...panel },
+				{ rowStyle: this.model.rowStyle, now: schedNow, noSchedulesLine: this.model.dockedInFooter === true, ...panel },
 			).map((line, index) => {
 				if (!compactDock && index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
 				return line;
@@ -555,6 +558,7 @@ export function updateCrewWidget(
 			preloadManifests: preloadedManifests,
 			workspaceId,
 			rowStyle,
+			dockedInFooter: dockInFooter,
 		};
 	else {
 		state.model.cwd = ctx.cwd;
@@ -566,6 +570,7 @@ export function updateCrewWidget(
 		state.model.preloadManifests = preloadedManifests;
 		state.model.workspaceId = workspaceId;
 		state.model.rowStyle = rowStyle;
+		state.model.dockedInFooter = dockInFooter;
 	}
 
 	if (dockInFooter) {

@@ -4,6 +4,12 @@
 
 ## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
 
+### feat(footer): retire the capacity stage meter; the ⏰ schedules segment takes its slot
+
+- Maintainer decision after the full UI review: the capacity meter (context token count `74k` + `○ Orbit/Cruise/Warp/…` stage glyph) duplicated the context percent already shown on the stats line and carried no actionable signal — removed from the footer composition (`renderCapacity` remains exported for its unit tests).
+- The meter line now carries the Tier-C schedules segment on the LEFT (`⏰ N sched · next …`) with the provider quota right-aligned on the SAME line (wraps to two lines only on narrow terminals). Net effect: one screen line saved — the schedules line no longer paints as its own dock line when the crew-vibes footer is active.
+- `CrewWidgetModel.dockedInFooter` + `WidgetRenderOptions.noSchedulesLine`: in the dock path the widget no longer paints `⏰` itself (the footer owns it — no duplicate painter); slot mode (no footer sink) keeps painting it unchanged.
+
 ### fix(scheduler): cron jobs never fired — arm() had no `cron` branch (P1-1 from UI review)
 
 - Root cause of the live "next 7h ago" symptom: `arm()` only handled `interval`/`once`, so cron jobs were persisted with a `nextRun` but never got a timer — silent death. `nextRunTime()`/`nextCronDate` (already in the same file) were simply never wired into arming.

@@ -342,9 +342,12 @@ test("custom footer keeps provider quota intact when other statuses overflow and
 	const lines = footer.render(120);
 	const meter = lines[lines.length - 1];
 	// Quota (incl. the weekly bar that used to be chopped to "W...") is fully present.
+	// Maintainer decision 2026-09-13: the capacity stage meter is retired from
+	// the footer (⏰ schedules segment may occupy the left slot when jobs exist);
+	// this test's ctx has no registered scheduler → schedules segment is absent.
 	assert.match(meter, /Wk/);
 	assert.match(meter, /19%/);
-	assert.match(meter, /1\.0k/); // capacity + quota share one line at width 120
+	assert.ok(!meter.includes("Orbit"), "capacity stage retired");
 	// The joined extension-status line is what gets truncated, NOT the quota line.
 	assert.ok(
 		lines.some((line) => line.includes("...")),
@@ -352,7 +355,7 @@ test("custom footer keeps provider quota intact when other statuses overflow and
 	);
 });
 
-test("custom footer wraps capacity + quota onto two lines when the terminal is narrow", () => {
+test("custom footer wraps schedules + quota onto two lines when the terminal is narrow", () => {
 	const footer = createCrewVibesFooter({
 		tui: {},
 		theme: plainTheme,
@@ -361,10 +364,11 @@ test("custom footer wraps capacity + quota onto two lines when the terminal is n
 		source: { getConfig: () => DEFAULT_CONFIG, getQuotaUsage: () => footerQuota, getThinkingLevel: () => undefined },
 	});
 	const lines = footer.render(45);
-	assert.equal(lines.length, 4); // pwd, stats, capacity, quota
-	assert.match(lines[3], /Minimax/);
-	assert.match(lines[3], /19%/);
-	assert.match(lines[2], /1\.0k/);
+	// pwd, stats, quota-only meter (capacity retired 2026-09-13; no scheduler
+	// registered in this harness → no schedules segment either).
+	assert.equal(lines.length, 3);
+	assert.match(lines[2], /Minimax/);
+	assert.match(lines[2], /19%/);
 });
 
 // ---------------------------------------------------------------------------

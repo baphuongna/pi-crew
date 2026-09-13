@@ -3,11 +3,11 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getFooterDockProvider } from "../../ui/dock-footer.ts";
 import { requestRenderTarget } from "../../ui/pi-ui-compat.ts";
 import { asCrewTheme, type CrewTheme } from "../../ui/theme-adapter.ts";
-import { colorWidgetLine, renderLines } from "../../ui/widget/widget-renderer.ts";
+import { colorWidgetLine, renderLines, schedulesWidgetLine } from "../../ui/widget/widget-renderer.ts";
 import { truncateToWidth, visibleWidth } from "../../utils/visual.ts";
 import type { CrewVibesConfig } from "./config.ts";
 import type { ProviderUsage } from "./provider-usage.ts";
-import { formatCount, getCapacityUsage, renderCapacity, renderProviderUsage } from "./render.ts";
+import { formatCount, renderProviderUsage } from "./render.ts";
 
 /**
  * Custom footer replacement for crew-vibes.
@@ -258,28 +258,35 @@ class CrewVibesFooter implements FooterComponent {
 		return " ".repeat(width - w) + text;
 	}
 
-	/** Capacity + provider quota. Uses the REAL render width, so the quota is
+	/** Schedules + provider quota. Uses the REAL render width, so the quota is
 	 * never chopped. When both do not fit on one line, wrap to two lines
-	 * (capacity above, quota right-aligned below) per the chosen behavior. */
+	 * (schedules above, quota right-aligned below).
+	 *
+	 * Maintainer decision (2026-09-13): the capacity stage meter (context
+	 * token count + Orbit/Cruise/Warp/… glyph) was RETIRED from the footer —
+	 * it duplicated the context percent already shown on the stats line and
+	 * carried no actionable signal. Its slot now carries the Tier-C schedules
+	 * segment, which previously lived on its own dock line below the footer
+	 * (one screen line saved; `renderCapacity` remains exported for tests). */
 	private buildMeterLines(width: number): string[] {
 		const config = this.source.getConfig();
 		if (!config.enabled) return [];
-		const capText = config.capacity.enabled ? renderCapacity(this.theme, config.capacity, getCapacityUsage(this.ctx)) : undefined;
+		const schedText = schedulesWidgetLine(this.ctx.sessionManager.getCwd(), new Date());
 		const quotaText = config.capacity.providerUsage ? renderProviderUsage(this.theme, this.source.getQuotaUsage()) : undefined;
 
-		if (!capText && !quotaText) return [];
-		if (capText && !quotaText) return [truncateToWidth(capText, width, "…")];
-		if (!capText && quotaText) return [this.rightAlign(quotaText, width)];
+		if (!schedText && !quotaText) return [];
+		if (schedText && !quotaText) return [truncateToWidth(schedText, width, "…")];
+		if (!schedText && quotaText) return [this.rightAlign(quotaText, width)];
 
-		const cap = capText as string;
+		const sched = schedText as string;
 		const quota = quotaText as string;
-		const capWidth = visibleWidth(cap);
+		const schedWidth = visibleWidth(sched);
 		const quotaWidth = visibleWidth(quota);
-		if (capWidth + 1 + quotaWidth <= width) {
-			const pad = Math.max(1, width - capWidth - quotaWidth);
-			return [cap + " ".repeat(pad) + quota];
+		if (schedWidth + 1 + quotaWidth <= width) {
+			const pad = Math.max(1, width - schedWidth - quotaWidth);
+			return [sched + " ".repeat(pad) + quota];
 		}
-		return [truncateToWidth(cap, width, "…"), this.rightAlign(quota, width)];
+		return [truncateToWidth(sched, width, "…"), this.rightAlign(quota, width)];
 	}
 
 	/** Dock lines registered by the crew widget (`widgetPlacement: "bottom"`):

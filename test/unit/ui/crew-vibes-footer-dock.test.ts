@@ -14,6 +14,7 @@ import {
 	setFooterDockProvider,
 	setFooterDockSinkActive,
 } from "../../../src/ui/dock-footer.ts";
+import { resetWidgetScheduledJobsReader, setWidgetScheduledJobsReader } from "../../../src/ui/widget/widget-renderer.ts";
 
 const DISABLED_CONFIG = { enabled: false } as CrewVibesConfig;
 
@@ -104,6 +105,75 @@ test("sink flag gates the dock (dock-footer sink governs vibes rendering)", () =
 		assert.ok(getFooterDockProvider(), "provider survives the flag toggle");
 	} finally {
 		setFooterDockSinkActive(false);
+		resetFooterDockRegistry();
+	}
+});
+
+// ── Maintainer decision 2026-09-13: capacity meter retired from the footer;
+// its slot carries the Tier-C schedules segment (⏰ …), quota stays right. ──
+
+const ENABLED_CONFIG = {
+	enabled: true,
+	speed: { enabled: false, footer: false, indicator: false, label: "tok/s" },
+	capacity: { enabled: true, tokenDisplay: "tokens", showLabel: true, providerUsage: true },
+} as unknown as CrewVibesConfig;
+
+test("meter line = schedules segment (left) + provider quota (right); capacity stage retired", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(false);
+	try {
+		setWidgetScheduledJobsReader(() => [
+			{
+				id: "j1",
+				name: "watch",
+				description: "",
+				schedule: "0 */2 * * *",
+				scheduleType: "cron",
+				subagentType: "executor",
+				prompt: "{}",
+				enabled: true,
+				createdAt: new Date().toISOString(),
+				nextRun: new Date(Date.now() + 84 * 60_000).toISOString(),
+			} as never,
+		]);
+		const deps = makeDeps();
+		deps.source.getConfig = () => ENABLED_CONFIG;
+		deps.source.getQuotaUsage = () => ({
+			providerName: "z.ai",
+			fiveHourPercent: 37,
+			fiveHourResetAt: new Date(Date.now() + 46 * 60_000).toISOString(),
+			weeklyPercent: 0,
+			weeklyResetAt: new Date(Date.now() + 24 * 86_400_000).toISOString(),
+		});
+		const footer = createCrewVibesFooter(deps);
+		const lines = footer.render(120);
+		const meter = lines.find((l) => l.includes("⏰"));
+		assert.ok(meter, `meter line with schedules segment exists, got: ${lines.join(" | ")}`);
+		assert.ok(meter.includes("⏰ 1 sched"), `schedules segment left: '${meter}'`);
+		assert.ok(meter.includes("z.ai"), `provider quota right on the SAME line: '${meter}'`);
+		assert.ok(!meter.includes("Orbit"), "capacity stage label is retired from the footer");
+		assert.ok(!/\b\d+k\b/.test(meter.replace(/⏰ \d+ sched/, "")), "context token count is retired from the footer");
+		footer.dispose();
+	} finally {
+		resetWidgetScheduledJobsReader();
+		resetFooterDockRegistry();
+	}
+});
+
+test("no jobs + no quota → no meter line at all", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(false);
+	try {
+		setWidgetScheduledJobsReader(() => []);
+		const deps = makeDeps();
+		deps.source.getConfig = () => ENABLED_CONFIG;
+		deps.source.getQuotaUsage = () => null;
+		const footer = createCrewVibesFooter(deps);
+		const lines = footer.render(120);
+		assert.ok(!lines.some((l) => l.includes("⏰")), "no schedules segment without jobs");
+		footer.dispose();
+	} finally {
+		resetWidgetScheduledJobsReader();
 		resetFooterDockRegistry();
 	}
 });

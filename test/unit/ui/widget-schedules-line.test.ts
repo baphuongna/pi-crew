@@ -315,7 +315,7 @@ test("updateCrewWidget: no runs + enabled job → widget INSTALLED (schedules li
 	}
 });
 
-test("updateCrewWidget: no runs + enabled job + footer sink → dock provider renders the ⏰ line", () => {
+test("updateCrewWidget: no runs + enabled job + footer sink → dock provider registered; ⏰ lives on the footer METER line (maintainer decision 2026-09-13)", () => {
 	resetFooterDockRegistry();
 	setFooterDockSinkActive(true);
 	try {
@@ -325,8 +325,7 @@ test("updateCrewWidget: no runs + enabled job + footer sink → dock provider re
 		const provider = getFooterDockProvider();
 		assert.ok(provider, "footer dock provider registered despite zero runs");
 		const lines = provider(100) ?? [];
-		const joined = lines.join("\n");
-		assert.ok(joined.includes("⏰"), `dock paints the schedules line, got:\n${joined}`);
+		assert.equal(lines.length, 0, `dock paints NOTHING at zero runs — the footer meter line owns ⏰ now, got:\n${lines.join("\\n")}`);
 	} finally {
 		resetFooterDockRegistry();
 	}
@@ -389,9 +388,47 @@ test("footer dock: zero runs + job + snapshotCache present → ONLY the schedule
 		const provider = getFooterDockProvider();
 		assert.ok(provider, "dock provider registered");
 		const lines = provider(100) ?? [];
-		assert.ok(lines.length === 1, `exactly one line, got ${JSON.stringify(lines)}`);
-		assert.ok(lines[0].includes("⏰"), `line is the schedules line, got '${lines[0]}'`);
+		assert.equal(lines.length, 0, `zero lines — ⏰ lives on the footer meter line, got ${JSON.stringify(lines)}`);
 		assert.ok(!lines.some((l) => l.includes("(loading")), "no (loading…) placeholder at zero runs");
+	} finally {
+		resetFooterDockRegistry();
+	}
+});
+
+// ── Maintainer decision 2026-09-13: the crew-vibes footer owns the schedules
+// segment (meter line). dockedInFooter widgets must NOT also paint ⏰ (no
+// duplicate); slot mode keeps painting it. ──
+
+test("dockedInFooter dock path at zero runs paints NOTHING (footer owns the ⏰ segment)", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(true);
+	try {
+		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+		const { ctx } = makeUpdateHarness(FAKE_CWD);
+		updateCrewWidget(ctx, freshWidgetState(), { widgetPlacement: "bottom" }, undefined, undefined, []);
+		const provider = getFooterDockProvider();
+		assert.ok(provider, "dock provider registered");
+		const lines = provider(100) ?? [];
+		assert.equal(lines.length, 0, `dock paints nothing at zero runs in footer mode, got ${JSON.stringify(lines)}`);
+	} finally {
+		resetFooterDockRegistry();
+	}
+});
+
+test("slot mode (no footer sink) at zero runs STILL paints the ⏰ line", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(false);
+	try {
+		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+		const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
+		updateCrewWidget(ctx, freshWidgetState(), { widgetPlacement: "bottom" }, undefined, undefined, []);
+		const install = widgetCalls.find((c) => c.key === "pi-crew-active" && typeof c.content === "function");
+		assert.ok(install, "slot install happened (sink inactive)");
+		const factory = install.content as (tui: unknown, theme: unknown) => { render(w: number): string[] };
+		const component = factory({}, undefined);
+		const lines = component.render(100);
+		assert.equal(lines.length, 1, `exactly the ⏰ line, got ${JSON.stringify(lines)}`);
+		assert.ok(lines[0].includes("⏰"), `line is the schedules line: '${lines[0]}'`);
 	} finally {
 		resetFooterDockRegistry();
 	}

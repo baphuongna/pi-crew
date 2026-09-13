@@ -15138,7 +15138,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 24887,
+      "bytes": 25257,
       "imports": [
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
@@ -15284,7 +15284,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 28386,
+      "bytes": 28788,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -18828,7 +18828,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/footer.ts": {
-      "bytes": 12369,
+      "bytes": 12769,
       "imports": [
         {
           "path": "node:path",
@@ -21265,7 +21265,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8158067
+      "bytes": 8158129
     },
     "dist/index.mjs": {
       "imports": [
@@ -25012,7 +25012,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 12621
+          "bytesInOutput": 12656
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
@@ -25033,7 +25033,7 @@
           "bytesInOutput": 5368
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 16704
+          "bytesInOutput": 16878
         },
         "src/utils/safe-abort.ts": {
           "bytesInOutput": 436
@@ -25396,19 +25396,19 @@
           "bytesInOutput": 11663
         },
         "src/extension/crew-vibes/config.ts": {
-          "bytesInOutput": 5245
+          "bytesInOutput": 4749
         },
         "src/extension/crew-vibes/font-detect.ts": {
           "bytesInOutput": 1694
         },
         "src/extension/crew-vibes/figures.ts": {
-          "bytesInOutput": 1246
+          "bytesInOutput": 920
         },
         "src/extension/crew-vibes/footer.ts": {
-          "bytesInOutput": 8997
+          "bytesInOutput": 9436
         },
         "src/extension/crew-vibes/render.ts": {
-          "bytesInOutput": 5531
+          "bytesInOutput": 4427
         },
         "src/extension/crew-vibes/provider-usage.ts": {
           "bytesInOutput": 8980
@@ -25570,7 +25570,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3413949
+      "bytes": 3412671
     }
   }
 }
