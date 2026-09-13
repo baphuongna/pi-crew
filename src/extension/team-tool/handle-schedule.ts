@@ -1,6 +1,6 @@
 import * as crypto from "node:crypto";
 import { humanizeSchedule, nextRunTime, parseSchedule } from "../../runtime/scheduling/scheduler.ts";
-import { type CrewSettings, updateCrewSettings } from "../../runtime/settings-store.ts";
+import { type CrewSettings, loadCrewSettingsTiers, updateCrewSettings } from "../../runtime/settings-store.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -17,6 +17,8 @@ type SchedulerRef = {
 		id: string,
 		patch: Partial<import("../../runtime/scheduling/scheduler.ts").ScheduledJob>,
 	): import("../../runtime/scheduling/scheduler.ts").ScheduledJob | undefined;
+	/** Trigger a job immediately (force — bypasses the enabled gate). */
+	runNow(jobId: string): { ok: true } | { ok: false; error: string };
 };
 
 // Module-scoped scheduler instance — one per extension load (EXT-9).
@@ -34,6 +36,40 @@ export function registerCrewScheduler(scheduler: SchedulerRef): void {
 /** Remove the scheduler singleton. Call during session cleanup. */
 export function unregisterCrewScheduler(): void {
 	crewSchedulerInstance = undefined;
+}
+
+/**
+ * SINGLE SOURCE OF TRUTH for scheduled-job READS (G17). Every consumer —
+ * dashboard pane, /schedules command, crew widget — must read jobs through
+ * this provider; no module may keep its own defaults/settings copy.
+ *
+ * Reads the module-scoped scheduler singleton when registered (the live view
+ * the mutation handlers target); otherwise falls back to the SAME gated tiers
+ * view the session-start registration loop consumes (`effectiveScheduledJobs`:
+ * user-tier jobs always, project-tier only on explicit opt-in) so the fallback
+ * can never disagree with what would register on next session start.
+ */
+export function getScheduledJobs(
+	cwd: string = process.cwd(),
+	globalFile?: string,
+): import("../../runtime/scheduling/scheduler.ts").ScheduledJob[] {
+	const scheduler = getCrewScheduler();
+	if (scheduler) return scheduler.list();
+	try {
+		const tiers = loadCrewSettingsTiers(cwd, globalFile);
+		return tiers.effectiveScheduledJobs.filter(isScheduledJobLike);
+	} catch {
+		return [];
+	}
+}
+
+/** Shape guard for the settings fallback — mirrors settings-store's private
+ * `validateScheduledJob` (id + scheduleType + enabled) so invalid persisted
+ * entries are skipped instead of reaching renderers. */
+function isScheduledJobLike(job: unknown): job is import("../../runtime/scheduling/scheduler.ts").ScheduledJob {
+	if (!job || typeof job !== "object") return false;
+	const obj = job as Record<string, unknown>;
+	return typeof obj.id === "string" && obj.id.length > 0 && typeof obj.scheduleType === "string" && typeof obj.enabled === "boolean";
 }
 
 interface ScheduleParams {
@@ -107,6 +143,9 @@ export function handleSchedule(params: TeamToolParamsValue, ctx: TeamContext): P
 	}
 	if (subAction === "disable" || subAction === "enable" || subAction === "update") {
 		return handleUpdateScheduled(params, ctx);
+	}
+	if (subAction === "run-now") {
+		return handleRunNowScheduled(params);
 	}
 
 	const team = params.team ?? "default";
@@ -347,4 +386,36 @@ export function handleUpdateScheduled(params: TeamToolParamsValue, ctx: TeamCont
 		[`Scheduled job updated.`, `  Job ID: ${jobId}`, `  Enabled: ${updated.enabled}`, `  Schedule: ${updated.schedule}`].join("\n"),
 		{ action: "schedule", status: "ok", data: { jobId, enabled: updated.enabled, schedule: updated.schedule } },
 	);
+}
+
+/**
+ * Trigger a scheduled job immediately — the UI "run now" channel. Runs even
+ * when the job is disabled (explicit user action); completion tracking stays
+ * on the scheduler's async finalization path.
+ *
+ * Usage:
+ *   team action='schedule' subAction='run-now' jobId='<uuid>'
+ */
+export function handleRunNowScheduled(params: TeamToolParamsValue): PiTeamsToolResult {
+	const jobId = getJobIdParam(params);
+	if (!jobId) {
+		return result(
+			"subAction=run-now requires jobId. Usage: team action='schedule' subAction='run-now' jobId='<uuid>'",
+			{ action: "schedule", status: "error" },
+			true,
+		);
+	}
+	const scheduler = getCrewScheduler();
+	if (!scheduler) {
+		return result("Scheduler not running.", { action: "schedule", status: "error" }, true);
+	}
+	const outcome = scheduler.runNow(jobId);
+	if (!outcome.ok) {
+		return result(outcome.error, { action: "schedule", status: "error" }, true);
+	}
+	return result([`Scheduled job triggered.`, `  Job ID: ${jobId}`].join("\n"), {
+		action: "schedule",
+		status: "ok",
+		data: { jobId, triggered: true },
+	});
 }

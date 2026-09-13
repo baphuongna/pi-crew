@@ -107,6 +107,29 @@ export class CrewScheduler {
 		this.jobs.set(jobId, { ...job, spawnedRunIds });
 	}
 
+	/**
+	 * Trigger a job immediately (dashboard "run now" / subAction='run-now').
+	 * Bypasses the enabled gate — an explicit user action — but otherwise reuses
+	 * fire()'s exact path: marks lastStatus=running, invokes the SAME executor
+	 * callback, emits fired/error events, and calls the finalizer. Completion
+	 * (runCount/lastRun/lastStatus=persisted success) is handled by the same
+	 * async finalization the timer-driven path uses.
+	 *
+	 * Returns ok:false (no throw) when the job or the executor is missing.
+	 */
+	runNow(jobId: string): { ok: true } | { ok: false; error: string } {
+		const job = this.jobs.get(jobId);
+		if (!job) return { ok: false, error: `No scheduled job with id '${jobId}'.` };
+		if (!this.executor) return { ok: false, error: "Scheduler is not running." };
+		this.fire(jobId, true);
+		// A run-now on a scheduled ONCE job CONSUMES it: the timer-driven path
+		// self-disables after firing (arm()'s setTimeout callback), and without
+		// the same step here the still-armed timer would fire the job a SECOND
+		// time at its scheduled time — a one-shot executing twice.
+		if (job.scheduleType === "once") this.update(jobId, { enabled: false });
+		return { ok: true };
+	}
+
 	private arm(job: ScheduledJob): void {
 		if (this.timers.has(job.id)) return;
 		if (job.scheduleType === "interval" && job.intervalMs) {
@@ -148,9 +171,10 @@ export class CrewScheduler {
 		}
 	}
 
-	private fire(id: string): void {
+	private fire(id: string, force = false): void {
 		const job = this.jobs.get(id);
-		if (!job?.enabled || !this.executor) return;
+		if (!job || !this.executor) return;
+		if (!job.enabled && !force) return;
 		this.update(id, { lastStatus: "running" });
 		let agentId: string;
 		try {

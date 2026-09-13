@@ -207,6 +207,7 @@ describe("handleListScheduled", () => {
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,
+				runNow: () => ({ ok: true as const }),
 			};
 			registerCrewScheduler(emptyScheduler);
 
@@ -242,6 +243,7 @@ describe("handleListScheduled", () => {
 				list: () => jobs,
 				remove: () => false,
 				update: () => undefined,
+				runNow: () => ({ ok: true as const }),
 			};
 			registerCrewScheduler(scheduler);
 
@@ -272,6 +274,7 @@ describe("handleRemoveScheduled", () => {
 					return true;
 				},
 				update: () => undefined,
+				runNow: () => ({ ok: true as const }),
 			};
 			registerCrewScheduler(scheduler);
 
@@ -295,6 +298,7 @@ describe("handleRemoveScheduled", () => {
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,
+				runNow: () => ({ ok: true as const }),
 			};
 			registerCrewScheduler(scheduler);
 
@@ -316,6 +320,7 @@ describe("handleRemoveScheduled", () => {
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,
+				runNow: () => ({ ok: true as const }),
 			};
 			registerCrewScheduler(scheduler);
 
@@ -355,6 +360,7 @@ describe("handleUpdateScheduled", () => {
 						runCount: 0,
 					};
 				},
+				runNow: () => ({ ok: true as const }),
 			};
 			registerCrewScheduler(scheduler);
 
@@ -378,6 +384,7 @@ describe("handleUpdateScheduled", () => {
 				list: () => [] as Array<never>,
 				remove: () => false,
 				update: () => undefined,
+				runNow: () => ({ ok: true as const }),
 			};
 			registerCrewScheduler(scheduler);
 
