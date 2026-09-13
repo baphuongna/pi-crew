@@ -65,6 +65,7 @@ import { persistScheduledJobUpdate, registerCrewScheduler } from "../team-tool/h
 import { handleTeamTool } from "../team-tool.ts";
 import { runArtifactCleanup } from "./artifact-cleanup.ts";
 import type { RegistrationContext } from "./registration-types.ts";
+import { createScheduleEventNotifier } from "./schedule-toast-bridge.ts";
 
 /**
  * Register all session-lifecycle handlers on the ExtensionAPI. The caller
@@ -497,9 +498,17 @@ function setupCrewScheduler(
 	sessionId: string | undefined,
 ): CrewScheduler {
 	const crewScheduler = new CrewScheduler();
+	// Tier D (schedules UI): scheduler events → terminal-status toasts. Bounded
+	// (hung-notice pattern): at most one notice per event; headless sessions
+	// no-op inside the bridge (hasUI probed defensively) instead of crashing.
+	const notifyScheduleEvent = createScheduleEventNotifier({
+		hasUI: () => extensionCtx.hasUI,
+		ui: extensionCtx.ui,
+	});
 	crewScheduler.start({
 		emit: (event) => {
 			if (ctx.cleanedUp) return;
+			notifyScheduleEvent(event);
 			pi.events?.emit?.("crew-scheduler", event);
 		},
 		executor: (job) => {
