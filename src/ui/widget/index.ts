@@ -401,12 +401,14 @@ class CrewWidgetComponent implements WidgetComponent {
 		if (runs.length === 0) {
 			this.invalidate();
 			// P0-6: render from snapshots only — never read disk on every render tick.
-			// When the snapshot cache is provided but hasn't populated yet, paint a
-			// single "(loading…)" line so the pre-load frame is well-formed instead
-			// of an empty panel. Without a cache (legacy/tests) keep the empty result.
-			// Tier C: the schedules line survives the no-runs collapse — scheduled
-			// jobs are exactly what runs while nothing interactive is active.
-			if (this.model.snapshotCache) return schedLine ? ["(loading…)", truncate(schedLine, width)] : ["(loading…)"];
+			// Tier C live-fix #2 (2026-09-13): the "(loading…)" placeholder was
+			// dead code at zero runs until the keep-alive fix mounted this component
+			// in quiet sessions — and then it painted FOREVER next to the schedules
+			// line (the cache only populates per-run; with no runs there is nothing
+			// to load, so "loading" can never resolve). The placeholder is only
+			// meaningful on run-transition frames, which always have runs>0 and take
+			// a different branch. At zero runs the only paintable content is the
+			// schedules line (or nothing).
 			return schedLine ? [truncate(schedLine, width)] : [];
 		}
 
@@ -522,6 +524,7 @@ export function updateCrewWidget(
 				state.lastMaxLines = maxLines;
 				state.lastCwd = ctx.cwd;
 				state.model = undefined;
+				state.slotInstalled = false;
 			}
 			requestRender(ctx);
 			return;
@@ -570,8 +573,13 @@ export function updateCrewWidget(
 		// the very bottom, below the quota/meter lines. A widget-slot install
 		// from a PREVIOUS placement (or a sink that was just enabled) must be
 		// removed first.
-		if (needsWidgetInstall && state.lastKey === WIDGET_KEY) {
+		// Tier C live-fix #1: clear on ANY prior slot install, not only when
+		// needsWidgetInstall — the common duplicate path is "slot installed while
+		// the sink was inactive at session start, sink activates later, nothing
+		// else changed" → needsWidgetInstall false → old code kept BOTH painters.
+		if (state.slotInstalled) {
 			setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
+			state.slotInstalled = false;
 		}
 		if (!state.footerDock) state.footerDock = new FooterDockHost(state.model);
 		setFooterDockProvider((width) => state.footerDock!.render(width));
@@ -591,6 +599,7 @@ export function updateCrewWidget(
 			placement: piPlacement,
 			persist: true,
 		});
+		state.slotInstalled = true;
 		state.lastVisibility = "visible";
 		state.lastPlacement = placement;
 		state.lastKey = WIDGET_KEY;

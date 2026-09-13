@@ -285,3 +285,52 @@ test("updateCrewWidget: no runs + NO jobs → widget cleared (legacy hide behavi
 		resetFooterDockRegistry();
 	}
 });
+
+// ── Live-fix #1 + #2 (2026-09-13): duplicate painter + eternal (loading…) ──
+// Caught live via herdr pane.read: (a) the schedules line painted TWICE (pi
+// widget slot from session start + crew-vibes footer dock after the sink
+// activated later — the slot clear was gated on needsWidgetInstall); (b) the
+// zero-runs "(loading…)" placeholder painted forever next to the line (dead
+// code until the keep-alive fix, and unresolvable at zero runs by design).
+
+test("updateCrewWidget: footer sink activating AFTER a slot install clears the slot (no duplicate painter)", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(false);
+	try {
+		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+		const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
+		const state = freshWidgetState();
+		// t1: sink inactive → slot install path
+		updateCrewWidget(ctx, state, { widgetPlacement: "bottom" }, undefined, undefined, []);
+		const installIdx = widgetCalls.findIndex((c) => c.key === "pi-crew-active" && typeof c.content === "function");
+		assert.ok(installIdx >= 0, "slot install at t1");
+		// t2: sink activates later — nothing else changed (needsWidgetInstall false)
+		setFooterDockSinkActive(true);
+		updateCrewWidget(ctx, state, { widgetPlacement: "bottom" }, undefined, undefined, []);
+		const clearAfterInstall = widgetCalls.findIndex((c, i) => i > installIdx && c.key === "pi-crew-active" && c.content === undefined);
+		assert.ok(clearAfterInstall > installIdx, `slot must be cleared after the sink activates, calls: ${JSON.stringify(widgetCalls)}`);
+		assert.ok(getFooterDockProvider(), "footer dock provider takes over");
+	} finally {
+		resetFooterDockRegistry();
+	}
+});
+
+test("footer dock: zero runs + job + snapshotCache present → ONLY the schedules line (no eternal '(loading…)')", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(true);
+	try {
+		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+		const { ctx } = makeUpdateHarness(FAKE_CWD);
+		// 5th arg = snapshotCache; truthy (the real cache object — a truthy stub
+		// suffices because the zero-runs branch only tests presence).
+		updateCrewWidget(ctx, freshWidgetState(), { widgetPlacement: "bottom" }, undefined, {} as never, []);
+		const provider = getFooterDockProvider();
+		assert.ok(provider, "dock provider registered");
+		const lines = provider(100) ?? [];
+		assert.ok(lines.length === 1, `exactly one line, got ${JSON.stringify(lines)}`);
+		assert.ok(lines[0].includes("⏰"), `line is the schedules line, got '${lines[0]}'`);
+		assert.ok(!lines.some((l) => l.includes("(loading")), "no (loading…) placeholder at zero runs");
+	} finally {
+		resetFooterDockRegistry();
+	}
+});

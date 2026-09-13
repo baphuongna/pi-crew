@@ -62193,6 +62193,7 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
         state2.lastMaxLines = maxLines;
         state2.lastCwd = ctx.cwd;
         state2.model = void 0;
+        state2.slotInstalled = false;
       }
       requestRender(ctx);
       return;
@@ -62223,8 +62224,9 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.model.rowStyle = rowStyle;
   }
   if (dockInFooter) {
-    if (needsWidgetInstall && state2.lastKey === WIDGET_KEY) {
+    if (state2.slotInstalled) {
       setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
+      state2.slotInstalled = false;
     }
     if (!state2.footerDock) state2.footerDock = new FooterDockHost(state2.model);
     setFooterDockProvider((width) => state2.footerDock.render(width));
@@ -62241,6 +62243,7 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
       placement: piPlacement,
       persist: true
     });
+    state2.slotInstalled = true;
     state2.lastVisibility = "visible";
     state2.lastPlacement = placement;
     state2.lastKey = WIDGET_KEY;
@@ -62492,7 +62495,6 @@ var init_widget = __esm({
         }
         if (runs.length === 0) {
           this.invalidate();
-          if (this.model.snapshotCache) return schedLine ? ["(loading\u2026)", truncate(schedLine, width)] : ["(loading\u2026)"];
           return schedLine ? [truncate(schedLine, width)] : [];
         }
         this.ensureTruncated(width);
