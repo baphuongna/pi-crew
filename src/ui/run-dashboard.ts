@@ -1,10 +1,17 @@
 import * as fs from "node:fs";
+// Tier A (schedules pane): job reads go through the extension-layer provider
+// (G17 single source of truth) — this module NEVER touches the scheduler or
+// the scheduledJobs settings key directly. handle-schedule.ts is a light
+// module (crypto + scheduler + settings-store); the heavy team-tool.ts chain
+// is NOT pulled in.
+import { getScheduledJobs } from "../extension/team-tool/handle-schedule.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { getLiveAgentContextPercent } from "../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalPending } from "../runtime/plan-approval.ts";
 import { isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
+import type { ScheduledJob } from "../runtime/scheduling/scheduler.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { aggregateUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
@@ -19,9 +26,10 @@ import { renderMailboxPane } from "./dashboard-panes/mailbox-pane.ts";
 import { renderMetricsPane } from "./dashboard-panes/metrics-pane.ts";
 import { renderPlanPane } from "./dashboard-panes/plan-pane.ts";
 import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
+import { renderScheduleDetails, renderSchedulesPane } from "./dashboard-panes/schedules-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
-import { dashboardActionForKey } from "./keybinding-map.ts";
+import { type DashboardKeyAction, dashboardActionForKey } from "./keybinding-map.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
 import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "./shared-overlay-scheduler.ts";
@@ -61,6 +69,11 @@ export interface RunDashboardOptions {
 	 * workspaceId are shown. This ensures session isolation in the UI.
 	 */
 	workspaceId?: string;
+	/** Tier A (schedules pane): injectable clock source (D6-T4). Render paths
+	 *  receive `now: Date` as a parameter and never read the wall clock
+	 *  themselves; tests inject a fixed Date. When omitted the clock is read
+	 *  ONCE per schedules-pane render pass, at this injection point only. */
+	now?: () => Date;
 	/**
 	 * Poke the host TUI to repaint after a state change. Must be wired from
 	 * `commands.ts` (`() => requestRenderTarget(tui)`) so keypresses and event-bus
@@ -77,7 +90,7 @@ export interface RunDashboardOptions {
  * looking at. Resetting to "agents" on every `new RunDashboard(...)` was a
  * UX regression.
  */
-let lastActivePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" = "agents";
+let lastActivePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" | "schedules" = "agents";
 
 export type RunDashboardAction =
 	| "status"
@@ -98,13 +111,56 @@ export type RunDashboardAction =
 	| "health-diagnostic-export"
 	| "plan-approve"
 	| "plan-deny"
+	| "schedule-enable"
+	| "schedule-disable"
+	| "schedule-run-now"
+	| "schedule-remove"
 	| "notifications-dismiss";
 export interface RunDashboardSelection {
 	runId: string;
 	action: RunDashboardAction;
+	/** Tier A: target scheduled-job id. Present only for schedule-* actions
+	 *  (the extension layer routes them to handle-schedule.ts subActions). */
+	jobId?: string;
+}
+
+/**
+ * Tier A: map dashboard schedule actions onto handle-schedule.ts subActions —
+ * the ONLY mutation channel (the UI never calls the scheduler directly).
+ * The extension layer consumes `done()` selections carrying schedule-*
+ * actions and dispatches them as
+ * `handleSchedule({ action: 'schedule', subAction, jobId })`.
+ * Kept next to the action union so the two can never drift.
+ */
+export function scheduleDashboardActionToSubAction(action: RunDashboardAction): "enable" | "disable" | "run-now" | "remove" | undefined {
+	switch (action) {
+		case "schedule-enable":
+			return "enable";
+		case "schedule-disable":
+			return "disable";
+		case "schedule-run-now":
+			return "run-now";
+		case "schedule-remove":
+			return "remove";
+		default:
+			return undefined;
+	}
 }
 
 const TASK_READ_TTL_MS = 1000;
+
+/** Tier A: short TTL for the scheduled-jobs provider cache. getScheduledJobs()
+ *  is cheap when the scheduler singleton is registered (in-memory list) but
+ *  falls back to a settings-store disk read otherwise — render ticks must not
+ *  hit disk per frame (P0-6 discipline). Key `R` (schedule-refresh) drops the
+ *  cache for an immediate re-read. */
+const SCHEDULE_JOBS_TTL_MS = 1000;
+
+/** Tier A: max schedules-pane body lines per render. Existing run-scoped
+ *  panes slice to 8; the schedules table spends 2 lines per job (main + sub),
+ *  so pane 8 gets a taller budget (6 jobs + header + key hint) — still well
+ *  inside the stable targetHeight clamp (12–36). */
+const SCHEDULES_PANE_MAX_LINES = 14;
 
 /** Max run rows rendered in the dashboard run-list block (L-1 window budget). */
 const RUN_LIST_MAX = 8;
@@ -435,9 +491,15 @@ export class RunDashboard implements DashboardComponent {
 	private runScrollOffset = 0;
 	private showFullProgress = false;
 	private showHelp = false;
-	private activePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" = lastActivePane;
+	private activePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" | "schedules" = lastActivePane;
 	/** WP-7 (R7): pane-scoped revision-diff toggle (X). */
 	private planDiff = false;
+	/** Tier A (schedules pane): job-cursor, details toggle, 2-step delete
+	 *  confirm-gate state, and the TTL'd provider cache (G17 reads only). */
+	private scheduleSelected = 0;
+	private scheduleDetails = false;
+	private scheduleDeleteArmed = false;
+	private scheduleJobsCache: { at: number; jobs: ScheduledJob[] } | undefined;
 	private runs: TeamRunManifest[];
 	private readonly done: (selection: RunDashboardSelection | undefined) => void;
 	private readonly theme: CrewTheme;
@@ -617,7 +679,8 @@ export class RunDashboard implements DashboardComponent {
 			.join("|");
 		const metricsSig =
 			this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
-		const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
+		const schedulesSig = this.activePane === "schedules" ? `:sched=${this.schedulesSignatureFragment()}` : "";
+		const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}${schedulesSig}`;
 		this.cachedSignature = sig;
 		this.cachedSignatureAt = now;
 		return sig;
@@ -640,6 +703,56 @@ export class RunDashboard implements DashboardComponent {
 
 	private selectedRunId(resolve?: SnapshotResolver): string | undefined {
 		return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve)?.runId;
+	}
+
+	/** Tier A: scheduled jobs via the SINGLE source of truth (G17) — the
+	 *  extension-layer provider, TTL-cached so render ticks never hit disk
+	 *  per frame. `R` (schedule-refresh) drops the cache. The TTL timestamp
+	 *  reads the SAME injected clock as the pane render (D6-T4 — no direct
+	 *  Date.now() anywhere on the render path; review round 1 minor-1). */
+	private scheduleJobs(): ScheduledJob[] {
+		const at = this.scheduleNow().getTime();
+		if (this.scheduleJobsCache && at - this.scheduleJobsCache.at < SCHEDULE_JOBS_TTL_MS) {
+			return this.scheduleJobsCache.jobs;
+		}
+		let jobs: ScheduledJob[] = [];
+		try {
+			jobs = getScheduledJobs();
+		} catch {
+			jobs = [];
+		}
+		this.scheduleJobsCache = { at, jobs };
+		if (this.scheduleSelected > jobs.length - 1) this.scheduleSelected = Math.max(0, jobs.length - 1);
+		return jobs;
+	}
+
+	/** Job under the pane-8 cursor (up/down move it); undefined when the list
+	 *  is empty — schedule actions are silent no-ops then (plan-approve
+	 *  precedent for a gated action). */
+	private selectedScheduleJob(): ScheduledJob | undefined {
+		const jobs = this.scheduleJobs();
+		return jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
+	}
+
+	/** Clock for the schedules pane (D6-T4): the render path receives the
+	 *  resulting `now: Date` as a parameter and never reads the clock itself.
+	 *  The SINGLE clock read point for everything pane-8: render, signature
+	 *  pass, and the provider TTL timestamp (scheduleJobs) — so no second
+	 *  wall-clock read exists on the render path. */
+	private scheduleNow(): Date {
+		return this.options.now ? this.options.now() : new Date();
+	}
+
+	/** Signature fragment for the schedules pane so job data, cursor, details,
+	 *  confirm-gate state, and relative-time minute buckets invalidate the
+	 *  layout cache (mirrors metricsSig). */
+	private schedulesSignatureFragment(): string {
+		const jobs = this.scheduleJobs();
+		const minuteBucket = Math.floor(this.scheduleNow().getTime() / 60_000);
+		const jobSig = jobs
+			.map((job) => `${job.enabled ? 1 : 0}:${job.runCount}:${job.nextRun ?? ""}:${job.lastStatus ?? ""}:${job.lastRun ?? ""}`)
+			.join(",");
+		return `${jobs.length}:${jobSig}:${this.scheduleSelected}:${this.scheduleDetails ? 1 : 0}:${this.scheduleDeleteArmed ? 1 : 0}:${minuteBucket}`;
 	}
 
 	render(width: number): string[] {
@@ -683,7 +796,7 @@ export class RunDashboard implements DashboardComponent {
 				lines.push(
 					border("╭", "╮"),
 					row(
-						`${fg("accent", "▐")} ${this.theme.bold("pi-crew")} · ${this.runs.length} runs  ${fg("dim", "1-7 pane · ↑↓ · Enter · ? help · Esc")}`,
+						`${fg("accent", "▐")} ${this.theme.bold("pi-crew")} · ${this.runs.length} runs  ${fg("dim", "1-8 pane · ↑↓ · Enter · ? help · Esc")}`,
 					),
 					sep(),
 				);
@@ -736,8 +849,10 @@ export class RunDashboard implements DashboardComponent {
 					// `selectable` rows already derived from the single groupedRuns()
 					// computation above instead of recomputing grouping a third time
 					// (`selectedRunFromGrouped` is exactly `selectable[selected].run`).
+					// Tier A: the schedules pane REPLACES this run-scoped detail block —
+					// it renders as a root-level section below (non-run-scoped).
 					const selectedRun = selectable[Math.min(this.selected, selectable.length - 1)]?.run;
-					if (selectedRun) {
+					if (selectedRun && this.activePane !== "schedules") {
 						const snap = snapshotOnce(selectedRun);
 						const r = snap?.manifest ?? selectedRun;
 						const agents = snap?.agents ?? agentsFor(selectedRun, this.options.snapshotCache, snapshotOnce);
@@ -828,6 +943,30 @@ export class RunDashboard implements DashboardComponent {
 						if (footerFields.length) lines.push(row(fg("dim", footerFields.join(" · "))));
 					}
 				}
+
+				// Tier A (schedules pane, key 8) — NON-RUN-SCOPED section: renders
+				// with zero runs (below the empty-runs state) AND alongside the
+				// run list, replacing the selected-run detail block (guard above).
+				// Data via the G17 provider only; clock injected per D6-T4.
+				if (this.activePane === "schedules") {
+					const jobs = this.scheduleJobs();
+					const now = this.scheduleNow();
+					lines.push(sep());
+					lines.push(row(fg("dim", "── schedules ──")));
+					const paneLines = safeRenderPane("schedules", () =>
+						this.scheduleDetails && jobs.length > 0
+							? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now)
+							: renderSchedulesPane(jobs, now, { selectedIndex: this.scheduleSelected }),
+					);
+					for (const line of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
+						lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line), innerWidth - 2)), this.theme));
+					}
+					if (this.scheduleDeleteArmed) {
+						const victim = jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
+						const name = victim ? truncate(sanitizeLine(victim.name), 24) : "?";
+						lines.push(row(fg("warning", `⚠ X again to DELETE '${name}' · any other key cancels`)));
+					}
+				}
 				lines.push(border("╰", "╯"));
 			}
 
@@ -876,6 +1015,13 @@ export class RunDashboard implements DashboardComponent {
 			this.scheduleRender();
 			return;
 		}
+		// Tier A (schedules pane): 2-step confirm-gate — once X has armed a
+		// pending delete, ANY other key (bound or not) disarms it before that
+		// key's own processing continues.
+		if (this.activePane === "schedules" && this.scheduleDeleteArmed && action !== "schedule-delete") {
+			this.scheduleDeleteArmed = false;
+			this.invalidate();
+		}
 		const selectedRunId = this.selectedRunId();
 		if (action === "close") {
 			this.done(undefined);
@@ -896,6 +1042,32 @@ export class RunDashboard implements DashboardComponent {
 			if (run && manifest && isPlanApprovalPending(manifest)) {
 				this.done({ runId: run.runId, action });
 			}
+			return;
+		}
+		// Tier A: schedules-pane actions (T/N/V/X/R — pane-scoped bindings) and
+		// job-cursor navigation. Deliberately a DEDICATED branch (plan-approve
+		// precedent): with no job under the cursor the mutation keys are silent
+		// no-ops (dashboard stays open) instead of closing it via done(undefined).
+		// Mutations ONLY ever leave via done() selections carrying schedule-*
+		// actions — the extension layer routes them through handle-schedule.ts
+		// subActions (see scheduleDashboardActionToSubAction); the UI never
+		// touches the scheduler directly.
+		if (
+			action === "schedule-toggle" ||
+			action === "schedule-run-now" ||
+			action === "schedule-delete" ||
+			action === "schedule-details" ||
+			action === "schedule-refresh"
+		) {
+			this.handleSchedulePaneAction(action);
+			return;
+		}
+		if (this.activePane === "schedules" && (action === "up" || action === "down")) {
+			// Job cursor moves instead of the run-list selection while pane 8 owns input.
+			const count = this.scheduleJobs().length;
+			this.scheduleSelected =
+				action === "up" ? Math.max(0, this.scheduleSelected - 1) : Math.min(Math.max(0, count - 1), this.scheduleSelected + 1);
+			this.invalidate();
 			return;
 		}
 		if (
@@ -942,6 +1114,7 @@ export class RunDashboard implements DashboardComponent {
 		else if (action === "pane-health") this.activePane = "health";
 		else if (action === "pane-metrics") this.activePane = "metrics";
 		else if (action === "pane-plan") this.activePane = "plan";
+		else if (action === "pane-schedules") this.activePane = "schedules";
 		else if (action === "plan-diff") {
 			this.planDiff = !this.planDiff;
 			this.invalidate();
@@ -955,5 +1128,46 @@ export class RunDashboard implements DashboardComponent {
 			lastActivePane = this.activePane;
 			this.scheduleRender();
 		}
+	}
+
+	/** Tier A: dispatch a pane-8 action. Local state toggles (V details, R
+	 *  refresh) mutate in place; mutations (T toggle, N run-now, X delete)
+	 *  leave the component ONLY as done() selections carrying schedule-*
+	 *  actions + jobId for the extension layer to route through
+	 *  handle-schedule.ts subActions — the UI layer never mutates jobs itself. */
+	private handleSchedulePaneAction(action: DashboardKeyAction): void {
+		// Pane-local state toggles follow the progressToggle/plan-diff precedent:
+		// invalidate() so the next render (sync in tests, host-tick in the TUI)
+		// recomputes immediately.
+		if (action === "schedule-details") {
+			this.scheduleDetails = !this.scheduleDetails;
+			this.invalidate();
+			return;
+		}
+		if (action === "schedule-refresh") {
+			this.scheduleJobsCache = undefined;
+			this.invalidate();
+			return;
+		}
+		const job = this.selectedScheduleJob();
+		if (!job) return; // silent no-op — plan-approve precedent for gated actions
+		if (action === "schedule-delete") {
+			// 2-step destructive confirm-gate: first X arms (render shows the
+			// warning line; any other key disarms — see handleInput), second X
+			// confirms and emits the remove selection.
+			if (this.scheduleDeleteArmed) {
+				this.scheduleDeleteArmed = false;
+				this.done({ runId: "", action: "schedule-remove", jobId: job.id });
+			} else {
+				this.scheduleDeleteArmed = true;
+				this.invalidate();
+			}
+			return;
+		}
+		this.done({
+			runId: "",
+			action: action === "schedule-toggle" ? (job.enabled ? "schedule-disable" : "schedule-enable") : "schedule-run-now",
+			jobId: job.id,
+		});
 	}
 }
