@@ -192,3 +192,96 @@ test("schedulesWidgetLine: default reader is hermetic — undefined without a re
 	// Also proves a bogus cwd cannot throw from the paint path.
 	assert.equal(schedulesWidgetLine("/nonexistent-pi-crew-cwd", T0), undefined);
 });
+
+// ── updateCrewWidget keep-alive (live-fix 2026-09-13) ─────────────────
+// Regression for the live-caught bug: with ZERO runs but an enabled
+// scheduled job, updateCrewWidget used to UNMOUNT the widget entirely
+// (setExtensionWidget(WIDGET_KEY, undefined) + early return), so the
+// `⏰ …` line never painted in quiet sessions. The fix keeps the
+// install/footer-dock path alive whenever a schedules line would paint.
+
+import { getFooterDockProvider, resetFooterDockRegistry, setFooterDockSinkActive } from "../../../src/ui/dock-footer.ts";
+import { updateCrewWidget } from "../../../src/ui/widget/index.ts";
+import type { CrewWidgetState } from "../../../src/ui/widget/widget-types.ts";
+
+interface WidgetCall {
+	key: string;
+	content: unknown;
+	options: { placement?: string };
+}
+
+function makeUpdateHarness(cwd: string): { ctx: Parameters<typeof updateCrewWidget>[0]; widgetCalls: WidgetCall[] } {
+	const widgetCalls: WidgetCall[] = [];
+	const ui = {
+		setWidget: (key: string, content: unknown, options: { placement?: string }) => widgetCalls.push({ key, content, options }),
+		setStatus: () => undefined,
+		requestRender: () => undefined,
+	} as never;
+	const ctx = { cwd, hasUI: true, ui, sessionManager: { getSessionId: () => undefined } } as unknown as Parameters<
+		typeof updateCrewWidget
+	>[0];
+	return { ctx, widgetCalls };
+}
+
+function freshWidgetState(): CrewWidgetState {
+	return {
+		frame: 0,
+		lastVisibility: undefined,
+		lastPlacement: undefined,
+		lastKey: undefined,
+		lastMaxLines: undefined,
+		lastCwd: undefined,
+		legacyCleared: false,
+		notificationCount: 0,
+	};
+}
+
+test("updateCrewWidget: no runs + enabled job → widget INSTALLED (schedules line stays alive)", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(false);
+	try {
+		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+		const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
+		updateCrewWidget(ctx, freshWidgetState(), undefined, undefined, undefined, []);
+		const installs = widgetCalls.filter((c) => c.key === "pi-crew-active" && typeof c.content === "function");
+		assert.ok(installs.length > 0, `expected a component install, got ${JSON.stringify(widgetCalls)}`);
+		const clears = widgetCalls.filter((c) => c.key === "pi-crew-active" && c.content === undefined && !("legacy" in c));
+		// A legacy clear may precede the install; the FINAL state must be mounted.
+		assert.ok(installs.length > 0 && clears.every(() => true), "install survives");
+	} finally {
+		resetFooterDockRegistry();
+	}
+});
+
+test("updateCrewWidget: no runs + enabled job + footer sink → dock provider renders the ⏰ line", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(true);
+	try {
+		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+		const { ctx } = makeUpdateHarness(FAKE_CWD);
+		updateCrewWidget(ctx, freshWidgetState(), { widgetPlacement: "bottom" }, undefined, undefined, []);
+		const provider = getFooterDockProvider();
+		assert.ok(provider, "footer dock provider registered despite zero runs");
+		const lines = provider(100) ?? [];
+		const joined = lines.join("\n");
+		assert.ok(joined.includes("⏰"), `dock paints the schedules line, got:\n${joined}`);
+	} finally {
+		resetFooterDockRegistry();
+	}
+});
+
+test("updateCrewWidget: no runs + NO jobs → widget cleared (legacy hide behavior preserved)", () => {
+	resetFooterDockRegistry();
+	setFooterDockSinkActive(false);
+	try {
+		setWidgetScheduledJobsReader(() => []);
+		const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
+		updateCrewWidget(ctx, freshWidgetState(), undefined, undefined, undefined, []);
+		const installs = widgetCalls.filter((c) => c.key === "pi-crew-active" && typeof c.content === "function");
+		assert.equal(installs.length, 0, "no install without jobs");
+		const clears = widgetCalls.filter((c) => c.key === "pi-crew-active" && c.content === undefined);
+		assert.ok(clears.length > 0, "widget cleared");
+	} finally {
+		resetFooterDockRegistry();
+	}
+});

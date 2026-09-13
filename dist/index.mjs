@@ -62178,22 +62178,25 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.legacyCleared = true;
   }
   if (runs.length === 0) {
-    if (state2.lastVisibility !== "hidden" || state2.lastPlacement !== placement) {
-      setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
-      setExtensionWidget(ctx, TASKS_WIDGET_KEY, void 0, { placement: "aboveEditor" });
-      state2.lastTasksVisibility = "hidden";
-      state2.footerDock?.dispose();
-      state2.footerDock = void 0;
-      setFooterDockProvider(void 0);
-      state2.lastVisibility = "hidden";
-      state2.lastPlacement = placement;
-      state2.lastKey = WIDGET_KEY;
-      state2.lastMaxLines = maxLines;
-      state2.lastCwd = ctx.cwd;
-      state2.model = void 0;
+    const schedKeepAlive = Boolean(schedulesWidgetLine(ctx.cwd, /* @__PURE__ */ new Date()));
+    if (!schedKeepAlive) {
+      if (state2.lastVisibility !== "hidden" || state2.lastPlacement !== placement) {
+        setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
+        setExtensionWidget(ctx, TASKS_WIDGET_KEY, void 0, { placement: "aboveEditor" });
+        state2.lastTasksVisibility = "hidden";
+        state2.footerDock?.dispose();
+        state2.footerDock = void 0;
+        setFooterDockProvider(void 0);
+        state2.lastVisibility = "hidden";
+        state2.lastPlacement = placement;
+        state2.lastKey = WIDGET_KEY;
+        state2.lastMaxLines = maxLines;
+        state2.lastCwd = ctx.cwd;
+        state2.model = void 0;
+      }
+      requestRender(ctx);
+      return;
     }
-    requestRender(ctx);
-    return;
   }
   const needsWidgetInstall = state2.lastVisibility !== "visible" || state2.lastPlacement !== placement || state2.lastKey !== WIDGET_KEY || state2.lastMaxLines !== maxLines || state2.lastCwd !== ctx.cwd || !state2.model;
   if (!state2.model)

@@ -15284,7 +15284,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 26893,
+      "bytes": 27950,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -21265,7 +21265,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8140642
+      "bytes": 8141870
     },
     "dist/index.mjs": {
       "imports": [
@@ -25033,7 +25033,7 @@
           "bytesInOutput": 5368
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 16599
+          "bytesInOutput": 16758
         },
         "src/utils/safe-abort.ts": {
           "bytesInOutput": 436
@@ -25570,7 +25570,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3407925
+      "bytes": 3408084
     }
   }
 }

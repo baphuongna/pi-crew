@@ -499,22 +499,38 @@ export function updateCrewWidget(
 	}
 
 	if (runs.length === 0) {
-		if (state.lastVisibility !== "hidden" || state.lastPlacement !== placement) {
-			setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
-			setExtensionWidget(ctx, TASKS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
-			state.lastTasksVisibility = "hidden";
-			state.footerDock?.dispose();
-			state.footerDock = undefined;
-			setFooterDockProvider(undefined);
-			state.lastVisibility = "hidden";
-			state.lastPlacement = placement;
-			state.lastKey = WIDGET_KEY;
-			state.lastMaxLines = maxLines;
-			state.lastCwd = ctx.cwd;
-			state.model = undefined;
+		// Tier C live-fix (caught 2026-09-13, live TUI proof): scheduled jobs are
+		// exactly what runs while nothing interactive is active. When a schedules
+		// line would paint, do NOT take the hide path — fall through to the
+		// install path below so the widget/footer dock stays mounted and its
+		// render() paints the schedules-only line. The old unconditional hide
+		// UNMOUNTED CrewWidgetComponent in every quiet session, so the no-runs
+		// render branch and buildWidgetLines' empty-render gate were dead code:
+		// `⏰ 1 sched · next Xm` never appeared outside a run.
+		const schedKeepAlive = Boolean(schedulesWidgetLine(ctx.cwd, new Date()));
+		if (!schedKeepAlive) {
+			if (state.lastVisibility !== "hidden" || state.lastPlacement !== placement) {
+				setExtensionWidget(ctx, WIDGET_KEY, undefined, { placement: piPlacement });
+				setExtensionWidget(ctx, TASKS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+				state.lastTasksVisibility = "hidden";
+				state.footerDock?.dispose();
+				state.footerDock = undefined;
+				setFooterDockProvider(undefined);
+				state.lastVisibility = "hidden";
+				state.lastPlacement = placement;
+				state.lastKey = WIDGET_KEY;
+				state.lastMaxLines = maxLines;
+				state.lastCwd = ctx.cwd;
+				state.model = undefined;
+			}
+			requestRender(ctx);
+			return;
 		}
-		requestRender(ctx);
-		return;
+		// schedKeepAlive: fall through — model + install/footer-dock below;
+		// tasksVisible stays false (no runs), so the task-list widget stays
+		// hidden exactly as before. One clock read per update event (this is
+		// the event path, not the per-render paint path) is fine; the component
+		// keeps its own single-read signature discipline per render.
 	}
 
 	const needsWidgetInstall =
