@@ -4,11 +4,14 @@
  * Extracted from crew-widget.ts.
  */
 
+import { getCrewScheduler, getScheduledJobs } from "../../extension/team-tool/handle-schedule.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
+import type { ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
+import { formatRelativeTime } from "../../utils/relative-time.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
 import { spinnerFrame } from "../spinner.ts";
@@ -119,6 +122,12 @@ export interface WidgetRenderOptions {
 	 * the idle widget stays capped to keep the prompt area small.
 	 */
 	focused?: boolean;
+	/**
+	 * Injected clock (dialect D6-T4) for the Tier-C schedules line — pinned by
+	 * tests; defaults to "now" at the top of buildWidgetLines. The pure
+	 * schedules builder never reads the clock itself.
+	 */
+	now?: Date;
 }
 
 /** Short display form of a model id: `zai/glm-5.3` → `glm-5.3`. */
@@ -240,6 +249,69 @@ function compactDockLines(
 	return lines;
 }
 
+// ── Schedules line (Tier C) ───────────────────────────────────────────
+
+/**
+ * Tier C (schedules UI): the ONE low-priority schedules line for the crew
+ * widget — `⏰ N sched · next Xm`. Painted ONLY when ≥1 ENABLED job exists,
+ * always as the LAST row (below active-run info, per the widget priority
+ * rules). Pure (dialect D6-T4): jobs AND the clock are injected — no
+ * Date.now()/settings read happens here. Returns undefined when the line
+ * must not paint (0 enabled jobs), so callers skip the row entirely.
+ */
+export function buildSchedulesWidgetLine(jobs: readonly ScheduledJob[], now: Date): string | undefined {
+	const enabled = jobs.filter((job) => job.enabled);
+	if (enabled.length === 0) return undefined;
+	const nextTargets = enabled
+		// new Date(iso) here is a STORED-ISO parse, not a clock read.
+		.map((job) => (job.nextRun ? new Date(job.nextRun).getTime() : Number.NaN))
+		.filter((ms) => Number.isFinite(ms));
+	if (nextTargets.length === 0) return `⏰ ${enabled.length} sched`;
+	const next = Math.min(...nextTargets);
+	// "in 84m" → "next 84m": the future prefix is redundant right after
+	// "next"; overdue targets keep their "Xm ago" tail so a stale nextRun
+	// stays legible instead of silently reading as future work.
+	const relative = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
+	return `⏰ ${enabled.length} sched · next ${relative}`;
+}
+
+/**
+ * Injectable scheduled-jobs reader for the widget (single source of truth,
+ * G17): the default reads through getScheduledJobs(); tests swap in a stub
+ * so the render path never touches real scheduler/settings state.
+ *
+ * The default is gated on a REGISTERED scheduler: without one (unit tests,
+ * pre-registration, post-cleanup) there are no armed jobs to report — and we
+ * must never hit the settings store from a paint path (P0-6: no disk per
+ * render tick).
+ */
+export type WidgetScheduledJobsReader = (cwd: string) => ScheduledJob[];
+let scheduledJobsReader: WidgetScheduledJobsReader = defaultScheduledJobsReader;
+
+function defaultScheduledJobsReader(cwd: string): ScheduledJob[] {
+	if (!getCrewScheduler()) return [];
+	try {
+		return getScheduledJobs(cwd);
+	} catch {
+		return [];
+	}
+}
+
+/** @internal — test seam: inject a deterministic jobs view. */
+export function setWidgetScheduledJobsReader(reader: WidgetScheduledJobsReader): void {
+	scheduledJobsReader = reader;
+}
+
+/** @internal — test seam: restore the provider-backed default. */
+export function resetWidgetScheduledJobsReader(): void {
+	scheduledJobsReader = defaultScheduledJobsReader;
+}
+
+/** Reader-backed schedules line — the widget's live data path. */
+export function schedulesWidgetLine(cwd: string, now: Date): string | undefined {
+	return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now);
+}
+
 export function buildWidgetLines(
 	cwd: string,
 	frame = 0,
@@ -251,12 +323,19 @@ export function buildWidgetLines(
 ): string[] {
 	const rowStyle: WidgetRowStyle = options.rowStyle ?? "detailed";
 	const focused = options.focused === true;
+	// Tier C: one injected clock for the schedules line (options.now pins it in
+	// tests; the pure builder above never reads the clock itself).
+	const schedLine = schedulesWidgetLine(cwd, options.now ?? new Date());
 	// Match the legacy `buildCrewWidgetLines` API: when no runs are supplied,
 	// auto-fetch via activeWidgetRuns(cwd). Otherwise widgets calling with
 	// only `(cwd, frame)` would render an empty line set (regression vs. the
 	// pre-refactor implementation that called activeWidgetRuns here).
 	const runs = providedRuns ?? activeWidgetRuns(cwd);
-	if (!runs.length) return [];
+	// Empty-render gate: with no active runs the widget collapses to nothing —
+	// EXCEPT the schedules line. Scheduled jobs are exactly what runs while
+	// nothing interactive is active; dropping the line here would make Tier C
+	// invisible most of the time (jobs fire BETWEEN interactive runs).
+	if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
 
 	const runningGlyph = spinnerFrame("widget-header");
 
@@ -264,6 +343,9 @@ export function buildWidgetLines(
 	// line, `main` row, then a 3-row scroll window over the flat agent list.
 	if (rowStyle === "compact") {
 		const lines = compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph);
+		// Tier C: appended after the dock window so it can never displace a
+		// live-agent row; clipped by the idle maxLines budget.
+		if (schedLine) lines.push(truncate(schedLine, width));
 		return focused ? lines : lines.slice(0, maxLines);
 	}
 
@@ -357,6 +439,11 @@ export function buildWidgetLines(
 		// widget keeps its historical cap to hold the prompt area small.
 		if (lines.length >= maxLines && !focused) break;
 	}
+
+	// Tier C: the schedules line is the LOWEST-priority widget row — appended
+	// after all active-run info and clipped by the idle maxLines budget, so it
+	// never displaces a live agent's row.
+	if (schedLine) lines.push(truncate(schedLine, width));
 
 	return focused ? lines : lines.slice(0, maxLines);
 }

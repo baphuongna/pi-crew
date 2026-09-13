@@ -23,7 +23,7 @@ import type { CrewTheme } from "../theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "../theme-adapter.ts";
 import { buildTaskListLines } from "./task-list.ts";
 import { activeWidgetRuns, statusSummary } from "./widget-model.ts";
-import { buildWidgetLines, colorWidgetLine, DEFAULT_WIDGET_WIDTH, renderLines } from "./widget-renderer.ts";
+import { buildWidgetLines, colorWidgetLine, DEFAULT_WIDGET_WIDTH, renderLines, schedulesWidgetLine } from "./widget-renderer.ts";
 import type { CrewWidgetModel, CrewWidgetState, WidgetRun } from "./widget-types.ts";
 
 export { activeWidgetRuns, statusSummary } from "./widget-model.ts";
@@ -360,7 +360,18 @@ class CrewWidgetComponent implements WidgetComponent {
 		// Panel cursor/pane state is part of the rendered output, so it belongs in
 		// the cache key — otherwise moving the cursor would not repaint.
 		const panel = panelDisplayState();
-		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+		// Tier C: the schedules line is painted output too — its content (enabled
+		// count + next-run minute bucket) joins the cache key so a job
+		// add/remove/toggle repaints the dock without waiting for any other
+		// event. The reader behind schedulesWidgetLine is scheduler-backed (no
+		// disk on the paint path), so this stays cheap per tick.
+		// ONE clock read per render (review round 1 minor-2): the same Date feeds
+		// BOTH this signature fragment and buildWidgetLines (via options.now), so
+		// the painted line can never straddle a minute bucket and disagree with
+		// the cache key for a tick.
+		const schedNow = new Date();
+		const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
+		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
 
 		// The spinner-frame swap only belongs on the LEGACY header, whose line 0
 		// already starts with a glyph position (`<frame> Crew agents …`). The
@@ -375,7 +386,7 @@ class CrewWidgetComponent implements WidgetComponent {
 				runs,
 				this.model.notificationCount ?? 0,
 				width,
-				{ rowStyle: this.model.rowStyle, ...panel },
+				{ rowStyle: this.model.rowStyle, now: schedNow, ...panel },
 			).map((line, index) => {
 				if (!compactDock && index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
 				return line;
@@ -393,8 +404,10 @@ class CrewWidgetComponent implements WidgetComponent {
 			// When the snapshot cache is provided but hasn't populated yet, paint a
 			// single "(loading…)" line so the pre-load frame is well-formed instead
 			// of an empty panel. Without a cache (legacy/tests) keep the empty result.
-			if (this.model.snapshotCache) return ["(loading…)"];
-			return [];
+			// Tier C: the schedules line survives the no-runs collapse — scheduled
+			// jobs are exactly what runs while nothing interactive is active.
+			if (this.model.snapshotCache) return schedLine ? ["(loading…)", truncate(schedLine, width)] : ["(loading…)"];
+			return schedLine ? [truncate(schedLine, width)] : [];
 		}
 
 		this.ensureTruncated(width);
