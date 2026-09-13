@@ -27305,7 +27305,8 @@ var init_keybinding_map = __esm({
         output: ["4"],
         health: ["5"],
         metrics: ["6"],
-        plan: ["7"]
+        plan: ["7"],
+        schedules: ["8"]
       },
       navigation: { up: ["k", "up"], down: ["j", "down"] },
       mailbox: {
@@ -27318,6 +27319,8 @@ var init_keybinding_map = __esm({
       },
       health: { recovery: ["R"], killStale: ["K"], diagnosticExport: ["D"] },
       plan: { approve: ["A"], deny: ["n"], diff: ["X"] },
+      /** Tier A (schedules pane, pane 8): pane-scoped action keys. */
+      schedules: { toggle: ["T"], runNow: ["N"], details: ["V"], delete: ["X"], refresh: ["R"] },
       notification: { dismissAll: ["H"] }
     };
     DEFAULT_BINDINGS = [
@@ -27342,6 +27345,39 @@ var init_keybinding_map = __esm({
         keys: DASHBOARD_KEYS.health.diagnosticExport,
         action: "health-diagnostic-export",
         pane: "health"
+      },
+      // Tier A: schedules-pane action keys (pane 8). ALL pane-scoped so they
+      // never leak into other panes. Collision analysis (explorer-verified):
+      //   T — unbound elsewhere; N — mailbox.nudge is overlay-owned, NOT dispatched
+      //   here; X — plan.diff is plan-scoped, mailbox.ackAll overlay-owned; R —
+      //   health.recovery is health-scoped; V — COLLIDES with the unscoped root
+      //   liveConversation ["V"]: this entry MUST stay above it (first-match-wins
+      //   pass-1 honors table order after paneScopeMatches), so V = details in
+      //   the schedules pane and live-conversation everywhere else.
+      {
+        keys: DASHBOARD_KEYS.schedules.toggle,
+        action: "schedule-toggle",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.runNow,
+        action: "schedule-run-now",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.details,
+        action: "schedule-details",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.delete,
+        action: "schedule-delete",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.refresh,
+        action: "schedule-refresh",
+        pane: "schedules"
       },
       {
         keys: DASHBOARD_KEYS.plan.approve,
@@ -27382,6 +27418,7 @@ var init_keybinding_map = __esm({
       { keys: DASHBOARD_KEYS.pane.health, action: "pane-health" },
       { keys: DASHBOARD_KEYS.pane.metrics, action: "pane-metrics" },
       { keys: DASHBOARD_KEYS.pane.plan, action: "pane-plan" },
+      { keys: DASHBOARD_KEYS.pane.schedules, action: "pane-schedules" },
       { keys: DASHBOARD_KEYS.navigation.up, action: "up" },
       { keys: DASHBOARD_KEYS.navigation.down, action: "down" }
     ];
@@ -27395,6 +27432,7 @@ var init_keybinding_map = __esm({
       ...Object.values(DASHBOARD_KEYS.mailbox).flat(),
       ...Object.values(DASHBOARD_KEYS.health).flat(),
       ...Object.values(DASHBOARD_KEYS.plan).flat(),
+      ...Object.values(DASHBOARD_KEYS.schedules).flat(),
       ...Object.values(DASHBOARD_KEYS.notification).flat()
     ]);
     KEYBINDINGS_ENV = "PI_CREW_KEYBINDINGS";
@@ -42307,6 +42345,24 @@ var init_scheduler = __esm({
         const spawnedRunIds = [...job.spawnedRunIds ?? [], runId];
         this.jobs.set(jobId, { ...job, spawnedRunIds });
       }
+      /**
+       * Trigger a job immediately (dashboard "run now" / subAction='run-now').
+       * Bypasses the enabled gate — an explicit user action — but otherwise reuses
+       * fire()'s exact path: marks lastStatus=running, invokes the SAME executor
+       * callback, emits fired/error events, and calls the finalizer. Completion
+       * (runCount/lastRun/lastStatus=persisted success) is handled by the same
+       * async finalization the timer-driven path uses.
+       *
+       * Returns ok:false (no throw) when the job or the executor is missing.
+       */
+      runNow(jobId) {
+        const job = this.jobs.get(jobId);
+        if (!job) return { ok: false, error: `No scheduled job with id '${jobId}'.` };
+        if (!this.executor) return { ok: false, error: "Scheduler is not running." };
+        this.fire(jobId, true);
+        if (job.scheduleType === "once") this.update(jobId, { enabled: false });
+        return { ok: true };
+      }
       arm(job) {
         if (this.timers.has(job.id)) return;
         if (job.scheduleType === "interval" && job.intervalMs) {
@@ -42345,9 +42401,10 @@ var init_scheduler = __esm({
           this.timers.delete(id);
         }
       }
-      fire(id) {
+      fire(id, force = false) {
         const job = this.jobs.get(id);
-        if (!job?.enabled || !this.executor) return;
+        if (!job || !this.executor) return;
+        if (!job.enabled && !force) return;
         this.update(id, { lastStatus: "running" });
         let agentId;
         try {
@@ -42580,6 +42637,21 @@ function getCrewScheduler() {
 function registerCrewScheduler(scheduler) {
   crewSchedulerInstance = scheduler;
 }
+function getScheduledJobs(cwd = process.cwd(), globalFile) {
+  const scheduler = getCrewScheduler();
+  if (scheduler) return scheduler.list();
+  try {
+    const tiers = loadCrewSettingsTiers(cwd, globalFile);
+    return tiers.effectiveScheduledJobs.filter(isScheduledJobLike);
+  } catch {
+    return [];
+  }
+}
+function isScheduledJobLike(job) {
+  if (!job || typeof job !== "object") return false;
+  const obj = job;
+  return typeof obj.id === "string" && obj.id.length > 0 && typeof obj.scheduleType === "string" && typeof obj.enabled === "boolean";
+}
 function buildScheduleSpec(params) {
   if (params.cron) {
     const parsed = parseSchedule(params.cron);
@@ -42632,6 +42704,9 @@ function handleSchedule(params, ctx) {
   }
   if (subAction === "disable" || subAction === "enable" || subAction === "update") {
     return handleUpdateScheduled(params, ctx);
+  }
+  if (subAction === "run-now") {
+    return handleRunNowScheduled(params);
   }
   const team = params.team ?? "default";
   const goal = params.goal ?? params.task ?? "";
@@ -42831,6 +42906,29 @@ function handleUpdateScheduled(params, ctx) {
     [`Scheduled job updated.`, `  Job ID: ${jobId}`, `  Enabled: ${updated.enabled}`, `  Schedule: ${updated.schedule}`].join("\n"),
     { action: "schedule", status: "ok", data: { jobId, enabled: updated.enabled, schedule: updated.schedule } }
   );
+}
+function handleRunNowScheduled(params) {
+  const jobId = getJobIdParam(params);
+  if (!jobId) {
+    return result(
+      "subAction=run-now requires jobId. Usage: team action='schedule' subAction='run-now' jobId='<uuid>'",
+      { action: "schedule", status: "error" },
+      true
+    );
+  }
+  const scheduler = getCrewScheduler();
+  if (!scheduler) {
+    return result("Scheduler not running.", { action: "schedule", status: "error" }, true);
+  }
+  const outcome = scheduler.runNow(jobId);
+  if (!outcome.ok) {
+    return result(outcome.error, { action: "schedule", status: "error" }, true);
+  }
+  return result([`Scheduled job triggered.`, `  Job ID: ${jobId}`].join("\n"), {
+    action: "schedule",
+    status: "ok",
+    data: { jobId, triggered: true }
+  });
 }
 var crewSchedulerInstance;
 var init_handle_schedule = __esm({
@@ -56143,9 +56241,9 @@ function discoverPiThemes() {
   }
   const dir = customThemesDir2();
   try {
-    const fs128 = __require("node:fs");
-    if (dir && fs128.existsSync(dir)) {
-      for (const file of fs128.readdirSync(dir)) {
+    const fs129 = __require("node:fs");
+    if (dir && fs129.existsSync(dir)) {
+      for (const file of fs129.readdirSync(dir)) {
         if (!file.endsWith(".json")) continue;
         const name = file.slice(0, -5);
         if (seen.has(name)) continue;
@@ -56153,7 +56251,7 @@ function discoverPiThemes() {
         let displayName;
         let mode;
         try {
-          const json = JSON.parse(fs128.readFileSync(fullPath, "utf8"));
+          const json = JSON.parse(fs129.readFileSync(fullPath, "utf8"));
           displayName = typeof json.name === "string" ? json.name : void 0;
           mode = detectThemeMode(json);
         } catch {
@@ -56174,29 +56272,29 @@ function discoverPiThemes() {
 }
 function getActivePiTheme() {
   try {
-    const fs128 = __require("node:fs");
+    const fs129 = __require("node:fs");
     const p = settingsPath();
-    if (!p || !fs128.existsSync(p)) return void 0;
-    const json = JSON.parse(fs128.readFileSync(p, "utf8"));
+    if (!p || !fs129.existsSync(p)) return void 0;
+    const json = JSON.parse(fs129.readFileSync(p, "utf8"));
     return typeof json.theme === "string" ? json.theme : void 0;
   } catch {
     return void 0;
   }
 }
 function setPiTheme(name) {
-  const fs128 = __require("node:fs");
+  const fs129 = __require("node:fs");
   const p = settingsPath();
   if (!p) throw new Error("Could not determine settings path (no HOME).");
   let settings = {};
   try {
-    if (fs128.existsSync(p)) {
-      settings = JSON.parse(fs128.readFileSync(p, "utf8"));
+    if (fs129.existsSync(p)) {
+      settings = JSON.parse(fs129.readFileSync(p, "utf8"));
     }
   } catch {
     settings = {};
   }
   settings.theme = name;
-  fs128.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  fs129.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return p;
 }
 function formatThemesListing() {
@@ -60130,6 +60228,31 @@ var init_dock_footer = __esm({
   }
 });
 
+// src/utils/relative-time.ts
+function formatRelativeTime(now, target) {
+  const deltaMs = target.getTime() - now.getTime();
+  if (deltaMs === 0) return "now";
+  if (deltaMs > 0) return `in ${formatDurationCompact(deltaMs)}`;
+  return `${formatDurationCompact(-deltaMs)} ago`;
+}
+function formatDurationCompact(ms) {
+  const totalSeconds = Math.floor(ms / 1e3);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 120) return `${totalMinutes}m`;
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 48) return `${totalHours}h`;
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (hours === 0) return `${days}d`;
+  return `${days}d${hours}h`;
+}
+var init_relative_time = __esm({
+  "src/utils/relative-time.ts"() {
+    "use strict";
+  }
+});
+
 // src/ui/layout-primitives.ts
 var Container, Box, Text2;
 var init_layout_primitives = __esm({
@@ -61298,14 +61421,36 @@ function compactDockLines(runs, options, width, maxLines, notificationCount, run
   if (windowEnd < flat.length) lines.push(truncate(`  \u2026 +${flat.length - windowEnd} more (\u2193 to scroll)`, width));
   return lines;
 }
+function buildSchedulesWidgetLine(jobs, now) {
+  const enabled = jobs.filter((job) => job.enabled);
+  if (enabled.length === 0) return void 0;
+  const nextTargets = enabled.map((job) => job.nextRun ? new Date(job.nextRun).getTime() : Number.NaN).filter((ms) => Number.isFinite(ms));
+  if (nextTargets.length === 0) return `\u23F0 ${enabled.length} sched`;
+  const next = Math.min(...nextTargets);
+  const relative9 = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
+  return `\u23F0 ${enabled.length} sched \xB7 next ${relative9}`;
+}
+function defaultScheduledJobsReader(cwd) {
+  if (!getCrewScheduler()) return [];
+  try {
+    return getScheduledJobs(cwd);
+  } catch {
+    return [];
+  }
+}
+function schedulesWidgetLine(cwd, now) {
+  return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now);
+}
 function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
   const rowStyle = options.rowStyle ?? "detailed";
   const focused = options.focused === true;
+  const schedLine = schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
   const runs = providedRuns ?? activeWidgetRuns(cwd);
-  if (!runs.length) return [];
+  if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
   const runningGlyph = spinnerFrame("widget-header");
   if (rowStyle === "compact") {
     const lines2 = compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph);
+    if (schedLine) lines2.push(truncate(schedLine, width));
     return focused ? lines2 : lines2.slice(0, maxLines);
   }
   const lines = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
@@ -61359,6 +61504,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
     }
     if (lines.length >= maxLines && !focused) break;
   }
+  if (schedLine) lines.push(truncate(schedLine, width));
   return focused ? lines : lines.slice(0, maxLines);
 }
 function colorWidgetLine(line4, index, theme) {
@@ -61379,13 +61525,15 @@ function renderLines(lines, width) {
   }
   return box.render(width);
 }
-var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY;
+var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY, scheduledJobsReader;
 var init_widget_renderer = __esm({
   "src/ui/widget/widget-renderer.ts"() {
     "use strict";
+    init_handle_schedule();
     init_live_agent_manager();
     init_plan_approval();
     init_process_status();
+    init_relative_time();
     init_visual();
     init_layout_primitives();
     init_spinner();
@@ -61399,6 +61547,7 @@ var init_widget_renderer = __esm({
     ERROR_LINGER_MAX_AGE = 2;
     ERROR_STATUSES = /* @__PURE__ */ new Set(["failed", "cancelled", "stopped", "needs_attention"]);
     ACTIVE_PRIORITY = { running: 0, queued: 1, waiting: 2 };
+    scheduledJobsReader = defaultScheduledJobsReader;
   }
 });
 
@@ -62315,7 +62464,9 @@ var init_widget = __esm({
           return this.truncatedLines;
         }
         const panel = panelDisplayState();
-        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+        const schedNow = /* @__PURE__ */ new Date();
+        const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
+        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
         const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
@@ -62325,7 +62476,7 @@ var init_widget = __esm({
             runs,
             this.model.notificationCount ?? 0,
             width,
-            { rowStyle: this.model.rowStyle, ...panel }
+            { rowStyle: this.model.rowStyle, now: schedNow, ...panel }
           ).map((line4, index) => {
             if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
@@ -62338,8 +62489,8 @@ var init_widget = __esm({
         }
         if (runs.length === 0) {
           this.invalidate();
-          if (this.model.snapshotCache) return ["(loading\u2026)"];
-          return [];
+          if (this.model.snapshotCache) return schedLine ? ["(loading\u2026)", truncate(schedLine, width)] : ["(loading\u2026)"];
+          return schedLine ? [truncate(schedLine, width)] : [];
         }
         this.ensureTruncated(width);
         if (!compactDock) {
@@ -63554,6 +63705,7 @@ function piTeamsHelp() {
     "- /team-worktrees <runId>",
     "- /team-api <runId> <operation> [taskId=<taskId>] [body=<message>]",
     "- /team-dashboard",
+    "- /schedules [log <jobId-or-name>] \u2014 list scheduled jobs / tail latest run output",
     "- /team-mascot",
     "- /team-transcript <runId> [taskId]",
     "- /team-result <runId> [taskId]",
@@ -73298,6 +73450,79 @@ var init_progress_pane = __esm({
   }
 });
 
+// src/ui/dashboard-panes/schedules-pane.ts
+function renderSchedulesPane(jobs, now, opts = {}) {
+  if (jobs.length === 0) return [SCHEDULES_EMPTY_STATE];
+  const lines = [`Scheduled jobs (${jobs.length}):`];
+  for (const [index, job] of jobs.entries()) {
+    lines.push(...renderJobLines(job, now, opts, index === opts.selectedIndex));
+  }
+  if (opts.foreground !== false) {
+    lines.push("Actions: T toggle \xB7 N run now \xB7 V details \xB7 X delete \xB7 R refresh");
+  }
+  return lines;
+}
+function renderSchedulesTextBlock(jobs, now, opts = {}) {
+  const lines = renderSchedulesPane(jobs, now, { ...opts, foreground: false, includeIds: true });
+  if (jobs.length > 0) {
+    lines.push("Manage: team action='schedule' subAction='enable|disable|remove|run-now' jobId='<id>'");
+  }
+  return lines;
+}
+function renderJobLines(job, now, opts, selected) {
+  const glyph = job.enabled ? "\u25CF" : "\u25CB";
+  const name = truncate(sanitizeLine(job.name), opts.nameWidth ?? 28);
+  const schedule = sanitizeLine(humanizeSchedule({ kind: job.scheduleType, spec: job.schedule }));
+  const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "\u2014";
+  const marker = opts.selectedIndex === void 0 ? "" : selected ? "\u203A " : "  ";
+  const main = `${marker}${glyph} ${name}  ${schedule} \xB7 ${next} \xB7 ${statusGlyph2(job.lastStatus)} \xB7 ${job.runCount} runs`;
+  return [main, renderSubLine(job, now, opts)];
+}
+function statusGlyph2(status) {
+  if (status === "success") return "\u2713";
+  if (status === "error") return "\u2717";
+  if (status === "running") return "\u27F3";
+  return "\xB7";
+}
+function renderSubLine(job, now, opts) {
+  const parts = [sanitizeLine(job.subagentType)];
+  parts.push(job.lastRun ? `last: ${formatRelativeTime(now, new Date(job.lastRun))}` : "last: never");
+  if (opts.includeIds) parts.push(`id: ${sanitizeLine(job.id)}`);
+  return `  \u25E6 ${parts.join(" \xB7 ")}`;
+}
+function scheduleGoalOf(job) {
+  try {
+    const parsed = JSON.parse(job.prompt);
+    if (parsed && typeof parsed === "object" && typeof parsed.goal === "string" && parsed.goal.length > 0) {
+      return parsed.goal;
+    }
+  } catch {
+  }
+  return job.description || job.name;
+}
+function renderScheduleDetails(job, now) {
+  const schedule = humanizeSchedule({ kind: job.scheduleType, spec: job.schedule });
+  const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "\u2014";
+  const last = job.lastRun ? formatRelativeTime(now, new Date(job.lastRun)) : "never";
+  return [
+    `\u25B8 ${sanitizeLine(job.name)} \u2014 id ${sanitizeLine(job.id)}`,
+    `  goal: ${sanitizeLine(scheduleGoalOf(job))}`,
+    `  schedule: ${sanitizeLine(job.schedule)} (${sanitizeLine(job.scheduleType)}) \xB7 humanized: ${sanitizeLine(schedule)} \xB7 next: ${next}`,
+    `  agent: ${sanitizeLine(job.subagentType)} \xB7 runs: ${job.runCount} \xB7 last: ${last} \xB7 status: ${statusGlyph2(job.lastStatus)}`,
+    `  spawned runs: ${job.spawnedRunIds?.length ? job.spawnedRunIds.map(sanitizeLine).join(", ") : "none"}`
+  ];
+}
+var SCHEDULES_EMPTY_STATE;
+var init_schedules_pane = __esm({
+  "src/ui/dashboard-panes/schedules-pane.ts"() {
+    "use strict";
+    init_scheduler();
+    init_relative_time();
+    init_visual();
+    SCHEDULES_EMPTY_STATE = "No scheduled jobs \u2014 create via team tool action='schedule'";
+  }
+});
+
 // src/ui/dashboard-panes/transcript-pane.ts
 function modelAttemptLines(snapshot) {
   const withAttempts = snapshot.tasks.filter((task) => (task.modelAttempts?.length ?? 0) > 0).slice(-ATTEMPT_SUMMARY_TASKS).reverse();
@@ -73507,7 +73732,8 @@ var init_help_overlay = __esm({
 // src/ui/run-dashboard.ts
 var run_dashboard_exports = {};
 __export(run_dashboard_exports, {
-  RunDashboard: () => RunDashboard
+  RunDashboard: () => RunDashboard,
+  scheduleDashboardActionToSubAction: () => scheduleDashboardActionToSubAction
 });
 import * as fs111 from "node:fs";
 function safeRenderPane(name, fn) {
@@ -73517,6 +73743,20 @@ function safeRenderPane(name, fn) {
     const message = error instanceof Error ? error.message : String(error);
     logInternalError("run-dashboard", new Error(`Dashboard pane '${name}' render failed: ${message}`));
     return [`<error: ${name}>`];
+  }
+}
+function scheduleDashboardActionToSubAction(action) {
+  switch (action) {
+    case "schedule-enable":
+      return "enable";
+    case "schedule-disable":
+      return "disable";
+    case "schedule-run-now":
+      return "run-now";
+    case "schedule-remove":
+      return "remove";
+    default:
+      return void 0;
   }
 }
 function padVis(value, width) {
@@ -73713,10 +73953,11 @@ function groupedRuns(runs, snapshotCache, resolve27) {
 function selectedRunFromGrouped(runs, selected, snapshotCache, resolve27) {
   return groupedRuns(runs, snapshotCache, resolve27).filter((row) => row.run)[selected]?.run;
 }
-var lastActivePane, TASK_READ_TTL_MS2, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS2, STALE_SNAPSHOT_MS, RunDashboard;
+var lastActivePane, TASK_READ_TTL_MS2, SCHEDULE_JOBS_TTL_MS, SCHEDULES_PANE_MAX_LINES, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS2, STALE_SNAPSHOT_MS, RunDashboard;
 var init_run_dashboard = __esm({
   "src/ui/run-dashboard.ts"() {
     "use strict";
+    init_handle_schedule();
     init_crew_agent_records();
     init_live_agent_manager();
     init_plan_approval();
@@ -73733,6 +73974,7 @@ var init_run_dashboard = __esm({
     init_metrics_pane();
     init_plan_pane();
     init_progress_pane();
+    init_schedules_pane();
     init_transcript_pane();
     init_dynamic_border();
     init_keybinding_map();
@@ -73744,6 +73986,8 @@ var init_run_dashboard = __esm({
     init_widget_renderer();
     lastActivePane = "agents";
     TASK_READ_TTL_MS2 = 1e3;
+    SCHEDULE_JOBS_TTL_MS = 1e3;
+    SCHEDULES_PANE_MAX_LINES = 14;
     RUN_LIST_MAX = 8;
     SIGNATURE_CACHE_TTL_MS2 = 100;
     STALE_SNAPSHOT_MS = 15e3;
@@ -73755,6 +73999,12 @@ var init_run_dashboard = __esm({
       activePane = lastActivePane;
       /** WP-7 (R7): pane-scoped revision-diff toggle (X). */
       planDiff = false;
+      /** Tier A (schedules pane): job-cursor, details toggle, 2-step delete
+       *  confirm-gate state, and the TTL'd provider cache (G17 reads only). */
+      scheduleSelected = 0;
+      scheduleDetails = false;
+      scheduleDeleteArmed = false;
+      scheduleJobsCache;
       runs;
       done;
       theme;
@@ -73880,7 +74130,8 @@ var init_run_dashboard = __esm({
           return snapshot?.signature ?? `${displayRun.runId}:${displayRun.status}:${displayRun.updatedAt}:${status}`;
         }).join("|");
         const metricsSig = this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
-        const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
+        const schedulesSig = this.activePane === "schedules" ? `:sched=${this.schedulesSignatureFragment()}` : "";
+        const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}${schedulesSig}`;
         this.cachedSignature = sig;
         this.cachedSignatureAt = now;
         return sig;
@@ -73897,6 +74148,50 @@ var init_run_dashboard = __esm({
       }
       selectedRunId(resolve27) {
         return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve27)?.runId;
+      }
+      /** Tier A: scheduled jobs via the SINGLE source of truth (G17) — the
+       *  extension-layer provider, TTL-cached so render ticks never hit disk
+       *  per frame. `R` (schedule-refresh) drops the cache. The TTL timestamp
+       *  reads the SAME injected clock as the pane render (D6-T4 — no direct
+       *  Date.now() anywhere on the render path; review round 1 minor-1). */
+      scheduleJobs() {
+        const at = this.scheduleNow().getTime();
+        if (this.scheduleJobsCache && at - this.scheduleJobsCache.at < SCHEDULE_JOBS_TTL_MS) {
+          return this.scheduleJobsCache.jobs;
+        }
+        let jobs = [];
+        try {
+          jobs = getScheduledJobs();
+        } catch {
+          jobs = [];
+        }
+        this.scheduleJobsCache = { at, jobs };
+        if (this.scheduleSelected > jobs.length - 1) this.scheduleSelected = Math.max(0, jobs.length - 1);
+        return jobs;
+      }
+      /** Job under the pane-8 cursor (up/down move it); undefined when the list
+       *  is empty — schedule actions are silent no-ops then (plan-approve
+       *  precedent for a gated action). */
+      selectedScheduleJob() {
+        const jobs = this.scheduleJobs();
+        return jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
+      }
+      /** Clock for the schedules pane (D6-T4): the render path receives the
+       *  resulting `now: Date` as a parameter and never reads the clock itself.
+       *  The SINGLE clock read point for everything pane-8: render, signature
+       *  pass, and the provider TTL timestamp (scheduleJobs) — so no second
+       *  wall-clock read exists on the render path. */
+      scheduleNow() {
+        return this.options.now ? this.options.now() : /* @__PURE__ */ new Date();
+      }
+      /** Signature fragment for the schedules pane so job data, cursor, details,
+       *  confirm-gate state, and relative-time minute buckets invalidate the
+       *  layout cache (mirrors metricsSig). */
+      schedulesSignatureFragment() {
+        const jobs = this.scheduleJobs();
+        const minuteBucket = Math.floor(this.scheduleNow().getTime() / 6e4);
+        const jobSig = jobs.map((job) => `${job.enabled ? 1 : 0}:${job.runCount}:${job.nextRun ?? ""}:${job.lastStatus ?? ""}:${job.lastRun ?? ""}`).join(",");
+        return `${jobs.length}:${jobSig}:${this.scheduleSelected}:${this.scheduleDetails ? 1 : 0}:${this.scheduleDeleteArmed ? 1 : 0}:${minuteBucket}`;
       }
       render(width) {
         try {
@@ -73930,7 +74225,7 @@ var init_run_dashboard = __esm({
             lines.push(
               border2("\u256D", "\u256E"),
               row(
-                `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-7 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
+                `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-8 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
               ),
               sep11()
             );
@@ -73974,7 +74269,7 @@ var init_run_dashboard = __esm({
                   lines.push(row(fg("dim", `\u2193 ${selectableCount - (this.runScrollOffset + win.slots)} more below`)));
               }
               const selectedRun = selectable[Math.min(this.selected, selectable.length - 1)]?.run;
-              if (selectedRun) {
+              if (selectedRun && this.activePane !== "schedules") {
                 const snap = snapshotOnce(selectedRun);
                 const r = snap?.manifest ?? selectedRun;
                 const agents = snap?.agents ?? agentsFor2(selectedRun, this.options.snapshotCache, snapshotOnce);
@@ -74046,6 +74341,24 @@ var init_run_dashboard = __esm({
                 if (footerFields.length) lines.push(row(fg("dim", footerFields.join(" \xB7 "))));
               }
             }
+            if (this.activePane === "schedules") {
+              const jobs = this.scheduleJobs();
+              const now = this.scheduleNow();
+              lines.push(sep11());
+              lines.push(row(fg("dim", "\u2500\u2500 schedules \u2500\u2500")));
+              const paneLines = safeRenderPane(
+                "schedules",
+                () => this.scheduleDetails && jobs.length > 0 ? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now) : renderSchedulesPane(jobs, now, { selectedIndex: this.scheduleSelected })
+              );
+              for (const line4 of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
+                lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line4), innerWidth - 2)), this.theme));
+              }
+              if (this.scheduleDeleteArmed) {
+                const victim = jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
+                const name = victim ? truncate(sanitizeLine(victim.name), 24) : "?";
+                lines.push(row(fg("warning", `\u26A0 X again to DELETE '${name}' \xB7 any other key cancels`)));
+              }
+            }
             lines.push(border2("\u2570", "\u256F"));
           }
           const target = this.targetHeight();
@@ -74088,6 +74401,10 @@ var init_run_dashboard = __esm({
           this.scheduleRender();
           return;
         }
+        if (this.activePane === "schedules" && this.scheduleDeleteArmed && action !== "schedule-delete") {
+          this.scheduleDeleteArmed = false;
+          this.invalidate();
+        }
         const selectedRunId = this.selectedRunId();
         if (action === "close") {
           this.done(void 0);
@@ -74103,6 +74420,16 @@ var init_run_dashboard = __esm({
           if (run && manifest && isPlanApprovalPending(manifest)) {
             this.done({ runId: run.runId, action });
           }
+          return;
+        }
+        if (action === "schedule-toggle" || action === "schedule-run-now" || action === "schedule-delete" || action === "schedule-details" || action === "schedule-refresh") {
+          this.handleSchedulePaneAction(action);
+          return;
+        }
+        if (this.activePane === "schedules" && (action === "up" || action === "down")) {
+          const count2 = this.scheduleJobs().length;
+          this.scheduleSelected = action === "up" ? Math.max(0, this.scheduleSelected - 1) : Math.min(Math.max(0, count2 - 1), this.scheduleSelected + 1);
+          this.invalidate();
           return;
         }
         if (action === "summary" || action === "artifacts" || action === "api" || action === "agents" || action === "mailbox" || action === "reload" || action === "mailbox-detail" || action === "health-recovery" || action === "health-kill-stale" || action === "health-diagnostic-export" || action === "notifications-dismiss") {
@@ -74137,6 +74464,7 @@ var init_run_dashboard = __esm({
         else if (action === "pane-health") this.activePane = "health";
         else if (action === "pane-metrics") this.activePane = "metrics";
         else if (action === "pane-plan") this.activePane = "plan";
+        else if (action === "pane-schedules") this.activePane = "schedules";
         else if (action === "plan-diff") {
           this.planDiff = !this.planDiff;
           this.invalidate();
@@ -74150,6 +74478,40 @@ var init_run_dashboard = __esm({
           lastActivePane = this.activePane;
           this.scheduleRender();
         }
+      }
+      /** Tier A: dispatch a pane-8 action. Local state toggles (V details, R
+       *  refresh) mutate in place; mutations (T toggle, N run-now, X delete)
+       *  leave the component ONLY as done() selections carrying schedule-*
+       *  actions + jobId for the extension layer to route through
+       *  handle-schedule.ts subActions — the UI layer never mutates jobs itself. */
+      handleSchedulePaneAction(action) {
+        if (action === "schedule-details") {
+          this.scheduleDetails = !this.scheduleDetails;
+          this.invalidate();
+          return;
+        }
+        if (action === "schedule-refresh") {
+          this.scheduleJobsCache = void 0;
+          this.invalidate();
+          return;
+        }
+        const job = this.selectedScheduleJob();
+        if (!job) return;
+        if (action === "schedule-delete") {
+          if (this.scheduleDeleteArmed) {
+            this.scheduleDeleteArmed = false;
+            this.done({ runId: "", action: "schedule-remove", jobId: job.id });
+          } else {
+            this.scheduleDeleteArmed = true;
+            this.invalidate();
+          }
+          return;
+        }
+        this.done({
+          runId: "",
+          action: action === "schedule-toggle" ? job.enabled ? "schedule-disable" : "schedule-enable" : "schedule-run-now",
+          jobId: job.id
+        });
       }
     };
   }
@@ -76384,6 +76746,22 @@ async function handlePlanDashboardAction(ctx, selection2) {
   const text = commandText(result4);
   depsNotify(ctx, text.length > 800 ? `${text.slice(0, 797)}...` : text, result4.isError ? "error" : "info");
 }
+async function handleScheduleDashboardAction(ctx, selection2) {
+  const jobId = selection2.jobId;
+  if (!jobId) {
+    depsNotify(ctx, "schedule action requires a job id", "warning");
+    return;
+  }
+  const { scheduleDashboardActionToSubAction: scheduleDashboardActionToSubAction2 } = await Promise.resolve().then(() => (init_run_dashboard(), run_dashboard_exports));
+  const subAction = scheduleDashboardActionToSubAction2(selection2.action);
+  if (!subAction) {
+    depsNotify(ctx, `unhandled schedule action '${selection2.action}'`, "warning");
+    return;
+  }
+  const result4 = await handleTeamTool4({ action: "schedule", subAction, jobId }, teamCommandContext(ctx));
+  const text = commandText(result4);
+  depsNotify(ctx, text.length > 800 ? `${text.slice(0, 797)}...` : text, result4.isError ? "error" : "info");
+}
 function setTeamCommandsDeps(deps) {
   depsRef = deps;
 }
@@ -76449,6 +76827,10 @@ async function openTeamDashboard(ctx) {
     if (selection2.action === "plan-approve" || selection2.action === "plan-deny") {
       await handlePlanDashboardAction(cmdCtx, selection2);
       deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection2.runId);
+      continue;
+    }
+    if (selection2.action === "schedule-enable" || selection2.action === "schedule-disable" || selection2.action === "schedule-run-now" || selection2.action === "schedule-remove") {
+      await handleScheduleDashboardAction(cmdCtx, selection2);
       continue;
     }
     if (selection2.action === "agent-transcript" && await openTranscriptViewer(cmdCtx, selection2.runId)) continue;
@@ -77755,7 +78137,7 @@ var init_commands2 = __esm({
 
 // src/runtime/subagent-manager.ts
 import { randomUUID as randomUUID12 } from "node:crypto";
-import * as fs115 from "node:fs";
+import * as fs116 from "node:fs";
 import * as path93 from "node:path";
 function isValidSubagentId(id) {
   return /^[a-z0-9_]+$/i.test(id) && id.length <= 128;
@@ -77771,7 +78153,7 @@ function serializableRecord(record) {
 function savePersistedSubagentRecord(cwd, record) {
   try {
     const filePath = persistedSubagentPath(cwd, record.id);
-    fs115.mkdirSync(path93.dirname(filePath), { recursive: true });
+    fs116.mkdirSync(path93.dirname(filePath), { recursive: true });
     atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(serializableRecord(record)), null, 2)}
 `);
   } catch (error) {
@@ -77781,7 +78163,7 @@ function savePersistedSubagentRecord(cwd, record) {
 function removePersistedSubagentRecord(cwd, id) {
   try {
     const filePath = persistedSubagentPath(cwd, id);
-    fs115.unlinkSync(filePath);
+    fs116.unlinkSync(filePath);
     return true;
   } catch (error) {
     const code = error?.code;
@@ -77814,7 +78196,7 @@ function sanitizePersistedRecord(raw) {
 }
 function readPersistedSubagentRecord(cwd, id) {
   try {
-    const raw = JSON.parse(fs115.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
+    const raw = JSON.parse(fs116.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
     return sanitizePersistedRecord(raw);
   } catch (error) {
     if (error.code !== "ENOENT") {
@@ -78196,7 +78578,7 @@ __export(subagent_helpers_exports, {
   sendFollowUp: () => sendFollowUp,
   subagentToolResult: () => subagentToolResult
 });
-import * as fs116 from "node:fs";
+import * as fs117 from "node:fs";
 function sendFollowUp(pi, content) {
   const api = pi;
   if (typeof api.sendMessage !== "function") return;
@@ -78270,7 +78652,7 @@ function readSubagentRunResult(ctx, record) {
   if (!artifactPath || !loaded) return void 0;
   try {
     const safePath = resolveRealContainedPath(loaded.manifest.artifactsRoot, artifactPath);
-    return fs116.readFileSync(safePath, "utf-8").trim();
+    return fs117.readFileSync(safePath, "utf-8").trim();
   } catch {
     return void 0;
   }
@@ -78311,7 +78693,7 @@ var live_run_sidebar_exports = {};
 __export(live_run_sidebar_exports, {
   LiveRunSidebar: () => LiveRunSidebar
 });
-import * as fs117 from "node:fs";
+import * as fs118 from "node:fs";
 function line3(text, width) {
   return `\u2502 ${pad(truncate(text, width - 4), width - 4)} \u2502`;
 }
@@ -78320,7 +78702,7 @@ function border(left, fill, right, width) {
 }
 function readTasks2(path103) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs117.readFileSync(path103, "utf-8"));
+    const parsed = JSON.parse(fs118.readFileSync(path103, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
@@ -79058,16 +79440,16 @@ __export(notification_sink_exports, {
   __test__: () => __test__,
   createJsonlSink: () => createJsonlSink
 });
-import * as fs119 from "node:fs";
+import * as fs120 from "node:fs";
 import * as path95 from "node:path";
 function rotateOldFiles(dir, retentionDays, now = Date.now()) {
-  if (!fs119.existsSync(dir)) return;
+  if (!fs120.existsSync(dir)) return;
   const cutoff = now - retentionDays * 24 * 60 * 60 * 1e3;
-  for (const entry of fs119.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of fs120.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
     const filePath = path95.join(dir, entry.name);
     try {
-      if (fs119.statSync(filePath).mtimeMs < cutoff) fs119.unlinkSync(filePath);
+      if (fs120.statSync(filePath).mtimeMs < cutoff) fs120.unlinkSync(filePath);
     } catch (error) {
       logInternalError("notification-sink.rotate", error, filePath);
     }
@@ -79085,12 +79467,12 @@ function createJsonlSink(crewRoot, retentionDays = 7) {
           rotateOldFiles(dir, retentionDays, timestamp);
           lastRotateDate = date;
         }
-        fs119.mkdirSync(dir, { recursive: true });
+        fs120.mkdirSync(dir, { recursive: true });
         const payload = redactSecrets({
           ...notification,
           timestamp
         });
-        fs119.appendFileSync(path95.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
+        fs120.appendFileSync(path95.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
 `, "utf-8");
       } catch (error) {
         logInternalError("notification-sink.write", error);
@@ -80371,16 +80753,16 @@ var metric_sink_exports = {};
 __export(metric_sink_exports, {
   createMetricFileSink: () => createMetricFileSink
 });
-import * as fs120 from "node:fs";
+import * as fs121 from "node:fs";
 import * as path96 from "node:path";
 function rotateOldFiles2(dir, retentionDays, now = Date.now()) {
-  if (!fs120.existsSync(dir)) return;
+  if (!fs121.existsSync(dir)) return;
   const maxAge = retentionDays * 24 * 60 * 60 * 1e3;
-  for (const file of fs120.readdirSync(dir)) {
+  for (const file of fs121.readdirSync(dir)) {
     if (!file.endsWith(".jsonl")) continue;
     const fullPath = path96.join(dir, file);
     try {
-      if (now - fs120.statSync(fullPath).mtimeMs > maxAge) fs120.unlinkSync(fullPath);
+      if (now - fs121.statSync(fullPath).mtimeMs > maxAge) fs121.unlinkSync(fullPath);
     } catch (error) {
       logInternalError("metric-sink.rotate", error, fullPath);
     }
@@ -80395,14 +80777,14 @@ function createMetricFileSink(opts) {
     if (fd !== void 0 && fdDate === date) return fd;
     if (fd !== void 0) {
       try {
-        fs120.closeSync(fd);
+        fs121.closeSync(fd);
       } catch (error) {
         logInternalError("metric-sink.closeFd", error);
       }
     }
-    fs120.mkdirSync(dir, { recursive: true });
+    fs121.mkdirSync(dir, { recursive: true });
     rotateOldFiles2(dir, retentionDays);
-    fd = fs120.openSync(path96.join(dir, `${date}.jsonl`), "a");
+    fd = fs121.openSync(path96.join(dir, `${date}.jsonl`), "a");
     fdDate = date;
     return fd;
   };
@@ -80419,7 +80801,7 @@ function createMetricFileSink(opts) {
       const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
       return new Promise((resolve27) => {
-        fs120.write(target, line4, (err2) => {
+        fs121.write(target, line4, (err2) => {
           if (err2) logInternalError("metric-sink.asyncWrite", err2);
           resolve27();
         });
@@ -80437,7 +80819,7 @@ function createMetricFileSink(opts) {
       clearInterval(timer);
       if (fd !== void 0) {
         try {
-          fs120.closeSync(fd);
+          fs121.closeSync(fd);
         } catch (error) {
           logInternalError("metric-sink.dispose", error);
         }
@@ -80460,7 +80842,7 @@ var heartbeat_watcher_exports = {};
 __export(heartbeat_watcher_exports, {
   HeartbeatWatcher: () => HeartbeatWatcher
 });
-import * as fs121 from "node:fs";
+import * as fs122 from "node:fs";
 import * as path97 from "node:path";
 var HeartbeatWatcher;
 var init_heartbeat_watcher = __esm({
@@ -80510,7 +80892,7 @@ var init_heartbeat_watcher = __esm({
         const activeKeys = /* @__PURE__ */ new Set();
         for (const run of this.opts.manifestCache.list(50)) {
           if (run.status !== "running") continue;
-          if (!fs121.existsSync(run.stateRoot)) continue;
+          if (!fs122.existsSync(run.stateRoot)) continue;
           const loaded = loadRunManifestById(this.opts.cwd, run.runId);
           if (!loaded) continue;
           if (loaded.manifest.status !== "running") continue;
@@ -80545,7 +80927,7 @@ var init_heartbeat_watcher = __esm({
             if (level === "dead" && !isProcessAlive && loaded.manifest.artifactsRoot) {
               const resultsDir = path97.resolve(loaded.manifest.artifactsRoot, "results");
               const candidate = path97.resolve(resultsDir, `${task.id}.txt`);
-              if (candidate.startsWith(resultsDir + path97.sep) && fs121.existsSync(candidate)) {
+              if (candidate.startsWith(resultsDir + path97.sep) && fs122.existsSync(candidate)) {
                 level = "stale";
               }
             }
@@ -81182,10 +81564,10 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!filePath || typeof oldStr !== "string" || typeof newStr !== "string") {
       throw new Error("old_string not found (and resilient retry skipped: missing path/old/new)");
     }
-    const fs128 = await import("node:fs/promises");
+    const fs129 = await import("node:fs/promises");
     let content;
     try {
-      content = await fs128.readFile(filePath, "utf8");
+      content = await fs129.readFile(filePath, "utf8");
     } catch (readErr) {
       throw new Error(`resilient edit: could not read ${filePath}: ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
@@ -81195,7 +81577,7 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!result4.changed) {
       throw new Error(`old_string not found (resilient cascade exhausted, strategy=${result4.strategy})`);
     }
-    await fs128.writeFile(filePath, result4.content, "utf8");
+    await fs129.writeFile(filePath, result4.content, "utf8");
     return {
       content: [
         {
@@ -81646,6 +82028,8 @@ var CREW_PHRASES = [
   { phrase: "crew commands", command: "/team-help" },
   { phrase: "crew doctor", command: "/team-doctor" },
   { phrase: "crew diagnose", command: "/team-doctor" },
+  { phrase: "crew schedule", command: "/schedules" },
+  { phrase: "scheduled jobs", command: "/schedules" },
   { phrase: "teams", command: "/teams" }
 ];
 function phraseToRegex(phrase) {
@@ -83193,6 +83577,127 @@ async function runPostInitSkillCheck(cwd) {
 init_config();
 init_powerbar_publisher();
 init_widget();
+
+// src/extension/registration/commands/schedules.ts
+init_agent_observability();
+init_state_store();
+init_schedules_pane();
+init_safe_paths();
+init_handle_schedule();
+init_command_utils();
+import * as fs113 from "node:fs";
+var SCHEDULES_LOG_TAIL_BYTES = 32e3;
+function parseSchedulesArgs(args) {
+  const trimmed = args.trim();
+  if (trimmed === "") return { mode: "list" };
+  const tokens = trimmed.split(/\s+/);
+  if ((tokens[0] ?? "").toLowerCase() !== "log") {
+    return { mode: "usage", error: `Unknown subcommand '${tokens[0]}'. Usage: /schedules [log <jobId-or-name>]` };
+  }
+  const target = tokens.slice(1).join(" ").trim();
+  if (!target) return { mode: "usage", error: "Usage: /schedules log <jobId-or-name>" };
+  return { mode: "log", target };
+}
+function resolveScheduledJobByIdOrName(jobs, target) {
+  const needle = target.trim();
+  if (!needle) return void 0;
+  const byId = jobs.find((job) => job.id === needle);
+  if (byId) return byId;
+  const lower = needle.toLowerCase();
+  const byName = jobs.filter((job) => job.name.trim().toLowerCase() === lower);
+  if (byName.length === 0) return void 0;
+  return byName.reduce((newest, job) => job.createdAt > newest.createdAt ? job : newest);
+}
+function buildSchedulesCommandLines(jobs, now) {
+  return renderSchedulesTextBlock(jobs, now);
+}
+function buildSchedulesLogText(cwd, jobs, target, deps = {}) {
+  const job = resolveScheduledJobByIdOrName(jobs, target);
+  if (!job) return { isError: true, text: `No scheduled job with id or name '${target}'.` };
+  const runId = job.spawnedRunIds?.[job.spawnedRunIds.length - 1];
+  if (!runId) return { isError: true, text: `Job '${job.name}' has no spawned runs yet.` };
+  let loaded;
+  try {
+    loaded = (deps.loadManifest ?? loadRunManifestById)(cwd, runId);
+  } catch {
+    return { isError: true, text: `Run '${runId}' is not a valid run id.` };
+  }
+  if (!loaded) return { isError: true, text: `Run '${runId}' not found (it may have been cleaned up).` };
+  const artifact = pickMostRecentOutputArtifact(loaded.manifest, loaded.tasks);
+  if (!artifact) return { isError: true, text: `Run '${runId}' has no output artifacts yet.` };
+  const tail = readTextTail(artifact.path, SCHEDULES_LOG_TAIL_BYTES);
+  const lines = [
+    `Scheduled job '${job.name}' \u2014 latest run ${runId}`,
+    `artifact: ${artifact.path} (${tail.bytes} bytes${tail.truncated ? `, showing last ${SCHEDULES_LOG_TAIL_BYTES}` : ""})`,
+    tail.text.trimEnd()
+  ];
+  return { isError: false, text: lines.join("\n") };
+}
+function pickMostRecentOutputArtifact(manifest, tasks) {
+  const relPaths = [];
+  for (const artifact of manifest.artifacts ?? []) {
+    if (artifact?.kind === "summary" || artifact?.kind === "result" || artifact?.kind === "log") relPaths.push(artifact.path);
+  }
+  for (const task of tasks) {
+    if (task?.resultArtifact?.path) relPaths.push(task.resultArtifact.path);
+  }
+  let best;
+  for (const rel of relPaths) {
+    try {
+      const resolved = resolveRealContainedPath(manifest.artifactsRoot, rel);
+      const mtimeMs = fs113.statSync(resolved).mtimeMs;
+      if (!best || mtimeMs > best.mtimeMs) best = { path: resolved, mtimeMs };
+    } catch {
+    }
+  }
+  return best;
+}
+async function notifySchedulesError(ctx, text) {
+  ctx.ui.notify(text.length > 800 ? `${text.slice(0, 797)}...` : text, "error");
+}
+function suggestSchedulesArgs(argumentPrefix) {
+  const prefix = argumentPrefix ?? "";
+  if (prefix === "" || prefix === "l" || prefix === "lo" || prefix === "log") {
+    return [{ value: "log", label: "log", description: "tail the latest run output of a job" }];
+  }
+  const match = prefix.match(/^log\s+(\S*)$/i);
+  if (!match) return null;
+  const query = match[1] ?? "";
+  const items = [];
+  const jobs = getCrewScheduler() ? getScheduledJobs(process.cwd()) : [];
+  for (const job of jobs) {
+    if (query && !job.id.startsWith(query) && !job.name.toLowerCase().includes(query.toLowerCase())) continue;
+    items.push({ value: `log ${job.id}`, label: job.name, description: `id ${job.id}` });
+    if (items.length >= 10) break;
+  }
+  return items.length > 0 ? items : null;
+}
+function registerSchedulesCommands(pi) {
+  pi.registerCommand("schedules", {
+    description: "List scheduled jobs (/schedules log <jobId-or-name> tails the latest output)",
+    getArgumentCompletions: (argumentPrefix) => suggestSchedulesArgs(argumentPrefix),
+    handler: async (args, ctx) => {
+      const parsed = parseSchedulesArgs(args);
+      if (parsed.mode === "usage") {
+        await notifyCommandResult(ctx, parsed.error);
+        return;
+      }
+      const jobs = getScheduledJobs(ctx.cwd);
+      if (parsed.mode === "log") {
+        const outcome = buildSchedulesLogText(ctx.cwd, jobs, parsed.target);
+        if (outcome.isError) {
+          await notifySchedulesError(ctx, outcome.text);
+          return;
+        }
+        await notifyCommandResult(ctx, outcome.text);
+        return;
+      }
+      await notifyCommandResult(ctx, buildSchedulesCommandLines(jobs, /* @__PURE__ */ new Date()).join("\n"));
+    }
+  });
+}
+
+// src/extension/registration/command-registration.ts
 init_commands2();
 function registerPiCommands(pi, ctx) {
   registerTeamCommands(pi, {
@@ -83227,6 +83732,7 @@ function registerPiCommands(pi, ctx) {
       }
     }
   });
+  registerSchedulesCommands(pi);
 }
 
 // src/extension/registration/context-builder.ts
@@ -83239,7 +83745,7 @@ init_active_run_registry();
 init_fs_watch();
 init_paths();
 init_safe_paths();
-import * as fs113 from "node:fs";
+import * as fs114 from "node:fs";
 import * as path91 from "node:path";
 var DEFAULT_TTL_MS = 500;
 var DEFAULT_STAT_TTL_MS = 250;
@@ -83253,7 +83759,7 @@ function manifestPathForRun(root, runId) {
 }
 function parseManifest(filePath) {
   try {
-    return JSON.parse(fs113.readFileSync(filePath, "utf-8"));
+    return JSON.parse(fs114.readFileSync(filePath, "utf-8"));
   } catch {
     return void 0;
   }
@@ -83261,7 +83767,7 @@ function parseManifest(filePath) {
 function sameFilesystemPath(left, right) {
   if (path91.resolve(left) === path91.resolve(right)) return true;
   try {
-    return fs113.realpathSync.native(left) === fs113.realpathSync.native(right);
+    return fs114.realpathSync.native(left) === fs114.realpathSync.native(right);
   } catch {
     return false;
   }
@@ -83274,8 +83780,8 @@ function validateManifestForRoot(root, runId, manifest) {
     const artifactsRoot = resolveContainedRelativePath(path91.join(crewRoot, DEFAULT_PATHS.state.artifactsSubdir), runId, "runId");
     if (manifest.runId !== runId || !sameFilesystemPath(manifest.stateRoot, stateRoot) || !sameFilesystemPath(manifest.tasksPath, path91.join(stateRoot, DEFAULT_PATHS.state.tasksFile)) || !sameFilesystemPath(manifest.eventsPath, path91.join(stateRoot, DEFAULT_PATHS.state.eventsFile)) || !sameFilesystemPath(manifest.artifactsRoot, artifactsRoot))
       return false;
-    if (fs113.existsSync(artifactsRoot)) {
-      if (fs113.lstatSync(artifactsRoot).isSymbolicLink()) return false;
+    if (fs114.existsSync(artifactsRoot)) {
+      if (fs114.lstatSync(artifactsRoot).isSymbolicLink()) return false;
       resolveRealContainedPath(path91.dirname(artifactsRoot), path91.basename(artifactsRoot));
     }
     return true;
@@ -83289,7 +83795,7 @@ function parseManifestIfChanged(root, runId, filePath, previous, forceStat = fal
   }
   let stat2;
   try {
-    stat2 = fs113.statSync(filePath);
+    stat2 = fs114.statSync(filePath);
   } catch {
     return void 0;
   }
@@ -83322,7 +83828,7 @@ var dirListCache = /* @__PURE__ */ new Map();
 function collectRoots(root) {
   let mtimeMs;
   try {
-    mtimeMs = fs113.statSync(root).mtimeMs;
+    mtimeMs = fs114.statSync(root).mtimeMs;
   } catch {
     return [];
   }
@@ -83332,7 +83838,7 @@ function collectRoots(root) {
   }
   let entries;
   try {
-    entries = fs113.readdirSync(root);
+    entries = fs114.readdirSync(root);
   } catch {
     return [];
   }
@@ -83647,7 +84153,7 @@ init_state_store();
 init_dwf_phase_display();
 init_run_event_bus();
 import { createHash as createHash13 } from "node:crypto";
-import * as fs114 from "node:fs";
+import * as fs115 from "node:fs";
 import * as path92 from "node:path";
 function isPlanUiEnabled() {
   return getCrewEnv("PI_CREW_PLAN_UI") === "1";
@@ -83664,7 +84170,7 @@ function zeroStamp() {
 function stampFile(filePath) {
   if (!filePath) return zeroStamp();
   try {
-    const stat2 = fs114.statSync(filePath);
+    const stat2 = fs115.statSync(filePath);
     return { mtimeMs: stat2.mtimeMs, size: stat2.size };
   } catch {
     return zeroStamp();
@@ -83673,7 +84179,7 @@ function stampFile(filePath) {
 async function stampFileAsync(filePath) {
   if (!filePath) return zeroStamp();
   try {
-    const stat2 = await fs114.promises.stat(filePath);
+    const stat2 = await fs115.promises.stat(filePath);
     return { mtimeMs: stat2.mtimeMs, size: stat2.size };
   } catch {
     return zeroStamp();
@@ -83681,7 +84187,7 @@ async function stampFileAsync(filePath) {
 }
 function eventsStamp(eventsPath) {
   try {
-    const raw = fs114.readFileSync(sequencePath(eventsPath), "utf-8");
+    const raw = fs115.readFileSync(sequencePath(eventsPath), "utf-8");
     const seq = Number.parseInt(raw.trim(), 10);
     if (Number.isFinite(seq) && seq >= 0) return { mtimeMs: 0, size: seq + 1 };
   } catch {
@@ -83690,7 +84196,7 @@ function eventsStamp(eventsPath) {
 }
 async function eventsStampAsync(eventsPath) {
   try {
-    const raw = await fs114.promises.readFile(sequencePath(eventsPath), "utf-8");
+    const raw = await fs115.promises.readFile(sequencePath(eventsPath), "utf-8");
     const seq = Number.parseInt(raw.trim(), 10);
     if (Number.isFinite(seq) && seq >= 0) return { mtimeMs: 0, size: seq + 1 };
   } catch {
@@ -83742,18 +84248,18 @@ function sameStamps(a, b) {
 }
 function readTailContent(filePath) {
   try {
-    const stat2 = fs114.statSync(filePath);
+    const stat2 = fs115.statSync(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const fd = fs114.openSync(filePath, "r");
+    const fd = fs115.openSync(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
-      fs114.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+      fs115.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
       return {
         lines: buffer.toString("utf-8").split(/\r?\n/).filter(Boolean),
         approximate: stat2.size > MAX_TAIL_BYTES
       };
     } finally {
-      fs114.closeSync(fd);
+      fs115.closeSync(fd);
     }
   } catch {
     return { lines: [], approximate: false };
@@ -83773,9 +84279,9 @@ function tailJsonlLines(filePath, limit, parse4) {
 async function tailJsonlLinesAsync(filePath, limit, parse4) {
   if (limit <= 0) return [];
   try {
-    const stat2 = await fs114.promises.stat(filePath);
+    const stat2 = await fs115.promises.stat(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const handle = await fs114.promises.open(filePath, "r");
+    const handle = await fs115.promises.open(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
       await handle.read(buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -83814,15 +84320,15 @@ async function safeRecentEventsAsync(eventsPath, limit) {
 function tailLines(filePath, limit) {
   if (limit <= 0) return [];
   try {
-    const stat2 = fs114.statSync(filePath);
+    const stat2 = fs115.statSync(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const fd = fs114.openSync(filePath, "r");
+    const fd = fs115.openSync(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
-      fs114.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+      fs115.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
       return buffer.toString("utf-8").split(/\r?\n/).filter(Boolean).slice(-limit);
     } finally {
-      fs114.closeSync(fd);
+      fs115.closeSync(fd);
     }
   } catch {
     return [];
@@ -83831,9 +84337,9 @@ function tailLines(filePath, limit) {
 async function tailLinesAsync(filePath, limit) {
   if (limit <= 0) return [];
   try {
-    const stat2 = await fs114.promises.stat(filePath);
+    const stat2 = await fs115.promises.stat(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const handle = await fs114.promises.open(filePath, "r");
+    const handle = await fs115.promises.open(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
       await handle.read(buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -83914,7 +84420,7 @@ function isMailboxStatus(value) {
 }
 function readDeliveryMessages(filePath) {
   try {
-    const parsed = JSON.parse(fs114.readFileSync(filePath, "utf-8"));
+    const parsed = JSON.parse(fs115.readFileSync(filePath, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const messages = parsed.messages;
     if (!messages || typeof messages !== "object" || Array.isArray(messages)) return {};
@@ -83927,7 +84433,7 @@ function readDeliveryMessages(filePath) {
 }
 async function readDeliveryMessagesAsync(filePath) {
   try {
-    const content = await fs114.promises.readFile(filePath, "utf-8");
+    const content = await fs115.promises.readFile(filePath, "utf-8");
     const parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const messages = parsed.messages;
@@ -83979,7 +84485,7 @@ async function readGroupJoinMailboxAsync(filePath, delivery) {
 }
 async function tailApproximateAsync(filePath) {
   try {
-    return (await fs114.promises.stat(filePath)).size > MAX_TAIL_BYTES;
+    return (await fs115.promises.stat(filePath)).size > MAX_TAIL_BYTES;
   } catch {
     return false;
   }
@@ -84073,7 +84579,7 @@ function mailboxFrom(manifest, agents, delivery, outboxTail) {
   let outbox = mailboxCountsFrom(outboxTail, delivery);
   const tasksRoot = path92.join(root, "tasks");
   try {
-    for (const entry of fs114.readdirSync(tasksRoot, {
+    for (const entry of fs115.readdirSync(tasksRoot, {
       withFileTypes: true
     })) {
       if (!entry.isDirectory()) continue;
@@ -84103,7 +84609,7 @@ async function mailboxFromAsync(manifest, agents) {
   let outbox = await readMailboxCountsAsync(path92.join(root, "outbox.jsonl"), delivery);
   const tasksRoot = path92.join(root, "tasks");
   try {
-    const taskDirs = (await fs114.promises.readdir(tasksRoot, {
+    const taskDirs = (await fs115.promises.readdir(tasksRoot, {
       withFileTypes: true
     })).filter((entry) => entry.isDirectory());
     const [taskInboxes, taskOutboxes] = await Promise.all([
@@ -84793,7 +85299,7 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
 
 // src/extension/registration/hook-registration.ts
 init_config();
-import * as fs118 from "node:fs";
+import * as fs119 from "node:fs";
 import * as path94 from "node:path";
 
 // src/runtime/per-write-validator.ts
@@ -85059,8 +85565,8 @@ function installResourcesDiscoverHook(pi, ctx) {
       const skillDir = path94.resolve(sessionCwd, "skills");
       const extSkillDir = path94.join(packageRoot(), "skills");
       const paths = [];
-      if (fs118.existsSync(extSkillDir)) paths.push(extSkillDir);
-      if (skillDir !== extSkillDir && fs118.existsSync(skillDir)) {
+      if (fs119.existsSync(extSkillDir)) paths.push(extSkillDir);
+      if (skillDir !== extSkillDir && fs119.existsSync(skillDir)) {
         try {
           resolveRealContainedPath(sessionCwd, "skills");
           paths.push(skillDir);
@@ -85179,7 +85685,7 @@ init_defaults();
 init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
-import * as fs126 from "node:fs";
+import * as fs127 from "node:fs";
 import * as path102 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
@@ -85296,7 +85802,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
 
 // src/runtime/delegate-spawn.ts
 init_child_pi();
-import * as fs122 from "node:fs";
+import * as fs123 from "node:fs";
 import * as path99 from "node:path";
 function agentForRole(role) {
   return {
@@ -85326,7 +85832,7 @@ function usageTokensFromEvent(event) {
 }
 async function spawnDelegateGrandchild(input) {
   const artifactsRoot = path99.join(input.cwd, ".crew", "artifacts", input.runId, input.parentTaskId, "nested", input.subId);
-  fs122.mkdirSync(artifactsRoot, { recursive: true });
+  fs123.mkdirSync(artifactsRoot, { recursive: true });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), input.timeoutSec * 1e3);
   timer.unref?.();
@@ -85780,7 +86286,7 @@ async function pushWaitingToForegroundWaiter(params) {
 
 // src/runtime/broker/wait-status-cache.ts
 init_state_store();
-import * as fs123 from "node:fs";
+import * as fs124 from "node:fs";
 var WAIT_STATUS_CACHE_MAX = 128;
 function statStamp(manifestPath, tasksPath) {
   let manifestMtimeMs = 0;
@@ -85788,13 +86294,13 @@ function statStamp(manifestPath, tasksPath) {
   let tasksMtimeMs = 0;
   let tasksSize = 0;
   try {
-    const st = fs123.statSync(manifestPath);
+    const st = fs124.statSync(manifestPath);
     manifestMtimeMs = st.mtimeMs;
     manifestSize = st.size;
   } catch {
   }
   try {
-    const st = fs123.statSync(tasksPath);
+    const st = fs124.statSync(tasksPath);
     tasksMtimeMs = st.mtimeMs;
     tasksSize = st.size;
   } catch {
@@ -87524,7 +88030,7 @@ init_pi_ui_compat();
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
-import * as fs124 from "node:fs";
+import * as fs125 from "node:fs";
 import * as path100 from "node:path";
 var MAX_TRANSCRIPT_ITEMS = 500;
 function normalizeUsage(raw) {
@@ -87547,7 +88053,7 @@ var promptSeeded = /* @__PURE__ */ new Set();
 function readWorkerPrompt(manifest, taskId) {
   try {
     const file = path100.join(manifest.artifactsRoot, "prompts", `${taskId}.md`);
-    const text = fs124.readFileSync(file, "utf-8").trim();
+    const text = fs125.readFileSync(file, "utf-8").trim();
     return text || void 0;
   } catch {
     return void 0;
@@ -88637,13 +89143,13 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as fs125 from "node:fs";
+import * as fs126 from "node:fs";
 import * as path101 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
   try {
-    dirs = fs125.readdirSync(runsDir, { withFileTypes: true });
+    dirs = fs126.readdirSync(runsDir, { withFileTypes: true });
   } catch {
     return descriptors;
   }
@@ -88651,7 +89157,7 @@ function collectArtifactDescriptors(runsDir) {
     if (!dir.isDirectory()) continue;
     const manifestPath = path101.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
-      const manifest = JSON.parse(fs125.readFileSync(manifestPath, "utf-8"));
+      const manifest = JSON.parse(fs126.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
         descriptors.push(...manifest.artifacts);
       }
@@ -88677,6 +89183,60 @@ function runArtifactCleanup(cwd) {
   } catch (error) {
     logInternalError("register.artifact-cleanup", error, `cwd=${cwd}`);
   }
+}
+
+// src/extension/registration/schedule-toast-bridge.ts
+init_visual();
+var ERROR_TEXT_MAX = 200;
+function createScheduleEventNotifier(deps) {
+  const lastStatusByJob = /* @__PURE__ */ new Map();
+  const failedNotified = /* @__PURE__ */ new Set();
+  const deliver = (text, level) => {
+    try {
+      if (!deps.hasUI() || !deps.ui) return;
+      deps.ui.notify(text, level);
+    } catch {
+    }
+  };
+  return (event) => {
+    switch (event.type) {
+      case "fired":
+        deliver(`\u23F0 ${sanitizeLine(event.name)} fired \u2192 ${sanitizeLine(event.agentId)}`, "info");
+        return;
+      case "error": {
+        if (failedNotified.has(event.jobId)) return;
+        failedNotified.add(event.jobId);
+        const firstLine = event.error.split("\n")[0] ?? "";
+        const clipped = firstLine.length > ERROR_TEXT_MAX ? `${firstLine.slice(0, ERROR_TEXT_MAX - 1)}\u2026` : firstLine;
+        deliver(`\u23F0 scheduled job ${sanitizeLine(event.jobId)} failed: ${sanitizeLine(clipped)}`, "error");
+        return;
+      }
+      case "added":
+        lastStatusByJob.set(event.job.id, event.job.lastStatus);
+        return;
+      case "updated": {
+        const previous = lastStatusByJob.get(event.job.id);
+        lastStatusByJob.set(event.job.id, event.job.lastStatus);
+        if (event.job.lastStatus === "running") {
+          failedNotified.delete(event.job.id);
+          return;
+        }
+        if (event.job.lastStatus === "error" && previous === "running") {
+          failedNotified.add(event.job.id);
+          deliver(`\u23F0 ${sanitizeLine(event.job.name)} \u2717 failed`, "error");
+          return;
+        }
+        if (event.job.lastStatus === "success" && previous !== "success") {
+          deliver(`\u23F0 ${sanitizeLine(event.job.name)} \u2713 succeeded`, "info");
+        }
+        return;
+      }
+      case "removed":
+        lastStatusByJob.delete(event.jobId);
+        failedNotified.delete(event.jobId);
+        return;
+    }
+  };
 }
 
 // src/extension/registration/lifecycle-handlers.ts
@@ -88937,9 +89497,14 @@ async function runDeferredSessionCleanup(pi, ctx, ownerGeneration, currentSessio
 }
 function setupCrewScheduler(pi, ctx, extensionCtx, sessionId) {
   const crewScheduler = new CrewScheduler();
+  const notifyScheduleEvent = createScheduleEventNotifier({
+    hasUI: () => extensionCtx.hasUI,
+    ui: extensionCtx.ui
+  });
   crewScheduler.start({
     emit: (event) => {
       if (ctx.cleanedUp) return;
+      notifyScheduleEvent(event);
       pi.events?.emit?.("crew-scheduler", event);
     },
     executor: (job) => {
@@ -89258,7 +89823,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
     const crewRunsDir = path102.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
-    if (fs126.existsSync(crewRunsDir)) {
+    if (fs127.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -89269,7 +89834,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
     const userRunsDir = path102.join(userCrewRoot(), "state", "runs");
-    if (fs126.existsSync(userRunsDir)) {
+    if (fs127.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -89796,7 +90361,7 @@ init_tool_renderers();
 init_internal_error();
 init_safe_paths();
 init_subagent_helpers();
-import * as fs127 from "node:fs";
+import * as fs128 from "node:fs";
 import { Text as Text5 } from "@earendil-works/pi-tui";
 async function handleTeamTool6(params, ctx) {
   const mod = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
@@ -90192,12 +90757,12 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
       }
       try {
         const steeringDir = `${artifactsRoot}/steering`;
-        fs127.mkdirSync(steeringDir, { recursive: true });
+        fs128.mkdirSync(steeringDir, { recursive: true });
         const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
         const MAX_STEERING_BYTES = 256 * 1024;
         let existingBytes = 0;
         try {
-          existingBytes = fs127.statSync(safeSteeringPath).size;
+          existingBytes = fs128.statSync(safeSteeringPath).size;
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
@@ -90209,7 +90774,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
             true
           );
         }
-        fs127.appendFileSync(safeSteeringPath, line4);
+        fs128.appendFileSync(safeSteeringPath, line4);
       } catch (err2) {
         logInternalError(
           "subagent-tools.steer-write-failed",

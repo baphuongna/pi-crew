@@ -2,6 +2,43 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
+
+Full Scheduled Jobs UI stack over the existing scheduler/settings layer. No version bump yet — no schema or persistence changes; reads a single provider, mutations go through the existing extension channel.
+
+### feat(ui): schedules dashboard pane (tier A)
+
+- New pane 8 in the run dashboard (`src/ui/dashboard-panes/schedules-pane.ts`, pure string renderer): one main line per job (enabled glyph ●/○ · name truncate · humanized schedule · relative next-run · last status ✓/✗/⟳ · runCount) plus a sub line (subagentType · lastRun · id in headless mode). Empty state: `No scheduled jobs — create via team tool action='schedule'`.
+- Keys `T/N/V/X/R` (pane-scoped in `keybinding-map.ts`): toggle-enabled, run-now, details toggle (goal + ScheduleSpec + spawnedRunIds), delete with a **2-step confirm-gate** (first X arms + warning line, any other key disarms), refresh (drops the provider cache). Job cursor up/down while pane 8 owns input.
+- Mutations never touch the scheduler from the UI layer: they leave the dashboard only as `done()` selections carrying `schedule-*` actions + `jobId`, routed by `commands/shared.ts openTeamDashboard` through `handleTeamTool({action:'schedule', subAction, jobId})` → `handle-schedule.ts` (the same channel as the chat tool), then the result surfaces as an info/error toast and the dashboard reopens.
+
+### feat(ui): schedules line in the crew widget (tier C)
+
+- One lowest-priority widget row (`src/ui/widget/widget-renderer.ts`): `⏰ N sched · next Xm` — painted ONLY when ≥1 enabled job exists, always last (below active-run info). The line joins the widget cache signature so add/remove/toggle repaints immediately. Survives the no-runs collapse (scheduled jobs are exactly what runs while nothing interactive is active). One clock read per render feeds both the signature and the painted line.
+
+### feat(extension): scheduler event toasts (tier D)
+
+- New `schedule-toast-bridge.ts` wired into the scheduler's `emit` in `lifecycle-handlers.ts`: `fired` → `⏰ <name> fired → <agentId>` (info); failures → red. Failure has two producers — the scheduler's synchronous `error` event and the (common) async executor rejection recorded as a `running→error` lastStatus transition — deduped per attempt so one failed attempt = one notice. Success surfaces as `⏰ <name> ✓ succeeded` on a tracked lastStatus transition only (no drip on patches). Bounded like the hung-notice pattern; headless no-ops; all interpolated fields sanitized.
+
+### feat(commands): /schedules + /schedules log (tier E, headless-compatible)
+
+- New `/schedules` command re-uses the SAME pane renderer (text-block variant — no copied table logic) so command and dashboard can never drift. Natural-language phrases `crew schedule` / `scheduled jobs` rewrite via the crew-input-router.
+- `/schedules log <jobId-or-name>` resolves a job by id or name, tails the most recent output artifact of its latest spawned run (32KB bound, traversal-guarded via `resolveRealContainedPath`; unsafe-charset runIds degrade to an error result). Works under `pi -p` — the handler touches only `ctx.cwd` + `ctx.ui.notify`.
+
+### fix(scheduling): run-now on a once job consumes it
+
+- `CrewScheduler.runNow()` on a `once` job now self-disables after the forced fire (mirroring the timer-driven path). Previously the still-armed timer would fire the job a SECOND time at its scheduled time — a one-shot executing twice.
+
+### Constraints honored
+
+- **Single source of truth (G17)** — every consumer (pane, command, widget, autocomplete) reads jobs through one provider `getScheduledJobs()` (scheduler singleton, gated settings-tier fallback). No defaults copies anywhere.
+- **Injectable clock (D6-T4)** — renderers take `now: Date` as a parameter; no `Date.now()` on any render path (pane, widget, command, and the provider TTL timestamp).
+- **Extension channel only** — toggle/run-now/delete dispatch through `handle-schedule.ts` subActions; persisted `scheduledJobs` shape unchanged.
+
+### Tests
+
+- New: `schedules-pane`, `schedules-dashboard`, `widget-schedules-line`, `relative-time`, `schedules-command`, `schedule-toast-bridge`, `team-tool-schedule-provider`, `scheduler-run-now`, `dashboard-schedule-routing` (155+ assertions across render parity, injected clock, confirm-gate, toast bounds/dedup, traversal guards, once-job run-now regression, shared.ts routing integration).
+
 ## [0.10.6] — agent/skill resource layer + broker coordination fixes (2026-09-12)
 
 ### fix(bundle): PACKAGE_SKILLS_DIR resolves via `packageRoot()` instead of broken `import.meta.url` walk-up

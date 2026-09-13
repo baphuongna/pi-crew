@@ -8042,7 +8042,7 @@
       "format": "esm"
     },
     "src/extension/crew-input-router.ts": {
-      "bytes": 3997,
+      "bytes": 4104,
       "imports": [],
       "format": "esm"
     },
@@ -8683,7 +8683,7 @@
       "format": "esm"
     },
     "src/ui/keybinding-map.ts": {
-      "bytes": 18244,
+      "bytes": 19971,
       "imports": [
         {
           "path": "node:fs",
@@ -11258,7 +11258,7 @@
       "format": "esm"
     },
     "src/runtime/scheduling/scheduler.ts": {
-      "bytes": 12084,
+      "bytes": 13334,
       "imports": [],
       "format": "esm"
     },
@@ -11304,7 +11304,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/handle-schedule.ts": {
-      "bytes": 12012,
+      "bytes": 14894,
       "imports": [
         {
           "path": "node:crypto",
@@ -14948,6 +14948,11 @@
       "imports": [],
       "format": "esm"
     },
+    "src/utils/relative-time.ts": {
+      "bytes": 1404,
+      "imports": [],
+      "format": "esm"
+    },
     "src/ui/layout-primitives.ts": {
       "bytes": 2771,
       "imports": [
@@ -15133,8 +15138,13 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 19009,
+      "bytes": 23351,
       "imports": [
+        {
+          "path": "src/extension/team-tool/handle-schedule.ts",
+          "kind": "import-statement",
+          "original": "../../extension/team-tool/handle-schedule.ts"
+        },
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
           "kind": "import-statement",
@@ -15149,6 +15159,11 @@
           "path": "src/runtime/process-status.ts",
           "kind": "import-statement",
           "original": "../../runtime/process-status.ts"
+        },
+        {
+          "path": "src/utils/relative-time.ts",
+          "kind": "import-statement",
+          "original": "../../utils/relative-time.ts"
         },
         {
           "path": "src/utils/visual.ts",
@@ -15269,7 +15284,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 25875,
+      "bytes": 26893,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -15760,7 +15775,7 @@
       "format": "esm"
     },
     "src/extension/help.ts": {
-      "bytes": 2666,
+      "bytes": 2755,
       "imports": [],
       "format": "esm"
     },
@@ -17974,6 +17989,27 @@
       ],
       "format": "esm"
     },
+    "src/ui/dashboard-panes/schedules-pane.ts": {
+      "bytes": 6896,
+      "imports": [
+        {
+          "path": "src/runtime/scheduling/scheduler.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/scheduling/scheduler.ts"
+        },
+        {
+          "path": "src/utils/relative-time.ts",
+          "kind": "import-statement",
+          "original": "../../utils/relative-time.ts"
+        },
+        {
+          "path": "src/utils/visual.ts",
+          "kind": "import-statement",
+          "original": "../../utils/visual.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/ui/dashboard-panes/transcript-pane.ts": {
       "bytes": 1663,
       "imports": [],
@@ -18011,12 +18047,17 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 43067,
+      "bytes": 53219,
       "imports": [
         {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
+        },
+        {
+          "path": "src/extension/team-tool/handle-schedule.ts",
+          "kind": "import-statement",
+          "original": "../extension/team-tool/handle-schedule.ts"
         },
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -18097,6 +18138,11 @@
           "path": "src/ui/dashboard-panes/progress-pane.ts",
           "kind": "import-statement",
           "original": "./dashboard-panes/progress-pane.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/schedules-pane.ts",
+          "kind": "import-statement",
+          "original": "./dashboard-panes/schedules-pane.ts"
         },
         {
           "path": "src/ui/dashboard-panes/transcript-pane.ts",
@@ -18319,7 +18365,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/shared.ts": {
-      "bytes": 25043,
+      "bytes": 27672,
       "imports": [
         {
           "path": "node:path",
@@ -18445,6 +18491,11 @@
           "path": "src/ui/theme-discovery.ts",
           "kind": "dynamic-import",
           "original": "../../../ui/theme-discovery.ts"
+        },
+        {
+          "path": "src/ui/run-dashboard.ts",
+          "kind": "dynamic-import",
+          "original": "../../../ui/run-dashboard.ts"
         }
       ],
       "format": "esm"
@@ -18916,8 +18967,49 @@
       ],
       "format": "esm"
     },
+    "src/extension/registration/commands/schedules.ts": {
+      "bytes": 10082,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/agent-observability.ts",
+          "kind": "import-statement",
+          "original": "../../../runtime/agent-observability.ts"
+        },
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/schedules-pane.ts",
+          "kind": "import-statement",
+          "original": "../../../ui/dashboard-panes/schedules-pane.ts"
+        },
+        {
+          "path": "src/utils/safe-paths.ts",
+          "kind": "import-statement",
+          "original": "../../../utils/safe-paths.ts"
+        },
+        {
+          "path": "src/extension/team-tool/handle-schedule.ts",
+          "kind": "import-statement",
+          "original": "../../team-tool/handle-schedule.ts"
+        },
+        {
+          "path": "src/extension/registration/command-utils.ts",
+          "kind": "import-statement",
+          "original": "../command-utils.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/registration/command-registration.ts": {
-      "bytes": 2225,
+      "bytes": 2454,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -18933,6 +19025,11 @@
           "path": "src/ui/widget/index.ts",
           "kind": "import-statement",
           "original": "../../ui/widget/index.ts"
+        },
+        {
+          "path": "src/extension/registration/commands/schedules.ts",
+          "kind": "import-statement",
+          "original": "./commands/schedules.ts"
         },
         {
           "path": "src/extension/registration/commands.ts",
@@ -20465,8 +20562,19 @@
       ],
       "format": "esm"
     },
+    "src/extension/registration/schedule-toast-bridge.ts": {
+      "bytes": 5091,
+      "imports": [
+        {
+          "path": "src/utils/visual.ts",
+          "kind": "import-statement",
+          "original": "../../utils/visual.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/registration/lifecycle-handlers.ts": {
-      "bytes": 51134,
+      "bytes": 51592,
       "imports": [
         {
           "path": "node:fs",
@@ -20672,6 +20780,11 @@
           "path": "src/extension/registration/artifact-cleanup.ts",
           "kind": "import-statement",
           "original": "./artifact-cleanup.ts"
+        },
+        {
+          "path": "src/extension/registration/schedule-toast-bridge.ts",
+          "kind": "import-statement",
+          "original": "./schedule-toast-bridge.ts"
         },
         {
           "path": "src/ui/tool-renderers/brief-mode.ts",
@@ -21152,7 +21265,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8073776
+      "bytes": 8140642
     },
     "dist/index.mjs": {
       "imports": [
@@ -22872,6 +22985,11 @@
           "external": true
         },
         {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:path",
           "kind": "import-statement",
           "external": true
@@ -24129,7 +24247,7 @@
           "bytesInOutput": 508
         },
         "src/ui/keybinding-map.ts": {
-          "bytesInOutput": 8610
+          "bytesInOutput": 10210
         },
         "src/extension/tool-result.ts": {
           "bytesInOutput": 401
@@ -24498,13 +24616,13 @@
           "bytesInOutput": 3915
         },
         "src/runtime/scheduling/scheduler.ts": {
-          "bytesInOutput": 10288
+          "bytesInOutput": 11299
         },
         "src/runtime/settings-store.ts": {
           "bytesInOutput": 7351
         },
         "src/extension/team-tool/handle-schedule.ts": {
-          "bytesInOutput": 8894
+          "bytesInOutput": 10291
         },
         "src/extension/team-tool/dispatch/automate.ts": {
           "bytesInOutput": 2101
@@ -24878,6 +24996,9 @@
         "src/ui/dock-footer.ts": {
           "bytesInOutput": 400
         },
+        "src/utils/relative-time.ts": {
+          "bytesInOutput": 831
+        },
         "src/ui/layout-primitives.ts": {
           "bytesInOutput": 2240
         },
@@ -24891,7 +25012,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 11067
+          "bytesInOutput": 12256
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
@@ -24912,7 +25033,7 @@
           "bytesInOutput": 5368
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 16328
+          "bytesInOutput": 16599
         },
         "src/utils/safe-abort.ts": {
           "bytesInOutput": 436
@@ -24951,7 +25072,7 @@
           "bytesInOutput": 5605
         },
         "src/extension/help.ts": {
-          "bytesInOutput": 2863
+          "bytesInOutput": 2957
         },
         "src/extension/team-onboard.ts": {
           "bytesInOutput": 4612
@@ -25124,6 +25245,9 @@
         "src/ui/dashboard-panes/progress-pane.ts": {
           "bytesInOutput": 2061
         },
+        "src/ui/dashboard-panes/schedules-pane.ts": {
+          "bytesInOutput": 3295
+        },
         "src/ui/dashboard-panes/transcript-pane.ts": {
           "bytesInOutput": 1320
         },
@@ -25134,7 +25258,7 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 31744
+          "bytesInOutput": 38620
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
@@ -25158,7 +25282,7 @@
           "bytesInOutput": 31803
         },
         "src/extension/registration/commands/shared.ts": {
-          "bytesInOutput": 16619
+          "bytesInOutput": 17707
         },
         "src/extension/registration/commands/dashboard.ts": {
           "bytesInOutput": 4862
@@ -25263,7 +25387,7 @@
           "bytesInOutput": 8396
         },
         "src/extension/crew-input-router.ts": {
-          "bytesInOutput": 1621
+          "bytesInOutput": 1730
         },
         "src/extension/crew-shortcuts.ts": {
           "bytesInOutput": 1206
@@ -25299,7 +25423,10 @@
           "bytesInOutput": 923
         },
         "src/extension/registration/command-registration.ts": {
-          "bytesInOutput": 1223
+          "bytesInOutput": 1256
+        },
+        "src/extension/registration/commands/schedules.ts": {
+          "bytesInOutput": 4981
         },
         "src/extension/registration/context-builder.ts": {
           "bytesInOutput": 3957
@@ -25335,7 +25462,7 @@
           "bytesInOutput": 2495
         },
         "src/extension/registration/lifecycle-handlers.ts": {
-          "bytesInOutput": 29892
+          "bytesInOutput": 30053
         },
         "src/runtime/broker/crew-broker.ts": {
           "bytesInOutput": 59690
@@ -25415,6 +25542,9 @@
         "src/extension/registration/artifact-cleanup.ts": {
           "bytesInOutput": 1623
         },
+        "src/extension/registration/schedule-toast-bridge.ts": {
+          "bytesInOutput": 1910
+        },
         "src/extension/registration/runtime-cleanup.ts": {
           "bytesInOutput": 5531
         },
@@ -25440,7 +25570,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3382839
+      "bytes": 3407925
     }
   }
 }
