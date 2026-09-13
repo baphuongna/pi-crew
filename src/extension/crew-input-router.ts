@@ -34,6 +34,8 @@ export const CREW_PHRASES: ReadonlyArray<{ phrase: string; command: string }> = 
 	{ phrase: "crew commands", command: "/team-help" },
 	{ phrase: "crew doctor", command: "/team-doctor" },
 	{ phrase: "crew diagnose", command: "/team-doctor" },
+	{ phrase: "crew schedule", command: "/schedules" },
+	{ phrase: "scheduled jobs", command: "/schedules" },
 	{ phrase: "teams", command: "/teams" },
 ];
 
