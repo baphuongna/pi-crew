@@ -28,7 +28,7 @@ import { loadRunManifestById } from "../../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../state/types.ts";
 import { renderSchedulesTextBlock } from "../../../ui/dashboard-panes/schedules-pane.ts";
 import { resolveRealContainedPath } from "../../../utils/safe-paths.ts";
-import { getCrewScheduler, getScheduledJobs } from "../../team-tool/handle-schedule.ts";
+import { getCrewScheduler, getScheduledJobs, getScheduledJobsHiddenCountView } from "../../team-tool/handle-schedule.ts";
 import { notifyCommandResult } from "../command-utils.ts";
 
 /** Bounded tail for `/schedules log` — matches the dashboard's
@@ -68,10 +68,12 @@ export function resolveScheduledJobByIdOrName(jobs: ScheduledJob[], target: stri
 /**
  * Build the `/schedules` text block. Thin wrapper over the shared text-block
  * variant of the pane renderer — kept exported so the parity test can pin
- * byte-for-byte equality against `renderSchedulesPane` (no drift).
+ * byte-for-byte equality against `renderSchedulesPane` (no drift). The
+ * optional `hiddenCount` (P2-1) flows straight through to the shared hint
+ * line; omitted/0 keeps the legacy layout.
  */
-export function buildSchedulesCommandLines(jobs: ScheduledJob[], now: Date): string[] {
-	return renderSchedulesTextBlock(jobs, now);
+export function buildSchedulesCommandLines(jobs: ScheduledJob[], now: Date, hiddenCount = 0): string[] {
+	return renderSchedulesTextBlock(jobs, now, { hiddenCount });
 }
 
 /** Test seam for the run-manifest loader (defaults to the real state store). */
@@ -198,7 +200,13 @@ export function registerSchedulesCommands(pi: ExtensionAPI): void {
 			}
 			// D6-T4: the render path takes `now` as a parameter — this single
 			// `new Date()` at the handler boundary is the clock injection point.
-			await notifyCommandResult(ctx, buildSchedulesCommandLines(jobs, new Date()).join("\n"));
+			// P2-1: the hidden count rides the same user-initiated invocation
+			// (stash-first provider read — in-memory when the scheduler singleton
+			// is registered, one tiers read otherwise; never on a render tick).
+			await notifyCommandResult(
+				ctx,
+				buildSchedulesCommandLines(jobs, new Date(), getScheduledJobsHiddenCountView(ctx.cwd)).join("\n"),
+			);
 		},
 	});
 }

@@ -42276,10 +42276,11 @@ function humanizeSchedule(spec) {
   }
   return "unknown schedule";
 }
-var CrewScheduler, CRON_DOW_NAMES, CRON_MONTH_NAMES;
+var MAX_TIMER_DELAY_MS, CrewScheduler, CRON_DOW_NAMES, CRON_MONTH_NAMES;
 var init_scheduler = __esm({
   "src/runtime/scheduling/scheduler.ts"() {
     "use strict";
+    MAX_TIMER_DELAY_MS = 2147483e3;
     CrewScheduler = class {
       jobs = /* @__PURE__ */ new Map();
       timers = /* @__PURE__ */ new Map();
@@ -42287,6 +42288,14 @@ var init_scheduler = __esm({
       executor;
       finalizer;
       runCancelFn;
+      nowFn;
+      constructor(options = {}) {
+        this.nowFn = options.now ?? (() => /* @__PURE__ */ new Date());
+      }
+      /** Scheduler clock. Injected in tests; real time in production. */
+      now() {
+        return this.nowFn();
+      }
       start(options) {
         this.emit = options.emit;
         this.executor = options.executor;
@@ -42371,7 +42380,7 @@ var init_scheduler = __esm({
           this.timers.set(job.id, t2);
         } else if (job.scheduleType === "once") {
           const target = new Date(job.schedule).getTime();
-          const delay = target - Date.now();
+          const delay = target - this.now().getTime();
           if (delay > 0) {
             const t2 = setTimeout(() => {
               this.fire(job.id);
@@ -42387,16 +42396,77 @@ var init_scheduler = __esm({
               error: `Scheduled time ${job.schedule} is in the past`
             });
           }
+        } else if (job.scheduleType === "cron") {
+          this.armCron(job);
         }
+      }
+      /**
+       * Arm a cron job: schedule a chained setTimeout at the next occurrence
+       * (hops are clamped below the 2^31-1 ms setTimeout ceiling so yearly crons
+       * cannot mis-fire), fire once on arrival, then let the existing
+       * update() → disarm+arm lifecycle (triggered by fire()'s
+       * lastStatus='running' update) re-arm the NEXT occurrence. fire() itself
+       * stays persistence-blind; the post-fire nextRun advance happens in
+       * advanceCronNextRun and persists via the usual `updated` event flow.
+       */
+      armCron(job) {
+        const now = this.now();
+        const next = nextRunTime({ kind: "cron", spec: job.schedule }, now);
+        if (!(next instanceof Date) || next.getTime() <= now.getTime()) {
+          this.disableCronForUncomputableNext(job.id, next);
+          return;
+        }
+        this.setCronTimeout(job.id, next.getTime());
+      }
+      /** Chain a clamped timeout hop toward the target cron occurrence. */
+      setCronTimeout(jobId, targetMs) {
+        const delay = Math.max(targetMs - this.now().getTime(), 0);
+        const t2 = setTimeout(() => this.cronTick(jobId, targetMs), Math.min(delay, MAX_TIMER_DELAY_MS));
+        t2.unref();
+        this.timers.set(jobId, t2);
+      }
+      /** Timer callback for a cron hop/arrival. Fires at most once per occurrence. */
+      cronTick(jobId, targetMs) {
+        const job = this.jobs.get(jobId);
+        if (!job?.enabled) return;
+        if (this.now().getTime() < targetMs) {
+          this.setCronTimeout(jobId, targetMs);
+          return;
+        }
+        this.fire(jobId);
+        this.advanceCronNextRun(jobId);
+      }
+      /** After a cron fire, advance the persisted nextRun to the next occurrence
+       * (or self-disable when no further occurrence is computable). */
+      advanceCronNextRun(jobId) {
+        const job = this.jobs.get(jobId);
+        if (!job?.enabled || job.scheduleType !== "cron") return;
+        const next = nextRunTime({ kind: "cron", spec: job.schedule }, this.now());
+        if (!(next instanceof Date)) {
+          this.disableCronForUncomputableNext(jobId, next);
+          return;
+        }
+        this.update(jobId, { nextRun: next.toISOString() });
+      }
+      /** No computable next occurrence (e.g. Feb-29 beyond the 366-day search
+       * window): disable the job and record why. */
+      disableCronForUncomputableNext(jobId, next) {
+        const reason = next && typeof next === "object" && "error" in next ? next.error : "next occurrence is not in the future";
+        this.update(jobId, { enabled: false, lastStatus: "error" });
+        this.emit?.({
+          type: "error",
+          jobId,
+          error: `Cron schedule cannot compute a next occurrence (${reason}); job disabled`
+        });
       }
       disarm(id) {
         const t2 = this.timers.get(id);
         if (t2) {
           const job = this.jobs.get(id);
-          if (job?.scheduleType === "once") {
-            clearTimeout(t2);
-          } else {
+          if (job?.scheduleType === "interval") {
             clearInterval(t2);
+          } else {
+            clearTimeout(t2);
           }
           this.timers.delete(id);
         }
@@ -42522,9 +42592,9 @@ function readSettingsFile(filePath) {
     return {};
   }
 }
-function loadCrewSettings(cwd = process.cwd()) {
+function loadCrewSettings(cwd = process.cwd(), globalFile = globalPath()) {
   return {
-    ...readSettingsFile(globalPath()),
+    ...readSettingsFile(globalFile),
     ...readSettingsFile(projectPath(cwd))
   };
 }
@@ -42557,6 +42627,15 @@ function loadCrewSettingsTiers(cwd = process.cwd(), globalFile = globalPath()) {
     ...projectScheduledJobsOptIn(user) ? project.scheduledJobs ?? [] : []
   ];
   return { user, project, merged: { ...user, ...project }, effectiveScheduledJobs, projectPath: projectFilePath };
+}
+function scheduledJobsHiddenCountOf(tiers) {
+  if (projectScheduledJobsOptIn(tiers.user)) return 0;
+  const jobs = tiers.project.scheduledJobs;
+  if (!Array.isArray(jobs)) return 0;
+  return jobs.filter(validateScheduledJob).length;
+}
+function getScheduledJobsHiddenCount(cwd = process.cwd(), globalFile = globalPath()) {
+  return scheduledJobsHiddenCountOf(loadCrewSettingsTiers(cwd, globalFile));
 }
 function applyCrewSettingsTiersToConfig(config, tiers) {
   const warnings = [];
@@ -42637,6 +42716,9 @@ function getCrewScheduler() {
 function registerCrewScheduler(scheduler) {
   crewSchedulerInstance = scheduler;
 }
+function stashScheduledJobsHiddenCount(count2) {
+  stashedScheduledJobsHiddenCount = count2;
+}
 function getScheduledJobs(cwd = process.cwd(), globalFile) {
   const scheduler = getCrewScheduler();
   if (scheduler) return scheduler.list();
@@ -42651,6 +42733,14 @@ function isScheduledJobLike(job) {
   if (!job || typeof job !== "object") return false;
   const obj = job;
   return typeof obj.id === "string" && obj.id.length > 0 && typeof obj.scheduleType === "string" && typeof obj.enabled === "boolean";
+}
+function getScheduledJobsHiddenCountView(cwd = process.cwd(), globalFile) {
+  if (getCrewScheduler()) return stashedScheduledJobsHiddenCount ?? 0;
+  try {
+    return getScheduledJobsHiddenCount(cwd, globalFile);
+  } catch {
+    return 0;
+  }
 }
 function buildScheduleSpec(params) {
   if (params.cron) {
@@ -42930,7 +43020,7 @@ function handleRunNowScheduled(params) {
     data: { jobId, triggered: true }
   });
 }
-var crewSchedulerInstance;
+var crewSchedulerInstance, stashedScheduledJobsHiddenCount;
 var init_handle_schedule = __esm({
   "src/extension/team-tool/handle-schedule.ts"() {
     "use strict";
@@ -61421,14 +61511,15 @@ function compactDockLines(runs, options, width, maxLines, notificationCount, run
   if (windowEnd < flat.length) lines.push(truncate(`  \u2026 +${flat.length - windowEnd} more (\u2193 to scroll)`, width));
   return lines;
 }
-function buildSchedulesWidgetLine(jobs, now) {
+function buildSchedulesWidgetLine(jobs, now, hiddenCount = 0) {
   const enabled = jobs.filter((job) => job.enabled);
-  if (enabled.length === 0) return void 0;
+  const hidden = hiddenCount > 0 ? ` \xB7 ${hiddenCount} hidden` : "";
+  if (enabled.length === 0) return hiddenCount > 0 ? `\u23F0 0 sched${hidden}` : void 0;
   const nextTargets = enabled.map((job) => job.nextRun ? new Date(job.nextRun).getTime() : Number.NaN).filter((ms) => Number.isFinite(ms));
-  if (nextTargets.length === 0) return `\u23F0 ${enabled.length} sched`;
+  if (nextTargets.length === 0) return `\u23F0 ${enabled.length} sched${hidden}`;
   const next = Math.min(...nextTargets);
   const relative9 = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
-  return `\u23F0 ${enabled.length} sched \xB7 next ${relative9}`;
+  return `\u23F0 ${enabled.length} sched \xB7 next ${relative9}${hidden}`;
 }
 function defaultScheduledJobsReader(cwd) {
   if (!getCrewScheduler()) return [];
@@ -61438,8 +61529,12 @@ function defaultScheduledJobsReader(cwd) {
     return [];
   }
 }
+function defaultHiddenJobsReader(_cwd) {
+  if (!getCrewScheduler()) return 0;
+  return getScheduledJobsHiddenCountView();
+}
 function schedulesWidgetLine(cwd, now) {
-  return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now);
+  return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now, hiddenJobsReader(cwd));
 }
 function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
   const rowStyle = options.rowStyle ?? "detailed";
@@ -61525,7 +61620,7 @@ function renderLines(lines, width) {
   }
   return box.render(width);
 }
-var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY, scheduledJobsReader;
+var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY, scheduledJobsReader, hiddenJobsReader;
 var init_widget_renderer = __esm({
   "src/ui/widget/widget-renderer.ts"() {
     "use strict";
@@ -61548,6 +61643,7 @@ var init_widget_renderer = __esm({
     ERROR_STATUSES = /* @__PURE__ */ new Set(["failed", "cancelled", "stopped", "needs_attention"]);
     ACTIVE_PRIORITY = { running: 0, queued: 1, waiting: 2 };
     scheduledJobsReader = defaultScheduledJobsReader;
+    hiddenJobsReader = defaultHiddenJobsReader;
   }
 });
 
@@ -73456,12 +73552,21 @@ var init_progress_pane = __esm({
 });
 
 // src/ui/dashboard-panes/schedules-pane.ts
+function schedulesHiddenJobsHintLine(hiddenCount) {
+  if (!Number.isFinite(hiddenCount) || hiddenCount <= 0) return "";
+  const n = Math.floor(hiddenCount);
+  return `\u26A0 ${n} project-tier job${n === 1 ? "" : "s"} hidden \u2014 opt in via ~/.pi/crew-settings.json: schedulingEnabled + allowProjectScheduledJobs`;
+}
 function renderSchedulesPane(jobs, now, opts = {}) {
-  if (jobs.length === 0) return [SCHEDULES_EMPTY_STATE];
+  const hint = schedulesHiddenJobsHintLine(opts.hiddenCount ?? 0);
+  if (jobs.length === 0) {
+    return hint ? [SCHEDULES_EMPTY_STATE, hint] : [SCHEDULES_EMPTY_STATE];
+  }
   const lines = [`Scheduled jobs (${jobs.length}):`];
   for (const [index, job] of jobs.entries()) {
     lines.push(...renderJobLines(job, now, opts, index === opts.selectedIndex));
   }
+  if (hint) lines.push(hint);
   if (opts.foreground !== false) {
     lines.push("Actions: T toggle \xB7 N run now \xB7 V details \xB7 X delete \xB7 R refresh");
   }
@@ -74158,21 +74263,38 @@ var init_run_dashboard = __esm({
        *  extension-layer provider, TTL-cached so render ticks never hit disk
        *  per frame. `R` (schedule-refresh) drops the cache. The TTL timestamp
        *  reads the SAME injected clock as the pane render (D6-T4 — no direct
-       *  Date.now() anywhere on the render path; review round 1 minor-1). */
-      scheduleJobs() {
+       *  Date.now() anywhere on the render path; review round 1 minor-1).
+       *  P2-1: the hidden project-tier count rides the SAME cached provider
+       *  read (jobs + count populate ONE cache entry) — no second uncached
+       *  disk-read path exists on render ticks. */
+      scheduleData() {
         const at = this.scheduleNow().getTime();
         if (this.scheduleJobsCache && at - this.scheduleJobsCache.at < SCHEDULE_JOBS_TTL_MS) {
-          return this.scheduleJobsCache.jobs;
+          return this.scheduleJobsCache;
         }
         let jobs = [];
+        let hiddenCount = 0;
         try {
           jobs = getScheduledJobs();
         } catch {
           jobs = [];
         }
-        this.scheduleJobsCache = { at, jobs };
+        try {
+          hiddenCount = getScheduledJobsHiddenCountView();
+        } catch {
+          hiddenCount = 0;
+        }
+        this.scheduleJobsCache = { at, jobs, hiddenCount };
         if (this.scheduleSelected > jobs.length - 1) this.scheduleSelected = Math.max(0, jobs.length - 1);
-        return jobs;
+        return this.scheduleJobsCache;
+      }
+      scheduleJobs() {
+        return this.scheduleData().jobs;
+      }
+      /** P2-1: hidden project-tier jobs count — same cache entry as the jobs
+       *  read above (single provider read per TTL window). */
+      scheduleHiddenCount() {
+        return this.scheduleData().hiddenCount;
       }
       /** Job under the pane-8 cursor (up/down move it); undefined when the list
        *  is empty — schedule actions are silent no-ops then (plan-approve
@@ -74191,12 +74313,13 @@ var init_run_dashboard = __esm({
       }
       /** Signature fragment for the schedules pane so job data, cursor, details,
        *  confirm-gate state, and relative-time minute buckets invalidate the
-       *  layout cache (mirrors metricsSig). */
+       *  layout cache (mirrors metricsSig). P2-1: the hidden count is part of the
+       *  fragment so a changed stash repaints the pane after the TTL. */
       schedulesSignatureFragment() {
-        const jobs = this.scheduleJobs();
+        const { jobs, hiddenCount } = this.scheduleData();
         const minuteBucket = Math.floor(this.scheduleNow().getTime() / 6e4);
         const jobSig = jobs.map((job) => `${job.enabled ? 1 : 0}:${job.runCount}:${job.nextRun ?? ""}:${job.lastStatus ?? ""}:${job.lastRun ?? ""}`).join(",");
-        return `${jobs.length}:${jobSig}:${this.scheduleSelected}:${this.scheduleDetails ? 1 : 0}:${this.scheduleDeleteArmed ? 1 : 0}:${minuteBucket}`;
+        return `${jobs.length}:${jobSig}:${hiddenCount}:${this.scheduleSelected}:${this.scheduleDetails ? 1 : 0}:${this.scheduleDeleteArmed ? 1 : 0}:${minuteBucket}`;
       }
       render(width) {
         try {
@@ -74353,7 +74476,10 @@ var init_run_dashboard = __esm({
               lines.push(row(fg("dim", "\u2500\u2500 schedules \u2500\u2500")));
               const paneLines = safeRenderPane(
                 "schedules",
-                () => this.scheduleDetails && jobs.length > 0 ? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now) : renderSchedulesPane(jobs, now, { selectedIndex: this.scheduleSelected })
+                () => this.scheduleDetails && jobs.length > 0 ? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now) : renderSchedulesPane(jobs, now, {
+                  selectedIndex: this.scheduleSelected,
+                  hiddenCount: this.scheduleHiddenCount()
+                })
               );
               for (const line4 of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
                 lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line4), innerWidth - 2)), this.theme));
@@ -83613,8 +83739,8 @@ function resolveScheduledJobByIdOrName(jobs, target) {
   if (byName.length === 0) return void 0;
   return byName.reduce((newest, job) => job.createdAt > newest.createdAt ? job : newest);
 }
-function buildSchedulesCommandLines(jobs, now) {
-  return renderSchedulesTextBlock(jobs, now);
+function buildSchedulesCommandLines(jobs, now, hiddenCount = 0) {
+  return renderSchedulesTextBlock(jobs, now, { hiddenCount });
 }
 function buildSchedulesLogText(cwd, jobs, target, deps = {}) {
   const job = resolveScheduledJobByIdOrName(jobs, target);
@@ -83697,7 +83823,10 @@ function registerSchedulesCommands(pi) {
         await notifyCommandResult(ctx, outcome.text);
         return;
       }
-      await notifyCommandResult(ctx, buildSchedulesCommandLines(jobs, /* @__PURE__ */ new Date()).join("\n"));
+      await notifyCommandResult(
+        ctx,
+        buildSchedulesCommandLines(jobs, /* @__PURE__ */ new Date(), getScheduledJobsHiddenCountView(ctx.cwd)).join("\n")
+      );
     }
   });
 }
@@ -89351,6 +89480,7 @@ function installSessionStartHandler(pi, ctx) {
     const sessionId = extensionCtx.sessionManager?.getSessionId?.() ?? (typeof extensionCtx === "object" && extensionCtx !== null && "sessionId" in extensionCtx ? extensionCtx.sessionId : void 0);
     ctx.crewScheduler = setupCrewScheduler(pi, ctx, extensionCtx, sessionId);
     registerCrewScheduler(ctx.crewScheduler);
+    stashScheduledJobsHiddenCount(scheduledJobsHiddenCountOf(crewSettingsTiers));
     for (const job of crewSettingsTiers.effectiveScheduledJobs) {
       try {
         ctx.crewScheduler.add(job);

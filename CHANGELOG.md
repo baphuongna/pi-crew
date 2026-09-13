@@ -4,6 +4,24 @@
 
 ## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
 
+### fix(scheduler): cron jobs never fired — arm() had no `cron` branch (P1-1 from UI review)
+
+- Root cause of the live "next 7h ago" symptom: `arm()` only handled `interval`/`once`, so cron jobs were persisted with a `nextRun` but never got a timer — silent death. `nextRunTime()`/`nextCronDate` (already in the same file) were simply never wired into arming.
+- `arm()` now arms cron via a chained `setTimeout` hop toward the next occurrence, clamped below the 2^31-1 ms timer ceiling (`MAX_TIMER_DELAY_MS`) so yearly crons cannot mis-fire on overflow; `disarm()` clears the cron handle on the right branch.
+- After each cron fire, `advanceCronNextRun()` recomputes and persists the next occurrence (previously `nextRun` was written exactly once, at job creation); jobs whose next occurrence is not computable self-disable with an `error` event explaining why.
+- Scheduler constructor takes an injectable clock (`now?: () => Date`, default `Date.now`) per the D6-T4 clock-injection convention — cron firing tests run on a fake clock, no real sleeps.
+- New suite `test/unit/runtime/scheduling/scheduler-cron-arm.test.ts` (first fire, re-arm + nextRun advance, mid-flight disable, overflow chaining, disarm) — red on the pre-fix HEAD, green with the fix.
+
+### feat(ui): B2 gate hint — "N project-tier jobs hidden" on all three surfaces (P2-1)
+
+- The Wave B2 opt-in gate (`schedulingEnabled` + `allowProjectScheduledJobs`, both required in user-tier `~/.pi/crew-settings.json`) was completely invisible: gated-out jobs made every surface fall into the plain empty state, looking like the jobs were lost.
+- New companion getter `getScheduledJobsHiddenCount()` / pure `scheduledJobsHiddenCountOf(tiers)` in `settings-store.ts` (no signature change to `getScheduledJobs`); the paint path reuses the registration-time tiers stash — no new disk reads on render.
+- Schedules pane + `/schedules` (via the shared renderer, parity test kept) append one dim hint line, the widget line appends a compact `· N hidden` — all three surfaces, EN-only per project convention, shown only when hiddenCount > 0.
+
+### test: settings-store tests are now hermetic
+
+- `loadCrewSettings()` gained an optional `globalFile` param (default unchanged). The three affected tests previously read the developer's REAL `~/.pi/crew-settings.json` ("defaults when file missing" failed the moment that file exists with scheduling flags) — they now pin an absent temp global file.
+
 Full Scheduled Jobs UI stack over the existing scheduler/settings layer. No version bump yet — no schema or persistence changes; reads a single provider, mutations go through the existing extension channel.
 
 ### feat(ui): schedules dashboard pane (tier A)

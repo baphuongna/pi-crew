@@ -11,14 +11,22 @@ import { describe, it } from "node:test";
 import {
 	getCrewScheduler,
 	getScheduledJobs,
+	getScheduledJobsHiddenCountView,
+	getStashedScheduledJobsHiddenCount,
 	handleRunNowScheduled,
 	handleSchedule,
 	registerCrewScheduler,
+	stashScheduledJobsHiddenCount,
 	unregisterCrewScheduler,
 } from "../../../../src/extension/team-tool/handle-schedule.ts";
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
 import { CrewScheduler } from "../../../../src/runtime/scheduling/scheduler.ts";
-import { saveCrewSettings } from "../../../../src/runtime/settings-store.ts";
+import {
+	getScheduledJobsHiddenCount,
+	loadCrewSettingsTiers,
+	saveCrewSettings,
+	scheduledJobsHiddenCountOf,
+} from "../../../../src/runtime/settings-store.ts";
 import type { TeamToolParamsValue } from "../../../../src/schema/team-tool-schema.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
@@ -42,8 +50,8 @@ function makeJob(overrides: Record<string, unknown> = {}): Record<string, unknow
 	};
 }
 
-function writeGlobalFile(dir: string, settings: Record<string, unknown>): string {
-	const file = path.join(dir, "global-crew-settings.json");
+function writeGlobalFile(dir: string, settings: Record<string, unknown>, name = "global-crew-settings.json"): string {
+	const file = path.join(dir, name);
 	fs.writeFileSync(file, JSON.stringify(settings), "utf-8");
 	return file;
 }
@@ -182,7 +190,139 @@ describe("getScheduledJobs", () => {
 	});
 });
 
-// ─── subAction='run-now' extension-layer channel ──────────────────────────────
+// ─── P2-1: hidden project-tier jobs count (B2 gate visibility) ──────────────
+
+describe("getScheduledJobsHiddenCount / scheduledJobsHiddenCountOf (settings-store companion getter)", () => {
+	it("counts project-tier jobs the gate filters out when NOT opted in; 0 when opted in", () => {
+		const tmp = createTrackedTempDir("sched-hidden-");
+		try {
+			saveCrewSettings({ scheduledJobs: [makeJob({ id: "p1" }), makeJob({ id: "p2" })] }, tmp);
+			const optedOut = writeGlobalFile(tmp, {});
+			const optedIn = writeGlobalFile(tmp, { schedulingEnabled: true, allowProjectScheduledJobs: true }, "global-opted-in.json");
+
+			assert.equal(getScheduledJobsHiddenCount(tmp, optedOut), 2, "both project jobs hidden without opt-in");
+			assert.equal(getScheduledJobsHiddenCount(tmp, optedIn), 0, "nothing hidden after opt-in");
+			// Same arithmetic from the pure tiers helper (what lifecycle stashes).
+			assert.equal(scheduledJobsHiddenCountOf(loadCrewSettingsTiers(tmp, optedOut)), 2);
+			assert.equal(scheduledJobsHiddenCountOf(loadCrewSettingsTiers(tmp, optedIn)), 0);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("counts only shape-valid entries — junk that would never register is not hinted", () => {
+		const tmp = createTrackedTempDir("sched-hidden-shape-");
+		try {
+			saveCrewSettings(
+				{
+					scheduledJobs: [
+						makeJob({ id: "valid-1" }),
+						{ id: "", scheduleType: "cron", enabled: true }, // empty id → would be skipped
+						{ nope: true }, // junk
+						"not-an-object",
+					],
+				},
+				tmp,
+			);
+			const globalFile = writeGlobalFile(tmp, {});
+			assert.equal(getScheduledJobsHiddenCount(tmp, globalFile), 1);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("0 when the project tier holds no jobs (no hint noise)", () => {
+		const tmp = createTrackedTempDir("sched-hidden-empty-");
+		try {
+			saveCrewSettings({}, tmp);
+			const globalFile = writeGlobalFile(tmp, {});
+			assert.equal(getScheduledJobsHiddenCount(tmp, globalFile), 0);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("partial opt-in (only one flag) still hides project-tier jobs", () => {
+		const tmp = createTrackedTempDir("sched-hidden-partial-");
+		try {
+			saveCrewSettings({ scheduledJobs: [makeJob({ id: "p1" })] }, tmp);
+			const partial = writeGlobalFile(tmp, { schedulingEnabled: true }, "global-partial.json");
+			assert.equal(getScheduledJobsHiddenCount(tmp, partial), 1, "BOTH flags required — one is not enough");
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+});
+
+describe("getScheduledJobsHiddenCountView (provider view: stash-first, disk fallback)", () => {
+	it("registered scheduler → serves the registration-time stash (in-memory, no settings read)", () => {
+		const tmp = createTrackedTempDir("sched-hidden-view-");
+		try {
+			// Project file says 5 hidden — the stash (what registration computed) wins.
+			saveCrewSettings({ scheduledJobs: [1, 2, 3, 4, 5].map((i) => makeJob({ id: `p${i}` })) }, tmp);
+			const globalFile = writeGlobalFile(tmp, {});
+			const fake = {
+				add: () => undefined,
+				list: () => [],
+				remove: () => false,
+				update: () => undefined,
+				runNow: () => ({ ok: true as const }),
+			};
+
+			withScheduler(fake, () => {
+				stashScheduledJobsHiddenCount(2);
+				try {
+					assert.equal(getScheduledJobsHiddenCountView(tmp, globalFile), 2);
+					assert.equal(getStashedScheduledJobsHiddenCount(), 2);
+				} finally {
+					stashScheduledJobsHiddenCount(undefined);
+				}
+			});
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("registered scheduler WITHOUT a stash → 0 (hermetic default, never the real files)", () => {
+		const fake = {
+			add: () => undefined,
+			list: () => [],
+			remove: () => false,
+			update: () => undefined,
+			runNow: () => ({ ok: true as const }),
+		};
+		withScheduler(fake, () => {
+			assert.equal(getScheduledJobsHiddenCountView(), 0);
+		});
+	});
+
+	it("no scheduler → gated tiers compute (user-initiated fallback read)", () => {
+		const tmp = createTrackedTempDir("sched-hidden-fallback-");
+		try {
+			saveCrewSettings({ scheduledJobs: [makeJob({ id: "p1" })] }, tmp);
+			const globalFile = writeGlobalFile(tmp, {});
+			withScheduler(undefined, () => {
+				assert.equal(getScheduledJobsHiddenCountView(tmp, globalFile), 1);
+			});
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("unregisterCrewScheduler clears the stash (no stale hint across sessions)", () => {
+		const saved = getCrewScheduler();
+		stashScheduledJobsHiddenCount(7);
+		try {
+			unregisterCrewScheduler();
+			assert.equal(getStashedScheduledJobsHiddenCount(), undefined);
+		} finally {
+			stashScheduledJobsHiddenCount(undefined);
+			if (saved) registerCrewScheduler(saved);
+		}
+	});
+});
+
+// ─── subAction='run-now' extension-layer channel ──────────────────────────
 
 describe("handleRunNowScheduled", () => {
 	it("requires jobId", () => {

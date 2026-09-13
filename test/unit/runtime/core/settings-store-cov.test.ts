@@ -74,7 +74,8 @@ describe("saveCrewSettings / loadCrewSettings", () => {
 			const p = path.join(tmp, ".pi", "crew-settings.json");
 			fs.mkdirSync(path.dirname(p), { recursive: true });
 			fs.writeFileSync(p, "{ invalid json !!!", "utf-8");
-			const loaded = loadCrewSettings(tmp);
+			// Hermetic: pin the user-tier global file too (see settings-store.test.ts).
+			const loaded = loadCrewSettings(tmp, path.join(tmp, "absent-global.json"));
 			assert.deepEqual(loaded, {});
 		} finally {
 			removeTrackedTempDir(tmp);

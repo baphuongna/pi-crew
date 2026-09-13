@@ -23,7 +23,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, test } from "node:test";
-import { handleSchedule, registerCrewScheduler, unregisterCrewScheduler } from "../../../src/extension/team-tool/handle-schedule.ts";
+import {
+	handleSchedule,
+	registerCrewScheduler,
+	stashScheduledJobsHiddenCount,
+	unregisterCrewScheduler,
+} from "../../../src/extension/team-tool/handle-schedule.ts";
 import type { ScheduledJob } from "../../../src/runtime/scheduling/scheduler.ts";
 import type { TeamRunManifest } from "../../../src/state/types.ts";
 import { dashboardActionForKey } from "../../../src/ui/keybinding-map.ts";
@@ -314,4 +319,75 @@ test("schedule-render path holds no wall-clock reads — output depends only on 
 	later.handleInput("8");
 	assert.ok(later.render(80).join("\n").includes("in 14m"));
 	assert.ok(!later.render(80).join("\n").includes("in 24m"));
+});
+
+// ─── P2-1: B2 gate hidden-jobs hint (pane-8 wiring) ─────────────────────
+
+test("pane 8 renders the hidden-jobs hint from the stashed provider count", () => {
+	registerCrewScheduler(fakeScheduler([job({ id: "j1" })]));
+	stashScheduledJobsHiddenCount(2);
+	try {
+		const dashboard = new RunDashboard([], () => undefined, {}, { now: () => FIXED_NOW });
+		dashboard.handleInput("8");
+		// Wide render: the single hint line is ~113 chars — at 80 cols the
+		// dashboard's uniform per-line truncation would clip the flag names.
+		const lines = dashboard.render(140).join("\n");
+		assert.ok(lines.includes("Scheduled jobs (1)"), "table still renders");
+		assert.ok(lines.includes("2 project-tier jobs hidden"), `hint must render, got:\n${lines}`);
+		assert.ok(lines.includes("schedulingEnabled"), "opt-in flag names visible");
+		// At a narrow width the count headline still survives truncation.
+		assert.ok(dashboard.render(80).join("\n").includes("2 project-tier jobs hidden"));
+	} finally {
+		stashScheduledJobsHiddenCount(undefined);
+	}
+});
+
+test("pane 8 hidden hint renders in the EMPTY state too (all jobs gated)", () => {
+	registerCrewScheduler(fakeScheduler([]));
+	stashScheduledJobsHiddenCount(1);
+	try {
+		const dashboard = new RunDashboard([], () => undefined, {}, { now: () => FIXED_NOW });
+		dashboard.handleInput("8");
+		const lines = dashboard.render(80).join("\n");
+		assert.ok(lines.includes("No scheduled jobs"), "empty state still renders");
+		assert.ok(lines.includes("1 project-tier job hidden"), `hint below the empty state, got:\n${lines}`);
+	} finally {
+		stashScheduledJobsHiddenCount(undefined);
+	}
+});
+
+test("no hint without a stash — registered scheduler defaults to 0 (no real settings read)", () => {
+	registerCrewScheduler(fakeScheduler([job({ id: "j1" })]));
+	const dashboard = new RunDashboard([], () => undefined, {}, { now: () => FIXED_NOW });
+	dashboard.handleInput("8");
+	const lines = dashboard.render(80).join("\n");
+	assert.ok(!lines.includes("hidden"), `no hint expected, got:\n${lines}`);
+});
+
+test("hidden count rides the SAME TTL'd provider read — change after TTL repaints the pane", async () => {
+	registerCrewScheduler(fakeScheduler([job({ id: "j1" })]));
+	stashScheduledJobsHiddenCount(1);
+	// Mutable clock: advance past SCHEDULE_JOBS_TTL_MS (1s) between renders so
+	// the provider cache re-reads the (changed) stash.
+	const clock = { now: FIXED_NOW };
+	const dashboard = new RunDashboard([], () => undefined, {}, { now: () => clock.now });
+	dashboard.handleInput("8");
+	const first = dashboard.render(80).join("\n");
+	assert.ok(first.includes("1 project-tier job hidden"), `initial hint, got:\n${first}`);
+	// Same tick (inside the TTL): even with a new stash the cached read wins.
+	stashScheduledJobsHiddenCount(3);
+	const cached = dashboard.render(80).join("\n");
+	assert.ok(cached.includes("1 project-tier job hidden"), "inside TTL the pane must NOT re-read");
+	// After the TTL: the signature fragment change repaints with the new
+	// count. Two TTLs must expire — the jobs cache (injected clock, +2s) and
+	// buildSignature's own 100ms wall-clock cache (real sleep 120ms).
+	clock.now = new Date(FIXED_NOW.getTime() + 2_000);
+	await new Promise((resolve) => setTimeout(resolve, 120));
+	try {
+		const second = dashboard.render(80).join("\n");
+		assert.ok(second.includes("3 project-tier jobs hidden"), `repaint after TTL, got:\n${second}`);
+		assert.ok(!second.includes("1 project-tier job hidden"), "stale hint must be gone");
+	} finally {
+		stashScheduledJobsHiddenCount(undefined);
+	}
 });

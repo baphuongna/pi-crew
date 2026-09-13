@@ -11,6 +11,7 @@ import {
 	renderSchedulesPane,
 	renderSchedulesTextBlock,
 	SCHEDULES_EMPTY_STATE,
+	schedulesHiddenJobsHintLine,
 } from "../../src/ui/dashboard-panes/schedules-pane.ts";
 
 const NOW = new Date("2026-09-13T05:00:00.000Z");
@@ -171,4 +172,59 @@ test("details view sanitizes id, scheduleType, and spawnedRunIds", () => {
 	const spawned = lines.find((l) => l.startsWith("  spawned runs:"));
 	assert.ok(spawned, `spawned line must render, got: ${lines.join("|")}`);
 	assert.ok(spawned.includes("run _a"), `sanitized run id, got: ${spawned}`);
+});
+
+// ── P2-1: B2 gate hidden-jobs hint (dim line, exactly one, opt-in path) ──
+
+test("hiddenCount > 0 renders EXACTLY ONE hint line: count + why + opt-in file + BOTH flags", () => {
+	const lines = renderSchedulesPane([makeJob()], NOW, { hiddenCount: 2 });
+	const hintLines = lines.filter((l) => l.includes("hidden"));
+	assert.equal(hintLines.length, 1, `exactly one hidden-hint line, got: ${lines.join("|")}`);
+	const hint = hintLines[0] ?? "";
+	assert.match(hint, /2 project-tier jobs hidden/);
+	assert.match(hint, /~\/\.pi\/crew-settings\.json/);
+	assert.match(hint, /schedulingEnabled/);
+	assert.match(hint, /allowProjectScheduledJobs/);
+});
+
+test("hint sits after the job table and BEFORE the actions line (table layout preserved)", () => {
+	const lines = renderSchedulesPane([makeJob()], NOW, { hiddenCount: 1 });
+	const hintIdx = lines.findIndex((l) => l.includes("hidden"));
+	const actionsIdx = lines.findIndex((l) => l.startsWith("Actions:"));
+	assert.ok(hintIdx > 0, "hint renders below the header/job lines");
+	assert.ok(actionsIdx > hintIdx, `actions line stays last, got: ${lines.join("|")}`);
+});
+
+test("hiddenCount omitted or 0 renders NO hint — existing layout unchanged", () => {
+	assert.deepEqual(renderSchedulesPane([makeJob()], NOW, { hiddenCount: 0 }), renderSchedulesPane([makeJob()], NOW));
+	for (const line of renderSchedulesPane([makeJob()], NOW)) {
+		assert.ok(!line.includes("hidden"), `no hidden hint expected, got: ${line}`);
+	}
+});
+
+test("hint line builder: singular/plural counts, empty string for 0/negative/NaN", () => {
+	assert.match(schedulesHiddenJobsHintLine(1), /⚠ 1 project-tier job hidden/);
+	assert.match(schedulesHiddenJobsHintLine(3), /⚠ 3 project-tier jobs hidden/);
+	assert.equal(schedulesHiddenJobsHintLine(0), "");
+	assert.equal(schedulesHiddenJobsHintLine(-1), "");
+	assert.equal(schedulesHiddenJobsHintLine(Number.NaN), "");
+});
+
+test("empty state + hiddenCount > 0: hint renders BELOW the shared empty state (gate no longer invisible)", () => {
+	const lines = renderSchedulesPane([], NOW, { hiddenCount: 1 });
+	assert.equal(lines.length, 2, `empty state + one hint line, got: ${lines.join("|")}`);
+	assert.equal(lines[0], SCHEDULES_EMPTY_STATE);
+	assert.match(lines[1] ?? "", /1 project-tier job hidden/);
+});
+
+test("empty state parity with the hint: pane ≡ text block when hiddenCount is consistent", () => {
+	assert.deepEqual(renderSchedulesTextBlock([], NOW, { hiddenCount: 2 }), renderSchedulesPane([], NOW, { hiddenCount: 2 }));
+});
+
+test("text block carries the SAME hint for the headless /schedules surface", () => {
+	const lines = renderSchedulesTextBlock([makeJob()], NOW, { hiddenCount: 2 });
+	const hintLines = lines.filter((l) => l.includes("hidden"));
+	assert.equal(hintLines.length, 1);
+	assert.match(hintLines[0] ?? "", /2 project-tier jobs hidden/);
+	assert.match(lines[lines.length - 1] ?? "", /^Manage: team action='schedule'/);
 });

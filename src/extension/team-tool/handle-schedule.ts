@@ -1,6 +1,11 @@
 import * as crypto from "node:crypto";
 import { humanizeSchedule, nextRunTime, parseSchedule } from "../../runtime/scheduling/scheduler.ts";
-import { type CrewSettings, loadCrewSettingsTiers, updateCrewSettings } from "../../runtime/settings-store.ts";
+import {
+	type CrewSettings,
+	getScheduledJobsHiddenCount as computeScheduledJobsHiddenCount,
+	loadCrewSettingsTiers,
+	updateCrewSettings,
+} from "../../runtime/settings-store.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -33,9 +38,30 @@ export function registerCrewScheduler(scheduler: SchedulerRef): void {
 	crewSchedulerInstance = scheduler;
 }
 
+// Module-scoped hidden-count stash (P2-1, EXT-9 pattern): computed ONCE at
+// session_start registration from the SAME tiers read that drove registration
+// (no extra disk I/O), then served to paint-path consumers — the crew widget
+// line and the dashboard pane render ticks must never hit the settings store
+// (P0-6). undefined = never stashed (pre-registration / cleaned up / unit
+// tests with a fake scheduler) → consumers treat it as 0.
+let stashedScheduledJobsHiddenCount: number | undefined;
+
+/** @internal — lifecycle wiring: stash the registration-time hidden count. */
+export function stashScheduledJobsHiddenCount(count: number | undefined): void {
+	stashedScheduledJobsHiddenCount = count;
+}
+
+/** @internal — test seam: read the raw stash (undefined = never stashed). */
+export function getStashedScheduledJobsHiddenCount(): number | undefined {
+	return stashedScheduledJobsHiddenCount;
+}
+
 /** Remove the scheduler singleton. Call during session cleanup. */
 export function unregisterCrewScheduler(): void {
 	crewSchedulerInstance = undefined;
+	// P2-1: the hidden-count stash is registration-time state — clear it with
+	// the singleton so a later session can never paint a stale gate hint.
+	stashedScheduledJobsHiddenCount = undefined;
 }
 
 /**
@@ -70,6 +96,28 @@ function isScheduledJobLike(job: unknown): job is import("../../runtime/scheduli
 	if (!job || typeof job !== "object") return false;
 	const obj = job as Record<string, unknown>;
 	return typeof obj.id === "string" && obj.id.length > 0 && typeof obj.scheduleType === "string" && typeof obj.enabled === "boolean";
+}
+
+/**
+ * P2-1 companion read to getScheduledJobs(): how many project-tier
+ * scheduledJobs the B2 gate is hiding right now (for the "N project-tier jobs
+ * hidden" hint).
+ *
+ * With the scheduler singleton registered, serves the REGISTRATION-TIME stash
+ * (in-memory — paint-path safe, P0-6) computed from the exact tiers view the
+ * registration loop gated. Without a scheduler (pre-registration, headless
+ * command usage), computes from the same gated tiers view the provider
+ * fallback uses — user-initiated surfaces only (pane/command); the widget's
+ * default reader never reaches the compute branch because it gates on the
+ * scheduler singleton exactly like defaultScheduledJobsReader.
+ */
+export function getScheduledJobsHiddenCountView(cwd: string = process.cwd(), globalFile?: string): number {
+	if (getCrewScheduler()) return stashedScheduledJobsHiddenCount ?? 0;
+	try {
+		return computeScheduledJobsHiddenCount(cwd, globalFile);
+	} catch {
+		return 0;
+	}
 }
 
 interface ScheduleParams {

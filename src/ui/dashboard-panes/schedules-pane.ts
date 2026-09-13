@@ -23,9 +23,24 @@ export interface SchedulesPaneOptions {
 	 *  line with `›` exactly like the run-list selection marker; undefined
 	 *  (headless / text-block callers) renders no marker. */
 	selectedIndex?: number;
+	/** P2-1 (B2 gate visibility): how many project-tier scheduledJobs the opt-in
+	 *  gate is hiding. > 0 renders EXACTLY ONE dim hint line (why + count + the
+	 *  opt-in path: BOTH flags in the USER-tier ~/.pi/crew-settings.json).
+	 *  Omitted/0 renders nothing — existing layouts stay byte-identical. */
+	hiddenCount?: number;
 }
 
 export const SCHEDULES_EMPTY_STATE = "No scheduled jobs — create via team tool action='schedule'";
+
+/** P2-1 hint line (single source of truth — pane table, empty state, and the
+ *  headless /schedules text block all render THIS text). Empty string when
+ *  there is nothing to hint (callers render no line). Pure: no clock, no I/O;
+ *  the count comes from the caller's provider read. */
+export function schedulesHiddenJobsHintLine(hiddenCount: number): string {
+	if (!Number.isFinite(hiddenCount) || hiddenCount <= 0) return "";
+	const n = Math.floor(hiddenCount);
+	return `⚠ ${n} project-tier job${n === 1 ? "" : "s"} hidden — opt in via ~/.pi/crew-settings.json: schedulingEnabled + allowProjectScheduledJobs`;
+}
 
 /**
  * Render the schedules table: one main line per job
@@ -34,11 +49,17 @@ export const SCHEDULES_EMPTY_STATE = "No scheduled jobs — create via team tool
  * includeIds). Empty state is a single shared line.
  */
 export function renderSchedulesPane(jobs: ScheduledJob[], now: Date, opts: SchedulesPaneOptions = {}): string[] {
-	if (jobs.length === 0) return [SCHEDULES_EMPTY_STATE];
+	const hint = schedulesHiddenJobsHintLine(opts.hiddenCount ?? 0);
+	if (jobs.length === 0) {
+		// P2-1: the all-hidden case is exactly when a bare empty state lied —
+		// the hint below it is the only signal project-tier jobs exist.
+		return hint ? [SCHEDULES_EMPTY_STATE, hint] : [SCHEDULES_EMPTY_STATE];
+	}
 	const lines = [`Scheduled jobs (${jobs.length}):`];
 	for (const [index, job] of jobs.entries()) {
 		lines.push(...renderJobLines(job, now, opts, index === opts.selectedIndex));
 	}
+	if (hint) lines.push(hint);
 	if (opts.foreground !== false) {
 		lines.push("Actions: T toggle · N run now · V details · X delete · R refresh");
 	}

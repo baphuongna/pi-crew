@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 // the scheduledJobs settings key directly. handle-schedule.ts is a light
 // module (crypto + scheduler + settings-store); the heavy team-tool.ts chain
 // is NOT pulled in.
-import { getScheduledJobs } from "../extension/team-tool/handle-schedule.ts";
+import { getScheduledJobs, getScheduledJobsHiddenCountView } from "../extension/team-tool/handle-schedule.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
@@ -499,7 +499,7 @@ export class RunDashboard implements DashboardComponent {
 	private scheduleSelected = 0;
 	private scheduleDetails = false;
 	private scheduleDeleteArmed = false;
-	private scheduleJobsCache: { at: number; jobs: ScheduledJob[] } | undefined;
+	private scheduleJobsCache: { at: number; jobs: ScheduledJob[]; hiddenCount: number } | undefined;
 	private runs: TeamRunManifest[];
 	private readonly done: (selection: RunDashboardSelection | undefined) => void;
 	private readonly theme: CrewTheme;
@@ -709,21 +709,42 @@ export class RunDashboard implements DashboardComponent {
 	 *  extension-layer provider, TTL-cached so render ticks never hit disk
 	 *  per frame. `R` (schedule-refresh) drops the cache. The TTL timestamp
 	 *  reads the SAME injected clock as the pane render (D6-T4 — no direct
-	 *  Date.now() anywhere on the render path; review round 1 minor-1). */
-	private scheduleJobs(): ScheduledJob[] {
+	 *  Date.now() anywhere on the render path; review round 1 minor-1).
+	 *  P2-1: the hidden project-tier count rides the SAME cached provider
+	 *  read (jobs + count populate ONE cache entry) — no second uncached
+	 *  disk-read path exists on render ticks. */
+	private scheduleData(): { jobs: ScheduledJob[]; hiddenCount: number } {
 		const at = this.scheduleNow().getTime();
 		if (this.scheduleJobsCache && at - this.scheduleJobsCache.at < SCHEDULE_JOBS_TTL_MS) {
-			return this.scheduleJobsCache.jobs;
+			return this.scheduleJobsCache;
 		}
 		let jobs: ScheduledJob[] = [];
+		let hiddenCount = 0;
 		try {
 			jobs = getScheduledJobs();
 		} catch {
 			jobs = [];
 		}
-		this.scheduleJobsCache = { at, jobs };
+		try {
+			// Stash-first: in-memory while the scheduler singleton is registered;
+			// a tiers read only in the no-scheduler fallback (TTL-bounded here).
+			hiddenCount = getScheduledJobsHiddenCountView();
+		} catch {
+			hiddenCount = 0;
+		}
+		this.scheduleJobsCache = { at, jobs, hiddenCount };
 		if (this.scheduleSelected > jobs.length - 1) this.scheduleSelected = Math.max(0, jobs.length - 1);
-		return jobs;
+		return this.scheduleJobsCache;
+	}
+
+	private scheduleJobs(): ScheduledJob[] {
+		return this.scheduleData().jobs;
+	}
+
+	/** P2-1: hidden project-tier jobs count — same cache entry as the jobs
+	 *  read above (single provider read per TTL window). */
+	private scheduleHiddenCount(): number {
+		return this.scheduleData().hiddenCount;
 	}
 
 	/** Job under the pane-8 cursor (up/down move it); undefined when the list
@@ -745,14 +766,15 @@ export class RunDashboard implements DashboardComponent {
 
 	/** Signature fragment for the schedules pane so job data, cursor, details,
 	 *  confirm-gate state, and relative-time minute buckets invalidate the
-	 *  layout cache (mirrors metricsSig). */
+	 *  layout cache (mirrors metricsSig). P2-1: the hidden count is part of the
+	 *  fragment so a changed stash repaints the pane after the TTL. */
 	private schedulesSignatureFragment(): string {
-		const jobs = this.scheduleJobs();
+		const { jobs, hiddenCount } = this.scheduleData();
 		const minuteBucket = Math.floor(this.scheduleNow().getTime() / 60_000);
 		const jobSig = jobs
 			.map((job) => `${job.enabled ? 1 : 0}:${job.runCount}:${job.nextRun ?? ""}:${job.lastStatus ?? ""}:${job.lastRun ?? ""}`)
 			.join(",");
-		return `${jobs.length}:${jobSig}:${this.scheduleSelected}:${this.scheduleDetails ? 1 : 0}:${this.scheduleDeleteArmed ? 1 : 0}:${minuteBucket}`;
+		return `${jobs.length}:${jobSig}:${hiddenCount}:${this.scheduleSelected}:${this.scheduleDetails ? 1 : 0}:${this.scheduleDeleteArmed ? 1 : 0}:${minuteBucket}`;
 	}
 
 	render(width: number): string[] {
@@ -956,7 +978,10 @@ export class RunDashboard implements DashboardComponent {
 					const paneLines = safeRenderPane("schedules", () =>
 						this.scheduleDetails && jobs.length > 0
 							? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now)
-							: renderSchedulesPane(jobs, now, { selectedIndex: this.scheduleSelected }),
+							: renderSchedulesPane(jobs, now, {
+									selectedIndex: this.scheduleSelected,
+									hiddenCount: this.scheduleHiddenCount(),
+								}),
 					);
 					for (const line of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
 						lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line), innerWidth - 2)), this.theme));

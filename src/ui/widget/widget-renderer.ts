@@ -4,7 +4,7 @@
  * Extracted from crew-widget.ts.
  */
 
-import { getCrewScheduler, getScheduledJobs } from "../../extension/team-tool/handle-schedule.ts";
+import { getCrewScheduler, getScheduledJobs, getScheduledJobsHiddenCountView } from "../../extension/team-tool/handle-schedule.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
@@ -253,26 +253,31 @@ function compactDockLines(
 
 /**
  * Tier C (schedules UI): the ONE low-priority schedules line for the crew
- * widget — `⏰ N sched · next Xm`. Painted ONLY when ≥1 ENABLED job exists,
- * always as the LAST row (below active-run info, per the widget priority
- * rules). Pure (dialect D6-T4): jobs AND the clock are injected — no
- * Date.now()/settings read happens here. Returns undefined when the line
- * must not paint (0 enabled jobs), so callers skip the row entirely.
+ * widget — `⏰ N sched · next Xm`. Painted when ≥1 ENABLED job exists, always
+ * as the LAST row (below active-run info, per the widget priority rules),
+ * with an optional compact `· N hidden` segment (P2-1) when the B2 gate is
+ * hiding project-tier jobs. Pure (dialect D6-T4): jobs, the clock, AND the
+ * hidden count are injected — no Date.now()/settings read happens here.
+ * Returns undefined when the line must not paint (0 enabled jobs AND nothing
+ * hidden), so callers skip the row entirely. With ZERO enabled jobs but a
+ * hidden count > 0, the hidden-only line still paints — that is exactly the
+ * all-gated case where an invisible gate used to show nothing at all.
  */
-export function buildSchedulesWidgetLine(jobs: readonly ScheduledJob[], now: Date): string | undefined {
+export function buildSchedulesWidgetLine(jobs: readonly ScheduledJob[], now: Date, hiddenCount = 0): string | undefined {
 	const enabled = jobs.filter((job) => job.enabled);
-	if (enabled.length === 0) return undefined;
+	const hidden = hiddenCount > 0 ? ` · ${hiddenCount} hidden` : "";
+	if (enabled.length === 0) return hiddenCount > 0 ? `⏰ 0 sched${hidden}` : undefined;
 	const nextTargets = enabled
 		// new Date(iso) here is a STORED-ISO parse, not a clock read.
 		.map((job) => (job.nextRun ? new Date(job.nextRun).getTime() : Number.NaN))
 		.filter((ms) => Number.isFinite(ms));
-	if (nextTargets.length === 0) return `⏰ ${enabled.length} sched`;
+	if (nextTargets.length === 0) return `⏰ ${enabled.length} sched${hidden}`;
 	const next = Math.min(...nextTargets);
 	// "in 84m" → "next 84m": the future prefix is redundant right after
 	// "next"; overdue targets keep their "Xm ago" tail so a stale nextRun
 	// stays legible instead of silently reading as future work.
 	const relative = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
-	return `⏰ ${enabled.length} sched · next ${relative}`;
+	return `⏰ ${enabled.length} sched · next ${relative}${hidden}`;
 }
 
 /**
@@ -307,9 +312,32 @@ export function resetWidgetScheduledJobsReader(): void {
 	scheduledJobsReader = defaultScheduledJobsReader;
 }
 
+/** Injectable hidden-jobs reader (P2-1) — mirrors the jobs reader seam: the
+ * default is gated on the REGISTERED scheduler exactly like
+ * defaultScheduledJobsReader (P0-6 — a paint path must never hit the settings
+ * store), and with a registered scheduler it only ever serves the in-memory
+ * registration-time stash from handle-schedule.ts. */
+export type WidgetHiddenJobsReader = (cwd: string) => number;
+let hiddenJobsReader: WidgetHiddenJobsReader = defaultHiddenJobsReader;
+
+function defaultHiddenJobsReader(_cwd: string): number {
+	if (!getCrewScheduler()) return 0;
+	return getScheduledJobsHiddenCountView(); // stash-only when registered: no disk
+}
+
+/** @internal — test seam: inject a deterministic hidden count. */
+export function setWidgetHiddenJobsReader(reader: WidgetHiddenJobsReader): void {
+	hiddenJobsReader = reader;
+}
+
+/** @internal — test seam: restore the stash-backed default. */
+export function resetWidgetHiddenJobsReader(): void {
+	hiddenJobsReader = defaultHiddenJobsReader;
+}
+
 /** Reader-backed schedules line — the widget's live data path. */
 export function schedulesWidgetLine(cwd: string, now: Date): string | undefined {
-	return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now);
+	return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now, hiddenJobsReader(cwd));
 }
 
 export function buildWidgetLines(

@@ -26,6 +26,15 @@ export type ScheduleChangeEvent =
 	| { type: "fired"; jobId: string; agentId: string; name: string }
 	| { type: "error"; jobId: string; error: string };
 
+export interface CrewSchedulerOptions {
+	/** Injectable clock for tests. Defaults to real time (`new Date()`). */
+	now?: () => Date;
+}
+
+/** Node clamps setTimeout delays > 2^31-1 ms to fire ~immediately; longer
+ * waits (e.g. a yearly cron) must be chained in hops below this ceiling. */
+const MAX_TIMER_DELAY_MS = 2_147_483_000;
+
 export class CrewScheduler {
 	private jobs = new Map<string, ScheduledJob>();
 	private timers = new Map<string, ReturnType<typeof setInterval | typeof setTimeout>>();
@@ -33,6 +42,16 @@ export class CrewScheduler {
 	private executor?: (job: ScheduledJob) => string;
 	private finalizer?: (jobId: string, agentId: string) => void;
 	private runCancelFn?: (runId: string) => void;
+	private nowFn: () => Date;
+
+	constructor(options: CrewSchedulerOptions = {}) {
+		this.nowFn = options.now ?? (() => new Date());
+	}
+
+	/** Scheduler clock. Injected in tests; real time in production. */
+	private now(): Date {
+		return this.nowFn();
+	}
 
 	start(options: {
 		emit: (event: ScheduleChangeEvent) => void;
@@ -138,7 +157,7 @@ export class CrewScheduler {
 			this.timers.set(job.id, t);
 		} else if (job.scheduleType === "once") {
 			const target = new Date(job.schedule).getTime();
-			const delay = target - Date.now();
+			const delay = target - this.now().getTime();
 			if (delay > 0) {
 				const t = setTimeout(() => {
 					this.fire(job.id);
@@ -154,7 +173,77 @@ export class CrewScheduler {
 					error: `Scheduled time ${job.schedule} is in the past`,
 				});
 			}
+		} else if (job.scheduleType === "cron") {
+			this.armCron(job);
 		}
+	}
+
+	/**
+	 * Arm a cron job: schedule a chained setTimeout at the next occurrence
+	 * (hops are clamped below the 2^31-1 ms setTimeout ceiling so yearly crons
+	 * cannot mis-fire), fire once on arrival, then let the existing
+	 * update() → disarm+arm lifecycle (triggered by fire()'s
+	 * lastStatus='running' update) re-arm the NEXT occurrence. fire() itself
+	 * stays persistence-blind; the post-fire nextRun advance happens in
+	 * advanceCronNextRun and persists via the usual `updated` event flow.
+	 */
+	private armCron(job: ScheduledJob): void {
+		const now = this.now();
+		const next = nextRunTime({ kind: "cron", spec: job.schedule }, now);
+		if (!(next instanceof Date) || next.getTime() <= now.getTime()) {
+			this.disableCronForUncomputableNext(job.id, next);
+			return;
+		}
+		this.setCronTimeout(job.id, next.getTime());
+	}
+
+	/** Chain a clamped timeout hop toward the target cron occurrence. */
+	private setCronTimeout(jobId: string, targetMs: number): void {
+		const delay = Math.max(targetMs - this.now().getTime(), 0);
+		const t = setTimeout(() => this.cronTick(jobId, targetMs), Math.min(delay, MAX_TIMER_DELAY_MS));
+		t.unref();
+		this.timers.set(jobId, t);
+	}
+
+	/** Timer callback for a cron hop/arrival. Fires at most once per occurrence. */
+	private cronTick(jobId: string, targetMs: number): void {
+		const job = this.jobs.get(jobId);
+		if (!job?.enabled) return; // disabled/removed mid-flight: hop must die
+		if (this.now().getTime() < targetMs) {
+			// Clamped hop landed early — chain again for the remaining time.
+			this.setCronTimeout(jobId, targetMs);
+			return;
+		}
+		// Occurrence reached. fire()'s internal update({lastStatus:'running'})
+		// runs disarm→arm, which re-arms the NEXT occurrence exactly once; the
+		// hop that just fired is dead, so no timer doubles up.
+		this.fire(jobId);
+		this.advanceCronNextRun(jobId);
+	}
+
+	/** After a cron fire, advance the persisted nextRun to the next occurrence
+	 * (or self-disable when no further occurrence is computable). */
+	private advanceCronNextRun(jobId: string): void {
+		const job = this.jobs.get(jobId);
+		if (!job?.enabled || job.scheduleType !== "cron") return;
+		const next = nextRunTime({ kind: "cron", spec: job.schedule }, this.now());
+		if (!(next instanceof Date)) {
+			this.disableCronForUncomputableNext(jobId, next);
+			return;
+		}
+		this.update(jobId, { nextRun: next.toISOString() });
+	}
+
+	/** No computable next occurrence (e.g. Feb-29 beyond the 366-day search
+	 * window): disable the job and record why. */
+	private disableCronForUncomputableNext(jobId: string, next: Date | { error: string }): void {
+		const reason = next && typeof next === "object" && "error" in next ? next.error : "next occurrence is not in the future";
+		this.update(jobId, { enabled: false, lastStatus: "error" });
+		this.emit?.({
+			type: "error",
+			jobId,
+			error: `Cron schedule cannot compute a next occurrence (${reason}); job disabled`,
+		});
 	}
 
 	private disarm(id: string): void {
@@ -162,10 +251,11 @@ export class CrewScheduler {
 		if (t) {
 			// Branch on timer type to use correct clear function
 			const job = this.jobs.get(id);
-			if (job?.scheduleType === "once") {
-				clearTimeout(t as ReturnType<typeof setTimeout>);
-			} else {
+			if (job?.scheduleType === "interval") {
 				clearInterval(t as ReturnType<typeof setInterval>);
+			} else {
+				// `once` and `cron` both arm setTimeout handles (cron chains hops).
+				clearTimeout(t as ReturnType<typeof setTimeout>);
 			}
 			this.timers.delete(id);
 		}

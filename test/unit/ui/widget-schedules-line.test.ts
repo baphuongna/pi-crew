@@ -9,12 +9,15 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { getCrewScheduler, registerCrewScheduler, unregisterCrewScheduler } from "../../../src/extension/team-tool/handle-schedule.ts";
 import type { ScheduledJob } from "../../../src/runtime/scheduling/scheduler.ts";
 import {
 	buildSchedulesWidgetLine,
 	buildWidgetLines,
+	resetWidgetHiddenJobsReader,
 	resetWidgetScheduledJobsReader,
 	schedulesWidgetLine,
+	setWidgetHiddenJobsReader,
 	setWidgetScheduledJobsReader,
 } from "../../../src/ui/widget/widget-renderer.ts";
 import type { WidgetRun } from "../../../src/ui/widget/widget-types.ts";
@@ -24,6 +27,7 @@ const T0 = new Date("2026-09-13T05:00:00.000Z");
 
 afterEach(() => {
 	resetWidgetScheduledJobsReader();
+	resetWidgetHiddenJobsReader();
 });
 
 function makeJob(overrides?: Partial<ScheduledJob>): ScheduledJob {
@@ -126,6 +130,64 @@ test("buildSchedulesWidgetLine: no finite nextRun → count-only line", () => {
 test("buildSchedulesWidgetLine: overdue nextRun keeps its `ago` tail instead of reading as future", () => {
 	const jobs = [makeJob({ nextRun: new Date(T0.getTime() - 5 * 60_000).toISOString() })];
 	assert.equal(buildSchedulesWidgetLine(jobs, T0), "⏰ 1 sched · next 5m ago");
+});
+
+// ── P2-1: hidden project-tier jobs segment ──
+
+test("buildSchedulesWidgetLine: appends `· N hidden` ONLY when hiddenCount > 0", () => {
+	const jobs = [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })];
+	assert.equal(buildSchedulesWidgetLine(jobs, T0, 1), "⏰ 1 sched · next 84m · 1 hidden");
+	assert.equal(buildSchedulesWidgetLine(jobs, T0, 0), "⏰ 1 sched · next 84m", "0 must not paint the segment");
+	assert.equal(buildSchedulesWidgetLine(jobs, T0), "⏰ 1 sched · next 84m", "omitted must not paint the segment");
+});
+
+test("buildSchedulesWidgetLine: count-only line (no finite nextRun) carries the segment too", () => {
+	assert.equal(buildSchedulesWidgetLine([makeJob({ nextRun: undefined })], T0, 2), "⏰ 1 sched · 2 hidden");
+});
+
+test("buildSchedulesWidgetLine: ZERO enabled jobs + hidden > 0 → hidden-only line paints (invisible-gate fix)", () => {
+	// The all-hidden case is exactly when the gate used to be invisible.
+	assert.equal(buildSchedulesWidgetLine([makeJob({ enabled: false })], T0, 1), "⏰ 0 sched · 1 hidden");
+	assert.equal(buildSchedulesWidgetLine([], T0, 3), "⏰ 0 sched · 3 hidden");
+	// Without hidden jobs the legacy rule stays: no line at all.
+	assert.equal(buildSchedulesWidgetLine([makeJob({ enabled: false })], T0, 0), undefined);
+	assert.equal(buildSchedulesWidgetLine([], T0), undefined);
+});
+
+test("schedulesWidgetLine: the injected hidden reader flows into the live line", () => {
+	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+	setWidgetHiddenJobsReader(() => 3);
+	assert.equal(schedulesWidgetLine(FAKE_CWD, T0), "⏰ 1 sched · next 84m · 3 hidden");
+});
+
+test("schedulesWidgetLine: hidden-only line at zero visible jobs keeps the empty-runs widget mounted", () => {
+	setWidgetScheduledJobsReader(() => [makeJob({ enabled: false })]);
+	setWidgetHiddenJobsReader(() => 1);
+	assert.deepEqual(buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 }), ["⏰ 0 sched · 1 hidden"]);
+});
+
+test("default hidden reader is hermetic: NO registered scheduler → 0 (paint path never reads settings)", () => {
+	// No scheduler registered + default readers: no jobs, no hidden count, no line.
+	assert.equal(schedulesWidgetLine("/nonexistent-pi-crew-cwd", T0), undefined);
+});
+
+test("default hidden reader: registered scheduler WITHOUT a stash → 0 segment (in-memory only, no disk)", () => {
+	const saved = getCrewScheduler();
+	registerCrewScheduler({
+		add: () => undefined,
+		list: () => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })],
+		remove: () => false,
+		update: () => undefined,
+		runNow: () => ({ ok: false, error: "not started" }),
+	});
+	try {
+		// Registered singleton but no registration-time stash: the paint path
+		// must stay in-memory (0), NOT fall back to the real settings files.
+		assert.equal(schedulesWidgetLine(FAKE_CWD, T0), "⏰ 1 sched · next 84m");
+	} finally {
+		if (saved) registerCrewScheduler(saved);
+		else unregisterCrewScheduler();
+	}
 });
 
 // ── buildWidgetLines integration ───────────────────────────────────────

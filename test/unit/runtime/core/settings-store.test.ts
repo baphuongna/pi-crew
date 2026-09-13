@@ -21,7 +21,9 @@ function writeSettingsFile(filePath: string, data: unknown): string {
 test("loadCrewSettings returns defaults when file missing", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "settings-store-missing-"));
 	try {
-		const settings = loadCrewSettings(cwd);
+		// Hermetic: pin the user-tier global file too — otherwise a developer's
+		// real ~/.pi/crew-settings.json leaks into the "defaults" assertion.
+		const settings = loadCrewSettings(cwd, path.join(cwd, "absent-global.json"));
 		assert.deepEqual(settings, {});
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
@@ -40,7 +42,8 @@ test("save + load roundtrip preserves all fields", () => {
 	};
 	try {
 		assert.equal(saveCrewSettings(original, cwd), true);
-		const settings = loadCrewSettings(cwd);
+		// Hermetic: pin the user-tier global file (see "file missing" test).
+		const settings = loadCrewSettings(cwd, path.join(cwd, "absent-global.json"));
 		assert.deepEqual(settings, original);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });

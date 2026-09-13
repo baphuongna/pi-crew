@@ -21,10 +21,15 @@ import {
 	resolveScheduledJobByIdOrName,
 	SCHEDULES_LOG_TAIL_BYTES,
 } from "../../../../src/extension/registration/commands/schedules.ts";
-import { getCrewScheduler, registerCrewScheduler, unregisterCrewScheduler } from "../../../../src/extension/team-tool/handle-schedule.ts";
+import {
+	getCrewScheduler,
+	registerCrewScheduler,
+	stashScheduledJobsHiddenCount,
+	unregisterCrewScheduler,
+} from "../../../../src/extension/team-tool/handle-schedule.ts";
 import type { ScheduledJob } from "../../../../src/runtime/scheduling/scheduler.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
-import { renderSchedulesPane, SCHEDULES_EMPTY_STATE } from "../../../../src/ui/dashboard-panes/schedules-pane.ts";
+import { renderSchedulesPane, renderSchedulesTextBlock, SCHEDULES_EMPTY_STATE } from "../../../../src/ui/dashboard-panes/schedules-pane.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 const NOW = new Date("2026-09-13T12:00:00.000Z");
@@ -295,6 +300,102 @@ describe("crew phrases → /schedules", () => {
 		const hit = items.find((item) => item.value === "crew schedule");
 		assert.ok(hit, "expected a 'crew schedule' suggestion");
 		assert.equal(hit.description, "→ /schedules");
+	});
+});
+
+// ─── P2-1: hidden project-tier jobs gate hint ──────────────────────────────
+
+describe("buildSchedulesCommandLines — hidden-jobs gate hint (P2-1)", () => {
+	it("hiddenCount > 0 → exactly one hint line with count + opt-in file + BOTH flags", () => {
+		const lines = buildSchedulesCommandLines(JOBS, NOW, 2);
+		const hintLines = lines.filter((l) => l.includes("hidden"));
+		assert.equal(hintLines.length, 1, `exactly one hint line, got: ${lines.join("|")}`);
+		assert.match(hintLines[0] ?? "", /2 project-tier jobs hidden/);
+		assert.match(hintLines[0] ?? "", /~\/\.pi\/crew-settings\.json/);
+		assert.match(hintLines[0] ?? "", /schedulingEnabled \+ allowProjectScheduledJobs/);
+		assert.match(lines[lines.length - 1] ?? "", /^Manage: team action='schedule'/, "manage hint stays last");
+	});
+
+	it("empty jobs + hiddenCount > 0 → shared empty state + hint (not a bare empty state)", () => {
+		const lines = buildSchedulesCommandLines([], NOW, 1);
+		assert.equal(lines.length, 2);
+		assert.equal(lines[0], SCHEDULES_EMPTY_STATE);
+		assert.match(lines[1] ?? "", /1 project-tier job hidden/);
+	});
+
+	it("byte-parity with renderSchedulesTextBlock when hiddenCount is consistent (no drift)", () => {
+		assert.deepEqual(buildSchedulesCommandLines(JOBS, NOW, 2), renderSchedulesTextBlock(JOBS, NOW, { hiddenCount: 2 }));
+		assert.deepEqual(buildSchedulesCommandLines([], NOW, 2), renderSchedulesTextBlock([], NOW, { hiddenCount: 2 }));
+		assert.deepEqual(
+			buildSchedulesCommandLines(JOBS, NOW, 2),
+			renderSchedulesPane(JOBS, NOW, { foreground: false, includeIds: true, hiddenCount: 2 }).concat([
+				"Manage: team action='schedule' subAction='enable|disable|remove|run-now' jobId='<id>'",
+			]),
+		);
+	});
+
+	it("hiddenCount 0/omitted → no hint (legacy layout preserved)", () => {
+		assert.ok(!buildSchedulesCommandLines(JOBS, NOW).some((l) => l.includes("hidden")));
+		assert.ok(!buildSchedulesCommandLines([], NOW, 0).some((l) => l.includes("hidden")));
+		assert.deepEqual(buildSchedulesCommandLines([], NOW), [SCHEDULES_EMPTY_STATE]);
+	});
+});
+
+describe("/schedules handler surfaces the hidden count (P2-1)", () => {
+	it("registered scheduler + stashed count → notify text carries the hint line", async () => {
+		const tmp = createTrackedTempDir("schedules-cmd-hidden-");
+		try {
+			const notices: RecordedNotice[] = [];
+			let handler: ((args: string, ctx: unknown) => Promise<void>) | undefined;
+			registerSchedulesCommands({
+				registerCommand: (_name: string, def: { handler: (args: string, ctx: unknown) => Promise<void> }) => {
+					handler = def.handler;
+				},
+			} as never);
+			assert.ok(handler);
+			const h = handler;
+			// Manual register/restore (not withScheduler) so the WHOLE handler
+			// invocation — and the stash cleanup — is awaited deterministically.
+			const saved = getCrewScheduler();
+			registerCrewScheduler({
+				add: () => undefined,
+				list: () => JOBS,
+				remove: () => false,
+				update: () => undefined,
+				runNow: () => ({ ok: false, error: "not started" }),
+			});
+			stashScheduledJobsHiddenCount(2);
+			try {
+				await h("", headlessCtx(tmp, notices));
+			} finally {
+				stashScheduledJobsHiddenCount(undefined);
+				if (saved) registerCrewScheduler(saved);
+				else unregisterCrewScheduler();
+			}
+			assert.equal(notices.length, 1);
+			assert.match(notices[0]?.text ?? "", /2 project-tier jobs hidden/);
+			assert.match(notices[0]?.text ?? "", /allowProjectScheduledJobs/);
+		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("registered scheduler WITHOUT a stash → no hint (hermetic — no real settings read)", async () => {
+		const notices: RecordedNotice[] = [];
+		let handler: ((args: string, ctx: unknown) => Promise<void>) | undefined;
+		registerSchedulesCommands({
+			registerCommand: (_name: string, def: { handler: (args: string, ctx: unknown) => Promise<void> }) => {
+				handler = def.handler;
+			},
+		} as never);
+		assert.ok(handler);
+		const h = handler;
+		withScheduler([], async () => {
+			await h("", headlessCtx("/tmp", notices));
+		});
+		assert.equal(notices.length, 1);
+		assert.ok(!notices[0]?.text.includes("hidden"), `no hint without a stash, got: ${notices[0]?.text}`);
+		assert.match(notices[0]?.text ?? "", new RegExp(SCHEDULES_EMPTY_STATE));
 	});
 });
 
