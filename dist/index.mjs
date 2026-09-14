@@ -29076,6 +29076,7 @@ __export(transcript_viewer_exports, {
   readRunTranscript: () => readRunTranscript
 });
 import * as fs44 from "node:fs";
+import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
 function readRunTranscriptCacheKey(manifest, taskId, readOptions) {
   return `${manifest.runId}|${taskId ?? ""}|${readOptions.full ? "full" : "tail"}|${readOptions.maxTailBytes}`;
 }
@@ -29326,7 +29327,7 @@ var init_transcript_viewer = __esm({
         this.unsubscribeTheme();
       }
       handleInput(data) {
-        if (data === "q" || data === "\x1B") {
+        if (matchesKey2(data, "q") || matchesKey2(data, "escape")) {
           this.done(void 0);
           return;
         }
@@ -29410,7 +29411,7 @@ var init_transcript_viewer = __esm({
         this.unsubscribeTheme();
       }
       handleInput(data) {
-        if (data === "q" || data === "\x1B") {
+        if (matchesKey2(data, "q") || matchesKey2(data, "escape")) {
           this.done(void 0);
           return;
         }
@@ -29486,7 +29487,7 @@ __export(viewers_exports, {
   openTranscriptViewer: () => openTranscriptViewer,
   selectAgentTask: () => selectAgentTask
 });
-import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
 async function getViewer() {
   const mod = await Promise.resolve().then(() => (init_transcript_viewer(), transcript_viewer_exports));
   return mod.DurableTranscriptViewer;
@@ -29548,7 +29549,7 @@ async function openLiveConversation(ctx, initialRunId, initialTaskId) {
           return overlay.render(width);
         },
         handleInput(data) {
-          if (matchesKey2(data, "escape") || matchesKey2(data, "q")) {
+          if (matchesKey3(data, "escape") || matchesKey3(data, "q")) {
             overlay.close();
             done(void 0);
           }
@@ -30294,10 +30295,10 @@ var init_plan_approval = __esm({
 });
 
 // src/ui/key-utils.ts
-import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey4 } from "@earendil-works/pi-tui";
 function keyOf(data) {
   for (const id of COMMON_IDS) {
-    if (matchesKey3(data, id)) return id;
+    if (matchesKey4(data, id)) return id;
   }
   return data;
 }
@@ -30327,7 +30328,7 @@ var init_key_utils = __esm({
 // src/ui/keybinding-map.ts
 import * as fs48 from "node:fs";
 import * as path37 from "node:path";
-import { matchesKey as matchesKey4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey5 } from "@earendil-works/pi-tui";
 function parseKeybindingOverride(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result4 = {};
@@ -30427,7 +30428,7 @@ function dashboardActionForKey(data, activePane) {
     if (!paneScopeMatches(binding.pane, activePane)) continue;
     for (const candidate of binding.keys) {
       if (key === candidate) return binding.action;
-      if (matchesKey4(data, candidate)) return binding.action;
+      if (matchesKey5(data, candidate)) return binding.action;
     }
   }
   return void 0;
@@ -74829,11 +74830,11 @@ var init_confirm_overlay = __esm({
           this.done(true);
           return;
         }
-        if (matchesKey3(data, "return") && this.opts.defaultAction === "confirm") {
+        if (matchesKey4(data, "return") && this.opts.defaultAction === "confirm") {
           this.done(true);
           return;
         }
-        if (data === "n" || data === "N" || matchesKey3(data, "escape") || data === "q" || matchesKey3(data, "return")) this.done(false);
+        if (data === "n" || data === "N" || matchesKey4(data, "escape") || data === "q" || matchesKey4(data, "return")) this.done(false);
       }
     };
   }
@@ -74937,7 +74938,7 @@ var init_mailbox_detail_overlay = __esm({
         return pad(truncate(`${marker}${status} ${message.from}->${message.to}: ${message.body.replace(/\s+/g, " ")}`, width), width);
       }
       handleInput(data) {
-        if (matchesKey3(data, "escape") || data === "q") {
+        if (matchesKey4(data, "escape") || data === "q") {
           this.done({ type: "close" });
           return;
         }
@@ -74954,7 +74955,7 @@ var init_mailbox_detail_overlay = __esm({
           this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
           return;
         }
-        if (matchesKey3(data, "return")) {
+        if (matchesKey4(data, "return")) {
           this.expanded = !this.expanded;
           return;
         }
@@ -75179,7 +75180,7 @@ var init_mailbox_compose_overlay = __esm({
           this.confirm.handleInput(data);
           return;
         }
-        if (matchesKey3(data, "escape")) {
+        if (matchesKey4(data, "escape")) {
           this.cancel();
           return;
         }
@@ -75196,11 +75197,11 @@ var init_mailbox_compose_overlay = __esm({
           else this.appendText(data);
           return;
         }
-        if (matchesKey3(data, "backspace")) {
+        if (matchesKey4(data, "backspace")) {
           this.backspace();
           return;
         }
-        if (matchesKey3(data, "return")) {
+        if (matchesKey4(data, "return")) {
           if (this.activeName() === "body" || this.fields.body.trim()) this.submit();
           else this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
           return;
@@ -75251,7 +75252,7 @@ var init_agent_picker_overlay = __esm({
         return lines.map((line4) => pad(truncate(line4, inner), inner));
       }
       handleInput(data) {
-        if (matchesKey3(data, "escape") || data === "q") {
+        if (matchesKey4(data, "escape") || data === "q") {
           this.done(void 0);
           return;
         }
@@ -75263,7 +75264,7 @@ var init_agent_picker_overlay = __esm({
           this.selected = Math.min(Math.max(0, this.agents.length - 1), this.selected + 1);
           return;
         }
-        if (matchesKey3(data, "return")) {
+        if (matchesKey4(data, "return")) {
           const agent = this.agents[this.selected];
           this.done(agent ? { agentId: agent.taskId } : void 0);
         }
@@ -75277,6 +75278,7 @@ var mascot_exports = {};
 __export(mascot_exports, {
   AnimatedMascot: () => AnimatedMascot
 });
+import { matchesKey as matchesKey6 } from "@earendil-works/pi-tui";
 function getArminPixel(x, y) {
   if (y >= ARMIN_HEIGHT) return false;
   const byteIndex = y * ARMIN_BYTES_PER_ROW + Math.floor(x / 8);
@@ -75782,7 +75784,7 @@ var init_mascot = __esm({
         return result4;
       }
       handleInput(data) {
-        if (data === "q" || data === "\x1B" || data === "") {
+        if (matchesKey6(data, "q") || matchesKey6(data, "escape") || data === "") {
           this.close();
         }
       }
@@ -76316,7 +76318,7 @@ var init_settings_overlay = __esm({
           this.onCancel();
           return;
         }
-        if (data === "\x7F" || data === "\b" || k === "backspace") {
+        if (matchesKey4(data, "backspace") || k === "backspace") {
           this.buffer = this.buffer.slice(0, -1);
           return;
         }
@@ -76444,7 +76446,7 @@ var init_settings_overlay = __esm({
           this.editField = null;
           return;
         }
-        if (data === "\x7F" || data === "\b" || k === "backspace") {
+        if (matchesKey4(data, "backspace") || k === "backspace") {
           this.editBuffer = this.editBuffer.slice(0, -1);
           return;
         }
@@ -87595,7 +87597,7 @@ function resetAllAgentTranscriptCursors() {
 
 // src/ui/inline-panel/agent-view-overlay.ts
 init_theme_adapter();
-import { matchesKey as matchesKey5, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey7, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
 
 // src/ui/inline-panel/agent-pane.ts
 init_state_store();
@@ -87948,12 +87950,12 @@ var CrewAgentOverlay = class {
   handleInput(data) {
     if (this.disposed || this.closed) return;
     if (this.inputMode) {
-      if (matchesKey5(data, "escape")) {
+      if (matchesKey7(data, "escape")) {
         this.inputMode = false;
         this.inputText = "";
-      } else if (matchesKey5(data, "return")) {
+      } else if (matchesKey7(data, "return")) {
         this.sendSteer();
-      } else if (matchesKey5(data, "backspace")) {
+      } else if (matchesKey7(data, "backspace")) {
         this.inputText = this.inputText.slice(0, -1);
       } else if (data === "") {
         this.inputMode = false;
@@ -87964,7 +87966,7 @@ var CrewAgentOverlay = class {
       this.tui.requestRender();
       return;
     }
-    if (matchesKey5(data, "escape") || data === "") {
+    if (matchesKey7(data, "escape") || data === "") {
       this.requestClose();
       return;
     }
@@ -87972,35 +87974,35 @@ var CrewAgentOverlay = class {
       this.requestClose();
       return;
     }
-    if (matchesKey5(data, "pageUp")) {
+    if (matchesKey7(data, "pageUp")) {
       this.pane.scrollBy(10);
       return;
     }
-    if (matchesKey5(data, "pageDown")) {
+    if (matchesKey7(data, "pageDown")) {
       this.pane.scrollBy(-10);
       return;
     }
-    if (matchesKey5(data, "up") || data === "k") {
+    if (matchesKey7(data, "up") || data === "k") {
       this.pane.scrollBy(1);
       return;
     }
-    if (matchesKey5(data, "down") || data === "j") {
+    if (matchesKey7(data, "down") || data === "j") {
       this.pane.scrollBy(-1);
       return;
     }
-    if (data === "g" || matchesKey5(data, "home")) {
+    if (data === "g" || matchesKey7(data, "home")) {
       this.pane.scrollHome();
       return;
     }
-    if (data === "G" || matchesKey5(data, "end")) {
+    if (data === "G" || matchesKey7(data, "end")) {
       this.pane.scrollEnd();
       return;
     }
-    if (matchesKey5(data, "tab")) {
+    if (matchesKey7(data, "tab")) {
       this.cycleAgent(1);
       return;
     }
-    if (matchesKey5(data, "shift+tab")) {
+    if (matchesKey7(data, "shift+tab")) {
       this.cycleAgent(-1);
       return;
     }
@@ -88035,7 +88037,7 @@ var CrewAgentOverlay = class {
 init_panel_selection();
 init_panel_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { matchesKey as matchesKey6, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey8, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
 var CrewInlineEditor = class extends CustomEditor {
   options;
@@ -88045,11 +88047,11 @@ var CrewInlineEditor = class extends CustomEditor {
   }
   panelKeys(data) {
     return {
-      up: matchesKey6(data, "up"),
-      down: matchesKey6(data, "down"),
-      enter: matchesKey6(data, "return"),
-      escape: matchesKey6(data, "escape"),
-      act: matchesKey6(data, "x")
+      up: matchesKey8(data, "up"),
+      down: matchesKey8(data, "down"),
+      enter: matchesKey8(data, "return"),
+      escape: matchesKey8(data, "escape"),
+      act: matchesKey8(data, "x")
     };
   }
   /**
@@ -88094,23 +88096,23 @@ var CrewInlineEditor = class extends CustomEditor {
         this.applyDispatch(data, rows, this.panelKeys(data), true);
         return;
       }
-      if (matchesKey6(data, "down") && this.getText() === "" && rows.length > 0) {
+      if (matchesKey8(data, "down") && this.getText() === "" && rows.length > 0) {
         setPanelSelection("main");
         return;
       }
-      if (matchesKey6(data, "escape")) {
+      if (matchesKey8(data, "escape")) {
         this.options.onClosePane();
         return;
       }
-      if (matchesKey6(data, "pageUp")) {
+      if (matchesKey8(data, "pageUp")) {
         this.options.onScrollPane(10);
         return;
       }
-      if (matchesKey6(data, "pageDown")) {
+      if (matchesKey8(data, "pageDown")) {
         this.options.onScrollPane(-10);
         return;
       }
-      if (matchesKey6(data, "return")) {
+      if (matchesKey8(data, "return")) {
         const text = (this.getExpandedText?.() ?? this.getText()).trim();
         if (!text) {
           super.handleInput(data);
@@ -88128,7 +88130,7 @@ var CrewInlineEditor = class extends CustomEditor {
       return;
     }
     if (getPanelSelection() === null) {
-      if (matchesKey6(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
+      if (matchesKey8(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
         const result4 = dispatchPanelKey(this.panelKeys(data), [], null);
         setPanelSelection(result4.selection);
         return;

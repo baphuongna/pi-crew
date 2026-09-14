@@ -1,3 +1,4 @@
+import { matchesKey } from "@earendil-works/pi-tui";
 import { pad } from "../utils/visual.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
@@ -423,7 +424,7 @@ export class AnimatedMascot {
 	}
 
 	handleInput(data: string): void {
-		if (data === "q" || data === "\u001b" || data === "\u0003") {
+		if (matchesKey(data, "q") || matchesKey(data, "escape") || data === "\u0003") {
 			this.close();
 		}
 	}

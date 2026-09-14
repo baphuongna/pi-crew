@@ -8922,10 +8922,15 @@
       "format": "esm"
     },
     "src/ui/transcript-viewer.ts": {
-      "bytes": 20966,
+      "bytes": 21055,
       "imports": [
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -18434,8 +18439,13 @@
       "format": "esm"
     },
     "src/ui/mascot.ts": {
-      "bytes": 14829,
+      "bytes": 14900,
       "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
@@ -18455,7 +18465,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 32739,
+      "bytes": 32745,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -21309,7 +21319,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8123172
+      "bytes": 8123491
     },
     "dist/index.mjs": {
       "imports": [
@@ -21910,6 +21920,11 @@
         },
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -22890,6 +22905,11 @@
         },
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -24320,7 +24340,7 @@
           "bytesInOutput": 4313
         },
         "src/ui/transcript-viewer.ts": {
-          "bytesInOutput": 16890
+          "bytesInOutput": 17002
         },
         "src/extension/registration/viewers.ts": {
           "bytesInOutput": 4750
@@ -25325,10 +25345,10 @@
           "bytesInOutput": 1952
         },
         "src/ui/mascot.ts": {
-          "bytesInOutput": 15969
+          "bytesInOutput": 16059
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 31798
+          "bytesInOutput": 31794
         },
         "src/extension/registration/commands/shared.ts": {
           "bytesInOutput": 17803
@@ -25607,7 +25627,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3386910
+      "bytes": 3387108
     }
   }
 }

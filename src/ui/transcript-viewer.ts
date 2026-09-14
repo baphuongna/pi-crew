@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { matchesKey } from "@earendil-works/pi-tui";
 import { agentOutputPath, readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
@@ -340,7 +341,7 @@ export class DurableTextViewer implements Component {
 	}
 
 	handleInput(data: string): void {
-		if (data === "q" || data === "\u001b") {
+		if (matchesKey(data, "q") || matchesKey(data, "escape")) {
 			this.done(undefined);
 			return;
 		}
@@ -441,7 +442,7 @@ export class DurableTranscriptViewer implements Component {
 	}
 
 	handleInput(data: string): void {
-		if (data === "q" || data === "\u001b") {
+		if (matchesKey(data, "q") || matchesKey(data, "escape")) {
 			this.done(undefined);
 			return;
 		}
