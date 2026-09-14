@@ -464,3 +464,12 @@ describe("provider-usage module", () => {
 		}
 	});
 });
+
+// ── Maintainer decision 2026-09-14: the tok/s speed UI is OFF by default —
+// pi's built-in working indicator (braille spinner + "Working" label) is the
+// default experience. Opt back in via /team-vibes speed on. ──
+
+test("DEFAULT_CONFIG: speed UI disabled — pi's built-in working indicator is the default", () => {
+	assert.equal(DEFAULT_CONFIG.speed.enabled, false, "speed subsystem off by default (no custom spinner, no tok/s message)");
+	assert.equal(DEFAULT_CONFIG.speed.footer, false, "no tok/s in the footer status either");
+});

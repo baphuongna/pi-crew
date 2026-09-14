@@ -4,6 +4,11 @@
 
 ## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
 
+### feat(vibes): tok/s speed UI off by default — pi's built-in working indicator restored
+
+- Maintainer decision: the custom spinner frames + `Working N tok/s` message are no longer the default experience — pi's own working indicator (braille spinner + `Working` label) shows instead. `DEFAULT_CONFIG.speed.enabled` is now `false`; opt back in via `/team-vibes speed on`.
+
+
 ### feat(footer): restore pi's NATIVE footer — custom footer replacement retired (UI-review option 1)
 
 - Maintainer decision: the crew-vibes custom footer (setFooter replacement that re-implemented pi's pwd/stats/status lines to guarantee the quota a never-truncated line) is REMOVED — pi's built-in footer is always shown. The re-implementation had drifted from native (missing `CH%` cache-hit, missing `xp` segment, totals ignoring toolResult/branch-summary/compaction usage, hardcoded `(auto)`), and composing pi's native FooterComponent is impossible by design (extensions only receive ReadonlySessionManager, not AgentSession).

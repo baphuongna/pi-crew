@@ -58,7 +58,11 @@ export interface CrewVibesConfig {
 export const DEFAULT_CONFIG: CrewVibesConfig = {
 	enabled: true,
 	speed: {
-		enabled: true,
+		// Maintainer decision (2026-09-14): the tok/s speed UI (custom spinner
+		// frames + "Working N tok/s" message) is OFF by default — pi's built-in
+		// working indicator (braille spinner + "Working" label) is the default
+		// experience. Opt back in via /team-vibes speed on.
+		enabled: false,
 		footer: false,
 		indicator: true,
 		label: "tok/s",
