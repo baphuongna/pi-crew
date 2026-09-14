@@ -28224,7 +28224,7 @@ var init_agents_jobs_browser = __esm({
               if (this.surfaceReachable()) {
                 this.surfaceSelectedAgent(entry);
               } else {
-                this.setNotice("\u26A0 no tmux/herdr surface \u2014 run pi inside tmux for panes");
+                this.setNotice("\u26A0 no tmux/herdr surface \u2014 pi must run inside tmux OR herdr for panes");
               }
             }
             return;

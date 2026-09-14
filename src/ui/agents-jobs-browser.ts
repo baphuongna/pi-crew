@@ -543,7 +543,7 @@ export class AgentsJobsBrowser {
 					} else {
 						// Live feedback (2026-09-14): pressing p outside tmux/herdr
 						// used to swallow the key silently — "p không hoạt động".
-						this.setNotice("⚠ no tmux/herdr surface — run pi inside tmux for panes");
+						this.setNotice("⚠ no tmux/herdr surface — pi must run inside tmux OR herdr for panes");
 					}
 				}
 				return;

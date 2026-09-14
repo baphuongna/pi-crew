@@ -371,7 +371,7 @@ test("p outside a tmux/herdr surface shows a header notice instead of silence", 
 	browser.handleInput("p");
 	assert.ok(rendered > 0, "notice triggers a re-render");
 	const header = browser.render(100)[0] ?? "";
-	assert.match(header, /no tmux\/herdr surface/, `header explains the dead key: ${header}`);
+	assert.match(header, /no tmux\/herdr surface/g, `header explains the dead key: ${header}`);
 	// Notice expiry is covered by the next test.
 	browser.dispose();
 });
@@ -387,9 +387,9 @@ test("notice expires and the top border returns to counts", () => {
 		jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
 	});
 	browser.handleInput("p");
-	assert.match(browser.render(100)[0] ?? "", /no tmux\/herdr surface/);
+	assert.match(browser.render(100)[0] ?? "", /no tmux\/herdr surface/g);
 	clock += 3000; // past the 2.5s notice window
-	assert.doesNotMatch(browser.render(100)[0] ?? "", /no tmux\/herdr surface/);
+	assert.doesNotMatch(browser.render(100)[0] ?? "", /no tmux\/herdr surface/g);
 	assert.match(browser.render(100)[0] ?? "", /1 agent/);
 	browser.dispose();
 });
