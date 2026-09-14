@@ -4,6 +4,14 @@
 
 ## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
 
+### feat(footer): restore pi's NATIVE footer — custom footer replacement retired (UI-review option 1)
+
+- Maintainer decision: the crew-vibes custom footer (setFooter replacement that re-implemented pi's pwd/stats/status lines to guarantee the quota a never-truncated line) is REMOVED — pi's built-in footer is always shown. The re-implementation had drifted from native (missing `CH%` cache-hit, missing `xp` segment, totals ignoring toolResult/branch-summary/compaction usage, hardcoded `(auto)`), and composing pi's native FooterComponent is impossible by design (extensions only receive ReadonlySessionManager, not AgentSession).
+- Provider quota (`z.ai 5h ━ 37% 46m Wk …`) now publishes through `ctx.ui.setStatus` and joins pi's native status line (right-truncates on very narrow terminals — accepted).
+- The crew widget ALWAYS renders through pi's widget slots now (`bottom` placement maps to belowEditor): FooterDockHost, the dock-footer registry, slotInstalled/dockedInFooter state, and WidgetRenderOptions.noSchedulesLine are deleted. The ⏰ schedules line and all run rows paint in the belowEditor slot exactly as the pre-footer design; the keep-alive fix is preserved.
+- Clock-injection sweep (D6-T4) in the render path: compactDockLines/detailed rows/agents-pane now pin ONE clock per render (options.now / options.nowMs) threaded into orderWidgetAgents, dockUsageText, agentStats, computeLiveDurationMs — no more scattered Date.now() reads that could straddle a tick.
+
+
 ### feat(footer): retire the capacity stage meter; the ⏰ schedules segment takes its slot
 
 - Maintainer decision after the full UI review: the capacity meter (context token count `74k` + `○ Orbit/Cruise/Warp/…` stage glyph) duplicated the context percent already shown on the stats line and carried no actionable signal — removed from the footer composition (`renderCapacity` remains exported for its unit tests).

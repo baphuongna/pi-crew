@@ -128,13 +128,6 @@ export interface WidgetRenderOptions {
 	 * schedules builder never reads the clock itself.
 	 */
 	now?: Date;
-	/**
-	 * True when the CREW-VIBES FOOTER owns the schedules segment (its meter
-	 * line, where the retired capacity stage used to live). The widget then
-	 * must NOT paint the line itself — the dock path renders through the
-	 * footer, so painting it here too would duplicate `⏰ …` on screen.
-	 */
-	noSchedulesLine?: boolean;
 }
 
 /** Short display form of a model id: `zai/glm-5.3` → `glm-5.3`. */
@@ -153,6 +146,7 @@ function compactAgentRow(
 	options: WidgetRenderOptions,
 	width: number,
 	liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined,
+	nowMs: number,
 ): string {
 	const marker = options.selectedTaskId === agent.taskId ? "❯" : " ";
 	const dockGlyph = options.viewedTaskId === agent.taskId ? "⏺" : dockStatusIcon(agent.status);
@@ -179,7 +173,7 @@ function compactAgentRow(
 			: finished
 				? dockStatusLabel(agent.status)
 				: agentActivity(agent, liveHandle);
-	const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+	const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId, nowMs });
 	const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
 	const model = shortModelLabel(agent, run);
 	// Stats tail: `· glm-5.3 · ↑1.2k ↓350 · 41s` — the model the worker is
@@ -205,8 +199,8 @@ function compactDockLines(
 	maxLines: number,
 	notificationCount: number,
 	runningGlyph: string,
+	nowMs: number,
 ): string[] {
-	const now = Date.now();
 	const flat: Array<{
 		run: TeamRunManifest;
 		agent: CrewAgentRecord;
@@ -214,7 +208,7 @@ function compactDockLines(
 		liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined;
 	}> = [];
 	for (const entry of runs) {
-		const { active, finished } = orderWidgetAgents(entry, now);
+		const { active, finished } = orderWidgetAgents(entry, nowMs);
 		const liveForRun = listLiveAgents().filter((a) => a.runId === entry.run.runId);
 		for (const agent of active) {
 			flat.push({ run: entry.run, agent, finished: false, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
@@ -250,7 +244,7 @@ function compactDockLines(
 	const windowEnd = Math.min(flat.length, windowStart + MAX_AGENTS_DISPLAY);
 	if (windowStart > 0) lines.push(truncate(`  … ↑${windowStart} earlier (↑ to scroll)`, width));
 	for (const row of flat.slice(windowStart, windowEnd)) {
-		lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle));
+		lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle, nowMs));
 	}
 	if (windowEnd < flat.length) lines.push(truncate(`  … +${flat.length - windowEnd} more (↓ to scroll)`, width));
 	return lines;
@@ -360,7 +354,7 @@ export function buildWidgetLines(
 	const focused = options.focused === true;
 	// Tier C: one injected clock for the schedules line (options.now pins it in
 	// tests; the pure builder above never reads the clock itself).
-	const schedLine = options.noSchedulesLine ? undefined : schedulesWidgetLine(cwd, options.now ?? new Date());
+	const schedLine = schedulesWidgetLine(cwd, options.now ?? new Date());
 	// Match the legacy `buildCrewWidgetLines` API: when no runs are supplied,
 	// auto-fetch via activeWidgetRuns(cwd). Otherwise widgets calling with
 	// only `(cwd, frame)` would render an empty line set (regression vs. the
@@ -377,7 +371,15 @@ export function buildWidgetLines(
 	// Compact = pi-subtask's dock: NO "Crew agents" header, NO tree — hint
 	// line, `main` row, then a 3-row scroll window over the flat agent list.
 	if (rowStyle === "compact") {
-		const lines = compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph);
+		const lines = compactDockLines(
+			runs,
+			options,
+			width,
+			maxLines,
+			notificationCount,
+			runningGlyph,
+			(options.now ?? new Date()).getTime(),
+		);
 		// Tier C: appended after the dock window so it can never displace a
 		// live-agent row; clipped by the idle maxLines budget.
 		if (schedLine) lines.push(truncate(schedLine, width));
@@ -388,8 +390,8 @@ export function buildWidgetLines(
 
 	for (const entry of runs) {
 		const { run, agents } = entry;
-		const now = Date.now();
-		const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, now);
+		const nowMs = (options.now ?? new Date()).getTime();
+		const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, nowMs);
 		const completed = agents.filter((a) => a.status === "completed").length;
 		// WP-3 (H4): while a run is parked awaiting plan approval, the spinner
 		// glyph is replaced by a `⚠ plan:<last-8 runId>` badge. Plain-unicode ⚠
@@ -415,7 +417,7 @@ export function buildWidgetLines(
 		// reached its terminal status). The status label is also surfaced
 		// explicitly so the row cannot be misread as an active run.
 		const agentCountText = `${completed}/${agents.length} agents`;
-		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : now;
+		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : nowMs;
 		const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
 		const runElapsedText = `${Math.floor(runElapsedMs / 1000)}s`;
 		const statusLabel = isTerminal ? ` · ${run.status}` : "";
@@ -441,7 +443,7 @@ export function buildWidgetLines(
 			const branch = last ? "└─" : "├─";
 			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
 			const legacyGlyph = options.viewedTaskId === agent.taskId ? "◉" : iconForStatus(agent.status, { runningGlyph });
-			const stats = agentStats(agent, liveHandle);
+			const stats = agentStats(agent, liveHandle, nowMs);
 			const name = liveHandle?.agent ?? agent.agent;
 			const activity = agentActivity(agent, liveHandle);
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
@@ -460,7 +462,7 @@ export function buildWidgetLines(
 			const name = liveHandle?.agent ?? agent.agent;
 			const legacyIcon =
 				agent.status === "completed" ? "✓" : agent.status === "failed" ? "✗" : agent.status === "needs_attention" ? "⚠" : "▪";
-			const stats = agentStats(agent, liveHandle);
+			const stats = agentStats(agent, liveHandle, nowMs);
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
 			const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
 			const branch = isLastFinished ? "└─" : "├─";

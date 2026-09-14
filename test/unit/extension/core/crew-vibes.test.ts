@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { DEFAULT_CONFIG, normalizeConfig, PROVIDER_STATUS_ID } from "../../../../src/extension/crew-vibes/config.ts";
 import { capacityIndex, intervalForSpeed, isDangerStage, RUN_CREW_FRAMES } from "../../../../src/extension/crew-vibes/figures.ts";
-import { createCrewVibesFooter } from "../../../../src/extension/crew-vibes/footer.ts";
 import { clearProviderUsageCache, fetchProviderUsage } from "../../../../src/extension/crew-vibes/provider-usage.ts";
 import {
 	asCrewTheme,
@@ -326,52 +325,7 @@ function footerData(entries: [string, string][]) {
 		getAvailableProviderCount: () => 1,
 		onBranchChange: () => () => undefined,
 	};
-}
-
-const footerQuota = { providerName: "Minimax", fiveHourPercent: 29, fiveHourResetAt: null, weeklyPercent: 19, weeklyResetAt: null };
-
-test("custom footer keeps provider quota intact when other statuses overflow and truncate", () => {
-	const bigStatus = `⚙ ${"x".repeat(200)}`; // exceeds width → forces pi-style right-truncation
-	const footer = createCrewVibesFooter({
-		tui: {},
-		theme: plainTheme,
-		footerData: footerData([["pi-crew", bigStatus]]),
-		ctx: footerCtx() as never,
-		source: { getConfig: () => DEFAULT_CONFIG, getQuotaUsage: () => footerQuota, getThinkingLevel: () => undefined },
-	});
-	const lines = footer.render(120);
-	const meter = lines[lines.length - 1];
-	// Quota (incl. the weekly bar that used to be chopped to "W...") is fully present.
-	// Maintainer decision 2026-09-13: the capacity stage meter is retired from
-	// the footer (⏰ schedules segment may occupy the left slot when jobs exist);
-	// this test's ctx has no registered scheduler → schedules segment is absent.
-	assert.match(meter, /Wk/);
-	assert.match(meter, /19%/);
-	assert.ok(!meter.includes("Orbit"), "capacity stage retired");
-	// The joined extension-status line is what gets truncated, NOT the quota line.
-	assert.ok(
-		lines.some((line) => line.includes("...")),
-		"overflowing status line should be truncated",
-	);
-});
-
-test("custom footer wraps schedules + quota onto two lines when the terminal is narrow", () => {
-	const footer = createCrewVibesFooter({
-		tui: {},
-		theme: plainTheme,
-		footerData: footerData([]),
-		ctx: footerCtx() as never,
-		source: { getConfig: () => DEFAULT_CONFIG, getQuotaUsage: () => footerQuota, getThinkingLevel: () => undefined },
-	});
-	const lines = footer.render(45);
-	// pwd, stats, quota-only meter (capacity retired 2026-09-13; no scheduler
-	// registered in this harness → no schedules segment either).
-	assert.equal(lines.length, 3);
-	assert.match(lines[2], /Minimax/);
-	assert.match(lines[2], /19%/);
-});
-
-// ---------------------------------------------------------------------------
+} // ---------------------------------------------------------------------------
 // provider-usage.ts: fetchProviderUsage + cache
 //
 // These tests fully isolate HOME + provider env vars and mock globalThis.fetch

@@ -62,6 +62,8 @@ export interface RunDashboardOptions {
 	showTools?: boolean;
 	snapshotCache?: RunSnapshotCache;
 	runProvider?: () => TeamRunManifest[];
+	/** Pinned render clock (D6-T4) for pane renderers (agents pane durations). */
+	nowMs?: number;
 	registry?: MetricRegistry;
 	/**
 	 * Workspace/session ID for filtering runs and live agents. When provided,

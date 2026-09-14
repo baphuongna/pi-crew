@@ -14783,7 +14783,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-formatters.ts": {
-      "bytes": 20630,
+      "bytes": 20843,
       "imports": [
         {
           "path": "src/runtime/usage-tracker.ts",
@@ -14941,11 +14941,6 @@
           "original": "../card-colors.ts"
         }
       ],
-      "format": "esm"
-    },
-    "src/ui/dock-footer.ts": {
-      "bytes": 1885,
-      "imports": [],
       "format": "esm"
     },
     "src/utils/relative-time.ts": {
@@ -15138,7 +15133,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 25257,
+      "bytes": 25022,
       "imports": [
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
@@ -15284,7 +15279,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 28788,
+      "bytes": 25653,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -15295,11 +15290,6 @@
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
           "original": "../../utils/visual.ts"
-        },
-        {
-          "path": "src/ui/dock-footer.ts",
-          "kind": "import-statement",
-          "original": "../dock-footer.ts"
         },
         {
           "path": "src/ui/inline-panel/panel-rows.ts",
@@ -17886,7 +17876,7 @@
       "format": "esm"
     },
     "src/ui/dashboard-panes/agents-pane.ts": {
-      "bytes": 6675,
+      "bytes": 6814,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -18047,7 +18037,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 54290,
+      "bytes": 54387,
       "imports": [
         {
           "path": "node:fs",
@@ -18811,63 +18801,6 @@
       ],
       "format": "esm"
     },
-    "src/extension/crew-vibes/render.ts": {
-      "bytes": 8361,
-      "imports": [
-        {
-          "path": "src/extension/crew-vibes/config.ts",
-          "kind": "import-statement",
-          "original": "./config.ts"
-        },
-        {
-          "path": "src/extension/crew-vibes/figures.ts",
-          "kind": "import-statement",
-          "original": "./figures.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/extension/crew-vibes/footer.ts": {
-      "bytes": 12769,
-      "imports": [
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/ui/dock-footer.ts",
-          "kind": "import-statement",
-          "original": "../../ui/dock-footer.ts"
-        },
-        {
-          "path": "src/ui/pi-ui-compat.ts",
-          "kind": "import-statement",
-          "original": "../../ui/pi-ui-compat.ts"
-        },
-        {
-          "path": "src/ui/theme-adapter.ts",
-          "kind": "import-statement",
-          "original": "../../ui/theme-adapter.ts"
-        },
-        {
-          "path": "src/ui/widget/widget-renderer.ts",
-          "kind": "import-statement",
-          "original": "../../ui/widget/widget-renderer.ts"
-        },
-        {
-          "path": "src/utils/visual.ts",
-          "kind": "import-statement",
-          "original": "../../utils/visual.ts"
-        },
-        {
-          "path": "src/extension/crew-vibes/render.ts",
-          "kind": "import-statement",
-          "original": "./render.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/extension/crew-vibes/provider-usage.ts": {
       "bytes": 13202,
       "imports": [
@@ -18889,28 +18822,34 @@
       ],
       "format": "esm"
     },
+    "src/extension/crew-vibes/render.ts": {
+      "bytes": 8361,
+      "imports": [
+        {
+          "path": "src/extension/crew-vibes/config.ts",
+          "kind": "import-statement",
+          "original": "./config.ts"
+        },
+        {
+          "path": "src/extension/crew-vibes/figures.ts",
+          "kind": "import-statement",
+          "original": "./figures.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/crew-vibes/speed.ts": {
       "bytes": 7688,
       "imports": [],
       "format": "esm"
     },
     "src/extension/crew-vibes/index.ts": {
-      "bytes": 15441,
+      "bytes": 13002,
       "imports": [
-        {
-          "path": "src/ui/pi-ui-compat.ts",
-          "kind": "import-statement",
-          "original": "../../ui/pi-ui-compat.ts"
-        },
         {
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/ui/dock-footer.ts",
-          "kind": "import-statement",
-          "original": "../../ui/dock-footer.ts"
         },
         {
           "path": "src/extension/crew-vibes/config.ts",
@@ -18921,11 +18860,6 @@
           "path": "src/extension/crew-vibes/figures.ts",
           "kind": "import-statement",
           "original": "./figures.ts"
-        },
-        {
-          "path": "src/extension/crew-vibes/footer.ts",
-          "kind": "import-statement",
-          "original": "./footer.ts"
         },
         {
           "path": "src/extension/crew-vibes/provider-usage.ts",
@@ -21265,7 +21199,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8158129
+      "bytes": 8127948
     },
     "dist/index.mjs": {
       "imports": [
@@ -22955,11 +22889,6 @@
           "external": true
         },
         {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
@@ -24172,7 +24101,7 @@
           "bytesInOutput": 27560
         },
         "src/ui/pi-ui-compat.ts": {
-          "bytesInOutput": 1173
+          "bytesInOutput": 988
         },
         "src/extension/command-completions.ts": {
           "bytesInOutput": 2302
@@ -24976,7 +24905,7 @@
           "bytesInOutput": 2165
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 11658
+          "bytesInOutput": 11701
         },
         "src/ui/powerbar-publisher.ts": {
           "bytesInOutput": 14566
@@ -24992,9 +24921,6 @@
         },
         "src/ui/tool-renderers/index.ts": {
           "bytesInOutput": 21472
-        },
-        "src/ui/dock-footer.ts": {
-          "bytesInOutput": 400
         },
         "src/utils/relative-time.ts": {
           "bytesInOutput": 831
@@ -25012,7 +24938,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 12656
+          "bytesInOutput": 12808
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
@@ -25033,7 +24959,7 @@
           "bytesInOutput": 5368
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 16878
+          "bytesInOutput": 15215
         },
         "src/utils/safe-abort.ts": {
           "bytesInOutput": 436
@@ -25180,7 +25106,7 @@
           "bytesInOutput": 11339
         },
         "src/runtime/chain-parser.ts": {
-          "bytesInOutput": 4930
+          "bytesInOutput": 4925
         },
         "src/runtime/chain-runner.ts": {
           "bytesInOutput": 16903
@@ -25222,7 +25148,7 @@
           "bytesInOutput": 4146
         },
         "src/ui/dashboard-panes/agents-pane.ts": {
-          "bytesInOutput": 4531
+          "bytesInOutput": 4615
         },
         "src/ui/dashboard-panes/cancellation-pane.ts": {
           "bytesInOutput": 465
@@ -25279,7 +25205,7 @@
           "bytesInOutput": 15969
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 31803
+          "bytesInOutput": 31798
         },
         "src/extension/registration/commands/shared.ts": {
           "bytesInOutput": 17707
@@ -25393,7 +25319,7 @@
           "bytesInOutput": 1206
         },
         "src/extension/crew-vibes/index.ts": {
-          "bytesInOutput": 11663
+          "bytesInOutput": 9938
         },
         "src/extension/crew-vibes/config.ts": {
           "bytesInOutput": 4749
@@ -25404,14 +25330,11 @@
         "src/extension/crew-vibes/figures.ts": {
           "bytesInOutput": 920
         },
-        "src/extension/crew-vibes/footer.ts": {
-          "bytesInOutput": 9436
-        },
-        "src/extension/crew-vibes/render.ts": {
-          "bytesInOutput": 4427
-        },
         "src/extension/crew-vibes/provider-usage.ts": {
           "bytesInOutput": 8980
+        },
+        "src/extension/crew-vibes/render.ts": {
+          "bytesInOutput": 4386
         },
         "src/extension/crew-vibes/speed.ts": {
           "bytesInOutput": 6461
@@ -25570,7 +25493,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3412671
+      "bytes": 3399386
     }
   }
 }

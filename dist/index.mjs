@@ -715,8 +715,8 @@ function sleepSync(ms) {
 }
 function sleep(ms, signal) {
   if (signal?.aborted) return Promise.reject(new Error("aborted"));
-  return new Promise((resolve27, reject) => {
-    const timer = setTimeout(resolve27, ms);
+  return new Promise((resolve26, reject) => {
+    const timer = setTimeout(resolve26, ms);
     signal?.addEventListener(
       "abort",
       () => {
@@ -761,9 +761,9 @@ function getWorker() {
   return worker;
 }
 function dispatch(kind, payload) {
-  return new Promise((resolve27, reject) => {
+  return new Promise((resolve26, reject) => {
     const id = nextRequestId++;
-    pending.set(id, { resolve: resolve27, reject });
+    pending.set(id, { resolve: resolve26, reject });
     try {
       getWorker().postMessage({ kind, id, ...payload });
     } catch (error) {
@@ -1032,7 +1032,7 @@ function isSymlinkSafeDirCached(filePath) {
   return verdict;
 }
 function sleep2(ms) {
-  return new Promise((resolve27) => setTimeout(resolve27, ms));
+  return new Promise((resolve26) => setTimeout(resolve26, ms));
 }
 function isRetryableRenameError(error) {
   return Boolean(
@@ -1854,7 +1854,7 @@ function acquireLockWithRetry(filePath, staleMs, kind = "file") {
   }
 }
 function sleep3(ms) {
-  return new Promise((resolve27) => setTimeout(resolve27, ms));
+  return new Promise((resolve26) => setTimeout(resolve26, ms));
 }
 async function acquireLockWithRetryAsync(filePath, staleMs, kind = "file") {
   let attempt = 0;
@@ -14174,7 +14174,7 @@ var init_cancellation_token = __esm({
       wait(ms) {
         this.throwIfCancelled();
         if (ms <= 0) return Promise.resolve();
-        return new Promise((resolve27, reject) => {
+        return new Promise((resolve26, reject) => {
           let timeout;
           const cleanup = () => {
             if (timeout) clearTimeout(timeout);
@@ -14186,7 +14186,7 @@ var init_cancellation_token = __esm({
           };
           timeout = setTimeout(() => {
             cleanup();
-            resolve27();
+            resolve26();
           }, ms);
           this.signal.addEventListener("abort", onAbort, { once: true });
         });
@@ -14221,8 +14221,8 @@ function resolveContainedPath(baseDir, targetPath2) {
   const resolved = path13.isAbsolute(targetPath2) ? path13.resolve(targetPath2) : path13.resolve(base, targetPath2);
   const baseNorm = resolveCanonicalPath(base);
   const resolvedNorm = resolveCanonicalPath(resolved);
-  const relative9 = process.platform === "win32" ? path13.relative(baseNorm.toLowerCase(), resolvedNorm.toLowerCase()) : path13.relative(baseNorm, resolvedNorm);
-  if (relative9.startsWith("..") || path13.isAbsolute(relative9)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
+  const relative8 = process.platform === "win32" ? path13.relative(baseNorm.toLowerCase(), resolvedNorm.toLowerCase()) : path13.relative(baseNorm, resolvedNorm);
+  if (relative8.startsWith("..") || path13.isAbsolute(relative8)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
   return resolved;
 }
 function resolveCanonicalPath(p) {
@@ -14404,8 +14404,8 @@ function resolveRealContainedPath(baseDir, targetPath2) {
       throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
     }
   } else {
-    const relative9 = path13.relative(realBase, realTarget);
-    if (relative9.startsWith("..") || path13.isAbsolute(relative9)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
+    const relative8 = path13.relative(realBase, realTarget);
+    if (relative8.startsWith("..") || path13.isAbsolute(relative8)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
   }
   return realTarget;
 }
@@ -15665,7 +15665,7 @@ function redactInlineSecrets(value) {
     if (keyLen > 0 && j < value.length && (value[j] === "=" || value[j] === ":")) {
       const key = value.substring(i, j);
       if (isSecretKey(key)) {
-        const sep11 = value[j];
+        const sep10 = value[j];
         let k = j + 1;
         let valLen = 0;
         while (k < value.length && valLen < 500 && value[k] !== " " && value[k] !== "," && value[k] !== ";" && value[k] !== '"' && value[k] !== "\r" && value[k] !== "\n") {
@@ -15674,7 +15674,7 @@ function redactInlineSecrets(value) {
         }
         if (valLen > 0) {
           result4.push(key);
-          result4.push(sep11);
+          result4.push(sep10);
           result4.push("***");
           i = k;
           redacted = true;
@@ -17272,9 +17272,9 @@ function appendEventBuffered(eventsPath, event, bufferMs = DEFAULT_BUFFER_MS) {
     const flushPromise = bufferedQueues.has(eventsPath) ? flushOneEventLogBuffer(eventsPath).catch(() => void 0) : Promise.resolve();
     return flushPromise.then(() => appendEvent(eventsPath, event));
   }
-  return new Promise((resolve27, reject) => {
+  return new Promise((resolve26, reject) => {
     const queue = bufferedQueues.get(eventsPath) ?? [];
-    queue.push({ event, resolve: resolve27, reject });
+    queue.push({ event, resolve: resolve26, reject });
     bufferedQueues.set(eventsPath, queue);
     if (!bufferedTimers.has(eventsPath)) {
       const timer = setTimeout(() => {
@@ -18791,7 +18791,7 @@ function isSpawnFailLockout(consecutiveFails) {
   return consecutiveFails >= SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD;
 }
 function makeTerminalEventProbe(deps) {
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve27) => setTimeout(resolve27, ms)));
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
   const now = deps.now ?? Date.now;
   const step = Math.max(1, deps.pollMs ?? CLASSIFY_POLL_MS);
   let offset = 0;
@@ -20112,7 +20112,7 @@ function createHerdrProvider(deps = {}) {
   function call(method, params) {
     reqSeq += 1;
     const id = `req-${reqSeq}`;
-    return new Promise((resolve27, reject) => {
+    return new Promise((resolve26, reject) => {
       let socket;
       try {
         socket = connect(herdrSocketPath(env));
@@ -20142,7 +20142,7 @@ function createHerdrProvider(deps = {}) {
           reject(new Error(`${msg.error.code ?? "herdr_error"}: ${msg.error.message ?? "unknown error"}`));
           return;
         }
-        resolve27(msg.result);
+        resolve26(msg.result);
       });
       socket.write(JSON.stringify({ id, method, params }));
     });
@@ -20429,7 +20429,7 @@ function findPanePid(stdout, paneId) {
 function createTmuxProvider(deps = {}) {
   const tmux = deps.tmux ?? ((args) => execFileSync2("tmux", args, { encoding: "utf8" }));
   const env = deps.env ?? process.env;
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve27) => setTimeout(resolve27, ms)));
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
   const killTree = deps.killTree ?? ((pid) => process.kill(pid, "SIGTERM"));
   const hasCommand = deps.hasCommand ?? defaultHasCommand;
   const schedule = deps.schedule ?? defaultSchedule;
@@ -20982,7 +20982,7 @@ async function waitForSurfaceExit(outcome, hooks = {}) {
       );
     }
   };
-  return await new Promise((resolve27) => {
+  return await new Promise((resolve26) => {
     let cancelledByAbort = hooks.signal?.aborted === true;
     let timedOut = false;
     let settled = false;
@@ -20991,7 +20991,7 @@ async function waitForSurfaceExit(outcome, hooks = {}) {
       if (settled) return;
       settled = true;
       if (synthTimer) clearTimeout(synthTimer);
-      resolve27(info2);
+      resolve26(info2);
     };
     const armSyntheticFallback = () => {
       if (settled || synthTimer) return;
@@ -21905,7 +21905,7 @@ async function runMockChildPi(input, effectiveTask, observe) {
   }
   if (mock === "json-slow-success") {
     const windowMs = Number(getCrewEnv("PI_TEAMS_MOCK_STEER_WINDOW_MS") ?? "1500");
-    await new Promise((resolve27) => setTimeout(resolve27, Math.min(windowMs, 5e3)));
+    await new Promise((resolve26) => setTimeout(resolve26, Math.min(windowMs, 5e3)));
     const text = `[MOCK] JSON success for ${input.agent.name}`;
     const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
 ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
@@ -22460,7 +22460,7 @@ ${input.task}` : input.task;
   const surfaceResult = await trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir);
   if (surfaceResult) return surfaceResult;
   try {
-    return await new Promise((resolve27) => {
+    return await new Promise((resolve26) => {
       const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
       const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
       if (child.pid) {
@@ -22601,7 +22601,7 @@ ${input.task}` : input.task;
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve27({
+            resolve26({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -22643,7 +22643,7 @@ ${input.task}` : input.task;
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve27({
+            resolve26({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -24117,12 +24117,6 @@ function setExtensionWidget(ctx, key, content, options) {
 function toPiWidgetPlacement(placement) {
   return placement === "bottom" ? "belowEditor" : placement;
 }
-function setFooter(ctx, factory) {
-  if (!ctx) return;
-  const record = maybeRecord(ctx.ui);
-  const fn = record?.setFooter;
-  if (typeof fn === "function") fn.call(ctx.ui, factory);
-}
 function showCustom(ctx, factory, options) {
   const custom = ctx.ui.custom;
   return custom(factory, options);
@@ -24770,7 +24764,7 @@ async function respondAsBackground(targetAgentId, fromId, message, opts) {
   return awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, opts?.signal);
 }
 function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
-  return new Promise((resolve27) => {
+  return new Promise((resolve26) => {
     const deadline = Date.now() + timeoutMs;
     let settled = false;
     let timer;
@@ -24784,7 +24778,7 @@ function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
       const set2 = pendingRepliesByTarget.get(targetAgentId);
       set2?.delete(corrId);
       if (set2 && set2.size === 0) pendingRepliesByTarget.delete(targetAgentId);
-      resolve27(result4);
+      resolve26(result4);
     };
     timer = setTimeout(() => finish({ ok: false, corrId, timedOut: true }), timeoutMs);
     if (signal) {
@@ -27524,8 +27518,8 @@ function taskMailboxDir(manifest, taskId, create = false) {
   const tasksRoot = safeMailboxTasksRoot(manifest, create);
   const normalizedTaskId = safeTaskId(taskId);
   const resolved = path35.resolve(tasksRoot, normalizedTaskId);
-  const relative9 = path35.relative(tasksRoot, resolved);
-  if (relative9.startsWith("..") || path35.isAbsolute(relative9)) throw new Error(`Invalid mailbox task id: ${taskId}`);
+  const relative8 = path35.relative(tasksRoot, resolved);
+  if (relative8.startsWith("..") || path35.isAbsolute(relative8)) throw new Error(`Invalid mailbox task id: ${taskId}`);
   if (create) fs46.mkdirSync(resolved, { recursive: true });
   if (fs46.existsSync(resolved) && fs46.lstatSync(resolved).isSymbolicLink()) throw new Error(`Invalid mailbox task directory: ${resolved}`);
   return resolved;
@@ -28310,9 +28304,9 @@ async function isLiveSessionRuntimeAvailable(timeoutMs = 1500, env = process.env
   try {
     return await Promise.race([
       probe(),
-      new Promise((resolve27) => {
+      new Promise((resolve26) => {
         timer = setTimeout(
-          () => resolve27({
+          () => resolve26({
             available: false,
             reason: `Timed out probing optional Pi SDK live-session runtime after ${timeoutMs}ms.`
           }),
@@ -29489,13 +29483,13 @@ function registerRunPromise(runId) {
   const existing = activeRunPromises.get(runId);
   if (existing) return existing;
   detachRequests.delete(runId);
-  let resolve27;
+  let resolve26;
   let reject;
   const promise = new Promise((res, rej) => {
-    resolve27 = res;
+    resolve26 = res;
     reject = rej;
   });
-  const entry = { promise, resolve: resolve27, reject };
+  const entry = { promise, resolve: resolve26, reject };
   activeRunPromises.set(runId, entry);
   return entry;
 }
@@ -30107,11 +30101,11 @@ function readSkillMarkdown(cwd, name) {
   skillCacheStats.currentSize = skillReadCache.size;
   for (const entry of candidateSkillDirs(cwd)) {
     try {
-      const relative9 = path38.join(name, "SKILL.md");
-      const contained = resolveRealContainedPath(entry.root, relative9);
+      const relative8 = path38.join(name, "SKILL.md");
+      const contained = resolveRealContainedPath(entry.root, relative8);
       if (!fs50.existsSync(contained)) continue;
       if (fs50.lstatSync(contained).isSymbolicLink()) continue;
-      const filePath = resolveRealContainedPath(entry.root, relative9);
+      const filePath = resolveRealContainedPath(entry.root, relative8);
       const stat2 = fs50.statSync(filePath);
       const rawContent = fs50.readFileSync(filePath, "utf-8");
       return rememberSkill(cacheKey2, {
@@ -36197,7 +36191,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve27.call(this, root, ref);
+      let _sch = resolve26.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -36224,7 +36218,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve27(root, ref) {
+    function resolve26(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -36855,55 +36849,55 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve27(baseURI, relativeURI, options) {
+    function resolve26(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative9, options, skipNormalization) {
+    function resolveComponent(base, relative8, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative9 = parse4(serialize(relative9, options), options);
+        relative8 = parse4(serialize(relative8, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative9.scheme) {
-        target.scheme = relative9.scheme;
-        target.userinfo = relative9.userinfo;
-        target.host = relative9.host;
-        target.port = relative9.port;
-        target.path = removeDotSegments(relative9.path || "");
-        target.query = relative9.query;
+      if (!options.tolerant && relative8.scheme) {
+        target.scheme = relative8.scheme;
+        target.userinfo = relative8.userinfo;
+        target.host = relative8.host;
+        target.port = relative8.port;
+        target.path = removeDotSegments(relative8.path || "");
+        target.query = relative8.query;
       } else {
-        if (relative9.userinfo !== void 0 || relative9.host !== void 0 || relative9.port !== void 0) {
-          target.userinfo = relative9.userinfo;
-          target.host = relative9.host;
-          target.port = relative9.port;
-          target.path = removeDotSegments(relative9.path || "");
-          target.query = relative9.query;
+        if (relative8.userinfo !== void 0 || relative8.host !== void 0 || relative8.port !== void 0) {
+          target.userinfo = relative8.userinfo;
+          target.host = relative8.host;
+          target.port = relative8.port;
+          target.path = removeDotSegments(relative8.path || "");
+          target.query = relative8.query;
         } else {
-          if (!relative9.path) {
+          if (!relative8.path) {
             target.path = base.path;
-            if (relative9.query !== void 0) {
-              target.query = relative9.query;
+            if (relative8.query !== void 0) {
+              target.query = relative8.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative9.path[0] === "/") {
-              target.path = removeDotSegments(relative9.path);
+            if (relative8.path[0] === "/") {
+              target.path = removeDotSegments(relative8.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative9.path;
+                target.path = "/" + relative8.path;
               } else if (!base.path) {
-                target.path = relative9.path;
+                target.path = relative8.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative9.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative8.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative9.query;
+            target.query = relative8.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -36911,7 +36905,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative9.fragment;
+      target.fragment = relative8.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -37113,7 +37107,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve27,
+      resolve: resolve26,
       resolveComponent,
       equal,
       serialize,
@@ -40756,7 +40750,7 @@ ${input.prompt}` : input.prompt;
             );
           } catch {
           }
-          await new Promise((resolve27) => setTimeout(resolve27, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
+          await new Promise((resolve26) => setTimeout(resolve26, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
           if (customToolYieldResolved && customToolYieldResult) {
             yieldResult = customToolYieldResult;
           } else if (collectedJsonEvents) {
@@ -40800,7 +40794,7 @@ ${input.prompt}` : input.prompt;
           }
         }
         const pollInterval = DEFAULT_LIVE_SESSION.yieldPollIntervalMs;
-        await new Promise((resolve27) => setTimeout(resolve27, pollInterval));
+        await new Promise((resolve26) => setTimeout(resolve26, pollInterval));
         if (customToolYieldResolved && customToolYieldResult) {
           yieldResult = customToolYieldResult;
           break;
@@ -47526,14 +47520,14 @@ var init_semaphore = __esm({
             new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${_Semaphore.MAX_QUEUE}); cannot acquire slot`)
           );
         }
-        const { promise, resolve: resolve27 } = (() => {
+        const { promise, resolve: resolve26 } = (() => {
           let res;
           const p = new Promise((r) => {
             res = r;
           });
           return { promise: p, resolve: res };
         })();
-        this.#queue.push(resolve27);
+        this.#queue.push(resolve26);
         return promise;
       }
       release() {
@@ -48360,8 +48354,8 @@ async function runCoalescedTaskGroup(input) {
     try {
       await Promise.race([
         pendingHeartbeat,
-        new Promise((resolve27) => {
-          drainTimeout = setTimeout(resolve27, 5e3);
+        new Promise((resolve26) => {
+          drainTimeout = setTimeout(resolve26, 5e3);
         })
       ]);
     } finally {
@@ -49000,7 +48994,7 @@ function storeDiscovered(cwd, files) {
 }
 async function detectRipgrep() {
   if (cachedRgCheck !== void 0) return cachedRgCheck;
-  return await new Promise((resolve27) => {
+  return await new Promise((resolve26) => {
     let settled = false;
     try {
       const child = spawn3("rg", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -49012,7 +49006,7 @@ async function detectRipgrep() {
         if (settled) return;
         settled = true;
         cachedRgCheck = { available: false };
-        resolve27(cachedRgCheck);
+        resolve26(cachedRgCheck);
       });
       child.on("close", (code) => {
         if (settled) return;
@@ -49022,13 +49016,13 @@ async function detectRipgrep() {
         } else {
           cachedRgCheck = { available: false };
         }
-        resolve27(cachedRgCheck);
+        resolve26(cachedRgCheck);
       });
     } catch {
       if (settled) return;
       settled = true;
       cachedRgCheck = { available: false };
-      resolve27(cachedRgCheck);
+      resolve26(cachedRgCheck);
     }
   });
 }
@@ -49045,7 +49039,7 @@ function reasonFor(file, keywords) {
   return `keyword match: ${hits.join(", ")}`;
 }
 function runRipgrep(args, cwd, opts = {}) {
-  return new Promise((resolve27, reject) => {
+  return new Promise((resolve26, reject) => {
     const command = opts.command ?? "rg";
     const timeoutMs = opts.timeoutMs ?? DEFAULT_RG_TIMEOUT_MS;
     const maxStdoutBytes = opts.maxStdoutBytes ?? DEFAULT_RG_MAX_STDOUT_BYTES;
@@ -49098,7 +49092,7 @@ function runRipgrep(args, cwd, opts = {}) {
       child.on("close", (code) => {
         settleOnce(() => {
           if (code === 0 || code === 1) {
-            resolve27(stdout);
+            resolve26(stdout);
           } else {
             reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
           }
@@ -50930,9 +50924,9 @@ function linkNodeModulesIfPresent(repoRoot, worktreePath) {
 }
 function normalizeSyntheticPath(worktreePath, rawPath) {
   const resolved = path62.resolve(worktreePath, rawPath);
-  const relative9 = path62.relative(worktreePath, resolved);
-  if (!relative9 || relative9.startsWith("..") || path62.isAbsolute(relative9)) throw new Error(`synthetic path escapes worktree: ${rawPath}`);
-  return path62.normalize(relative9);
+  const relative8 = path62.relative(worktreePath, resolved);
+  if (!relative8 || relative8.startsWith("..") || path62.isAbsolute(relative8)) throw new Error(`synthetic path escapes worktree: ${rawPath}`);
+  return path62.normalize(relative8);
 }
 function isAllowedSetupHook(hookPath) {
   if (!hookPath || hookPath.trim().length === 0) return false;
@@ -51726,8 +51720,8 @@ var init_deduplicate_stage = __esm({
           const cur = lines[i];
           if (cur !== out[out.length - 1]) out.push(cur);
         }
-        const sep11 = text.includes("\r\n") ? "\r\n" : "\n";
-        return out.join(sep11);
+        const sep10 = text.includes("\r\n") ? "\r\n" : "\n";
+        return out.join(sep10);
       }
     };
     DEDUPLICATE_STAGE = new DeduplicateStage();
@@ -52068,8 +52062,8 @@ function safeSharedName(name) {
 function sharedPath(manifest, name) {
   const sharedRoot = path63.resolve(manifest.artifactsRoot, "shared");
   const resolved = path63.resolve(sharedRoot, safeSharedName(name));
-  const relative9 = path63.relative(sharedRoot, resolved);
-  if (relative9.startsWith("..") || path63.isAbsolute(relative9)) throw new Error(`Invalid shared artifact name: ${name}`);
+  const relative8 = path63.relative(sharedRoot, resolved);
+  if (relative8.startsWith("..") || path63.isAbsolute(relative8)) throw new Error(`Invalid shared artifact name: ${name}`);
   return resolved;
 }
 function tryParseJson(text) {
@@ -52084,8 +52078,8 @@ function listTaskArtifacts(manifest, taskId) {
   const produced = manifest.artifacts.filter((a) => a.producer === taskId);
   if (produced.length === 0) return void 0;
   return produced.map((a) => {
-    const relative9 = path63.relative(manifest.artifactsRoot, a.path);
-    return relative9.startsWith("..") ? a.path : relative9;
+    const relative8 = path63.relative(manifest.artifactsRoot, a.path);
+    return relative8.startsWith("..") ? a.path : relative8;
   });
 }
 function aggregateUsage(task) {
@@ -52627,7 +52621,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
   const start = Date.now();
   let output = "";
   let exitCode = null;
-  return new Promise((resolve27) => {
+  return new Promise((resolve26) => {
     const shell = spawn4("sh", ["-c", command], {
       cwd,
       timeout: timeoutMs,
@@ -52647,7 +52641,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
       } catch {
         shell.kill("SIGKILL");
       }
-      resolve27({
+      resolve26({
         exitCode: -1,
         output: output + "\n[TIMEOUT: Command exceeded limit]",
         durationMs: Date.now() - start
@@ -52658,7 +52652,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     shell.on("close", (code) => {
       clearTimer();
       exitCode = code;
-      resolve27({
+      resolve26({
         exitCode,
         output: output.slice(-1e5),
         // Cap at 100KB
@@ -52667,7 +52661,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     });
     shell.on("error", (err2) => {
       clearTimer();
-      resolve27({
+      resolve26({
         exitCode: -1,
         output: `Execution error: ${err2.message}`,
         durationMs: Date.now() - start
@@ -52908,9 +52902,9 @@ function artifactReference(artifactsRoot, artifact) {
   if (!artifact) return void 0;
   const root = path65.resolve(artifactsRoot);
   const target = path65.resolve(artifact.path);
-  const relative9 = path65.relative(root, target);
-  if (!relative9 || relative9.startsWith("..") || path65.isAbsolute(relative9)) return void 0;
-  return relative9.replaceAll("\\", "/");
+  const relative8 = path65.relative(root, target);
+  if (!relative8 || relative8.startsWith("..") || path65.isAbsolute(relative8)) return void 0;
+  return relative8.replaceAll("\\", "/");
 }
 function buildWorkerPromptPipeline(input) {
   return {
@@ -52989,7 +52983,7 @@ async function runSpecCheck(check, options) {
     return { outcome: "launch-failed", durationMs: Date.now() - start, stderrLength: 0 };
   }
   const inner = `ulimit -v ${limits.addressSpaceKb}; ulimit -t ${limits.cpuSeconds}; exec sh -c "$0"`;
-  return await new Promise((resolve27) => {
+  return await new Promise((resolve26) => {
     const child = spawn5(wrapper, ["-rn", "sh", "-c", inner, check.command], {
       cwd: options.cwd,
       env: buildSpecSandboxEnv(),
@@ -53008,7 +53002,7 @@ async function runSpecCheck(check, options) {
       settled = true;
       if (termTimer) clearTimeout(termTimer);
       if (killTimer) clearTimeout(killTimer);
-      resolve27(outcome);
+      resolve26(outcome);
     };
     termTimer = setTimeout(() => {
       try {
@@ -59074,7 +59068,7 @@ function dockUsageText(agent, liveHandle, options = {}) {
     if (typeof cost2 === "number" && Number.isFinite(cost2) && cost2 > 0) parts.push(`$${cost2.toFixed(4)}`);
     if (options.viewed) {
       const act = liveHandle.activity;
-      const ms = computeLiveDurationMs(act);
+      const ms = computeLiveDurationMs(act, options.nowMs);
       const totalTokens2 = input + output + cacheWrite;
       if (totalTokens2 > 0 && ms > 1e3) {
         const tps = Math.round(totalTokens2 / (ms / 1e3));
@@ -59099,20 +59093,20 @@ function dockUsageText(agent, liveHandle, options = {}) {
   return parts.join(" ");
 }
 function budgetedRow(parts, width) {
-  const sep11 = parts.separator ?? " \xB7 ";
+  const sep10 = parts.separator ?? " \xB7 ";
   const { lead, suffix } = parts;
   const name = parts.name.replace(/\s+/g, " ").trim();
   const activity = parts.activity.replace(/\s+/g, " ").trim();
   if (!name && !activity) return truncateToWidth(lead + suffix, width);
   if (!activity) return fitNameOnly(lead, name, suffix, width);
   if (!name) return fitNameOnly(lead, activity, suffix, width);
-  const budget = width - visibleWidth(lead) - visibleWidth(suffix) - visibleWidth(sep11);
+  const budget = width - visibleWidth(lead) - visibleWidth(suffix) - visibleWidth(sep10);
   if (budget < MIN_FIELD_WIDTH * 2) return fitNameOnly(lead, name, suffix, width);
   const nameNatural = visibleWidth(name);
   const activityNatural = visibleWidth(activity);
   const activityRoom = Math.min(activityNatural, Math.max(MIN_FIELD_WIDTH, budget - nameNatural));
   const nameRoom = Math.max(MIN_FIELD_WIDTH, budget - activityRoom);
-  const assembled = lead + truncateToWidth(name, nameRoom) + sep11 + truncateToWidth(activity, activityRoom) + suffix;
+  const assembled = lead + truncateToWidth(name, nameRoom) + sep10 + truncateToWidth(activity, activityRoom) + suffix;
   if (visibleWidth(assembled) <= width) return assembled;
   return fitNameOnly(lead, name, suffix, width);
 }
@@ -59121,7 +59115,7 @@ function fitNameOnly(lead, name, suffix, width) {
   if (fixed >= width) return truncateToWidth(lead + suffix, width);
   return lead + truncateToWidth(name, width - fixed) + suffix;
 }
-function agentStats(agent, liveHandle) {
+function agentStats(agent, liveHandle, nowMs3) {
   const parts = [];
   if (liveHandle) {
     const act = liveHandle.activity;
@@ -59137,7 +59131,7 @@ function agentStats(agent, liveHandle) {
       if (ctxPct != null) parts.push(alignMetric(`${Math.round(ctxPct)}% ctx`, CTX_METRIC_WIDTH));
     } catch {
     }
-    const ms = computeLiveDurationMs(act);
+    const ms = computeLiveDurationMs(act, nowMs3);
     if (total > 0 && ms > 1e3) {
       const tps = Math.round(total / (ms / 1e3));
       if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
@@ -59150,7 +59144,7 @@ function agentStats(agent, liveHandle) {
     if (tokenCount && tokenCount > 0) parts.push(alignMetric(formatTokensCompact(tokenCount), TOKENS_METRIC_WIDTH));
     const cost = agentCost(agent);
     if (cost) parts.push(alignMetric(cost, COST_METRIC_WIDTH));
-    const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
+    const ageMs = agent.startedAt ? Math.max(0, (nowMs3 ?? Date.now()) - new Date(agent.startedAt).getTime()) : 0;
     if (tokenCount && tokenCount > 0 && ageMs > 1e3) {
       const tps = Math.round(tokenCount / (ageMs / 1e3));
       if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
@@ -60297,27 +60291,6 @@ var init_tool_renderers = __esm({
   }
 });
 
-// src/ui/dock-footer.ts
-function setFooterDockProvider(provider) {
-  dockProvider = provider;
-}
-function getFooterDockProvider() {
-  return dockProvider;
-}
-function setFooterDockSinkActive(active) {
-  sinkActive = active;
-}
-function isFooterDockSinkActive() {
-  return sinkActive;
-}
-var dockProvider, sinkActive;
-var init_dock_footer = __esm({
-  "src/ui/dock-footer.ts"() {
-    "use strict";
-    sinkActive = false;
-  }
-});
-
 // src/utils/relative-time.ts
 function formatRelativeTime(now, target) {
   const deltaMs = target.getTime() - now.getTime();
@@ -61456,7 +61429,7 @@ function shortModelLabel(agent, run) {
   if (typeof model !== "string" || !model) return void 0;
   return model.split("/").at(-1) ?? model;
 }
-function compactAgentRow(run, agent, finished, runs, options, width, liveHandle) {
+function compactAgentRow(run, agent, finished, runs, options, width, liveHandle, nowMs3) {
   const marker = options.selectedTaskId === agent.taskId ? "\u276F" : " ";
   const dockGlyph = options.viewedTaskId === agent.taskId ? "\u23FA" : dockStatusIcon(agent.status);
   const name = liveHandle?.agent ?? agent.agent;
@@ -61467,17 +61440,16 @@ function compactAgentRow(run, agent, finished, runs, options, width, liveHandle)
   const nameText = runTag + name + taskTag + roleTag;
   const liveLine = liveHandle?.activity?.responseText?.split("\n").find((line4) => line4.trim())?.trim();
   const activity = !finished && liveHandle?.status === "running" && liveLine ? liveLine.length > 60 ? `${liveLine.slice(0, 60)}\u2026` : liveLine : finished ? dockStatusLabel(agent.status) : agentActivity(agent, liveHandle);
-  const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+  const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId, nowMs: nowMs3 });
   const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
   const model = shortModelLabel(agent, run);
   const suffix = `${model ? ` \xB7 ${model}` : ""}${usage ? ` \xB7 ${usage}` : ""}${ageText ? ` \xB7 ${ageText}` : ""}`;
   return budgetedRow({ lead: `${marker} ${dockGlyph} `, name: nameText, activity, suffix }, width);
 }
-function compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph) {
-  const now = Date.now();
+function compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph, nowMs3) {
   const flat = [];
   for (const entry of runs) {
-    const { active, finished } = orderWidgetAgents(entry, now);
+    const { active, finished } = orderWidgetAgents(entry, nowMs3);
     const liveForRun = listLiveAgents().filter((a) => a.runId === entry.run.runId);
     for (const agent of active) {
       flat.push({ run: entry.run, agent, finished: false, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
@@ -61506,7 +61478,7 @@ function compactDockLines(runs, options, width, maxLines, notificationCount, run
   const windowEnd = Math.min(flat.length, windowStart + MAX_AGENTS_DISPLAY);
   if (windowStart > 0) lines.push(truncate(`  \u2026 \u2191${windowStart} earlier (\u2191 to scroll)`, width));
   for (const row of flat.slice(windowStart, windowEnd)) {
-    lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle));
+    lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle, nowMs3));
   }
   if (windowEnd < flat.length) lines.push(truncate(`  \u2026 +${flat.length - windowEnd} more (\u2193 to scroll)`, width));
   return lines;
@@ -61518,8 +61490,8 @@ function buildSchedulesWidgetLine(jobs, now, hiddenCount = 0) {
   const nextTargets = enabled.map((job) => job.nextRun ? new Date(job.nextRun).getTime() : Number.NaN).filter((ms) => Number.isFinite(ms));
   if (nextTargets.length === 0) return `\u23F0 ${enabled.length} sched${hidden}`;
   const next = Math.min(...nextTargets);
-  const relative9 = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
-  return `\u23F0 ${enabled.length} sched \xB7 next ${relative9}${hidden}`;
+  const relative8 = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
+  return `\u23F0 ${enabled.length} sched \xB7 next ${relative8}${hidden}`;
 }
 function defaultScheduledJobsReader(cwd) {
   if (!getCrewScheduler()) return [];
@@ -61539,26 +61511,34 @@ function schedulesWidgetLine(cwd, now) {
 function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
   const rowStyle = options.rowStyle ?? "detailed";
   const focused = options.focused === true;
-  const schedLine = options.noSchedulesLine ? void 0 : schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
+  const schedLine = schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
   const runs = providedRuns ?? activeWidgetRuns(cwd);
   if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
   const runningGlyph = spinnerFrame("widget-header");
   if (rowStyle === "compact") {
-    const lines2 = compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph);
+    const lines2 = compactDockLines(
+      runs,
+      options,
+      width,
+      maxLines,
+      notificationCount,
+      runningGlyph,
+      (options.now ?? /* @__PURE__ */ new Date()).getTime()
+    );
     if (schedLine) lines2.push(truncate(schedLine, width));
     return focused ? lines2 : lines2.slice(0, maxLines);
   }
   const lines = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
   for (const entry of runs) {
     const { run, agents } = entry;
-    const now = Date.now();
-    const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, now);
+    const nowMs3 = (options.now ?? /* @__PURE__ */ new Date()).getTime();
+    const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, nowMs3);
     const completed = agents.filter((a) => a.status === "completed").length;
     const planPending = isPlanApprovalStatePending(run.planApproval);
     const runGlyph = planPending ? `\u26A0 plan:${run.runId.slice(-8)}` : iconForStatus(run.status, { runningGlyph });
     const isTerminal = isFinishedRunStatus(run.status);
     const agentCountText = `${completed}/${agents.length} agents`;
-    const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : now;
+    const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : nowMs3;
     const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
     const runElapsedText = `${Math.floor(runElapsedMs / 1e3)}s`;
     const statusLabel = isTerminal ? ` \xB7 ${run.status}` : "";
@@ -61574,7 +61554,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const branch = last ? "\u2514\u2500" : "\u251C\u2500";
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
       const legacyGlyph = options.viewedTaskId === agent.taskId ? "\u25C9" : iconForStatus(agent.status, { runningGlyph });
-      const stats = agentStats(agent, liveHandle);
+      const stats = agentStats(agent, liveHandle, nowMs3);
       const name = liveHandle?.agent ?? agent.agent;
       const activity = agentActivity(agent, liveHandle);
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
@@ -61590,7 +61570,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
       const name = liveHandle?.agent ?? agent.agent;
       const legacyIcon = agent.status === "completed" ? "\u2713" : agent.status === "failed" ? "\u2717" : agent.status === "needs_attention" ? "\u26A0" : "\u25AA";
-      const stats = agentStats(agent, liveHandle);
+      const stats = agentStats(agent, liveHandle, nowMs3);
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
       const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
       const branch = isLastFinished ? "\u2514\u2500" : "\u251C\u2500";
@@ -62265,7 +62245,6 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
   setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId)));
   const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
   const bottomMode = placement === "bottom";
-  const dockInFooter = bottomMode && isFooterDockSinkActive();
   const piPlacement = bottomMode ? "belowEditor" : placement;
   ctx.ui.setStatus(STATUS_KEY, runs.length > 0 ? statusSummary(runs) : void 0);
   const shouldClearLegacy = state2.legacyCleared !== true || state2.lastPlacement !== placement;
@@ -62280,16 +62259,12 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
         setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
         setExtensionWidget(ctx, TASKS_WIDGET_KEY, void 0, { placement: "aboveEditor" });
         state2.lastTasksVisibility = "hidden";
-        state2.footerDock?.dispose();
-        state2.footerDock = void 0;
-        setFooterDockProvider(void 0);
         state2.lastVisibility = "hidden";
         state2.lastPlacement = placement;
         state2.lastKey = WIDGET_KEY;
         state2.lastMaxLines = maxLines;
         state2.lastCwd = ctx.cwd;
         state2.model = void 0;
-        state2.slotInstalled = false;
       }
       requestRender(ctx);
       return;
@@ -62306,8 +62281,7 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
       snapshotCache,
       preloadManifests: preloadedManifests,
       workspaceId,
-      rowStyle,
-      dockedInFooter: dockInFooter
+      rowStyle
     };
   else {
     state2.model.cwd = ctx.cwd;
@@ -62319,35 +62293,13 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.model.preloadManifests = preloadedManifests;
     state2.model.workspaceId = workspaceId;
     state2.model.rowStyle = rowStyle;
-    state2.model.dockedInFooter = dockInFooter;
   }
-  if (dockInFooter) {
-    if (state2.slotInstalled) {
-      setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
-      state2.slotInstalled = false;
-    }
-    if (!state2.footerDock) state2.footerDock = new FooterDockHost(state2.model);
-    setFooterDockProvider((width) => state2.footerDock.render(width));
-  } else {
-    if (state2.footerDock) {
-      state2.footerDock.dispose();
-      state2.footerDock = void 0;
-    }
-    setFooterDockProvider(void 0);
-  }
-  if (needsWidgetInstall && !dockInFooter) {
+  if (needsWidgetInstall) {
     const model = state2.model;
     setExtensionWidget(ctx, WIDGET_KEY, ((_tui, theme) => new CrewWidgetComponent(model, theme, _tui)), {
       placement: piPlacement,
       persist: true
     });
-    state2.slotInstalled = true;
-    state2.lastVisibility = "visible";
-    state2.lastPlacement = placement;
-    state2.lastKey = WIDGET_KEY;
-    state2.lastMaxLines = maxLines;
-    state2.lastCwd = ctx.cwd;
-  } else if (dockInFooter) {
     state2.lastVisibility = "visible";
     state2.lastPlacement = placement;
     state2.lastKey = WIDGET_KEY;
@@ -62380,9 +62332,6 @@ function stopCrewWidget(ctx, state2, config) {
     setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
     setExtensionWidget(ctx, TASKS_WIDGET_KEY, void 0, { placement: "aboveEditor" });
     state2.lastTasksVisibility = "hidden";
-    state2.footerDock?.dispose();
-    state2.footerDock = void 0;
-    setFooterDockProvider(void 0);
     state2.lastVisibility = "hidden";
     state2.lastPlacement = placement;
     state2.lastKey = WIDGET_KEY;
@@ -62391,13 +62340,12 @@ function stopCrewWidget(ctx, state2, config) {
     requestRender(ctx);
   }
 }
-var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, TASKS_WIDGET_KEY, STATUS_KEY, SIGNATURE_CACHE_TTL_MS, resizeListenerInstalled, activeResizeTargets, resizeTimer, onResize, CrewWidgetComponent, FooterDockHost;
+var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, TASKS_WIDGET_KEY, STATUS_KEY, SIGNATURE_CACHE_TTL_MS, resizeListenerInstalled, activeResizeTargets, resizeTimer, onResize, CrewWidgetComponent;
 var init_widget = __esm({
   "src/ui/widget/index.ts"() {
     "use strict";
     init_defaults();
     init_visual();
-    init_dock_footer();
     init_panel_rows();
     init_panel_store();
     init_pi_ui_compat();
@@ -62569,7 +62517,7 @@ var init_widget = __esm({
         }
         const panel = panelDisplayState();
         const schedNow = /* @__PURE__ */ new Date();
-        const schedLine = this.model.dockedInFooter ? void 0 : schedulesWidgetLine(this.model.cwd, schedNow);
+        const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
         const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
         const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
@@ -62580,7 +62528,7 @@ var init_widget = __esm({
             runs,
             this.model.notificationCount ?? 0,
             width,
-            { rowStyle: this.model.rowStyle, now: schedNow, noSchedulesLine: this.model.dockedInFooter === true, ...panel }
+            { rowStyle: this.model.rowStyle, now: schedNow, ...panel }
           ).map((line4, index) => {
             if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
@@ -62602,21 +62550,6 @@ var init_widget = __esm({
           this.truncatedLines[0] = truncate(this.cachedLines[0], width);
         }
         return this.truncatedLines;
-      }
-    };
-    FooterDockHost = class {
-      component;
-      model;
-      constructor(model) {
-        this.model = model;
-      }
-      render(width) {
-        if (!this.component) this.component = new CrewWidgetComponent(this.model, void 0, void 0);
-        return this.component.render(width);
-      }
-      dispose() {
-        this.component?.dispose();
-        this.component = void 0;
       }
     };
   }
@@ -68712,19 +68645,19 @@ function parseRoot(start) {
 function safeJoin(...parts) {
   const filtered = parts.filter(Boolean);
   if (filtered.length === 0) return "";
-  const sep11 = filtered.some((p) => p.includes("\\")) ? "\\" : "/";
+  const sep10 = filtered.some((p) => p.includes("\\")) ? "\\" : "/";
   const firstPart = filtered[0];
   let leading = "";
-  if (sep11 === "\\") {
+  if (sep10 === "\\") {
     if (firstPart.startsWith("\\\\")) leading = "\\\\";
     else if (firstPart.startsWith("\\")) leading = "\\";
   } else if (firstPart.startsWith("/")) {
     leading = "/";
   }
-  const firstPartStripped = sep11 === "\\" ? firstPart.replace(/^\\{1,2}/, "") : firstPart.replace(/^\/+/, "");
+  const firstPartStripped = sep10 === "\\" ? firstPart.replace(/^\\{1,2}/, "") : firstPart.replace(/^\/+/, "");
   const rest = filtered.slice(1);
-  const joined = [firstPartStripped, ...rest].filter(Boolean).join(sep11);
-  const collapsed = joined.replace(new RegExp(`${sep11 === "\\" ? "\\\\" : "/"}{2,}`, "g"), sep11);
+  const joined = [firstPartStripped, ...rest].filter(Boolean).join(sep10);
+  const collapsed = joined.replace(new RegExp(`${sep10 === "\\" ? "\\\\" : "/"}{2,}`, "g"), sep10);
   return leading + collapsed;
 }
 function safeDirname(p) {
@@ -69286,12 +69219,12 @@ function tokenize(input) {
       continue;
     }
     if (/[0-9]/.test(input[i])) {
-      let num2 = "";
+      let num = "";
       while (i < input.length && /[0-9]/.test(input[i])) {
-        num2 += input[i];
+        num += input[i];
         i++;
       }
-      tokens.push({ type: "NUMBER", value: num2 });
+      tokens.push({ type: "NUMBER", value: num });
       continue;
     }
     if (/[a-zA-Z_]/.test(input[i])) {
@@ -69357,8 +69290,8 @@ var init_chain_parser = __esm({
         while (this.pos < this.tokens.length) {
           if (this.peek("COLON")) {
             this.consume("COLON");
-            const num2 = this.consume("NUMBER");
-            step.loopCount = Number.parseInt(num2.value, 10);
+            const num = this.consume("NUMBER");
+            step.loopCount = Number.parseInt(num.value, 10);
           } else if (this.peek("FLAG", "with-context")) {
             this.consume("FLAG");
             step.withContext = true;
@@ -72912,7 +72845,7 @@ function installCrewGlobalRegistry(deps) {
         if (!loaded) return true;
         return !loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
       };
-      while (!check()) await new Promise((resolve27) => setTimeout(resolve27, 500));
+      while (!check()) await new Promise((resolve26) => setTimeout(resolve26, 500));
     },
     hasRunning: (runId) => {
       if (!manifestCache2) return false;
@@ -73121,7 +73054,7 @@ function alignMetric2(value, width) {
   const gap = width - visibleWidth(value);
   return gap > 0 ? " ".repeat(gap) + value : value;
 }
-function isRealAgent(agent, liveHandle) {
+function isRealAgent(agent, liveHandle, nowMs3) {
   if (agent.runtime === "live-session" || agent.runtime === "child-process") return true;
   const tokens = (agent.usage?.input ?? 0) + (agent.usage?.output ?? 0) + (agent.usage?.cacheRead ?? 0) + (agent.usage?.cacheWrite ?? 0);
   if (tokens > 0) return true;
@@ -73129,7 +73062,7 @@ function isRealAgent(agent, liveHandle) {
   if (turns != null && turns > 0) return true;
   if ((agent.progress?.toolCount ?? 0) > 0) return true;
   if (liveHandle) {
-    const ms = Date.now() - liveHandle.activity.startedAtMs;
+    const ms = (nowMs3 ?? Date.now()) - liveHandle.activity.startedAtMs;
     if (ms > 3e4) return true;
   }
   return false;
@@ -73153,10 +73086,12 @@ function renderAgentsPane(snapshot, options = {}) {
   const liveForRun = allLive.filter((h) => h.runId === snapshot.runId);
   const { completed, total } = snapshot.progress;
   const lines = [];
+  const nowMs3 = options.nowMs ?? Date.now();
   const realAgents = snapshot.agents.filter(
     (a) => isRealAgent(
       a,
-      liveForRun.find((h) => h.taskId === a.taskId)
+      liveForRun.find((h) => h.taskId === a.taskId),
+      nowMs3
     )
   );
   const lineCount = Math.min(realAgents.length, 12);
@@ -73179,13 +73114,13 @@ function renderAgentsPane(snapshot, options = {}) {
       stats.push(alignMetric2(formatCost(agent.usage.cost), COST_METRIC_WIDTH2));
     }
     if (liveHandle) {
-      const ms = computeLiveDurationMs(liveHandle.activity);
+      const ms = computeLiveDurationMs(liveHandle.activity, nowMs3);
       stats.push(alignMetric2(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH2));
       if (options.showModel !== false && liveHandle.modelName && liveHandle.modelName !== "default") {
         stats.push(liveHandle.modelName);
       }
     } else if (agent.startedAt) {
-      const ms = Date.now() - new Date(agent.startedAt).getTime();
+      const ms = nowMs3 - new Date(agent.startedAt).getTime();
       if (Number.isFinite(ms)) stats.push(alignMetric2(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH2));
     }
     const statsStr = stats.length ? ` \xB7 ${stats.join(" ")}` : "";
@@ -73891,8 +73826,8 @@ function formatAge2(iso) {
   if (ms < 36e5) return `${Math.floor(ms / 6e4)}m`;
   return `${Math.floor(ms / 36e5)}h`;
 }
-function readProgressPreview(run, maxLines = 5, snapshotCache, resolve27) {
-  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
+function readProgressPreview(run, maxLines = 5, snapshotCache, resolve26) {
+  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
   if (snapshot?.recentOutputLines?.length) {
     return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
   }
@@ -73927,8 +73862,8 @@ function snapshotFor(run, snapshotCache) {
     return snapshotCache?.get(run.runId);
   }
 }
-function readRunTasks2(run, snapshotCache, resolve27) {
-  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
+function readRunTasks2(run, snapshotCache, resolve26) {
+  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.tasks;
   if (snapshotCache) return [];
   const parse4 = () => {
@@ -73975,11 +73910,11 @@ function agentPreviewLine(agent, task, options) {
     `Agent: ${icon} ${agent.taskId} ${agent.role}->${agent.agent}${stats.length ? ` \xB7 ${stats.join(" \xB7 ")}` : ""}${recent ? ` \u23BF ${recent}` : ""}`
   );
 }
-function readAgentPreview(run, maxLines = 5, options = {}, resolve27) {
+function readAgentPreview(run, maxLines = 5, options = {}, resolve26) {
   try {
-    const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, options.snapshotCache);
+    const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, options.snapshotCache);
     const agents = snapshot?.agents ?? (options.snapshotCache ? [] : readCrewAgents(run));
-    const tasks = snapshot?.tasks ?? readRunTasks2(run, options.snapshotCache, resolve27);
+    const tasks = snapshot?.tasks ?? readRunTasks2(run, options.snapshotCache, resolve26);
     if (!agents.length) return ["Agents: (none)"];
     const totals = tasks.reduce(
       (acc, task) => {
@@ -74003,8 +73938,8 @@ function readAgentPreview(run, maxLines = 5, options = {}, resolve27) {
     return [`Agents: failed to read (${message})`];
   }
 }
-function agentsFor2(run, snapshotCache, resolve27) {
-  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
+function agentsFor2(run, snapshotCache, resolve26) {
+  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.agents;
   if (snapshotCache) return [];
   try {
@@ -74013,8 +73948,8 @@ function agentsFor2(run, snapshotCache, resolve27) {
     return [];
   }
 }
-function runLabel(run, selected, snapshotCache, maxW, resolve27) {
-  const agents = agentsFor2(run, snapshotCache, resolve27);
+function runLabel(run, selected, snapshotCache, maxW, resolve26) {
+  const agents = agentsFor2(run, snapshotCache, resolve26);
   const stale = isLikelyOrphanedActiveRun(run, agents);
   const running = agents.find((agent) => agent.status === "running");
   const queued = agents.find((agent) => agent.status === "queued");
@@ -74038,19 +73973,19 @@ function runLabel(run, selected, snapshotCache, maxW, resolve27) {
   const prefixRender = truncate(`${head} \xB7 ${meta}`, prefixBudget);
   return sanitizeLine(`${prefixRender} \xB7 ${goalRender}`);
 }
-function resolveRuns(runs, snapshotCache, resolve27) {
+function resolveRuns(runs, snapshotCache, resolve26) {
   const map3 = /* @__PURE__ */ new Map();
   for (const run of runs) {
-    const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
-    const agents = snapshot?.agents ?? agentsFor2(run, snapshotCache, resolve27);
+    const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
+    const agents = snapshot?.agents ?? agentsFor2(run, snapshotCache, resolve26);
     const displayRun = snapshot?.manifest ?? run;
     const status = isLikelyOrphanedActiveRun(displayRun, agents) ? "stale" : displayRun.status;
     map3.set(run.runId, { manifest: run, snapshot, agents, status });
   }
   return map3;
 }
-function groupedRuns(runs, snapshotCache, resolve27) {
-  const resolved = resolveRuns(runs, snapshotCache, resolve27);
+function groupedRuns(runs, snapshotCache, resolve26) {
+  const resolved = resolveRuns(runs, snapshotCache, resolve26);
   const rows = [];
   const active = runs.filter(
     (run) => isDisplayActiveRun(resolved.get(run.runId)?.snapshot?.manifest ?? run, resolved.get(run.runId)?.agents ?? [])
@@ -74062,8 +73997,8 @@ function groupedRuns(runs, snapshotCache, resolve27) {
   if (rest.length) rows.push({ label: "Recent" }, ...rest.map((run) => ({ label: run.runId, run })));
   return rows;
 }
-function selectedRunFromGrouped(runs, selected, snapshotCache, resolve27) {
-  return groupedRuns(runs, snapshotCache, resolve27).filter((row) => row.run)[selected]?.run;
+function selectedRunFromGrouped(runs, selected, snapshotCache, resolve26) {
+  return groupedRuns(runs, snapshotCache, resolve26).filter((row) => row.run)[selected]?.run;
 }
 var lastActivePane, TASK_READ_TTL_MS2, SCHEDULE_JOBS_TTL_MS, SCHEDULES_PANE_MAX_LINES, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS2, STALE_SNAPSHOT_MS, RunDashboard;
 var init_run_dashboard = __esm({
@@ -74191,14 +74126,14 @@ var init_run_dashboard = __esm({
         const rows = Number.isFinite(process.stdout?.rows) ? Number(process.stdout?.rows) : 30;
         return Math.max(12, Math.min(36, rows - 2));
       }
-      refreshRuns(resolve27) {
+      refreshRuns(resolve26) {
         if (!this.options.runProvider) return;
-        const selectedRunId = this.selectedRunId(resolve27);
+        const selectedRunId = this.selectedRunId(resolve26);
         const next = this.options.runProvider();
         const unfiltered = Array.isArray(next) ? next : this.runs;
         this.runs = this.options.workspaceId ? unfiltered.filter((run) => !run.ownerSessionId || run.ownerSessionId === this.options.workspaceId) : unfiltered;
         if (selectedRunId) {
-          const nextIndex = groupedRuns(this.runs, this.options.snapshotCache, resolve27).filter((row) => row.run).findIndex((row) => row.run?.runId === selectedRunId);
+          const nextIndex = groupedRuns(this.runs, this.options.snapshotCache, resolve26).filter((row) => row.run).findIndex((row) => row.run?.runId === selectedRunId);
           if (nextIndex >= 0) this.selected = nextIndex;
           else this.selected = 0;
         }
@@ -74226,16 +74161,16 @@ var init_run_dashboard = __esm({
           if (this.runScrollOffset === prev) break;
         }
       }
-      buildSignature(resolve27) {
+      buildSignature(resolve26) {
         const now = Date.now();
         if (this.cachedSignature && now - this.cachedSignatureAt < SIGNATURE_CACHE_TTL_MS2) {
           return this.cachedSignature;
         }
         let hasRunning = false;
         const statuses = this.runs.map((run) => {
-          const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, this.options.snapshotCache);
+          const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, this.options.snapshotCache);
           const displayRun = snapshot?.manifest ?? run;
-          const agents = snapshot?.agents ?? agentsFor2(run, this.options.snapshotCache, resolve27);
+          const agents = snapshot?.agents ?? agentsFor2(run, this.options.snapshotCache, resolve26);
           const stale = isLikelyOrphanedActiveRun(displayRun, agents);
           const status = stale ? "stale" : displayRun.status;
           if (status === "running" || agents.some((agent) => agent.status === "running")) hasRunning = true;
@@ -74258,8 +74193,8 @@ var init_run_dashboard = __esm({
         this.unsubscribeTheme();
         this.schedulerHandle?.dispose();
       }
-      selectedRunId(resolve27) {
-        return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve27)?.runId;
+      selectedRunId(resolve26) {
+        return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve26)?.runId;
       }
       /** Tier A: scheduled jobs via the SINGLE source of truth (G17) — the
        *  extension-layer provider, TTL-cached so render ticks never hit disk
@@ -74347,7 +74282,7 @@ var init_run_dashboard = __esm({
           const borderFill = (count2) => crewBorder.render(count2)[0];
           const border2 = (left, right) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
           const row = (text) => `\u2502 ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}\u2502`;
-          const sep11 = () => border2("\u251C", "\u2524");
+          const sep10 = () => border2("\u251C", "\u2524");
           const lines = [];
           if (this.showHelp) {
             lines.push(...new HelpOverlay(this.theme).render(width));
@@ -74357,7 +74292,7 @@ var init_run_dashboard = __esm({
               row(
                 `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-8 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
               ),
-              sep11()
+              sep10()
             );
             if (this.runs.length === 0) {
               lines.push(row(fg("dim", "No runs yet.")));
@@ -74405,7 +74340,7 @@ var init_run_dashboard = __esm({
                 const agents = snap?.agents ?? agentsFor2(selectedRun, this.options.snapshotCache, snapshotOnce);
                 const statusStr = isLikelyOrphanedActiveRun(r, agents) ? "stale" : r.status;
                 const selectedTasks = snap?.tasks ?? readRunTasks2(r, this.options.snapshotCache, snapshotOnce);
-                lines.push(sep11());
+                lines.push(sep10());
                 lines.push(row(`${fg("accent", "\u25B8")} ${truncate(sanitizeLine(r.goal), innerWidth - 6)}`));
                 const isTerminal = statusStr === "failed" || statusStr === "cancelled" || statusStr === "stopped";
                 const reason = isTerminal ? summarizeTerminalReason(r, selectedTasks, snap?.cancellationReason) : void 0;
@@ -74474,7 +74409,7 @@ var init_run_dashboard = __esm({
             if (this.activePane === "schedules") {
               const jobs = this.scheduleJobs();
               const now = this.scheduleNow();
-              lines.push(sep11());
+              lines.push(sep10());
               lines.push(row(fg("dim", "\u2500\u2500 schedules \u2500\u2500")));
               const paneLines = safeRenderPane(
                 "schedules",
@@ -76496,10 +76431,10 @@ var init_settings_overlay = __esm({
               typeof current === "number" ? String(current) : "",
               this.theme,
               (value) => {
-                const num2 = value === "" ? void 0 : Number(value);
-                if (num2 !== void 0 && !Number.isNaN(num2)) {
-                  this.changedValues.set(def.id, num2);
-                  this.callbacks.onChange(def.id, num2);
+                const num = value === "" ? void 0 : Number(value);
+                if (num !== void 0 && !Number.isNaN(num)) {
+                  this.changedValues.set(def.id, num);
+                  this.callbacks.onChange(def.id, num);
                 } else if (value === "") {
                   this.changedValues.set(def.id, void 0);
                   this.callbacks.onChange(def.id, void 0);
@@ -78497,7 +78432,7 @@ var init_subagent_manager = __esm({
             await record.promise.catch((error) => {
               logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
             });
-          else await new Promise((resolve27) => setTimeout(resolve27, 100));
+          else await new Promise((resolve26) => setTimeout(resolve26, 100));
         }
       }
       setMaxConcurrent(value) {
@@ -78609,7 +78544,7 @@ var init_subagent_manager = __esm({
           }
           const loaded = loadRunManifestById(cwd, record.runId);
           if (!loaded) {
-            await new Promise((resolve27) => setTimeout(resolve27, this.pollIntervalMs));
+            await new Promise((resolve26) => setTimeout(resolve26, this.pollIntervalMs));
             continue;
           }
           if (loaded.manifest.status === "completed") {
@@ -78642,7 +78577,7 @@ var init_subagent_manager = __esm({
             savePersistedSubagentRecord(cwd, record);
             return;
           }
-          await new Promise((resolve27) => setTimeout(resolve27, this.pollIntervalMs));
+          await new Promise((resolve26) => setTimeout(resolve26, this.pollIntervalMs));
         }
       }
       scheduleBlockedTerminalPoll(cwd, record) {
@@ -80933,10 +80868,10 @@ function createMetricFileSink(opts) {
       const target = ensureFd(date);
       const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
-      return new Promise((resolve27) => {
+      return new Promise((resolve26) => {
         fs121.write(target, line4, (err2) => {
           if (err2) logInternalError("metric-sink.asyncWrite", err2);
-          resolve27();
+          resolve26();
         });
       });
     } catch (error) {
@@ -82230,9 +82165,7 @@ function registerCrewShortcuts(pi) {
 var CREW_SHORTCUT_KEYS = CREW_SHORTCUTS.map((s) => s.key);
 
 // src/extension/crew-vibes/index.ts
-init_pi_ui_compat();
 init_internal_error();
-init_dock_footer();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
@@ -82456,321 +82389,6 @@ function crewFrames(style = "braille") {
 function intervalForSpeed(config, speed) {
   if (speed === null || !Number.isFinite(speed) || speed <= 0) return config.defaultIntervalMs;
   return Math.max(config.minIntervalMs, Math.min(config.maxIntervalMs, Math.round(config.scale / speed)));
-}
-
-// src/extension/crew-vibes/footer.ts
-init_dock_footer();
-init_pi_ui_compat();
-init_theme_adapter();
-init_widget_renderer();
-init_visual();
-import { isAbsolute as isAbsolute11, relative as relative8, resolve as resolve23, sep as sep9 } from "node:path";
-
-// src/extension/crew-vibes/render.ts
-function formatCount(value) {
-  if (value < 1e3) return value.toString();
-  if (value < 1e4) return `${(value / 1e3).toFixed(1)}k`;
-  if (value < 1e6) return `${Math.round(value / 1e3)}k`;
-  if (value < 1e7) return `${(value / 1e6).toFixed(1)}M`;
-  return `${Math.round(value / 1e6)}M`;
-}
-function asCrewTheme2(theme) {
-  if (theme && typeof theme === "object" && typeof theme.fg === "function") {
-    return theme;
-  }
-  return void 0;
-}
-function getCapacityUsage(ctx) {
-  const fn = ctx.getContextUsage;
-  const usage = typeof fn === "function" ? fn.call(ctx) : null;
-  return {
-    tokens: typeof usage?.tokens === "number" && Number.isFinite(usage.tokens) ? usage.tokens : null,
-    percent: typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null
-  };
-}
-function formatSpeed(config, speed) {
-  return speed === null ? `-- ${config.label}` : `${speed.toFixed(1)} ${config.label}`;
-}
-function renderSpeedFooter(theme, config, speed) {
-  const value = speed === null ? "--" : speed.toFixed(1);
-  const valueTone = speed === null ? "dim" : "accent";
-  const styled = theme ? `${theme.fg(valueTone, value)} ${theme.fg("dim", config.label)}` : `${value} ${config.label}`;
-  return styled;
-}
-function renderWorkingMessage(theme, config, speed) {
-  const left = "Working";
-  const speedText = theme ? `${theme.fg(speed === null ? "dim" : "accent", speed === null ? "--" : speed.toFixed(1))} ${theme.fg("dim", config.label)}` : `${speed === null ? "--" : speed.toFixed(1)} ${config.label}`;
-  return theme ? `${theme.fg("muted", left)}  ${speedText}` : `${left}  ${speedText}`;
-}
-function crewIndicatorFrames(theme) {
-  const frames = crewFrames();
-  if (!theme) return [...frames];
-  return frames.map((frame) => theme.fg("accent", frame));
-}
-function setSpeedStatus(ctx, config, text) {
-  if (!ctx?.hasUI) return;
-  if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-    ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
-    return;
-  }
-  ctx.ui.setStatus(SPEED_STATUS_ID, text);
-}
-function clearVibesStatus(ctx) {
-  if (!ctx?.hasUI) return;
-  ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
-  ctx.ui.setStatus(CAPACITY_STATUS_ID, void 0);
-  ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
-  if (ctx.ui.setWorkingIndicator) ctx.ui.setWorkingIndicator();
-  if (ctx.ui.setWorkingMessage) ctx.ui.setWorkingMessage();
-}
-function formatResetTimer(resetAt) {
-  if (!resetAt) return null;
-  const diffMs = new Date(resetAt).getTime() - Date.now();
-  if (diffMs < 0) return null;
-  const mins = Math.floor(diffMs / 6e4);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 48) {
-    const remMins = mins % 60;
-    return remMins > 0 ? `${hours}h${remMins}m` : `${hours}h`;
-  }
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
-}
-function renderBar(percent, width = 8) {
-  const clamped = Math.max(0, Math.min(100, percent));
-  const filled = Math.round(clamped / 100 * width);
-  return `${"\u2501".repeat(filled)}${"\u2504".repeat(width - filled)}`;
-}
-function renderProviderUsage(theme, usage) {
-  if (!usage) return void 0;
-  const parts = [];
-  if (usage.providerName) {
-    const nameText = usage.providerName;
-    parts.push(theme ? theme.fg("muted", nameText) : nameText);
-  }
-  const fiveHourBar = renderBar(usage.fiveHourPercent);
-  const fiveHourRounded = Math.round(usage.fiveHourPercent);
-  const fiveHourReset = formatResetTimer(usage.fiveHourResetAt);
-  const fiveHourText = `5h ${fiveHourBar} ${fiveHourRounded}%${fiveHourReset ? " " + fiveHourReset : ""}`;
-  const fiveHourColor = usage.fiveHourPercent >= 80 ? "error" : "accent";
-  parts.push(theme ? theme.fg(fiveHourColor, fiveHourText) : fiveHourText);
-  const weeklyBar = renderBar(usage.weeklyPercent);
-  const weeklyRounded = Math.round(usage.weeklyPercent);
-  const weeklyReset = formatResetTimer(usage.weeklyResetAt);
-  const weeklyText = `Wk ${weeklyBar} ${weeklyRounded}%${weeklyReset ? " " + weeklyReset : ""}`;
-  parts.push(theme ? theme.fg("dim", weeklyText) : weeklyText);
-  if (typeof usage.copilotMonthlyPercent === "number" && Number.isFinite(usage.copilotMonthlyPercent)) {
-    const monthlyRounded = Math.round(usage.copilotMonthlyPercent);
-    const monthlyText = `Mo: ${monthlyRounded}%`;
-    parts.push(theme ? theme.fg("dim", monthlyText) : monthlyText);
-  }
-  return parts.join(" ");
-}
-
-// src/extension/crew-vibes/footer.ts
-function num(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-function formatCwdForFooter(cwd, home) {
-  if (!home) return cwd;
-  const resolvedCwd = resolve23(cwd);
-  const resolvedHome = resolve23(home);
-  const rel = relative8(resolvedHome, resolvedCwd);
-  const inside = rel === "" || rel !== ".." && !rel.startsWith(`..${sep9}`) && !isAbsolute11(rel);
-  if (!inside) return cwd;
-  return rel === "" ? "~" : `~${sep9}${rel}`;
-}
-function sanitizeStatusText(text) {
-  return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
-}
-function asFooterData(value) {
-  if (!value || typeof value !== "object") return void 0;
-  const record = value;
-  if (typeof record.getGitBranch !== "function" || typeof record.getExtensionStatuses !== "function" || typeof record.getAvailableProviderCount !== "function" || typeof record.onBranchChange !== "function") {
-    return void 0;
-  }
-  return value;
-}
-function computeTotals(entries) {
-  const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-  for (const entry of entries) {
-    const rec = entry;
-    if (rec?.type !== "message" || rec.message?.role !== "assistant") continue;
-    const usage = rec.message.usage;
-    if (!usage) continue;
-    totals.input += num(usage.input);
-    totals.output += num(usage.output);
-    totals.cacheRead += num(usage.cacheRead);
-    totals.cacheWrite += num(usage.cacheWrite);
-    totals.cost += num(usage.cost?.total);
-  }
-  return totals;
-}
-var CrewVibesFooter = class {
-  theme;
-  footerData;
-  ctx;
-  source;
-  tui;
-  unsubscribeBranch;
-  constructor(deps) {
-    this.theme = asCrewTheme(deps.theme);
-    this.footerData = asFooterData(deps.footerData);
-    this.ctx = deps.ctx;
-    this.source = deps.source;
-    this.tui = deps.tui;
-    this.unsubscribeBranch = this.footerData ? this.footerData.onBranchChange(() => requestRenderTarget(this.tui)) : () => void 0;
-  }
-  invalidate() {
-  }
-  dispose() {
-    this.unsubscribeBranch();
-  }
-  buildPwdLine(width) {
-    const sm = this.ctx.sessionManager;
-    let pwd = formatCwdForFooter(sm.getCwd(), process.env.HOME || process.env.USERPROFILE);
-    const branch = this.footerData?.getGitBranch();
-    if (branch) pwd = `${pwd} (${branch})`;
-    const sessionName = sm.getSessionName?.();
-    if (sessionName) pwd = `${pwd} \u2022 ${sessionName}`;
-    return truncateToWidth(this.theme.fg("dim", pwd), width, this.theme.fg("dim", "..."));
-  }
-  buildStatsLine(width) {
-    const theme = this.theme;
-    const model = this.ctx.model;
-    const totals = computeTotals(this.ctx.sessionManager.getEntries());
-    const contextUsage = this.ctx.getContextUsage?.();
-    const contextWindow2 = contextUsage?.contextWindow ?? model?.contextWindow ?? 0;
-    const percentValue = contextUsage?.percent ?? 0;
-    const percentKnown = contextUsage?.percent !== null && contextUsage?.percent !== void 0;
-    const statsParts = [];
-    if (totals.input) statsParts.push(`\u2191${formatCount(totals.input)}`);
-    if (totals.output) statsParts.push(`\u2193${formatCount(totals.output)}`);
-    if (totals.cacheRead) statsParts.push(`R${formatCount(totals.cacheRead)}`);
-    if (totals.cacheWrite) statsParts.push(`W${formatCount(totals.cacheWrite)}`);
-    const usingSubscription = !!(model && this.ctx.modelRegistry?.isUsingOAuth?.(this.ctx.model));
-    if (totals.cost || usingSubscription) {
-      statsParts.push(`$${totals.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
-    }
-    const autoIndicator = " (auto)";
-    const contextDisplay = percentKnown ? `${percentValue.toFixed(1)}%/${formatCount(contextWindow2)}${autoIndicator}` : `?/${formatCount(contextWindow2)}${autoIndicator}`;
-    const contextColored = percentValue > 90 ? theme.fg("error", contextDisplay) : percentValue > 70 ? theme.fg("warning", contextDisplay) : contextDisplay;
-    statsParts.push(contextColored);
-    let statsLeft = statsParts.join(" ");
-    let statsLeftWidth = visibleWidth(statsLeft);
-    if (statsLeftWidth > width) {
-      statsLeft = truncateToWidth(statsLeft, width, "...");
-      statsLeftWidth = visibleWidth(statsLeft);
-    }
-    const minPadding = 2;
-    const modelName = model?.id || "no-model";
-    let rightSideWithoutProvider = modelName;
-    if (model?.reasoning) {
-      let level = this.source.getThinkingLevel();
-      try {
-        const ctx = this.ctx.sessionManager;
-        if (typeof ctx.buildSessionContext === "function") {
-          const resolved = ctx.buildSessionContext()?.thinkingLevel;
-          if (resolved) level = resolved;
-        }
-      } catch {
-      }
-      const finalLevel = level || "off";
-      rightSideWithoutProvider = finalLevel === "off" ? `${modelName} \u2022 thinking off` : `${modelName} \u2022 ${finalLevel}`;
-    }
-    let rightSide = rightSideWithoutProvider;
-    const providerCount = this.footerData?.getAvailableProviderCount() ?? 0;
-    if (providerCount > 1 && model?.provider) {
-      rightSide = `(${model.provider}) ${rightSideWithoutProvider}`;
-      if (statsLeftWidth + minPadding + visibleWidth(rightSide) > width) rightSide = rightSideWithoutProvider;
-    }
-    const rightSideWidth = visibleWidth(rightSide);
-    let statsLine;
-    if (statsLeftWidth + minPadding + rightSideWidth <= width) {
-      statsLine = statsLeft + " ".repeat(width - statsLeftWidth - rightSideWidth) + rightSide;
-    } else {
-      const availableForRight = width - statsLeftWidth - minPadding;
-      if (availableForRight > 0) {
-        const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
-        const padding = " ".repeat(Math.max(0, width - statsLeftWidth - visibleWidth(truncatedRight)));
-        statsLine = statsLeft + padding + truncatedRight;
-      } else {
-        statsLine = statsLeft;
-      }
-    }
-    const dimStatsLeft = theme.fg("dim", statsLeft);
-    const dimRemainder = theme.fg("dim", statsLine.slice(statsLeft.length));
-    return dimStatsLeft + dimRemainder;
-  }
-  buildStatusLine(width) {
-    if (!this.footerData) return void 0;
-    const statuses = this.footerData.getExtensionStatuses();
-    if (statuses.size === 0) return void 0;
-    const joined = Array.from(statuses.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => sanitizeStatusText(text)).join(" ");
-    if (!joined) return void 0;
-    return truncateToWidth(joined, width, this.theme.fg("dim", "..."));
-  }
-  rightAlign(text, width) {
-    const w = visibleWidth(text);
-    if (w >= width) return truncateToWidth(text, width, "\u2026");
-    return " ".repeat(width - w) + text;
-  }
-  /** Schedules + provider quota. Uses the REAL render width, so the quota is
-   * never chopped. When both do not fit on one line, wrap to two lines
-   * (schedules above, quota right-aligned below).
-   *
-   * Maintainer decision (2026-09-13): the capacity stage meter (context
-   * token count + Orbit/Cruise/Warp/… glyph) was RETIRED from the footer —
-   * it duplicated the context percent already shown on the stats line and
-   * carried no actionable signal. Its slot now carries the Tier-C schedules
-   * segment, which previously lived on its own dock line below the footer
-   * (one screen line saved; `renderCapacity` remains exported for tests). */
-  buildMeterLines(width) {
-    const config = this.source.getConfig();
-    if (!config.enabled) return [];
-    const schedText = schedulesWidgetLine(this.ctx.sessionManager.getCwd(), /* @__PURE__ */ new Date());
-    const quotaText = config.capacity.providerUsage ? renderProviderUsage(this.theme, this.source.getQuotaUsage()) : void 0;
-    if (!schedText && !quotaText) return [];
-    if (schedText && !quotaText) return [truncateToWidth(schedText, width, "\u2026")];
-    if (!schedText && quotaText) return [this.rightAlign(quotaText, width)];
-    const sched = schedText;
-    const quota = quotaText;
-    const schedWidth = visibleWidth(sched);
-    const quotaWidth = visibleWidth(quota);
-    if (schedWidth + 1 + quotaWidth <= width) {
-      const pad2 = Math.max(1, width - schedWidth - quotaWidth);
-      return [sched + " ".repeat(pad2) + quota];
-    }
-    return [truncateToWidth(sched, width, "\u2026"), this.rightAlign(quota, width)];
-  }
-  /** Dock lines registered by the crew widget (`widgetPlacement: "bottom"`):
-   *  painted as the very last block of the footer, below the quota/meters.
-   *  The provider returns RAW lines; we color them with this footer's theme
-   *  (same per-line palette the widget would have used) and truncate to the
-   *  real render width. */
-  buildDockLines(width) {
-    const provider = getFooterDockProvider();
-    if (!provider) return [];
-    const raw = provider(width);
-    if (raw.length === 0) return [];
-    return renderLines(
-      raw.map((line4, index) => colorWidgetLine(line4, index, this.theme)),
-      width
-    ).map((line4) => truncateToWidth(line4, width, "\u2026"));
-  }
-  render(width) {
-    const lines = [this.buildPwdLine(width), this.buildStatsLine(width)];
-    const statusLine = this.buildStatusLine(width);
-    if (statusLine) lines.push(statusLine);
-    lines.push(...this.buildMeterLines(width));
-    lines.push(...this.buildDockLines(width));
-    return lines;
-  }
-};
-function createCrewVibesFooter(deps) {
-  return new CrewVibesFooter(deps);
 }
 
 // src/extension/crew-vibes/provider-usage.ts
@@ -83027,6 +82645,110 @@ async function fetchProviderUsage(maxAgeMs = 3e5, provider) {
   }
 }
 
+// src/extension/crew-vibes/render.ts
+function asCrewTheme2(theme) {
+  if (theme && typeof theme === "object" && typeof theme.fg === "function") {
+    return theme;
+  }
+  return void 0;
+}
+function getCapacityUsage(ctx) {
+  const fn = ctx.getContextUsage;
+  const usage = typeof fn === "function" ? fn.call(ctx) : null;
+  return {
+    tokens: typeof usage?.tokens === "number" && Number.isFinite(usage.tokens) ? usage.tokens : null,
+    percent: typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null
+  };
+}
+function formatSpeed(config, speed) {
+  return speed === null ? `-- ${config.label}` : `${speed.toFixed(1)} ${config.label}`;
+}
+function renderSpeedFooter(theme, config, speed) {
+  const value = speed === null ? "--" : speed.toFixed(1);
+  const valueTone = speed === null ? "dim" : "accent";
+  const styled = theme ? `${theme.fg(valueTone, value)} ${theme.fg("dim", config.label)}` : `${value} ${config.label}`;
+  return styled;
+}
+function renderWorkingMessage(theme, config, speed) {
+  const left = "Working";
+  const speedText = theme ? `${theme.fg(speed === null ? "dim" : "accent", speed === null ? "--" : speed.toFixed(1))} ${theme.fg("dim", config.label)}` : `${speed === null ? "--" : speed.toFixed(1)} ${config.label}`;
+  return theme ? `${theme.fg("muted", left)}  ${speedText}` : `${left}  ${speedText}`;
+}
+function crewIndicatorFrames(theme) {
+  const frames = crewFrames();
+  if (!theme) return [...frames];
+  return frames.map((frame) => theme.fg("accent", frame));
+}
+function setSpeedStatus(ctx, config, text) {
+  if (!ctx?.hasUI) return;
+  if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
+    ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
+    return;
+  }
+  ctx.ui.setStatus(SPEED_STATUS_ID, text);
+}
+function clearVibesStatus(ctx) {
+  if (!ctx?.hasUI) return;
+  ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
+  ctx.ui.setStatus(CAPACITY_STATUS_ID, void 0);
+  ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
+  if (ctx.ui.setWorkingIndicator) ctx.ui.setWorkingIndicator();
+  if (ctx.ui.setWorkingMessage) ctx.ui.setWorkingMessage();
+}
+function formatResetTimer(resetAt) {
+  if (!resetAt) return null;
+  const diffMs = new Date(resetAt).getTime() - Date.now();
+  if (diffMs < 0) return null;
+  const mins = Math.floor(diffMs / 6e4);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) {
+    const remMins = mins % 60;
+    return remMins > 0 ? `${hours}h${remMins}m` : `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
+}
+function renderBar(percent, width = 8) {
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.round(clamped / 100 * width);
+  return `${"\u2501".repeat(filled)}${"\u2504".repeat(width - filled)}`;
+}
+function renderProviderUsage(theme, usage) {
+  if (!usage) return void 0;
+  const parts = [];
+  if (usage.providerName) {
+    const nameText = usage.providerName;
+    parts.push(theme ? theme.fg("muted", nameText) : nameText);
+  }
+  const fiveHourBar = renderBar(usage.fiveHourPercent);
+  const fiveHourRounded = Math.round(usage.fiveHourPercent);
+  const fiveHourReset = formatResetTimer(usage.fiveHourResetAt);
+  const fiveHourText = `5h ${fiveHourBar} ${fiveHourRounded}%${fiveHourReset ? " " + fiveHourReset : ""}`;
+  const fiveHourColor = usage.fiveHourPercent >= 80 ? "error" : "accent";
+  parts.push(theme ? theme.fg(fiveHourColor, fiveHourText) : fiveHourText);
+  const weeklyBar = renderBar(usage.weeklyPercent);
+  const weeklyRounded = Math.round(usage.weeklyPercent);
+  const weeklyReset = formatResetTimer(usage.weeklyResetAt);
+  const weeklyText = `Wk ${weeklyBar} ${weeklyRounded}%${weeklyReset ? " " + weeklyReset : ""}`;
+  parts.push(theme ? theme.fg("dim", weeklyText) : weeklyText);
+  if (typeof usage.copilotMonthlyPercent === "number" && Number.isFinite(usage.copilotMonthlyPercent)) {
+    const monthlyRounded = Math.round(usage.copilotMonthlyPercent);
+    const monthlyText = `Mo: ${monthlyRounded}%`;
+    parts.push(theme ? theme.fg("dim", monthlyText) : monthlyText);
+  }
+  return parts.join(" ");
+}
+function setProviderStatus(ctx, config, text) {
+  if (!ctx?.hasUI) return;
+  if (!config.enabled || !config.capacity.providerUsage) {
+    ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
+    return;
+  }
+  ctx.ui.setStatus(PROVIDER_STATUS_ID, text);
+}
+
 // src/extension/crew-vibes/speed.ts
 var COMPACTION_THRESHOLD = 5e3;
 function estimateTokensFromDelta(text) {
@@ -83270,41 +82992,17 @@ function registerCrewVibes(pi) {
   const footerAnimator = new SpeedAnimator(config.speed.renderIntervalMs);
   let liveTimer;
   let footerTimer;
-  let capacityTimer;
   let providerTimer;
   let lastProviderUsage = null;
   let currentProvider;
-  let currentThinkingLevel;
   function themeOf(ctx) {
     return asCrewTheme2(ctx.hasUI ? ctx.ui.theme : void 0);
   }
-  const footerSource = {
-    getConfig: () => config,
-    getQuotaUsage: () => lastProviderUsage,
-    getThinkingLevel: () => currentThinkingLevel
-  };
-  function metersActive() {
-    return config.enabled && (config.capacity.enabled || config.capacity.providerUsage);
-  }
-  function installFooter(ctx) {
-    if (!ctx?.hasUI) return;
-    if (!metersActive()) {
-      safeUiCall("clear-footer", () => {
-        setFooterDockSinkActive(false);
-        setFooter(ctx, void 0);
-      });
-      return;
-    }
-    safeUiCall("install-footer", () => {
-      setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
-      setFooterDockSinkActive(true);
-      requestRender(ctx);
-    });
-  }
-  function refreshFooter(ctx) {
-    safeUiCall("refresh-footer", () => {
-      if (ctx?.hasUI) requestRender(ctx);
-    });
+  function publishQuotaStatus(ctx) {
+    safeUiCall(
+      "publish-quota-status",
+      () => setProviderStatus(ctx, config, lastProviderUsage ? renderProviderUsage(themeOf(ctx), lastProviderUsage) : void 0)
+    );
   }
   function publishSpeedFooter(ctx, speed = footerAnimator.value()) {
     if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
@@ -83344,11 +83042,6 @@ function registerCrewVibes(pi) {
     clearInterval(footerTimer);
     footerTimer = void 0;
   }
-  function stopCapacityTimer() {
-    if (!capacityTimer) return;
-    clearInterval(capacityTimer);
-    capacityTimer = void 0;
-  }
   function stopProviderTimer() {
     if (!providerTimer) return;
     clearInterval(providerTimer);
@@ -83379,16 +83072,10 @@ function registerCrewVibes(pi) {
     }, config.speed.renderIntervalMs);
     footerTimer.unref?.();
   }
-  function startCapacityTimer(ctx) {
-    if (capacityTimer) return;
-    const interval = Math.max(250, config.capacity.refreshIntervalMs);
-    capacityTimer = setInterval(() => refreshFooter(ctx), interval);
-    capacityTimer.unref?.();
-  }
   async function fetchProviderAndRefresh(ctx) {
     if (!config.enabled || !config.capacity.providerUsage) {
       lastProviderUsage = null;
-      refreshFooter(ctx);
+      publishQuotaStatus(ctx);
       return;
     }
     try {
@@ -83396,7 +83083,7 @@ function registerCrewVibes(pi) {
     } catch {
       lastProviderUsage = null;
     }
-    refreshFooter(ctx);
+    publishQuotaStatus(ctx);
   }
   function startProviderTimer(ctx) {
     if (providerTimer) return;
@@ -83417,22 +83104,17 @@ function registerCrewVibes(pi) {
     if (!config.enabled) {
       stopLiveTimer();
       stopFooterTimer();
-      stopCapacityTimer();
       stopProviderTimer();
-      setFooterDockSinkActive(false);
-      setFooter(ctx, void 0);
       clearVibesStatus(ctx);
       return;
     }
-    installFooter(ctx);
     publishSpeedFooter(ctx);
-    startCapacityTimer(ctx);
     if (config.capacity.providerUsage) startProviderTimer(ctx);
+    else publishQuotaStatus(ctx);
   }
   pi.on("session_start", (_event, ctx) => {
     stopLiveTimer();
     stopFooterTimer();
-    stopCapacityTimer();
     stopProviderTimer();
     config = loadConfig2();
     speedTracker.updateConfig(config.speed);
@@ -83441,15 +83123,11 @@ function registerCrewVibes(pi) {
     footerAnimator.reset(null);
     clearProviderUsageCache();
     currentProvider = ctx.model?.provider;
-    currentThinkingLevel = void 0;
     if (!config.enabled) {
-      setFooter(ctx, void 0);
       clearVibesStatus(ctx);
       return;
     }
-    installFooter(ctx);
     publishSpeedFooter(ctx);
-    startCapacityTimer(ctx);
     startProviderTimer(ctx);
     applyIndicator(ctx, null, true);
   });
@@ -83486,7 +83164,6 @@ function registerCrewVibes(pi) {
   });
   pi.on("message_end", (event, ctx) => {
     if (!isAssistantMessage(event.message)) return;
-    refreshFooter(ctx);
     if (!config.enabled || !config.speed.enabled || !speedTracker.isStreaming) return;
     const completed = speedTracker.finishMessage(assistantUsageOutput(event.message) ?? 0, assistantStopReason(event.message));
     if (!completed) return;
@@ -83512,19 +83189,10 @@ function registerCrewVibes(pi) {
     clearProviderUsageCache();
     fetchProviderAndRefresh(ctx);
   });
-  pi.on("thinking_level_select", (event, ctx) => {
-    currentThinkingLevel = event.level;
-    refreshFooter(ctx);
-  });
-  pi.on("session_compact", (_event, ctx) => refreshFooter(ctx));
-  pi.on("session_tree", (_event, ctx) => refreshFooter(ctx));
   pi.on("session_shutdown", (_event, ctx) => {
     stopLiveTimer();
     stopFooterTimer();
-    stopCapacityTimer();
     stopProviderTimer();
-    setFooterDockSinkActive(false);
-    setFooter(ctx, void 0);
     clearVibesStatus(ctx);
   });
   async function handleCommand(args, ctx) {
@@ -85868,7 +85536,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
     throw e;
   }
   if (st.isSymbolicLink()) return "refused";
-  const live = await new Promise((resolve27) => {
+  const live = await new Promise((resolve26) => {
     let settled = false;
     const sock = net2.createConnection(sockPath);
     const finish = (v) => {
@@ -85878,7 +85546,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
         sock.destroy();
       } catch {
       }
-      resolve27(v);
+      resolve26(v);
     };
     sock.once("connect", () => finish(true));
     sock.once("error", () => finish(false));
@@ -86600,14 +86268,14 @@ var CrewBroker = class {
         );
       });
     });
-    await new Promise((resolve27, reject) => {
+    await new Promise((resolve26, reject) => {
       const onError = (err2) => {
         server.removeListener("listening", onListening);
         reject(err2);
       };
       const onListening = () => {
         server.removeListener("error", onError);
-        resolve27();
+        resolve26();
       };
       server.once("error", onError);
       server.once("listening", onListening);
@@ -86679,11 +86347,11 @@ var CrewBroker = class {
     }
     this.connections.clear();
     if (this.server) {
-      await new Promise((resolve27) => {
+      await new Promise((resolve26) => {
         const srv = this.server;
-        if (!srv) return resolve27();
-        srv.close(() => resolve27());
-        setTimeout(() => resolve27(), 250).unref();
+        if (!srv) return resolve26();
+        srv.close(() => resolve26());
+        setTimeout(() => resolve26(), 250).unref();
       });
       this.server = null;
     }
@@ -87289,45 +86957,45 @@ var CrewBroker = class {
     const isTerminal = (s) => s === "completed" || s === "failed" || s === "cancelled";
     const start = Date.now();
     const interval = 200;
-    const pollUntilDone = () => new Promise((resolve27) => {
+    const pollUntilDone = () => new Promise((resolve26) => {
       const tick = () => {
         if (conn.closed) {
           this.sendError(conn, id, "close", "connection closed during wait");
-          resolve27();
+          resolve26();
           return;
         }
         const connRunId = conn.runId;
         if (!connRunId) {
           this.sendError(conn, id, "auth", "not authed (post-narrow)");
-          resolve27();
+          resolve26();
           return;
         }
         if (Date.now() - start >= timeoutMs) {
           this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
-          resolve27();
+          resolve26();
           return;
         }
         try {
           const loaded = this.waitStatusCache.load(cwd, connRunId);
           if (!loaded) {
             this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-            resolve27();
+            resolve26();
             return;
           }
           const task = loaded.tasks.find((t2) => t2.id === targetTaskId);
           if (!task) {
             this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
-            resolve27();
+            resolve26();
             return;
           }
           if (task.status === targetStatus || isTerminal(targetStatus) && isTerminal(task.status)) {
             this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
-            resolve27();
+            resolve26();
             return;
           }
         } catch (err2) {
           this.sendError(conn, id, "wait-failed", err2.message);
-          resolve27();
+          resolve26();
           return;
         }
         setTimeout(tick, interval);
@@ -90610,7 +90278,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
                   logInternalError("subagent-tools.identity-link", err2, `taskId=${taskId}, attempt=${attempt}`);
                 }
                 if (resolveEntryBySubagentId(loaded.manifest, spawnedRecord.id)?.taskId === taskId) break;
-                if (attempt < 4) await new Promise((resolve27) => setTimeout(resolve27, 50 * (attempt + 1)));
+                if (attempt < 4) await new Promise((resolve26) => setTimeout(resolve26, 50 * (attempt + 1)));
               }
             }
           }
@@ -90769,7 +90437,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
               savePersistedSubagentRecord(ctx.cwd, current);
               break;
             }
-            await new Promise((resolve27) => setTimeout(resolve27, 1e3));
+            await new Promise((resolve26) => setTimeout(resolve26, 1e3));
             current = refreshPersistedSubagentRecord(ctx, current);
             if (!current.runId) break;
           }
