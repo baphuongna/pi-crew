@@ -18744,7 +18744,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/font-detect.ts": {
-      "bytes": 2489,
+      "bytes": 2463,
       "imports": [
         {
           "path": "node:fs",
@@ -18765,7 +18765,7 @@
       "format": "esm"
     },
     "src/extension/crew-vibes/config.ts": {
-      "bytes": 7118,
+      "bytes": 5114,
       "imports": [
         {
           "path": "node:fs",
@@ -18782,17 +18782,6 @@
           "kind": "import-statement",
           "original": "../../config/env-vars.ts"
         },
-        {
-          "path": "src/extension/crew-vibes/font-detect.ts",
-          "kind": "import-statement",
-          "original": "./font-detect.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/extension/crew-vibes/figures.ts": {
-      "bytes": 4043,
-      "imports": [
         {
           "path": "src/extension/crew-vibes/font-detect.ts",
           "kind": "import-statement",
@@ -18822,8 +18811,13 @@
       ],
       "format": "esm"
     },
+    "src/extension/crew-vibes/figures.ts": {
+      "bytes": 948,
+      "imports": [],
+      "format": "esm"
+    },
     "src/extension/crew-vibes/render.ts": {
-      "bytes": 8361,
+      "bytes": 6249,
       "imports": [
         {
           "path": "src/extension/crew-vibes/config.ts",
@@ -18838,13 +18832,8 @@
       ],
       "format": "esm"
     },
-    "src/extension/crew-vibes/speed.ts": {
-      "bytes": 7688,
-      "imports": [],
-      "format": "esm"
-    },
     "src/extension/crew-vibes/index.ts": {
-      "bytes": 13002,
+      "bytes": 5394,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -18857,11 +18846,6 @@
           "original": "./config.ts"
         },
         {
-          "path": "src/extension/crew-vibes/figures.ts",
-          "kind": "import-statement",
-          "original": "./figures.ts"
-        },
-        {
           "path": "src/extension/crew-vibes/provider-usage.ts",
           "kind": "import-statement",
           "original": "./provider-usage.ts"
@@ -18870,11 +18854,6 @@
           "path": "src/extension/crew-vibes/render.ts",
           "kind": "import-statement",
           "original": "./render.ts"
-        },
-        {
-          "path": "src/extension/crew-vibes/speed.ts",
-          "kind": "import-statement",
-          "original": "./speed.ts"
         }
       ],
       "format": "esm"
@@ -21199,7 +21178,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8127948
+      "bytes": 8085550
     },
     "dist/index.mjs": {
       "imports": [
@@ -22865,21 +22844,6 @@
         },
         {
           "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
           "kind": "import-statement",
           "external": true
         },
@@ -24878,7 +24842,7 @@
           "bytesInOutput": 5808
         },
         "src/runtime/orphan-worker-registry.ts": {
-          "bytesInOutput": 7803
+          "bytesInOutput": 7799
         },
         "src/runtime/async-runner.ts": {
           "bytesInOutput": 11492
@@ -25319,25 +25283,16 @@
           "bytesInOutput": 1206
         },
         "src/extension/crew-vibes/index.ts": {
-          "bytesInOutput": 9938
+          "bytesInOutput": 3146
         },
         "src/extension/crew-vibes/config.ts": {
-          "bytesInOutput": 4749
-        },
-        "src/extension/crew-vibes/font-detect.ts": {
-          "bytesInOutput": 1694
-        },
-        "src/extension/crew-vibes/figures.ts": {
-          "bytesInOutput": 920
+          "bytesInOutput": 2925
         },
         "src/extension/crew-vibes/provider-usage.ts": {
           "bytesInOutput": 8980
         },
         "src/extension/crew-vibes/render.ts": {
-          "bytesInOutput": 4386
-        },
-        "src/extension/crew-vibes/speed.ts": {
-          "bytesInOutput": 6461
+          "bytesInOutput": 2578
         },
         "src/extension/message-renderers.ts": {
           "bytesInOutput": 2457
@@ -25391,7 +25346,7 @@
           "bytesInOutput": 59690
         },
         "src/utils/socket-path.ts": {
-          "bytesInOutput": 3012
+          "bytesInOutput": 3007
         },
         "src/runtime/delegate-spawn.ts": {
           "bytesInOutput": 2772
@@ -25493,7 +25448,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3399386
+      "bytes": 3379717
     }
   }
 }

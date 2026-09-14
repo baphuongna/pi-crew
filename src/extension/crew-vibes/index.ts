@@ -27,9 +27,9 @@ export const CREW_VIBES_STATUS_KEY = "pi-crew-vibes";
  * Maintainer decisions 2026-09-13/14 (UI review follow-ups) stripped this
  * module down to its one remaining job: fetching the current provider's
  * rate-limit usage and publishing it as a STATUS entry on pi's NATIVE
- * footer. Removed entirely: the custom footer replacement (drifted from
- * native), the capacity stage meter (Orbit/Cruise/…), and the tok/s speed
- * UI (custom spinner + "Working N tok/s") — pi's built-ins are always used.
+ * footer. Removed entirely: the custom footer replacement (it had drifted
+ * from native) and the tok/s speed UI (custom spinner + "Working N tok/s")
+ * — pi's built-ins are always used.
  */
 export function registerCrewVibes(pi: ExtensionAPI): void {
 	let config: CrewVibesConfig = loadConfig();

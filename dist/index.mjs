@@ -57290,12 +57290,12 @@ function getProcessStartTime(pid) {
   } catch {
     return void 0;
   }
-  const platform2 = process.platform;
-  if (platform2 === "linux") {
+  const platform = process.platform;
+  if (platform === "linux") {
     return getProcessStartTimeLinux(pid);
-  } else if (platform2 === "darwin") {
+  } else if (platform === "darwin") {
     return getProcessStartTimeMacOS(pid);
-  } else if (platform2 === "win32") {
+  } else if (platform === "win32") {
     return getProcessStartTimeWindows(pid);
   }
   return void 0;
@@ -82169,87 +82169,17 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync78, mkdirSync as mkdirSync45, readFileSync as readFileSync85, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname45, join as join88 } from "node:path";
-
-// src/extension/crew-vibes/font-detect.ts
-import { existsSync as existsSync77, readFileSync as readFileSync84 } from "node:fs";
-import { homedir as homedir13, platform } from "node:os";
-import { join as join87 } from "node:path";
-function fontPath() {
-  const os20 = platform();
-  const home = homedir13();
-  if (os20 === "darwin") return join87(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os20 === "linux") return join87(home, ".local", "share", "fonts", "crew-vibes.ttf");
-  if (os20 === "win32") {
-    const local = process.env.LOCALAPPDATA ?? join87(home, "AppData", "Local");
-    return join87(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
-  }
-  return "";
-}
-var _hasFontFile = null;
-function hasCrewFontFile() {
-  if (_hasFontFile !== null) return _hasFontFile;
-  const p = fontPath();
-  _hasFontFile = p !== "" && existsSync77(p);
-  return _hasFontFile;
-}
-var _isWebTerminal = null;
-function isWebTerminal() {
-  if (_isWebTerminal !== null) return _isWebTerminal;
-  if (process.env.GOTTY || process.env.WEBTERM) {
-    _isWebTerminal = true;
-    return true;
-  }
-  if (process.env.TERM === "dumb") {
-    _isWebTerminal = true;
-    return true;
-  }
-  try {
-    let pid = process.pid;
-    for (let i = 0; i < 6 && pid > 1; i++) {
-      const cgroup = readFileSync84(`/proc/${pid}/cgroup`, "utf8");
-      if (cgroup.includes("gotty") || cgroup.includes("wetty")) {
-        _isWebTerminal = true;
-        return true;
-      }
-      const match = cgroup.match(/\d+:.*:(.*)/);
-      const status = readFileSync84(`/proc/${pid}/status`, "utf8");
-      const ppid = status.match(/^PPid:\s+(\d+)/m);
-      pid = ppid ? Number.parseInt(ppid[1], 10) : 1;
-    }
-  } catch {
-  }
-  _isWebTerminal = false;
-  return false;
-}
-
-// src/extension/crew-vibes/config.ts
-var SPEED_STATUS_ID = "pi-crew-speed";
-var CAPACITY_STATUS_ID = "pi-crew-bar";
+import { existsSync as existsSync77, mkdirSync as mkdirSync45, readFileSync as readFileSync84, writeFileSync as writeFileSync11 } from "node:fs";
+import { dirname as dirname45, join as join87 } from "node:path";
 var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
   return getCrewEnv("PI_CREW_HOME")?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
 function configPath2() {
-  return join88(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
+  return join87(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
 }
 var DEFAULT_CONFIG2 = {
   enabled: true,
-  speed: {
-    enabled: true,
-    footer: false,
-    indicator: true,
-    label: "tok/s",
-    renderIntervalMs: 250,
-    slidingWindowMs: 1e3,
-    minReliableDurationMs: 1e3,
-    maxDisplayTokS: 500,
-    defaultIntervalMs: 167,
-    minIntervalMs: 50,
-    maxIntervalMs: 250,
-    scale: 6e3
-  },
   capacity: {
     enabled: true,
     tokenDisplay: "tokens",
@@ -82267,9 +82197,6 @@ function asRecord12(value) {
 function boolFrom(raw, fallback2) {
   return typeof raw === "boolean" ? raw : fallback2;
 }
-function stringFrom(raw, fallback2) {
-  return typeof raw === "string" ? raw : fallback2;
-}
 function positiveFrom(raw, fallback2) {
   return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : fallback2;
 }
@@ -82281,28 +82208,6 @@ function sextet(raw, fallback2) {
 }
 function tokenDisplayFrom(raw, fallback2) {
   return raw === "off" || raw === "tokens" || raw === "percentage" ? raw : fallback2;
-}
-function normalizeSpeed(raw) {
-  const input = asRecord12(raw);
-  const speed = {
-    enabled: boolFrom(input.enabled, DEFAULT_CONFIG2.speed.enabled),
-    footer: boolFrom(input.footer, DEFAULT_CONFIG2.speed.footer),
-    indicator: boolFrom(input.indicator, DEFAULT_CONFIG2.speed.indicator),
-    label: stringFrom(input.label, DEFAULT_CONFIG2.speed.label),
-    renderIntervalMs: positiveFrom(input.renderIntervalMs, DEFAULT_CONFIG2.speed.renderIntervalMs),
-    slidingWindowMs: positiveFrom(input.slidingWindowMs, DEFAULT_CONFIG2.speed.slidingWindowMs),
-    minReliableDurationMs: positiveFrom(input.minReliableDurationMs, DEFAULT_CONFIG2.speed.minReliableDurationMs),
-    maxDisplayTokS: positiveFrom(input.maxDisplayTokS, DEFAULT_CONFIG2.speed.maxDisplayTokS),
-    defaultIntervalMs: positiveFrom(input.defaultIntervalMs, DEFAULT_CONFIG2.speed.defaultIntervalMs),
-    minIntervalMs: positiveFrom(input.minIntervalMs, DEFAULT_CONFIG2.speed.minIntervalMs),
-    maxIntervalMs: positiveFrom(input.maxIntervalMs, DEFAULT_CONFIG2.speed.maxIntervalMs),
-    scale: positiveFrom(input.scale, DEFAULT_CONFIG2.speed.scale)
-  };
-  if (speed.minIntervalMs > speed.maxIntervalMs) {
-    speed.minIntervalMs = DEFAULT_CONFIG2.speed.minIntervalMs;
-    speed.maxIntervalMs = DEFAULT_CONFIG2.speed.maxIntervalMs;
-  }
-  return speed;
 }
 function normalizeCapacity(raw) {
   const input = asRecord12(raw);
@@ -82321,15 +82226,14 @@ function normalizeConfig(raw) {
   const input = asRecord12(raw);
   return {
     enabled: boolFrom(input.enabled, DEFAULT_CONFIG2.enabled),
-    speed: normalizeSpeed(input.speed),
     capacity: normalizeCapacity(input.capacity)
   };
 }
 function loadConfig2() {
   try {
     const path103 = configPath2();
-    if (!existsSync78(path103)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync85(path103, "utf8")));
+    if (!existsSync77(path103)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync84(path103, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
@@ -82341,73 +82245,23 @@ function saveConfig(config) {
 `);
 }
 
-// src/extension/crew-vibes/figures.ts
-var BRAILLE_FRAMES = [
-  "\u280B ",
-  // ⠋
-  "\u2819 ",
-  // ⠙
-  "\u2839 ",
-  // ⠹
-  "\u2838 ",
-  // ⠸
-  "\u283C ",
-  // ⠼
-  "\u2834 ",
-  // ⠴
-  "\u2826 ",
-  // ⠦
-  "\u2827 ",
-  // ⠧
-  "\u2807 ",
-  // ⠇
-  "\u280F "
-  // ⠏
-];
-var PUA_CREW_FRAMES = [
-  "\uE700 ",
-  "\uE701 ",
-  "\uE702 ",
-  "\uE703 ",
-  "\uE704 ",
-  "\uE705 ",
-  "\uE706 ",
-  "\uE707 ",
-  "\uE708 ",
-  "\uE709 ",
-  "\uE70A ",
-  "\uE70B ",
-  "\uE70C ",
-  "\uE70D ",
-  "\uE70E ",
-  "\uE70F "
-];
-function crewFrames(style = "braille") {
-  if (style === "pua" && (isWebTerminal() || !hasCrewFontFile())) return BRAILLE_FRAMES;
-  return style === "pua" ? PUA_CREW_FRAMES : BRAILLE_FRAMES;
-}
-function intervalForSpeed(config, speed) {
-  if (speed === null || !Number.isFinite(speed) || speed <= 0) return config.defaultIntervalMs;
-  return Math.max(config.minIntervalMs, Math.min(config.maxIntervalMs, Math.round(config.scale / speed)));
-}
-
 // src/extension/crew-vibes/provider-usage.ts
-import { readFileSync as readFileSync86 } from "node:fs";
-import { homedir as homedir14 } from "node:os";
-import { join as join89 } from "node:path";
+import { readFileSync as readFileSync85 } from "node:fs";
+import { homedir as homedir13 } from "node:os";
+import { join as join88 } from "node:path";
 function withTimeout(ms, fn) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
   return fn(controller.signal).finally(() => clearTimeout(timeoutId));
 }
 function piAuthPath() {
-  return join89(homedir14(), ".pi", "agent", "auth.json");
+  return join88(homedir13(), ".pi", "agent", "auth.json");
 }
 function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const token = data.anthropic?.access;
     return typeof token === "string" && token.length > 0 ? token : void 0;
   } catch {
@@ -82418,7 +82272,7 @@ function loadZaiToken() {
   const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const key = data["z-ai"]?.access || data["z-ai"]?.key || data.zai?.access || data.zai?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -82429,7 +82283,7 @@ function loadMinimaxToken() {
   const envKey = process.env.MINIMAX_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const key = data.minimax?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -82446,11 +82300,11 @@ function tokenFromHostEntry(entry) {
   return void 0;
 }
 function loadLegacyCopilotToken() {
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join89(homedir14(), ".config");
-  const candidates = [join89(configHome, "github-copilot", "hosts.json"), join89(homedir14(), ".github-copilot", "hosts.json")];
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join88(homedir13(), ".config");
+  const candidates = [join88(configHome, "github-copilot", "hosts.json"), join88(homedir13(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
-      const data = JSON.parse(readFileSync86(hostsPath, "utf8"));
+      const data = JSON.parse(readFileSync85(hostsPath, "utf8"));
       if (!data || typeof data !== "object") continue;
       const normalized = {};
       for (const [host, entry] of Object.entries(data)) {
@@ -82471,7 +82325,7 @@ function loadCopilotToken() {
   const envToken = (process.env.COPILOT_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "").trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const piToken = data["github-copilot"]?.refresh || data["github-copilot"]?.access;
     if (typeof piToken === "string" && piToken.length > 0) return piToken;
   } catch {
@@ -82652,48 +82506,9 @@ function asCrewTheme2(theme) {
   }
   return void 0;
 }
-function getCapacityUsage(ctx) {
-  const fn = ctx.getContextUsage;
-  const usage = typeof fn === "function" ? fn.call(ctx) : null;
-  return {
-    tokens: typeof usage?.tokens === "number" && Number.isFinite(usage.tokens) ? usage.tokens : null,
-    percent: typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null
-  };
-}
-function formatSpeed(config, speed) {
-  return speed === null ? `-- ${config.label}` : `${speed.toFixed(1)} ${config.label}`;
-}
-function renderSpeedFooter(theme, config, speed) {
-  const value = speed === null ? "--" : speed.toFixed(1);
-  const valueTone = speed === null ? "dim" : "accent";
-  const styled = theme ? `${theme.fg(valueTone, value)} ${theme.fg("dim", config.label)}` : `${value} ${config.label}`;
-  return styled;
-}
-function renderWorkingMessage(theme, config, speed) {
-  const left = "Working";
-  const speedText = theme ? `${theme.fg(speed === null ? "dim" : "accent", speed === null ? "--" : speed.toFixed(1))} ${theme.fg("dim", config.label)}` : `${speed === null ? "--" : speed.toFixed(1)} ${config.label}`;
-  return theme ? `${theme.fg("muted", left)}  ${speedText}` : `${left}  ${speedText}`;
-}
-function crewIndicatorFrames(theme) {
-  const frames = crewFrames();
-  if (!theme) return [...frames];
-  return frames.map((frame) => theme.fg("accent", frame));
-}
-function setSpeedStatus(ctx, config, text) {
-  if (!ctx?.hasUI) return;
-  if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-    ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
-    return;
-  }
-  ctx.ui.setStatus(SPEED_STATUS_ID, text);
-}
 function clearVibesStatus(ctx) {
   if (!ctx?.hasUI) return;
-  ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
-  ctx.ui.setStatus(CAPACITY_STATUS_ID, void 0);
   ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
-  if (ctx.ui.setWorkingIndicator) ctx.ui.setWorkingIndicator();
-  if (ctx.ui.setWorkingMessage) ctx.ui.setWorkingMessage();
 }
 function formatResetTimer(resetAt) {
   if (!resetAt) return null;
@@ -82749,218 +82564,6 @@ function setProviderStatus(ctx, config, text) {
   ctx.ui.setStatus(PROVIDER_STATUS_ID, text);
 }
 
-// src/extension/crew-vibes/speed.ts
-var COMPACTION_THRESHOLD = 5e3;
-function estimateTokensFromDelta(text) {
-  if (!text) return 0;
-  const matches = text.match(/\w+|[^\s\w]/g);
-  return matches ? matches.length : 0;
-}
-var TokenSpeedEngine = class {
-  _isStreaming = false;
-  _tokenCount = 0;
-  _startTime = 0;
-  _endTime = 0;
-  _events = [];
-  _windowStartIndex = 0;
-  _lastStableTokS = 0;
-  _lastUsageOutput = 0;
-  _config;
-  constructor(config) {
-    this._config = config;
-  }
-  updateConfig(config) {
-    this._config = config;
-  }
-  get isStreaming() {
-    return this._isStreaming;
-  }
-  get tokenCount() {
-    return this._tokenCount;
-  }
-  get elapsedMs() {
-    if (this._startTime === 0) return 0;
-    return this._isStreaming ? Date.now() - this._startTime : this._endTime - this._startTime;
-  }
-  get avgTokS() {
-    const elapsedSec = this.elapsedMs / 1e3;
-    if (elapsedSec <= 0) return 0;
-    return this._tokenCount / elapsedSec;
-  }
-  sanitizeTokS(value, durationMs = this.elapsedMs) {
-    if (value === null || !Number.isFinite(value) || value <= 0) return null;
-    if (durationMs < this._config.minReliableDurationMs) return null;
-    if (value > this._config.maxDisplayTokS) return null;
-    return value;
-  }
-  get tokS() {
-    const candidate = this.rawTokS;
-    const stable = this.sanitizeTokS(candidate);
-    if (stable !== null) this._lastStableTokS = stable;
-    return this._lastStableTokS;
-  }
-  get rawTokS() {
-    if (this.elapsedMs < this._config.slidingWindowMs) return this.avgTokS;
-    if (!this._isStreaming) return this.avgTokS;
-    const now = Date.now();
-    const windowStart = now - this._config.slidingWindowMs;
-    while (this._windowStartIndex < this._events.length && this._events[this._windowStartIndex].time < windowStart) {
-      this._windowStartIndex++;
-    }
-    if (this._windowStartIndex >= this._events.length) return this.avgTokS;
-    let windowTokenCount = 0;
-    for (let i = this._windowStartIndex; i < this._events.length; i++) {
-      windowTokenCount += this._events[i].tokens;
-    }
-    if (windowTokenCount === 0) return this.avgTokS;
-    const windowDuration = (now - this._events[this._windowStartIndex].time) / 1e3;
-    if (windowDuration <= 0) return 0;
-    return windowTokenCount / windowDuration;
-  }
-  start() {
-    this._tokenCount = 0;
-    this._isStreaming = true;
-    this._startTime = Date.now();
-    this._endTime = this._startTime;
-    this._events = [];
-    this._windowStartIndex = 0;
-    this._lastStableTokS = 0;
-    this._lastUsageOutput = 0;
-  }
-  stop() {
-    this._isStreaming = false;
-    this._endTime = Date.now();
-    this._events = [];
-    this._windowStartIndex = 0;
-  }
-  recordDelta(delta, usageOutput) {
-    if (!this._isStreaming) return;
-    if (usageOutput !== void 0 && usageOutput > 0) {
-      const increment = usageOutput - this._lastUsageOutput;
-      this._lastUsageOutput = usageOutput;
-      this.recordTokens(Math.max(0, increment));
-      return;
-    }
-    this.recordTokens(estimateTokensFromDelta(delta));
-  }
-  reconcileTotal(tokens) {
-    if (tokens > 0) this._tokenCount = tokens;
-  }
-  recordTokens(tokens) {
-    if (!this._isStreaming || tokens <= 0) return;
-    this._tokenCount += tokens;
-    this._events.push({ time: Date.now(), tokens });
-    if (this._windowStartIndex >= COMPACTION_THRESHOLD) this.compact();
-  }
-  compact() {
-    if (this._windowStartIndex === 0) return;
-    this._events = this._events.slice(this._windowStartIndex);
-    this._windowStartIndex = 0;
-  }
-};
-function isSuccessfulStop(stopReason) {
-  return stopReason !== "error" && stopReason !== "aborted";
-}
-var SpeedTracker = class {
-  engine;
-  lastStableTokS = null;
-  sessionOutputTokens = 0;
-  sessionDurationMs = 0;
-  constructor(config) {
-    this.engine = new TokenSpeedEngine(config);
-  }
-  updateConfig(config) {
-    this.engine.updateConfig(config);
-  }
-  get isStreaming() {
-    return this.engine.isStreaming;
-  }
-  get lastTokS() {
-    return this.lastStableTokS;
-  }
-  resetSession() {
-    this.sessionOutputTokens = 0;
-    this.sessionDurationMs = 0;
-  }
-  startMessage() {
-    this.engine.start();
-  }
-  recordDelta(delta, usageOutput) {
-    this.engine.recordDelta(delta, usageOutput);
-  }
-  stopMessage() {
-    if (this.engine.isStreaming) this.engine.stop();
-  }
-  liveTokS() {
-    const speed = this.engine.tokS;
-    return speed > 0 ? speed : this.lastStableTokS;
-  }
-  sessionAvgTokS() {
-    return this.sessionDurationMs > 0 ? this.sessionOutputTokens / (this.sessionDurationMs / 1e3) : null;
-  }
-  finishMessage(outputTokens, stopReason) {
-    if (!this.engine.isStreaming) return null;
-    this.engine.reconcileTotal(outputTokens);
-    const durationMs = this.engine.elapsedMs;
-    const tokens = this.engine.tokenCount;
-    const rawAvgTokS = durationMs > 0 ? tokens / (durationMs / 1e3) : null;
-    const tokS = this.engine.sanitizeTokS(rawAvgTokS, durationMs);
-    this.lastStableTokS = tokS;
-    this.engine.stop();
-    if (tokS !== null && isSuccessfulStop(stopReason)) {
-      this.sessionOutputTokens += tokens;
-      this.sessionDurationMs += durationMs;
-    }
-    return { outputTokens: tokens, durationMs, tokS };
-  }
-};
-var SpeedAnimator = class {
-  from = null;
-  target = null;
-  startedAt = 0;
-  durationMs;
-  constructor(durationMs) {
-    this.durationMs = durationMs;
-  }
-  updateDuration(durationMs) {
-    this.durationMs = durationMs;
-  }
-  reset(value = null, now = Date.now()) {
-    this.from = value;
-    this.target = value;
-    this.startedAt = now;
-  }
-  setTarget(target, now = Date.now()) {
-    if (target === null) {
-      this.reset(null, now);
-      return null;
-    }
-    const current = this.value(now);
-    if (current === null) {
-      this.reset(target, now);
-      return target;
-    }
-    if (this.target !== null && Math.abs(target - this.target) < 0.05) return current;
-    this.from = current;
-    this.target = target;
-    this.startedAt = now;
-    return current;
-  }
-  value(now = Date.now()) {
-    if (this.target === null) return null;
-    if (this.from === null || this.durationMs <= 0) return this.target;
-    const progress = Math.max(0, Math.min(1, (now - this.startedAt) / this.durationMs));
-    if (progress >= 1) {
-      this.from = this.target;
-      return this.target;
-    }
-    return this.from + (this.target - this.from) * progress;
-  }
-  isAnimating(now = Date.now()) {
-    return this.target !== null && this.from !== null && Math.abs(this.target - this.from) >= 0.05 && now - this.startedAt < this.durationMs;
-  }
-};
-
 // src/extension/crew-vibes/index.ts
 function safeUiCall(scope, fn) {
   try {
@@ -82969,29 +82572,8 @@ function safeUiCall(scope, fn) {
     logInternalError(`crew-vibes.${scope}`, error, void 0, "warn");
   }
 }
-function isAssistantMessage(message) {
-  return typeof message === "object" && message !== null && message.role === "assistant";
-}
-function assistantUsageOutput(message) {
-  const usage = message.usage;
-  const output = usage?.output;
-  return typeof output === "number" && Number.isFinite(output) ? output : void 0;
-}
-function assistantStopReason(message) {
-  const reason = message.stopReason;
-  return typeof reason === "string" ? reason : void 0;
-}
-function assistantEventType(event) {
-  return typeof event.type === "string" ? event.type : void 0;
-}
 function registerCrewVibes(pi) {
   let config = loadConfig2();
-  let lastRenderedAt = 0;
-  let currentIntervalMs = 0;
-  const speedTracker = new SpeedTracker(config.speed);
-  const footerAnimator = new SpeedAnimator(config.speed.renderIntervalMs);
-  let liveTimer;
-  let footerTimer;
   let providerTimer;
   let lastProviderUsage = null;
   let currentProvider;
@@ -83004,73 +82586,10 @@ function registerCrewVibes(pi) {
       () => setProviderStatus(ctx, config, lastProviderUsage ? renderProviderUsage(themeOf(ctx), lastProviderUsage) : void 0)
     );
   }
-  function publishSpeedFooter(ctx, speed = footerAnimator.value()) {
-    if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-      safeUiCall("clear-speed-status", () => setSpeedStatus(ctx, config, void 0));
-      return;
-    }
-    safeUiCall("publish-speed-status", () => setSpeedStatus(ctx, config, renderSpeedFooter(themeOf(ctx), config.speed, speed)));
-  }
-  function applyIndicator(ctx, speed, force = false) {
-    if (!ctx.hasUI || !ctx.ui.setWorkingIndicator) return;
-    if (!config.enabled || !config.speed.enabled || !config.speed.indicator) {
-      safeUiCall("reset-indicator", () => ctx.ui.setWorkingIndicator?.());
-      return;
-    }
-    const next = intervalForSpeed(config.speed, speed);
-    if (!force && Math.abs(next - currentIntervalMs) < 10) return;
-    safeUiCall(
-      "set-indicator",
-      () => ctx.ui.setWorkingIndicator?.({
-        frames: crewIndicatorFrames(themeOf(ctx)),
-        intervalMs: next
-      })
-    );
-    currentIntervalMs = next;
-  }
-  function renderWorking(ctx, speed) {
-    if (!config.enabled || !config.speed.enabled || !ctx.hasUI) return;
-    safeUiCall("set-working-message", () => ctx.ui.setWorkingMessage?.(renderWorkingMessage(themeOf(ctx), config.speed, speed)));
-  }
-  function stopLiveTimer() {
-    if (!liveTimer) return;
-    clearInterval(liveTimer);
-    liveTimer = void 0;
-  }
-  function stopFooterTimer() {
-    if (!footerTimer) return;
-    clearInterval(footerTimer);
-    footerTimer = void 0;
-  }
   function stopProviderTimer() {
     if (!providerTimer) return;
     clearInterval(providerTimer);
     providerTimer = void 0;
-  }
-  function startLiveTimer(ctx) {
-    if (liveTimer || !ctx.hasUI) return;
-    liveTimer = setInterval(() => {
-      if (!config.enabled || !config.speed.enabled || !speedTracker.isStreaming) {
-        stopLiveTimer();
-        return;
-      }
-      const speed = speedTracker.liveTokS();
-      applyIndicator(ctx, speed);
-      renderWorking(ctx, speed);
-    }, config.speed.renderIntervalMs);
-    liveTimer.unref?.();
-  }
-  function startFooterTimer(ctx) {
-    if (footerTimer || !ctx.hasUI) return;
-    footerTimer = setInterval(() => {
-      if (!config.enabled || !config.speed.enabled) {
-        stopFooterTimer();
-        return;
-      }
-      publishSpeedFooter(ctx);
-      if (!footerAnimator.isAnimating()) stopFooterTimer();
-    }, config.speed.renderIntervalMs);
-    footerTimer.unref?.();
   }
   async function fetchProviderAndRefresh(ctx) {
     if (!config.enabled || !config.capacity.providerUsage) {
@@ -83093,96 +82612,26 @@ function registerCrewVibes(pi) {
     providerTimer = setInterval(() => fetchProviderAndRefresh(ctx), interval);
     providerTimer.unref?.();
   }
-  function resetWorking(ctx) {
-    applyIndicator(ctx, null, true);
-    renderWorking(ctx, speedTracker.lastTokS);
-  }
   function applyConfig(ctx) {
     saveConfig(config);
-    speedTracker.updateConfig(config.speed);
-    footerAnimator.updateDuration(config.speed.renderIntervalMs);
     if (!config.enabled) {
-      stopLiveTimer();
-      stopFooterTimer();
       stopProviderTimer();
       clearVibesStatus(ctx);
       return;
     }
-    publishSpeedFooter(ctx);
     if (config.capacity.providerUsage) startProviderTimer(ctx);
     else publishQuotaStatus(ctx);
   }
   pi.on("session_start", (_event, ctx) => {
-    stopLiveTimer();
-    stopFooterTimer();
     stopProviderTimer();
     config = loadConfig2();
-    speedTracker.updateConfig(config.speed);
-    footerAnimator.updateDuration(config.speed.renderIntervalMs);
-    speedTracker.resetSession();
-    footerAnimator.reset(null);
     clearProviderUsageCache();
     currentProvider = ctx.model?.provider;
     if (!config.enabled) {
       clearVibesStatus(ctx);
       return;
     }
-    publishSpeedFooter(ctx);
     startProviderTimer(ctx);
-    applyIndicator(ctx, null, true);
-  });
-  pi.on("agent_start", (_event, ctx) => {
-    if (!config.enabled) return;
-    resetWorking(ctx);
-  });
-  pi.on("turn_start", (_event, ctx) => {
-    if (!config.enabled) return;
-    resetWorking(ctx);
-  });
-  pi.on("message_start", (event, ctx) => {
-    if (!config.enabled || !config.speed.enabled || !isAssistantMessage(event.message)) return;
-    speedTracker.startMessage();
-    footerAnimator.reset(speedTracker.lastTokS);
-    startLiveTimer(ctx);
-    lastRenderedAt = 0;
-  });
-  pi.on("message_update", (event, ctx) => {
-    if (!config.enabled || !config.speed.enabled || !isAssistantMessage(event.message) || !speedTracker.isStreaming) return;
-    const ev = event.assistantMessageEvent;
-    const type = assistantEventType(ev);
-    if (type === "text_delta" || type === "thinking_delta") {
-      const delta = ev.delta ?? "";
-      speedTracker.recordDelta(delta, assistantUsageOutput(event.message));
-    }
-    if (type === "start") resetWorking(ctx);
-    const now = Date.now();
-    if (now - lastRenderedAt < config.speed.renderIntervalMs && type !== "done") return;
-    lastRenderedAt = now;
-    const speed = speedTracker.liveTokS();
-    applyIndicator(ctx, speed);
-    renderWorking(ctx, speed);
-  });
-  pi.on("message_end", (event, ctx) => {
-    if (!isAssistantMessage(event.message)) return;
-    if (!config.enabled || !config.speed.enabled || !speedTracker.isStreaming) return;
-    const completed = speedTracker.finishMessage(assistantUsageOutput(event.message) ?? 0, assistantStopReason(event.message));
-    if (!completed) return;
-    footerAnimator.setTarget(speedTracker.sessionAvgTokS());
-    publishSpeedFooter(ctx);
-    startFooterTimer(ctx);
-    applyIndicator(ctx, speedTracker.lastTokS);
-  });
-  pi.on("turn_end", () => {
-    speedTracker.stopMessage();
-    stopLiveTimer();
-  });
-  pi.on("agent_end", (_event, ctx) => {
-    speedTracker.stopMessage();
-    stopLiveTimer();
-    if (ctx && config.enabled && ctx.hasUI) {
-      applyIndicator(ctx, speedTracker.lastTokS);
-      safeUiCall("clear-working-message", () => ctx.ui.setWorkingMessage?.());
-    }
   });
   pi.on("model_select", (event, ctx) => {
     currentProvider = event.model?.provider;
@@ -83190,53 +82639,26 @@ function registerCrewVibes(pi) {
     fetchProviderAndRefresh(ctx);
   });
   pi.on("session_shutdown", (_event, ctx) => {
-    stopLiveTimer();
-    stopFooterTimer();
     stopProviderTimer();
     clearVibesStatus(ctx);
   });
   async function handleCommand(args, ctx) {
-    const tokens = args.trim().split(/\s+/).filter(Boolean);
-    const [first, second] = tokens;
-    const mutate = (next) => {
-      config = next;
-      applyConfig(ctx);
-    };
+    const [first] = args.trim().split(/\s+/).filter(Boolean);
     if (!first) {
-      const speed = speedTracker.liveTokS();
-      const usage = getCapacityUsage(ctx);
-      const stage = config.capacity.icons.length ? config.capacity.labels[Math.max(
-        0,
-        Math.min(
-          config.capacity.labels.length - 1,
-          Math.floor((usage.percent ?? 0) / 100 * config.capacity.labels.length)
-        )
-      )] : "?";
-      ctx.ui.notify(
-        `crew-vibes: ${config.enabled ? "on" : "off"} \xB7 speed ${config.speed.enabled ? "on" : "off"} (${formatSpeed(config.speed, speed)}) \xB7 capacity ${config.capacity.enabled ? "on" : "off"} (${stage})`,
-        "info"
-      );
+      const quota = lastProviderUsage ? `${lastProviderUsage.providerName} 5h ${Math.round(lastProviderUsage.fiveHourPercent)}% \xB7 Wk ${Math.round(lastProviderUsage.weeklyPercent)}%` : "no data yet";
+      ctx.ui.notify(`crew-vibes: ${config.enabled ? "on" : "off"} \xB7 quota ${quota}`, "info");
       return;
     }
     if (first === "on" || first === "off") {
-      mutate({ ...config, enabled: first === "on" });
+      config = { ...config, enabled: first === "on" };
+      applyConfig(ctx);
       ctx.ui.notify(`crew-vibes ${first === "on" ? "enabled" : "disabled"}`, "info");
       return;
     }
-    if (first === "speed" && (second === "on" || second === "off")) {
-      mutate({ ...config, speed: { ...config.speed, enabled: second === "on" } });
-      ctx.ui.notify(`crew-vibes speed ${second === "on" ? "enabled" : "disabled"}`, "info");
-      return;
-    }
-    if (first === "capacity" && (second === "on" || second === "off")) {
-      mutate({ ...config, capacity: { ...config.capacity, enabled: second === "on" } });
-      ctx.ui.notify(`crew-vibes capacity ${second === "on" ? "enabled" : "disabled"}`, "info");
-      return;
-    }
-    ctx.ui.notify("Usage: /team-vibes [on|off|speed on|off|capacity on|off]", "error");
+    ctx.ui.notify("Usage: /team-vibes [on|off]", "error");
   }
   pi.registerCommand("team-vibes", {
-    description: "Toggle crew-vibes speed + context meters (on/off, speed, capacity)",
+    description: "Toggle the provider-quota status (on/off)",
     handler: handleCommand
   });
 }
@@ -85066,7 +84488,7 @@ import * as fs119 from "node:fs";
 import * as path94 from "node:path";
 
 // src/runtime/per-write-validator.ts
-import { readFileSync as readFileSync92 } from "node:fs";
+import { readFileSync as readFileSync91 } from "node:fs";
 import { extname as pathExtname } from "node:path";
 function validateJson(content, _filePath) {
   if (content.trim() === "") return { ok: true };
@@ -85110,7 +84532,7 @@ function validateWrittenFile(filePath) {
   if (!validator) return null;
   let content;
   try {
-    content = readFileSync92(filePath, "utf-8");
+    content = readFileSync91(filePath, "utf-8");
   } catch {
     return null;
   }
@@ -85496,18 +84918,18 @@ function getCurrentUid() {
   }
   return 0;
 }
-function getPerUserSocketDir(platform2 = process.platform) {
-  if (platform2 === "win32") return "";
+function getPerUserSocketDir(platform = process.platform) {
+  if (platform === "win32") return "";
   const base = process.env.XDG_RUNTIME_DIR || os19.tmpdir();
   const uid = getCurrentUid();
   return path98.join(base, `pi-crew-${uid}`);
 }
-function getBrokerSocketPath(sessionId, platform2 = process.platform) {
+function getBrokerSocketPath(sessionId, platform = process.platform) {
   const hash = hashSessionId(sessionId);
-  if (platform2 === "win32") {
+  if (platform === "win32") {
     return `\\\\.\\pipe\\pi-crew-broker-${hash}`;
   }
-  const perUserDir = getPerUserSocketDir(platform2);
+  const perUserDir = getPerUserSocketDir(platform);
   const sock = path98.join(perUserDir, `pi-crew-${hash}.sock`);
   const encoded = Buffer.byteLength(sock, "utf8");
   if (encoded > POSIX_SUN_PATH_BUDGET) {
