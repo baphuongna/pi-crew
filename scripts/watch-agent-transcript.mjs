@@ -65,12 +65,27 @@ console.log(`── watching ${basename(path)} ──`);
 let offset = 0;
 let buffer = "";
 const POLL_MS = 400;
+let waitingSince = 0;
+let lastWaitingLog = 0;
+
+function logWaiting(now) {
+	if (!waitingSince) waitingSince = now;
+	if (now - lastWaitingLog >= 2500) {
+		const waitedS = Math.round((now - waitingSince) / 1000);
+		console.log(`… waiting for ${basename(path)} to appear (${waitedS}s)`);
+		lastWaitingLog = now;
+	}
+}
 
 async function pump() {
 	try {
 		const fh = await openFile(path, "r");
 		try {
 			const stat = await fh.stat();
+			if (waitingSince) {
+				console.log(`✓ transcript appeared (waited ${Math.round((Date.now() - waitingSince) / 1000)}s)`);
+				waitingSince = 0;
+			}
 			if (stat.size < offset) offset = 0; // truncated/rotated
 			if (stat.size > offset) {
 				const len = stat.size - offset;
@@ -95,7 +110,9 @@ async function pump() {
 			await fh.close();
 		}
 	} catch {
-		/* file not there yet — retry on next tick */
+		// File not there yet (cold-start window): visible waiting state so the
+		// pane explains itself instead of looking dead.
+		logWaiting(Date.now());
 	}
 }
 

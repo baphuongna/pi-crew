@@ -28167,13 +28167,13 @@ var init_agents_jobs_browser = __esm({
         }
         const manifest = entry.manifest ?? this.manifestFor(entry.runId);
         if (manifest?.artifactsRoot) {
+          const dir = join33(manifest.artifactsRoot, "transcripts");
           try {
-            const dir = join33(manifest.artifactsRoot, "transcripts");
             const hit = readdirSync13(dir).filter((name) => name.startsWith(`${entry.taskId}.attempt-`) && name.endsWith(".jsonl")).sort().at(-1);
-            const candidate = hit ? join33(dir, hit) : void 0;
-            if (candidate && existsSync24(candidate)) return candidate;
+            if (hit) return join33(dir, hit);
           } catch {
           }
+          return join33(dir, `${entry.taskId}.attempt-0.jsonl`);
         }
         return void 0;
       }
@@ -28254,8 +28254,6 @@ var init_agents_jobs_browser = __esm({
             if (entry && entry.kind === "agent") {
               if (!this.surfaceReachable()) {
                 this.setNotice("\u26A0 no tmux/herdr surface \u2014 pi must run inside tmux OR herdr for panes");
-              } else if (!this.transcriptPathFor(entry)) {
-                this.setNotice("\u26A0 no transcript for this agent yet \u2014 retry in a moment");
               } else {
                 this.surfaceSelectedAgent(entry);
               }

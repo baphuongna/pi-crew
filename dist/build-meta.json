@@ -8742,7 +8742,7 @@
       "format": "esm"
     },
     "src/ui/agents-jobs-browser.ts": {
-      "bytes": 34471,
+      "bytes": 34473,
       "imports": [
         {
           "path": "node:fs",
@@ -21309,7 +21309,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8123374
+      "bytes": 8123302
     },
     "dist/index.mjs": {
       "imports": [
@@ -24302,7 +24302,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/agents-jobs-browser.ts": {
-          "bytesInOutput": 23165
+          "bytesInOutput": 22980
         },
         "src/ui/live-conversation-overlay.ts": {
           "bytesInOutput": 6106
@@ -25607,7 +25607,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3387591
+      "bytes": 3387406
     }
   }
 }

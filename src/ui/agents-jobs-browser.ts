@@ -464,24 +464,25 @@ export class AgentsJobsBrowser {
 				/* status file mid-write — fall through */
 			}
 		}
-		// Tier 3 (live probe 2026-09-14, round 6): for a RUNNING agent neither
-		// agents.json nor status.json carries transcriptPath yet — but the
-		// transcript FILE exists from the first turn at
-		// `<artifactsRoot>/transcripts/<taskId>.attempt-N.jsonl` (child-executor
-		// convention). Resolve by convention and pick the highest attempt.
+		// Tier 3 (live probe 2026-09-14, rounds 6-8): for a RUNNING agent
+		// neither agents.json nor status.json carries transcriptPath, and with
+		// a cold-starting (jiti) worker the transcript FILE may not exist for
+		// the first minute either. Resolve the convention path and let the
+		// watcher pane WAIT for it — p must open the pane, never refuse.
 		const manifest = entry.manifest ?? this.manifestFor(entry.runId);
 		if (manifest?.artifactsRoot) {
+			const dir = join(manifest.artifactsRoot, "transcripts");
 			try {
-				const dir = join(manifest.artifactsRoot, "transcripts");
 				const hit = readdirSync(dir)
 					.filter((name) => name.startsWith(`${entry.taskId}.attempt-`) && name.endsWith(".jsonl"))
 					.sort()
 					.at(-1);
-				const candidate = hit ? join(dir, hit) : undefined;
-				if (candidate && existsSync(candidate)) return candidate;
+				if (hit) return join(dir, hit);
 			} catch {
-				/* no transcripts dir yet */
+				/* transcripts dir not created yet */
 			}
+			// Placeholder: attempt-0 is what the first child pi run will open.
+			return join(dir, `${entry.taskId}.attempt-0.jsonl`);
 		}
 		return undefined;
 	}
@@ -586,10 +587,9 @@ export class AgentsJobsBrowser {
 						// Live feedback (2026-09-14): pressing p outside tmux/herdr
 						// used to swallow the key silently — "p không hoạt động".
 						this.setNotice("⚠ no tmux/herdr surface — pi must run inside tmux OR herdr for panes");
-					} else if (!this.transcriptPathFor(entry)) {
-						// Running agents whose status.json has not landed yet.
-						this.setNotice("⚠ no transcript for this agent yet — retry in a moment");
 					} else {
+						// Always open the pane — the watcher itself waits for the
+						// transcript file to appear (cold-start window, round 8).
 						this.surfaceSelectedAgent(entry);
 					}
 				}
