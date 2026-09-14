@@ -440,6 +440,42 @@ async function handlePlanDashboardAction(ctx: ExtensionCommandContext, selection
 let depsRef: RegisterTeamCommandsDeps | undefined;
 
 /**
+ * Tier A finalize (review round 1, MAJOR-1): dashboard schedule mutations
+ * (T/N/X in pane 8) consumed at the extension layer. The dashboard emits
+ * `done()` selections carrying schedule-* actions + jobId; this routes them
+ * through the SAME team-tool channel the chat surface uses —
+ * handleTeamTool({action:'schedule', subAction, jobId}) → handle-schedule.ts —
+ * so the UI layer never calls the scheduler directly (approved-design
+ * constraint #3). Modeled on handlePlanDashboardAction: dispatch, then surface
+ * the result at its true level (isError → red). No snapshot-cache
+ * invalidation: schedule actions carry no runId (the run list is untouched).
+ * The 2-step delete confirm-gate lives in the dashboard itself (pane-8 X);
+ * this is the final hop to the mutation channel.
+ */
+async function handleScheduleDashboardAction(ctx: ExtensionCommandContext, selection: RunDashboardSelection): Promise<void> {
+	const jobId = selection.jobId;
+	if (!jobId) {
+		depsNotify(ctx, "schedule action requires a job id", "warning");
+		return;
+	}
+	// Defer the dynamic import of run-dashboard.ts (already warm — ui()
+	// loaded it to host the dashboard) so this module's import graph stays
+	// free of the UI chain at Pi startup. The mapping is the UI layer's
+	// published action→subAction contract; importing it (instead of re-deriving)
+	// keeps the two from drifting.
+	// LAZY: run-dashboard.ts — UI chain; warm by the time this runs (ui()).
+	const { scheduleDashboardActionToSubAction } = await import("../../../ui/run-dashboard.ts");
+	const subAction = scheduleDashboardActionToSubAction(selection.action);
+	if (!subAction) {
+		depsNotify(ctx, `unhandled schedule action '${selection.action}'`, "warning");
+		return;
+	}
+	const result = await handleTeamTool({ action: "schedule", subAction, jobId }, teamCommandContext(ctx));
+	const text = commandText(result);
+	depsNotify(ctx, text.length > 800 ? `${text.slice(0, 797)}...` : text, result.isError ? "error" : "info");
+}
+
+/**
  * Internal setter for `depsRef` (Phase 2.1 split). ESM import bindings are
  * read-only, so `registerTeamCommands` in index.ts cannot assign to the
  * shared binding directly; this setter preserves the original single-module
@@ -544,6 +580,20 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 		if (selection.action === "plan-approve" || selection.action === "plan-deny") {
 			await handlePlanDashboardAction(cmdCtx, selection);
 			deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
+			continue;
+		}
+		// Tier A (review round 1, MAJOR-1): pane-8 schedule mutations route
+		// through the extension channel (handle-schedule.ts subActions) instead
+		// of falling into the generic handleTeamTool fall-through below, where
+		// they dead-ended with an "unknown action" error and CLOSED the
+		// dashboard. runId is "" for these selections — no snapshot invalidation.
+		if (
+			selection.action === "schedule-enable" ||
+			selection.action === "schedule-disable" ||
+			selection.action === "schedule-run-now" ||
+			selection.action === "schedule-remove"
+		) {
+			await handleScheduleDashboardAction(cmdCtx, selection);
 			continue;
 		}
 		if (selection.action === "agent-transcript" && (await openTranscriptViewer(cmdCtx, selection.runId))) continue;

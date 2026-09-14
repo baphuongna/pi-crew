@@ -114,9 +114,9 @@ function readSettingsFile(filePath: string): CrewSettings {
  * fixed P1 bypass (see docs/decisions/2026-08-15-schema-driven-sanitize.md
  * and the Wave 2B execution log in docs/refactor-plan.md).
  */
-export function loadCrewSettings(cwd: string = process.cwd()): CrewSettings {
+export function loadCrewSettings(cwd: string = process.cwd(), globalFile: string = globalPath()): CrewSettings {
 	return {
-		...readSettingsFile(globalPath()),
+		...readSettingsFile(globalFile),
 		...readSettingsFile(projectPath(cwd)),
 	};
 }
@@ -247,6 +247,32 @@ export function loadCrewSettingsTiers(cwd: string = process.cwd(), globalFile: s
 		...(projectScheduledJobsOptIn(user) ? (project.scheduledJobs ?? []) : []),
 	];
 	return { user, project, merged: { ...user, ...project }, effectiveScheduledJobs, projectPath: projectFilePath };
+}
+
+/** P2-1 (B2 gate visibility): how many project-tier scheduledJobs the Wave B2
+ *  opt-in gate is currently hiding, derived from an ALREADY-LOADED tiers view
+ *  (no disk read — the lifecycle session_start stash reuses its single tiers
+ *  read through this helper). Mirrors what `effectiveScheduledJobs` would add
+ *  after opt-in: only shape-valid entries count (the same id + scheduleType +
+ *  enabled predicate the provider fallback and the scheduler apply), so the
+ *  hint never counts junk that would be skipped anyway. 0 whenever the user
+ *  tier opted in (nothing is hidden). */
+export function scheduledJobsHiddenCountOf(tiers: CrewSettingsTiers): number {
+	if (projectScheduledJobsOptIn(tiers.user)) return 0;
+	const jobs = tiers.project.scheduledJobs;
+	if (!Array.isArray(jobs)) return 0;
+	return jobs.filter(validateScheduledJob).length;
+}
+
+/** P2-1 companion getter: how many project-tier scheduledJobs the B2 gate is
+ *  filtering out of `effectiveScheduledJobs` (and therefore out of every
+ *  read surface). `getScheduledJobs()`'s signature is intentionally unchanged
+ *  — consumers that want the hidden count call this next to their existing
+ *  provider read. Reads the tiers (one disk read per call): user-initiated
+ *  surfaces only (pane render/command handlers); paint-path consumers use the
+ *  registration-time stash in handle-schedule.ts (P0-6). */
+export function getScheduledJobsHiddenCount(cwd: string = process.cwd(), globalFile: string = globalPath()): number {
+	return scheduledJobsHiddenCountOf(loadCrewSettingsTiers(cwd, globalFile));
 }
 
 /**

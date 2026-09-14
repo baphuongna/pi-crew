@@ -54,6 +54,7 @@ export const DASHBOARD_KEYS = {
 		health: ["5"],
 		metrics: ["6"],
 		plan: ["7"],
+		schedules: ["8"],
 	},
 	navigation: { up: ["k", "up"], down: ["j", "down"] },
 	mailbox: {
@@ -66,6 +67,8 @@ export const DASHBOARD_KEYS = {
 	},
 	health: { recovery: ["R"], killStale: ["K"], diagnosticExport: ["D"] },
 	plan: { approve: ["A"], deny: ["n"], diff: ["X"] },
+	/** Tier A (schedules pane, pane 8): pane-scoped action keys. */
+	schedules: { toggle: ["T"], runNow: ["N"], details: ["V"], delete: ["X"], refresh: ["R"] },
 	notification: { dismissAll: ["H"] },
 } as const;
 
@@ -73,7 +76,7 @@ export const DASHBOARD_KEYS = {
  * Pane identifiers that can scope a binding. `undefined` means the binding
  * fires in every pane.
  */
-export type ActivePane = "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan";
+export type ActivePane = "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" | "schedules";
 
 /**
  * A single keybinding: the keys that trigger it, the action it produces, and
@@ -110,7 +113,13 @@ export type DashboardKeyAction =
 	| "pane-health"
 	| "pane-metrics"
 	| "pane-plan"
+	| "pane-schedules"
 	| "plan-diff"
+	| "schedule-toggle"
+	| "schedule-run-now"
+	| "schedule-details"
+	| "schedule-delete"
+	| "schedule-refresh"
 	| "up"
 	| "down"
 	| "mailbox-detail"
@@ -132,9 +141,12 @@ export type DashboardKeyAction =
  *   2. `mailbox-detail` (\r, \n) is pane-scoped to mailbox and MUST precede
  *      `select` (which also binds \r, \n) so Enter opens the detail instead of
  *      triggering select while in the mailbox pane.
- *   3. `health-*` and `plan-*` are pane-scoped (health / progress).
+ *   3. `health-*`, `schedule-*`, and `plan-*` are pane-scoped (health /
+ *      schedules / progress+plan).
  *   4. `notifications-dismiss` (H) is global.
  *   5. `select`, then the root actions, pane switches, and navigation.
+ *   6. `schedule-*` V precedes the unscoped root `liveConversation` (V) so the
+ *      schedules-scoped binding wins first-match-wins in pane 8.
  *
  * NOTE: mailbox action keys A/N/C/P/X (ack/nudge/compose/preview/ackAll) are
  * intentionally NOT dispatched for the mailbox pane by this table. They live
@@ -166,6 +178,39 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 		keys: DASHBOARD_KEYS.health.diagnosticExport,
 		action: "health-diagnostic-export",
 		pane: "health",
+	},
+	// Tier A: schedules-pane action keys (pane 8). ALL pane-scoped so they
+	// never leak into other panes. Collision analysis (explorer-verified):
+	//   T — unbound elsewhere; N — mailbox.nudge is overlay-owned, NOT dispatched
+	//   here; X — plan.diff is plan-scoped, mailbox.ackAll overlay-owned; R —
+	//   health.recovery is health-scoped; V — COLLIDES with the unscoped root
+	//   liveConversation ["V"]: this entry MUST stay above it (first-match-wins
+	//   pass-1 honors table order after paneScopeMatches), so V = details in
+	//   the schedules pane and live-conversation everywhere else.
+	{
+		keys: DASHBOARD_KEYS.schedules.toggle,
+		action: "schedule-toggle",
+		pane: "schedules",
+	},
+	{
+		keys: DASHBOARD_KEYS.schedules.runNow,
+		action: "schedule-run-now",
+		pane: "schedules",
+	},
+	{
+		keys: DASHBOARD_KEYS.schedules.details,
+		action: "schedule-details",
+		pane: "schedules",
+	},
+	{
+		keys: DASHBOARD_KEYS.schedules.delete,
+		action: "schedule-delete",
+		pane: "schedules",
+	},
+	{
+		keys: DASHBOARD_KEYS.schedules.refresh,
+		action: "schedule-refresh",
+		pane: "schedules",
 	},
 	{
 		keys: DASHBOARD_KEYS.plan.approve,
@@ -206,6 +251,7 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{ keys: DASHBOARD_KEYS.pane.health, action: "pane-health" },
 	{ keys: DASHBOARD_KEYS.pane.metrics, action: "pane-metrics" },
 	{ keys: DASHBOARD_KEYS.pane.plan, action: "pane-plan" },
+	{ keys: DASHBOARD_KEYS.pane.schedules, action: "pane-schedules" },
 	{ keys: DASHBOARD_KEYS.navigation.up, action: "up" },
 	{ keys: DASHBOARD_KEYS.navigation.down, action: "down" },
 ];
@@ -230,6 +276,7 @@ const KEY_RESERVED = new Set<string>([
 	...Object.values(DASHBOARD_KEYS.mailbox).flat(),
 	...Object.values(DASHBOARD_KEYS.health).flat(),
 	...Object.values(DASHBOARD_KEYS.plan).flat(),
+	...Object.values(DASHBOARD_KEYS.schedules).flat(),
 	...Object.values(DASHBOARD_KEYS.notification).flat(),
 ]);
 

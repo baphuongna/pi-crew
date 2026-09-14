@@ -274,6 +274,9 @@ export function tokenCountShort(count: number): string {
 }
 
 export interface DockUsageOptions {
+	/** Pinned render clock (D6-T4): callers that already hold ONE Date per
+	 * paint pass it so every duration/age in a frame agrees to the tick. */
+	nowMs?: number;
 	/** While the agent's pane is open: add tok/s + context % like pi-subtask. */
 	viewed?: boolean;
 	/** Model context window for the `P% / N` gauge; omitted when unknown. */
@@ -304,7 +307,7 @@ export function dockUsageText(agent: CrewAgentRecord, liveHandle?: LiveAgentHand
 		if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) parts.push(`$${cost.toFixed(4)}`);
 		if (options.viewed) {
 			const act = liveHandle.activity;
-			const ms = computeLiveDurationMs(act);
+			const ms = computeLiveDurationMs(act, options.nowMs);
 			const totalTokens = input + output + cacheWrite;
 			if (totalTokens > 0 && ms > 1000) {
 				const tps = Math.round(totalTokens / (ms / 1000));
@@ -403,7 +406,7 @@ function fitNameOnly(lead: string, name: string, suffix: string, width: number):
 
 // ── Agent stats line ──────────────────────────────────────────────────
 
-export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle): string {
+export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle, nowMs?: number): string {
 	const parts: string[] = [];
 	if (liveHandle) {
 		const act = liveHandle.activity;
@@ -422,7 +425,7 @@ export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle)
 		} catch {
 			/* ignore */
 		}
-		const ms = computeLiveDurationMs(act);
+		const ms = computeLiveDurationMs(act, nowMs);
 		if (total > 0 && ms > 1000) {
 			const tps = Math.round(total / (ms / 1000));
 			if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
@@ -438,7 +441,7 @@ export function agentStats(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle)
 		if (tokenCount && tokenCount > 0) parts.push(alignMetric(formatTokensCompact(tokenCount), TOKENS_METRIC_WIDTH));
 		const cost = agentCost(agent);
 		if (cost) parts.push(alignMetric(cost, COST_METRIC_WIDTH));
-		const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
+		const ageMs = agent.startedAt ? Math.max(0, (nowMs ?? Date.now()) - new Date(agent.startedAt).getTime()) : 0;
 		if (tokenCount && tokenCount > 0 && ageMs > 1000) {
 			const tps = Math.round(tokenCount / (ageMs / 1000));
 			if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));

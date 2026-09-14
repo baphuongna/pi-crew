@@ -2,16 +2,19 @@
  * Command registration installer for pi-crew.
  *
  * Single entry point that wires every `pi.registerCommand(...)` call
- * site in the extension. Today that means one heavy call:
+ * site in the extension. Today that means:
  *   • `registerTeamCommands` — registers every `/crew-*`, `/team-*`,
  *     `/teams`, and friends. The full set lives in
  *     `registration/commands.ts` (already extracted); this file is
  *     the orchestrator-level wrapper that calls it with the right deps.
+ *   • `registerSchedulesCommands` — the headless `/schedules` command
+ *     (Scheduled Jobs UI tier E; no deps beyond the ExtensionAPI).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
 import { updatePiCrewPowerbar } from "../../ui/powerbar-publisher.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";
+import { registerSchedulesCommands } from "./commands/schedules.ts";
 import { registerTeamCommands } from "./commands.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 
@@ -56,4 +59,5 @@ export function registerPiCommands(pi: ExtensionAPI, ctx: RegistrationContext): 
 			}
 		},
 	});
+	registerSchedulesCommands(pi);
 }

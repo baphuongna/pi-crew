@@ -4,12 +4,11 @@ import { getCrewEnv } from "../../config/env-vars.ts";
 import { hasCrewFontFile, isWebTerminal } from "./font-detect.ts";
 
 /**
- * Self-contained config for the crew-vibes module (speed + capacity meters).
+ * Self-contained config for the crew-vibes module (provider quota).
  * Stored in its own JSON file so it never touches the strict typebox schema
  * used by the rest of pi-crew.
  */
 
-export const SPEED_STATUS_ID = "pi-crew-speed";
 export const CAPACITY_STATUS_ID = "pi-crew-bar";
 export const PROVIDER_STATUS_ID = "pi-crew-bar";
 
@@ -22,21 +21,6 @@ export function configPath(): string {
 }
 
 export type TokenDisplay = "off" | "tokens" | "percentage";
-
-export interface SpeedConfig {
-	enabled: boolean;
-	footer: boolean;
-	indicator: boolean;
-	label: string;
-	renderIntervalMs: number;
-	slidingWindowMs: number;
-	minReliableDurationMs: number;
-	maxDisplayTokS: number;
-	defaultIntervalMs: number;
-	minIntervalMs: number;
-	maxIntervalMs: number;
-	scale: number;
-}
 
 export interface CapacityConfig {
 	enabled: boolean;
@@ -51,26 +35,11 @@ export interface CapacityConfig {
 
 export interface CrewVibesConfig {
 	enabled: boolean;
-	speed: SpeedConfig;
 	capacity: CapacityConfig;
 }
 
 export const DEFAULT_CONFIG: CrewVibesConfig = {
 	enabled: true,
-	speed: {
-		enabled: true,
-		footer: false,
-		indicator: true,
-		label: "tok/s",
-		renderIntervalMs: 250,
-		slidingWindowMs: 1000,
-		minReliableDurationMs: 1000,
-		maxDisplayTokS: 500,
-		defaultIntervalMs: 167,
-		minIntervalMs: 50,
-		maxIntervalMs: 250,
-		scale: 6000,
-	},
 	capacity: {
 		enabled: true,
 		tokenDisplay: "tokens",
@@ -133,29 +102,6 @@ function tokenDisplayFrom(raw: unknown, fallback: TokenDisplay): TokenDisplay {
 	return raw === "off" || raw === "tokens" || raw === "percentage" ? raw : fallback;
 }
 
-function normalizeSpeed(raw: unknown): SpeedConfig {
-	const input = asRecord(raw);
-	const speed: SpeedConfig = {
-		enabled: boolFrom(input.enabled, DEFAULT_CONFIG.speed.enabled),
-		footer: boolFrom(input.footer, DEFAULT_CONFIG.speed.footer),
-		indicator: boolFrom(input.indicator, DEFAULT_CONFIG.speed.indicator),
-		label: stringFrom(input.label, DEFAULT_CONFIG.speed.label),
-		renderIntervalMs: positiveFrom(input.renderIntervalMs, DEFAULT_CONFIG.speed.renderIntervalMs),
-		slidingWindowMs: positiveFrom(input.slidingWindowMs, DEFAULT_CONFIG.speed.slidingWindowMs),
-		minReliableDurationMs: positiveFrom(input.minReliableDurationMs, DEFAULT_CONFIG.speed.minReliableDurationMs),
-		maxDisplayTokS: positiveFrom(input.maxDisplayTokS, DEFAULT_CONFIG.speed.maxDisplayTokS),
-		defaultIntervalMs: positiveFrom(input.defaultIntervalMs, DEFAULT_CONFIG.speed.defaultIntervalMs),
-		minIntervalMs: positiveFrom(input.minIntervalMs, DEFAULT_CONFIG.speed.minIntervalMs),
-		maxIntervalMs: positiveFrom(input.maxIntervalMs, DEFAULT_CONFIG.speed.maxIntervalMs),
-		scale: positiveFrom(input.scale, DEFAULT_CONFIG.speed.scale),
-	};
-	if (speed.minIntervalMs > speed.maxIntervalMs) {
-		speed.minIntervalMs = DEFAULT_CONFIG.speed.minIntervalMs;
-		speed.maxIntervalMs = DEFAULT_CONFIG.speed.maxIntervalMs;
-	}
-	return speed;
-}
-
 function normalizeCapacity(raw: unknown): CapacityConfig {
 	const input = asRecord(raw);
 	return {
@@ -174,7 +120,6 @@ export function normalizeConfig(raw: unknown): CrewVibesConfig {
 	const input = asRecord(raw);
 	return {
 		enabled: boolFrom(input.enabled, DEFAULT_CONFIG.enabled),
-		speed: normalizeSpeed(input.speed),
 		capacity: normalizeCapacity(input.capacity),
 	};
 }

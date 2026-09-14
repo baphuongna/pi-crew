@@ -36,7 +36,7 @@ import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts"
 import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
-import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers } from "../../runtime/settings-store.ts";
+import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers, scheduledJobsHiddenCountOf } from "../../runtime/settings-store.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
@@ -61,10 +61,11 @@ import { getBrokerSocketPath } from "../../utils/socket-path.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
 import { registerCrewAutocomplete } from "../crew-autocomplete.ts";
 import { notifyActiveRuns } from "../session-summary.ts";
-import { persistScheduledJobUpdate, registerCrewScheduler } from "../team-tool/handle-schedule.ts";
+import { persistScheduledJobUpdate, registerCrewScheduler, stashScheduledJobsHiddenCount } from "../team-tool/handle-schedule.ts";
 import { handleTeamTool } from "../team-tool.ts";
 import { runArtifactCleanup } from "./artifact-cleanup.ts";
 import type { RegistrationContext } from "./registration-types.ts";
+import { createScheduleEventNotifier } from "./schedule-toast-bridge.ts";
 
 /**
  * Register all session-lifecycle handlers on the ExtensionAPI. The caller
@@ -283,6 +284,11 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		// Wire scheduler into handle-schedule.ts so handlers can add/list jobs.
 		// EXT-9: module-scoped setter (was globalThis[Symbol.for(...)]).
 		registerCrewScheduler(ctx.crewScheduler);
+		// P2-1 (B2 gate visibility): stash the hidden project-tier count from the
+		// SAME tiers read above (zero extra disk I/O — disk reads are legal here
+		// at session_start but never on later paint paths) so the crew widget
+		// line and the dashboard pane can surface "N project-tier jobs hidden".
+		stashScheduledJobsHiddenCount(scheduledJobsHiddenCountOf(crewSettingsTiers));
 		// Load scheduled jobs from settings if present.
 		// BOUNDARY (Wave B2): project-tier scheduledJobs are OPT-IN GATED — the
 		// registration loop reads the gated `effectiveScheduledJobs` view (user
@@ -497,9 +503,17 @@ function setupCrewScheduler(
 	sessionId: string | undefined,
 ): CrewScheduler {
 	const crewScheduler = new CrewScheduler();
+	// Tier D (schedules UI): scheduler events → terminal-status toasts. Bounded
+	// (hung-notice pattern): at most one notice per event; headless sessions
+	// no-op inside the bridge (hasUI probed defensively) instead of crashing.
+	const notifyScheduleEvent = createScheduleEventNotifier({
+		hasUI: () => extensionCtx.hasUI,
+		ui: extensionCtx.ui,
+	});
 	crewScheduler.start({
 		emit: (event) => {
 			if (ctx.cleanedUp) return;
+			notifyScheduleEvent(event);
 			pi.events?.emit?.("crew-scheduler", event);
 		},
 		executor: (job) => {

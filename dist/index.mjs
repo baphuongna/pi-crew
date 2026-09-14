@@ -715,8 +715,8 @@ function sleepSync(ms) {
 }
 function sleep(ms, signal) {
   if (signal?.aborted) return Promise.reject(new Error("aborted"));
-  return new Promise((resolve27, reject) => {
-    const timer = setTimeout(resolve27, ms);
+  return new Promise((resolve26, reject) => {
+    const timer = setTimeout(resolve26, ms);
     signal?.addEventListener(
       "abort",
       () => {
@@ -761,9 +761,9 @@ function getWorker() {
   return worker;
 }
 function dispatch(kind, payload) {
-  return new Promise((resolve27, reject) => {
+  return new Promise((resolve26, reject) => {
     const id = nextRequestId++;
-    pending.set(id, { resolve: resolve27, reject });
+    pending.set(id, { resolve: resolve26, reject });
     try {
       getWorker().postMessage({ kind, id, ...payload });
     } catch (error) {
@@ -1032,7 +1032,7 @@ function isSymlinkSafeDirCached(filePath) {
   return verdict;
 }
 function sleep2(ms) {
-  return new Promise((resolve27) => setTimeout(resolve27, ms));
+  return new Promise((resolve26) => setTimeout(resolve26, ms));
 }
 function isRetryableRenameError(error) {
   return Boolean(
@@ -1854,7 +1854,7 @@ function acquireLockWithRetry(filePath, staleMs, kind = "file") {
   }
 }
 function sleep3(ms) {
-  return new Promise((resolve27) => setTimeout(resolve27, ms));
+  return new Promise((resolve26) => setTimeout(resolve26, ms));
 }
 async function acquireLockWithRetryAsync(filePath, staleMs, kind = "file") {
   let attempt = 0;
@@ -14174,7 +14174,7 @@ var init_cancellation_token = __esm({
       wait(ms) {
         this.throwIfCancelled();
         if (ms <= 0) return Promise.resolve();
-        return new Promise((resolve27, reject) => {
+        return new Promise((resolve26, reject) => {
           let timeout;
           const cleanup = () => {
             if (timeout) clearTimeout(timeout);
@@ -14186,7 +14186,7 @@ var init_cancellation_token = __esm({
           };
           timeout = setTimeout(() => {
             cleanup();
-            resolve27();
+            resolve26();
           }, ms);
           this.signal.addEventListener("abort", onAbort, { once: true });
         });
@@ -14221,8 +14221,8 @@ function resolveContainedPath(baseDir, targetPath2) {
   const resolved = path13.isAbsolute(targetPath2) ? path13.resolve(targetPath2) : path13.resolve(base, targetPath2);
   const baseNorm = resolveCanonicalPath(base);
   const resolvedNorm = resolveCanonicalPath(resolved);
-  const relative9 = process.platform === "win32" ? path13.relative(baseNorm.toLowerCase(), resolvedNorm.toLowerCase()) : path13.relative(baseNorm, resolvedNorm);
-  if (relative9.startsWith("..") || path13.isAbsolute(relative9)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
+  const relative8 = process.platform === "win32" ? path13.relative(baseNorm.toLowerCase(), resolvedNorm.toLowerCase()) : path13.relative(baseNorm, resolvedNorm);
+  if (relative8.startsWith("..") || path13.isAbsolute(relative8)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
   return resolved;
 }
 function resolveCanonicalPath(p) {
@@ -14404,8 +14404,8 @@ function resolveRealContainedPath(baseDir, targetPath2) {
       throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
     }
   } else {
-    const relative9 = path13.relative(realBase, realTarget);
-    if (relative9.startsWith("..") || path13.isAbsolute(relative9)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
+    const relative8 = path13.relative(realBase, realTarget);
+    if (relative8.startsWith("..") || path13.isAbsolute(relative8)) throw new Error(`Path is outside ${baseDir}: ${targetPath2}`);
   }
   return realTarget;
 }
@@ -15665,7 +15665,7 @@ function redactInlineSecrets(value) {
     if (keyLen > 0 && j < value.length && (value[j] === "=" || value[j] === ":")) {
       const key = value.substring(i, j);
       if (isSecretKey(key)) {
-        const sep11 = value[j];
+        const sep10 = value[j];
         let k = j + 1;
         let valLen = 0;
         while (k < value.length && valLen < 500 && value[k] !== " " && value[k] !== "," && value[k] !== ";" && value[k] !== '"' && value[k] !== "\r" && value[k] !== "\n") {
@@ -15674,7 +15674,7 @@ function redactInlineSecrets(value) {
         }
         if (valLen > 0) {
           result4.push(key);
-          result4.push(sep11);
+          result4.push(sep10);
           result4.push("***");
           i = k;
           redacted = true;
@@ -17272,9 +17272,9 @@ function appendEventBuffered(eventsPath, event, bufferMs = DEFAULT_BUFFER_MS) {
     const flushPromise = bufferedQueues.has(eventsPath) ? flushOneEventLogBuffer(eventsPath).catch(() => void 0) : Promise.resolve();
     return flushPromise.then(() => appendEvent(eventsPath, event));
   }
-  return new Promise((resolve27, reject) => {
+  return new Promise((resolve26, reject) => {
     const queue = bufferedQueues.get(eventsPath) ?? [];
-    queue.push({ event, resolve: resolve27, reject });
+    queue.push({ event, resolve: resolve26, reject });
     bufferedQueues.set(eventsPath, queue);
     if (!bufferedTimers.has(eventsPath)) {
       const timer = setTimeout(() => {
@@ -18791,7 +18791,7 @@ function isSpawnFailLockout(consecutiveFails) {
   return consecutiveFails >= SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD;
 }
 function makeTerminalEventProbe(deps) {
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve27) => setTimeout(resolve27, ms)));
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
   const now = deps.now ?? Date.now;
   const step = Math.max(1, deps.pollMs ?? CLASSIFY_POLL_MS);
   let offset = 0;
@@ -20112,7 +20112,7 @@ function createHerdrProvider(deps = {}) {
   function call(method, params) {
     reqSeq += 1;
     const id = `req-${reqSeq}`;
-    return new Promise((resolve27, reject) => {
+    return new Promise((resolve26, reject) => {
       let socket;
       try {
         socket = connect(herdrSocketPath(env));
@@ -20142,7 +20142,7 @@ function createHerdrProvider(deps = {}) {
           reject(new Error(`${msg.error.code ?? "herdr_error"}: ${msg.error.message ?? "unknown error"}`));
           return;
         }
-        resolve27(msg.result);
+        resolve26(msg.result);
       });
       socket.write(JSON.stringify({ id, method, params }));
     });
@@ -20429,7 +20429,7 @@ function findPanePid(stdout, paneId) {
 function createTmuxProvider(deps = {}) {
   const tmux = deps.tmux ?? ((args) => execFileSync2("tmux", args, { encoding: "utf8" }));
   const env = deps.env ?? process.env;
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve27) => setTimeout(resolve27, ms)));
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
   const killTree = deps.killTree ?? ((pid) => process.kill(pid, "SIGTERM"));
   const hasCommand = deps.hasCommand ?? defaultHasCommand;
   const schedule = deps.schedule ?? defaultSchedule;
@@ -20982,7 +20982,7 @@ async function waitForSurfaceExit(outcome, hooks = {}) {
       );
     }
   };
-  return await new Promise((resolve27) => {
+  return await new Promise((resolve26) => {
     let cancelledByAbort = hooks.signal?.aborted === true;
     let timedOut = false;
     let settled = false;
@@ -20991,7 +20991,7 @@ async function waitForSurfaceExit(outcome, hooks = {}) {
       if (settled) return;
       settled = true;
       if (synthTimer) clearTimeout(synthTimer);
-      resolve27(info2);
+      resolve26(info2);
     };
     const armSyntheticFallback = () => {
       if (settled || synthTimer) return;
@@ -21905,7 +21905,7 @@ async function runMockChildPi(input, effectiveTask, observe) {
   }
   if (mock === "json-slow-success") {
     const windowMs = Number(getCrewEnv("PI_TEAMS_MOCK_STEER_WINDOW_MS") ?? "1500");
-    await new Promise((resolve27) => setTimeout(resolve27, Math.min(windowMs, 5e3)));
+    await new Promise((resolve26) => setTimeout(resolve26, Math.min(windowMs, 5e3)));
     const text = `[MOCK] JSON success for ${input.agent.name}`;
     const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
 ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
@@ -22460,7 +22460,7 @@ ${input.task}` : input.task;
   const surfaceResult = await trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir);
   if (surfaceResult) return surfaceResult;
   try {
-    return await new Promise((resolve27) => {
+    return await new Promise((resolve26) => {
       const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
       const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
       if (child.pid) {
@@ -22601,7 +22601,7 @@ ${input.task}` : input.task;
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve27({
+            resolve26({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -22643,7 +22643,7 @@ ${input.task}` : input.task;
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve27({
+            resolve26({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -24117,12 +24117,6 @@ function setExtensionWidget(ctx, key, content, options) {
 function toPiWidgetPlacement(placement) {
   return placement === "bottom" ? "belowEditor" : placement;
 }
-function setFooter(ctx, factory) {
-  if (!ctx) return;
-  const record = maybeRecord(ctx.ui);
-  const fn = record?.setFooter;
-  if (typeof fn === "function") fn.call(ctx.ui, factory);
-}
 function showCustom(ctx, factory, options) {
   const custom = ctx.ui.custom;
   return custom(factory, options);
@@ -24770,7 +24764,7 @@ async function respondAsBackground(targetAgentId, fromId, message, opts) {
   return awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, opts?.signal);
 }
 function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
-  return new Promise((resolve27) => {
+  return new Promise((resolve26) => {
     const deadline = Date.now() + timeoutMs;
     let settled = false;
     let timer;
@@ -24784,7 +24778,7 @@ function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
       const set2 = pendingRepliesByTarget.get(targetAgentId);
       set2?.delete(corrId);
       if (set2 && set2.size === 0) pendingRepliesByTarget.delete(targetAgentId);
-      resolve27(result4);
+      resolve26(result4);
     };
     timer = setTimeout(() => finish({ ok: false, corrId, timedOut: true }), timeoutMs);
     if (signal) {
@@ -27305,7 +27299,8 @@ var init_keybinding_map = __esm({
         output: ["4"],
         health: ["5"],
         metrics: ["6"],
-        plan: ["7"]
+        plan: ["7"],
+        schedules: ["8"]
       },
       navigation: { up: ["k", "up"], down: ["j", "down"] },
       mailbox: {
@@ -27318,6 +27313,8 @@ var init_keybinding_map = __esm({
       },
       health: { recovery: ["R"], killStale: ["K"], diagnosticExport: ["D"] },
       plan: { approve: ["A"], deny: ["n"], diff: ["X"] },
+      /** Tier A (schedules pane, pane 8): pane-scoped action keys. */
+      schedules: { toggle: ["T"], runNow: ["N"], details: ["V"], delete: ["X"], refresh: ["R"] },
       notification: { dismissAll: ["H"] }
     };
     DEFAULT_BINDINGS = [
@@ -27342,6 +27339,39 @@ var init_keybinding_map = __esm({
         keys: DASHBOARD_KEYS.health.diagnosticExport,
         action: "health-diagnostic-export",
         pane: "health"
+      },
+      // Tier A: schedules-pane action keys (pane 8). ALL pane-scoped so they
+      // never leak into other panes. Collision analysis (explorer-verified):
+      //   T — unbound elsewhere; N — mailbox.nudge is overlay-owned, NOT dispatched
+      //   here; X — plan.diff is plan-scoped, mailbox.ackAll overlay-owned; R —
+      //   health.recovery is health-scoped; V — COLLIDES with the unscoped root
+      //   liveConversation ["V"]: this entry MUST stay above it (first-match-wins
+      //   pass-1 honors table order after paneScopeMatches), so V = details in
+      //   the schedules pane and live-conversation everywhere else.
+      {
+        keys: DASHBOARD_KEYS.schedules.toggle,
+        action: "schedule-toggle",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.runNow,
+        action: "schedule-run-now",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.details,
+        action: "schedule-details",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.delete,
+        action: "schedule-delete",
+        pane: "schedules"
+      },
+      {
+        keys: DASHBOARD_KEYS.schedules.refresh,
+        action: "schedule-refresh",
+        pane: "schedules"
       },
       {
         keys: DASHBOARD_KEYS.plan.approve,
@@ -27382,6 +27412,7 @@ var init_keybinding_map = __esm({
       { keys: DASHBOARD_KEYS.pane.health, action: "pane-health" },
       { keys: DASHBOARD_KEYS.pane.metrics, action: "pane-metrics" },
       { keys: DASHBOARD_KEYS.pane.plan, action: "pane-plan" },
+      { keys: DASHBOARD_KEYS.pane.schedules, action: "pane-schedules" },
       { keys: DASHBOARD_KEYS.navigation.up, action: "up" },
       { keys: DASHBOARD_KEYS.navigation.down, action: "down" }
     ];
@@ -27395,6 +27426,7 @@ var init_keybinding_map = __esm({
       ...Object.values(DASHBOARD_KEYS.mailbox).flat(),
       ...Object.values(DASHBOARD_KEYS.health).flat(),
       ...Object.values(DASHBOARD_KEYS.plan).flat(),
+      ...Object.values(DASHBOARD_KEYS.schedules).flat(),
       ...Object.values(DASHBOARD_KEYS.notification).flat()
     ]);
     KEYBINDINGS_ENV = "PI_CREW_KEYBINDINGS";
@@ -27486,8 +27518,8 @@ function taskMailboxDir(manifest, taskId, create = false) {
   const tasksRoot = safeMailboxTasksRoot(manifest, create);
   const normalizedTaskId = safeTaskId(taskId);
   const resolved = path35.resolve(tasksRoot, normalizedTaskId);
-  const relative9 = path35.relative(tasksRoot, resolved);
-  if (relative9.startsWith("..") || path35.isAbsolute(relative9)) throw new Error(`Invalid mailbox task id: ${taskId}`);
+  const relative8 = path35.relative(tasksRoot, resolved);
+  if (relative8.startsWith("..") || path35.isAbsolute(relative8)) throw new Error(`Invalid mailbox task id: ${taskId}`);
   if (create) fs46.mkdirSync(resolved, { recursive: true });
   if (fs46.existsSync(resolved) && fs46.lstatSync(resolved).isSymbolicLink()) throw new Error(`Invalid mailbox task directory: ${resolved}`);
   return resolved;
@@ -28272,9 +28304,9 @@ async function isLiveSessionRuntimeAvailable(timeoutMs = 1500, env = process.env
   try {
     return await Promise.race([
       probe(),
-      new Promise((resolve27) => {
+      new Promise((resolve26) => {
         timer = setTimeout(
-          () => resolve27({
+          () => resolve26({
             available: false,
             reason: `Timed out probing optional Pi SDK live-session runtime after ${timeoutMs}ms.`
           }),
@@ -29451,13 +29483,13 @@ function registerRunPromise(runId) {
   const existing = activeRunPromises.get(runId);
   if (existing) return existing;
   detachRequests.delete(runId);
-  let resolve27;
+  let resolve26;
   let reject;
   const promise = new Promise((res, rej) => {
-    resolve27 = res;
+    resolve26 = res;
     reject = rej;
   });
-  const entry = { promise, resolve: resolve27, reject };
+  const entry = { promise, resolve: resolve26, reject };
   activeRunPromises.set(runId, entry);
   return entry;
 }
@@ -30069,11 +30101,11 @@ function readSkillMarkdown(cwd, name) {
   skillCacheStats.currentSize = skillReadCache.size;
   for (const entry of candidateSkillDirs(cwd)) {
     try {
-      const relative9 = path38.join(name, "SKILL.md");
-      const contained = resolveRealContainedPath(entry.root, relative9);
+      const relative8 = path38.join(name, "SKILL.md");
+      const contained = resolveRealContainedPath(entry.root, relative8);
       if (!fs50.existsSync(contained)) continue;
       if (fs50.lstatSync(contained).isSymbolicLink()) continue;
-      const filePath = resolveRealContainedPath(entry.root, relative9);
+      const filePath = resolveRealContainedPath(entry.root, relative8);
       const stat2 = fs50.statSync(filePath);
       const rawContent = fs50.readFileSync(filePath, "utf-8");
       return rememberSkill(cacheKey2, {
@@ -36159,7 +36191,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve27.call(this, root, ref);
+      let _sch = resolve26.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -36186,7 +36218,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve27(root, ref) {
+    function resolve26(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -36817,55 +36849,55 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve27(baseURI, relativeURI, options) {
+    function resolve26(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative9, options, skipNormalization) {
+    function resolveComponent(base, relative8, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative9 = parse4(serialize(relative9, options), options);
+        relative8 = parse4(serialize(relative8, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative9.scheme) {
-        target.scheme = relative9.scheme;
-        target.userinfo = relative9.userinfo;
-        target.host = relative9.host;
-        target.port = relative9.port;
-        target.path = removeDotSegments(relative9.path || "");
-        target.query = relative9.query;
+      if (!options.tolerant && relative8.scheme) {
+        target.scheme = relative8.scheme;
+        target.userinfo = relative8.userinfo;
+        target.host = relative8.host;
+        target.port = relative8.port;
+        target.path = removeDotSegments(relative8.path || "");
+        target.query = relative8.query;
       } else {
-        if (relative9.userinfo !== void 0 || relative9.host !== void 0 || relative9.port !== void 0) {
-          target.userinfo = relative9.userinfo;
-          target.host = relative9.host;
-          target.port = relative9.port;
-          target.path = removeDotSegments(relative9.path || "");
-          target.query = relative9.query;
+        if (relative8.userinfo !== void 0 || relative8.host !== void 0 || relative8.port !== void 0) {
+          target.userinfo = relative8.userinfo;
+          target.host = relative8.host;
+          target.port = relative8.port;
+          target.path = removeDotSegments(relative8.path || "");
+          target.query = relative8.query;
         } else {
-          if (!relative9.path) {
+          if (!relative8.path) {
             target.path = base.path;
-            if (relative9.query !== void 0) {
-              target.query = relative9.query;
+            if (relative8.query !== void 0) {
+              target.query = relative8.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative9.path[0] === "/") {
-              target.path = removeDotSegments(relative9.path);
+            if (relative8.path[0] === "/") {
+              target.path = removeDotSegments(relative8.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative9.path;
+                target.path = "/" + relative8.path;
               } else if (!base.path) {
-                target.path = relative9.path;
+                target.path = relative8.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative9.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative8.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative9.query;
+            target.query = relative8.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -36873,7 +36905,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative9.fragment;
+      target.fragment = relative8.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -37075,7 +37107,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve27,
+      resolve: resolve26,
       resolveComponent,
       equal,
       serialize,
@@ -40718,7 +40750,7 @@ ${input.prompt}` : input.prompt;
             );
           } catch {
           }
-          await new Promise((resolve27) => setTimeout(resolve27, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
+          await new Promise((resolve26) => setTimeout(resolve26, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
           if (customToolYieldResolved && customToolYieldResult) {
             yieldResult = customToolYieldResult;
           } else if (collectedJsonEvents) {
@@ -40762,7 +40794,7 @@ ${input.prompt}` : input.prompt;
           }
         }
         const pollInterval = DEFAULT_LIVE_SESSION.yieldPollIntervalMs;
-        await new Promise((resolve27) => setTimeout(resolve27, pollInterval));
+        await new Promise((resolve26) => setTimeout(resolve26, pollInterval));
         if (customToolYieldResolved && customToolYieldResult) {
           yieldResult = customToolYieldResult;
           break;
@@ -42238,10 +42270,11 @@ function humanizeSchedule(spec) {
   }
   return "unknown schedule";
 }
-var CrewScheduler, CRON_DOW_NAMES, CRON_MONTH_NAMES;
+var MAX_TIMER_DELAY_MS, CrewScheduler, CRON_DOW_NAMES, CRON_MONTH_NAMES;
 var init_scheduler = __esm({
   "src/runtime/scheduling/scheduler.ts"() {
     "use strict";
+    MAX_TIMER_DELAY_MS = 2147483e3;
     CrewScheduler = class {
       jobs = /* @__PURE__ */ new Map();
       timers = /* @__PURE__ */ new Map();
@@ -42249,6 +42282,14 @@ var init_scheduler = __esm({
       executor;
       finalizer;
       runCancelFn;
+      nowFn;
+      constructor(options = {}) {
+        this.nowFn = options.now ?? (() => /* @__PURE__ */ new Date());
+      }
+      /** Scheduler clock. Injected in tests; real time in production. */
+      now() {
+        return this.nowFn();
+      }
       start(options) {
         this.emit = options.emit;
         this.executor = options.executor;
@@ -42307,6 +42348,24 @@ var init_scheduler = __esm({
         const spawnedRunIds = [...job.spawnedRunIds ?? [], runId];
         this.jobs.set(jobId, { ...job, spawnedRunIds });
       }
+      /**
+       * Trigger a job immediately (dashboard "run now" / subAction='run-now').
+       * Bypasses the enabled gate — an explicit user action — but otherwise reuses
+       * fire()'s exact path: marks lastStatus=running, invokes the SAME executor
+       * callback, emits fired/error events, and calls the finalizer. Completion
+       * (runCount/lastRun/lastStatus=persisted success) is handled by the same
+       * async finalization the timer-driven path uses.
+       *
+       * Returns ok:false (no throw) when the job or the executor is missing.
+       */
+      runNow(jobId) {
+        const job = this.jobs.get(jobId);
+        if (!job) return { ok: false, error: `No scheduled job with id '${jobId}'.` };
+        if (!this.executor) return { ok: false, error: "Scheduler is not running." };
+        this.fire(jobId, true);
+        if (job.scheduleType === "once") this.update(jobId, { enabled: false });
+        return { ok: true };
+      }
       arm(job) {
         if (this.timers.has(job.id)) return;
         if (job.scheduleType === "interval" && job.intervalMs) {
@@ -42315,7 +42374,7 @@ var init_scheduler = __esm({
           this.timers.set(job.id, t2);
         } else if (job.scheduleType === "once") {
           const target = new Date(job.schedule).getTime();
-          const delay = target - Date.now();
+          const delay = target - this.now().getTime();
           if (delay > 0) {
             const t2 = setTimeout(() => {
               this.fire(job.id);
@@ -42331,23 +42390,85 @@ var init_scheduler = __esm({
               error: `Scheduled time ${job.schedule} is in the past`
             });
           }
+        } else if (job.scheduleType === "cron") {
+          this.armCron(job);
         }
+      }
+      /**
+       * Arm a cron job: schedule a chained setTimeout at the next occurrence
+       * (hops are clamped below the 2^31-1 ms setTimeout ceiling so yearly crons
+       * cannot mis-fire), fire once on arrival, then let the existing
+       * update() → disarm+arm lifecycle (triggered by fire()'s
+       * lastStatus='running' update) re-arm the NEXT occurrence. fire() itself
+       * stays persistence-blind; the post-fire nextRun advance happens in
+       * advanceCronNextRun and persists via the usual `updated` event flow.
+       */
+      armCron(job) {
+        const now = this.now();
+        const next = nextRunTime({ kind: "cron", spec: job.schedule }, now);
+        if (!(next instanceof Date) || next.getTime() <= now.getTime()) {
+          this.disableCronForUncomputableNext(job.id, next);
+          return;
+        }
+        this.setCronTimeout(job.id, next.getTime());
+      }
+      /** Chain a clamped timeout hop toward the target cron occurrence. */
+      setCronTimeout(jobId, targetMs) {
+        const delay = Math.max(targetMs - this.now().getTime(), 0);
+        const t2 = setTimeout(() => this.cronTick(jobId, targetMs), Math.min(delay, MAX_TIMER_DELAY_MS));
+        t2.unref();
+        this.timers.set(jobId, t2);
+      }
+      /** Timer callback for a cron hop/arrival. Fires at most once per occurrence. */
+      cronTick(jobId, targetMs) {
+        const job = this.jobs.get(jobId);
+        if (!job?.enabled) return;
+        if (this.now().getTime() < targetMs) {
+          this.setCronTimeout(jobId, targetMs);
+          return;
+        }
+        this.fire(jobId);
+        this.advanceCronNextRun(jobId);
+      }
+      /** After a cron fire, advance the persisted nextRun to the next occurrence
+       * (or self-disable when no further occurrence is computable). */
+      advanceCronNextRun(jobId) {
+        const job = this.jobs.get(jobId);
+        if (!job?.enabled || job.scheduleType !== "cron") return;
+        const next = nextRunTime({ kind: "cron", spec: job.schedule }, this.now());
+        if (!(next instanceof Date)) {
+          this.disableCronForUncomputableNext(jobId, next);
+          return;
+        }
+        this.update(jobId, { nextRun: next.toISOString() });
+      }
+      /** No computable next occurrence (e.g. Feb-29 beyond the 366-day search
+       * window): disable the job and record why. */
+      disableCronForUncomputableNext(jobId, next) {
+        const reason = next && typeof next === "object" && "error" in next ? next.error : "next occurrence is not in the future";
+        this.update(jobId, { enabled: false, lastStatus: "error" });
+        this.emit?.({
+          type: "error",
+          jobId,
+          error: `Cron schedule cannot compute a next occurrence (${reason}); job disabled`
+        });
       }
       disarm(id) {
         const t2 = this.timers.get(id);
         if (t2) {
           const job = this.jobs.get(id);
-          if (job?.scheduleType === "once") {
-            clearTimeout(t2);
-          } else {
+          if (job?.scheduleType === "interval") {
             clearInterval(t2);
+          } else {
+            clearTimeout(t2);
           }
           this.timers.delete(id);
         }
       }
-      fire(id) {
+      fire(id, force = false) {
         const job = this.jobs.get(id);
-        if (!job?.enabled || !this.executor) return;
+        if (!job || !this.executor) return;
+        if (!job.enabled && !force) return;
         this.update(id, { lastStatus: "running" });
         let agentId;
         try {
@@ -42465,9 +42586,9 @@ function readSettingsFile(filePath) {
     return {};
   }
 }
-function loadCrewSettings(cwd = process.cwd()) {
+function loadCrewSettings(cwd = process.cwd(), globalFile = globalPath()) {
   return {
-    ...readSettingsFile(globalPath()),
+    ...readSettingsFile(globalFile),
     ...readSettingsFile(projectPath(cwd))
   };
 }
@@ -42500,6 +42621,15 @@ function loadCrewSettingsTiers(cwd = process.cwd(), globalFile = globalPath()) {
     ...projectScheduledJobsOptIn(user) ? project.scheduledJobs ?? [] : []
   ];
   return { user, project, merged: { ...user, ...project }, effectiveScheduledJobs, projectPath: projectFilePath };
+}
+function scheduledJobsHiddenCountOf(tiers) {
+  if (projectScheduledJobsOptIn(tiers.user)) return 0;
+  const jobs = tiers.project.scheduledJobs;
+  if (!Array.isArray(jobs)) return 0;
+  return jobs.filter(validateScheduledJob).length;
+}
+function getScheduledJobsHiddenCount(cwd = process.cwd(), globalFile = globalPath()) {
+  return scheduledJobsHiddenCountOf(loadCrewSettingsTiers(cwd, globalFile));
 }
 function applyCrewSettingsTiersToConfig(config, tiers) {
   const warnings = [];
@@ -42580,6 +42710,32 @@ function getCrewScheduler() {
 function registerCrewScheduler(scheduler) {
   crewSchedulerInstance = scheduler;
 }
+function stashScheduledJobsHiddenCount(count2) {
+  stashedScheduledJobsHiddenCount = count2;
+}
+function getScheduledJobs(cwd = process.cwd(), globalFile) {
+  const scheduler = getCrewScheduler();
+  if (scheduler) return scheduler.list();
+  try {
+    const tiers = loadCrewSettingsTiers(cwd, globalFile);
+    return tiers.effectiveScheduledJobs.filter(isScheduledJobLike);
+  } catch {
+    return [];
+  }
+}
+function isScheduledJobLike(job) {
+  if (!job || typeof job !== "object") return false;
+  const obj = job;
+  return typeof obj.id === "string" && obj.id.length > 0 && typeof obj.scheduleType === "string" && typeof obj.enabled === "boolean";
+}
+function getScheduledJobsHiddenCountView(cwd = process.cwd(), globalFile) {
+  if (getCrewScheduler()) return stashedScheduledJobsHiddenCount ?? 0;
+  try {
+    return getScheduledJobsHiddenCount(cwd, globalFile);
+  } catch {
+    return 0;
+  }
+}
 function buildScheduleSpec(params) {
   if (params.cron) {
     const parsed = parseSchedule(params.cron);
@@ -42632,6 +42788,9 @@ function handleSchedule(params, ctx) {
   }
   if (subAction === "disable" || subAction === "enable" || subAction === "update") {
     return handleUpdateScheduled(params, ctx);
+  }
+  if (subAction === "run-now") {
+    return handleRunNowScheduled(params);
   }
   const team = params.team ?? "default";
   const goal = params.goal ?? params.task ?? "";
@@ -42832,7 +42991,30 @@ function handleUpdateScheduled(params, ctx) {
     { action: "schedule", status: "ok", data: { jobId, enabled: updated.enabled, schedule: updated.schedule } }
   );
 }
-var crewSchedulerInstance;
+function handleRunNowScheduled(params) {
+  const jobId = getJobIdParam(params);
+  if (!jobId) {
+    return result(
+      "subAction=run-now requires jobId. Usage: team action='schedule' subAction='run-now' jobId='<uuid>'",
+      { action: "schedule", status: "error" },
+      true
+    );
+  }
+  const scheduler = getCrewScheduler();
+  if (!scheduler) {
+    return result("Scheduler not running.", { action: "schedule", status: "error" }, true);
+  }
+  const outcome = scheduler.runNow(jobId);
+  if (!outcome.ok) {
+    return result(outcome.error, { action: "schedule", status: "error" }, true);
+  }
+  return result([`Scheduled job triggered.`, `  Job ID: ${jobId}`].join("\n"), {
+    action: "schedule",
+    status: "ok",
+    data: { jobId, triggered: true }
+  });
+}
+var crewSchedulerInstance, stashedScheduledJobsHiddenCount;
 var init_handle_schedule = __esm({
   "src/extension/team-tool/handle-schedule.ts"() {
     "use strict";
@@ -47338,14 +47520,14 @@ var init_semaphore = __esm({
             new Error(`Semaphore queue full: ${this.#queue.length} waiters (max ${_Semaphore.MAX_QUEUE}); cannot acquire slot`)
           );
         }
-        const { promise, resolve: resolve27 } = (() => {
+        const { promise, resolve: resolve26 } = (() => {
           let res;
           const p = new Promise((r) => {
             res = r;
           });
           return { promise: p, resolve: res };
         })();
-        this.#queue.push(resolve27);
+        this.#queue.push(resolve26);
         return promise;
       }
       release() {
@@ -48172,8 +48354,8 @@ async function runCoalescedTaskGroup(input) {
     try {
       await Promise.race([
         pendingHeartbeat,
-        new Promise((resolve27) => {
-          drainTimeout = setTimeout(resolve27, 5e3);
+        new Promise((resolve26) => {
+          drainTimeout = setTimeout(resolve26, 5e3);
         })
       ]);
     } finally {
@@ -48812,7 +48994,7 @@ function storeDiscovered(cwd, files) {
 }
 async function detectRipgrep() {
   if (cachedRgCheck !== void 0) return cachedRgCheck;
-  return await new Promise((resolve27) => {
+  return await new Promise((resolve26) => {
     let settled = false;
     try {
       const child = spawn3("rg", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -48824,7 +49006,7 @@ async function detectRipgrep() {
         if (settled) return;
         settled = true;
         cachedRgCheck = { available: false };
-        resolve27(cachedRgCheck);
+        resolve26(cachedRgCheck);
       });
       child.on("close", (code) => {
         if (settled) return;
@@ -48834,13 +49016,13 @@ async function detectRipgrep() {
         } else {
           cachedRgCheck = { available: false };
         }
-        resolve27(cachedRgCheck);
+        resolve26(cachedRgCheck);
       });
     } catch {
       if (settled) return;
       settled = true;
       cachedRgCheck = { available: false };
-      resolve27(cachedRgCheck);
+      resolve26(cachedRgCheck);
     }
   });
 }
@@ -48857,7 +49039,7 @@ function reasonFor(file, keywords) {
   return `keyword match: ${hits.join(", ")}`;
 }
 function runRipgrep(args, cwd, opts = {}) {
-  return new Promise((resolve27, reject) => {
+  return new Promise((resolve26, reject) => {
     const command = opts.command ?? "rg";
     const timeoutMs = opts.timeoutMs ?? DEFAULT_RG_TIMEOUT_MS;
     const maxStdoutBytes = opts.maxStdoutBytes ?? DEFAULT_RG_MAX_STDOUT_BYTES;
@@ -48910,7 +49092,7 @@ function runRipgrep(args, cwd, opts = {}) {
       child.on("close", (code) => {
         settleOnce(() => {
           if (code === 0 || code === 1) {
-            resolve27(stdout);
+            resolve26(stdout);
           } else {
             reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
           }
@@ -50742,9 +50924,9 @@ function linkNodeModulesIfPresent(repoRoot, worktreePath) {
 }
 function normalizeSyntheticPath(worktreePath, rawPath) {
   const resolved = path62.resolve(worktreePath, rawPath);
-  const relative9 = path62.relative(worktreePath, resolved);
-  if (!relative9 || relative9.startsWith("..") || path62.isAbsolute(relative9)) throw new Error(`synthetic path escapes worktree: ${rawPath}`);
-  return path62.normalize(relative9);
+  const relative8 = path62.relative(worktreePath, resolved);
+  if (!relative8 || relative8.startsWith("..") || path62.isAbsolute(relative8)) throw new Error(`synthetic path escapes worktree: ${rawPath}`);
+  return path62.normalize(relative8);
 }
 function isAllowedSetupHook(hookPath) {
   if (!hookPath || hookPath.trim().length === 0) return false;
@@ -51538,8 +51720,8 @@ var init_deduplicate_stage = __esm({
           const cur = lines[i];
           if (cur !== out[out.length - 1]) out.push(cur);
         }
-        const sep11 = text.includes("\r\n") ? "\r\n" : "\n";
-        return out.join(sep11);
+        const sep10 = text.includes("\r\n") ? "\r\n" : "\n";
+        return out.join(sep10);
       }
     };
     DEDUPLICATE_STAGE = new DeduplicateStage();
@@ -51880,8 +52062,8 @@ function safeSharedName(name) {
 function sharedPath(manifest, name) {
   const sharedRoot = path63.resolve(manifest.artifactsRoot, "shared");
   const resolved = path63.resolve(sharedRoot, safeSharedName(name));
-  const relative9 = path63.relative(sharedRoot, resolved);
-  if (relative9.startsWith("..") || path63.isAbsolute(relative9)) throw new Error(`Invalid shared artifact name: ${name}`);
+  const relative8 = path63.relative(sharedRoot, resolved);
+  if (relative8.startsWith("..") || path63.isAbsolute(relative8)) throw new Error(`Invalid shared artifact name: ${name}`);
   return resolved;
 }
 function tryParseJson(text) {
@@ -51896,8 +52078,8 @@ function listTaskArtifacts(manifest, taskId) {
   const produced = manifest.artifacts.filter((a) => a.producer === taskId);
   if (produced.length === 0) return void 0;
   return produced.map((a) => {
-    const relative9 = path63.relative(manifest.artifactsRoot, a.path);
-    return relative9.startsWith("..") ? a.path : relative9;
+    const relative8 = path63.relative(manifest.artifactsRoot, a.path);
+    return relative8.startsWith("..") ? a.path : relative8;
   });
 }
 function aggregateUsage(task) {
@@ -52439,7 +52621,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
   const start = Date.now();
   let output = "";
   let exitCode = null;
-  return new Promise((resolve27) => {
+  return new Promise((resolve26) => {
     const shell = spawn4("sh", ["-c", command], {
       cwd,
       timeout: timeoutMs,
@@ -52459,7 +52641,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
       } catch {
         shell.kill("SIGKILL");
       }
-      resolve27({
+      resolve26({
         exitCode: -1,
         output: output + "\n[TIMEOUT: Command exceeded limit]",
         durationMs: Date.now() - start
@@ -52470,7 +52652,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     shell.on("close", (code) => {
       clearTimer();
       exitCode = code;
-      resolve27({
+      resolve26({
         exitCode,
         output: output.slice(-1e5),
         // Cap at 100KB
@@ -52479,7 +52661,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     });
     shell.on("error", (err2) => {
       clearTimer();
-      resolve27({
+      resolve26({
         exitCode: -1,
         output: `Execution error: ${err2.message}`,
         durationMs: Date.now() - start
@@ -52720,9 +52902,9 @@ function artifactReference(artifactsRoot, artifact) {
   if (!artifact) return void 0;
   const root = path65.resolve(artifactsRoot);
   const target = path65.resolve(artifact.path);
-  const relative9 = path65.relative(root, target);
-  if (!relative9 || relative9.startsWith("..") || path65.isAbsolute(relative9)) return void 0;
-  return relative9.replaceAll("\\", "/");
+  const relative8 = path65.relative(root, target);
+  if (!relative8 || relative8.startsWith("..") || path65.isAbsolute(relative8)) return void 0;
+  return relative8.replaceAll("\\", "/");
 }
 function buildWorkerPromptPipeline(input) {
   return {
@@ -52801,7 +52983,7 @@ async function runSpecCheck(check, options) {
     return { outcome: "launch-failed", durationMs: Date.now() - start, stderrLength: 0 };
   }
   const inner = `ulimit -v ${limits.addressSpaceKb}; ulimit -t ${limits.cpuSeconds}; exec sh -c "$0"`;
-  return await new Promise((resolve27) => {
+  return await new Promise((resolve26) => {
     const child = spawn5(wrapper, ["-rn", "sh", "-c", inner, check.command], {
       cwd: options.cwd,
       env: buildSpecSandboxEnv(),
@@ -52820,7 +53002,7 @@ async function runSpecCheck(check, options) {
       settled = true;
       if (termTimer) clearTimeout(termTimer);
       if (killTimer) clearTimeout(killTimer);
-      resolve27(outcome);
+      resolve26(outcome);
     };
     termTimer = setTimeout(() => {
       try {
@@ -56143,9 +56325,9 @@ function discoverPiThemes() {
   }
   const dir = customThemesDir2();
   try {
-    const fs128 = __require("node:fs");
-    if (dir && fs128.existsSync(dir)) {
-      for (const file of fs128.readdirSync(dir)) {
+    const fs129 = __require("node:fs");
+    if (dir && fs129.existsSync(dir)) {
+      for (const file of fs129.readdirSync(dir)) {
         if (!file.endsWith(".json")) continue;
         const name = file.slice(0, -5);
         if (seen.has(name)) continue;
@@ -56153,7 +56335,7 @@ function discoverPiThemes() {
         let displayName;
         let mode;
         try {
-          const json = JSON.parse(fs128.readFileSync(fullPath, "utf8"));
+          const json = JSON.parse(fs129.readFileSync(fullPath, "utf8"));
           displayName = typeof json.name === "string" ? json.name : void 0;
           mode = detectThemeMode(json);
         } catch {
@@ -56174,29 +56356,29 @@ function discoverPiThemes() {
 }
 function getActivePiTheme() {
   try {
-    const fs128 = __require("node:fs");
+    const fs129 = __require("node:fs");
     const p = settingsPath();
-    if (!p || !fs128.existsSync(p)) return void 0;
-    const json = JSON.parse(fs128.readFileSync(p, "utf8"));
+    if (!p || !fs129.existsSync(p)) return void 0;
+    const json = JSON.parse(fs129.readFileSync(p, "utf8"));
     return typeof json.theme === "string" ? json.theme : void 0;
   } catch {
     return void 0;
   }
 }
 function setPiTheme(name) {
-  const fs128 = __require("node:fs");
+  const fs129 = __require("node:fs");
   const p = settingsPath();
   if (!p) throw new Error("Could not determine settings path (no HOME).");
   let settings = {};
   try {
-    if (fs128.existsSync(p)) {
-      settings = JSON.parse(fs128.readFileSync(p, "utf8"));
+    if (fs129.existsSync(p)) {
+      settings = JSON.parse(fs129.readFileSync(p, "utf8"));
     }
   } catch {
     settings = {};
   }
   settings.theme = name;
-  fs128.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  fs129.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return p;
 }
 function formatThemesListing() {
@@ -57108,12 +57290,12 @@ function getProcessStartTime(pid) {
   } catch {
     return void 0;
   }
-  const platform2 = process.platform;
-  if (platform2 === "linux") {
+  const platform = process.platform;
+  if (platform === "linux") {
     return getProcessStartTimeLinux(pid);
-  } else if (platform2 === "darwin") {
+  } else if (platform === "darwin") {
     return getProcessStartTimeMacOS(pid);
-  } else if (platform2 === "win32") {
+  } else if (platform === "win32") {
     return getProcessStartTimeWindows(pid);
   }
   return void 0;
@@ -58886,7 +59068,7 @@ function dockUsageText(agent, liveHandle, options = {}) {
     if (typeof cost2 === "number" && Number.isFinite(cost2) && cost2 > 0) parts.push(`$${cost2.toFixed(4)}`);
     if (options.viewed) {
       const act = liveHandle.activity;
-      const ms = computeLiveDurationMs(act);
+      const ms = computeLiveDurationMs(act, options.nowMs);
       const totalTokens2 = input + output + cacheWrite;
       if (totalTokens2 > 0 && ms > 1e3) {
         const tps = Math.round(totalTokens2 / (ms / 1e3));
@@ -58911,20 +59093,20 @@ function dockUsageText(agent, liveHandle, options = {}) {
   return parts.join(" ");
 }
 function budgetedRow(parts, width) {
-  const sep11 = parts.separator ?? " \xB7 ";
+  const sep10 = parts.separator ?? " \xB7 ";
   const { lead, suffix } = parts;
   const name = parts.name.replace(/\s+/g, " ").trim();
   const activity = parts.activity.replace(/\s+/g, " ").trim();
   if (!name && !activity) return truncateToWidth(lead + suffix, width);
   if (!activity) return fitNameOnly(lead, name, suffix, width);
   if (!name) return fitNameOnly(lead, activity, suffix, width);
-  const budget = width - visibleWidth(lead) - visibleWidth(suffix) - visibleWidth(sep11);
+  const budget = width - visibleWidth(lead) - visibleWidth(suffix) - visibleWidth(sep10);
   if (budget < MIN_FIELD_WIDTH * 2) return fitNameOnly(lead, name, suffix, width);
   const nameNatural = visibleWidth(name);
   const activityNatural = visibleWidth(activity);
   const activityRoom = Math.min(activityNatural, Math.max(MIN_FIELD_WIDTH, budget - nameNatural));
   const nameRoom = Math.max(MIN_FIELD_WIDTH, budget - activityRoom);
-  const assembled = lead + truncateToWidth(name, nameRoom) + sep11 + truncateToWidth(activity, activityRoom) + suffix;
+  const assembled = lead + truncateToWidth(name, nameRoom) + sep10 + truncateToWidth(activity, activityRoom) + suffix;
   if (visibleWidth(assembled) <= width) return assembled;
   return fitNameOnly(lead, name, suffix, width);
 }
@@ -58933,7 +59115,7 @@ function fitNameOnly(lead, name, suffix, width) {
   if (fixed >= width) return truncateToWidth(lead + suffix, width);
   return lead + truncateToWidth(name, width - fixed) + suffix;
 }
-function agentStats(agent, liveHandle) {
+function agentStats(agent, liveHandle, nowMs3) {
   const parts = [];
   if (liveHandle) {
     const act = liveHandle.activity;
@@ -58949,7 +59131,7 @@ function agentStats(agent, liveHandle) {
       if (ctxPct != null) parts.push(alignMetric(`${Math.round(ctxPct)}% ctx`, CTX_METRIC_WIDTH));
     } catch {
     }
-    const ms = computeLiveDurationMs(act);
+    const ms = computeLiveDurationMs(act, nowMs3);
     if (total > 0 && ms > 1e3) {
       const tps = Math.round(total / (ms / 1e3));
       if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
@@ -58962,7 +59144,7 @@ function agentStats(agent, liveHandle) {
     if (tokenCount && tokenCount > 0) parts.push(alignMetric(formatTokensCompact(tokenCount), TOKENS_METRIC_WIDTH));
     const cost = agentCost(agent);
     if (cost) parts.push(alignMetric(cost, COST_METRIC_WIDTH));
-    const ageMs = agent.startedAt ? Math.max(0, Date.now() - new Date(agent.startedAt).getTime()) : 0;
+    const ageMs = agent.startedAt ? Math.max(0, (nowMs3 ?? Date.now()) - new Date(agent.startedAt).getTime()) : 0;
     if (tokenCount && tokenCount > 0 && ageMs > 1e3) {
       const tps = Math.round(tokenCount / (ageMs / 1e3));
       if (tps > 0) parts.push(alignMetric(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
@@ -60109,24 +60291,28 @@ var init_tool_renderers = __esm({
   }
 });
 
-// src/ui/dock-footer.ts
-function setFooterDockProvider(provider) {
-  dockProvider = provider;
+// src/utils/relative-time.ts
+function formatRelativeTime(now, target) {
+  const deltaMs = target.getTime() - now.getTime();
+  if (deltaMs === 0) return "now";
+  if (deltaMs > 0) return `in ${formatDurationCompact(deltaMs)}`;
+  return `${formatDurationCompact(-deltaMs)} ago`;
 }
-function getFooterDockProvider() {
-  return dockProvider;
+function formatDurationCompact(ms) {
+  const totalSeconds = Math.floor(ms / 1e3);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  if (totalMinutes < 120) return `${totalMinutes}m`;
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 48) return `${totalHours}h`;
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (hours === 0) return `${days}d`;
+  return `${days}d${hours}h`;
 }
-function setFooterDockSinkActive(active) {
-  sinkActive = active;
-}
-function isFooterDockSinkActive() {
-  return sinkActive;
-}
-var dockProvider, sinkActive;
-var init_dock_footer = __esm({
-  "src/ui/dock-footer.ts"() {
+var init_relative_time = __esm({
+  "src/utils/relative-time.ts"() {
     "use strict";
-    sinkActive = false;
   }
 });
 
@@ -61243,7 +61429,7 @@ function shortModelLabel(agent, run) {
   if (typeof model !== "string" || !model) return void 0;
   return model.split("/").at(-1) ?? model;
 }
-function compactAgentRow(run, agent, finished, runs, options, width, liveHandle) {
+function compactAgentRow(run, agent, finished, runs, options, width, liveHandle, nowMs3) {
   const marker = options.selectedTaskId === agent.taskId ? "\u276F" : " ";
   const dockGlyph = options.viewedTaskId === agent.taskId ? "\u23FA" : dockStatusIcon(agent.status);
   const name = liveHandle?.agent ?? agent.agent;
@@ -61254,17 +61440,16 @@ function compactAgentRow(run, agent, finished, runs, options, width, liveHandle)
   const nameText = runTag + name + taskTag + roleTag;
   const liveLine = liveHandle?.activity?.responseText?.split("\n").find((line4) => line4.trim())?.trim();
   const activity = !finished && liveHandle?.status === "running" && liveLine ? liveLine.length > 60 ? `${liveLine.slice(0, 60)}\u2026` : liveLine : finished ? dockStatusLabel(agent.status) : agentActivity(agent, liveHandle);
-  const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+  const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId, nowMs: nowMs3 });
   const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
   const model = shortModelLabel(agent, run);
   const suffix = `${model ? ` \xB7 ${model}` : ""}${usage ? ` \xB7 ${usage}` : ""}${ageText ? ` \xB7 ${ageText}` : ""}`;
   return budgetedRow({ lead: `${marker} ${dockGlyph} `, name: nameText, activity, suffix }, width);
 }
-function compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph) {
-  const now = Date.now();
+function compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph, nowMs3) {
   const flat = [];
   for (const entry of runs) {
-    const { active, finished } = orderWidgetAgents(entry, now);
+    const { active, finished } = orderWidgetAgents(entry, nowMs3);
     const liveForRun = listLiveAgents().filter((a) => a.runId === entry.run.runId);
     for (const agent of active) {
       flat.push({ run: entry.run, agent, finished: false, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
@@ -61293,32 +61478,67 @@ function compactDockLines(runs, options, width, maxLines, notificationCount, run
   const windowEnd = Math.min(flat.length, windowStart + MAX_AGENTS_DISPLAY);
   if (windowStart > 0) lines.push(truncate(`  \u2026 \u2191${windowStart} earlier (\u2191 to scroll)`, width));
   for (const row of flat.slice(windowStart, windowEnd)) {
-    lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle));
+    lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle, nowMs3));
   }
   if (windowEnd < flat.length) lines.push(truncate(`  \u2026 +${flat.length - windowEnd} more (\u2193 to scroll)`, width));
   return lines;
 }
+function buildSchedulesWidgetLine(jobs, now, hiddenCount = 0) {
+  const enabled = jobs.filter((job) => job.enabled);
+  const hidden = hiddenCount > 0 ? ` \xB7 ${hiddenCount} hidden` : "";
+  if (enabled.length === 0) return hiddenCount > 0 ? `\u23F0 0 sched${hidden}` : void 0;
+  const nextTargets = enabled.map((job) => job.nextRun ? new Date(job.nextRun).getTime() : Number.NaN).filter((ms) => Number.isFinite(ms));
+  if (nextTargets.length === 0) return `\u23F0 ${enabled.length} sched${hidden}`;
+  const next = Math.min(...nextTargets);
+  const relative8 = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
+  return `\u23F0 ${enabled.length} sched \xB7 next ${relative8}${hidden}`;
+}
+function defaultScheduledJobsReader(cwd) {
+  if (!getCrewScheduler()) return [];
+  try {
+    return getScheduledJobs(cwd);
+  } catch {
+    return [];
+  }
+}
+function defaultHiddenJobsReader(_cwd) {
+  if (!getCrewScheduler()) return 0;
+  return getScheduledJobsHiddenCountView();
+}
+function schedulesWidgetLine(cwd, now) {
+  return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now, hiddenJobsReader(cwd));
+}
 function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
   const rowStyle = options.rowStyle ?? "detailed";
   const focused = options.focused === true;
+  const schedLine = schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
   const runs = providedRuns ?? activeWidgetRuns(cwd);
-  if (!runs.length) return [];
+  if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
   const runningGlyph = spinnerFrame("widget-header");
   if (rowStyle === "compact") {
-    const lines2 = compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph);
+    const lines2 = compactDockLines(
+      runs,
+      options,
+      width,
+      maxLines,
+      notificationCount,
+      runningGlyph,
+      (options.now ?? /* @__PURE__ */ new Date()).getTime()
+    );
+    if (schedLine) lines2.push(truncate(schedLine, width));
     return focused ? lines2 : lines2.slice(0, maxLines);
   }
   const lines = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
   for (const entry of runs) {
     const { run, agents } = entry;
-    const now = Date.now();
-    const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, now);
+    const nowMs3 = (options.now ?? /* @__PURE__ */ new Date()).getTime();
+    const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, nowMs3);
     const completed = agents.filter((a) => a.status === "completed").length;
     const planPending = isPlanApprovalStatePending(run.planApproval);
     const runGlyph = planPending ? `\u26A0 plan:${run.runId.slice(-8)}` : iconForStatus(run.status, { runningGlyph });
     const isTerminal = isFinishedRunStatus(run.status);
     const agentCountText = `${completed}/${agents.length} agents`;
-    const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : now;
+    const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : nowMs3;
     const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
     const runElapsedText = `${Math.floor(runElapsedMs / 1e3)}s`;
     const statusLabel = isTerminal ? ` \xB7 ${run.status}` : "";
@@ -61334,7 +61554,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const branch = last ? "\u2514\u2500" : "\u251C\u2500";
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
       const legacyGlyph = options.viewedTaskId === agent.taskId ? "\u25C9" : iconForStatus(agent.status, { runningGlyph });
-      const stats = agentStats(agent, liveHandle);
+      const stats = agentStats(agent, liveHandle, nowMs3);
       const name = liveHandle?.agent ?? agent.agent;
       const activity = agentActivity(agent, liveHandle);
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
@@ -61350,7 +61570,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
       const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
       const name = liveHandle?.agent ?? agent.agent;
       const legacyIcon = agent.status === "completed" ? "\u2713" : agent.status === "failed" ? "\u2717" : agent.status === "needs_attention" ? "\u26A0" : "\u25AA";
-      const stats = agentStats(agent, liveHandle);
+      const stats = agentStats(agent, liveHandle, nowMs3);
       const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
       const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
       const branch = isLastFinished ? "\u2514\u2500" : "\u251C\u2500";
@@ -61359,6 +61579,7 @@ function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificati
     }
     if (lines.length >= maxLines && !focused) break;
   }
+  if (schedLine) lines.push(truncate(schedLine, width));
   return focused ? lines : lines.slice(0, maxLines);
 }
 function colorWidgetLine(line4, index, theme) {
@@ -61379,13 +61600,15 @@ function renderLines(lines, width) {
   }
   return box.render(width);
 }
-var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY;
+var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY, scheduledJobsReader, hiddenJobsReader;
 var init_widget_renderer = __esm({
   "src/ui/widget/widget-renderer.ts"() {
     "use strict";
+    init_handle_schedule();
     init_live_agent_manager();
     init_plan_approval();
     init_process_status();
+    init_relative_time();
     init_visual();
     init_layout_primitives();
     init_spinner();
@@ -61399,6 +61622,8 @@ var init_widget_renderer = __esm({
     ERROR_LINGER_MAX_AGE = 2;
     ERROR_STATUSES = /* @__PURE__ */ new Set(["failed", "cancelled", "stopped", "needs_attention"]);
     ACTIVE_PRIORITY = { running: 0, queued: 1, waiting: 2 };
+    scheduledJobsReader = defaultScheduledJobsReader;
+    hiddenJobsReader = defaultHiddenJobsReader;
   }
 });
 
@@ -62020,7 +62245,6 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
   setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId)));
   const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
   const bottomMode = placement === "bottom";
-  const dockInFooter = bottomMode && isFooterDockSinkActive();
   const piPlacement = bottomMode ? "belowEditor" : placement;
   ctx.ui.setStatus(STATUS_KEY, runs.length > 0 ? statusSummary(runs) : void 0);
   const shouldClearLegacy = state2.legacyCleared !== true || state2.lastPlacement !== placement;
@@ -62029,22 +62253,22 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.legacyCleared = true;
   }
   if (runs.length === 0) {
-    if (state2.lastVisibility !== "hidden" || state2.lastPlacement !== placement) {
-      setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
-      setExtensionWidget(ctx, TASKS_WIDGET_KEY, void 0, { placement: "aboveEditor" });
-      state2.lastTasksVisibility = "hidden";
-      state2.footerDock?.dispose();
-      state2.footerDock = void 0;
-      setFooterDockProvider(void 0);
-      state2.lastVisibility = "hidden";
-      state2.lastPlacement = placement;
-      state2.lastKey = WIDGET_KEY;
-      state2.lastMaxLines = maxLines;
-      state2.lastCwd = ctx.cwd;
-      state2.model = void 0;
+    const schedKeepAlive = Boolean(schedulesWidgetLine(ctx.cwd, /* @__PURE__ */ new Date()));
+    if (!schedKeepAlive) {
+      if (state2.lastVisibility !== "hidden" || state2.lastPlacement !== placement) {
+        setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
+        setExtensionWidget(ctx, TASKS_WIDGET_KEY, void 0, { placement: "aboveEditor" });
+        state2.lastTasksVisibility = "hidden";
+        state2.lastVisibility = "hidden";
+        state2.lastPlacement = placement;
+        state2.lastKey = WIDGET_KEY;
+        state2.lastMaxLines = maxLines;
+        state2.lastCwd = ctx.cwd;
+        state2.model = void 0;
+      }
+      requestRender(ctx);
+      return;
     }
-    requestRender(ctx);
-    return;
   }
   const needsWidgetInstall = state2.lastVisibility !== "visible" || state2.lastPlacement !== placement || state2.lastKey !== WIDGET_KEY || state2.lastMaxLines !== maxLines || state2.lastCwd !== ctx.cwd || !state2.model;
   if (!state2.model)
@@ -62070,31 +62294,12 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.model.workspaceId = workspaceId;
     state2.model.rowStyle = rowStyle;
   }
-  if (dockInFooter) {
-    if (needsWidgetInstall && state2.lastKey === WIDGET_KEY) {
-      setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
-    }
-    if (!state2.footerDock) state2.footerDock = new FooterDockHost(state2.model);
-    setFooterDockProvider((width) => state2.footerDock.render(width));
-  } else {
-    if (state2.footerDock) {
-      state2.footerDock.dispose();
-      state2.footerDock = void 0;
-    }
-    setFooterDockProvider(void 0);
-  }
-  if (needsWidgetInstall && !dockInFooter) {
+  if (needsWidgetInstall) {
     const model = state2.model;
     setExtensionWidget(ctx, WIDGET_KEY, ((_tui, theme) => new CrewWidgetComponent(model, theme, _tui)), {
       placement: piPlacement,
       persist: true
     });
-    state2.lastVisibility = "visible";
-    state2.lastPlacement = placement;
-    state2.lastKey = WIDGET_KEY;
-    state2.lastMaxLines = maxLines;
-    state2.lastCwd = ctx.cwd;
-  } else if (dockInFooter) {
     state2.lastVisibility = "visible";
     state2.lastPlacement = placement;
     state2.lastKey = WIDGET_KEY;
@@ -62127,9 +62332,6 @@ function stopCrewWidget(ctx, state2, config) {
     setExtensionWidget(ctx, WIDGET_KEY, void 0, { placement: piPlacement });
     setExtensionWidget(ctx, TASKS_WIDGET_KEY, void 0, { placement: "aboveEditor" });
     state2.lastTasksVisibility = "hidden";
-    state2.footerDock?.dispose();
-    state2.footerDock = void 0;
-    setFooterDockProvider(void 0);
     state2.lastVisibility = "hidden";
     state2.lastPlacement = placement;
     state2.lastKey = WIDGET_KEY;
@@ -62138,13 +62340,12 @@ function stopCrewWidget(ctx, state2, config) {
     requestRender(ctx);
   }
 }
-var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, TASKS_WIDGET_KEY, STATUS_KEY, SIGNATURE_CACHE_TTL_MS, resizeListenerInstalled, activeResizeTargets, resizeTimer, onResize, CrewWidgetComponent, FooterDockHost;
+var MAX_LINES_DEFAULT, LEGACY_WIDGET_KEY, WIDGET_KEY, TASKS_WIDGET_KEY, STATUS_KEY, SIGNATURE_CACHE_TTL_MS, resizeListenerInstalled, activeResizeTargets, resizeTimer, onResize, CrewWidgetComponent;
 var init_widget = __esm({
   "src/ui/widget/index.ts"() {
     "use strict";
     init_defaults();
     init_visual();
-    init_dock_footer();
     init_panel_rows();
     init_panel_store();
     init_pi_ui_compat();
@@ -62315,7 +62516,9 @@ var init_widget = __esm({
           return this.truncatedLines;
         }
         const panel = panelDisplayState();
-        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}`;
+        const schedNow = /* @__PURE__ */ new Date();
+        const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
+        const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
         const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
@@ -62325,7 +62528,7 @@ var init_widget = __esm({
             runs,
             this.model.notificationCount ?? 0,
             width,
-            { rowStyle: this.model.rowStyle, ...panel }
+            { rowStyle: this.model.rowStyle, now: schedNow, ...panel }
           ).map((line4, index) => {
             if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
             return line4;
@@ -62338,8 +62541,7 @@ var init_widget = __esm({
         }
         if (runs.length === 0) {
           this.invalidate();
-          if (this.model.snapshotCache) return ["(loading\u2026)"];
-          return [];
+          return schedLine ? [truncate(schedLine, width)] : [];
         }
         this.ensureTruncated(width);
         if (!compactDock) {
@@ -62348,21 +62550,6 @@ var init_widget = __esm({
           this.truncatedLines[0] = truncate(this.cachedLines[0], width);
         }
         return this.truncatedLines;
-      }
-    };
-    FooterDockHost = class {
-      component;
-      model;
-      constructor(model) {
-        this.model = model;
-      }
-      render(width) {
-        if (!this.component) this.component = new CrewWidgetComponent(this.model, void 0, void 0);
-        return this.component.render(width);
-      }
-      dispose() {
-        this.component?.dispose();
-        this.component = void 0;
       }
     };
   }
@@ -63554,6 +63741,7 @@ function piTeamsHelp() {
     "- /team-worktrees <runId>",
     "- /team-api <runId> <operation> [taskId=<taskId>] [body=<message>]",
     "- /team-dashboard",
+    "- /schedules [log <jobId-or-name>] \u2014 list scheduled jobs / tail latest run output",
     "- /team-mascot",
     "- /team-transcript <runId> [taskId]",
     "- /team-result <runId> [taskId]",
@@ -68457,19 +68645,19 @@ function parseRoot(start) {
 function safeJoin(...parts) {
   const filtered = parts.filter(Boolean);
   if (filtered.length === 0) return "";
-  const sep11 = filtered.some((p) => p.includes("\\")) ? "\\" : "/";
+  const sep10 = filtered.some((p) => p.includes("\\")) ? "\\" : "/";
   const firstPart = filtered[0];
   let leading = "";
-  if (sep11 === "\\") {
+  if (sep10 === "\\") {
     if (firstPart.startsWith("\\\\")) leading = "\\\\";
     else if (firstPart.startsWith("\\")) leading = "\\";
   } else if (firstPart.startsWith("/")) {
     leading = "/";
   }
-  const firstPartStripped = sep11 === "\\" ? firstPart.replace(/^\\{1,2}/, "") : firstPart.replace(/^\/+/, "");
+  const firstPartStripped = sep10 === "\\" ? firstPart.replace(/^\\{1,2}/, "") : firstPart.replace(/^\/+/, "");
   const rest = filtered.slice(1);
-  const joined = [firstPartStripped, ...rest].filter(Boolean).join(sep11);
-  const collapsed = joined.replace(new RegExp(`${sep11 === "\\" ? "\\\\" : "/"}{2,}`, "g"), sep11);
+  const joined = [firstPartStripped, ...rest].filter(Boolean).join(sep10);
+  const collapsed = joined.replace(new RegExp(`${sep10 === "\\" ? "\\\\" : "/"}{2,}`, "g"), sep10);
   return leading + collapsed;
 }
 function safeDirname(p) {
@@ -69031,12 +69219,12 @@ function tokenize(input) {
       continue;
     }
     if (/[0-9]/.test(input[i])) {
-      let num2 = "";
+      let num = "";
       while (i < input.length && /[0-9]/.test(input[i])) {
-        num2 += input[i];
+        num += input[i];
         i++;
       }
-      tokens.push({ type: "NUMBER", value: num2 });
+      tokens.push({ type: "NUMBER", value: num });
       continue;
     }
     if (/[a-zA-Z_]/.test(input[i])) {
@@ -69102,8 +69290,8 @@ var init_chain_parser = __esm({
         while (this.pos < this.tokens.length) {
           if (this.peek("COLON")) {
             this.consume("COLON");
-            const num2 = this.consume("NUMBER");
-            step.loopCount = Number.parseInt(num2.value, 10);
+            const num = this.consume("NUMBER");
+            step.loopCount = Number.parseInt(num.value, 10);
           } else if (this.peek("FLAG", "with-context")) {
             this.consume("FLAG");
             step.withContext = true;
@@ -72657,7 +72845,7 @@ function installCrewGlobalRegistry(deps) {
         if (!loaded) return true;
         return !loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
       };
-      while (!check()) await new Promise((resolve27) => setTimeout(resolve27, 500));
+      while (!check()) await new Promise((resolve26) => setTimeout(resolve26, 500));
     },
     hasRunning: (runId) => {
       if (!manifestCache2) return false;
@@ -72866,7 +73054,7 @@ function alignMetric2(value, width) {
   const gap = width - visibleWidth(value);
   return gap > 0 ? " ".repeat(gap) + value : value;
 }
-function isRealAgent(agent, liveHandle) {
+function isRealAgent(agent, liveHandle, nowMs3) {
   if (agent.runtime === "live-session" || agent.runtime === "child-process") return true;
   const tokens = (agent.usage?.input ?? 0) + (agent.usage?.output ?? 0) + (agent.usage?.cacheRead ?? 0) + (agent.usage?.cacheWrite ?? 0);
   if (tokens > 0) return true;
@@ -72874,7 +73062,7 @@ function isRealAgent(agent, liveHandle) {
   if (turns != null && turns > 0) return true;
   if ((agent.progress?.toolCount ?? 0) > 0) return true;
   if (liveHandle) {
-    const ms = Date.now() - liveHandle.activity.startedAtMs;
+    const ms = (nowMs3 ?? Date.now()) - liveHandle.activity.startedAtMs;
     if (ms > 3e4) return true;
   }
   return false;
@@ -72898,10 +73086,12 @@ function renderAgentsPane(snapshot, options = {}) {
   const liveForRun = allLive.filter((h) => h.runId === snapshot.runId);
   const { completed, total } = snapshot.progress;
   const lines = [];
+  const nowMs3 = options.nowMs ?? Date.now();
   const realAgents = snapshot.agents.filter(
     (a) => isRealAgent(
       a,
-      liveForRun.find((h) => h.taskId === a.taskId)
+      liveForRun.find((h) => h.taskId === a.taskId),
+      nowMs3
     )
   );
   const lineCount = Math.min(realAgents.length, 12);
@@ -72924,13 +73114,13 @@ function renderAgentsPane(snapshot, options = {}) {
       stats.push(alignMetric2(formatCost(agent.usage.cost), COST_METRIC_WIDTH2));
     }
     if (liveHandle) {
-      const ms = computeLiveDurationMs(liveHandle.activity);
+      const ms = computeLiveDurationMs(liveHandle.activity, nowMs3);
       stats.push(alignMetric2(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH2));
       if (options.showModel !== false && liveHandle.modelName && liveHandle.modelName !== "default") {
         stats.push(liveHandle.modelName);
       }
     } else if (agent.startedAt) {
-      const ms = Date.now() - new Date(agent.startedAt).getTime();
+      const ms = nowMs3 - new Date(agent.startedAt).getTime();
       if (Number.isFinite(ms)) stats.push(alignMetric2(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH2));
     }
     const statsStr = stats.length ? ` \xB7 ${stats.join(" ")}` : "";
@@ -73298,6 +73488,88 @@ var init_progress_pane = __esm({
   }
 });
 
+// src/ui/dashboard-panes/schedules-pane.ts
+function schedulesHiddenJobsHintLine(hiddenCount) {
+  if (!Number.isFinite(hiddenCount) || hiddenCount <= 0) return "";
+  const n = Math.floor(hiddenCount);
+  return `\u26A0 ${n} project-tier job${n === 1 ? "" : "s"} hidden \u2014 opt in via ~/.pi/crew-settings.json: schedulingEnabled + allowProjectScheduledJobs`;
+}
+function renderSchedulesPane(jobs, now, opts = {}) {
+  const hint = schedulesHiddenJobsHintLine(opts.hiddenCount ?? 0);
+  if (jobs.length === 0) {
+    return hint ? [SCHEDULES_EMPTY_STATE, hint] : [SCHEDULES_EMPTY_STATE];
+  }
+  const lines = [`Scheduled jobs (${jobs.length}):`];
+  for (const [index, job] of jobs.entries()) {
+    lines.push(...renderJobLines(job, now, opts, index === opts.selectedIndex));
+  }
+  if (hint) lines.push(hint);
+  if (opts.foreground !== false) {
+    lines.push("Actions: T toggle \xB7 N run now \xB7 V details \xB7 X delete \xB7 R refresh");
+  }
+  return lines;
+}
+function renderSchedulesTextBlock(jobs, now, opts = {}) {
+  const lines = renderSchedulesPane(jobs, now, { ...opts, foreground: false, includeIds: true });
+  if (jobs.length > 0) {
+    lines.push("Manage: team action='schedule' subAction='enable|disable|remove|run-now' jobId='<id>'");
+  }
+  return lines;
+}
+function renderJobLines(job, now, opts, selected) {
+  const glyph = job.enabled ? "\u25CF" : "\u25CB";
+  const name = truncate(sanitizeLine(job.name), opts.nameWidth ?? 28);
+  const schedule = sanitizeLine(humanizeSchedule({ kind: job.scheduleType, spec: job.schedule }));
+  const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "\u2014";
+  const marker = opts.selectedIndex === void 0 ? "" : selected ? "\u203A " : "  ";
+  const main = `${marker}${glyph} ${name}  ${schedule} \xB7 ${next} \xB7 ${statusGlyph2(job.lastStatus)} \xB7 ${job.runCount} runs`;
+  return [main, renderSubLine(job, now, opts)];
+}
+function statusGlyph2(status) {
+  if (status === "success") return "\u2713";
+  if (status === "error") return "\u2717";
+  if (status === "running") return "\u27F3";
+  return "\xB7";
+}
+function renderSubLine(job, now, opts) {
+  const parts = [sanitizeLine(job.subagentType)];
+  parts.push(job.lastRun ? `last: ${formatRelativeTime(now, new Date(job.lastRun))}` : "last: never");
+  if (opts.includeIds) parts.push(`id: ${sanitizeLine(job.id)}`);
+  return `  \u25E6 ${parts.join(" \xB7 ")}`;
+}
+function scheduleGoalOf(job) {
+  try {
+    const parsed = JSON.parse(job.prompt);
+    if (parsed && typeof parsed === "object" && typeof parsed.goal === "string" && parsed.goal.length > 0) {
+      return parsed.goal;
+    }
+  } catch {
+  }
+  return job.description || job.name;
+}
+function renderScheduleDetails(job, now) {
+  const schedule = humanizeSchedule({ kind: job.scheduleType, spec: job.schedule });
+  const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "\u2014";
+  const last = job.lastRun ? formatRelativeTime(now, new Date(job.lastRun)) : "never";
+  return [
+    `\u25B8 ${sanitizeLine(job.name)} \u2014 id ${sanitizeLine(job.id)}`,
+    `  goal: ${sanitizeLine(scheduleGoalOf(job))}`,
+    `  schedule: ${sanitizeLine(job.schedule)} (${sanitizeLine(job.scheduleType)}) \xB7 humanized: ${sanitizeLine(schedule)} \xB7 next: ${next}`,
+    `  agent: ${sanitizeLine(job.subagentType)} \xB7 runs: ${job.runCount} \xB7 last: ${last} \xB7 status: ${statusGlyph2(job.lastStatus)}`,
+    `  spawned runs: ${job.spawnedRunIds?.length ? job.spawnedRunIds.map(sanitizeLine).join(", ") : "none"}`
+  ];
+}
+var SCHEDULES_EMPTY_STATE;
+var init_schedules_pane = __esm({
+  "src/ui/dashboard-panes/schedules-pane.ts"() {
+    "use strict";
+    init_scheduler();
+    init_relative_time();
+    init_visual();
+    SCHEDULES_EMPTY_STATE = "No scheduled jobs \u2014 create via team tool action='schedule'";
+  }
+});
+
 // src/ui/dashboard-panes/transcript-pane.ts
 function modelAttemptLines(snapshot) {
   const withAttempts = snapshot.tasks.filter((task) => (task.modelAttempts?.length ?? 0) > 0).slice(-ATTEMPT_SUMMARY_TASKS).reverse();
@@ -73507,7 +73779,8 @@ var init_help_overlay = __esm({
 // src/ui/run-dashboard.ts
 var run_dashboard_exports = {};
 __export(run_dashboard_exports, {
-  RunDashboard: () => RunDashboard
+  RunDashboard: () => RunDashboard,
+  scheduleDashboardActionToSubAction: () => scheduleDashboardActionToSubAction
 });
 import * as fs111 from "node:fs";
 function safeRenderPane(name, fn) {
@@ -73517,6 +73790,20 @@ function safeRenderPane(name, fn) {
     const message = error instanceof Error ? error.message : String(error);
     logInternalError("run-dashboard", new Error(`Dashboard pane '${name}' render failed: ${message}`));
     return [`<error: ${name}>`];
+  }
+}
+function scheduleDashboardActionToSubAction(action) {
+  switch (action) {
+    case "schedule-enable":
+      return "enable";
+    case "schedule-disable":
+      return "disable";
+    case "schedule-run-now":
+      return "run-now";
+    case "schedule-remove":
+      return "remove";
+    default:
+      return void 0;
   }
 }
 function padVis(value, width) {
@@ -73539,8 +73826,8 @@ function formatAge2(iso) {
   if (ms < 36e5) return `${Math.floor(ms / 6e4)}m`;
   return `${Math.floor(ms / 36e5)}h`;
 }
-function readProgressPreview(run, maxLines = 5, snapshotCache, resolve27) {
-  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
+function readProgressPreview(run, maxLines = 5, snapshotCache, resolve26) {
+  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
   if (snapshot?.recentOutputLines?.length) {
     return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
   }
@@ -73575,8 +73862,8 @@ function snapshotFor(run, snapshotCache) {
     return snapshotCache?.get(run.runId);
   }
 }
-function readRunTasks2(run, snapshotCache, resolve27) {
-  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
+function readRunTasks2(run, snapshotCache, resolve26) {
+  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.tasks;
   if (snapshotCache) return [];
   const parse4 = () => {
@@ -73623,11 +73910,11 @@ function agentPreviewLine(agent, task, options) {
     `Agent: ${icon} ${agent.taskId} ${agent.role}->${agent.agent}${stats.length ? ` \xB7 ${stats.join(" \xB7 ")}` : ""}${recent ? ` \u23BF ${recent}` : ""}`
   );
 }
-function readAgentPreview(run, maxLines = 5, options = {}, resolve27) {
+function readAgentPreview(run, maxLines = 5, options = {}, resolve26) {
   try {
-    const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, options.snapshotCache);
+    const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, options.snapshotCache);
     const agents = snapshot?.agents ?? (options.snapshotCache ? [] : readCrewAgents(run));
-    const tasks = snapshot?.tasks ?? readRunTasks2(run, options.snapshotCache, resolve27);
+    const tasks = snapshot?.tasks ?? readRunTasks2(run, options.snapshotCache, resolve26);
     if (!agents.length) return ["Agents: (none)"];
     const totals = tasks.reduce(
       (acc, task) => {
@@ -73651,8 +73938,8 @@ function readAgentPreview(run, maxLines = 5, options = {}, resolve27) {
     return [`Agents: failed to read (${message})`];
   }
 }
-function agentsFor2(run, snapshotCache, resolve27) {
-  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
+function agentsFor2(run, snapshotCache, resolve26) {
+  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.agents;
   if (snapshotCache) return [];
   try {
@@ -73661,8 +73948,8 @@ function agentsFor2(run, snapshotCache, resolve27) {
     return [];
   }
 }
-function runLabel(run, selected, snapshotCache, maxW, resolve27) {
-  const agents = agentsFor2(run, snapshotCache, resolve27);
+function runLabel(run, selected, snapshotCache, maxW, resolve26) {
+  const agents = agentsFor2(run, snapshotCache, resolve26);
   const stale = isLikelyOrphanedActiveRun(run, agents);
   const running = agents.find((agent) => agent.status === "running");
   const queued = agents.find((agent) => agent.status === "queued");
@@ -73686,19 +73973,19 @@ function runLabel(run, selected, snapshotCache, maxW, resolve27) {
   const prefixRender = truncate(`${head} \xB7 ${meta}`, prefixBudget);
   return sanitizeLine(`${prefixRender} \xB7 ${goalRender}`);
 }
-function resolveRuns(runs, snapshotCache, resolve27) {
+function resolveRuns(runs, snapshotCache, resolve26) {
   const map3 = /* @__PURE__ */ new Map();
   for (const run of runs) {
-    const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
-    const agents = snapshot?.agents ?? agentsFor2(run, snapshotCache, resolve27);
+    const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
+    const agents = snapshot?.agents ?? agentsFor2(run, snapshotCache, resolve26);
     const displayRun = snapshot?.manifest ?? run;
     const status = isLikelyOrphanedActiveRun(displayRun, agents) ? "stale" : displayRun.status;
     map3.set(run.runId, { manifest: run, snapshot, agents, status });
   }
   return map3;
 }
-function groupedRuns(runs, snapshotCache, resolve27) {
-  const resolved = resolveRuns(runs, snapshotCache, resolve27);
+function groupedRuns(runs, snapshotCache, resolve26) {
+  const resolved = resolveRuns(runs, snapshotCache, resolve26);
   const rows = [];
   const active = runs.filter(
     (run) => isDisplayActiveRun(resolved.get(run.runId)?.snapshot?.manifest ?? run, resolved.get(run.runId)?.agents ?? [])
@@ -73710,13 +73997,14 @@ function groupedRuns(runs, snapshotCache, resolve27) {
   if (rest.length) rows.push({ label: "Recent" }, ...rest.map((run) => ({ label: run.runId, run })));
   return rows;
 }
-function selectedRunFromGrouped(runs, selected, snapshotCache, resolve27) {
-  return groupedRuns(runs, snapshotCache, resolve27).filter((row) => row.run)[selected]?.run;
+function selectedRunFromGrouped(runs, selected, snapshotCache, resolve26) {
+  return groupedRuns(runs, snapshotCache, resolve26).filter((row) => row.run)[selected]?.run;
 }
-var lastActivePane, TASK_READ_TTL_MS2, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS2, STALE_SNAPSHOT_MS, RunDashboard;
+var lastActivePane, TASK_READ_TTL_MS2, SCHEDULE_JOBS_TTL_MS, SCHEDULES_PANE_MAX_LINES, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS2, STALE_SNAPSHOT_MS, RunDashboard;
 var init_run_dashboard = __esm({
   "src/ui/run-dashboard.ts"() {
     "use strict";
+    init_handle_schedule();
     init_crew_agent_records();
     init_live_agent_manager();
     init_plan_approval();
@@ -73733,6 +74021,7 @@ var init_run_dashboard = __esm({
     init_metrics_pane();
     init_plan_pane();
     init_progress_pane();
+    init_schedules_pane();
     init_transcript_pane();
     init_dynamic_border();
     init_keybinding_map();
@@ -73744,6 +74033,8 @@ var init_run_dashboard = __esm({
     init_widget_renderer();
     lastActivePane = "agents";
     TASK_READ_TTL_MS2 = 1e3;
+    SCHEDULE_JOBS_TTL_MS = 1e3;
+    SCHEDULES_PANE_MAX_LINES = 14;
     RUN_LIST_MAX = 8;
     SIGNATURE_CACHE_TTL_MS2 = 100;
     STALE_SNAPSHOT_MS = 15e3;
@@ -73755,6 +74046,12 @@ var init_run_dashboard = __esm({
       activePane = lastActivePane;
       /** WP-7 (R7): pane-scoped revision-diff toggle (X). */
       planDiff = false;
+      /** Tier A (schedules pane): job-cursor, details toggle, 2-step delete
+       *  confirm-gate state, and the TTL'd provider cache (G17 reads only). */
+      scheduleSelected = 0;
+      scheduleDetails = false;
+      scheduleDeleteArmed = false;
+      scheduleJobsCache;
       runs;
       done;
       theme;
@@ -73829,14 +74126,14 @@ var init_run_dashboard = __esm({
         const rows = Number.isFinite(process.stdout?.rows) ? Number(process.stdout?.rows) : 30;
         return Math.max(12, Math.min(36, rows - 2));
       }
-      refreshRuns(resolve27) {
+      refreshRuns(resolve26) {
         if (!this.options.runProvider) return;
-        const selectedRunId = this.selectedRunId(resolve27);
+        const selectedRunId = this.selectedRunId(resolve26);
         const next = this.options.runProvider();
         const unfiltered = Array.isArray(next) ? next : this.runs;
         this.runs = this.options.workspaceId ? unfiltered.filter((run) => !run.ownerSessionId || run.ownerSessionId === this.options.workspaceId) : unfiltered;
         if (selectedRunId) {
-          const nextIndex = groupedRuns(this.runs, this.options.snapshotCache, resolve27).filter((row) => row.run).findIndex((row) => row.run?.runId === selectedRunId);
+          const nextIndex = groupedRuns(this.runs, this.options.snapshotCache, resolve26).filter((row) => row.run).findIndex((row) => row.run?.runId === selectedRunId);
           if (nextIndex >= 0) this.selected = nextIndex;
           else this.selected = 0;
         }
@@ -73864,23 +74161,24 @@ var init_run_dashboard = __esm({
           if (this.runScrollOffset === prev) break;
         }
       }
-      buildSignature(resolve27) {
+      buildSignature(resolve26) {
         const now = Date.now();
         if (this.cachedSignature && now - this.cachedSignatureAt < SIGNATURE_CACHE_TTL_MS2) {
           return this.cachedSignature;
         }
         let hasRunning = false;
         const statuses = this.runs.map((run) => {
-          const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, this.options.snapshotCache);
+          const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, this.options.snapshotCache);
           const displayRun = snapshot?.manifest ?? run;
-          const agents = snapshot?.agents ?? agentsFor2(run, this.options.snapshotCache, resolve27);
+          const agents = snapshot?.agents ?? agentsFor2(run, this.options.snapshotCache, resolve26);
           const stale = isLikelyOrphanedActiveRun(displayRun, agents);
           const status = stale ? "stale" : displayRun.status;
           if (status === "running" || agents.some((agent) => agent.status === "running")) hasRunning = true;
           return snapshot?.signature ?? `${displayRun.runId}:${displayRun.status}:${displayRun.updatedAt}:${status}`;
         }).join("|");
         const metricsSig = this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
-        const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}`;
+        const schedulesSig = this.activePane === "schedules" ? `:sched=${this.schedulesSignatureFragment()}` : "";
+        const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}${schedulesSig}`;
         this.cachedSignature = sig;
         this.cachedSignatureAt = now;
         return sig;
@@ -73895,8 +74193,70 @@ var init_run_dashboard = __esm({
         this.unsubscribeTheme();
         this.schedulerHandle?.dispose();
       }
-      selectedRunId(resolve27) {
-        return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve27)?.runId;
+      selectedRunId(resolve26) {
+        return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve26)?.runId;
+      }
+      /** Tier A: scheduled jobs via the SINGLE source of truth (G17) — the
+       *  extension-layer provider, TTL-cached so render ticks never hit disk
+       *  per frame. `R` (schedule-refresh) drops the cache. The TTL timestamp
+       *  reads the SAME injected clock as the pane render (D6-T4 — no direct
+       *  Date.now() anywhere on the render path; review round 1 minor-1).
+       *  P2-1: the hidden project-tier count rides the SAME cached provider
+       *  read (jobs + count populate ONE cache entry) — no second uncached
+       *  disk-read path exists on render ticks. */
+      scheduleData() {
+        const at = this.scheduleNow().getTime();
+        if (this.scheduleJobsCache && at - this.scheduleJobsCache.at < SCHEDULE_JOBS_TTL_MS) {
+          return this.scheduleJobsCache;
+        }
+        let jobs = [];
+        let hiddenCount = 0;
+        try {
+          jobs = getScheduledJobs();
+        } catch {
+          jobs = [];
+        }
+        try {
+          hiddenCount = getScheduledJobsHiddenCountView();
+        } catch {
+          hiddenCount = 0;
+        }
+        this.scheduleJobsCache = { at, jobs, hiddenCount };
+        if (this.scheduleSelected > jobs.length - 1) this.scheduleSelected = Math.max(0, jobs.length - 1);
+        return this.scheduleJobsCache;
+      }
+      scheduleJobs() {
+        return this.scheduleData().jobs;
+      }
+      /** P2-1: hidden project-tier jobs count — same cache entry as the jobs
+       *  read above (single provider read per TTL window). */
+      scheduleHiddenCount() {
+        return this.scheduleData().hiddenCount;
+      }
+      /** Job under the pane-8 cursor (up/down move it); undefined when the list
+       *  is empty — schedule actions are silent no-ops then (plan-approve
+       *  precedent for a gated action). */
+      selectedScheduleJob() {
+        const jobs = this.scheduleJobs();
+        return jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
+      }
+      /** Clock for the schedules pane (D6-T4): the render path receives the
+       *  resulting `now: Date` as a parameter and never reads the clock itself.
+       *  The SINGLE clock read point for everything pane-8: render, signature
+       *  pass, and the provider TTL timestamp (scheduleJobs) — so no second
+       *  wall-clock read exists on the render path. */
+      scheduleNow() {
+        return this.options.now ? this.options.now() : /* @__PURE__ */ new Date();
+      }
+      /** Signature fragment for the schedules pane so job data, cursor, details,
+       *  confirm-gate state, and relative-time minute buckets invalidate the
+       *  layout cache (mirrors metricsSig). P2-1: the hidden count is part of the
+       *  fragment so a changed stash repaints the pane after the TTL. */
+      schedulesSignatureFragment() {
+        const { jobs, hiddenCount } = this.scheduleData();
+        const minuteBucket = Math.floor(this.scheduleNow().getTime() / 6e4);
+        const jobSig = jobs.map((job) => `${job.enabled ? 1 : 0}:${job.runCount}:${job.nextRun ?? ""}:${job.lastStatus ?? ""}:${job.lastRun ?? ""}`).join(",");
+        return `${jobs.length}:${jobSig}:${hiddenCount}:${this.scheduleSelected}:${this.scheduleDetails ? 1 : 0}:${this.scheduleDeleteArmed ? 1 : 0}:${minuteBucket}`;
       }
       render(width) {
         try {
@@ -73922,7 +74282,7 @@ var init_run_dashboard = __esm({
           const borderFill = (count2) => crewBorder.render(count2)[0];
           const border2 = (left, right) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
           const row = (text) => `\u2502 ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}\u2502`;
-          const sep11 = () => border2("\u251C", "\u2524");
+          const sep10 = () => border2("\u251C", "\u2524");
           const lines = [];
           if (this.showHelp) {
             lines.push(...new HelpOverlay(this.theme).render(width));
@@ -73930,9 +74290,9 @@ var init_run_dashboard = __esm({
             lines.push(
               border2("\u256D", "\u256E"),
               row(
-                `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-7 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
+                `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-8 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
               ),
-              sep11()
+              sep10()
             );
             if (this.runs.length === 0) {
               lines.push(row(fg("dim", "No runs yet.")));
@@ -73974,13 +74334,13 @@ var init_run_dashboard = __esm({
                   lines.push(row(fg("dim", `\u2193 ${selectableCount - (this.runScrollOffset + win.slots)} more below`)));
               }
               const selectedRun = selectable[Math.min(this.selected, selectable.length - 1)]?.run;
-              if (selectedRun) {
+              if (selectedRun && this.activePane !== "schedules") {
                 const snap = snapshotOnce(selectedRun);
                 const r = snap?.manifest ?? selectedRun;
                 const agents = snap?.agents ?? agentsFor2(selectedRun, this.options.snapshotCache, snapshotOnce);
                 const statusStr = isLikelyOrphanedActiveRun(r, agents) ? "stale" : r.status;
                 const selectedTasks = snap?.tasks ?? readRunTasks2(r, this.options.snapshotCache, snapshotOnce);
-                lines.push(sep11());
+                lines.push(sep10());
                 lines.push(row(`${fg("accent", "\u25B8")} ${truncate(sanitizeLine(r.goal), innerWidth - 6)}`));
                 const isTerminal = statusStr === "failed" || statusStr === "cancelled" || statusStr === "stopped";
                 const reason = isTerminal ? summarizeTerminalReason(r, selectedTasks, snap?.cancellationReason) : void 0;
@@ -74046,6 +74406,27 @@ var init_run_dashboard = __esm({
                 if (footerFields.length) lines.push(row(fg("dim", footerFields.join(" \xB7 "))));
               }
             }
+            if (this.activePane === "schedules") {
+              const jobs = this.scheduleJobs();
+              const now = this.scheduleNow();
+              lines.push(sep10());
+              lines.push(row(fg("dim", "\u2500\u2500 schedules \u2500\u2500")));
+              const paneLines = safeRenderPane(
+                "schedules",
+                () => this.scheduleDetails && jobs.length > 0 ? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now) : renderSchedulesPane(jobs, now, {
+                  selectedIndex: this.scheduleSelected,
+                  hiddenCount: this.scheduleHiddenCount()
+                })
+              );
+              for (const line4 of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
+                lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line4), innerWidth - 2)), this.theme));
+              }
+              if (this.scheduleDeleteArmed) {
+                const victim = jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
+                const name = victim ? truncate(sanitizeLine(victim.name), 24) : "?";
+                lines.push(row(fg("warning", `\u26A0 X again to DELETE '${name}' \xB7 any other key cancels`)));
+              }
+            }
             lines.push(border2("\u2570", "\u256F"));
           }
           const target = this.targetHeight();
@@ -74088,6 +74469,10 @@ var init_run_dashboard = __esm({
           this.scheduleRender();
           return;
         }
+        if (this.activePane === "schedules" && this.scheduleDeleteArmed && action !== "schedule-delete") {
+          this.scheduleDeleteArmed = false;
+          this.invalidate();
+        }
         const selectedRunId = this.selectedRunId();
         if (action === "close") {
           this.done(void 0);
@@ -74103,6 +74488,16 @@ var init_run_dashboard = __esm({
           if (run && manifest && isPlanApprovalPending(manifest)) {
             this.done({ runId: run.runId, action });
           }
+          return;
+        }
+        if (action === "schedule-toggle" || action === "schedule-run-now" || action === "schedule-delete" || action === "schedule-details" || action === "schedule-refresh") {
+          this.handleSchedulePaneAction(action);
+          return;
+        }
+        if (this.activePane === "schedules" && (action === "up" || action === "down")) {
+          const count2 = this.scheduleJobs().length;
+          this.scheduleSelected = action === "up" ? Math.max(0, this.scheduleSelected - 1) : Math.min(Math.max(0, count2 - 1), this.scheduleSelected + 1);
+          this.invalidate();
           return;
         }
         if (action === "summary" || action === "artifacts" || action === "api" || action === "agents" || action === "mailbox" || action === "reload" || action === "mailbox-detail" || action === "health-recovery" || action === "health-kill-stale" || action === "health-diagnostic-export" || action === "notifications-dismiss") {
@@ -74137,6 +74532,7 @@ var init_run_dashboard = __esm({
         else if (action === "pane-health") this.activePane = "health";
         else if (action === "pane-metrics") this.activePane = "metrics";
         else if (action === "pane-plan") this.activePane = "plan";
+        else if (action === "pane-schedules") this.activePane = "schedules";
         else if (action === "plan-diff") {
           this.planDiff = !this.planDiff;
           this.invalidate();
@@ -74150,6 +74546,40 @@ var init_run_dashboard = __esm({
           lastActivePane = this.activePane;
           this.scheduleRender();
         }
+      }
+      /** Tier A: dispatch a pane-8 action. Local state toggles (V details, R
+       *  refresh) mutate in place; mutations (T toggle, N run-now, X delete)
+       *  leave the component ONLY as done() selections carrying schedule-*
+       *  actions + jobId for the extension layer to route through
+       *  handle-schedule.ts subActions — the UI layer never mutates jobs itself. */
+      handleSchedulePaneAction(action) {
+        if (action === "schedule-details") {
+          this.scheduleDetails = !this.scheduleDetails;
+          this.invalidate();
+          return;
+        }
+        if (action === "schedule-refresh") {
+          this.scheduleJobsCache = void 0;
+          this.invalidate();
+          return;
+        }
+        const job = this.selectedScheduleJob();
+        if (!job) return;
+        if (action === "schedule-delete") {
+          if (this.scheduleDeleteArmed) {
+            this.scheduleDeleteArmed = false;
+            this.done({ runId: "", action: "schedule-remove", jobId: job.id });
+          } else {
+            this.scheduleDeleteArmed = true;
+            this.invalidate();
+          }
+          return;
+        }
+        this.done({
+          runId: "",
+          action: action === "schedule-toggle" ? job.enabled ? "schedule-disable" : "schedule-enable" : "schedule-run-now",
+          jobId: job.id
+        });
       }
     };
   }
@@ -76001,10 +76431,10 @@ var init_settings_overlay = __esm({
               typeof current === "number" ? String(current) : "",
               this.theme,
               (value) => {
-                const num2 = value === "" ? void 0 : Number(value);
-                if (num2 !== void 0 && !Number.isNaN(num2)) {
-                  this.changedValues.set(def.id, num2);
-                  this.callbacks.onChange(def.id, num2);
+                const num = value === "" ? void 0 : Number(value);
+                if (num !== void 0 && !Number.isNaN(num)) {
+                  this.changedValues.set(def.id, num);
+                  this.callbacks.onChange(def.id, num);
                 } else if (value === "") {
                   this.changedValues.set(def.id, void 0);
                   this.callbacks.onChange(def.id, void 0);
@@ -76384,6 +76814,22 @@ async function handlePlanDashboardAction(ctx, selection2) {
   const text = commandText(result4);
   depsNotify(ctx, text.length > 800 ? `${text.slice(0, 797)}...` : text, result4.isError ? "error" : "info");
 }
+async function handleScheduleDashboardAction(ctx, selection2) {
+  const jobId = selection2.jobId;
+  if (!jobId) {
+    depsNotify(ctx, "schedule action requires a job id", "warning");
+    return;
+  }
+  const { scheduleDashboardActionToSubAction: scheduleDashboardActionToSubAction2 } = await Promise.resolve().then(() => (init_run_dashboard(), run_dashboard_exports));
+  const subAction = scheduleDashboardActionToSubAction2(selection2.action);
+  if (!subAction) {
+    depsNotify(ctx, `unhandled schedule action '${selection2.action}'`, "warning");
+    return;
+  }
+  const result4 = await handleTeamTool4({ action: "schedule", subAction, jobId }, teamCommandContext(ctx));
+  const text = commandText(result4);
+  depsNotify(ctx, text.length > 800 ? `${text.slice(0, 797)}...` : text, result4.isError ? "error" : "info");
+}
 function setTeamCommandsDeps(deps) {
   depsRef = deps;
 }
@@ -76449,6 +76895,10 @@ async function openTeamDashboard(ctx) {
     if (selection2.action === "plan-approve" || selection2.action === "plan-deny") {
       await handlePlanDashboardAction(cmdCtx, selection2);
       deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection2.runId);
+      continue;
+    }
+    if (selection2.action === "schedule-enable" || selection2.action === "schedule-disable" || selection2.action === "schedule-run-now" || selection2.action === "schedule-remove") {
+      await handleScheduleDashboardAction(cmdCtx, selection2);
       continue;
     }
     if (selection2.action === "agent-transcript" && await openTranscriptViewer(cmdCtx, selection2.runId)) continue;
@@ -77755,7 +78205,7 @@ var init_commands2 = __esm({
 
 // src/runtime/subagent-manager.ts
 import { randomUUID as randomUUID12 } from "node:crypto";
-import * as fs115 from "node:fs";
+import * as fs116 from "node:fs";
 import * as path93 from "node:path";
 function isValidSubagentId(id) {
   return /^[a-z0-9_]+$/i.test(id) && id.length <= 128;
@@ -77771,7 +78221,7 @@ function serializableRecord(record) {
 function savePersistedSubagentRecord(cwd, record) {
   try {
     const filePath = persistedSubagentPath(cwd, record.id);
-    fs115.mkdirSync(path93.dirname(filePath), { recursive: true });
+    fs116.mkdirSync(path93.dirname(filePath), { recursive: true });
     atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(serializableRecord(record)), null, 2)}
 `);
   } catch (error) {
@@ -77781,7 +78231,7 @@ function savePersistedSubagentRecord(cwd, record) {
 function removePersistedSubagentRecord(cwd, id) {
   try {
     const filePath = persistedSubagentPath(cwd, id);
-    fs115.unlinkSync(filePath);
+    fs116.unlinkSync(filePath);
     return true;
   } catch (error) {
     const code = error?.code;
@@ -77814,7 +78264,7 @@ function sanitizePersistedRecord(raw) {
 }
 function readPersistedSubagentRecord(cwd, id) {
   try {
-    const raw = JSON.parse(fs115.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
+    const raw = JSON.parse(fs116.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
     return sanitizePersistedRecord(raw);
   } catch (error) {
     if (error.code !== "ENOENT") {
@@ -77982,7 +78432,7 @@ var init_subagent_manager = __esm({
             await record.promise.catch((error) => {
               logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
             });
-          else await new Promise((resolve27) => setTimeout(resolve27, 100));
+          else await new Promise((resolve26) => setTimeout(resolve26, 100));
         }
       }
       setMaxConcurrent(value) {
@@ -78094,7 +78544,7 @@ var init_subagent_manager = __esm({
           }
           const loaded = loadRunManifestById(cwd, record.runId);
           if (!loaded) {
-            await new Promise((resolve27) => setTimeout(resolve27, this.pollIntervalMs));
+            await new Promise((resolve26) => setTimeout(resolve26, this.pollIntervalMs));
             continue;
           }
           if (loaded.manifest.status === "completed") {
@@ -78127,7 +78577,7 @@ var init_subagent_manager = __esm({
             savePersistedSubagentRecord(cwd, record);
             return;
           }
-          await new Promise((resolve27) => setTimeout(resolve27, this.pollIntervalMs));
+          await new Promise((resolve26) => setTimeout(resolve26, this.pollIntervalMs));
         }
       }
       scheduleBlockedTerminalPoll(cwd, record) {
@@ -78196,7 +78646,7 @@ __export(subagent_helpers_exports, {
   sendFollowUp: () => sendFollowUp,
   subagentToolResult: () => subagentToolResult
 });
-import * as fs116 from "node:fs";
+import * as fs117 from "node:fs";
 function sendFollowUp(pi, content) {
   const api = pi;
   if (typeof api.sendMessage !== "function") return;
@@ -78270,7 +78720,7 @@ function readSubagentRunResult(ctx, record) {
   if (!artifactPath || !loaded) return void 0;
   try {
     const safePath = resolveRealContainedPath(loaded.manifest.artifactsRoot, artifactPath);
-    return fs116.readFileSync(safePath, "utf-8").trim();
+    return fs117.readFileSync(safePath, "utf-8").trim();
   } catch {
     return void 0;
   }
@@ -78311,7 +78761,7 @@ var live_run_sidebar_exports = {};
 __export(live_run_sidebar_exports, {
   LiveRunSidebar: () => LiveRunSidebar
 });
-import * as fs117 from "node:fs";
+import * as fs118 from "node:fs";
 function line3(text, width) {
   return `\u2502 ${pad(truncate(text, width - 4), width - 4)} \u2502`;
 }
@@ -78320,7 +78770,7 @@ function border(left, fill, right, width) {
 }
 function readTasks2(path103) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs117.readFileSync(path103, "utf-8"));
+    const parsed = JSON.parse(fs118.readFileSync(path103, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
@@ -79058,16 +79508,16 @@ __export(notification_sink_exports, {
   __test__: () => __test__,
   createJsonlSink: () => createJsonlSink
 });
-import * as fs119 from "node:fs";
+import * as fs120 from "node:fs";
 import * as path95 from "node:path";
 function rotateOldFiles(dir, retentionDays, now = Date.now()) {
-  if (!fs119.existsSync(dir)) return;
+  if (!fs120.existsSync(dir)) return;
   const cutoff = now - retentionDays * 24 * 60 * 60 * 1e3;
-  for (const entry of fs119.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of fs120.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
     const filePath = path95.join(dir, entry.name);
     try {
-      if (fs119.statSync(filePath).mtimeMs < cutoff) fs119.unlinkSync(filePath);
+      if (fs120.statSync(filePath).mtimeMs < cutoff) fs120.unlinkSync(filePath);
     } catch (error) {
       logInternalError("notification-sink.rotate", error, filePath);
     }
@@ -79085,12 +79535,12 @@ function createJsonlSink(crewRoot, retentionDays = 7) {
           rotateOldFiles(dir, retentionDays, timestamp);
           lastRotateDate = date;
         }
-        fs119.mkdirSync(dir, { recursive: true });
+        fs120.mkdirSync(dir, { recursive: true });
         const payload = redactSecrets({
           ...notification,
           timestamp
         });
-        fs119.appendFileSync(path95.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
+        fs120.appendFileSync(path95.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
 `, "utf-8");
       } catch (error) {
         logInternalError("notification-sink.write", error);
@@ -80371,16 +80821,16 @@ var metric_sink_exports = {};
 __export(metric_sink_exports, {
   createMetricFileSink: () => createMetricFileSink
 });
-import * as fs120 from "node:fs";
+import * as fs121 from "node:fs";
 import * as path96 from "node:path";
 function rotateOldFiles2(dir, retentionDays, now = Date.now()) {
-  if (!fs120.existsSync(dir)) return;
+  if (!fs121.existsSync(dir)) return;
   const maxAge = retentionDays * 24 * 60 * 60 * 1e3;
-  for (const file of fs120.readdirSync(dir)) {
+  for (const file of fs121.readdirSync(dir)) {
     if (!file.endsWith(".jsonl")) continue;
     const fullPath = path96.join(dir, file);
     try {
-      if (now - fs120.statSync(fullPath).mtimeMs > maxAge) fs120.unlinkSync(fullPath);
+      if (now - fs121.statSync(fullPath).mtimeMs > maxAge) fs121.unlinkSync(fullPath);
     } catch (error) {
       logInternalError("metric-sink.rotate", error, fullPath);
     }
@@ -80395,14 +80845,14 @@ function createMetricFileSink(opts) {
     if (fd !== void 0 && fdDate === date) return fd;
     if (fd !== void 0) {
       try {
-        fs120.closeSync(fd);
+        fs121.closeSync(fd);
       } catch (error) {
         logInternalError("metric-sink.closeFd", error);
       }
     }
-    fs120.mkdirSync(dir, { recursive: true });
+    fs121.mkdirSync(dir, { recursive: true });
     rotateOldFiles2(dir, retentionDays);
-    fd = fs120.openSync(path96.join(dir, `${date}.jsonl`), "a");
+    fd = fs121.openSync(path96.join(dir, `${date}.jsonl`), "a");
     fdDate = date;
     return fd;
   };
@@ -80418,10 +80868,10 @@ function createMetricFileSink(opts) {
       const target = ensureFd(date);
       const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
-      return new Promise((resolve27) => {
-        fs120.write(target, line4, (err2) => {
+      return new Promise((resolve26) => {
+        fs121.write(target, line4, (err2) => {
           if (err2) logInternalError("metric-sink.asyncWrite", err2);
-          resolve27();
+          resolve26();
         });
       });
     } catch (error) {
@@ -80437,7 +80887,7 @@ function createMetricFileSink(opts) {
       clearInterval(timer);
       if (fd !== void 0) {
         try {
-          fs120.closeSync(fd);
+          fs121.closeSync(fd);
         } catch (error) {
           logInternalError("metric-sink.dispose", error);
         }
@@ -80460,7 +80910,7 @@ var heartbeat_watcher_exports = {};
 __export(heartbeat_watcher_exports, {
   HeartbeatWatcher: () => HeartbeatWatcher
 });
-import * as fs121 from "node:fs";
+import * as fs122 from "node:fs";
 import * as path97 from "node:path";
 var HeartbeatWatcher;
 var init_heartbeat_watcher = __esm({
@@ -80510,7 +80960,7 @@ var init_heartbeat_watcher = __esm({
         const activeKeys = /* @__PURE__ */ new Set();
         for (const run of this.opts.manifestCache.list(50)) {
           if (run.status !== "running") continue;
-          if (!fs121.existsSync(run.stateRoot)) continue;
+          if (!fs122.existsSync(run.stateRoot)) continue;
           const loaded = loadRunManifestById(this.opts.cwd, run.runId);
           if (!loaded) continue;
           if (loaded.manifest.status !== "running") continue;
@@ -80545,7 +80995,7 @@ var init_heartbeat_watcher = __esm({
             if (level === "dead" && !isProcessAlive && loaded.manifest.artifactsRoot) {
               const resultsDir = path97.resolve(loaded.manifest.artifactsRoot, "results");
               const candidate = path97.resolve(resultsDir, `${task.id}.txt`);
-              if (candidate.startsWith(resultsDir + path97.sep) && fs121.existsSync(candidate)) {
+              if (candidate.startsWith(resultsDir + path97.sep) && fs122.existsSync(candidate)) {
                 level = "stale";
               }
             }
@@ -81182,10 +81632,10 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!filePath || typeof oldStr !== "string" || typeof newStr !== "string") {
       throw new Error("old_string not found (and resilient retry skipped: missing path/old/new)");
     }
-    const fs128 = await import("node:fs/promises");
+    const fs129 = await import("node:fs/promises");
     let content;
     try {
-      content = await fs128.readFile(filePath, "utf8");
+      content = await fs129.readFile(filePath, "utf8");
     } catch (readErr) {
       throw new Error(`resilient edit: could not read ${filePath}: ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
@@ -81195,7 +81645,7 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!result4.changed) {
       throw new Error(`old_string not found (resilient cascade exhausted, strategy=${result4.strategy})`);
     }
-    await fs128.writeFile(filePath, result4.content, "utf8");
+    await fs129.writeFile(filePath, result4.content, "utf8");
     return {
       content: [
         {
@@ -81646,6 +82096,8 @@ var CREW_PHRASES = [
   { phrase: "crew commands", command: "/team-help" },
   { phrase: "crew doctor", command: "/team-doctor" },
   { phrase: "crew diagnose", command: "/team-doctor" },
+  { phrase: "crew schedule", command: "/schedules" },
+  { phrase: "scheduled jobs", command: "/schedules" },
   { phrase: "teams", command: "/teams" }
 ];
 function phraseToRegex(phrase) {
@@ -81713,93 +82165,21 @@ function registerCrewShortcuts(pi) {
 var CREW_SHORTCUT_KEYS = CREW_SHORTCUTS.map((s) => s.key);
 
 // src/extension/crew-vibes/index.ts
-init_pi_ui_compat();
 init_internal_error();
-init_dock_footer();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync78, mkdirSync as mkdirSync45, readFileSync as readFileSync85, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname45, join as join88 } from "node:path";
-
-// src/extension/crew-vibes/font-detect.ts
-import { existsSync as existsSync77, readFileSync as readFileSync84 } from "node:fs";
-import { homedir as homedir13, platform } from "node:os";
-import { join as join87 } from "node:path";
-function fontPath() {
-  const os20 = platform();
-  const home = homedir13();
-  if (os20 === "darwin") return join87(home, "Library", "Fonts", "crew-vibes.ttf");
-  if (os20 === "linux") return join87(home, ".local", "share", "fonts", "crew-vibes.ttf");
-  if (os20 === "win32") {
-    const local = process.env.LOCALAPPDATA ?? join87(home, "AppData", "Local");
-    return join87(local, "Microsoft", "Windows", "Fonts", "crew-vibes.ttf");
-  }
-  return "";
-}
-var _hasFontFile = null;
-function hasCrewFontFile() {
-  if (_hasFontFile !== null) return _hasFontFile;
-  const p = fontPath();
-  _hasFontFile = p !== "" && existsSync77(p);
-  return _hasFontFile;
-}
-var _isWebTerminal = null;
-function isWebTerminal() {
-  if (_isWebTerminal !== null) return _isWebTerminal;
-  if (process.env.GOTTY || process.env.WEBTERM) {
-    _isWebTerminal = true;
-    return true;
-  }
-  if (process.env.TERM === "dumb") {
-    _isWebTerminal = true;
-    return true;
-  }
-  try {
-    let pid = process.pid;
-    for (let i = 0; i < 6 && pid > 1; i++) {
-      const cgroup = readFileSync84(`/proc/${pid}/cgroup`, "utf8");
-      if (cgroup.includes("gotty") || cgroup.includes("wetty")) {
-        _isWebTerminal = true;
-        return true;
-      }
-      const match = cgroup.match(/\d+:.*:(.*)/);
-      const status = readFileSync84(`/proc/${pid}/status`, "utf8");
-      const ppid = status.match(/^PPid:\s+(\d+)/m);
-      pid = ppid ? Number.parseInt(ppid[1], 10) : 1;
-    }
-  } catch {
-  }
-  _isWebTerminal = false;
-  return false;
-}
-
-// src/extension/crew-vibes/config.ts
-var SPEED_STATUS_ID = "pi-crew-speed";
-var CAPACITY_STATUS_ID = "pi-crew-bar";
+import { existsSync as existsSync77, mkdirSync as mkdirSync45, readFileSync as readFileSync84, writeFileSync as writeFileSync11 } from "node:fs";
+import { dirname as dirname45, join as join87 } from "node:path";
 var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
   return getCrewEnv("PI_CREW_HOME")?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
 function configPath2() {
-  return join88(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
+  return join87(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
 }
 var DEFAULT_CONFIG2 = {
   enabled: true,
-  speed: {
-    enabled: true,
-    footer: false,
-    indicator: true,
-    label: "tok/s",
-    renderIntervalMs: 250,
-    slidingWindowMs: 1e3,
-    minReliableDurationMs: 1e3,
-    maxDisplayTokS: 500,
-    defaultIntervalMs: 167,
-    minIntervalMs: 50,
-    maxIntervalMs: 250,
-    scale: 6e3
-  },
   capacity: {
     enabled: true,
     tokenDisplay: "tokens",
@@ -81811,32 +82191,11 @@ var DEFAULT_CONFIG2 = {
     providerRefreshMs: 12e4
   }
 };
-var FALLBACK_CAPACITY_ICONS = [
-  "\u25CB ",
-  // ○ empty circle (lean)
-  "\u25D4 ",
-  // ◔ circle with dot (chonking)
-  "\u25D1 ",
-  // ◑ circle half filled (chonky)
-  "\u25CF ",
-  // ● filled circle (big chonk)
-  "\u2B24 ",
-  // ⬤ large filled circle (mega chonk)
-  "\u2B22 "
-  // ⬢ filled hexagon (oh lawd)
-];
-function capacityIcons() {
-  if (isWebTerminal()) return FALLBACK_CAPACITY_ICONS;
-  return hasCrewFontFile() ? DEFAULT_CONFIG2.capacity.icons : FALLBACK_CAPACITY_ICONS;
-}
 function asRecord12(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 function boolFrom(raw, fallback2) {
   return typeof raw === "boolean" ? raw : fallback2;
-}
-function stringFrom(raw, fallback2) {
-  return typeof raw === "string" ? raw : fallback2;
 }
 function positiveFrom(raw, fallback2) {
   return typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : fallback2;
@@ -81849,28 +82208,6 @@ function sextet(raw, fallback2) {
 }
 function tokenDisplayFrom(raw, fallback2) {
   return raw === "off" || raw === "tokens" || raw === "percentage" ? raw : fallback2;
-}
-function normalizeSpeed(raw) {
-  const input = asRecord12(raw);
-  const speed = {
-    enabled: boolFrom(input.enabled, DEFAULT_CONFIG2.speed.enabled),
-    footer: boolFrom(input.footer, DEFAULT_CONFIG2.speed.footer),
-    indicator: boolFrom(input.indicator, DEFAULT_CONFIG2.speed.indicator),
-    label: stringFrom(input.label, DEFAULT_CONFIG2.speed.label),
-    renderIntervalMs: positiveFrom(input.renderIntervalMs, DEFAULT_CONFIG2.speed.renderIntervalMs),
-    slidingWindowMs: positiveFrom(input.slidingWindowMs, DEFAULT_CONFIG2.speed.slidingWindowMs),
-    minReliableDurationMs: positiveFrom(input.minReliableDurationMs, DEFAULT_CONFIG2.speed.minReliableDurationMs),
-    maxDisplayTokS: positiveFrom(input.maxDisplayTokS, DEFAULT_CONFIG2.speed.maxDisplayTokS),
-    defaultIntervalMs: positiveFrom(input.defaultIntervalMs, DEFAULT_CONFIG2.speed.defaultIntervalMs),
-    minIntervalMs: positiveFrom(input.minIntervalMs, DEFAULT_CONFIG2.speed.minIntervalMs),
-    maxIntervalMs: positiveFrom(input.maxIntervalMs, DEFAULT_CONFIG2.speed.maxIntervalMs),
-    scale: positiveFrom(input.scale, DEFAULT_CONFIG2.speed.scale)
-  };
-  if (speed.minIntervalMs > speed.maxIntervalMs) {
-    speed.minIntervalMs = DEFAULT_CONFIG2.speed.minIntervalMs;
-    speed.maxIntervalMs = DEFAULT_CONFIG2.speed.maxIntervalMs;
-  }
-  return speed;
 }
 function normalizeCapacity(raw) {
   const input = asRecord12(raw);
@@ -81889,15 +82226,14 @@ function normalizeConfig(raw) {
   const input = asRecord12(raw);
   return {
     enabled: boolFrom(input.enabled, DEFAULT_CONFIG2.enabled),
-    speed: normalizeSpeed(input.speed),
     capacity: normalizeCapacity(input.capacity)
   };
 }
 function loadConfig2() {
   try {
     const path103 = configPath2();
-    if (!existsSync78(path103)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync85(path103, "utf8")));
+    if (!existsSync77(path103)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync84(path103, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
@@ -81909,411 +82245,23 @@ function saveConfig(config) {
 `);
 }
 
-// src/extension/crew-vibes/figures.ts
-var BRAILLE_FRAMES = [
-  "\u280B ",
-  // ⠋
-  "\u2819 ",
-  // ⠙
-  "\u2839 ",
-  // ⠹
-  "\u2838 ",
-  // ⠸
-  "\u283C ",
-  // ⠼
-  "\u2834 ",
-  // ⠴
-  "\u2826 ",
-  // ⠦
-  "\u2827 ",
-  // ⠧
-  "\u2807 ",
-  // ⠇
-  "\u280F "
-  // ⠏
-];
-var PUA_CREW_FRAMES = [
-  "\uE700 ",
-  "\uE701 ",
-  "\uE702 ",
-  "\uE703 ",
-  "\uE704 ",
-  "\uE705 ",
-  "\uE706 ",
-  "\uE707 ",
-  "\uE708 ",
-  "\uE709 ",
-  "\uE70A ",
-  "\uE70B ",
-  "\uE70C ",
-  "\uE70D ",
-  "\uE70E ",
-  "\uE70F "
-];
-function crewFrames(style = "braille") {
-  if (style === "pua" && (isWebTerminal() || !hasCrewFontFile())) return BRAILLE_FRAMES;
-  return style === "pua" ? PUA_CREW_FRAMES : BRAILLE_FRAMES;
-}
-function intervalForSpeed(config, speed) {
-  if (speed === null || !Number.isFinite(speed) || speed <= 0) return config.defaultIntervalMs;
-  return Math.max(config.minIntervalMs, Math.min(config.maxIntervalMs, Math.round(config.scale / speed)));
-}
-function capacityIndex(percent, levels = 6) {
-  if (percent === null || percent === void 0 || !Number.isFinite(percent)) return 0;
-  return Math.max(0, Math.min(levels - 1, Math.floor(Math.max(0, Math.min(100, percent)) / 100 * levels)));
-}
-function isDangerStage(index, levels) {
-  return index >= Math.max(0, levels - 2);
-}
-
-// src/extension/crew-vibes/footer.ts
-init_dock_footer();
-init_pi_ui_compat();
-init_theme_adapter();
-init_widget_renderer();
-init_visual();
-import { isAbsolute as isAbsolute11, relative as relative8, resolve as resolve23, sep as sep9 } from "node:path";
-
-// src/extension/crew-vibes/render.ts
-function formatCount(value) {
-  if (value < 1e3) return value.toString();
-  if (value < 1e4) return `${(value / 1e3).toFixed(1)}k`;
-  if (value < 1e6) return `${Math.round(value / 1e3)}k`;
-  if (value < 1e7) return `${(value / 1e6).toFixed(1)}M`;
-  return `${Math.round(value / 1e6)}M`;
-}
-function asCrewTheme2(theme) {
-  if (theme && typeof theme === "object" && typeof theme.fg === "function") {
-    return theme;
-  }
-  return void 0;
-}
-function getCapacityUsage(ctx) {
-  const fn = ctx.getContextUsage;
-  const usage = typeof fn === "function" ? fn.call(ctx) : null;
-  return {
-    tokens: typeof usage?.tokens === "number" && Number.isFinite(usage.tokens) ? usage.tokens : null,
-    percent: typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null
-  };
-}
-function formatSpeed(config, speed) {
-  return speed === null ? `-- ${config.label}` : `${speed.toFixed(1)} ${config.label}`;
-}
-function renderSpeedFooter(theme, config, speed) {
-  const value = speed === null ? "--" : speed.toFixed(1);
-  const valueTone = speed === null ? "dim" : "accent";
-  const styled = theme ? `${theme.fg(valueTone, value)} ${theme.fg("dim", config.label)}` : `${value} ${config.label}`;
-  return styled;
-}
-function renderWorkingMessage(theme, config, speed) {
-  const left = "Working";
-  const speedText = theme ? `${theme.fg(speed === null ? "dim" : "accent", speed === null ? "--" : speed.toFixed(1))} ${theme.fg("dim", config.label)}` : `${speed === null ? "--" : speed.toFixed(1)} ${config.label}`;
-  return theme ? `${theme.fg("muted", left)}  ${speedText}` : `${left}  ${speedText}`;
-}
-function crewIndicatorFrames(theme) {
-  const frames = crewFrames();
-  if (!theme) return [...frames];
-  return frames.map((frame) => theme.fg("accent", frame));
-}
-function formatCapacityPrefix(config, usage) {
-  const display = config.tokenDisplay;
-  if (display === "off") return "";
-  if (display === "percentage") {
-    return `${usage.percent === null ? "?" : Math.round(Math.max(0, Math.min(999, usage.percent)))}% `;
-  }
-  return `${usage.tokens === null ? "?" : formatCount(usage.tokens)} `;
-}
-function colorStage(theme, index, levels, text) {
-  if (!theme || text.length === 0) return text;
-  return theme.fg(isDangerStage(index, levels) ? "error" : "success", text);
-}
-function renderCapacity(theme, config, usage) {
-  const icons = capacityIcons();
-  const levels = icons.length;
-  const index = capacityIndex(usage.percent, levels);
-  const icon = icons[index] ?? icons[0];
-  const label = config.labels[index] ?? config.labels[0];
-  const prefix = theme ? theme.fg("muted", formatCapacityPrefix(config, usage)) : formatCapacityPrefix(config, usage);
-  const coloredIcon = colorStage(theme, index, levels, icon);
-  const afterIcon = config.showLabel ? `  ${colorStage(theme, index, levels, label)}` : " ";
-  return `${prefix}${coloredIcon}${afterIcon}`;
-}
-function setSpeedStatus(ctx, config, text) {
-  if (!ctx?.hasUI) return;
-  if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-    ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
-    return;
-  }
-  ctx.ui.setStatus(SPEED_STATUS_ID, text);
-}
-function clearVibesStatus(ctx) {
-  if (!ctx?.hasUI) return;
-  ctx.ui.setStatus(SPEED_STATUS_ID, void 0);
-  ctx.ui.setStatus(CAPACITY_STATUS_ID, void 0);
-  ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
-  if (ctx.ui.setWorkingIndicator) ctx.ui.setWorkingIndicator();
-  if (ctx.ui.setWorkingMessage) ctx.ui.setWorkingMessage();
-}
-function formatResetTimer(resetAt) {
-  if (!resetAt) return null;
-  const diffMs = new Date(resetAt).getTime() - Date.now();
-  if (diffMs < 0) return null;
-  const mins = Math.floor(diffMs / 6e4);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 48) {
-    const remMins = mins % 60;
-    return remMins > 0 ? `${hours}h${remMins}m` : `${hours}h`;
-  }
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
-}
-function renderBar(percent, width = 8) {
-  const clamped = Math.max(0, Math.min(100, percent));
-  const filled = Math.round(clamped / 100 * width);
-  return `${"\u2501".repeat(filled)}${"\u2504".repeat(width - filled)}`;
-}
-function renderProviderUsage(theme, usage) {
-  if (!usage) return void 0;
-  const parts = [];
-  if (usage.providerName) {
-    const nameText = usage.providerName;
-    parts.push(theme ? theme.fg("muted", nameText) : nameText);
-  }
-  const fiveHourBar = renderBar(usage.fiveHourPercent);
-  const fiveHourRounded = Math.round(usage.fiveHourPercent);
-  const fiveHourReset = formatResetTimer(usage.fiveHourResetAt);
-  const fiveHourText = `5h ${fiveHourBar} ${fiveHourRounded}%${fiveHourReset ? " " + fiveHourReset : ""}`;
-  const fiveHourColor = usage.fiveHourPercent >= 80 ? "error" : "accent";
-  parts.push(theme ? theme.fg(fiveHourColor, fiveHourText) : fiveHourText);
-  const weeklyBar = renderBar(usage.weeklyPercent);
-  const weeklyRounded = Math.round(usage.weeklyPercent);
-  const weeklyReset = formatResetTimer(usage.weeklyResetAt);
-  const weeklyText = `Wk ${weeklyBar} ${weeklyRounded}%${weeklyReset ? " " + weeklyReset : ""}`;
-  parts.push(theme ? theme.fg("dim", weeklyText) : weeklyText);
-  if (typeof usage.copilotMonthlyPercent === "number" && Number.isFinite(usage.copilotMonthlyPercent)) {
-    const monthlyRounded = Math.round(usage.copilotMonthlyPercent);
-    const monthlyText = `Mo: ${monthlyRounded}%`;
-    parts.push(theme ? theme.fg("dim", monthlyText) : monthlyText);
-  }
-  return parts.join(" ");
-}
-
-// src/extension/crew-vibes/footer.ts
-function num(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-function formatCwdForFooter(cwd, home) {
-  if (!home) return cwd;
-  const resolvedCwd = resolve23(cwd);
-  const resolvedHome = resolve23(home);
-  const rel = relative8(resolvedHome, resolvedCwd);
-  const inside = rel === "" || rel !== ".." && !rel.startsWith(`..${sep9}`) && !isAbsolute11(rel);
-  if (!inside) return cwd;
-  return rel === "" ? "~" : `~${sep9}${rel}`;
-}
-function sanitizeStatusText(text) {
-  return text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
-}
-function asFooterData(value) {
-  if (!value || typeof value !== "object") return void 0;
-  const record = value;
-  if (typeof record.getGitBranch !== "function" || typeof record.getExtensionStatuses !== "function" || typeof record.getAvailableProviderCount !== "function" || typeof record.onBranchChange !== "function") {
-    return void 0;
-  }
-  return value;
-}
-function computeTotals(entries) {
-  const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-  for (const entry of entries) {
-    const rec = entry;
-    if (rec?.type !== "message" || rec.message?.role !== "assistant") continue;
-    const usage = rec.message.usage;
-    if (!usage) continue;
-    totals.input += num(usage.input);
-    totals.output += num(usage.output);
-    totals.cacheRead += num(usage.cacheRead);
-    totals.cacheWrite += num(usage.cacheWrite);
-    totals.cost += num(usage.cost?.total);
-  }
-  return totals;
-}
-var CrewVibesFooter = class {
-  theme;
-  footerData;
-  ctx;
-  source;
-  tui;
-  unsubscribeBranch;
-  constructor(deps) {
-    this.theme = asCrewTheme(deps.theme);
-    this.footerData = asFooterData(deps.footerData);
-    this.ctx = deps.ctx;
-    this.source = deps.source;
-    this.tui = deps.tui;
-    this.unsubscribeBranch = this.footerData ? this.footerData.onBranchChange(() => requestRenderTarget(this.tui)) : () => void 0;
-  }
-  invalidate() {
-  }
-  dispose() {
-    this.unsubscribeBranch();
-  }
-  buildPwdLine(width) {
-    const sm = this.ctx.sessionManager;
-    let pwd = formatCwdForFooter(sm.getCwd(), process.env.HOME || process.env.USERPROFILE);
-    const branch = this.footerData?.getGitBranch();
-    if (branch) pwd = `${pwd} (${branch})`;
-    const sessionName = sm.getSessionName?.();
-    if (sessionName) pwd = `${pwd} \u2022 ${sessionName}`;
-    return truncateToWidth(this.theme.fg("dim", pwd), width, this.theme.fg("dim", "..."));
-  }
-  buildStatsLine(width) {
-    const theme = this.theme;
-    const model = this.ctx.model;
-    const totals = computeTotals(this.ctx.sessionManager.getEntries());
-    const contextUsage = this.ctx.getContextUsage?.();
-    const contextWindow2 = contextUsage?.contextWindow ?? model?.contextWindow ?? 0;
-    const percentValue = contextUsage?.percent ?? 0;
-    const percentKnown = contextUsage?.percent !== null && contextUsage?.percent !== void 0;
-    const statsParts = [];
-    if (totals.input) statsParts.push(`\u2191${formatCount(totals.input)}`);
-    if (totals.output) statsParts.push(`\u2193${formatCount(totals.output)}`);
-    if (totals.cacheRead) statsParts.push(`R${formatCount(totals.cacheRead)}`);
-    if (totals.cacheWrite) statsParts.push(`W${formatCount(totals.cacheWrite)}`);
-    const usingSubscription = !!(model && this.ctx.modelRegistry?.isUsingOAuth?.(this.ctx.model));
-    if (totals.cost || usingSubscription) {
-      statsParts.push(`$${totals.cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
-    }
-    const autoIndicator = " (auto)";
-    const contextDisplay = percentKnown ? `${percentValue.toFixed(1)}%/${formatCount(contextWindow2)}${autoIndicator}` : `?/${formatCount(contextWindow2)}${autoIndicator}`;
-    const contextColored = percentValue > 90 ? theme.fg("error", contextDisplay) : percentValue > 70 ? theme.fg("warning", contextDisplay) : contextDisplay;
-    statsParts.push(contextColored);
-    let statsLeft = statsParts.join(" ");
-    let statsLeftWidth = visibleWidth(statsLeft);
-    if (statsLeftWidth > width) {
-      statsLeft = truncateToWidth(statsLeft, width, "...");
-      statsLeftWidth = visibleWidth(statsLeft);
-    }
-    const minPadding = 2;
-    const modelName = model?.id || "no-model";
-    let rightSideWithoutProvider = modelName;
-    if (model?.reasoning) {
-      let level = this.source.getThinkingLevel();
-      try {
-        const ctx = this.ctx.sessionManager;
-        if (typeof ctx.buildSessionContext === "function") {
-          const resolved = ctx.buildSessionContext()?.thinkingLevel;
-          if (resolved) level = resolved;
-        }
-      } catch {
-      }
-      const finalLevel = level || "off";
-      rightSideWithoutProvider = finalLevel === "off" ? `${modelName} \u2022 thinking off` : `${modelName} \u2022 ${finalLevel}`;
-    }
-    let rightSide = rightSideWithoutProvider;
-    const providerCount = this.footerData?.getAvailableProviderCount() ?? 0;
-    if (providerCount > 1 && model?.provider) {
-      rightSide = `(${model.provider}) ${rightSideWithoutProvider}`;
-      if (statsLeftWidth + minPadding + visibleWidth(rightSide) > width) rightSide = rightSideWithoutProvider;
-    }
-    const rightSideWidth = visibleWidth(rightSide);
-    let statsLine;
-    if (statsLeftWidth + minPadding + rightSideWidth <= width) {
-      statsLine = statsLeft + " ".repeat(width - statsLeftWidth - rightSideWidth) + rightSide;
-    } else {
-      const availableForRight = width - statsLeftWidth - minPadding;
-      if (availableForRight > 0) {
-        const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
-        const padding = " ".repeat(Math.max(0, width - statsLeftWidth - visibleWidth(truncatedRight)));
-        statsLine = statsLeft + padding + truncatedRight;
-      } else {
-        statsLine = statsLeft;
-      }
-    }
-    const dimStatsLeft = theme.fg("dim", statsLeft);
-    const dimRemainder = theme.fg("dim", statsLine.slice(statsLeft.length));
-    return dimStatsLeft + dimRemainder;
-  }
-  buildStatusLine(width) {
-    if (!this.footerData) return void 0;
-    const statuses = this.footerData.getExtensionStatuses();
-    if (statuses.size === 0) return void 0;
-    const joined = Array.from(statuses.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => sanitizeStatusText(text)).join(" ");
-    if (!joined) return void 0;
-    return truncateToWidth(joined, width, this.theme.fg("dim", "..."));
-  }
-  rightAlign(text, width) {
-    const w = visibleWidth(text);
-    if (w >= width) return truncateToWidth(text, width, "\u2026");
-    return " ".repeat(width - w) + text;
-  }
-  /** Capacity + provider quota. Uses the REAL render width, so the quota is
-   * never chopped. When both do not fit on one line, wrap to two lines
-   * (capacity above, quota right-aligned below) per the chosen behavior. */
-  buildMeterLines(width) {
-    const config = this.source.getConfig();
-    if (!config.enabled) return [];
-    const capText = config.capacity.enabled ? renderCapacity(this.theme, config.capacity, getCapacityUsage(this.ctx)) : void 0;
-    const quotaText = config.capacity.providerUsage ? renderProviderUsage(this.theme, this.source.getQuotaUsage()) : void 0;
-    if (!capText && !quotaText) return [];
-    if (capText && !quotaText) return [truncateToWidth(capText, width, "\u2026")];
-    if (!capText && quotaText) return [this.rightAlign(quotaText, width)];
-    const cap = capText;
-    const quota = quotaText;
-    const capWidth = visibleWidth(cap);
-    const quotaWidth = visibleWidth(quota);
-    if (capWidth + 1 + quotaWidth <= width) {
-      const pad2 = Math.max(1, width - capWidth - quotaWidth);
-      return [cap + " ".repeat(pad2) + quota];
-    }
-    return [truncateToWidth(cap, width, "\u2026"), this.rightAlign(quota, width)];
-  }
-  /** Dock lines registered by the crew widget (`widgetPlacement: "bottom"`):
-   *  painted as the very last block of the footer, below the quota/meters.
-   *  The provider returns RAW lines; we color them with this footer's theme
-   *  (same per-line palette the widget would have used) and truncate to the
-   *  real render width. */
-  buildDockLines(width) {
-    const provider = getFooterDockProvider();
-    if (!provider) return [];
-    const raw = provider(width);
-    if (raw.length === 0) return [];
-    return renderLines(
-      raw.map((line4, index) => colorWidgetLine(line4, index, this.theme)),
-      width
-    ).map((line4) => truncateToWidth(line4, width, "\u2026"));
-  }
-  render(width) {
-    const lines = [this.buildPwdLine(width), this.buildStatsLine(width)];
-    const statusLine = this.buildStatusLine(width);
-    if (statusLine) lines.push(statusLine);
-    lines.push(...this.buildMeterLines(width));
-    lines.push(...this.buildDockLines(width));
-    return lines;
-  }
-};
-function createCrewVibesFooter(deps) {
-  return new CrewVibesFooter(deps);
-}
-
 // src/extension/crew-vibes/provider-usage.ts
-import { readFileSync as readFileSync86 } from "node:fs";
-import { homedir as homedir14 } from "node:os";
-import { join as join89 } from "node:path";
+import { readFileSync as readFileSync85 } from "node:fs";
+import { homedir as homedir13 } from "node:os";
+import { join as join88 } from "node:path";
 function withTimeout(ms, fn) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
   return fn(controller.signal).finally(() => clearTimeout(timeoutId));
 }
 function piAuthPath() {
-  return join89(homedir14(), ".pi", "agent", "auth.json");
+  return join88(homedir13(), ".pi", "agent", "auth.json");
 }
 function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const token = data.anthropic?.access;
     return typeof token === "string" && token.length > 0 ? token : void 0;
   } catch {
@@ -82324,7 +82272,7 @@ function loadZaiToken() {
   const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const key = data["z-ai"]?.access || data["z-ai"]?.key || data.zai?.access || data.zai?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -82335,7 +82283,7 @@ function loadMinimaxToken() {
   const envKey = process.env.MINIMAX_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const key = data.minimax?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -82352,11 +82300,11 @@ function tokenFromHostEntry(entry) {
   return void 0;
 }
 function loadLegacyCopilotToken() {
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join89(homedir14(), ".config");
-  const candidates = [join89(configHome, "github-copilot", "hosts.json"), join89(homedir14(), ".github-copilot", "hosts.json")];
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join88(homedir13(), ".config");
+  const candidates = [join88(configHome, "github-copilot", "hosts.json"), join88(homedir13(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
-      const data = JSON.parse(readFileSync86(hostsPath, "utf8"));
+      const data = JSON.parse(readFileSync85(hostsPath, "utf8"));
       if (!data || typeof data !== "object") continue;
       const normalized = {};
       for (const [host, entry] of Object.entries(data)) {
@@ -82377,7 +82325,7 @@ function loadCopilotToken() {
   const envToken = (process.env.COPILOT_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "").trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
     const piToken = data["github-copilot"]?.refresh || data["github-copilot"]?.access;
     if (typeof piToken === "string" && piToken.length > 0) return piToken;
   } catch {
@@ -82551,217 +82499,70 @@ async function fetchProviderUsage(maxAgeMs = 3e5, provider) {
   }
 }
 
-// src/extension/crew-vibes/speed.ts
-var COMPACTION_THRESHOLD = 5e3;
-function estimateTokensFromDelta(text) {
-  if (!text) return 0;
-  const matches = text.match(/\w+|[^\s\w]/g);
-  return matches ? matches.length : 0;
+// src/extension/crew-vibes/render.ts
+function asCrewTheme2(theme) {
+  if (theme && typeof theme === "object" && typeof theme.fg === "function") {
+    return theme;
+  }
+  return void 0;
 }
-var TokenSpeedEngine = class {
-  _isStreaming = false;
-  _tokenCount = 0;
-  _startTime = 0;
-  _endTime = 0;
-  _events = [];
-  _windowStartIndex = 0;
-  _lastStableTokS = 0;
-  _lastUsageOutput = 0;
-  _config;
-  constructor(config) {
-    this._config = config;
-  }
-  updateConfig(config) {
-    this._config = config;
-  }
-  get isStreaming() {
-    return this._isStreaming;
-  }
-  get tokenCount() {
-    return this._tokenCount;
-  }
-  get elapsedMs() {
-    if (this._startTime === 0) return 0;
-    return this._isStreaming ? Date.now() - this._startTime : this._endTime - this._startTime;
-  }
-  get avgTokS() {
-    const elapsedSec = this.elapsedMs / 1e3;
-    if (elapsedSec <= 0) return 0;
-    return this._tokenCount / elapsedSec;
-  }
-  sanitizeTokS(value, durationMs = this.elapsedMs) {
-    if (value === null || !Number.isFinite(value) || value <= 0) return null;
-    if (durationMs < this._config.minReliableDurationMs) return null;
-    if (value > this._config.maxDisplayTokS) return null;
-    return value;
-  }
-  get tokS() {
-    const candidate = this.rawTokS;
-    const stable = this.sanitizeTokS(candidate);
-    if (stable !== null) this._lastStableTokS = stable;
-    return this._lastStableTokS;
-  }
-  get rawTokS() {
-    if (this.elapsedMs < this._config.slidingWindowMs) return this.avgTokS;
-    if (!this._isStreaming) return this.avgTokS;
-    const now = Date.now();
-    const windowStart = now - this._config.slidingWindowMs;
-    while (this._windowStartIndex < this._events.length && this._events[this._windowStartIndex].time < windowStart) {
-      this._windowStartIndex++;
-    }
-    if (this._windowStartIndex >= this._events.length) return this.avgTokS;
-    let windowTokenCount = 0;
-    for (let i = this._windowStartIndex; i < this._events.length; i++) {
-      windowTokenCount += this._events[i].tokens;
-    }
-    if (windowTokenCount === 0) return this.avgTokS;
-    const windowDuration = (now - this._events[this._windowStartIndex].time) / 1e3;
-    if (windowDuration <= 0) return 0;
-    return windowTokenCount / windowDuration;
-  }
-  start() {
-    this._tokenCount = 0;
-    this._isStreaming = true;
-    this._startTime = Date.now();
-    this._endTime = this._startTime;
-    this._events = [];
-    this._windowStartIndex = 0;
-    this._lastStableTokS = 0;
-    this._lastUsageOutput = 0;
-  }
-  stop() {
-    this._isStreaming = false;
-    this._endTime = Date.now();
-    this._events = [];
-    this._windowStartIndex = 0;
-  }
-  recordDelta(delta, usageOutput) {
-    if (!this._isStreaming) return;
-    if (usageOutput !== void 0 && usageOutput > 0) {
-      const increment = usageOutput - this._lastUsageOutput;
-      this._lastUsageOutput = usageOutput;
-      this.recordTokens(Math.max(0, increment));
-      return;
-    }
-    this.recordTokens(estimateTokensFromDelta(delta));
-  }
-  reconcileTotal(tokens) {
-    if (tokens > 0) this._tokenCount = tokens;
-  }
-  recordTokens(tokens) {
-    if (!this._isStreaming || tokens <= 0) return;
-    this._tokenCount += tokens;
-    this._events.push({ time: Date.now(), tokens });
-    if (this._windowStartIndex >= COMPACTION_THRESHOLD) this.compact();
-  }
-  compact() {
-    if (this._windowStartIndex === 0) return;
-    this._events = this._events.slice(this._windowStartIndex);
-    this._windowStartIndex = 0;
-  }
-};
-function isSuccessfulStop(stopReason) {
-  return stopReason !== "error" && stopReason !== "aborted";
+function clearVibesStatus(ctx) {
+  if (!ctx?.hasUI) return;
+  ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
 }
-var SpeedTracker = class {
-  engine;
-  lastStableTokS = null;
-  sessionOutputTokens = 0;
-  sessionDurationMs = 0;
-  constructor(config) {
-    this.engine = new TokenSpeedEngine(config);
+function formatResetTimer(resetAt) {
+  if (!resetAt) return null;
+  const diffMs = new Date(resetAt).getTime() - Date.now();
+  if (diffMs < 0) return null;
+  const mins = Math.floor(diffMs / 6e4);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) {
+    const remMins = mins % 60;
+    return remMins > 0 ? `${hours}h${remMins}m` : `${hours}h`;
   }
-  updateConfig(config) {
-    this.engine.updateConfig(config);
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? `${days}d${remHours}h` : `${days}d`;
+}
+function renderBar(percent, width = 8) {
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.round(clamped / 100 * width);
+  return `${"\u2501".repeat(filled)}${"\u2504".repeat(width - filled)}`;
+}
+function renderProviderUsage(theme, usage) {
+  if (!usage) return void 0;
+  const parts = [];
+  if (usage.providerName) {
+    const nameText = usage.providerName;
+    parts.push(theme ? theme.fg("muted", nameText) : nameText);
   }
-  get isStreaming() {
-    return this.engine.isStreaming;
+  const fiveHourBar = renderBar(usage.fiveHourPercent);
+  const fiveHourRounded = Math.round(usage.fiveHourPercent);
+  const fiveHourReset = formatResetTimer(usage.fiveHourResetAt);
+  const fiveHourText = `5h ${fiveHourBar} ${fiveHourRounded}%${fiveHourReset ? " " + fiveHourReset : ""}`;
+  const fiveHourColor = usage.fiveHourPercent >= 80 ? "error" : "accent";
+  parts.push(theme ? theme.fg(fiveHourColor, fiveHourText) : fiveHourText);
+  const weeklyBar = renderBar(usage.weeklyPercent);
+  const weeklyRounded = Math.round(usage.weeklyPercent);
+  const weeklyReset = formatResetTimer(usage.weeklyResetAt);
+  const weeklyText = `Wk ${weeklyBar} ${weeklyRounded}%${weeklyReset ? " " + weeklyReset : ""}`;
+  parts.push(theme ? theme.fg("dim", weeklyText) : weeklyText);
+  if (typeof usage.copilotMonthlyPercent === "number" && Number.isFinite(usage.copilotMonthlyPercent)) {
+    const monthlyRounded = Math.round(usage.copilotMonthlyPercent);
+    const monthlyText = `Mo: ${monthlyRounded}%`;
+    parts.push(theme ? theme.fg("dim", monthlyText) : monthlyText);
   }
-  get lastTokS() {
-    return this.lastStableTokS;
+  return parts.join(" ");
+}
+function setProviderStatus(ctx, config, text) {
+  if (!ctx?.hasUI) return;
+  if (!config.enabled || !config.capacity.providerUsage) {
+    ctx.ui.setStatus(PROVIDER_STATUS_ID, void 0);
+    return;
   }
-  resetSession() {
-    this.sessionOutputTokens = 0;
-    this.sessionDurationMs = 0;
-  }
-  startMessage() {
-    this.engine.start();
-  }
-  recordDelta(delta, usageOutput) {
-    this.engine.recordDelta(delta, usageOutput);
-  }
-  stopMessage() {
-    if (this.engine.isStreaming) this.engine.stop();
-  }
-  liveTokS() {
-    const speed = this.engine.tokS;
-    return speed > 0 ? speed : this.lastStableTokS;
-  }
-  sessionAvgTokS() {
-    return this.sessionDurationMs > 0 ? this.sessionOutputTokens / (this.sessionDurationMs / 1e3) : null;
-  }
-  finishMessage(outputTokens, stopReason) {
-    if (!this.engine.isStreaming) return null;
-    this.engine.reconcileTotal(outputTokens);
-    const durationMs = this.engine.elapsedMs;
-    const tokens = this.engine.tokenCount;
-    const rawAvgTokS = durationMs > 0 ? tokens / (durationMs / 1e3) : null;
-    const tokS = this.engine.sanitizeTokS(rawAvgTokS, durationMs);
-    this.lastStableTokS = tokS;
-    this.engine.stop();
-    if (tokS !== null && isSuccessfulStop(stopReason)) {
-      this.sessionOutputTokens += tokens;
-      this.sessionDurationMs += durationMs;
-    }
-    return { outputTokens: tokens, durationMs, tokS };
-  }
-};
-var SpeedAnimator = class {
-  from = null;
-  target = null;
-  startedAt = 0;
-  durationMs;
-  constructor(durationMs) {
-    this.durationMs = durationMs;
-  }
-  updateDuration(durationMs) {
-    this.durationMs = durationMs;
-  }
-  reset(value = null, now = Date.now()) {
-    this.from = value;
-    this.target = value;
-    this.startedAt = now;
-  }
-  setTarget(target, now = Date.now()) {
-    if (target === null) {
-      this.reset(null, now);
-      return null;
-    }
-    const current = this.value(now);
-    if (current === null) {
-      this.reset(target, now);
-      return target;
-    }
-    if (this.target !== null && Math.abs(target - this.target) < 0.05) return current;
-    this.from = current;
-    this.target = target;
-    this.startedAt = now;
-    return current;
-  }
-  value(now = Date.now()) {
-    if (this.target === null) return null;
-    if (this.from === null || this.durationMs <= 0) return this.target;
-    const progress = Math.max(0, Math.min(1, (now - this.startedAt) / this.durationMs));
-    if (progress >= 1) {
-      this.from = this.target;
-      return this.target;
-    }
-    return this.from + (this.target - this.from) * progress;
-  }
-  isAnimating(now = Date.now()) {
-    return this.target !== null && this.from !== null && Math.abs(this.target - this.from) >= 0.05 && now - this.startedAt < this.durationMs;
-  }
-};
+  ctx.ui.setStatus(PROVIDER_STATUS_ID, text);
+}
 
 // src/extension/crew-vibes/index.ts
 function safeUiCall(scope, fn) {
@@ -82771,148 +82572,29 @@ function safeUiCall(scope, fn) {
     logInternalError(`crew-vibes.${scope}`, error, void 0, "warn");
   }
 }
-function isAssistantMessage(message) {
-  return typeof message === "object" && message !== null && message.role === "assistant";
-}
-function assistantUsageOutput(message) {
-  const usage = message.usage;
-  const output = usage?.output;
-  return typeof output === "number" && Number.isFinite(output) ? output : void 0;
-}
-function assistantStopReason(message) {
-  const reason = message.stopReason;
-  return typeof reason === "string" ? reason : void 0;
-}
-function assistantEventType(event) {
-  return typeof event.type === "string" ? event.type : void 0;
-}
 function registerCrewVibes(pi) {
   let config = loadConfig2();
-  let lastRenderedAt = 0;
-  let currentIntervalMs = 0;
-  const speedTracker = new SpeedTracker(config.speed);
-  const footerAnimator = new SpeedAnimator(config.speed.renderIntervalMs);
-  let liveTimer;
-  let footerTimer;
-  let capacityTimer;
   let providerTimer;
   let lastProviderUsage = null;
   let currentProvider;
-  let currentThinkingLevel;
   function themeOf(ctx) {
     return asCrewTheme2(ctx.hasUI ? ctx.ui.theme : void 0);
   }
-  const footerSource = {
-    getConfig: () => config,
-    getQuotaUsage: () => lastProviderUsage,
-    getThinkingLevel: () => currentThinkingLevel
-  };
-  function metersActive() {
-    return config.enabled && (config.capacity.enabled || config.capacity.providerUsage);
-  }
-  function installFooter(ctx) {
-    if (!ctx?.hasUI) return;
-    if (!metersActive()) {
-      safeUiCall("clear-footer", () => {
-        setFooterDockSinkActive(false);
-        setFooter(ctx, void 0);
-      });
-      return;
-    }
-    safeUiCall("install-footer", () => {
-      setFooter(ctx, (tui, theme, footerData) => createCrewVibesFooter({ tui, theme, footerData, ctx, source: footerSource }));
-      setFooterDockSinkActive(true);
-      requestRender(ctx);
-    });
-  }
-  function refreshFooter(ctx) {
-    safeUiCall("refresh-footer", () => {
-      if (ctx?.hasUI) requestRender(ctx);
-    });
-  }
-  function publishSpeedFooter(ctx, speed = footerAnimator.value()) {
-    if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-      safeUiCall("clear-speed-status", () => setSpeedStatus(ctx, config, void 0));
-      return;
-    }
-    safeUiCall("publish-speed-status", () => setSpeedStatus(ctx, config, renderSpeedFooter(themeOf(ctx), config.speed, speed)));
-  }
-  function applyIndicator(ctx, speed, force = false) {
-    if (!ctx.hasUI || !ctx.ui.setWorkingIndicator) return;
-    if (!config.enabled || !config.speed.enabled || !config.speed.indicator) {
-      safeUiCall("reset-indicator", () => ctx.ui.setWorkingIndicator?.());
-      return;
-    }
-    const next = intervalForSpeed(config.speed, speed);
-    if (!force && Math.abs(next - currentIntervalMs) < 10) return;
+  function publishQuotaStatus(ctx) {
     safeUiCall(
-      "set-indicator",
-      () => ctx.ui.setWorkingIndicator?.({
-        frames: crewIndicatorFrames(themeOf(ctx)),
-        intervalMs: next
-      })
+      "publish-quota-status",
+      () => setProviderStatus(ctx, config, lastProviderUsage ? renderProviderUsage(themeOf(ctx), lastProviderUsage) : void 0)
     );
-    currentIntervalMs = next;
-  }
-  function renderWorking(ctx, speed) {
-    if (!config.enabled || !config.speed.enabled || !ctx.hasUI) return;
-    safeUiCall("set-working-message", () => ctx.ui.setWorkingMessage?.(renderWorkingMessage(themeOf(ctx), config.speed, speed)));
-  }
-  function stopLiveTimer() {
-    if (!liveTimer) return;
-    clearInterval(liveTimer);
-    liveTimer = void 0;
-  }
-  function stopFooterTimer() {
-    if (!footerTimer) return;
-    clearInterval(footerTimer);
-    footerTimer = void 0;
-  }
-  function stopCapacityTimer() {
-    if (!capacityTimer) return;
-    clearInterval(capacityTimer);
-    capacityTimer = void 0;
   }
   function stopProviderTimer() {
     if (!providerTimer) return;
     clearInterval(providerTimer);
     providerTimer = void 0;
   }
-  function startLiveTimer(ctx) {
-    if (liveTimer || !ctx.hasUI) return;
-    liveTimer = setInterval(() => {
-      if (!config.enabled || !config.speed.enabled || !speedTracker.isStreaming) {
-        stopLiveTimer();
-        return;
-      }
-      const speed = speedTracker.liveTokS();
-      applyIndicator(ctx, speed);
-      renderWorking(ctx, speed);
-    }, config.speed.renderIntervalMs);
-    liveTimer.unref?.();
-  }
-  function startFooterTimer(ctx) {
-    if (footerTimer || !ctx.hasUI) return;
-    footerTimer = setInterval(() => {
-      if (!config.enabled || !config.speed.enabled) {
-        stopFooterTimer();
-        return;
-      }
-      publishSpeedFooter(ctx);
-      if (!footerAnimator.isAnimating()) stopFooterTimer();
-    }, config.speed.renderIntervalMs);
-    footerTimer.unref?.();
-  }
-  function startCapacityTimer(ctx) {
-    if (capacityTimer) return;
-    const interval = Math.max(250, config.capacity.refreshIntervalMs);
-    capacityTimer = setInterval(() => refreshFooter(ctx), interval);
-    capacityTimer.unref?.();
-  }
   async function fetchProviderAndRefresh(ctx) {
     if (!config.enabled || !config.capacity.providerUsage) {
       lastProviderUsage = null;
-      refreshFooter(ctx);
+      publishQuotaStatus(ctx);
       return;
     }
     try {
@@ -82920,7 +82602,7 @@ function registerCrewVibes(pi) {
     } catch {
       lastProviderUsage = null;
     }
-    refreshFooter(ctx);
+    publishQuotaStatus(ctx);
   }
   function startProviderTimer(ctx) {
     if (providerTimer) return;
@@ -82930,169 +82612,53 @@ function registerCrewVibes(pi) {
     providerTimer = setInterval(() => fetchProviderAndRefresh(ctx), interval);
     providerTimer.unref?.();
   }
-  function resetWorking(ctx) {
-    applyIndicator(ctx, null, true);
-    renderWorking(ctx, speedTracker.lastTokS);
-  }
   function applyConfig(ctx) {
     saveConfig(config);
-    speedTracker.updateConfig(config.speed);
-    footerAnimator.updateDuration(config.speed.renderIntervalMs);
     if (!config.enabled) {
-      stopLiveTimer();
-      stopFooterTimer();
-      stopCapacityTimer();
       stopProviderTimer();
-      setFooterDockSinkActive(false);
-      setFooter(ctx, void 0);
       clearVibesStatus(ctx);
       return;
     }
-    installFooter(ctx);
-    publishSpeedFooter(ctx);
-    startCapacityTimer(ctx);
     if (config.capacity.providerUsage) startProviderTimer(ctx);
+    else publishQuotaStatus(ctx);
   }
   pi.on("session_start", (_event, ctx) => {
-    stopLiveTimer();
-    stopFooterTimer();
-    stopCapacityTimer();
     stopProviderTimer();
     config = loadConfig2();
-    speedTracker.updateConfig(config.speed);
-    footerAnimator.updateDuration(config.speed.renderIntervalMs);
-    speedTracker.resetSession();
-    footerAnimator.reset(null);
     clearProviderUsageCache();
     currentProvider = ctx.model?.provider;
-    currentThinkingLevel = void 0;
     if (!config.enabled) {
-      setFooter(ctx, void 0);
       clearVibesStatus(ctx);
       return;
     }
-    installFooter(ctx);
-    publishSpeedFooter(ctx);
-    startCapacityTimer(ctx);
     startProviderTimer(ctx);
-    applyIndicator(ctx, null, true);
-  });
-  pi.on("agent_start", (_event, ctx) => {
-    if (!config.enabled) return;
-    resetWorking(ctx);
-  });
-  pi.on("turn_start", (_event, ctx) => {
-    if (!config.enabled) return;
-    resetWorking(ctx);
-  });
-  pi.on("message_start", (event, ctx) => {
-    if (!config.enabled || !config.speed.enabled || !isAssistantMessage(event.message)) return;
-    speedTracker.startMessage();
-    footerAnimator.reset(speedTracker.lastTokS);
-    startLiveTimer(ctx);
-    lastRenderedAt = 0;
-  });
-  pi.on("message_update", (event, ctx) => {
-    if (!config.enabled || !config.speed.enabled || !isAssistantMessage(event.message) || !speedTracker.isStreaming) return;
-    const ev = event.assistantMessageEvent;
-    const type = assistantEventType(ev);
-    if (type === "text_delta" || type === "thinking_delta") {
-      const delta = ev.delta ?? "";
-      speedTracker.recordDelta(delta, assistantUsageOutput(event.message));
-    }
-    if (type === "start") resetWorking(ctx);
-    const now = Date.now();
-    if (now - lastRenderedAt < config.speed.renderIntervalMs && type !== "done") return;
-    lastRenderedAt = now;
-    const speed = speedTracker.liveTokS();
-    applyIndicator(ctx, speed);
-    renderWorking(ctx, speed);
-  });
-  pi.on("message_end", (event, ctx) => {
-    if (!isAssistantMessage(event.message)) return;
-    refreshFooter(ctx);
-    if (!config.enabled || !config.speed.enabled || !speedTracker.isStreaming) return;
-    const completed = speedTracker.finishMessage(assistantUsageOutput(event.message) ?? 0, assistantStopReason(event.message));
-    if (!completed) return;
-    footerAnimator.setTarget(speedTracker.sessionAvgTokS());
-    publishSpeedFooter(ctx);
-    startFooterTimer(ctx);
-    applyIndicator(ctx, speedTracker.lastTokS);
-  });
-  pi.on("turn_end", () => {
-    speedTracker.stopMessage();
-    stopLiveTimer();
-  });
-  pi.on("agent_end", (_event, ctx) => {
-    speedTracker.stopMessage();
-    stopLiveTimer();
-    if (ctx && config.enabled && ctx.hasUI) {
-      applyIndicator(ctx, speedTracker.lastTokS);
-      safeUiCall("clear-working-message", () => ctx.ui.setWorkingMessage?.());
-    }
   });
   pi.on("model_select", (event, ctx) => {
     currentProvider = event.model?.provider;
     clearProviderUsageCache();
     fetchProviderAndRefresh(ctx);
   });
-  pi.on("thinking_level_select", (event, ctx) => {
-    currentThinkingLevel = event.level;
-    refreshFooter(ctx);
-  });
-  pi.on("session_compact", (_event, ctx) => refreshFooter(ctx));
-  pi.on("session_tree", (_event, ctx) => refreshFooter(ctx));
   pi.on("session_shutdown", (_event, ctx) => {
-    stopLiveTimer();
-    stopFooterTimer();
-    stopCapacityTimer();
     stopProviderTimer();
-    setFooterDockSinkActive(false);
-    setFooter(ctx, void 0);
     clearVibesStatus(ctx);
   });
   async function handleCommand(args, ctx) {
-    const tokens = args.trim().split(/\s+/).filter(Boolean);
-    const [first, second] = tokens;
-    const mutate = (next) => {
-      config = next;
-      applyConfig(ctx);
-    };
+    const [first] = args.trim().split(/\s+/).filter(Boolean);
     if (!first) {
-      const speed = speedTracker.liveTokS();
-      const usage = getCapacityUsage(ctx);
-      const stage = config.capacity.icons.length ? config.capacity.labels[Math.max(
-        0,
-        Math.min(
-          config.capacity.labels.length - 1,
-          Math.floor((usage.percent ?? 0) / 100 * config.capacity.labels.length)
-        )
-      )] : "?";
-      ctx.ui.notify(
-        `crew-vibes: ${config.enabled ? "on" : "off"} \xB7 speed ${config.speed.enabled ? "on" : "off"} (${formatSpeed(config.speed, speed)}) \xB7 capacity ${config.capacity.enabled ? "on" : "off"} (${stage})`,
-        "info"
-      );
+      const quota = lastProviderUsage ? `${lastProviderUsage.providerName} 5h ${Math.round(lastProviderUsage.fiveHourPercent)}% \xB7 Wk ${Math.round(lastProviderUsage.weeklyPercent)}%` : "no data yet";
+      ctx.ui.notify(`crew-vibes: ${config.enabled ? "on" : "off"} \xB7 quota ${quota}`, "info");
       return;
     }
     if (first === "on" || first === "off") {
-      mutate({ ...config, enabled: first === "on" });
+      config = { ...config, enabled: first === "on" };
+      applyConfig(ctx);
       ctx.ui.notify(`crew-vibes ${first === "on" ? "enabled" : "disabled"}`, "info");
       return;
     }
-    if (first === "speed" && (second === "on" || second === "off")) {
-      mutate({ ...config, speed: { ...config.speed, enabled: second === "on" } });
-      ctx.ui.notify(`crew-vibes speed ${second === "on" ? "enabled" : "disabled"}`, "info");
-      return;
-    }
-    if (first === "capacity" && (second === "on" || second === "off")) {
-      mutate({ ...config, capacity: { ...config.capacity, enabled: second === "on" } });
-      ctx.ui.notify(`crew-vibes capacity ${second === "on" ? "enabled" : "disabled"}`, "info");
-      return;
-    }
-    ctx.ui.notify("Usage: /team-vibes [on|off|speed on|off|capacity on|off]", "error");
+    ctx.ui.notify("Usage: /team-vibes [on|off]", "error");
   }
   pi.registerCommand("team-vibes", {
-    description: "Toggle crew-vibes speed + context meters (on/off, speed, capacity)",
+    description: "Toggle the provider-quota status (on/off)",
     handler: handleCommand
   });
 }
@@ -83193,6 +82759,130 @@ async function runPostInitSkillCheck(cwd) {
 init_config();
 init_powerbar_publisher();
 init_widget();
+
+// src/extension/registration/commands/schedules.ts
+init_agent_observability();
+init_state_store();
+init_schedules_pane();
+init_safe_paths();
+init_handle_schedule();
+init_command_utils();
+import * as fs113 from "node:fs";
+var SCHEDULES_LOG_TAIL_BYTES = 32e3;
+function parseSchedulesArgs(args) {
+  const trimmed = args.trim();
+  if (trimmed === "") return { mode: "list" };
+  const tokens = trimmed.split(/\s+/);
+  if ((tokens[0] ?? "").toLowerCase() !== "log") {
+    return { mode: "usage", error: `Unknown subcommand '${tokens[0]}'. Usage: /schedules [log <jobId-or-name>]` };
+  }
+  const target = tokens.slice(1).join(" ").trim();
+  if (!target) return { mode: "usage", error: "Usage: /schedules log <jobId-or-name>" };
+  return { mode: "log", target };
+}
+function resolveScheduledJobByIdOrName(jobs, target) {
+  const needle = target.trim();
+  if (!needle) return void 0;
+  const byId = jobs.find((job) => job.id === needle);
+  if (byId) return byId;
+  const lower = needle.toLowerCase();
+  const byName = jobs.filter((job) => job.name.trim().toLowerCase() === lower);
+  if (byName.length === 0) return void 0;
+  return byName.reduce((newest, job) => job.createdAt > newest.createdAt ? job : newest);
+}
+function buildSchedulesCommandLines(jobs, now, hiddenCount = 0) {
+  return renderSchedulesTextBlock(jobs, now, { hiddenCount });
+}
+function buildSchedulesLogText(cwd, jobs, target, deps = {}) {
+  const job = resolveScheduledJobByIdOrName(jobs, target);
+  if (!job) return { isError: true, text: `No scheduled job with id or name '${target}'.` };
+  const runId = job.spawnedRunIds?.[job.spawnedRunIds.length - 1];
+  if (!runId) return { isError: true, text: `Job '${job.name}' has no spawned runs yet.` };
+  let loaded;
+  try {
+    loaded = (deps.loadManifest ?? loadRunManifestById)(cwd, runId);
+  } catch {
+    return { isError: true, text: `Run '${runId}' is not a valid run id.` };
+  }
+  if (!loaded) return { isError: true, text: `Run '${runId}' not found (it may have been cleaned up).` };
+  const artifact = pickMostRecentOutputArtifact(loaded.manifest, loaded.tasks);
+  if (!artifact) return { isError: true, text: `Run '${runId}' has no output artifacts yet.` };
+  const tail = readTextTail(artifact.path, SCHEDULES_LOG_TAIL_BYTES);
+  const lines = [
+    `Scheduled job '${job.name}' \u2014 latest run ${runId}`,
+    `artifact: ${artifact.path} (${tail.bytes} bytes${tail.truncated ? `, showing last ${SCHEDULES_LOG_TAIL_BYTES}` : ""})`,
+    tail.text.trimEnd()
+  ];
+  return { isError: false, text: lines.join("\n") };
+}
+function pickMostRecentOutputArtifact(manifest, tasks) {
+  const relPaths = [];
+  for (const artifact of manifest.artifacts ?? []) {
+    if (artifact?.kind === "summary" || artifact?.kind === "result" || artifact?.kind === "log") relPaths.push(artifact.path);
+  }
+  for (const task of tasks) {
+    if (task?.resultArtifact?.path) relPaths.push(task.resultArtifact.path);
+  }
+  let best;
+  for (const rel of relPaths) {
+    try {
+      const resolved = resolveRealContainedPath(manifest.artifactsRoot, rel);
+      const mtimeMs = fs113.statSync(resolved).mtimeMs;
+      if (!best || mtimeMs > best.mtimeMs) best = { path: resolved, mtimeMs };
+    } catch {
+    }
+  }
+  return best;
+}
+async function notifySchedulesError(ctx, text) {
+  ctx.ui.notify(text.length > 800 ? `${text.slice(0, 797)}...` : text, "error");
+}
+function suggestSchedulesArgs(argumentPrefix) {
+  const prefix = argumentPrefix ?? "";
+  if (prefix === "" || prefix === "l" || prefix === "lo" || prefix === "log") {
+    return [{ value: "log", label: "log", description: "tail the latest run output of a job" }];
+  }
+  const match = prefix.match(/^log\s+(\S*)$/i);
+  if (!match) return null;
+  const query = match[1] ?? "";
+  const items = [];
+  const jobs = getCrewScheduler() ? getScheduledJobs(process.cwd()) : [];
+  for (const job of jobs) {
+    if (query && !job.id.startsWith(query) && !job.name.toLowerCase().includes(query.toLowerCase())) continue;
+    items.push({ value: `log ${job.id}`, label: job.name, description: `id ${job.id}` });
+    if (items.length >= 10) break;
+  }
+  return items.length > 0 ? items : null;
+}
+function registerSchedulesCommands(pi) {
+  pi.registerCommand("schedules", {
+    description: "List scheduled jobs (/schedules log <jobId-or-name> tails the latest output)",
+    getArgumentCompletions: (argumentPrefix) => suggestSchedulesArgs(argumentPrefix),
+    handler: async (args, ctx) => {
+      const parsed = parseSchedulesArgs(args);
+      if (parsed.mode === "usage") {
+        await notifyCommandResult(ctx, parsed.error);
+        return;
+      }
+      const jobs = getScheduledJobs(ctx.cwd);
+      if (parsed.mode === "log") {
+        const outcome = buildSchedulesLogText(ctx.cwd, jobs, parsed.target);
+        if (outcome.isError) {
+          await notifySchedulesError(ctx, outcome.text);
+          return;
+        }
+        await notifyCommandResult(ctx, outcome.text);
+        return;
+      }
+      await notifyCommandResult(
+        ctx,
+        buildSchedulesCommandLines(jobs, /* @__PURE__ */ new Date(), getScheduledJobsHiddenCountView(ctx.cwd)).join("\n")
+      );
+    }
+  });
+}
+
+// src/extension/registration/command-registration.ts
 init_commands2();
 function registerPiCommands(pi, ctx) {
   registerTeamCommands(pi, {
@@ -83227,6 +82917,7 @@ function registerPiCommands(pi, ctx) {
       }
     }
   });
+  registerSchedulesCommands(pi);
 }
 
 // src/extension/registration/context-builder.ts
@@ -83239,7 +82930,7 @@ init_active_run_registry();
 init_fs_watch();
 init_paths();
 init_safe_paths();
-import * as fs113 from "node:fs";
+import * as fs114 from "node:fs";
 import * as path91 from "node:path";
 var DEFAULT_TTL_MS = 500;
 var DEFAULT_STAT_TTL_MS = 250;
@@ -83253,7 +82944,7 @@ function manifestPathForRun(root, runId) {
 }
 function parseManifest(filePath) {
   try {
-    return JSON.parse(fs113.readFileSync(filePath, "utf-8"));
+    return JSON.parse(fs114.readFileSync(filePath, "utf-8"));
   } catch {
     return void 0;
   }
@@ -83261,7 +82952,7 @@ function parseManifest(filePath) {
 function sameFilesystemPath(left, right) {
   if (path91.resolve(left) === path91.resolve(right)) return true;
   try {
-    return fs113.realpathSync.native(left) === fs113.realpathSync.native(right);
+    return fs114.realpathSync.native(left) === fs114.realpathSync.native(right);
   } catch {
     return false;
   }
@@ -83274,8 +82965,8 @@ function validateManifestForRoot(root, runId, manifest) {
     const artifactsRoot = resolveContainedRelativePath(path91.join(crewRoot, DEFAULT_PATHS.state.artifactsSubdir), runId, "runId");
     if (manifest.runId !== runId || !sameFilesystemPath(manifest.stateRoot, stateRoot) || !sameFilesystemPath(manifest.tasksPath, path91.join(stateRoot, DEFAULT_PATHS.state.tasksFile)) || !sameFilesystemPath(manifest.eventsPath, path91.join(stateRoot, DEFAULT_PATHS.state.eventsFile)) || !sameFilesystemPath(manifest.artifactsRoot, artifactsRoot))
       return false;
-    if (fs113.existsSync(artifactsRoot)) {
-      if (fs113.lstatSync(artifactsRoot).isSymbolicLink()) return false;
+    if (fs114.existsSync(artifactsRoot)) {
+      if (fs114.lstatSync(artifactsRoot).isSymbolicLink()) return false;
       resolveRealContainedPath(path91.dirname(artifactsRoot), path91.basename(artifactsRoot));
     }
     return true;
@@ -83289,7 +82980,7 @@ function parseManifestIfChanged(root, runId, filePath, previous, forceStat = fal
   }
   let stat2;
   try {
-    stat2 = fs113.statSync(filePath);
+    stat2 = fs114.statSync(filePath);
   } catch {
     return void 0;
   }
@@ -83322,7 +83013,7 @@ var dirListCache = /* @__PURE__ */ new Map();
 function collectRoots(root) {
   let mtimeMs;
   try {
-    mtimeMs = fs113.statSync(root).mtimeMs;
+    mtimeMs = fs114.statSync(root).mtimeMs;
   } catch {
     return [];
   }
@@ -83332,7 +83023,7 @@ function collectRoots(root) {
   }
   let entries;
   try {
-    entries = fs113.readdirSync(root);
+    entries = fs114.readdirSync(root);
   } catch {
     return [];
   }
@@ -83647,7 +83338,7 @@ init_state_store();
 init_dwf_phase_display();
 init_run_event_bus();
 import { createHash as createHash13 } from "node:crypto";
-import * as fs114 from "node:fs";
+import * as fs115 from "node:fs";
 import * as path92 from "node:path";
 function isPlanUiEnabled() {
   return getCrewEnv("PI_CREW_PLAN_UI") === "1";
@@ -83664,7 +83355,7 @@ function zeroStamp() {
 function stampFile(filePath) {
   if (!filePath) return zeroStamp();
   try {
-    const stat2 = fs114.statSync(filePath);
+    const stat2 = fs115.statSync(filePath);
     return { mtimeMs: stat2.mtimeMs, size: stat2.size };
   } catch {
     return zeroStamp();
@@ -83673,7 +83364,7 @@ function stampFile(filePath) {
 async function stampFileAsync(filePath) {
   if (!filePath) return zeroStamp();
   try {
-    const stat2 = await fs114.promises.stat(filePath);
+    const stat2 = await fs115.promises.stat(filePath);
     return { mtimeMs: stat2.mtimeMs, size: stat2.size };
   } catch {
     return zeroStamp();
@@ -83681,7 +83372,7 @@ async function stampFileAsync(filePath) {
 }
 function eventsStamp(eventsPath) {
   try {
-    const raw = fs114.readFileSync(sequencePath(eventsPath), "utf-8");
+    const raw = fs115.readFileSync(sequencePath(eventsPath), "utf-8");
     const seq = Number.parseInt(raw.trim(), 10);
     if (Number.isFinite(seq) && seq >= 0) return { mtimeMs: 0, size: seq + 1 };
   } catch {
@@ -83690,7 +83381,7 @@ function eventsStamp(eventsPath) {
 }
 async function eventsStampAsync(eventsPath) {
   try {
-    const raw = await fs114.promises.readFile(sequencePath(eventsPath), "utf-8");
+    const raw = await fs115.promises.readFile(sequencePath(eventsPath), "utf-8");
     const seq = Number.parseInt(raw.trim(), 10);
     if (Number.isFinite(seq) && seq >= 0) return { mtimeMs: 0, size: seq + 1 };
   } catch {
@@ -83742,18 +83433,18 @@ function sameStamps(a, b) {
 }
 function readTailContent(filePath) {
   try {
-    const stat2 = fs114.statSync(filePath);
+    const stat2 = fs115.statSync(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const fd = fs114.openSync(filePath, "r");
+    const fd = fs115.openSync(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
-      fs114.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+      fs115.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
       return {
         lines: buffer.toString("utf-8").split(/\r?\n/).filter(Boolean),
         approximate: stat2.size > MAX_TAIL_BYTES
       };
     } finally {
-      fs114.closeSync(fd);
+      fs115.closeSync(fd);
     }
   } catch {
     return { lines: [], approximate: false };
@@ -83773,9 +83464,9 @@ function tailJsonlLines(filePath, limit, parse4) {
 async function tailJsonlLinesAsync(filePath, limit, parse4) {
   if (limit <= 0) return [];
   try {
-    const stat2 = await fs114.promises.stat(filePath);
+    const stat2 = await fs115.promises.stat(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const handle = await fs114.promises.open(filePath, "r");
+    const handle = await fs115.promises.open(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
       await handle.read(buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -83814,15 +83505,15 @@ async function safeRecentEventsAsync(eventsPath, limit) {
 function tailLines(filePath, limit) {
   if (limit <= 0) return [];
   try {
-    const stat2 = fs114.statSync(filePath);
+    const stat2 = fs115.statSync(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const fd = fs114.openSync(filePath, "r");
+    const fd = fs115.openSync(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
-      fs114.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+      fs115.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
       return buffer.toString("utf-8").split(/\r?\n/).filter(Boolean).slice(-limit);
     } finally {
-      fs114.closeSync(fd);
+      fs115.closeSync(fd);
     }
   } catch {
     return [];
@@ -83831,9 +83522,9 @@ function tailLines(filePath, limit) {
 async function tailLinesAsync(filePath, limit) {
   if (limit <= 0) return [];
   try {
-    const stat2 = await fs114.promises.stat(filePath);
+    const stat2 = await fs115.promises.stat(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const handle = await fs114.promises.open(filePath, "r");
+    const handle = await fs115.promises.open(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
       await handle.read(buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -83914,7 +83605,7 @@ function isMailboxStatus(value) {
 }
 function readDeliveryMessages(filePath) {
   try {
-    const parsed = JSON.parse(fs114.readFileSync(filePath, "utf-8"));
+    const parsed = JSON.parse(fs115.readFileSync(filePath, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const messages = parsed.messages;
     if (!messages || typeof messages !== "object" || Array.isArray(messages)) return {};
@@ -83927,7 +83618,7 @@ function readDeliveryMessages(filePath) {
 }
 async function readDeliveryMessagesAsync(filePath) {
   try {
-    const content = await fs114.promises.readFile(filePath, "utf-8");
+    const content = await fs115.promises.readFile(filePath, "utf-8");
     const parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const messages = parsed.messages;
@@ -83979,7 +83670,7 @@ async function readGroupJoinMailboxAsync(filePath, delivery) {
 }
 async function tailApproximateAsync(filePath) {
   try {
-    return (await fs114.promises.stat(filePath)).size > MAX_TAIL_BYTES;
+    return (await fs115.promises.stat(filePath)).size > MAX_TAIL_BYTES;
   } catch {
     return false;
   }
@@ -84073,7 +83764,7 @@ function mailboxFrom(manifest, agents, delivery, outboxTail) {
   let outbox = mailboxCountsFrom(outboxTail, delivery);
   const tasksRoot = path92.join(root, "tasks");
   try {
-    for (const entry of fs114.readdirSync(tasksRoot, {
+    for (const entry of fs115.readdirSync(tasksRoot, {
       withFileTypes: true
     })) {
       if (!entry.isDirectory()) continue;
@@ -84103,7 +83794,7 @@ async function mailboxFromAsync(manifest, agents) {
   let outbox = await readMailboxCountsAsync(path92.join(root, "outbox.jsonl"), delivery);
   const tasksRoot = path92.join(root, "tasks");
   try {
-    const taskDirs = (await fs114.promises.readdir(tasksRoot, {
+    const taskDirs = (await fs115.promises.readdir(tasksRoot, {
       withFileTypes: true
     })).filter((entry) => entry.isDirectory());
     const [taskInboxes, taskOutboxes] = await Promise.all([
@@ -84793,11 +84484,11 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
 
 // src/extension/registration/hook-registration.ts
 init_config();
-import * as fs118 from "node:fs";
+import * as fs119 from "node:fs";
 import * as path94 from "node:path";
 
 // src/runtime/per-write-validator.ts
-import { readFileSync as readFileSync92 } from "node:fs";
+import { readFileSync as readFileSync91 } from "node:fs";
 import { extname as pathExtname } from "node:path";
 function validateJson(content, _filePath) {
   if (content.trim() === "") return { ok: true };
@@ -84841,7 +84532,7 @@ function validateWrittenFile(filePath) {
   if (!validator) return null;
   let content;
   try {
-    content = readFileSync92(filePath, "utf-8");
+    content = readFileSync91(filePath, "utf-8");
   } catch {
     return null;
   }
@@ -85059,8 +84750,8 @@ function installResourcesDiscoverHook(pi, ctx) {
       const skillDir = path94.resolve(sessionCwd, "skills");
       const extSkillDir = path94.join(packageRoot(), "skills");
       const paths = [];
-      if (fs118.existsSync(extSkillDir)) paths.push(extSkillDir);
-      if (skillDir !== extSkillDir && fs118.existsSync(skillDir)) {
+      if (fs119.existsSync(extSkillDir)) paths.push(extSkillDir);
+      if (skillDir !== extSkillDir && fs119.existsSync(skillDir)) {
         try {
           resolveRealContainedPath(sessionCwd, "skills");
           paths.push(skillDir);
@@ -85179,7 +84870,7 @@ init_defaults();
 init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
-import * as fs126 from "node:fs";
+import * as fs127 from "node:fs";
 import * as path102 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
@@ -85227,18 +84918,18 @@ function getCurrentUid() {
   }
   return 0;
 }
-function getPerUserSocketDir(platform2 = process.platform) {
-  if (platform2 === "win32") return "";
+function getPerUserSocketDir(platform = process.platform) {
+  if (platform === "win32") return "";
   const base = process.env.XDG_RUNTIME_DIR || os19.tmpdir();
   const uid = getCurrentUid();
   return path98.join(base, `pi-crew-${uid}`);
 }
-function getBrokerSocketPath(sessionId, platform2 = process.platform) {
+function getBrokerSocketPath(sessionId, platform = process.platform) {
   const hash = hashSessionId(sessionId);
-  if (platform2 === "win32") {
+  if (platform === "win32") {
     return `\\\\.\\pipe\\pi-crew-broker-${hash}`;
   }
-  const perUserDir = getPerUserSocketDir(platform2);
+  const perUserDir = getPerUserSocketDir(platform);
   const sock = path98.join(perUserDir, `pi-crew-${hash}.sock`);
   const encoded = Buffer.byteLength(sock, "utf8");
   if (encoded > POSIX_SUN_PATH_BUDGET) {
@@ -85267,7 +84958,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
     throw e;
   }
   if (st.isSymbolicLink()) return "refused";
-  const live = await new Promise((resolve27) => {
+  const live = await new Promise((resolve26) => {
     let settled = false;
     const sock = net2.createConnection(sockPath);
     const finish = (v) => {
@@ -85277,7 +84968,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
         sock.destroy();
       } catch {
       }
-      resolve27(v);
+      resolve26(v);
     };
     sock.once("connect", () => finish(true));
     sock.once("error", () => finish(false));
@@ -85296,7 +84987,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
 
 // src/runtime/delegate-spawn.ts
 init_child_pi();
-import * as fs122 from "node:fs";
+import * as fs123 from "node:fs";
 import * as path99 from "node:path";
 function agentForRole(role) {
   return {
@@ -85326,7 +85017,7 @@ function usageTokensFromEvent(event) {
 }
 async function spawnDelegateGrandchild(input) {
   const artifactsRoot = path99.join(input.cwd, ".crew", "artifacts", input.runId, input.parentTaskId, "nested", input.subId);
-  fs122.mkdirSync(artifactsRoot, { recursive: true });
+  fs123.mkdirSync(artifactsRoot, { recursive: true });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), input.timeoutSec * 1e3);
   timer.unref?.();
@@ -85780,7 +85471,7 @@ async function pushWaitingToForegroundWaiter(params) {
 
 // src/runtime/broker/wait-status-cache.ts
 init_state_store();
-import * as fs123 from "node:fs";
+import * as fs124 from "node:fs";
 var WAIT_STATUS_CACHE_MAX = 128;
 function statStamp(manifestPath, tasksPath) {
   let manifestMtimeMs = 0;
@@ -85788,13 +85479,13 @@ function statStamp(manifestPath, tasksPath) {
   let tasksMtimeMs = 0;
   let tasksSize = 0;
   try {
-    const st = fs123.statSync(manifestPath);
+    const st = fs124.statSync(manifestPath);
     manifestMtimeMs = st.mtimeMs;
     manifestSize = st.size;
   } catch {
   }
   try {
-    const st = fs123.statSync(tasksPath);
+    const st = fs124.statSync(tasksPath);
     tasksMtimeMs = st.mtimeMs;
     tasksSize = st.size;
   } catch {
@@ -85999,14 +85690,14 @@ var CrewBroker = class {
         );
       });
     });
-    await new Promise((resolve27, reject) => {
+    await new Promise((resolve26, reject) => {
       const onError = (err2) => {
         server.removeListener("listening", onListening);
         reject(err2);
       };
       const onListening = () => {
         server.removeListener("error", onError);
-        resolve27();
+        resolve26();
       };
       server.once("error", onError);
       server.once("listening", onListening);
@@ -86078,11 +85769,11 @@ var CrewBroker = class {
     }
     this.connections.clear();
     if (this.server) {
-      await new Promise((resolve27) => {
+      await new Promise((resolve26) => {
         const srv = this.server;
-        if (!srv) return resolve27();
-        srv.close(() => resolve27());
-        setTimeout(() => resolve27(), 250).unref();
+        if (!srv) return resolve26();
+        srv.close(() => resolve26());
+        setTimeout(() => resolve26(), 250).unref();
       });
       this.server = null;
     }
@@ -86688,45 +86379,45 @@ var CrewBroker = class {
     const isTerminal = (s) => s === "completed" || s === "failed" || s === "cancelled";
     const start = Date.now();
     const interval = 200;
-    const pollUntilDone = () => new Promise((resolve27) => {
+    const pollUntilDone = () => new Promise((resolve26) => {
       const tick = () => {
         if (conn.closed) {
           this.sendError(conn, id, "close", "connection closed during wait");
-          resolve27();
+          resolve26();
           return;
         }
         const connRunId = conn.runId;
         if (!connRunId) {
           this.sendError(conn, id, "auth", "not authed (post-narrow)");
-          resolve27();
+          resolve26();
           return;
         }
         if (Date.now() - start >= timeoutMs) {
           this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
-          resolve27();
+          resolve26();
           return;
         }
         try {
           const loaded = this.waitStatusCache.load(cwd, connRunId);
           if (!loaded) {
             this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-            resolve27();
+            resolve26();
             return;
           }
           const task = loaded.tasks.find((t2) => t2.id === targetTaskId);
           if (!task) {
             this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
-            resolve27();
+            resolve26();
             return;
           }
           if (task.status === targetStatus || isTerminal(targetStatus) && isTerminal(task.status)) {
             this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
-            resolve27();
+            resolve26();
             return;
           }
         } catch (err2) {
           this.sendError(conn, id, "wait-failed", err2.message);
-          resolve27();
+          resolve26();
           return;
         }
         setTimeout(tick, interval);
@@ -87524,7 +87215,7 @@ init_pi_ui_compat();
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
-import * as fs124 from "node:fs";
+import * as fs125 from "node:fs";
 import * as path100 from "node:path";
 var MAX_TRANSCRIPT_ITEMS = 500;
 function normalizeUsage(raw) {
@@ -87547,7 +87238,7 @@ var promptSeeded = /* @__PURE__ */ new Set();
 function readWorkerPrompt(manifest, taskId) {
   try {
     const file = path100.join(manifest.artifactsRoot, "prompts", `${taskId}.md`);
-    const text = fs124.readFileSync(file, "utf-8").trim();
+    const text = fs125.readFileSync(file, "utf-8").trim();
     return text || void 0;
   } catch {
     return void 0;
@@ -88637,13 +88328,13 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as fs125 from "node:fs";
+import * as fs126 from "node:fs";
 import * as path101 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
   try {
-    dirs = fs125.readdirSync(runsDir, { withFileTypes: true });
+    dirs = fs126.readdirSync(runsDir, { withFileTypes: true });
   } catch {
     return descriptors;
   }
@@ -88651,7 +88342,7 @@ function collectArtifactDescriptors(runsDir) {
     if (!dir.isDirectory()) continue;
     const manifestPath = path101.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
-      const manifest = JSON.parse(fs125.readFileSync(manifestPath, "utf-8"));
+      const manifest = JSON.parse(fs126.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
         descriptors.push(...manifest.artifacts);
       }
@@ -88677,6 +88368,60 @@ function runArtifactCleanup(cwd) {
   } catch (error) {
     logInternalError("register.artifact-cleanup", error, `cwd=${cwd}`);
   }
+}
+
+// src/extension/registration/schedule-toast-bridge.ts
+init_visual();
+var ERROR_TEXT_MAX = 200;
+function createScheduleEventNotifier(deps) {
+  const lastStatusByJob = /* @__PURE__ */ new Map();
+  const failedNotified = /* @__PURE__ */ new Set();
+  const deliver = (text, level) => {
+    try {
+      if (!deps.hasUI() || !deps.ui) return;
+      deps.ui.notify(text, level);
+    } catch {
+    }
+  };
+  return (event) => {
+    switch (event.type) {
+      case "fired":
+        deliver(`\u23F0 ${sanitizeLine(event.name)} fired \u2192 ${sanitizeLine(event.agentId)}`, "info");
+        return;
+      case "error": {
+        if (failedNotified.has(event.jobId)) return;
+        failedNotified.add(event.jobId);
+        const firstLine = event.error.split("\n")[0] ?? "";
+        const clipped = firstLine.length > ERROR_TEXT_MAX ? `${firstLine.slice(0, ERROR_TEXT_MAX - 1)}\u2026` : firstLine;
+        deliver(`\u23F0 scheduled job ${sanitizeLine(event.jobId)} failed: ${sanitizeLine(clipped)}`, "error");
+        return;
+      }
+      case "added":
+        lastStatusByJob.set(event.job.id, event.job.lastStatus);
+        return;
+      case "updated": {
+        const previous = lastStatusByJob.get(event.job.id);
+        lastStatusByJob.set(event.job.id, event.job.lastStatus);
+        if (event.job.lastStatus === "running") {
+          failedNotified.delete(event.job.id);
+          return;
+        }
+        if (event.job.lastStatus === "error" && previous === "running") {
+          failedNotified.add(event.job.id);
+          deliver(`\u23F0 ${sanitizeLine(event.job.name)} \u2717 failed`, "error");
+          return;
+        }
+        if (event.job.lastStatus === "success" && previous !== "success") {
+          deliver(`\u23F0 ${sanitizeLine(event.job.name)} \u2713 succeeded`, "info");
+        }
+        return;
+      }
+      case "removed":
+        lastStatusByJob.delete(event.jobId);
+        failedNotified.delete(event.jobId);
+        return;
+    }
+  };
 }
 
 // src/extension/registration/lifecycle-handlers.ts
@@ -88786,6 +88531,7 @@ function installSessionStartHandler(pi, ctx) {
     const sessionId = extensionCtx.sessionManager?.getSessionId?.() ?? (typeof extensionCtx === "object" && extensionCtx !== null && "sessionId" in extensionCtx ? extensionCtx.sessionId : void 0);
     ctx.crewScheduler = setupCrewScheduler(pi, ctx, extensionCtx, sessionId);
     registerCrewScheduler(ctx.crewScheduler);
+    stashScheduledJobsHiddenCount(scheduledJobsHiddenCountOf(crewSettingsTiers));
     for (const job of crewSettingsTiers.effectiveScheduledJobs) {
       try {
         ctx.crewScheduler.add(job);
@@ -88937,9 +88683,14 @@ async function runDeferredSessionCleanup(pi, ctx, ownerGeneration, currentSessio
 }
 function setupCrewScheduler(pi, ctx, extensionCtx, sessionId) {
   const crewScheduler = new CrewScheduler();
+  const notifyScheduleEvent = createScheduleEventNotifier({
+    hasUI: () => extensionCtx.hasUI,
+    ui: extensionCtx.ui
+  });
   crewScheduler.start({
     emit: (event) => {
       if (ctx.cleanedUp) return;
+      notifyScheduleEvent(event);
       pi.events?.emit?.("crew-scheduler", event);
     },
     executor: (job) => {
@@ -89258,7 +89009,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
     const crewRunsDir = path102.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
-    if (fs126.existsSync(crewRunsDir)) {
+    if (fs127.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -89269,7 +89020,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
     const userRunsDir = path102.join(userCrewRoot(), "state", "runs");
-    if (fs126.existsSync(userRunsDir)) {
+    if (fs127.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -89796,7 +89547,7 @@ init_tool_renderers();
 init_internal_error();
 init_safe_paths();
 init_subagent_helpers();
-import * as fs127 from "node:fs";
+import * as fs128 from "node:fs";
 import { Text as Text5 } from "@earendil-works/pi-tui";
 async function handleTeamTool6(params, ctx) {
   const mod = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
@@ -89949,7 +89700,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
                   logInternalError("subagent-tools.identity-link", err2, `taskId=${taskId}, attempt=${attempt}`);
                 }
                 if (resolveEntryBySubagentId(loaded.manifest, spawnedRecord.id)?.taskId === taskId) break;
-                if (attempt < 4) await new Promise((resolve27) => setTimeout(resolve27, 50 * (attempt + 1)));
+                if (attempt < 4) await new Promise((resolve26) => setTimeout(resolve26, 50 * (attempt + 1)));
               }
             }
           }
@@ -90108,7 +89859,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
               savePersistedSubagentRecord(ctx.cwd, current);
               break;
             }
-            await new Promise((resolve27) => setTimeout(resolve27, 1e3));
+            await new Promise((resolve26) => setTimeout(resolve26, 1e3));
             current = refreshPersistedSubagentRecord(ctx, current);
             if (!current.runId) break;
           }
@@ -90192,12 +89943,12 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
       }
       try {
         const steeringDir = `${artifactsRoot}/steering`;
-        fs127.mkdirSync(steeringDir, { recursive: true });
+        fs128.mkdirSync(steeringDir, { recursive: true });
         const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
         const MAX_STEERING_BYTES = 256 * 1024;
         let existingBytes = 0;
         try {
-          existingBytes = fs127.statSync(safeSteeringPath).size;
+          existingBytes = fs128.statSync(safeSteeringPath).size;
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
@@ -90209,7 +89960,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
             true
           );
         }
-        fs127.appendFileSync(safeSteeringPath, line4);
+        fs128.appendFileSync(safeSteeringPath, line4);
       } catch (err2) {
         logInternalError(
           "subagent-tools.steer-write-failed",

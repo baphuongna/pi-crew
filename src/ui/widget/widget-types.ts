@@ -40,11 +40,4 @@ export interface CrewWidgetState {
 	legacyCleared?: boolean;
 	model?: CrewWidgetModel;
 	notificationCount?: number;
-	/**
-	 * Non-serializable dock host used when `widgetPlacement` is `"bottom"`:
-	 * the dock renders through the crew-vibes footer instead of a pi widget
-	 * slot. Kept off `model` so serialization/persistence of the rest of the
-	 * state stays unaffected.
-	 */
-	footerDock?: { render(width: number): string[]; dispose(): void };
 }

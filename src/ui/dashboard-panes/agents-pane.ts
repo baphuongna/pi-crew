@@ -34,7 +34,7 @@ function alignMetric(value: string, width: number): string {
  * Scaffold-only agents (no tokens, no tools, no turns) are skipped in the agents pane —
  * they represent pipeline infrastructure steps, not actual agent execution.
  */
-function isRealAgent(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle): boolean {
+function isRealAgent(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle, nowMs?: number): boolean {
 	if (agent.runtime === "live-session" || agent.runtime === "child-process") return true;
 	// Scaffold agents with real work done are still worth showing
 	const tokens = (agent.usage?.input ?? 0) + (agent.usage?.output ?? 0) + (agent.usage?.cacheRead ?? 0) + (agent.usage?.cacheWrite ?? 0);
@@ -44,7 +44,7 @@ function isRealAgent(agent: CrewAgentRecord, liveHandle?: LiveAgentHandle): bool
 	if ((agent.progress?.toolCount ?? 0) > 0) return true;
 	// If it's still running and has been alive for > 30s, it might be real
 	if (liveHandle) {
-		const ms = Date.now() - liveHandle.activity.startedAtMs;
+		const ms = (nowMs ?? Date.now()) - liveHandle.activity.startedAtMs;
 		if (ms > 30_000) return true;
 	}
 	return false;
@@ -86,11 +86,14 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 	const { completed, total } = snapshot.progress;
 
 	const lines: string[] = [];
+	// One pinned clock (D6-T4) for the whole pane render.
+	const nowMs = options.nowMs ?? Date.now();
 
 	const realAgents = snapshot.agents.filter((a) =>
 		isRealAgent(
 			a,
 			liveForRun.find((h) => h.taskId === a.taskId),
+			nowMs,
 		),
 	);
 	const lineCount = Math.min(realAgents.length, 12);
@@ -141,13 +144,13 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 			// 0/undefined/bad, or a race set completedAtMs < startedAtMs. This
 			// fired for EVERY running live agent in the dashboard. Use the shared,
 			// validated computeLiveDurationMs (mirrors widget-formatters.ts).
-			const ms = computeLiveDurationMs(liveHandle.activity);
+			const ms = computeLiveDurationMs(liveHandle.activity, nowMs);
 			stats.push(alignMetric(`${(ms / 1000).toFixed(1)}s`, DURATION_METRIC_WIDTH));
 			if (options.showModel !== false && liveHandle.modelName && liveHandle.modelName !== "default") {
 				stats.push(liveHandle.modelName);
 			}
 		} else if (agent.startedAt) {
-			const ms = Date.now() - new Date(agent.startedAt).getTime();
+			const ms = nowMs - new Date(agent.startedAt).getTime();
 			if (Number.isFinite(ms)) stats.push(alignMetric(`${(ms / 1000).toFixed(1)}s`, DURATION_METRIC_WIDTH));
 		}
 

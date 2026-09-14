@@ -19,6 +19,7 @@ export function piTeamsHelp(): string {
 		"- /team-worktrees <runId>",
 		"- /team-api <runId> <operation> [taskId=<taskId>] [body=<message>]",
 		"- /team-dashboard",
+		"- /schedules [log <jobId-or-name>] — list scheduled jobs / tail latest run output",
 		"- /team-mascot",
 		"- /team-transcript <runId> [taskId]",
 		"- /team-result <runId> [taskId]",

@@ -12,7 +12,6 @@ import { test } from "node:test";
 
 import { createRunManifest } from "../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
-import { getFooterDockProvider, resetFooterDockRegistry, setFooterDockSinkActive } from "../../../src/ui/dock-footer.ts";
 import { resetCrewViewSessionState } from "../../../src/ui/inline-panel/view-session-store.ts";
 import { updateCrewWidget } from "../../../src/ui/widget/index.ts";
 import type { CrewWidgetState } from "../../../src/ui/widget/widget-types.ts";
@@ -83,22 +82,19 @@ function newState(): CrewWidgetState {
 
 test("not viewing: filter uses the ctx session id as before", () => {
 	const cwd = createTrackedTempDir("pi-crew-vw-main-");
-	resetFooterDockRegistry();
 	resetCrewViewSessionState();
 	try {
 		const manifest = makeRunWithAgent(cwd, "main-session-id");
 		const harness = makeHarness(cwd, "main-session-id");
-		setFooterDockSinkActive(true);
 
 		updateCrewWidget(harness.ctx, newState(), { widgetPlacement: "bottom" }, undefined, undefined, [manifest]);
 
-		const provider = getFooterDockProvider();
-		assert.ok(provider, "dock provider registered in the main session");
-		const joined = (provider(100) ?? []).join("\n");
-		assert.ok(joined.includes("main"), `dock shows the main session's run:\n${joined}`);
+		const install = harness.widgetCalls.find((c) => c.key === "pi-crew-active" && typeof c.content === "function");
+		assert.ok(install, "widget installed in the main session");
+		const factory = install.content as (tui: unknown, theme: unknown) => { render(w: number): string[] };
+		const joined = factory({}, undefined).render(100).join("\n");
+		assert.ok(joined.includes("main"), `widget shows the main session's run:\n${joined}`);
 	} finally {
-		setFooterDockSinkActive(false);
-		resetFooterDockRegistry();
 		resetCrewViewSessionState();
 		removeTrackedTempDir(cwd);
 	}

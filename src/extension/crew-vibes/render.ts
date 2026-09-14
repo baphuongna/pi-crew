@@ -1,16 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CrewTheme } from "../../ui/theme-adapter.ts";
-import {
-	CAPACITY_STATUS_ID,
-	type CapacityConfig,
-	type CrewVibesConfig,
-	capacityIcons,
-	PROVIDER_STATUS_ID,
-	SPEED_STATUS_ID,
-	type SpeedConfig,
-	type TokenDisplay,
-} from "./config.ts";
-import { capacityIndex, crewFrames, isDangerStage } from "./figures.ts";
+import { type CapacityConfig, type CrewVibesConfig, capacityIcons, PROVIDER_STATUS_ID, type TokenDisplay } from "./config.ts";
+import { capacityIndex, isDangerStage } from "./figures.ts";
 
 export type CapacityUsage = {
 	tokens: number | null;
@@ -41,31 +32,6 @@ export function getCapacityUsage(ctx: ExtensionContext): CapacityUsage {
 	};
 }
 
-export function formatSpeed(config: SpeedConfig, speed: number | null): string {
-	return speed === null ? `-- ${config.label}` : `${speed.toFixed(1)} ${config.label}`;
-}
-
-export function renderSpeedFooter(theme: CrewTheme | undefined, config: SpeedConfig, speed: number | null): string {
-	const value = speed === null ? "--" : speed.toFixed(1);
-	const valueTone = speed === null ? "dim" : "accent";
-	const styled = theme ? `${theme.fg(valueTone, value)} ${theme.fg("dim", config.label)}` : `${value} ${config.label}`;
-	return styled;
-}
-
-export function renderWorkingMessage(theme: CrewTheme | undefined, config: SpeedConfig, speed: number | null): string {
-	const left = "Working";
-	const speedText = theme
-		? `${theme.fg(speed === null ? "dim" : "accent", speed === null ? "--" : speed.toFixed(1))} ${theme.fg("dim", config.label)}`
-		: `${speed === null ? "--" : speed.toFixed(1)} ${config.label}`;
-	return theme ? `${theme.fg("muted", left)}  ${speedText}` : `${left}  ${speedText}`;
-}
-
-export function crewIndicatorFrames(theme: CrewTheme | undefined): string[] {
-	const frames = crewFrames();
-	if (!theme) return [...frames];
-	return frames.map((frame) => theme.fg("accent", frame));
-}
-
 function formatCapacityPrefix(config: CapacityConfig, usage: CapacityUsage): string {
 	const display: TokenDisplay = config.tokenDisplay;
 	if (display === "off") return "";
@@ -92,31 +58,9 @@ export function renderCapacity(theme: CrewTheme | undefined, config: CapacityCon
 	return `${prefix}${coloredIcon}${afterIcon}`;
 }
 
-export function setSpeedStatus(ctx: ExtensionContext, config: CrewVibesConfig, text: string | undefined): void {
-	if (!ctx?.hasUI) return;
-	if (!config.enabled || !config.speed.enabled || !config.speed.footer) {
-		ctx.ui.setStatus(SPEED_STATUS_ID, undefined);
-		return;
-	}
-	ctx.ui.setStatus(SPEED_STATUS_ID, text);
-}
-
-export function setCapacityStatus(ctx: ExtensionContext, config: CrewVibesConfig, text: string | undefined): void {
-	if (!ctx?.hasUI) return;
-	if (!config.enabled || !config.capacity.enabled) {
-		ctx.ui.setStatus(CAPACITY_STATUS_ID, undefined);
-		return;
-	}
-	ctx.ui.setStatus(CAPACITY_STATUS_ID, text);
-}
-
 export function clearVibesStatus(ctx: ExtensionContext): void {
 	if (!ctx?.hasUI) return;
-	ctx.ui.setStatus(SPEED_STATUS_ID, undefined);
-	ctx.ui.setStatus(CAPACITY_STATUS_ID, undefined);
 	ctx.ui.setStatus(PROVIDER_STATUS_ID, undefined);
-	if (ctx.ui.setWorkingIndicator) ctx.ui.setWorkingIndicator();
-	if (ctx.ui.setWorkingMessage) ctx.ui.setWorkingMessage();
 }
 
 // Provider rate-limit usage snapshot (mirrors provider-usage.ts interface).

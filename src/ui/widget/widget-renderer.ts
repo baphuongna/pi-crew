@@ -4,11 +4,14 @@
  * Extracted from crew-widget.ts.
  */
 
+import { getCrewScheduler, getScheduledJobs, getScheduledJobsHiddenCountView } from "../../extension/team-tool/handle-schedule.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
+import type { ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
+import { formatRelativeTime } from "../../utils/relative-time.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
 import { spinnerFrame } from "../spinner.ts";
@@ -119,6 +122,12 @@ export interface WidgetRenderOptions {
 	 * the idle widget stays capped to keep the prompt area small.
 	 */
 	focused?: boolean;
+	/**
+	 * Injected clock (dialect D6-T4) for the Tier-C schedules line — pinned by
+	 * tests; defaults to "now" at the top of buildWidgetLines. The pure
+	 * schedules builder never reads the clock itself.
+	 */
+	now?: Date;
 }
 
 /** Short display form of a model id: `zai/glm-5.3` → `glm-5.3`. */
@@ -137,6 +146,7 @@ function compactAgentRow(
 	options: WidgetRenderOptions,
 	width: number,
 	liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined,
+	nowMs: number,
 ): string {
 	const marker = options.selectedTaskId === agent.taskId ? "❯" : " ";
 	const dockGlyph = options.viewedTaskId === agent.taskId ? "⏺" : dockStatusIcon(agent.status);
@@ -163,7 +173,7 @@ function compactAgentRow(
 			: finished
 				? dockStatusLabel(agent.status)
 				: agentActivity(agent, liveHandle);
-	const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId });
+	const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId, nowMs });
 	const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
 	const model = shortModelLabel(agent, run);
 	// Stats tail: `· glm-5.3 · ↑1.2k ↓350 · 41s` — the model the worker is
@@ -189,8 +199,8 @@ function compactDockLines(
 	maxLines: number,
 	notificationCount: number,
 	runningGlyph: string,
+	nowMs: number,
 ): string[] {
-	const now = Date.now();
 	const flat: Array<{
 		run: TeamRunManifest;
 		agent: CrewAgentRecord;
@@ -198,7 +208,7 @@ function compactDockLines(
 		liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined;
 	}> = [];
 	for (const entry of runs) {
-		const { active, finished } = orderWidgetAgents(entry, now);
+		const { active, finished } = orderWidgetAgents(entry, nowMs);
 		const liveForRun = listLiveAgents().filter((a) => a.runId === entry.run.runId);
 		for (const agent of active) {
 			flat.push({ run: entry.run, agent, finished: false, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
@@ -234,10 +244,101 @@ function compactDockLines(
 	const windowEnd = Math.min(flat.length, windowStart + MAX_AGENTS_DISPLAY);
 	if (windowStart > 0) lines.push(truncate(`  … ↑${windowStart} earlier (↑ to scroll)`, width));
 	for (const row of flat.slice(windowStart, windowEnd)) {
-		lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle));
+		lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle, nowMs));
 	}
 	if (windowEnd < flat.length) lines.push(truncate(`  … +${flat.length - windowEnd} more (↓ to scroll)`, width));
 	return lines;
+}
+
+// ── Schedules line (Tier C) ───────────────────────────────────────────
+
+/**
+ * Tier C (schedules UI): the ONE low-priority schedules line for the crew
+ * widget — `⏰ N sched · next Xm`. Painted when ≥1 ENABLED job exists, always
+ * as the LAST row (below active-run info, per the widget priority rules),
+ * with an optional compact `· N hidden` segment (P2-1) when the B2 gate is
+ * hiding project-tier jobs. Pure (dialect D6-T4): jobs, the clock, AND the
+ * hidden count are injected — no Date.now()/settings read happens here.
+ * Returns undefined when the line must not paint (0 enabled jobs AND nothing
+ * hidden), so callers skip the row entirely. With ZERO enabled jobs but a
+ * hidden count > 0, the hidden-only line still paints — that is exactly the
+ * all-gated case where an invisible gate used to show nothing at all.
+ */
+export function buildSchedulesWidgetLine(jobs: readonly ScheduledJob[], now: Date, hiddenCount = 0): string | undefined {
+	const enabled = jobs.filter((job) => job.enabled);
+	const hidden = hiddenCount > 0 ? ` · ${hiddenCount} hidden` : "";
+	if (enabled.length === 0) return hiddenCount > 0 ? `⏰ 0 sched${hidden}` : undefined;
+	const nextTargets = enabled
+		// new Date(iso) here is a STORED-ISO parse, not a clock read.
+		.map((job) => (job.nextRun ? new Date(job.nextRun).getTime() : Number.NaN))
+		.filter((ms) => Number.isFinite(ms));
+	if (nextTargets.length === 0) return `⏰ ${enabled.length} sched${hidden}`;
+	const next = Math.min(...nextTargets);
+	// "in 84m" → "next 84m": the future prefix is redundant right after
+	// "next"; overdue targets keep their "Xm ago" tail so a stale nextRun
+	// stays legible instead of silently reading as future work.
+	const relative = formatRelativeTime(now, new Date(next)).replace(/^in /, "");
+	return `⏰ ${enabled.length} sched · next ${relative}${hidden}`;
+}
+
+/**
+ * Injectable scheduled-jobs reader for the widget (single source of truth,
+ * G17): the default reads through getScheduledJobs(); tests swap in a stub
+ * so the render path never touches real scheduler/settings state.
+ *
+ * The default is gated on a REGISTERED scheduler: without one (unit tests,
+ * pre-registration, post-cleanup) there are no armed jobs to report — and we
+ * must never hit the settings store from a paint path (P0-6: no disk per
+ * render tick).
+ */
+export type WidgetScheduledJobsReader = (cwd: string) => ScheduledJob[];
+let scheduledJobsReader: WidgetScheduledJobsReader = defaultScheduledJobsReader;
+
+function defaultScheduledJobsReader(cwd: string): ScheduledJob[] {
+	if (!getCrewScheduler()) return [];
+	try {
+		return getScheduledJobs(cwd);
+	} catch {
+		return [];
+	}
+}
+
+/** @internal — test seam: inject a deterministic jobs view. */
+export function setWidgetScheduledJobsReader(reader: WidgetScheduledJobsReader): void {
+	scheduledJobsReader = reader;
+}
+
+/** @internal — test seam: restore the provider-backed default. */
+export function resetWidgetScheduledJobsReader(): void {
+	scheduledJobsReader = defaultScheduledJobsReader;
+}
+
+/** Injectable hidden-jobs reader (P2-1) — mirrors the jobs reader seam: the
+ * default is gated on the REGISTERED scheduler exactly like
+ * defaultScheduledJobsReader (P0-6 — a paint path must never hit the settings
+ * store), and with a registered scheduler it only ever serves the in-memory
+ * registration-time stash from handle-schedule.ts. */
+export type WidgetHiddenJobsReader = (cwd: string) => number;
+let hiddenJobsReader: WidgetHiddenJobsReader = defaultHiddenJobsReader;
+
+function defaultHiddenJobsReader(_cwd: string): number {
+	if (!getCrewScheduler()) return 0;
+	return getScheduledJobsHiddenCountView(); // stash-only when registered: no disk
+}
+
+/** @internal — test seam: inject a deterministic hidden count. */
+export function setWidgetHiddenJobsReader(reader: WidgetHiddenJobsReader): void {
+	hiddenJobsReader = reader;
+}
+
+/** @internal — test seam: restore the stash-backed default. */
+export function resetWidgetHiddenJobsReader(): void {
+	hiddenJobsReader = defaultHiddenJobsReader;
+}
+
+/** Reader-backed schedules line — the widget's live data path. */
+export function schedulesWidgetLine(cwd: string, now: Date): string | undefined {
+	return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now, hiddenJobsReader(cwd));
 }
 
 export function buildWidgetLines(
@@ -251,19 +352,37 @@ export function buildWidgetLines(
 ): string[] {
 	const rowStyle: WidgetRowStyle = options.rowStyle ?? "detailed";
 	const focused = options.focused === true;
+	// Tier C: one injected clock for the schedules line (options.now pins it in
+	// tests; the pure builder above never reads the clock itself).
+	const schedLine = schedulesWidgetLine(cwd, options.now ?? new Date());
 	// Match the legacy `buildCrewWidgetLines` API: when no runs are supplied,
 	// auto-fetch via activeWidgetRuns(cwd). Otherwise widgets calling with
 	// only `(cwd, frame)` would render an empty line set (regression vs. the
 	// pre-refactor implementation that called activeWidgetRuns here).
 	const runs = providedRuns ?? activeWidgetRuns(cwd);
-	if (!runs.length) return [];
+	// Empty-render gate: with no active runs the widget collapses to nothing —
+	// EXCEPT the schedules line. Scheduled jobs are exactly what runs while
+	// nothing interactive is active; dropping the line here would make Tier C
+	// invisible most of the time (jobs fire BETWEEN interactive runs).
+	if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
 
 	const runningGlyph = spinnerFrame("widget-header");
 
 	// Compact = pi-subtask's dock: NO "Crew agents" header, NO tree — hint
 	// line, `main` row, then a 3-row scroll window over the flat agent list.
 	if (rowStyle === "compact") {
-		const lines = compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph);
+		const lines = compactDockLines(
+			runs,
+			options,
+			width,
+			maxLines,
+			notificationCount,
+			runningGlyph,
+			(options.now ?? new Date()).getTime(),
+		);
+		// Tier C: appended after the dock window so it can never displace a
+		// live-agent row; clipped by the idle maxLines budget.
+		if (schedLine) lines.push(truncate(schedLine, width));
 		return focused ? lines : lines.slice(0, maxLines);
 	}
 
@@ -271,8 +390,8 @@ export function buildWidgetLines(
 
 	for (const entry of runs) {
 		const { run, agents } = entry;
-		const now = Date.now();
-		const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, now);
+		const nowMs = (options.now ?? new Date()).getTime();
+		const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, nowMs);
 		const completed = agents.filter((a) => a.status === "completed").length;
 		// WP-3 (H4): while a run is parked awaiting plan approval, the spinner
 		// glyph is replaced by a `⚠ plan:<last-8 runId>` badge. Plain-unicode ⚠
@@ -298,7 +417,7 @@ export function buildWidgetLines(
 		// reached its terminal status). The status label is also surfaced
 		// explicitly so the row cannot be misread as an active run.
 		const agentCountText = `${completed}/${agents.length} agents`;
-		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : now;
+		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : nowMs;
 		const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
 		const runElapsedText = `${Math.floor(runElapsedMs / 1000)}s`;
 		const statusLabel = isTerminal ? ` · ${run.status}` : "";
@@ -324,7 +443,7 @@ export function buildWidgetLines(
 			const branch = last ? "└─" : "├─";
 			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
 			const legacyGlyph = options.viewedTaskId === agent.taskId ? "◉" : iconForStatus(agent.status, { runningGlyph });
-			const stats = agentStats(agent, liveHandle);
+			const stats = agentStats(agent, liveHandle, nowMs);
 			const name = liveHandle?.agent ?? agent.agent;
 			const activity = agentActivity(agent, liveHandle);
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
@@ -343,7 +462,7 @@ export function buildWidgetLines(
 			const name = liveHandle?.agent ?? agent.agent;
 			const legacyIcon =
 				agent.status === "completed" ? "✓" : agent.status === "failed" ? "✗" : agent.status === "needs_attention" ? "⚠" : "▪";
-			const stats = agentStats(agent, liveHandle);
+			const stats = agentStats(agent, liveHandle, nowMs);
 			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
 			const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
 			const branch = isLastFinished ? "└─" : "├─";
@@ -357,6 +476,11 @@ export function buildWidgetLines(
 		// widget keeps its historical cap to hold the prompt area small.
 		if (lines.length >= maxLines && !focused) break;
 	}
+
+	// Tier C: the schedules line is the LOWEST-priority widget row — appended
+	// after all active-run info and clipped by the idle maxLines budget, so it
+	// never displaces a live agent's row.
+	if (schedLine) lines.push(truncate(schedLine, width));
 
 	return focused ? lines : lines.slice(0, maxLines);
 }

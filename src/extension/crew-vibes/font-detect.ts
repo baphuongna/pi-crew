@@ -8,7 +8,7 @@ import { join } from "node:path";
  * guarantee the terminal can render PUA glyphs (many terminals have their
  * own font stacks).  For reliable animation, braille fallback frames are
  * used by default; PUA frames are only activated when the user explicitly
- * enables them via config (speed.indicatorStyle = "pua").
+ * (used by the capacity icons).
  */
 
 function fontPath(): string {

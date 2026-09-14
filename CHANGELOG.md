@@ -2,6 +2,80 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
+
+### feat(vibes): tok/s speed UI REMOVED — pi's built-in working indicator always used
+
+- Maintainer decision: the entire speed subsystem is deleted, not toggled off — custom spinner frames (`setWorkingIndicator`), the `Working N tok/s` message (`setWorkingMessage`), SpeedTracker/SpeedAnimator, the speed config block, and every speed event handler (agent_start/turn_start/message_*/turn_end/agent_end wiring). crew-vibes is now a single-purpose module: fetch the provider rate-limit quota and publish it as a status entry on pi's native footer. `/team-vibes` shrinks to `[on|off]`.
+
+
+### feat(footer): restore pi's NATIVE footer — custom footer replacement retired (UI-review option 1)
+
+- Maintainer decision: the crew-vibes custom footer (setFooter replacement that re-implemented pi's pwd/stats/status lines to guarantee the quota a never-truncated line) is REMOVED — pi's built-in footer is always shown. The re-implementation had drifted from native (missing `CH%` cache-hit, missing `xp` segment, totals ignoring toolResult/branch-summary/compaction usage, hardcoded `(auto)`), and composing pi's native FooterComponent is impossible by design (extensions only receive ReadonlySessionManager, not AgentSession).
+- Provider quota (`z.ai 5h ━ 37% 46m Wk …`) now publishes through `ctx.ui.setStatus` and joins pi's native status line (right-truncates on very narrow terminals — accepted).
+- The crew widget ALWAYS renders through pi's widget slots now (`bottom` placement maps to belowEditor): FooterDockHost, the dock-footer registry, slotInstalled/dockedInFooter state, and WidgetRenderOptions.noSchedulesLine are deleted. The ⏰ schedules line and all run rows paint in the belowEditor slot exactly as the pre-footer design; the keep-alive fix is preserved.
+- Clock-injection sweep (D6-T4) in the render path: compactDockLines/detailed rows/agents-pane now pin ONE clock per render (options.now / options.nowMs) threaded into orderWidgetAgents, dockUsageText, agentStats, computeLiveDurationMs — no more scattered Date.now() reads that could straddle a tick.
+
+
+### feat(footer): retire the capacity stage meter; the ⏰ schedules segment takes its slot
+
+- Maintainer decision after the full UI review: the capacity meter (context token count `74k` + `○ Orbit/Cruise/Warp/…` stage glyph) duplicated the context percent already shown on the stats line and carried no actionable signal — removed from the footer composition (`renderCapacity` remains exported for its unit tests).
+- The meter line now carries the Tier-C schedules segment on the LEFT (`⏰ N sched · next …`) with the provider quota right-aligned on the SAME line (wraps to two lines only on narrow terminals). Net effect: one screen line saved — the schedules line no longer paints as its own dock line when the crew-vibes footer is active.
+- `CrewWidgetModel.dockedInFooter` + `WidgetRenderOptions.noSchedulesLine`: in the dock path the widget no longer paints `⏰` itself (the footer owns it — no duplicate painter); slot mode (no footer sink) keeps painting it unchanged.
+
+### fix(scheduler): cron jobs never fired — arm() had no `cron` branch (P1-1 from UI review)
+
+- Root cause of the live "next 7h ago" symptom: `arm()` only handled `interval`/`once`, so cron jobs were persisted with a `nextRun` but never got a timer — silent death. `nextRunTime()`/`nextCronDate` (already in the same file) were simply never wired into arming.
+- `arm()` now arms cron via a chained `setTimeout` hop toward the next occurrence, clamped below the 2^31-1 ms timer ceiling (`MAX_TIMER_DELAY_MS`) so yearly crons cannot mis-fire on overflow; `disarm()` clears the cron handle on the right branch.
+- After each cron fire, `advanceCronNextRun()` recomputes and persists the next occurrence (previously `nextRun` was written exactly once, at job creation); jobs whose next occurrence is not computable self-disable with an `error` event explaining why.
+- Scheduler constructor takes an injectable clock (`now?: () => Date`, default `Date.now`) per the D6-T4 clock-injection convention — cron firing tests run on a fake clock, no real sleeps.
+- New suite `test/unit/runtime/scheduling/scheduler-cron-arm.test.ts` (first fire, re-arm + nextRun advance, mid-flight disable, overflow chaining, disarm) — red on the pre-fix HEAD, green with the fix.
+
+### feat(ui): B2 gate hint — "N project-tier jobs hidden" on all three surfaces (P2-1)
+
+- The Wave B2 opt-in gate (`schedulingEnabled` + `allowProjectScheduledJobs`, both required in user-tier `~/.pi/crew-settings.json`) was completely invisible: gated-out jobs made every surface fall into the plain empty state, looking like the jobs were lost.
+- New companion getter `getScheduledJobsHiddenCount()` / pure `scheduledJobsHiddenCountOf(tiers)` in `settings-store.ts` (no signature change to `getScheduledJobs`); the paint path reuses the registration-time tiers stash — no new disk reads on render.
+- Schedules pane + `/schedules` (via the shared renderer, parity test kept) append one dim hint line, the widget line appends a compact `· N hidden` — all three surfaces, EN-only per project convention, shown only when hiddenCount > 0.
+
+### test: settings-store tests are now hermetic
+
+- `loadCrewSettings()` gained an optional `globalFile` param (default unchanged). The three affected tests previously read the developer's REAL `~/.pi/crew-settings.json` ("defaults when file missing" failed the moment that file exists with scheduling flags) — they now pin an absent temp global file.
+
+Full Scheduled Jobs UI stack over the existing scheduler/settings layer. No version bump yet — no schema or persistence changes; reads a single provider, mutations go through the existing extension channel.
+
+### feat(ui): schedules dashboard pane (tier A)
+
+- New pane 8 in the run dashboard (`src/ui/dashboard-panes/schedules-pane.ts`, pure string renderer): one main line per job (enabled glyph ●/○ · name truncate · humanized schedule · relative next-run · last status ✓/✗/⟳ · runCount) plus a sub line (subagentType · lastRun · id in headless mode). Empty state: `No scheduled jobs — create via team tool action='schedule'`.
+- Keys `T/N/V/X/R` (pane-scoped in `keybinding-map.ts`): toggle-enabled, run-now, details toggle (goal + ScheduleSpec + spawnedRunIds), delete with a **2-step confirm-gate** (first X arms + warning line, any other key disarms), refresh (drops the provider cache). Job cursor up/down while pane 8 owns input.
+- Mutations never touch the scheduler from the UI layer: they leave the dashboard only as `done()` selections carrying `schedule-*` actions + `jobId`, routed by `commands/shared.ts openTeamDashboard` through `handleTeamTool({action:'schedule', subAction, jobId})` → `handle-schedule.ts` (the same channel as the chat tool), then the result surfaces as an info/error toast and the dashboard reopens.
+
+### feat(ui): schedules line in the crew widget (tier C)
+
+- One lowest-priority widget row (`src/ui/widget/widget-renderer.ts`): `⏰ N sched · next Xm` — painted ONLY when ≥1 enabled job exists, always last (below active-run info). The line joins the widget cache signature so add/remove/toggle repaints immediately. Survives the no-runs collapse (scheduled jobs are exactly what runs while nothing interactive is active). One clock read per render feeds both the signature and the painted line.
+
+### feat(extension): scheduler event toasts (tier D)
+
+- New `schedule-toast-bridge.ts` wired into the scheduler's `emit` in `lifecycle-handlers.ts`: `fired` → `⏰ <name> fired → <agentId>` (info); failures → red. Failure has two producers — the scheduler's synchronous `error` event and the (common) async executor rejection recorded as a `running→error` lastStatus transition — deduped per attempt so one failed attempt = one notice. Success surfaces as `⏰ <name> ✓ succeeded` on a tracked lastStatus transition only (no drip on patches). Bounded like the hung-notice pattern; headless no-ops; all interpolated fields sanitized.
+
+### feat(commands): /schedules + /schedules log (tier E, headless-compatible)
+
+- New `/schedules` command re-uses the SAME pane renderer (text-block variant — no copied table logic) so command and dashboard can never drift. Natural-language phrases `crew schedule` / `scheduled jobs` rewrite via the crew-input-router.
+- `/schedules log <jobId-or-name>` resolves a job by id or name, tails the most recent output artifact of its latest spawned run (32KB bound, traversal-guarded via `resolveRealContainedPath`; unsafe-charset runIds degrade to an error result). Works under `pi -p` — the handler touches only `ctx.cwd` + `ctx.ui.notify`.
+
+### fix(scheduling): run-now on a once job consumes it
+
+- `CrewScheduler.runNow()` on a `once` job now self-disables after the forced fire (mirroring the timer-driven path). Previously the still-armed timer would fire the job a SECOND time at its scheduled time — a one-shot executing twice.
+
+### Constraints honored
+
+- **Single source of truth (G17)** — every consumer (pane, command, widget, autocomplete) reads jobs through one provider `getScheduledJobs()` (scheduler singleton, gated settings-tier fallback). No defaults copies anywhere.
+- **Injectable clock (D6-T4)** — renderers take `now: Date` as a parameter; no `Date.now()` on any render path (pane, widget, command, and the provider TTL timestamp).
+- **Extension channel only** — toggle/run-now/delete dispatch through `handle-schedule.ts` subActions; persisted `scheduledJobs` shape unchanged.
+
+### Tests
+
+- New: `schedules-pane`, `schedules-dashboard`, `widget-schedules-line`, `relative-time`, `schedules-command`, `schedule-toast-bridge`, `team-tool-schedule-provider`, `scheduler-run-now`, `dashboard-schedule-routing` (155+ assertions across render parity, injected clock, confirm-gate, toast bounds/dedup, traversal guards, once-job run-now regression, shared.ts routing integration).
+
 ## [0.10.6] — agent/skill resource layer + broker coordination fixes (2026-09-12)
 
 ### fix(bundle): PACKAGE_SKILLS_DIR resolves via `packageRoot()` instead of broken `import.meta.url` walk-up
