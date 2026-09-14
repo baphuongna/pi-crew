@@ -54,9 +54,9 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { getScheduledJobs, getScheduledJobsHiddenCountView } from "../extension/team-tool/handle-schedule.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
-import { type LiveAgentHandle, listLiveAgents, listLiveAgentsByWorkspace } from "../runtime/live-session/live-agent-manager.ts";
+import type { LiveAgentHandle } from "../runtime/live-session/live-agent-manager.ts";
 import type { ScheduledJob } from "../runtime/scheduling/scheduler.ts";
-import { surfaceGateEnvSnapshot, surfaceProviderForCleanup } from "../runtime/surface/resolve-surface.ts";
+import { surfaceGateEnvSnapshot } from "../runtime/surface/resolve-surface.ts";
 import { getTaskUsage } from "../runtime/usage-tracker.ts";
 import { readJsonFile } from "../state/atomic-write.ts";
 import { loadRunManifestById } from "../state/stores/state-store.ts";
@@ -292,10 +292,12 @@ export class AgentsJobsBrowser {
 		}
 	}
 
-	private setNotice(text: string): void {
-		this.notice = { text, until: this.nowMs() + 2500 };
-		this.options.requestRender?.();
-	}
+	// Retired with the p key (2026-09-14): kept for the future "focus the
+	// existing surface pane" key. Re-wire before uncommenting.
+	// private setNotice(text: string): void {
+	// 	this.notice = { text, until: this.nowMs() + 2500 };
+	// 	this.options.requestRender?.();
+	// }
 
 	private nowMs(): number {
 		return this.options.now ? this.options.now() : Date.now();
@@ -496,45 +498,49 @@ export class AgentsJobsBrowser {
 		return detectViewSurfaceKind(process.env) !== null;
 	}
 
-	/**
-	 * [p] — open a mux viewer pane tailing the selected agent's events log.
-	 * Reuses the EXISTING provider primitives (surfaceProviderForCleanup →
-	 * createSurface); fire-and-forget from the sync handleInput.
-	 */
-	private surfaceSelectedAgent(entry: AgentsBrowserAgentEntry): void {
-		const action = this.options.surfaceAgent ?? this.defaultSurfaceAgent.bind(this);
-		void action(entry, this.tailPathFor(entry)).catch(() => {
-			/* provider failure — logged inside defaultSurfaceAgent */
-		});
-	}
-
-	private async defaultSurfaceAgent(entry: AgentsBrowserAgentEntry, tailPath: string | undefined): Promise<boolean> {
-		try {
-			const kind = detectViewSurfaceKind(process.env);
-			if (!kind || !tailPath) return false;
-			const watcherScript = watchAgentTranscriptScript();
-			const provider = surfaceProviderForCleanup(kind);
-			if (!provider) return false;
-			// Legacy (no tabKey) path: the viewer pane splits from the HOST's
-			// pane, lives independently of any run, and stays open until the
-			// user closes it — no onExit watcher is registered, so nothing leaks.
-			await provider.createSurface(`crew-view-${entry.taskId.slice(0, 12)}`, {
-				cwd: this.options.cwd,
-				// Watcher formats the session transcript one readable line per
-				// message (live "what is the agent doing") — raw tail would
-				// show unbounded JSON walls. Missing script (unexpected layout)
-				// degrades to plain tail so the pane still opens.
-				command: watcherScript
-					? `${shellQuote(process.execPath)} ${shellQuote(watcherScript)} ${shellQuote(tailPath)}`
-					: `tail -n 40 -F ${shellQuote(tailPath)}`,
-				title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`,
-			});
-			return true;
-		} catch (error) {
-			logInternalError("agents-jobs-browser", error instanceof Error ? error : new Error(String(error)));
-			return false;
-		}
-	}
+	// (retired with the p key, 2026-09-14 — kept for the future 'focus the
+	// existing surface pane' key; see handleInput)
+	// /**
+	// * [p] — open a mux viewer pane tailing the selected agent's events log.
+	// * Reuses the EXISTING provider primitives (surfaceProviderForCleanup →
+	// * createSurface); fire-and-forget from the sync handleInput.
+	// */
+	// private surfaceSelectedAgent(entry: AgentsBrowserAgentEntry): void {
+	// const action = this.options.surfaceAgent ?? this.defaultSurfaceAgent.bind(this);
+	// void action(entry, this.tailPathFor(entry)).catch(() => {
+	// /* provider failure — logged inside defaultSurfaceAgent */
+	// });
+	// }
+	//
+	// private async defaultSurfaceAgent(entry: AgentsBrowserAgentEntry, tailPath: string | undefined): Promise<boolean> {
+	// try {
+	// const kind = detectViewSurfaceKind(process.env);
+	// if (!kind || !tailPath) return false;
+	// const watcherScript = watchAgentTranscriptScript();
+	// const provider = surfaceProviderForCleanup(kind);
+	// if (!provider) return false;
+	// // Legacy (no tabKey) path: the viewer pane splits from the HOST's
+	// // pane, lives independently of any run, and stays open until the
+	// // user closes it — no onExit watcher is registered, so nothing leaks.
+	// await provider.createSurface(`crew-view-${entry.taskId.slice(0, 12)}`, {
+	// cwd: this.options.cwd,
+	// // Watcher formats the session transcript one readable line per
+	// // message (live "what is the agent doing") — raw tail would
+	// // show unbounded JSON walls. Missing script (unexpected layout)
+	// // degrades to plain tail so the pane still opens.
+	// command: watcherScript
+	// ? `${shellQuote(process.execPath)} ${shellQuote(watcherScript)} ${shellQuote(tailPath)}`
+	// : `tail -n 40 -F ${shellQuote(tailPath)}`,
+	// title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`,
+	// });
+	// return true;
+	// } catch (error) {
+	// logInternalError("agents-jobs-browser", error instanceof Error ? error : new Error(String(error)));
+	// return false;
+	// }
+	// }
+	//
+	//
 
 	// ── Keyboard state machine ───────────────────────────────────────────
 

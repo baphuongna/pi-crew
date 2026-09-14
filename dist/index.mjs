@@ -27893,15 +27893,7 @@ var init_widget_model = __esm({
 // src/ui/agents-jobs-browser.ts
 import { existsSync as existsSync24, readdirSync as readdirSync13 } from "node:fs";
 import { join as join33 } from "node:path";
-import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
-function watchAgentTranscriptScript() {
-  const candidates = [
-    fileURLToPath4(new URL("../../scripts/watch-agent-transcript.mjs", import.meta.url)),
-    fileURLToPath4(new URL("../scripts/watch-agent-transcript.mjs", import.meta.url))
-  ];
-  return candidates.find((c) => existsSync24(c));
-}
 function recordTokPerSec(record, nowMs3) {
   if (record.status !== "running") return void 0;
   try {
@@ -27929,16 +27921,12 @@ function detectViewSurfaceKind(env) {
   if (snapshot.herdrEnv) return "herdr";
   return null;
 }
-function shellQuote(value) {
-  return `'${value.replaceAll("'", `'\\''`)}'`;
-}
 var REFRESH_TTL_MS_DEFAULT, POLL_INTERVAL_MS, MIN_BODY, MAX_BODY, MAX_LIST_WIDTH, AgentsJobsBrowser;
 var init_agents_jobs_browser = __esm({
   "src/ui/agents-jobs-browser.ts"() {
     "use strict";
     init_handle_schedule();
     init_crew_agent_records();
-    init_live_agent_manager();
     init_resolve_surface();
     init_usage_tracker();
     init_atomic_write();
@@ -28011,10 +27999,12 @@ var init_agents_jobs_browser = __esm({
           this.pollTimer = void 0;
         }
       }
-      setNotice(text) {
-        this.notice = { text, until: this.nowMs() + 2500 };
-        this.options.requestRender?.();
-      }
+      // Retired with the p key (2026-09-14): kept for the future "focus the
+      // existing surface pane" key. Re-wire before uncommenting.
+      // private setNotice(text: string): void {
+      // 	this.notice = { text, until: this.nowMs() + 2500 };
+      // 	this.options.requestRender?.();
+      // }
       nowMs() {
         return this.options.now ? this.options.now() : Date.now();
       }
@@ -28184,38 +28174,49 @@ var init_agents_jobs_browser = __esm({
         if (this.options.surfaceReachable !== void 0) return this.options.surfaceReachable;
         return detectViewSurfaceKind(process.env) !== null;
       }
-      /**
-       * [p] — open a mux viewer pane tailing the selected agent's events log.
-       * Reuses the EXISTING provider primitives (surfaceProviderForCleanup →
-       * createSurface); fire-and-forget from the sync handleInput.
-       */
-      surfaceSelectedAgent(entry) {
-        const action = this.options.surfaceAgent ?? this.defaultSurfaceAgent.bind(this);
-        void action(entry, this.tailPathFor(entry)).catch(() => {
-        });
-      }
-      async defaultSurfaceAgent(entry, tailPath) {
-        try {
-          const kind = detectViewSurfaceKind(process.env);
-          if (!kind || !tailPath) return false;
-          const watcherScript = watchAgentTranscriptScript();
-          const provider = surfaceProviderForCleanup(kind);
-          if (!provider) return false;
-          await provider.createSurface(`crew-view-${entry.taskId.slice(0, 12)}`, {
-            cwd: this.options.cwd,
-            // Watcher formats the session transcript one readable line per
-            // message (live "what is the agent doing") — raw tail would
-            // show unbounded JSON walls. Missing script (unexpected layout)
-            // degrades to plain tail so the pane still opens.
-            command: watcherScript ? `${shellQuote(process.execPath)} ${shellQuote(watcherScript)} ${shellQuote(tailPath)}` : `tail -n 40 -F ${shellQuote(tailPath)}`,
-            title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`
-          });
-          return true;
-        } catch (error) {
-          logInternalError("agents-jobs-browser", error instanceof Error ? error : new Error(String(error)));
-          return false;
-        }
-      }
+      // (retired with the p key, 2026-09-14 — kept for the future 'focus the
+      // existing surface pane' key; see handleInput)
+      // /**
+      // * [p] — open a mux viewer pane tailing the selected agent's events log.
+      // * Reuses the EXISTING provider primitives (surfaceProviderForCleanup →
+      // * createSurface); fire-and-forget from the sync handleInput.
+      // */
+      // private surfaceSelectedAgent(entry: AgentsBrowserAgentEntry): void {
+      // const action = this.options.surfaceAgent ?? this.defaultSurfaceAgent.bind(this);
+      // void action(entry, this.tailPathFor(entry)).catch(() => {
+      // /* provider failure — logged inside defaultSurfaceAgent */
+      // });
+      // }
+      //
+      // private async defaultSurfaceAgent(entry: AgentsBrowserAgentEntry, tailPath: string | undefined): Promise<boolean> {
+      // try {
+      // const kind = detectViewSurfaceKind(process.env);
+      // if (!kind || !tailPath) return false;
+      // const watcherScript = watchAgentTranscriptScript();
+      // const provider = surfaceProviderForCleanup(kind);
+      // if (!provider) return false;
+      // // Legacy (no tabKey) path: the viewer pane splits from the HOST's
+      // // pane, lives independently of any run, and stays open until the
+      // // user closes it — no onExit watcher is registered, so nothing leaks.
+      // await provider.createSurface(`crew-view-${entry.taskId.slice(0, 12)}`, {
+      // cwd: this.options.cwd,
+      // // Watcher formats the session transcript one readable line per
+      // // message (live "what is the agent doing") — raw tail would
+      // // show unbounded JSON walls. Missing script (unexpected layout)
+      // // degrades to plain tail so the pane still opens.
+      // command: watcherScript
+      // ? `${shellQuote(process.execPath)} ${shellQuote(watcherScript)} ${shellQuote(tailPath)}`
+      // : `tail -n 40 -F ${shellQuote(tailPath)}`,
+      // title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`,
+      // });
+      // return true;
+      // } catch (error) {
+      // logInternalError("agents-jobs-browser", error instanceof Error ? error : new Error(String(error)));
+      // return false;
+      // }
+      // }
+      //
+      //
       // ── Keyboard state machine ───────────────────────────────────────────
       /**
        * Overlay input handling (overlays are mutually exclusive — the dashboard's
@@ -48671,14 +48672,14 @@ var init_protocol = __esm({
 });
 
 // src/runtime/scratchpad/engine.ts
-import { fileURLToPath as fileURLToPath5 } from "node:url";
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 var SNAPSHOT_MAX_BYTES, GUEST_PATH;
 var init_engine = __esm({
   "src/runtime/scratchpad/engine.ts"() {
     "use strict";
     init_protocol();
     SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
-    GUEST_PATH = fileURLToPath5(new URL("./guest.ts", import.meta.url));
+    GUEST_PATH = fileURLToPath4(new URL("./guest.ts", import.meta.url));
   }
 });
 
@@ -67925,7 +67926,7 @@ __export(team_runner_exports, {
 import { spawn as spawn7 } from "node:child_process";
 import * as fs104 from "node:fs";
 import * as path83 from "node:path";
-import { fileURLToPath as fileURLToPath6 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 function startTeamRunHeartbeat(stateRoot, runId) {
   const heartbeatPath = path83.join(stateRoot, "heartbeat.json");
   const writeHeartbeat = () => {
@@ -67952,8 +67953,8 @@ function startTeamRunHeartbeat(stateRoot, runId) {
 function perfScriptPath(scriptName) {
   try {
     const candidates = [
-      fileURLToPath6(new URL(`../../scripts/${scriptName}`, import.meta.url)),
-      fileURLToPath6(new URL(`../scripts/${scriptName}`, import.meta.url))
+      fileURLToPath5(new URL(`../../scripts/${scriptName}`, import.meta.url)),
+      fileURLToPath5(new URL(`../scripts/${scriptName}`, import.meta.url))
     ];
     return candidates.find((p) => fs104.existsSync(p));
   } catch {
@@ -74790,9 +74791,9 @@ var init_confirm_overlay = __esm({
   "src/ui/overlays/confirm-overlay.ts"() {
     "use strict";
     init_visual();
+    init_key_utils();
     init_layout_primitives();
     init_theme_adapter();
-    init_key_utils();
     ConfirmOverlay = class {
       opts;
       done;
@@ -75060,10 +75061,10 @@ var init_mailbox_compose_overlay = __esm({
   "src/ui/overlays/mailbox-compose-overlay.ts"() {
     "use strict";
     init_visual();
+    init_key_utils();
     init_theme_adapter();
     init_confirm_overlay();
     init_mailbox_compose_preview();
-    init_key_utils();
     FIELD_ORDER = ["from", "to", "body", "taskId", "direction"];
     MailboxComposeOverlay = class {
       done;

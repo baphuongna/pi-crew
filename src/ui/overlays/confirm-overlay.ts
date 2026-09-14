@@ -1,7 +1,7 @@
 import { pad, truncate } from "../../utils/visual.ts";
+import { matchesKey } from "../key-utils.ts";
 import { Box, Text } from "../layout-primitives.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
-import { matchesKey } from "../key-utils.ts";
 
 export interface ConfirmOptions {
 	title: string;

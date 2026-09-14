@@ -1,9 +1,9 @@
 import type { MailboxDirection } from "../../state/coordination/mailbox.ts";
 import { pad, truncate } from "../../utils/visual.ts";
+import { matchesKey } from "../key-utils.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { ConfirmOverlay } from "./confirm-overlay.ts";
 import { renderComposePreview } from "./mailbox-compose-preview.ts";
-import { matchesKey } from "../key-utils.ts";
 
 export interface MailboxComposePayload {
 	from: string;

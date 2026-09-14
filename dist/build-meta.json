@@ -8742,7 +8742,7 @@
       "format": "esm"
     },
     "src/ui/agents-jobs-browser.ts": {
-      "bytes": 34610,
+      "bytes": 34867,
       "imports": [
         {
           "path": "node:fs",
@@ -8773,11 +8773,6 @@
           "path": "src/runtime/crew-agent-records.ts",
           "kind": "import-statement",
           "original": "../runtime/crew-agent-records.ts"
-        },
-        {
-          "path": "src/runtime/live-session/live-agent-manager.ts",
-          "kind": "import-statement",
-          "original": "../runtime/live-session/live-agent-manager.ts"
         },
         {
           "path": "src/runtime/surface/resolve-surface.ts",
@@ -18312,6 +18307,11 @@
           "original": "../../utils/visual.ts"
         },
         {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "../key-utils.ts"
+        },
+        {
           "path": "src/ui/layout-primitives.ts",
           "kind": "import-statement",
           "original": "../layout-primitives.ts"
@@ -18320,11 +18320,6 @@
           "path": "src/ui/theme-adapter.ts",
           "kind": "import-statement",
           "original": "../theme-adapter.ts"
-        },
-        {
-          "path": "src/ui/key-utils.ts",
-          "kind": "import-statement",
-          "original": "../key-utils.ts"
         }
       ],
       "format": "esm"
@@ -18385,6 +18380,11 @@
           "original": "../../utils/visual.ts"
         },
         {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "../key-utils.ts"
+        },
+        {
           "path": "src/ui/theme-adapter.ts",
           "kind": "import-statement",
           "original": "../theme-adapter.ts"
@@ -18398,11 +18398,6 @@
           "path": "src/ui/overlays/mailbox-compose-preview.ts",
           "kind": "import-statement",
           "original": "./mailbox-compose-preview.ts"
-        },
-        {
-          "path": "src/ui/key-utils.ts",
-          "kind": "import-statement",
-          "original": "../key-utils.ts"
         }
       ],
       "format": "esm"
@@ -21319,7 +21314,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8123491
+      "bytes": 8122725
     },
     "dist/index.mjs": {
       "imports": [
@@ -21890,11 +21885,6 @@
         },
         {
           "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:url",
           "kind": "import-statement",
           "external": true
         },
@@ -24322,7 +24312,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/agents-jobs-browser.ts": {
-          "bytesInOutput": 22484
+          "bytesInOutput": 22784
         },
         "src/ui/live-conversation-overlay.ts": {
           "bytesInOutput": 6106
@@ -25627,7 +25617,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3387108
+      "bytes": 3387408
     }
   }
 }
