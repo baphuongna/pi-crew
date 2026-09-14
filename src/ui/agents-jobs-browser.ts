@@ -580,21 +580,23 @@ export class AgentsJobsBrowser {
 				}
 				return;
 			}
-			if (matchesKey(data, "p")) {
-				const entry = this.cachedEntries[this.selected];
-				if (entry && entry.kind === "agent") {
-					if (!this.surfaceReachable()) {
-						// Live feedback (2026-09-14): pressing p outside tmux/herdr
-						// used to swallow the key silently — "p không hoạt động".
-						this.setNotice("⚠ no tmux/herdr surface — pi must run inside tmux OR herdr for panes");
-					} else {
-						// Always open the pane — the watcher itself waits for the
-						// transcript file to appear (cold-start window, round 8).
-						this.surfaceSelectedAgent(entry);
-					}
-				}
-				return;
-			}
+			// DISABLED (2026-09-14, user): the p watcher pane did NOT meet the
+			// spec — "pane phải mở lên 1 session hoàn chỉnh, xem trực tiếp live
+			// session, không được resume". Live sessions now come from
+			// runtime.surface (visibleAgents: ["agent"]) which boots workers as
+			// real pi TUIs in their own panes; this transcript-watcher pane is
+			// retired until it can FOCUS an existing surface pane instead.
+			// if (matchesKey(data, "p")) {
+			// 	const entry = this.cachedEntries[this.selected];
+			// 	if (entry && entry.kind === "agent") {
+			// 		if (!this.surfaceReachable()) {
+			// 			this.setNotice("⚠ no tmux/herdr surface — pi must run inside tmux OR herdr for panes");
+			// 		} else {
+			// 			this.surfaceSelectedAgent(entry);
+			// 		}
+			// 	}
+			// 	return;
+			// }
 			if (matchesKey(data, "q") || matchesKey(data, "escape")) {
 				this.close();
 				return;
@@ -688,10 +690,7 @@ export class AgentsJobsBrowser {
 	}
 
 	private hintRow(): string {
-		const base =
-			this.focus === "list"
-				? `[↑↓] move · [⏎] transcript${this.surfaceReachable() ? " · [p] pane" : ""} · [q] close`
-				: "[↑↓] scroll · [⏎/Esc] back";
+		const base = this.focus === "list" ? "[↑↓] move · [⏎] transcript · [q] close" : "[↑↓] scroll · [⏎/Esc] back";
 		return base;
 	}
 

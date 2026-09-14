@@ -28249,17 +28249,6 @@ var init_agents_jobs_browser = __esm({
             }
             return;
           }
-          if (matchesKey(data, "p")) {
-            const entry = this.cachedEntries[this.selected];
-            if (entry && entry.kind === "agent") {
-              if (!this.surfaceReachable()) {
-                this.setNotice("\u26A0 no tmux/herdr surface \u2014 pi must run inside tmux OR herdr for panes");
-              } else {
-                this.surfaceSelectedAgent(entry);
-              }
-            }
-            return;
-          }
           if (matchesKey(data, "q") || matchesKey(data, "escape")) {
             this.close();
             return;
@@ -28330,7 +28319,7 @@ var init_agents_jobs_browser = __esm({
         return this.cachedEntries.filter((entry) => entry.kind === "job").length;
       }
       hintRow() {
-        const base = this.focus === "list" ? `[\u2191\u2193] move \xB7 [\u23CE] transcript${this.surfaceReachable() ? " \xB7 [p] pane" : ""} \xB7 [q] close` : "[\u2191\u2193] scroll \xB7 [\u23CE/Esc] back";
+        const base = this.focus === "list" ? "[\u2191\u2193] move \xB7 [\u23CE] transcript \xB7 [q] close" : "[\u2191\u2193] scroll \xB7 [\u23CE/Esc] back";
         return base;
       }
       /** LEFT column: section labels + unified rows, windowed around selection. */

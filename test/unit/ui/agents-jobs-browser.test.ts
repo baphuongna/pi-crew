@@ -181,40 +181,31 @@ test("q or raw ESC closes the browser from list focus", () => {
 	browser.dispose();
 });
 
-test("[p] triggers surface only for agent entries on a reachable surface", () => {
-	const opened: string[] = [];
-	const browser = new AgentsJobsBrowser({
-		cwd: tmpCwd,
-		now: () => NOW,
-		refreshTtlMs: 0,
-		agentsProvider: () => [agent({ taskId: "a", status: "running" })],
-		jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
-		surfaceReachable: false,
-		surfaceAgent: async (entry: AgentsBrowserAgentEntry) => {
-			opened.push(entry.taskId);
-			return true;
-		},
-	});
-	browser.handleInput("p");
-	assert.deepEqual(opened, [], "surface unreachable → no-op");
-	browser.dispose();
-
-	const opened2: string[] = [];
-	const browser2 = new AgentsJobsBrowser({
-		cwd: tmpCwd,
-		now: () => NOW,
-		refreshTtlMs: 0,
-		agentsProvider: () => [agent({ taskId: "a", status: "running" })],
-		jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
-		surfaceReachable: true,
-		surfaceAgent: async (entry: AgentsBrowserAgentEntry) => {
-			opened2.push(entry.taskId);
-			return true;
-		},
-	});
-	browser2.handleInput("p");
-	assert.deepEqual(opened2, ["a"], "surface reachable → pane requested");
-	browser2.dispose();
+test("[p] is disabled (retired watcher pane) — a no-op on every surface state", () => {
+	// DISABLED (2026-09-14, user): p's transcript-watcher pane did not meet the
+	// "live pi session" spec — live sessions now come from runtime.surface
+	// (workers boot as real pi TUIs in their own panes). p must do NOTHING:
+	// no pane spawn, no notice, focus unchanged.
+	for (const surfaceReachable of [false, true]) {
+		const spawned: string[] = [];
+		const browser = new AgentsJobsBrowser({
+			cwd: tmpdir(),
+			now: () => NOW,
+			refreshTtlMs: 0,
+			surfaceReachable,
+			surfaceAgent: async (entry) => {
+				spawned.push(entry.taskId);
+				return true;
+			},
+			agentsProvider: () => [agent({ taskId: "a", status: "running" })],
+			jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
+		});
+		browser.handleInput("p");
+		assert.deepEqual(spawned, [], "no pane spawned");
+		assert.equal(browser.focusMode, "list", "focus untouched");
+		assert.doesNotMatch(browser.render(100)[0] ?? "", /no tmux\/herdr/, "no notice fired");
+		browser.dispose();
+	}
 });
 
 // ─── Width discipline ──────────────────────────────────────────────────────
@@ -369,43 +360,6 @@ test("Enter on an agent fires onOpenTranscript seam; job still focuses inline de
 	browser.handleInput("\r");
 	assert.equal(opened.length, 0, "jobs do not use the transcript seam");
 	assert.equal(browser.focusMode, "detail", "job Enter focuses the inline detail column");
-	browser.dispose();
-});
-
-test("p outside a tmux/herdr surface shows a header notice instead of silence", () => {
-	let rendered = 0;
-	const browser = new AgentsJobsBrowser({
-		cwd: tmpdir(),
-		now: () => Date.UTC(2026, 8, 14, 12),
-		refreshTtlMs: 0,
-		surfaceReachable: false, // no tmux/herdr — the live case that swallowed `p`
-		requestRender: () => rendered++,
-		agentsProvider: () => [{ kind: "agent", runId: "r1", taskId: "t1", role: "Explorer", status: "running" }],
-		jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
-	});
-	browser.handleInput("p");
-	assert.ok(rendered > 0, "notice triggers a re-render");
-	const header = browser.render(100)[0] ?? "";
-	assert.match(header, /no tmux\/herdr surface/g, `header explains the dead key: ${header}`);
-	// Notice expiry is covered by the next test.
-	browser.dispose();
-});
-
-test("notice expires and the top border returns to counts", () => {
-	let clock = Date.UTC(2026, 8, 14, 12);
-	const browser = new AgentsJobsBrowser({
-		cwd: tmpdir(),
-		now: () => clock,
-		refreshTtlMs: 0,
-		surfaceReachable: false,
-		agentsProvider: () => [{ kind: "agent", runId: "r1", taskId: "t1", role: "Explorer", status: "running" }],
-		jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
-	});
-	browser.handleInput("p");
-	assert.match(browser.render(100)[0] ?? "", /no tmux\/herdr surface/g);
-	clock += 3000; // past the 2.5s notice window
-	assert.doesNotMatch(browser.render(100)[0] ?? "", /no tmux\/herdr surface/g);
-	assert.match(browser.render(100)[0] ?? "", /1 agent/);
 	browser.dispose();
 });
 
