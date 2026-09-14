@@ -8742,7 +8742,7 @@
       "format": "esm"
     },
     "src/ui/agents-jobs-browser.ts": {
-      "bytes": 32462,
+      "bytes": 33405,
       "imports": [
         {
           "path": "node:fs",
@@ -8783,6 +8783,11 @@
           "path": "src/runtime/usage-tracker.ts",
           "kind": "import-statement",
           "original": "../runtime/usage-tracker.ts"
+        },
+        {
+          "path": "src/state/atomic-write.ts",
+          "kind": "import-statement",
+          "original": "../state/atomic-write.ts"
         },
         {
           "path": "src/state/stores/state-store.ts",
@@ -8963,7 +8968,7 @@
       "format": "esm"
     },
     "src/extension/registration/viewers.ts": {
-      "bytes": 6159,
+      "bytes": 6137,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -21299,7 +21304,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8120500
+      "bytes": 8121802
     },
     "dist/index.mjs": {
       "imports": [
@@ -24287,7 +24292,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/agents-jobs-browser.ts": {
-          "bytesInOutput": 21668
+          "bytesInOutput": 22572
         },
         "src/ui/live-conversation-overlay.ts": {
           "bytesInOutput": 6106
@@ -24308,7 +24313,7 @@
           "bytesInOutput": 16890
         },
         "src/extension/registration/viewers.ts": {
-          "bytesInOutput": 4776
+          "bytesInOutput": 4750
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
           "bytesInOutput": 958
@@ -25592,7 +25597,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3386120
+      "bytes": 3386998
     }
   }
 }

@@ -18,6 +18,15 @@ function agent(partial: Partial<AgentsBrowserAgentEntry>): AgentsBrowserAgentEnt
 		taskId: "task-x",
 		role: "Explorer",
 		status: "completed",
+		// Completed agents carry the transcript on the durable record; `p`
+		// watchers it. (Running agents resolve via record.statusPath instead.)
+		record: {
+			taskId: "task-x",
+			agent: "explorer",
+			role: "Explorer",
+			status: "completed",
+			transcriptPath: "/tmp/crew-test/transcript.jsonl",
+		} as never,
 		...partial,
 	};
 }
@@ -392,4 +401,50 @@ test("notice expires and the top border returns to counts", () => {
 	assert.doesNotMatch(browser.render(100)[0] ?? "", /no tmux\/herdr surface/g);
 	assert.match(browser.render(100)[0] ?? "", /1 agent/);
 	browser.dispose();
+});
+
+test("transcriptPathFor falls back to status.json while the agent is RUNNING", () => {
+	// Live bug (2026-09-14): agents.json records for running agents carry
+	// transcriptPath=null; the live path only exists in the per-agent
+	// status.json (record.statusPath). Without the fallback, `p` died
+	// silently on every running agent.
+	const dir = mkdtempSync(join(tmpdir(), "crew-browser-status-"));
+	try {
+		const transcriptPath = join(dir, "transcripts", "01_01-agent.attempt-0.jsonl");
+		mkdirSync(join(dir, "transcripts"), { recursive: true });
+		writeFileSync(transcriptPath, "");
+		const statusPath = join(dir, "status.json");
+		writeFileSync(statusPath, JSON.stringify({ transcriptPath }));
+		const browser = new AgentsJobsBrowser({
+			cwd: dir,
+			now: () => Date.UTC(2026, 8, 14, 12),
+			refreshTtlMs: 0,
+			agentsProvider: () => [
+				{
+					kind: "agent",
+					runId: "r1",
+					taskId: "t1",
+					role: "Explorer",
+					status: "running",
+					record: {
+						taskId: "t1",
+						agent: "explorer",
+						role: "Explorer",
+						status: "running",
+						statusPath,
+						transcriptPath: undefined,
+					} as never,
+				},
+			],
+			jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
+		});
+		const entry = browser.entriesView[0];
+		assert.ok(entry && entry.kind === "agent");
+		if (entry.kind === "agent") {
+			assert.equal(browser.transcriptPathFor(entry), transcriptPath, "running agent resolves via status.json");
+		}
+		browser.dispose();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

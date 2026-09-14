@@ -170,8 +170,7 @@ export async function openAgentsJobsBrowser(
 			overlayOptions: {
 				width: "92%",
 				maxHeight: "70%",
-				anchor: "bottom-center",
-				margin: 0,
+				anchor: "center",
 			},
 		},
 	);

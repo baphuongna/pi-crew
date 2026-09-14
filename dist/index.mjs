@@ -27940,6 +27940,7 @@ var init_agents_jobs_browser = __esm({
     init_live_agent_manager();
     init_resolve_surface();
     init_usage_tracker();
+    init_atomic_write();
     init_state_store();
     init_internal_error();
     init_relative_time();
@@ -28141,10 +28142,29 @@ var init_agents_jobs_browser = __esm({
       }
       // ── [p] surface action ───────────────────────────────────────────────
       /** Best-effort tail target for the selected agent: events log first. */
-      /** Session transcript path for the watcher pane — the agent's actual conversation stream. */
+      /**
+       * Session transcript path for the watcher pane — the agent's actual
+       * conversation stream.
+       *
+       * Three tiers (live bug 2026-09-14: `agents.json` records for RUNNING
+       * agents have transcriptPath=NULL — the path only lands there on
+       * completion. The live source is the per-agent status.json that
+       * live-executor maintains from the first turn, pointed to by
+       * record.statusPath. Without this tier, `p` died silently on every
+       * running agent.)
+       */
       transcriptPathFor(entry) {
         const record = entry.record ?? this.recordFor(entry.runId, entry.taskId);
-        return record?.transcriptPath ?? void 0;
+        if (!record) return void 0;
+        if (record.transcriptPath) return record.transcriptPath;
+        if (record.statusPath) {
+          try {
+            const status = readJsonFile(record.statusPath);
+            if (status?.transcriptPath) return status.transcriptPath;
+          } catch {
+          }
+        }
+        return void 0;
       }
       tailPathFor(entry) {
         return this.transcriptPathFor(entry);
@@ -28221,10 +28241,12 @@ var init_agents_jobs_browser = __esm({
           if (matchesKey(data, "p")) {
             const entry = this.cachedEntries[this.selected];
             if (entry && entry.kind === "agent") {
-              if (this.surfaceReachable()) {
-                this.surfaceSelectedAgent(entry);
-              } else {
+              if (!this.surfaceReachable()) {
                 this.setNotice("\u26A0 no tmux/herdr surface \u2014 pi must run inside tmux OR herdr for panes");
+              } else if (!this.transcriptPathFor(entry)) {
+                this.setNotice("\u26A0 no transcript for this agent yet \u2014 retry in a moment");
+              } else {
+                this.surfaceSelectedAgent(entry);
               }
             }
             return;
@@ -29593,8 +29615,7 @@ async function openAgentsJobsBrowser(ctx) {
       overlayOptions: {
         width: "92%",
         maxHeight: "70%",
-        anchor: "bottom-center",
-        margin: 0
+        anchor: "center"
       }
     }
   );

@@ -57,6 +57,7 @@ import { type LiveAgentHandle, listLiveAgents, listLiveAgentsByWorkspace } from 
 import type { ScheduledJob } from "../runtime/scheduling/scheduler.ts";
 import { surfaceGateEnvSnapshot, surfaceProviderForCleanup } from "../runtime/surface/resolve-surface.ts";
 import { getTaskUsage } from "../runtime/usage-tracker.ts";
+import { readJsonFile } from "../state/atomic-write.ts";
 import { loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -436,10 +437,30 @@ export class AgentsJobsBrowser {
 	// ── [p] surface action ───────────────────────────────────────────────
 
 	/** Best-effort tail target for the selected agent: events log first. */
-	/** Session transcript path for the watcher pane — the agent's actual conversation stream. */
+	/**
+	 * Session transcript path for the watcher pane — the agent's actual
+	 * conversation stream.
+	 *
+	 * Three tiers (live bug 2026-09-14: `agents.json` records for RUNNING
+	 * agents have transcriptPath=NULL — the path only lands there on
+	 * completion. The live source is the per-agent status.json that
+	 * live-executor maintains from the first turn, pointed to by
+	 * record.statusPath. Without this tier, `p` died silently on every
+	 * running agent.)
+	 */
 	transcriptPathFor(entry: AgentsBrowserAgentEntry): string | undefined {
 		const record = entry.record ?? this.recordFor(entry.runId, entry.taskId);
-		return record?.transcriptPath ?? undefined;
+		if (!record) return undefined;
+		if (record.transcriptPath) return record.transcriptPath;
+		if (record.statusPath) {
+			try {
+				const status = readJsonFile<{ transcriptPath?: string }>(record.statusPath);
+				if (status?.transcriptPath) return status.transcriptPath;
+			} catch {
+				/* status file mid-write — fall through */
+			}
+		}
+		return undefined;
 	}
 
 	tailPathFor(entry: AgentsBrowserAgentEntry): string | undefined {
@@ -538,12 +559,15 @@ export class AgentsJobsBrowser {
 			if (matchesKey(data, "p")) {
 				const entry = this.cachedEntries[this.selected];
 				if (entry && entry.kind === "agent") {
-					if (this.surfaceReachable()) {
-						this.surfaceSelectedAgent(entry);
-					} else {
+					if (!this.surfaceReachable()) {
 						// Live feedback (2026-09-14): pressing p outside tmux/herdr
 						// used to swallow the key silently — "p không hoạt động".
 						this.setNotice("⚠ no tmux/herdr surface — pi must run inside tmux OR herdr for panes");
+					} else if (!this.transcriptPathFor(entry)) {
+						// Running agents whose status.json has not landed yet.
+						this.setNotice("⚠ no transcript for this agent yet — retry in a moment");
+					} else {
+						this.surfaceSelectedAgent(entry);
 					}
 				}
 				return;
