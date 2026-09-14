@@ -47,7 +47,8 @@
  * dashboard overlay, so headless sessions never reach it.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { getScheduledJobs, getScheduledJobsHiddenCountView } from "../extension/team-tool/handle-schedule.ts";
@@ -87,6 +88,9 @@ export interface AgentsBrowserAgentEntry {
 	tokPerSec?: number;
 	/** Durable record for detail rendering; undefined when manifest is gone. */
 	record?: CrewAgentRecord;
+	/** Manifest from the widget pipeline (activeWidgetRuns) — avoids a second
+	 *  lookup through state-store whose root resolution differs from run-index. */
+	manifest?: TeamRunManifest;
 	/** Live handle when the agent is still tracked in-process. */
 	handle?: LiveAgentHandle;
 }
@@ -342,6 +346,7 @@ export class AgentsJobsBrowser {
 					status: record.status,
 					tokPerSec: recordTokPerSec(record, nowMs),
 					record,
+					manifest: run,
 				});
 			}
 		}
@@ -450,14 +455,32 @@ export class AgentsJobsBrowser {
 	 */
 	transcriptPathFor(entry: AgentsBrowserAgentEntry): string | undefined {
 		const record = entry.record ?? this.recordFor(entry.runId, entry.taskId);
-		if (!record) return undefined;
-		if (record.transcriptPath) return record.transcriptPath;
-		if (record.statusPath) {
+		if (record?.transcriptPath) return record.transcriptPath;
+		if (record?.statusPath) {
 			try {
 				const status = readJsonFile<{ transcriptPath?: string }>(record.statusPath);
 				if (status?.transcriptPath) return status.transcriptPath;
 			} catch {
 				/* status file mid-write — fall through */
+			}
+		}
+		// Tier 3 (live probe 2026-09-14, round 6): for a RUNNING agent neither
+		// agents.json nor status.json carries transcriptPath yet — but the
+		// transcript FILE exists from the first turn at
+		// `<artifactsRoot>/transcripts/<taskId>.attempt-N.jsonl` (child-executor
+		// convention). Resolve by convention and pick the highest attempt.
+		const manifest = entry.manifest ?? this.manifestFor(entry.runId);
+		if (manifest?.artifactsRoot) {
+			try {
+				const dir = join(manifest.artifactsRoot, "transcripts");
+				const hit = readdirSync(dir)
+					.filter((name) => name.startsWith(`${entry.taskId}.attempt-`) && name.endsWith(".jsonl"))
+					.sort()
+					.at(-1);
+				const candidate = hit ? join(dir, hit) : undefined;
+				if (candidate && existsSync(candidate)) return candidate;
+			} catch {
+				/* no transcripts dir yet */
 			}
 		}
 		return undefined;

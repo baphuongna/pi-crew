@@ -27891,7 +27891,8 @@ var init_widget_model = __esm({
 });
 
 // src/ui/agents-jobs-browser.ts
-import { existsSync as existsSync24 } from "node:fs";
+import { existsSync as existsSync24, readdirSync as readdirSync13 } from "node:fs";
+import { join as join33 } from "node:path";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
 function watchAgentTranscriptScript() {
@@ -28053,7 +28054,8 @@ var init_agents_jobs_browser = __esm({
               agentName: record.agent,
               status: record.status,
               tokPerSec: recordTokPerSec(record, nowMs3),
-              record
+              record,
+              manifest: run
             });
           }
         }
@@ -28155,12 +28157,21 @@ var init_agents_jobs_browser = __esm({
        */
       transcriptPathFor(entry) {
         const record = entry.record ?? this.recordFor(entry.runId, entry.taskId);
-        if (!record) return void 0;
-        if (record.transcriptPath) return record.transcriptPath;
-        if (record.statusPath) {
+        if (record?.transcriptPath) return record.transcriptPath;
+        if (record?.statusPath) {
           try {
             const status = readJsonFile(record.statusPath);
             if (status?.transcriptPath) return status.transcriptPath;
+          } catch {
+          }
+        }
+        const manifest = entry.manifest ?? this.manifestFor(entry.runId);
+        if (manifest?.artifactsRoot) {
+          try {
+            const dir = join33(manifest.artifactsRoot, "transcripts");
+            const hit = readdirSync13(dir).filter((name) => name.startsWith(`${entry.taskId}.attempt-`) && name.endsWith(".jsonl")).sort().at(-1);
+            const candidate = hit ? join33(dir, hit) : void 0;
+            if (candidate && existsSync24(candidate)) return candidate;
           } catch {
           }
         }
@@ -32793,12 +32804,12 @@ var init_crew_hooks = __esm({
 
 // src/runtime/skill-effectiveness.ts
 import { existsSync as existsSync31, mkdirSync as mkdirSync18, readFileSync as readFileSync34, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname22, join as join38 } from "node:path";
+import { dirname as dirname22, join as join39 } from "node:path";
 function getSkillMetricsPath(cwd, runId) {
-  return join38(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
+  return join39(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
 }
 function getSkillActivationsPath(cwd, runId) {
-  return join38(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
+  return join39(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
 }
 function ensureSkillMetricsDir(cwd, runId) {
   const dir = dirname22(getSkillMetricsPath(cwd, runId));
@@ -58796,9 +58807,9 @@ var init_handle_settings = __esm({
 
 // src/extension/team-tool/workflow-manage.ts
 import { existsSync as existsSync57, readFileSync as readFileSync63, rmSync as rmSync19, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname35, join as join65 } from "node:path";
+import { dirname as dirname35, join as join66 } from "node:path";
 function allowedWorkflowDirs(cwd) {
-  return [join65(projectCrewRoot(cwd), "workflows"), join65(userPiRoot(), "workflows"), join65(packageRoot(), "workflows")];
+  return [join66(projectCrewRoot(cwd), "workflows"), join66(userPiRoot(), "workflows"), join66(packageRoot(), "workflows")];
 }
 function validateScriptContent(content) {
   for (const pattern of FORBIDDEN_PATTERNS) {
@@ -58810,7 +58821,7 @@ function validateScriptContent(content) {
 }
 function resolveWorkflowWritePath(cwd, name, scope = "project") {
   assertSafePathId("workflowName", name);
-  const base = scope === "user" ? join65(userPiRoot(), "workflows") : join65(projectCrewRoot(cwd), "workflows");
+  const base = scope === "user" ? join66(userPiRoot(), "workflows") : join66(projectCrewRoot(cwd), "workflows");
   return resolveRealContainedPath(base, `${name}.dwf.ts`);
 }
 function handleWorkflowCreate(params, ctx) {
@@ -59726,7 +59737,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync17, existsSync as existsSync60, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync26, readFileSync as readFileSync65, statSync as statSync46, unlinkSync as unlinkSync9 } from "node:fs";
+import { closeSync as closeSync17, existsSync as existsSync60, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync27, readFileSync as readFileSync65, statSync as statSync46, unlinkSync as unlinkSync9 } from "node:fs";
 import { dirname as dirname38 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -59886,7 +59897,7 @@ var init_goal_state_store = __esm({
         try {
           const root = resolveGoalsRoot(this.cwd);
           if (!existsSync60(root)) return [];
-          const entries = readdirSync26(root);
+          const entries = readdirSync27(root);
           const goals = [];
           for (const entry of entries) {
             if (!entry.endsWith(".json")) continue;
@@ -59950,7 +59961,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash11 } from "node:crypto";
-import { closeSync as closeSync18, existsSync as existsSync61, mkdirSync as mkdirSync37, openSync as openSync18, readdirSync as readdirSync27, readFileSync as readFileSync67, statSync as statSync48, unlinkSync as unlinkSync10, writeFileSync as writeFileSync10 } from "node:fs";
+import { closeSync as closeSync18, existsSync as existsSync61, mkdirSync as mkdirSync37, openSync as openSync18, readdirSync as readdirSync28, readFileSync as readFileSync67, statSync as statSync48, unlinkSync as unlinkSync10, writeFileSync as writeFileSync10 } from "node:fs";
 import * as path73 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path73.resolve(cwd);
@@ -71710,7 +71721,7 @@ __export(dynamic_workflow_runner_exports, {
   runDynamicWorkflow: () => runDynamicWorkflow
 });
 import { readFileSync as readFileSync80 } from "node:fs";
-import { join as join82 } from "node:path";
+import { join as join83 } from "node:path";
 import { transformSync } from "esbuild";
 function assertStructuredCloneable(value, name) {
   try {
@@ -71722,7 +71733,7 @@ function assertStructuredCloneable(value, name) {
 }
 function resolveScriptPath(workflow, cwd) {
   const crewRoot = projectCrewRoot(cwd);
-  const allowedBases = [join82(projectCrewRoot(cwd), "workflows"), join82(userPiRoot(), "workflows"), join82(packageRoot(), "workflows")];
+  const allowedBases = [join83(projectCrewRoot(cwd), "workflows"), join83(userPiRoot(), "workflows"), join83(packageRoot(), "workflows")];
   for (const base of allowedBases) {
     try {
       const real = resolveRealContainedPath(base, workflow.filePath);
@@ -82369,13 +82380,13 @@ init_internal_error();
 // src/extension/crew-vibes/config.ts
 init_env_vars();
 import { existsSync as existsSync78, mkdirSync as mkdirSync45, readFileSync as readFileSync84, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname45, join as join87 } from "node:path";
+import { dirname as dirname45, join as join88 } from "node:path";
 var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
   return getCrewEnv("PI_CREW_HOME")?.trim() || process.env.HOME || process.env.USERPROFILE || "";
 }
 function configPath2() {
-  return join87(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
+  return join88(resolveHome(), ".pi", "agent", "pi-crew-vibes.json");
 }
 var DEFAULT_CONFIG2 = {
   enabled: true,
@@ -82447,14 +82458,14 @@ function saveConfig(config) {
 // src/extension/crew-vibes/provider-usage.ts
 import { readFileSync as readFileSync85 } from "node:fs";
 import { homedir as homedir13 } from "node:os";
-import { join as join88 } from "node:path";
+import { join as join89 } from "node:path";
 function withTimeout(ms, fn) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), ms);
   return fn(controller.signal).finally(() => clearTimeout(timeoutId));
 }
 function piAuthPath() {
-  return join88(homedir13(), ".pi", "agent", "auth.json");
+  return join89(homedir13(), ".pi", "agent", "auth.json");
 }
 function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
@@ -82499,8 +82510,8 @@ function tokenFromHostEntry(entry) {
   return void 0;
 }
 function loadLegacyCopilotToken() {
-  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join88(homedir13(), ".config");
-  const candidates = [join88(configHome, "github-copilot", "hosts.json"), join88(homedir13(), ".github-copilot", "hosts.json")];
+  const configHome = process.env.XDG_CONFIG_HOME?.trim() || join89(homedir13(), ".config");
+  const candidates = [join89(configHome, "github-copilot", "hosts.json"), join89(homedir13(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
       const data = JSON.parse(readFileSync85(hostsPath, "utf8"));

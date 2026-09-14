@@ -328,11 +328,17 @@ test("default agents source mirrors the widget pipeline (state/runs agents.json)
 			refreshTtlMs: 0,
 		});
 		const agents = browser.entriesView.filter((e) => e.kind === "agent");
-		assert.equal(agents.length, 1, `expected 1 agent, got ${agents.length}`);
-		assert.equal(agents[0].role, "Explorer");
-		assert.equal(agents[0].status, "running");
-		const text = browser.render(100).join("\n");
-		assert.match(text, /Live agents \(1\)/);
+		// NOTE (2026-09-14): listRecentRuns merges USER-scope runs too, so a
+		// live workspace may contribute extra agents — assert the FIXTURE agent
+		// is present (the regression guard: Agent-tool runs were invisible).
+		const fixtureAgent = agents.find((e) => e.kind === "agent" && e.taskId === "01_01-agent");
+		assert.ok(fixtureAgent, `fixture agent missing (got ${agents.length} agents)`);
+		if (fixtureAgent?.kind === "agent") {
+			assert.equal(fixtureAgent.role, "Explorer");
+			assert.equal(fixtureAgent.status, "running");
+		}
+		const text = browser.render(120).join("\n");
+		assert.match(text, /Live agents \(\d+\)/);
 		assert.match(text, /Explorer/);
 		browser.dispose();
 	} finally {
@@ -442,6 +448,69 @@ test("transcriptPathFor falls back to status.json while the agent is RUNNING", (
 		assert.ok(entry && entry.kind === "agent");
 		if (entry.kind === "agent") {
 			assert.equal(browser.transcriptPathFor(entry), transcriptPath, "running agent resolves via status.json");
+		}
+		browser.dispose();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("transcriptPathFor tier 3: running agent resolves via artifacts convention", () => {
+	// Live probe round 6 (2026-09-14): while RUNNING, neither agents.json nor
+	// status.json carries transcriptPath — but the transcript FILE exists from
+	// the first turn at <artifactsRoot>/transcripts/<taskId>.attempt-N.jsonl.
+	const dir = mkdtempSync(join(tmpdir(), "crew-browser-tier3-"));
+	try {
+		const runId = "team_test_tier3";
+		const stateRoot = join(dir, ".crew", "state", "runs", runId);
+		mkdirSync(stateRoot, { recursive: true });
+		const artifactsRoot = join(dir, ".crew", "artifacts", runId);
+		const transcriptsDir = join(artifactsRoot, "transcripts");
+		mkdirSync(transcriptsDir, { recursive: true });
+		writeFileSync(join(transcriptsDir, "01_01-agent.attempt-0.jsonl"), "{}\n");
+		const iso = new Date().toISOString();
+		writeFileSync(
+			join(stateRoot, "manifest.json"),
+			JSON.stringify({
+				schemaVersion: 1,
+				runId,
+				sessionId: "sess-tier3",
+				team: "direct-explorer",
+				workflow: "direct-agent",
+				goal: "tier3 fixture",
+				status: "running",
+				createdAt: iso,
+				updatedAt: iso,
+				stateRoot,
+				artifactsRoot,
+			}),
+		);
+		writeFileSync(
+			join(stateRoot, "agents.json"),
+			JSON.stringify([
+				{
+					id: `${runId}:01_01-agent`,
+					runId,
+					taskId: "01_01-agent",
+					agent: "explorer",
+					role: "agent",
+					runtime: "child-process",
+					status: "running",
+					startedAt: iso,
+					// No transcriptPath, no statusPath — exactly the live shape.
+				},
+			]),
+		);
+		const browser = new AgentsJobsBrowser({ cwd: dir, now: () => Date.parse(iso) + 5000, refreshTtlMs: 0 });
+		const entry = browser.entriesView[0];
+		assert.ok(entry && entry.kind === "agent", "fixture agent visible");
+		if (entry?.kind === "agent") {
+			const resolved = browser.transcriptPathFor(entry);
+			assert.equal(
+				resolved,
+				join(artifactsRoot, "transcripts", "01_01-agent.attempt-0.jsonl"),
+				"tier 3 resolves the convention path for a running agent",
+			);
 		}
 		browser.dispose();
 	} finally {
