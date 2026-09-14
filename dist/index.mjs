@@ -62827,7 +62827,9 @@ var init_widget = __esm({
         }
         if (runs.length === 0) {
           this.invalidate();
-          return schedLine ? [truncate(schedLine, width)] : [];
+          const zeroBase = `${schedLine} \u2014 \u2193\xB7enter`;
+          const focused = panel.focused === true;
+          return [truncate(focused ? `\u276F ${zeroBase}` : zeroBase, width)];
         }
         this.ensureTruncated(width);
         if (!compactDock) {
