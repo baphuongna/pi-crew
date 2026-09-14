@@ -8742,8 +8742,13 @@
       "format": "esm"
     },
     "src/ui/agents-jobs-browser.ts": {
-      "bytes": 29853,
+      "bytes": 31133,
       "imports": [
+        {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
@@ -8953,7 +8958,7 @@
       "format": "esm"
     },
     "src/extension/registration/viewers.ts": {
-      "bytes": 5888,
+      "bytes": 6159,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -21289,7 +21294,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8116450
+      "bytes": 8118626
     },
     "dist/index.mjs": {
       "imports": [
@@ -21850,6 +21855,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
           "kind": "import-statement",
           "external": true
         },
@@ -24267,7 +24277,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/agents-jobs-browser.ts": {
-          "bytesInOutput": 20017
+          "bytesInOutput": 20846
         },
         "src/ui/live-conversation-overlay.ts": {
           "bytesInOutput": 6106
@@ -24288,7 +24298,7 @@
           "bytesInOutput": 16890
         },
         "src/extension/registration/viewers.ts": {
-          "bytesInOutput": 4511
+          "bytesInOutput": 4776
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
           "bytesInOutput": 958
@@ -25572,7 +25582,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3384204
+      "bytes": 3385298
     }
   }
 }

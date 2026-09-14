@@ -143,6 +143,11 @@ export async function openAgentsJobsBrowser(
 				columns,
 				rows,
 				requestRender: () => requestRenderTarget(tui),
+				// Enter on an agent opens the full transcript overlay — the
+				// `/crew transcript` experience ("chi tiết như subagent cũ").
+				onOpenTranscript: ({ runId, taskId }) => {
+					void openTranscriptViewer(ctx as ExtensionCommandContext, runId, taskId);
+				},
 			});
 			return {
 				render(width: number) {

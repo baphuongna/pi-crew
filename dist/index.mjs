@@ -27891,7 +27891,15 @@ var init_widget_model = __esm({
 });
 
 // src/ui/agents-jobs-browser.ts
+import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
+function watchAgentTranscriptScript() {
+  try {
+    return fileURLToPath4(new URL("../../scripts/watch-agent-transcript.mjs", import.meta.url));
+  } catch {
+    return fileURLToPath4(new URL("../../../scripts/watch-agent-transcript.mjs", import.meta.url));
+  }
+}
 function recordTokPerSec(record, nowMs3) {
   if (record.status !== "running") return void 0;
   try {
@@ -28126,12 +28134,13 @@ var init_agents_jobs_browser = __esm({
       }
       // ── [p] surface action ───────────────────────────────────────────────
       /** Best-effort tail target for the selected agent: events log first. */
-      tailPathFor(entry) {
+      /** Session transcript path for the watcher pane — the agent's actual conversation stream. */
+      transcriptPathFor(entry) {
         const record = entry.record ?? this.recordFor(entry.runId, entry.taskId);
-        if (record?.eventsPath) return record.eventsPath;
-        const manifest = this.manifestFor(entry.runId);
-        if (manifest) return agentEventsPath(manifest, entry.taskId);
-        return record?.outputPath ?? record?.transcriptPath ?? void 0;
+        return record?.transcriptPath ?? void 0;
+      }
+      tailPathFor(entry) {
+        return this.transcriptPathFor(entry);
       }
       surfaceReachable() {
         if (this.options.surfaceReachable !== void 0) return this.options.surfaceReachable;
@@ -28155,7 +28164,10 @@ var init_agents_jobs_browser = __esm({
           if (!provider) return false;
           await provider.createSurface(`crew-view-${entry.taskId.slice(0, 12)}`, {
             cwd: this.options.cwd,
-            command: `tail -n 40 -F ${shellQuote(tailPath)}`,
+            // Watcher formats the session transcript one readable line per
+            // message (live "what is the agent doing") — raw tail would
+            // show unbounded JSON walls.
+            command: `${shellQuote(process.execPath)} ${shellQuote(watchAgentTranscriptScript())} ${shellQuote(tailPath)}`,
             title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`
           });
           return true;
@@ -28186,6 +28198,11 @@ var init_agents_jobs_browser = __esm({
             return;
           }
           if (matchesKey(data, "return")) {
+            const entry = this.cachedEntries[this.selected];
+            if (entry?.kind === "agent" && this.options.onOpenTranscript) {
+              this.options.onOpenTranscript({ runId: entry.runId, taskId: entry.taskId });
+              return;
+            }
             if (this.cachedEntries.length > 0) {
               this.focus = "detail";
               this.detailScroll = 0;
@@ -28268,7 +28285,7 @@ var init_agents_jobs_browser = __esm({
         return this.cachedEntries.filter((entry) => entry.kind === "job").length;
       }
       hintRow() {
-        const base = this.focus === "list" ? `[\u2191\u2193] move \xB7 [\u23CE] detail${this.surfaceReachable() ? " \xB7 [p] pane" : ""} \xB7 [q] close` : "[\u2191\u2193] scroll \xB7 [\u23CE/Esc] back";
+        const base = this.focus === "list" ? `[\u2191\u2193] move \xB7 [\u23CE] transcript${this.surfaceReachable() ? " \xB7 [p] pane" : ""} \xB7 [q] close` : "[\u2191\u2193] scroll \xB7 [\u23CE/Esc] back";
         return base;
       }
       /** LEFT column: section labels + unified rows, windowed around selection. */
@@ -29534,7 +29551,12 @@ async function openAgentsJobsBrowser(ctx) {
         theme,
         columns,
         rows,
-        requestRender: () => requestRenderTarget(tui)
+        requestRender: () => requestRenderTarget(tui),
+        // Enter on an agent opens the full transcript overlay — the
+        // `/crew transcript` experience ("chi tiết như subagent cũ").
+        onOpenTranscript: ({ runId, taskId }) => {
+          void openTranscriptViewer(ctx, runId, taskId);
+        }
       });
       return {
         render(width) {
@@ -48615,14 +48637,14 @@ var init_protocol = __esm({
 });
 
 // src/runtime/scratchpad/engine.ts
-import { fileURLToPath as fileURLToPath4 } from "node:url";
+import { fileURLToPath as fileURLToPath5 } from "node:url";
 var SNAPSHOT_MAX_BYTES, GUEST_PATH;
 var init_engine = __esm({
   "src/runtime/scratchpad/engine.ts"() {
     "use strict";
     init_protocol();
     SNAPSHOT_MAX_BYTES = 4 * 1024 * 1024;
-    GUEST_PATH = fileURLToPath4(new URL("./guest.ts", import.meta.url));
+    GUEST_PATH = fileURLToPath5(new URL("./guest.ts", import.meta.url));
   }
 });
 
@@ -67869,7 +67891,7 @@ __export(team_runner_exports, {
 import { spawn as spawn7 } from "node:child_process";
 import * as fs104 from "node:fs";
 import * as path83 from "node:path";
-import { fileURLToPath as fileURLToPath5 } from "node:url";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
 function startTeamRunHeartbeat(stateRoot, runId) {
   const heartbeatPath = path83.join(stateRoot, "heartbeat.json");
   const writeHeartbeat = () => {
@@ -67896,8 +67918,8 @@ function startTeamRunHeartbeat(stateRoot, runId) {
 function perfScriptPath(scriptName) {
   try {
     const candidates = [
-      fileURLToPath5(new URL(`../../scripts/${scriptName}`, import.meta.url)),
-      fileURLToPath5(new URL(`../scripts/${scriptName}`, import.meta.url))
+      fileURLToPath6(new URL(`../../scripts/${scriptName}`, import.meta.url)),
+      fileURLToPath6(new URL(`../scripts/${scriptName}`, import.meta.url))
     ];
     return candidates.find((p) => fs104.existsSync(p));
   } catch {

@@ -47,9 +47,10 @@
  * dashboard overlay, so headless sessions never reach it.
  */
 
+import { fileURLToPath } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { getScheduledJobs, getScheduledJobsHiddenCountView } from "../extension/team-tool/handle-schedule.ts";
-import { agentEventsPath, readCrewAgents } from "../runtime/crew-agent-records.ts";
+import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { type LiveAgentHandle, listLiveAgents, listLiveAgentsByWorkspace } from "../runtime/live-session/live-agent-manager.ts";
 import type { ScheduledJob } from "../runtime/scheduling/scheduler.ts";
@@ -114,6 +115,8 @@ export interface AgentsJobsBrowserOptions {
 	rows?: number;
 	/** Test seam: replace the live-agent data source. */
 	agentsProvider?: () => AgentsBrowserAgentEntry[];
+	/** Wired by viewers.ts: open the DurableTranscriptViewer overlay for an agent (the `/crew transcript` experience). */
+	onOpenTranscript?: (entry: { runId: string; taskId: string }) => void;
 	/** Test seam: replace the job data source (G17 provider by default). */
 	jobsProvider?: () => { jobs: ScheduledJob[]; hiddenCount: number };
 	/** Test seam: override surface reachability (default: env probe). */
@@ -154,6 +157,15 @@ export function agentTokPerSec(handle: LiveAgentHandle, nowMs: number): number |
 	if (ms <= 1000) return undefined;
 	const tps = Math.round(totalTokens / (ms / 1000));
 	return tps > 0 ? tps : undefined;
+}
+
+/** Resolve scripts/watch-agent-transcript.mjs in both repo (src) and dist layouts. */
+function watchAgentTranscriptScript(): string {
+	try {
+		return fileURLToPath(new URL("../../scripts/watch-agent-transcript.mjs", import.meta.url));
+	} catch {
+		return fileURLToPath(new URL("../../../scripts/watch-agent-transcript.mjs", import.meta.url));
+	}
 }
 
 /** tok/s for record-based entries (no live handle in this process). */
@@ -411,12 +423,14 @@ export class AgentsJobsBrowser {
 	// ── [p] surface action ───────────────────────────────────────────────
 
 	/** Best-effort tail target for the selected agent: events log first. */
-	tailPathFor(entry: AgentsBrowserAgentEntry): string | undefined {
+	/** Session transcript path for the watcher pane — the agent's actual conversation stream. */
+	transcriptPathFor(entry: AgentsBrowserAgentEntry): string | undefined {
 		const record = entry.record ?? this.recordFor(entry.runId, entry.taskId);
-		if (record?.eventsPath) return record.eventsPath;
-		const manifest = this.manifestFor(entry.runId);
-		if (manifest) return agentEventsPath(manifest, entry.taskId);
-		return record?.outputPath ?? record?.transcriptPath ?? undefined;
+		return record?.transcriptPath ?? undefined;
+	}
+
+	tailPathFor(entry: AgentsBrowserAgentEntry): string | undefined {
+		return this.transcriptPathFor(entry);
 	}
 
 	private surfaceReachable(): boolean {
@@ -447,7 +461,10 @@ export class AgentsJobsBrowser {
 			// user closes it — no onExit watcher is registered, so nothing leaks.
 			await provider.createSurface(`crew-view-${entry.taskId.slice(0, 12)}`, {
 				cwd: this.options.cwd,
-				command: `tail -n 40 -F ${shellQuote(tailPath)}`,
+				// Watcher formats the session transcript one readable line per
+				// message (live "what is the agent doing") — raw tail would
+				// show unbounded JSON walls.
+				command: `${shellQuote(process.execPath)} ${shellQuote(watchAgentTranscriptScript())} ${shellQuote(tailPath)}`,
 				title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`,
 			});
 			return true;
@@ -486,6 +503,15 @@ export class AgentsJobsBrowser {
 				return;
 			}
 			if (matchesKey(data, "return")) {
+				const entry = this.cachedEntries[this.selected];
+				// Agents open the full DurableTranscriptViewer (the `/crew
+				// transcript` overlay — "chi tiết như subagent cũ"); the inline
+				// detail column stays as the quick summary. Jobs keep the
+				// inline detail focus.
+				if (entry?.kind === "agent" && this.options.onOpenTranscript) {
+					this.options.onOpenTranscript({ runId: entry.runId, taskId: entry.taskId });
+					return;
+				}
 				if (this.cachedEntries.length > 0) {
 					this.focus = "detail";
 					this.detailScroll = 0;
@@ -593,7 +619,7 @@ export class AgentsJobsBrowser {
 	private hintRow(): string {
 		const base =
 			this.focus === "list"
-				? `[↑↓] move · [⏎] detail${this.surfaceReachable() ? " · [p] pane" : ""} · [q] close`
+				? `[↑↓] move · [⏎] transcript${this.surfaceReachable() ? " · [p] pane" : ""} · [q] close`
 				: "[↑↓] scroll · [⏎/Esc] back";
 		return base;
 	}

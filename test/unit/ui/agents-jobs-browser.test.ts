@@ -330,3 +330,29 @@ test("default agents source mirrors the widget pipeline (state/runs agents.json)
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("Enter on an agent fires onOpenTranscript seam; job still focuses inline detail", () => {
+	const opened: Array<{ runId: string; taskId: string }> = [];
+	const browser = new AgentsJobsBrowser({
+		cwd: tmpdir(),
+		now: () => Date.UTC(2026, 8, 14, 12),
+		refreshTtlMs: 0,
+		agentsProvider: () => [{ kind: "agent", runId: "r1", taskId: "t1", role: "Explorer", status: "running" }],
+		jobsProvider: () => ({
+			jobs: [job()],
+			hiddenCount: 0,
+		}),
+		onOpenTranscript: (entry) => opened.push(entry),
+	});
+	browser.handleInput("\r");
+	assert.deepEqual(opened, [{ runId: "r1", taskId: "t1" }], "Enter opens the transcript overlay via the seam");
+	assert.equal(browser.focusMode, "list", "focus stays on list — the overlay owns the detail now");
+
+	// Move down to the job row (agents sort before jobs) and Enter → inline detail.
+	opened.length = 0;
+	browser.handleInput("j");
+	browser.handleInput("\r");
+	assert.equal(opened.length, 0, "jobs do not use the transcript seam");
+	assert.equal(browser.focusMode, "detail", "job Enter focuses the inline detail column");
+	browser.dispose();
+});
