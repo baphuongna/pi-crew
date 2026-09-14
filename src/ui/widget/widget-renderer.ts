@@ -44,7 +44,7 @@ const ERROR_STATUSES = new Set(["failed", "cancelled", "stopped", "needs_attenti
 
 // ── Header ────────────────────────────────────────────────────────────
 
-export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines = 20, notificationCount = 0): string {
+export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines = 20, notificationCount = 0, schedSegment?: string): string {
 	const agents = runs.flatMap((item) => item.agents);
 	const runningAgents = agents.filter((a) => a.status === "running").length;
 	const queuedAgents = agents.filter((a) => a.status === "queued").length;
@@ -54,7 +54,15 @@ export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines =
 	if (queuedAgents) parts.push(`${queuedAgents} queued`);
 	if (waitingAgents) parts.push(`${waitingAgents} waiting`);
 	if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
-	return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} · ${parts.join(" · ")} · /team-dashboard`;
+	// Tier C (merged 2026-09-14): the header is the widget's ONE compact status
+	// row in detailed mode — agent stats + the schedules segment on a single
+	// line, with the `/team-dashboard` hint still trailing so it stays
+	// reachable. `schedSegment` is the ALREADY-BUILT `⏰ …` string (jobs, hidden
+	// count, and clock are all injected upstream — buildWidgetLines); undefined
+	// means nothing schedules-related paints and the header stays
+	// byte-identical to the pre-merge format.
+	const sched = schedSegment ? ` · ${schedSegment}` : "";
+	return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} · ${parts.join(" · ")}${sched} · /team-dashboard`;
 }
 
 // ── Agent ordering (shared with the inline panel) ──────────────────────
@@ -200,6 +208,7 @@ function compactDockLines(
 	notificationCount: number,
 	runningGlyph: string,
 	nowMs: number,
+	schedLine?: string,
 ): string[] {
 	const flat: Array<{
 		run: TeamRunManifest;
@@ -219,8 +228,10 @@ function compactDockLines(
 	}
 
 	// No agents at all: fall back to the legacy header so the space under the
-	// editor is never just blank.
-	if (flat.length === 0) return [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
+	// editor is never just blank. The header IS the count row in this fallback,
+	// so it carries the merged schedules segment — and the separate ⏰ push at
+	// the end must NOT run (the flat-empty early return never reaches it).
+	if (flat.length === 0) return [truncate(widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine), width)];
 
 	const lines: string[] = [];
 	let hint: string;
@@ -230,7 +241,12 @@ function compactDockLines(
 	} else if (options.focused) {
 		hint = "enter to view · x to stop/cancel · esc back";
 	} else {
-		hint = `agents (${flat.length}) — ↓ to select`;
+		// Tier C (merged 2026-09-14): the idle hint is the dock's ONE compact
+		// status row — `agents (N) · ⏰ … — ↓ to select`. The schedules segment
+		// is injected (built once in buildWidgetLines from the injected
+		// jobs/hidden readers + clock); when nothing schedules-related paints,
+		// the legacy `agents (N) — ↓ to select` hint stays byte-identical.
+		hint = `agents (${flat.length})${schedLine ? ` · ${schedLine}` : ""} — ↓ to select`;
 	}
 	lines.push(truncate(hint, width));
 	// Filled ● = you're on the main conversation; hollow ◯ = an agent view is
@@ -247,6 +263,13 @@ function compactDockLines(
 		lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle, nowMs));
 	}
 	if (windowEnd < flat.length) lines.push(truncate(`  … +${flat.length - windowEnd} more (↓ to scroll)`, width));
+	// Tier C (merged 2026-09-14): while the panel holds the cursor (focused) or
+	// an agent pane is open (viewing), the hint line shows keyboard state —
+	// there is no agents-count row to merge with — so the schedules segment
+	// keeps its own LAST row there, still never displacing a live-agent row.
+	// Idle: already merged into the count row above; no second ⏰ row may
+	// paint (exactly ONE line carries both segments).
+	if (schedLine && (options.focused || options.viewedTaskId)) lines.push(truncate(schedLine, width));
 	return lines;
 }
 
@@ -379,14 +402,21 @@ export function buildWidgetLines(
 			notificationCount,
 			runningGlyph,
 			(options.now ?? new Date()).getTime(),
+			schedLine,
 		);
-		// Tier C: appended after the dock window so it can never displace a
-		// live-agent row; clipped by the idle maxLines budget.
-		if (schedLine) lines.push(truncate(schedLine, width));
+		// Tier C (merged 2026-09-14): compactDockLines owns the schedules
+		// segment placement now — merged into the idle count row (line 0), or a
+		// dedicated last row while the panel holds the cursor. Still clipped by
+		// the idle maxLines budget.
 		return focused ? lines : lines.slice(0, maxLines);
 	}
 
-	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
+	// Tier C (merged 2026-09-14): the header is the widget's ONE compact status
+	// row — agent stats + the injected schedules segment on a single line, with
+	// the `/team-dashboard` hint still trailing. truncate(width) now applies to
+	// the header too (f) since the merged segment can grow the row past narrow
+	// widths; at the default 100 the row stays well under budget.
+	const lines: string[] = [truncate(widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine), width)];
 
 	for (const entry of runs) {
 		const { run, agents } = entry;
@@ -477,11 +507,9 @@ export function buildWidgetLines(
 		if (lines.length >= maxLines && !focused) break;
 	}
 
-	// Tier C: the schedules line is the LOWEST-priority widget row — appended
-	// after all active-run info and clipped by the idle maxLines budget, so it
-	// never displaces a live agent's row.
-	if (schedLine) lines.push(truncate(schedLine, width));
-
+	// Tier C (merged 2026-09-14): the schedules segment rides the header (the
+	// ONE compact status row) — the separate last row is gone, so it can never
+	// displace a live agent's row either.
 	return focused ? lines : lines.slice(0, maxLines);
 }
 

@@ -35,7 +35,7 @@ import { withSessionId } from "../../team-tool/context.ts";
 import type { handleTeamTool as HandleTeamToolFn } from "../../team-tool.ts";
 import { commandText, notifyCommandResult } from "../command-utils.ts";
 import type { UiState } from "../ui.ts";
-import { openLiveConversation, openTranscriptViewer } from "../viewers.ts";
+import { openAgentsJobsBrowser, openLiveConversation, openTranscriptViewer } from "../viewers.ts";
 
 let _cachedHandleTeamTool: typeof HandleTeamToolFn | undefined;
 let _handleTeamToolPromise: Promise<typeof HandleTeamToolFn> | undefined;
@@ -598,6 +598,11 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 		}
 		if (selection.action === "agent-transcript" && (await openTranscriptViewer(cmdCtx, selection.runId))) continue;
 		if (selection.action === "agent-live" && (await openLiveConversation(cmdCtx, selection.runId))) continue;
+		// feat/agents-browser: `b` from the dashboard opens the unified Agents
+		// & Jobs overlay WITHOUT closing the loop — continue reopens the
+		// dashboard underneath, mirroring the transcript/live-conversation
+		// viewers. runId may be "" (no run selected — jobs-only view).
+		if (selection.action === "browser-open" && (await openAgentsJobsBrowser(cmdCtx))) continue;
 		if (selection.action === "agent-live") {
 			await notifyCommandResult(
 				cmdCtx,

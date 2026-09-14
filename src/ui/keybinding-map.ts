@@ -45,6 +45,7 @@ export const DASHBOARD_KEYS = {
 		liveConversation: ["V"],
 		reload: ["r"],
 		progressToggle: ["p"],
+		browser: ["b"],
 	},
 	pane: {
 		agents: ["1"],
@@ -106,6 +107,7 @@ export type DashboardKeyAction =
 	| "live-conversation"
 	| "reload"
 	| "progressToggle"
+	| "browser"
 	| "pane-agents"
 	| "pane-progress"
 	| "pane-mailbox"
@@ -244,6 +246,11 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{ keys: DASHBOARD_KEYS.root.liveConversation, action: "live-conversation" },
 	{ keys: DASHBOARD_KEYS.root.reload, action: "reload" },
 	{ keys: DASHBOARD_KEYS.root.progressToggle, action: "progressToggle" },
+	// Agents & Jobs browser (one-keypress overlay, mirrors live-conversation).
+	// Collision analysis: "b" is unbound everywhere else — root-unscoped is
+	// safe; inside the browser overlay itself "p" is free because overlays
+	// are mutually exclusive (see keybinding-map.ts header note).
+	{ keys: DASHBOARD_KEYS.root.browser, action: "browser" },
 	{ keys: DASHBOARD_KEYS.pane.agents, action: "pane-agents" },
 	{ keys: DASHBOARD_KEYS.pane.progress, action: "pane-progress" },
 	{ keys: DASHBOARD_KEYS.pane.mailbox, action: "pane-mailbox" },

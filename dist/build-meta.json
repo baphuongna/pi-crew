@@ -8309,6 +8309,120 @@
       ],
       "format": "esm"
     },
+    "src/runtime/scheduling/scheduler.ts": {
+      "bytes": 17004,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/settings-store.ts": {
+      "bytes": 19320,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/sanitize-project-config.ts",
+          "kind": "import-statement",
+          "original": "../config/sanitize-project-config.ts"
+        },
+        {
+          "path": "src/state/atomic-write.ts",
+          "kind": "import-statement",
+          "original": "../state/atomic-write.ts"
+        },
+        {
+          "path": "src/state/coordination/locks.ts",
+          "kind": "import-statement",
+          "original": "../state/coordination/locks.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/extension/tool-result.ts": {
+      "bytes": 718,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/extension/team-tool/context.ts": {
+      "bytes": 6079,
+      "imports": [
+        {
+          "path": "src/extension/tool-result.ts",
+          "kind": "import-statement",
+          "original": "../tool-result.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/extension/team-tool/param-error.ts": {
+      "bytes": 6006,
+      "imports": [
+        {
+          "path": "node_modules/@sinclair/typebox/build/esm/value/index.mjs",
+          "kind": "import-statement",
+          "original": "@sinclair/typebox/value"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/extension/team-tool/handle-schedule.ts": {
+      "bytes": 17046,
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/scheduling/scheduler.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/scheduling/scheduler.ts"
+        },
+        {
+          "path": "src/runtime/settings-store.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/settings-store.ts"
+        },
+        {
+          "path": "src/extension/team-tool/context.ts",
+          "kind": "import-statement",
+          "original": "./context.ts"
+        },
+        {
+          "path": "src/extension/team-tool/param-error.ts",
+          "kind": "import-statement",
+          "original": "./param-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/usage-tracker.ts": {
+      "bytes": 2263,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/utils/relative-time.ts": {
+      "bytes": 1404,
+      "imports": [],
+      "format": "esm"
+    },
     "src/utils/visual.ts": {
       "bytes": 9001,
       "imports": [
@@ -8318,6 +8432,11 @@
           "external": true
         }
       ],
+      "format": "esm"
+    },
+    "src/state/usage.ts": {
+      "bytes": 5104,
+      "imports": [],
       "format": "esm"
     },
     "src/ui/live-duration.ts": {
@@ -8333,6 +8452,139 @@
     "src/ui/status-colors.ts": {
       "bytes": 3713,
       "imports": [],
+      "format": "esm"
+    },
+    "src/ui/dashboard-panes/agents-pane.ts": {
+      "bytes": 6814,
+      "imports": [
+        {
+          "path": "src/runtime/live-session/live-agent-manager.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/live-session/live-agent-manager.ts"
+        },
+        {
+          "path": "src/state/usage.ts",
+          "kind": "import-statement",
+          "original": "../../state/usage.ts"
+        },
+        {
+          "path": "src/utils/visual.ts",
+          "kind": "import-statement",
+          "original": "../../utils/visual.ts"
+        },
+        {
+          "path": "src/ui/live-duration.ts",
+          "kind": "import-statement",
+          "original": "../live-duration.ts"
+        },
+        {
+          "path": "src/ui/spinner.ts",
+          "kind": "import-statement",
+          "original": "../spinner.ts"
+        },
+        {
+          "path": "src/ui/status-colors.ts",
+          "kind": "import-statement",
+          "original": "../status-colors.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/dashboard-panes/schedules-pane.ts": {
+      "bytes": 8132,
+      "imports": [
+        {
+          "path": "src/runtime/scheduling/scheduler.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/scheduling/scheduler.ts"
+        },
+        {
+          "path": "src/utils/relative-time.ts",
+          "kind": "import-statement",
+          "original": "../../utils/relative-time.ts"
+        },
+        {
+          "path": "src/utils/visual.ts",
+          "kind": "import-statement",
+          "original": "../../utils/visual.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/agents-jobs-browser.ts": {
+      "bytes": 26167,
+      "imports": [
+        {
+          "path": "src/extension/team-tool/handle-schedule.ts",
+          "kind": "import-statement",
+          "original": "../extension/team-tool/handle-schedule.ts"
+        },
+        {
+          "path": "src/runtime/crew-agent-records.ts",
+          "kind": "import-statement",
+          "original": "../runtime/crew-agent-records.ts"
+        },
+        {
+          "path": "src/runtime/live-session/live-agent-manager.ts",
+          "kind": "import-statement",
+          "original": "../runtime/live-session/live-agent-manager.ts"
+        },
+        {
+          "path": "src/runtime/surface/resolve-surface.ts",
+          "kind": "import-statement",
+          "original": "../runtime/surface/resolve-surface.ts"
+        },
+        {
+          "path": "src/runtime/usage-tracker.ts",
+          "kind": "import-statement",
+          "original": "../runtime/usage-tracker.ts"
+        },
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/relative-time.ts",
+          "kind": "import-statement",
+          "original": "../utils/relative-time.ts"
+        },
+        {
+          "path": "src/utils/visual.ts",
+          "kind": "import-statement",
+          "original": "../utils/visual.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/agents-pane.ts",
+          "kind": "import-statement",
+          "original": "./dashboard-panes/agents-pane.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/schedules-pane.ts",
+          "kind": "import-statement",
+          "original": "./dashboard-panes/schedules-pane.ts"
+        },
+        {
+          "path": "src/ui/live-duration.ts",
+          "kind": "import-statement",
+          "original": "./live-duration.ts"
+        },
+        {
+          "path": "src/ui/spinner.ts",
+          "kind": "import-statement",
+          "original": "./spinner.ts"
+        },
+        {
+          "path": "src/ui/status-colors.ts",
+          "kind": "import-statement",
+          "original": "./status-colors.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/ui/live-conversation-overlay.ts": {
@@ -8461,7 +8713,7 @@
       "format": "esm"
     },
     "src/extension/registration/viewers.ts": {
-      "bytes": 3984,
+      "bytes": 5762,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -8484,9 +8736,19 @@
           "original": "../../state/stores/state-store.ts"
         },
         {
+          "path": "src/ui/agents-jobs-browser.ts",
+          "kind": "import-statement",
+          "original": "../../ui/agents-jobs-browser.ts"
+        },
+        {
           "path": "src/ui/live-conversation-overlay.ts",
           "kind": "import-statement",
           "original": "../../ui/live-conversation-overlay.ts"
+        },
+        {
+          "path": "src/ui/pi-ui-compat.ts",
+          "kind": "import-statement",
+          "original": "../../ui/pi-ui-compat.ts"
         },
         {
           "path": "src/ui/theme-adapter.ts",
@@ -8683,7 +8945,7 @@
       "format": "esm"
     },
     "src/ui/keybinding-map.ts": {
-      "bytes": 19971,
+      "bytes": 20351,
       "imports": [
         {
           "path": "node:fs",
@@ -8711,11 +8973,6 @@
           "original": "./key-utils.ts"
         }
       ],
-      "format": "esm"
-    },
-    "src/extension/tool-result.ts": {
-      "bytes": 718,
-      "imports": [],
       "format": "esm"
     },
     "src/state/coordination/mailbox.ts": {
@@ -8906,17 +9163,6 @@
           "path": "src/config/config.ts",
           "kind": "import-statement",
           "original": "../../config/config.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/extension/team-tool/context.ts": {
-      "bytes": 6079,
-      "imports": [
-        {
-          "path": "src/extension/tool-result.ts",
-          "kind": "import-statement",
-          "original": "../tool-result.ts"
         }
       ],
       "format": "esm"
@@ -9549,11 +9795,6 @@
           "external": true
         }
       ],
-      "format": "esm"
-    },
-    "src/runtime/usage-tracker.ts": {
-      "bytes": 2263,
-      "imports": [],
       "format": "esm"
     },
     "node_modules/ajv/dist/compile/codegen/code.js": {
@@ -11154,17 +11395,6 @@
       ],
       "format": "esm"
     },
-    "src/extension/team-tool/param-error.ts": {
-      "bytes": 6006,
-      "imports": [
-        {
-          "path": "node_modules/@sinclair/typebox/build/esm/value/index.mjs",
-          "kind": "import-statement",
-          "original": "@sinclair/typebox/value"
-        }
-      ],
-      "format": "esm"
-    },
     "src/extension/team-tool/api.ts": {
       "bytes": 3796,
       "imports": [
@@ -11253,83 +11483,6 @@
           "path": "src/runtime/auto-summarize.ts",
           "kind": "import-statement",
           "original": "../../runtime/auto-summarize.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/scheduling/scheduler.ts": {
-      "bytes": 17004,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/settings-store.ts": {
-      "bytes": 19320,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/config/sanitize-project-config.ts",
-          "kind": "import-statement",
-          "original": "../config/sanitize-project-config.ts"
-        },
-        {
-          "path": "src/state/atomic-write.ts",
-          "kind": "import-statement",
-          "original": "../state/atomic-write.ts"
-        },
-        {
-          "path": "src/state/coordination/locks.ts",
-          "kind": "import-statement",
-          "original": "../state/coordination/locks.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/extension/team-tool/handle-schedule.ts": {
-      "bytes": 17046,
-      "imports": [
-        {
-          "path": "node:crypto",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/runtime/scheduling/scheduler.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/scheduling/scheduler.ts"
-        },
-        {
-          "path": "src/runtime/settings-store.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/settings-store.ts"
-        },
-        {
-          "path": "src/extension/team-tool/context.ts",
-          "kind": "import-statement",
-          "original": "./context.ts"
-        },
-        {
-          "path": "src/extension/team-tool/param-error.ts",
-          "kind": "import-statement",
-          "original": "./param-error.ts"
         }
       ],
       "format": "esm"
@@ -14766,11 +14919,6 @@
       ],
       "format": "esm"
     },
-    "src/state/usage.ts": {
-      "bytes": 5104,
-      "imports": [],
-      "format": "esm"
-    },
     "src/ui/render-coalescer.ts": {
       "bytes": 2718,
       "imports": [
@@ -14941,11 +15089,6 @@
           "original": "../card-colors.ts"
         }
       ],
-      "format": "esm"
-    },
-    "src/utils/relative-time.ts": {
-      "bytes": 1404,
-      "imports": [],
       "format": "esm"
     },
     "src/ui/layout-primitives.ts": {
@@ -15133,7 +15276,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 25022,
+      "bytes": 27223,
       "imports": [
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
@@ -17875,42 +18018,6 @@
       ],
       "format": "esm"
     },
-    "src/ui/dashboard-panes/agents-pane.ts": {
-      "bytes": 6814,
-      "imports": [
-        {
-          "path": "src/runtime/live-session/live-agent-manager.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/live-session/live-agent-manager.ts"
-        },
-        {
-          "path": "src/state/usage.ts",
-          "kind": "import-statement",
-          "original": "../../state/usage.ts"
-        },
-        {
-          "path": "src/utils/visual.ts",
-          "kind": "import-statement",
-          "original": "../../utils/visual.ts"
-        },
-        {
-          "path": "src/ui/live-duration.ts",
-          "kind": "import-statement",
-          "original": "../live-duration.ts"
-        },
-        {
-          "path": "src/ui/spinner.ts",
-          "kind": "import-statement",
-          "original": "../spinner.ts"
-        },
-        {
-          "path": "src/ui/status-colors.ts",
-          "kind": "import-statement",
-          "original": "../status-colors.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/ui/dashboard-panes/cancellation-pane.ts": {
       "bytes": 2454,
       "imports": [],
@@ -17979,27 +18086,6 @@
       ],
       "format": "esm"
     },
-    "src/ui/dashboard-panes/schedules-pane.ts": {
-      "bytes": 8132,
-      "imports": [
-        {
-          "path": "src/runtime/scheduling/scheduler.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/scheduling/scheduler.ts"
-        },
-        {
-          "path": "src/utils/relative-time.ts",
-          "kind": "import-statement",
-          "original": "../../utils/relative-time.ts"
-        },
-        {
-          "path": "src/utils/visual.ts",
-          "kind": "import-statement",
-          "original": "../../utils/visual.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/ui/dashboard-panes/transcript-pane.ts": {
       "bytes": 1663,
       "imports": [],
@@ -18037,7 +18123,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 54387,
+      "bytes": 54914,
       "imports": [
         {
           "path": "node:fs",
@@ -18355,7 +18441,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/shared.ts": {
-      "bytes": 27672,
+      "bytes": 28071,
       "imports": [
         {
           "path": "node:path",
@@ -21178,7 +21264,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8085550
+      "bytes": 8133238
     },
     "dist/index.mjs": {
       "imports": [
@@ -21683,6 +21769,26 @@
           "external": true
         },
         {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
@@ -21934,26 +22040,6 @@
         },
         {
           "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:crypto",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -24082,8 +24168,35 @@
         "src/runtime/live-session/live-agent-manager.ts": {
           "bytesInOutput": 16179
         },
+        "src/runtime/scheduling/scheduler.ts": {
+          "bytesInOutput": 14487
+        },
+        "src/runtime/settings-store.ts": {
+          "bytesInOutput": 7777
+        },
+        "src/extension/tool-result.ts": {
+          "bytesInOutput": 401
+        },
+        "src/extension/team-tool/context.ts": {
+          "bytesInOutput": 3479
+        },
+        "src/extension/team-tool/param-error.ts": {
+          "bytesInOutput": 3579
+        },
+        "src/extension/team-tool/handle-schedule.ts": {
+          "bytesInOutput": 10663
+        },
+        "src/runtime/usage-tracker.ts": {
+          "bytesInOutput": 901
+        },
+        "src/utils/relative-time.ts": {
+          "bytesInOutput": 831
+        },
         "src/utils/visual.ts": {
           "bytesInOutput": 5737
+        },
+        "src/state/usage.ts": {
+          "bytesInOutput": 3670
         },
         "src/ui/live-duration.ts": {
           "bytesInOutput": 793
@@ -24093,6 +24206,15 @@
         },
         "src/ui/status-colors.ts": {
           "bytesInOutput": 2289
+        },
+        "src/ui/dashboard-panes/agents-pane.ts": {
+          "bytesInOutput": 4596
+        },
+        "src/ui/dashboard-panes/schedules-pane.ts": {
+          "bytesInOutput": 3756
+        },
+        "src/ui/agents-jobs-browser.ts": {
+          "bytesInOutput": 18529
         },
         "src/ui/live-conversation-overlay.ts": {
           "bytesInOutput": 6108
@@ -24113,7 +24235,7 @@
           "bytesInOutput": 16890
         },
         "src/extension/registration/viewers.ts": {
-          "bytesInOutput": 3031
+          "bytesInOutput": 4164
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
           "bytesInOutput": 961
@@ -24140,10 +24262,7 @@
           "bytesInOutput": 508
         },
         "src/ui/keybinding-map.ts": {
-          "bytesInOutput": 10210
-        },
-        "src/extension/tool-result.ts": {
-          "bytesInOutput": 401
+          "bytesInOutput": 10608
         },
         "src/state/coordination/mailbox.ts": {
           "bytesInOutput": 23806
@@ -24174,9 +24293,6 @@
         },
         "src/extension/team-tool/config-patch.ts": {
           "bytesInOutput": 1876
-        },
-        "src/extension/team-tool/context.ts": {
-          "bytesInOutput": 3479
         },
         "src/i18n.ts": {
           "bytesInOutput": 9211
@@ -24233,7 +24349,7 @@
           "bytesInOutput": 6713
         },
         "src/runtime/agent-observability.ts": {
-          "bytesInOutput": 4436
+          "bytesInOutput": 4441
         },
         "src/skills/validate.ts": {
           "bytesInOutput": 6631
@@ -24264,9 +24380,6 @@
         },
         "src/runtime/sensitive-paths.ts": {
           "bytesInOutput": 583
-        },
-        "src/runtime/usage-tracker.ts": {
-          "bytesInOutput": 901
         },
         "node_modules/ajv/dist/compile/codegen/code.js": {
           "bytesInOutput": 4834
@@ -24496,9 +24609,6 @@
         "src/extension/team-tool/api/task-claims.ts": {
           "bytesInOutput": 9126
         },
-        "src/extension/team-tool/param-error.ts": {
-          "bytesInOutput": 3579
-        },
         "src/extension/team-tool/api.ts": {
           "bytesInOutput": 1857
         },
@@ -24507,15 +24617,6 @@
         },
         "src/extension/team-tool/auto-summarize.ts": {
           "bytesInOutput": 3915
-        },
-        "src/runtime/scheduling/scheduler.ts": {
-          "bytesInOutput": 14487
-        },
-        "src/runtime/settings-store.ts": {
-          "bytesInOutput": 7777
-        },
-        "src/extension/team-tool/handle-schedule.ts": {
-          "bytesInOutput": 10663
         },
         "src/extension/team-tool/dispatch/automate.ts": {
           "bytesInOutput": 2101
@@ -24758,7 +24859,7 @@
           "bytesInOutput": 5519
         },
         "src/runtime/task-output-context.ts": {
-          "bytesInOutput": 15370
+          "bytesInOutput": 15372
         },
         "src/runtime/verification/completion-guard.ts": {
           "bytesInOutput": 5294
@@ -24862,17 +24963,14 @@
         "src/extension/team-tool/orchestrate.ts": {
           "bytesInOutput": 4451
         },
-        "src/state/usage.ts": {
-          "bytesInOutput": 3672
-        },
         "src/ui/render-coalescer.ts": {
           "bytesInOutput": 2165
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 11701
+          "bytesInOutput": 11725
         },
         "src/ui/powerbar-publisher.ts": {
-          "bytesInOutput": 14566
+          "bytesInOutput": 14565
         },
         "src/ui/format-helpers.ts": {
           "bytesInOutput": 709
@@ -24885,9 +24983,6 @@
         },
         "src/ui/tool-renderers/index.ts": {
           "bytesInOutput": 21472
-        },
-        "src/utils/relative-time.ts": {
-          "bytesInOutput": 831
         },
         "src/ui/layout-primitives.ts": {
           "bytesInOutput": 2240
@@ -24902,7 +24997,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 12808
+          "bytesInOutput": 13000
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
@@ -24980,7 +25075,7 @@
           "bytesInOutput": 2256
         },
         "src/extension/team-tool/inspect.ts": {
-          "bytesInOutput": 4331
+          "bytesInOutput": 4330
         },
         "src/runtime/effectiveness.ts": {
           "bytesInOutput": 3300
@@ -24989,7 +25084,7 @@
           "bytesInOutput": 3934
         },
         "src/extension/team-tool/status.ts": {
-          "bytesInOutput": 13879
+          "bytesInOutput": 13878
         },
         "src/extension/team-tool/dispatch/status.ts": {
           "bytesInOutput": 6689
@@ -24998,7 +25093,7 @@
           "bytesInOutput": 1851
         },
         "src/runtime/budget-enforcement.ts": {
-          "bytesInOutput": 6474
+          "bytesInOutput": 6473
         },
         "src/runtime/task-health.ts": {
           "bytesInOutput": 1469
@@ -25016,7 +25111,7 @@
           "bytesInOutput": 3916
         },
         "src/runtime/finalize-run.ts": {
-          "bytesInOutput": 15237
+          "bytesInOutput": 15236
         },
         "src/runtime/goal-workflow/goal-achievement.ts": {
           "bytesInOutput": 2936
@@ -25111,9 +25206,6 @@
         "src/ui/run-action-dispatcher.ts": {
           "bytesInOutput": 4146
         },
-        "src/ui/dashboard-panes/agents-pane.ts": {
-          "bytesInOutput": 4615
-        },
         "src/ui/dashboard-panes/cancellation-pane.ts": {
           "bytesInOutput": 465
         },
@@ -25135,9 +25227,6 @@
         "src/ui/dashboard-panes/progress-pane.ts": {
           "bytesInOutput": 2061
         },
-        "src/ui/dashboard-panes/schedules-pane.ts": {
-          "bytesInOutput": 3759
-        },
         "src/ui/dashboard-panes/transcript-pane.ts": {
           "bytesInOutput": 1320
         },
@@ -25148,7 +25237,7 @@
           "bytesInOutput": 4154
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 39542
+          "bytesInOutput": 39732
         },
         "src/ui/overlays/confirm-overlay.ts": {
           "bytesInOutput": 2237
@@ -25172,7 +25261,7 @@
           "bytesInOutput": 31798
         },
         "src/extension/registration/commands/shared.ts": {
-          "bytesInOutput": 17707
+          "bytesInOutput": 17802
         },
         "src/extension/registration/commands/dashboard.ts": {
           "bytesInOutput": 4862
@@ -25205,7 +25294,7 @@
           "bytesInOutput": 4573
         },
         "src/ui/live-run-sidebar.ts": {
-          "bytesInOutput": 9645
+          "bytesInOutput": 9644
         },
         "src/extension/registration/ui.ts": {
           "bytesInOutput": 4187
@@ -25448,7 +25537,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3379717
+      "bytes": 3400289
     }
   }
 }
