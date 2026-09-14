@@ -125,7 +125,9 @@ export async function openLiveConversation(
  * via the G17 providers — independent of any single run. Headless sessions
  * (`ctx.hasUI === false`) are a silent no-op returning false.
  */
-export async function openAgentsJobsBrowser(ctx: ExtensionCommandContext): Promise<boolean> {
+export async function openAgentsJobsBrowser(
+	ctx: Pick<ExtensionCommandContext, "hasUI" | "cwd" | "ui" | "sessionManager">,
+): Promise<boolean> {
 	if (!ctx.hasUI) return false;
 	const theme = asCrewTheme({});
 	const workspaceId = ctx.sessionManager?.getSessionId?.();

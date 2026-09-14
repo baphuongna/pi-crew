@@ -237,6 +237,12 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 					onScrollPane: (delta) => livePane?.scrollBy(delta),
 					onSteer: (target, message) => void steerAgent(ctx, target, message),
 					onAct: (target, finished) => void actOnAgent(ctx, target, finished),
+					// ↓ + enter at the main row = the Agents & Jobs browser
+					// (lazy import: viewers.ts pulls the state-store chain and must stay
+					// off this module's startup path — AGENTS.md lazy boundary).
+					onOpenBrowser: () => {
+						void import("../../extension/registration/viewers.ts").then((m) => m.openAgentsJobsBrowser(ctx));
+					},
 				});
 			});
 			editorInstalled = true;

@@ -8713,7 +8713,7 @@
       "format": "esm"
     },
     "src/extension/registration/viewers.ts": {
-      "bytes": 5762,
+      "bytes": 5815,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -20401,7 +20401,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/crew-editor.ts": {
-      "bytes": 7273,
+      "bytes": 8008,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -20427,7 +20427,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 11628,
+      "bytes": 11976,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -20473,6 +20473,11 @@
           "path": "src/state/stores/state-store.ts",
           "kind": "dynamic-import",
           "original": "../../state/stores/state-store.ts"
+        },
+        {
+          "path": "src/extension/registration/viewers.ts",
+          "kind": "dynamic-import",
+          "original": "../../extension/registration/viewers.ts"
         }
       ],
       "format": "esm"
@@ -21264,7 +21269,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8133238
+      "bytes": 8134672
     },
     "dist/index.mjs": {
       "imports": [
@@ -24235,7 +24240,7 @@
           "bytesInOutput": 16890
         },
         "src/extension/registration/viewers.ts": {
-          "bytesInOutput": 4164
+          "bytesInOutput": 4421
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
           "bytesInOutput": 961
@@ -25483,7 +25488,7 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 5431
+          "bytesInOutput": 5824
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 6318
@@ -25495,7 +25500,7 @@
           "bytesInOutput": 10433
         },
         "src/ui/inline-panel/crew-editor.ts": {
-          "bytesInOutput": 4198
+          "bytesInOutput": 4275
         },
         "src/utils/run-watcher-registry.ts": {
           "bytesInOutput": 3326
@@ -25537,7 +25542,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3400289
+      "bytes": 3401016
     }
   }
 }

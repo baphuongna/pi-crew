@@ -28081,6 +28081,13 @@ var init_transcript_viewer = __esm({
 });
 
 // src/extension/registration/viewers.ts
+var viewers_exports = {};
+__export(viewers_exports, {
+  openAgentsJobsBrowser: () => openAgentsJobsBrowser,
+  openLiveConversation: () => openLiveConversation,
+  openTranscriptViewer: () => openTranscriptViewer,
+  selectAgentTask: () => selectAgentTask
+});
 async function getViewer() {
   const mod = await Promise.resolve().then(() => (init_transcript_viewer(), transcript_viewer_exports));
   return mod.DurableTranscriptViewer;
@@ -88354,6 +88361,7 @@ var CrewInlineEditor = class extends CustomEditor {
         const target = result4.action.target;
         if (target) this.options.onOpenPane(target);
         else if (closePaneOnMain) this.options.onClosePane();
+        else this.options.onOpenBrowser?.();
         return;
       }
       case "act": {
@@ -88407,7 +88415,7 @@ var CrewInlineEditor = class extends CustomEditor {
       return;
     }
     if (getPanelSelection() === null) {
-      if (matchesKey4(data, "down") && this.getText() === "" && rows.length > 0) {
+      if (matchesKey4(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
         const result4 = dispatchPanelKey(this.panelKeys(data), rows, null);
         setPanelSelection(result4.selection);
         return;
@@ -88574,7 +88582,13 @@ function installInlinePanel(pi, ctx, uiConfig) {
           onClosePane: () => closePane(ctx),
           onScrollPane: (delta) => livePane?.scrollBy(delta),
           onSteer: (target, message) => void steerAgent(ctx, target, message),
-          onAct: (target, finished) => void actOnAgent(ctx, target, finished)
+          onAct: (target, finished) => void actOnAgent(ctx, target, finished),
+          // ↓ + enter at the main row = the Agents & Jobs browser
+          // (lazy import: viewers.ts pulls the state-store chain and must stay
+          // off this module's startup path — AGENTS.md lazy boundary).
+          onOpenBrowser: () => {
+            void Promise.resolve().then(() => (init_viewers(), viewers_exports)).then((m) => m.openAgentsJobsBrowser(ctx));
+          }
         });
       });
       editorInstalled = true;

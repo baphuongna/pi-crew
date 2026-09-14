@@ -42,6 +42,11 @@ export interface CrewEditorOptions {
 	onSteer: (target: PanelTarget, message: string) => void;
 	/** `x`: cancel a running agent's run, or dismiss a finished one. */
 	onAct: (target: PanelTarget, finished: boolean) => void;
+	/** Idle `↓`+`enter` at the MAIN row opens the Agents & Jobs browser —
+	 * the one-keystroke entry from the widget's status line (maintainer
+	 * design 2026-09-14: counts row → ↓ → enter → browser popup). When
+	 * absent, main-row enter stays a no-op (legacy behavior). */
+	onOpenBrowser?: () => void;
 }
 
 export class CrewInlineEditor extends CustomEditor {
@@ -86,6 +91,9 @@ export class CrewInlineEditor extends CustomEditor {
 				const target = result.action.target;
 				if (target) this.options.onOpenPane(target);
 				else if (closePaneOnMain) this.options.onClosePane();
+				// Idle `enter` at the MAIN row = the browser entry (↓ + enter from
+				// the status line). Legacy no-op preserved when unwired.
+				else this.options.onOpenBrowser?.();
 				return;
 			}
 			case "act": {
@@ -152,8 +160,11 @@ export class CrewInlineEditor extends CustomEditor {
 		}
 
 		// ── Idle: `↓` on an empty prompt enters the panel ──────────────────
+		// The browser extends the entry to the jobs-only state: `↓` works even
+		// with zero agent rows when the browser is wired (the state machine
+		// already lands at `main`; `enter` there opens the browser).
 		if (getPanelSelection() === null) {
-			if (matchesKey(data, "down") && this.getText() === "" && rows.length > 0) {
+			if (matchesKey(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
 				// dispatch enters at the MAIN row; the widget renders that row
 				// with its own ❯ marker so the very first press is visible
 				// (pi-subtask's selectRow(rows, 0)).
