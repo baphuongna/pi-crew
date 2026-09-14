@@ -26579,17 +26579,1334 @@ var init_schedules_pane = __esm({
   }
 });
 
+// src/hooks/registry.ts
+function clearHooksScoped() {
+  for (const [name, hooks] of registry) {
+    const remaining = hooks.filter((h) => !("_hookId" in h && _piCrewHookIds.has(h._hookId ?? -1)));
+    if (remaining.length === 0) {
+      registry.delete(name);
+    } else {
+      registry.set(name, remaining);
+    }
+  }
+  _piCrewHookIds.clear();
+  _nextHookId = 1;
+}
+function getHooks(name) {
+  return registry.get(name) ?? [];
+}
+function sanitizeMergeData(data) {
+  const clean = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (!POLLUTED_KEYS.has(k.toLowerCase().normalize("NFKC"))) {
+      if (v !== null && typeof v === "object") {
+        if (Array.isArray(v)) {
+          clean[k] = v.map(
+            (item) => item !== null && typeof item === "object" && !Array.isArray(item) ? sanitizeMergeData(item) : item
+          );
+        } else {
+          clean[k] = sanitizeMergeData(v);
+        }
+      } else {
+        clean[k] = v;
+      }
+    }
+  }
+  return clean;
+}
+function sanitizeContext(ctx) {
+  for (const key of Object.keys(ctx)) {
+    if (POLLUTED_KEYS.has(key.toLowerCase().normalize("NFKC"))) {
+      delete ctx[key];
+    }
+  }
+  return ctx;
+}
+function sanitizeErrorMessage(message) {
+  return message.replace(/\/[^:\s]+/g, "[path]").replace(/\b[A-Z_0-9]+\s*=/g, "[env]").replace(/\b\d+\.\d+\.\d+\.\d+\b/g, "[ip]");
+}
+async function executeHook(name, ctx) {
+  const hooks = getHooks(name);
+  if (hooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
+  const scopedHooks = hooks.filter((h) => {
+    if (h.workspaceId !== void 0) {
+      return h.workspaceId === ctx.workspaceId;
+    }
+    return ctx.includeGlobalHooks !== false;
+  });
+  if (scopedHooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
+  const start = Date.now();
+  const diagnostics = [];
+  let capturedModifications;
+  for (const hook of scopedHooks) {
+    try {
+      const result4 = await hook.handler(sanitizeContext(ctx));
+      sanitizeContext(ctx);
+      if (hook.mode === "blocking" && result4.outcome === "block") {
+        return {
+          hookName: name,
+          outcome: "block",
+          durationMs: Date.now() - start,
+          reason: result4.reason
+        };
+      }
+      if (result4.outcome === "modify" && result4.data) {
+        const clonedData = sanitizeMergeData(result4.data);
+        Object.assign(ctx, clonedData);
+        capturedModifications = clonedData;
+      }
+    } catch (error) {
+      const message = sanitizeErrorMessage(error instanceof Error ? error.message : String(error));
+      if (hook.mode === "blocking") {
+        return {
+          hookName: name,
+          outcome: "block",
+          durationMs: Date.now() - start,
+          reason: `Hook error: ${message}`
+        };
+      }
+      diagnostics.push(message);
+    }
+  }
+  if (diagnostics.length > 0) {
+    return {
+      hookName: name,
+      outcome: "diagnostic",
+      durationMs: Date.now() - start,
+      reason: diagnostics.join("; "),
+      modifiedData: capturedModifications
+    };
+  }
+  return {
+    hookName: name,
+    outcome: "allow",
+    durationMs: Date.now() - start,
+    modifiedData: capturedModifications
+  };
+}
+function appendHookEvent(manifest, report) {
+  appendEvent(manifest.eventsPath, {
+    type: "hook.executed",
+    runId: manifest.runId,
+    message: `Hook ${report.hookName} completed with outcome=${report.outcome}${report.reason ? `: ${report.reason}` : ""}`,
+    data: {
+      hookName: report.hookName,
+      outcome: report.outcome,
+      durationMs: report.durationMs,
+      reason: report.reason
+    }
+  });
+  runEventBus.emit({
+    type: "effectiveness_changed",
+    runId: manifest.runId,
+    data: { hookName: report.hookName, outcome: report.outcome }
+  });
+}
+var registry, _piCrewHookIds, _nextHookId, POLLUTED_KEYS;
+var init_registry2 = __esm({
+  "src/hooks/registry.ts"() {
+    "use strict";
+    init_event_log();
+    init_run_event_bus();
+    registry = /* @__PURE__ */ new Map();
+    _piCrewHookIds = /* @__PURE__ */ new Set();
+    _nextHookId = 1;
+    POLLUTED_KEYS = new Set(
+      [
+        "__proto__",
+        "constructor",
+        "prototype",
+        "hasOwnProperty",
+        "toString",
+        "valueOf",
+        "isPrototypeOf",
+        "propertyIsEnumerable",
+        "__defineGetter__",
+        "__defineSetter__",
+        "__lookupGetter__",
+        "__lookupSetter__"
+      ].map((k) => k.toLowerCase().normalize("NFKC"))
+    );
+  }
+});
+
+// src/runtime/heartbeat/worker-heartbeat.ts
+function createWorkerHeartbeat(workerId, pid, now = /* @__PURE__ */ new Date()) {
+  return { workerId, pid, lastSeenAt: now.toISOString(), alive: true };
+}
+function touchWorkerHeartbeat(heartbeat, updates = {}, now = /* @__PURE__ */ new Date()) {
+  return { ...heartbeat, ...updates, lastSeenAt: now.toISOString() };
+}
+function isWorkerHeartbeatStale(heartbeat, staleMs, now = /* @__PURE__ */ new Date()) {
+  return now.getTime() - Date.parse(heartbeat.lastSeenAt) > staleMs;
+}
+var init_worker_heartbeat = __esm({
+  "src/runtime/heartbeat/worker-heartbeat.ts"() {
+    "use strict";
+  }
+});
+
+// src/state/stores/plan-store.ts
+import * as fs40 from "node:fs";
+import * as path33 from "node:path";
+function planFilePath(manifest) {
+  return path33.join(manifest.stateRoot, PLAN_SUBPATH);
+}
+function loadPlanRecords(manifest) {
+  try {
+    const raw = fs40.readFileSync(planFilePath(manifest), "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.revisions)) return [];
+    return parsed.revisions.filter((r) => Boolean(r?.id && typeof r.version === "number"));
+  } catch (err2) {
+    if (err2.code === "ENOENT") return [];
+    logInternalError("plan-store.read-failed", err2 instanceof Error ? err2 : new Error(String(err2)), `run=${manifest.runId}`);
+    return [];
+  }
+}
+function getCurrentPlanRecord(manifest) {
+  const revisions = loadPlanRecords(manifest);
+  if (revisions.length === 0) return void 0;
+  const pointer = manifest.plan;
+  if (pointer) {
+    const pointed = revisions.find((r) => r.id === pointer.id && r.version === pointer.version);
+    if (pointed) return pointed;
+  }
+  return revisions.reduce((acc, r) => r.version > acc.version ? r : acc, revisions[0]);
+}
+function writePlanFile(manifest, revisions) {
+  const file = { version: 1, revisions };
+  fs40.mkdirSync(path33.dirname(planFilePath(manifest)), { recursive: true });
+  atomicWriteJson(planFilePath(manifest), file);
+}
+function assertRecordWellFormed(record) {
+  const ids = /* @__PURE__ */ new Set();
+  for (const item of record.items) {
+    if (!ID_PATTERN.test(item.id))
+      throw new Error(`plan-store: item id must match [A-Za-z0-9][A-Za-z0-9._-]{0,127} \u2014 got "${item.id.slice(0, 40)}"`);
+    if (item.title.length > TITLE_MAX) throw new Error(`plan-store: item title exceeds ${TITLE_MAX} chars`);
+    if (ids.has(item.id)) throw new Error(`plan-store: duplicate item id "${item.id}" in revision v${record.version}`);
+    ids.add(item.id);
+  }
+  const known = new Set(record.items.map((i) => i.id));
+  for (const phase of record.phases) {
+    for (const itemId of phase.itemIds) {
+      if (!known.has(itemId)) throw new Error(`plan-store: phase "${phase.id}" references unknown item "${itemId}"`);
+    }
+  }
+}
+function appendPlanRevision(manifest, record) {
+  return withRunLockSync(manifest, () => {
+    const revisions = loadPlanRecords(manifest);
+    if (revisions.length === 0) {
+      if (record.version !== 1) throw new Error(`plan-store: first revision must be v1, got v${record.version}`);
+      if (record.revisionOf) throw new Error("plan-store: first revision must not set revisionOf");
+    } else {
+      const last = revisions[revisions.length - 1];
+      if (record.id !== last.id) throw new Error(`plan-store: lineage break \u2014 expected id ${last.id}, got ${record.id}`);
+      if (record.version !== last.version + 1)
+        throw new Error(`plan-store: version must be ${last.version + 1}, got ${record.version}`);
+      if (!record.revisionOf) record.revisionOf = { id: last.id, version: last.version };
+      else if (record.revisionOf.id !== last.id || record.revisionOf.version !== last.version)
+        throw new Error(`plan-store: revisionOf must point at v${last.version} of ${last.id}`);
+      const carried = new Map(last.items.map((i) => [i.id, i.taskIds]));
+      for (const item of record.items) {
+        const prior = carried.get(item.id);
+        if (prior) item.taskIds = [.../* @__PURE__ */ new Set([...prior, ...item.taskIds])];
+      }
+    }
+    assertRecordWellFormed(record);
+    revisions.push(record);
+    writePlanFile(manifest, revisions);
+    const dropped = record.items.filter((i) => i.status === "dropped").length;
+    appendEvent(manifest.eventsPath, {
+      type: record.version === 1 ? "plan.created" : "plan.revised",
+      runId: manifest.runId,
+      message: record.version === 1 ? `Plan v1 created: ${record.items.length} item(s) in ${record.phases.length} phase(s)` : `Plan v${record.version} revised (${record.items.length} item(s), ${dropped} dropped)`,
+      data: { planId: record.id, version: record.version, dropped }
+    });
+    return record;
+  });
+}
+function linkTaskToPlanItem(manifest, itemId, taskId) {
+  return withRunLockSync(manifest, () => {
+    const revisions = loadPlanRecords(manifest);
+    if (revisions.length === 0) return false;
+    const current = revisions[revisions.length - 1];
+    const item = current.items.find((i) => i.id === itemId);
+    if (!item || item.status === "dropped" || item.taskIds.includes(taskId)) return false;
+    item.taskIds.push(taskId);
+    writePlanFile(manifest, revisions);
+    return true;
+  });
+}
+function setPlanApproval(manifest, approval) {
+  return withRunLockSync(manifest, () => {
+    const revisions = loadPlanRecords(manifest);
+    if (revisions.length === 0) return void 0;
+    const current = revisions[revisions.length - 1];
+    if (approval.planVersion !== current.version)
+      throw new Error(`plan-store: approval targets v${approval.planVersion} but current is v${current.version}`);
+    current.approval = {
+      status: approval.status,
+      by: approval.by,
+      at: (/* @__PURE__ */ new Date()).toISOString(),
+      planVersion: approval.planVersion
+    };
+    writePlanFile(manifest, revisions);
+    if (approval.status !== "pending") {
+      appendEvent(manifest.eventsPath, {
+        type: approval.status === "approved" ? "plan.approved" : "plan.rejected",
+        runId: manifest.runId,
+        message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
+        data: { planId: current.id, version: approval.planVersion, status: approval.status }
+      });
+    }
+    return current;
+  });
+}
+function deriveItemProgress(record, tasks) {
+  const byId = new Map(tasks.map((t2) => [t2.id, t2]));
+  const out = /* @__PURE__ */ new Map();
+  for (const item of record.items) {
+    const p = { itemId: item.id, total: item.taskIds.length, done: 0, failed: 0, running: 0, pending: 0 };
+    for (const taskId of item.taskIds) {
+      const status = byId.get(taskId)?.status;
+      if (status === "completed") p.done++;
+      else if (status === "failed") p.failed++;
+      else if (status === "running" || status === "waiting" || status === "needs_attention") p.running++;
+      else if (status === "queued") p.pending++;
+    }
+    out.set(item.id, p);
+  }
+  return out;
+}
+var PLAN_SUBPATH, ID_PATTERN, TITLE_MAX;
+var init_plan_store = __esm({
+  "src/state/stores/plan-store.ts"() {
+    "use strict";
+    init_internal_error();
+    init_atomic_write();
+    init_locks();
+    init_event_log();
+    PLAN_SUBPATH = path33.join("plans", "plans.json");
+    ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+    TITLE_MAX = 512;
+  }
+});
+
+// src/runtime/stale-reconciler.ts
+import * as fs41 from "node:fs";
+import * as os10 from "node:os";
+import * as path34 from "node:path";
+function isPlanApprovalPending(manifest) {
+  return manifest.status === "blocked" && manifest.planApproval?.required === true && manifest.planApproval.status === "pending";
+}
+function isPlanApprovalPendingEffective(manifest) {
+  if (isPlanApprovalPending(manifest)) return true;
+  if (manifest.status !== "blocked") return false;
+  return getCurrentPlanRecord(manifest)?.approval?.status === "pending";
+}
+function isWaitAnswerPending(manifest, now = Date.now()) {
+  const askedAtMs = manifest.waitState?.askedAt ? new Date(manifest.waitState.askedAt).getTime() : Number.NaN;
+  return Number.isFinite(askedAtMs) && now - askedAtMs <= WAITING_TTL_MS;
+}
+function isIntentionalWait(manifest, now = Date.now()) {
+  return isPlanApprovalPendingEffective(manifest) || isWaitAnswerPending(manifest, now);
+}
+function checkResultFile(manifest, tasks) {
+  const allTerminal = tasks.length > 0 && tasks.every(
+    (t2) => t2.status === "completed" || t2.status === "failed" || t2.status === "cancelled" || t2.status === "skipped" || t2.status === "needs_attention"
+  );
+  if (allTerminal) {
+    const hasFailed = tasks.some((t2) => t2.status === "failed" || t2.status === "needs_attention");
+    const onlyCancelledOrSkipped = tasks.every((t2) => t2.status === "cancelled" || t2.status === "skipped");
+    manifest.status = hasFailed ? "failed" : onlyCancelledOrSkipped ? "cancelled" : "completed";
+    saveRunManifest(manifest);
+    for (const task of tasks) {
+      try {
+        upsertCrewAgent(manifest, recordFromTask(manifest, task, "scaffold"));
+      } catch {
+      }
+    }
+    return { found: true, repaired: false };
+  }
+  return { found: false, repaired: false };
+}
+function getProcessStartTime(pid) {
+  try {
+    const stat2 = fs41.readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const lastParen = stat2.lastIndexOf(")");
+    if (lastParen === -1) return void 0;
+    const fieldsAfterComm2 = stat2.slice(lastParen + 1).trim().split(/\s+/);
+    const startTimeClockTicks = Number(fieldsAfterComm2[19]);
+    if (!Number.isFinite(startTimeClockTicks)) return void 0;
+    return Math.floor(startTimeClockTicks * 10);
+  } catch {
+    return void 0;
+  }
+}
+function checkPidLiveness(pid, stateRoot) {
+  if (pid === void 0 || !Number.isInteger(pid) || pid <= 0) {
+    return { alive: false, detail: "no pid recorded" };
+  }
+  const startTimeBefore = getProcessStartTime(pid);
+  const liveness = checkProcessLiveness(pid);
+  const startTimeAfter = getProcessStartTime(pid);
+  if (startTimeBefore !== void 0 && startTimeAfter !== void 0 && startTimeBefore !== startTimeAfter) {
+    return { alive: false, detail: "pid_recycled" };
+  }
+  if (liveness.alive) return { alive: true, detail: liveness.detail };
+  let heartbeatNote = "";
+  if (stateRoot) {
+    try {
+      const heartbeatPath = path34.join(stateRoot, "heartbeat.json");
+      if (fs41.existsSync(heartbeatPath)) {
+        const hb = JSON.parse(fs41.readFileSync(heartbeatPath, "utf-8"));
+        if (hb?.pid === pid && hb?.at) {
+          heartbeatNote = ` (heartbeat was ${Math.round((Date.now() - hb.at) / 1e3)}s old)`;
+        }
+      }
+    } catch {
+    }
+  }
+  return { alive: false, detail: `${liveness.detail}${heartbeatNote}` };
+}
+function evaluateStaleness(manifest, pidAlive, now) {
+  if (!pidAlive) {
+    return { stale: true, reason: "pid_dead" };
+  }
+  const updatedAt = new Date(manifest.updatedAt).getTime();
+  if (!Number.isFinite(updatedAt)) {
+    return { stale: false, reason: "updated_at_invalid" };
+  }
+  if (now - updatedAt > STALE_ALIVE_PID_MS) {
+    return {
+      stale: true,
+      reason: `alive_but_stale_${Math.round((now - updatedAt) / 36e5)}h`
+    };
+  }
+  return { stale: false, reason: "alive_and_recent" };
+}
+function hasRecentActiveEvidence(tasks, now) {
+  return tasks.some((task) => {
+    if (task.status !== "running" && task.status !== "waiting") return false;
+    const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
+    if (task.heartbeat?.alive !== false && Number.isFinite(heartbeatAt) && now - heartbeatAt <= ACTIVE_EVIDENCE_TTL_MS) return true;
+    const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
+    return Number.isFinite(activityAt) && now - activityAt <= ACTIVE_EVIDENCE_TTL_MS;
+  });
+}
+function isTaskHeartbeatStale(task, now) {
+  const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
+  const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
+  if (!Number.isFinite(heartbeatAt) && !Number.isFinite(activityAt)) return false;
+  const heartbeatAge = Number.isFinite(heartbeatAt) ? now - heartbeatAt : Number.MAX_SAFE_INTEGER;
+  const activityAge = Number.isFinite(activityAt) ? now - activityAt : Number.MAX_SAFE_INTEGER;
+  const elapsed = Math.min(heartbeatAge, activityAge);
+  if (elapsed <= NO_PID_HEARTBEAT_STALE_MS) return false;
+  const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
+  const pidAlive = taskPid ? checkProcessLiveness(taskPid).alive : false;
+  if (taskPid && pidAlive) return false;
+  if (process.env.PI_CREW_DEBUG_STALE === "1") {
+    try {
+      fs41.appendFileSync(
+        "/tmp/pi-crew-f1-debug.log",
+        `${JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), taskId: task.id, status: task.status, taskPid, pidAlive, heartbeatAge, activityAge, hbLastSeen: task.heartbeat?.lastSeenAt })}
+`
+      );
+    } catch {
+    }
+  }
+  return true;
+}
+function getRunningTaskStaleness(tasks, now) {
+  const runningTasks = tasks.filter((t2) => t2.status === "running" || t2.status === "waiting");
+  if (runningTasks.length === 0) return { allStale: false, staleTaskIds: [] };
+  const staleTaskIds = [];
+  for (const task of runningTasks) {
+    if (isTaskHeartbeatStale(task, now)) {
+      staleTaskIds.push(task.id);
+    }
+  }
+  return {
+    allStale: staleTaskIds.length === runningTasks.length,
+    staleTaskIds
+  };
+}
+function buildStaleReconcileError(task, reason) {
+  const heartbeatAgeSeconds = task.heartbeat?.lastSeenAt ? Math.round((Date.now() - new Date(task.heartbeat.lastSeenAt).getTime()) / 1e3) : void 0;
+  return errors.runStale(reason, heartbeatAgeSeconds);
+}
+function repairStaleRun(manifest, tasks, reason) {
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const repairedTasks = tasks.map((task) => {
+    if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+      return {
+        ...task,
+        status: "cancelled",
+        finishedAt: now,
+        // E3/E1 (Round 15): structured CrewError (E012) with code + help hint.
+        error: buildStaleReconcileError(task, reason).message
+      };
+    }
+    return task;
+  });
+  for (const task of repairedTasks) {
+    try {
+      upsertCrewAgent(manifest, recordFromTask(manifest, task, "scaffold"));
+    } catch {
+    }
+  }
+  return repairedTasks;
+}
+function reconcileStaleRun(manifest, tasks, now = Date.now()) {
+  const runId = manifest.runId;
+  if (isPlanApprovalPendingEffective(manifest)) {
+    return {
+      runId,
+      verdict: "blocked_awaiting_approval",
+      repaired: false,
+      detail: "Plan approval is pending; blocked run is intentionally waiting and must not be stale-repaired"
+    };
+  }
+  if (isWaitAnswerPending(manifest, now)) {
+    return {
+      runId,
+      verdict: "waiting_answer",
+      repaired: false,
+      detail: "Ask answer pending (manifest.waitState.askedAt within waiting TTL); run is intentionally waiting and must not be stale-repaired"
+    };
+  }
+  const phase1 = checkResultFile(manifest, tasks);
+  if (phase1.found) {
+    saveRunManifest(manifest);
+    return {
+      runId,
+      verdict: "result_exists",
+      repaired: false,
+      detail: "All tasks already terminal \u2014 no repair needed"
+    };
+  }
+  const pid = manifest.async?.pid;
+  const pidStatus = checkPidLiveness(pid, manifest.stateRoot);
+  if (pidStatus.detail === "no pid recorded") {
+    if (hasRecentActiveEvidence(tasks, now)) {
+      return {
+        runId,
+        verdict: "no_status",
+        repaired: false,
+        detail: "No PID recorded, but recent task heartbeat/progress exists; not repairing"
+      };
+    }
+    const { allStale, staleTaskIds } = getRunningTaskStaleness(tasks, now);
+    if (allStale) {
+      const repaired2 = repairStaleRun(manifest, tasks, "no_pid_heartbeat_stale");
+      return {
+        runId,
+        verdict: "no_status",
+        repaired: true,
+        detail: `No PID; all running task heartbeats stale >${Math.round(NO_PID_HEARTBEAT_STALE_MS / 6e4)}min; repaired ${repaired2.filter((t2) => t2.status === "cancelled").length} tasks`,
+        repairedTasks: repaired2
+      };
+    }
+    if (staleTaskIds.length > 0) {
+      const repaired2 = repairStaleRun(manifest, tasks, "no_pid_individual_stale_task");
+      return {
+        runId,
+        verdict: "no_status",
+        repaired: true,
+        detail: `No PID; ${staleTaskIds.length} individually stale task(s) repaired: ${staleTaskIds.join(", ")}`,
+        repairedTasks: repaired2.filter((t2) => staleTaskIds.includes(t2.id))
+      };
+    }
+    const updatedAt = new Date(manifest.updatedAt).getTime();
+    if (Number.isFinite(updatedAt) && now - updatedAt > STALE_ALIVE_PID_MS) {
+      const repaired2 = repairStaleRun(manifest, tasks, "no_pid_stale");
+      return {
+        runId,
+        verdict: "no_status",
+        repaired: true,
+        detail: `No PID; stale ${Math.round((now - updatedAt) / 36e5)}h; repaired ${repaired2.filter((t2) => t2.status === "cancelled").length} tasks`,
+        repairedTasks: repaired2
+      };
+    }
+    return {
+      runId,
+      verdict: "no_status",
+      repaired: false,
+      detail: "No PID recorded; not stale enough to repair"
+    };
+  }
+  const staleness = evaluateStaleness(manifest, pidStatus.alive, now);
+  if (!staleness.stale) {
+    return {
+      runId,
+      verdict: "healthy",
+      repaired: false,
+      detail: `PID ${pid}: ${pidStatus.detail}, ${staleness.reason}`
+    };
+  }
+  const repaired = repairStaleRun(manifest, tasks, staleness.reason);
+  return {
+    runId,
+    verdict: pidStatus.alive ? "pid_alive_stale" : "pid_dead",
+    repaired: true,
+    detail: `PID ${pid}: ${pidStatus.detail}; ${staleness.reason}; repaired ${repaired.filter((t2) => t2.status === "cancelled").length} tasks`,
+    repairedTasks: repaired
+  };
+}
+function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
+  const tmpDir = options?.tmpDir ?? getSafeTempDir();
+  if (!tmpDir) return { repaired: 0, cleanedDirs: 0 };
+  let repaired = 0;
+  let cleanedDirs = 0;
+  try {
+    const entries = fs41.readdirSync(tmpDir, { withFileTypes: true });
+    const scanBatch = options?.scanBatchSize ?? ORPHAN_TEMP_SCAN_BATCH_SIZE;
+    const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-")).sort((a, b) => a.name.localeCompare(b.name)).slice(0, scanBatch);
+    for (const entry of candidates) {
+      if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
+      const workspaceDir = path34.join(tmpDir, entry.name);
+      const crewDir = path34.join(workspaceDir, ".crew");
+      if (!fs41.existsSync(crewDir)) continue;
+      const stateRunsDir = path34.join(crewDir, "state", "runs");
+      if (!fs41.existsSync(stateRunsDir)) continue;
+      let hasRunning = false;
+      try {
+        for (const runDir of fs41.readdirSync(stateRunsDir)) {
+          const manifestPath = path34.join(stateRunsDir, runDir, "manifest.json");
+          const tasksPath = path34.join(stateRunsDir, runDir, "tasks.json");
+          if (!fs41.existsSync(manifestPath) || !fs41.existsSync(tasksPath)) continue;
+          try {
+            const manifest = loadManifestWithRecovery(manifestPath, runDir);
+            if (!manifest) continue;
+            if (manifest.status !== "running") continue;
+            const tasks = loadTasksWithRecovery(tasksPath, path34.join(stateRunsDir, runDir, "events.jsonl"), runDir);
+            const result4 = reconcileStaleRun(manifest, tasks, now);
+            if (result4.repaired && result4.repairedTasks) {
+              atomicWriteJson(tasksPath, result4.repairedTasks);
+              const updated = {
+                ...manifest,
+                status: "cancelled",
+                updatedAt: new Date(now).toISOString(),
+                summary: `Stale run reconciled: ${result4.detail}`
+              };
+              atomicWriteJson(manifestPath, updated);
+              for (const task of result4.repairedTasks) {
+                try {
+                  upsertCrewAgent(updated, recordFromTask(updated, task, "scaffold"));
+                } catch {
+                }
+              }
+              repaired++;
+            }
+            if (result4.verdict === "result_exists") {
+              for (const task of tasks) {
+                try {
+                  upsertCrewAgent(manifest, recordFromTask(manifest, task, "scaffold"));
+                } catch {
+                }
+              }
+            }
+            if (result4.verdict === "healthy" || // WP-2/R2: a run intentionally waiting on an ask answer keeps the
+            // temp workspace alive (its stateRoot + mailbox must survive for
+            // the parked worker to receive the answer).
+            result4.verdict === "waiting_answer" || result4.verdict === "no_status" && !result4.repaired) {
+              hasRunning = true;
+            }
+          } catch (err2) {
+            const scanManifestPath = manifestPath;
+            logInternalError(
+              "stale-reconciler",
+              new Error(`Skipping manifest due to parse error: ${scanManifestPath}: ${err2}`),
+              void 0,
+              "warn"
+            );
+          }
+        }
+      } catch (err2) {
+        hasRunning = true;
+        logInternalError("stale-reconciler", new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`), void 0, "warn");
+      }
+      const sentinelPath = path34.join(workspaceDir, ".cleanup-in-progress");
+      let canCleanup = !hasRunning;
+      const cleanupEnabled = options?.cleanupOrphanedTempDirs !== false;
+      let dirAge = 0;
+      if (cleanupEnabled && !hasRunning) {
+        try {
+          const stat2 = fs41.statSync(workspaceDir);
+          dirAge = now - stat2.mtimeMs;
+        } catch {
+        }
+      }
+      if (canCleanup) {
+        try {
+          if (!fs41.existsSync(workspaceDir)) {
+            fs41.mkdirSync(workspaceDir, { recursive: true });
+          }
+          const sentinelFd = fs41.openSync(sentinelPath, "wx");
+          fs41.closeSync(sentinelFd);
+          atomicWriteFile(sentinelPath, JSON.stringify({ startedAt: now }));
+        } catch {
+          canCleanup = false;
+        }
+      }
+      if (canCleanup) {
+        if (fs41.existsSync(stateRunsDir)) {
+          try {
+            for (const runDir of fs41.readdirSync(stateRunsDir)) {
+              const manifestPath = path34.join(stateRunsDir, runDir, "manifest.json");
+              if (!fs41.existsSync(manifestPath)) continue;
+              const manifest = loadManifestWithRecovery(manifestPath, runDir);
+              if (!manifest) continue;
+              if (manifest?.status === "running") {
+                canCleanup = false;
+                break;
+              }
+            }
+          } catch (err2) {
+            logInternalError(
+              "stale-reconciler",
+              new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`),
+              void 0,
+              "warn"
+            );
+          }
+        }
+      }
+      if (canCleanup) {
+        if (dirAge > ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS) {
+          let stillClean = true;
+          if (fs41.existsSync(stateRunsDir)) {
+            try {
+              for (const runDir of fs41.readdirSync(stateRunsDir)) {
+                const manifestPath = path34.join(stateRunsDir, runDir, "manifest.json");
+                if (!fs41.existsSync(manifestPath)) continue;
+                const manifest = loadManifestWithRecovery(manifestPath, runDir);
+                if (!manifest) continue;
+                if (manifest.status === "running") {
+                  stillClean = false;
+                  break;
+                }
+              }
+            } catch {
+              stillClean = false;
+            }
+          }
+          if (stillClean) {
+            fs41.rmSync(workspaceDir, {
+              recursive: true,
+              force: true
+            });
+            cleanedDirs++;
+          }
+        }
+        try {
+          fs41.unlinkSync(sentinelPath);
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+  return { repaired, cleanedDirs };
+}
+function getSafeTempDir() {
+  try {
+    return fs41.existsSync(os10.tmpdir()) ? os10.tmpdir() : void 0;
+  } catch {
+    return void 0;
+  }
+}
+var ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS, ORPHAN_TEMP_SCAN_BATCH_SIZE, WAITING_TTL_MS, STALE_ALIVE_PID_MS, ACTIVE_EVIDENCE_TTL_MS, NO_PID_HEARTBEAT_STALE_MS;
+var init_stale_reconciler = __esm({
+  "src/runtime/stale-reconciler.ts"() {
+    "use strict";
+    init_errors3();
+    init_atomic_write();
+    init_plan_store();
+    init_state_store();
+    init_internal_error();
+    init_crew_agent_records();
+    init_process_status();
+    ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS = 60 * 60 * 1e3;
+    ORPHAN_TEMP_SCAN_BATCH_SIZE = 50;
+    WAITING_TTL_MS = 24 * 60 * 60 * 1e3;
+    STALE_ALIVE_PID_MS = 24 * 60 * 60 * 1e3;
+    ACTIVE_EVIDENCE_TTL_MS = 5 * 60 * 1e3;
+    NO_PID_HEARTBEAT_STALE_MS = 5 * 60 * 1e3;
+  }
+});
+
+// src/runtime/recovery/crash-recovery.ts
+var crash_recovery_exports = {};
+__export(crash_recovery_exports, {
+  _setReadManifestFileSyncForTest: () => _setReadManifestFileSyncForTest,
+  applyRecoveryPlan: () => applyRecoveryPlan,
+  cancelOrphanedRuns: () => cancelOrphanedRuns,
+  declineRecoveryPlan: () => declineRecoveryPlan,
+  detectInterruptedRuns: () => detectInterruptedRuns,
+  purgeStaleActiveRunIndex: () => purgeStaleActiveRunIndex,
+  readManifestWithTransientRetry: () => readManifestWithTransientRetry,
+  reconcileAllStaleRuns: () => reconcileAllStaleRuns,
+  shouldRecoverTask: () => shouldRecoverTask
+});
+import * as fs42 from "node:fs";
+import * as path35 from "node:path";
+function isTerminalTask(task) {
+  return task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "skipped" || task.status === "needs_attention";
+}
+function _setReadManifestFileSyncForTest(fn) {
+  _readManifestFileSync = fn ?? ((p) => fs42.readFileSync(p, "utf-8"));
+}
+function readManifestWithTransientRetry(manifestPath, maxRetries = 3, baseDelayMs = 100) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return JSON.parse(_readManifestFileSync(manifestPath));
+    } catch (err2) {
+      if (err2 instanceof SyntaxError) throw err2;
+      const code = err2.code;
+      if (code !== void 0 && TRANSIENT_READ_ERRNO_CODES.has(code)) {
+        if (attempt < maxRetries) {
+          sleepSync(baseDelayMs * 2 ** attempt);
+          continue;
+        }
+      }
+      throw err2;
+    }
+  }
+  throw new Error(`unreachable: readManifestWithTransientRetry exhausted for ${manifestPath}`);
+}
+function shouldRecoverTask(task, deadMs) {
+  if (task.status !== "running") return false;
+  if (!task.heartbeat) return true;
+  return task.heartbeat.alive === false || isWorkerHeartbeatStale(task.heartbeat, deadMs);
+}
+function detectInterruptedRuns(cwd, manifestCache2, deadMs = 3e5, currentSessionId) {
+  const plans = [];
+  for (const manifest of manifestCache2.list(50)) {
+    if (manifest.status !== "running" && manifest.status !== "blocked") continue;
+    if (isIntentionalWait(manifest)) continue;
+    if (manifest.async?.pid !== void 0 && checkProcessLiveness(manifest.async.pid).alive) continue;
+    if (currentSessionId && manifest.ownerSessionId && manifest.ownerSessionId === currentSessionId) continue;
+    const loaded = loadRunManifestById(cwd, manifest.runId);
+    if (!loaded) continue;
+    const resumableTasks = loaded.tasks.filter((task) => shouldRecoverTask(task, deadMs)).map((task) => task.id);
+    if (!resumableTasks.length) continue;
+    plans.push({
+      runId: manifest.runId,
+      resumableTasks,
+      preservedTasks: loaded.tasks.filter(isTerminalTask).map((task) => task.id),
+      lastEventSeq: scanSequence(loaded.manifest.eventsPath)
+    });
+  }
+  return plans;
+}
+async function applyRecoveryPlan(plan, ctx, registry2) {
+  const loaded = loadRunManifestById(ctx.cwd, plan.runId);
+  if (!loaded) throw new Error(`Run '${plan.runId}' not found.`);
+  const hookReport = await executeHook("run_recovery", {
+    runId: plan.runId,
+    cwd: ctx.cwd
+  });
+  withRunLockSync(loaded.manifest, () => {
+    const fresh = loadRunManifestById(ctx.cwd, plan.runId);
+    if (!fresh) throw new Error(`Run '${plan.runId}' not found.`);
+    if (fresh.manifest.status === "completed" || fresh.manifest.status === "failed" || fresh.manifest.status === "cancelled") {
+      appendEvent(fresh.manifest.eventsPath, {
+        type: "crew.run.recovery_skipped",
+        runId: plan.runId,
+        message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
+        data: { status: fresh.manifest.status }
+      });
+      return;
+    }
+    appendHookEvent(fresh.manifest, hookReport);
+    if (hookReport.outcome === "block") {
+      appendEvent(fresh.manifest.eventsPath, {
+        type: "crew.run.recovery_blocked",
+        runId: plan.runId,
+        message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
+        data: { hookOutcome: "block", reason: hookReport.reason }
+      });
+      return;
+    }
+    const reset = new Set(plan.resumableTasks);
+    const tasks = fresh.tasks.map(
+      (task) => reset.has(task.id) ? {
+        ...task,
+        status: "queued",
+        startedAt: void 0,
+        finishedAt: void 0,
+        error: void 0,
+        heartbeat: void 0,
+        // WP-2/R2 (ADR-0 item 9): a requeued task must not resume parked
+        // state — drop any stale ask-park marker along with the other
+        // per-attempt transient fields. Tasks NOT reset (e.g. a task parked
+        // in `waiting`) pass through untouched, marker intact; the marker's
+        // deadline is then owned by the scheduler tick (dispatch-batch).
+        waiting: void 0
+      } : task
+    );
+    saveRunTasks(fresh.manifest, tasks);
+    appendEvent(fresh.manifest.eventsPath, {
+      type: "crew.run.resumed",
+      runId: plan.runId,
+      message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
+      data: {
+        recoveredFromSeq: plan.lastEventSeq,
+        resumableTasks: plan.resumableTasks
+      }
+    });
+    registry2?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
+  });
+}
+function declineRecoveryPlan(plan, ctx) {
+  const loaded = loadRunManifestById(ctx.cwd, plan.runId);
+  if (!loaded) throw new Error(`Run '${plan.runId}' not found.`);
+  withRunLockSync(loaded.manifest, () => {
+    const fresh = loadRunManifestById(ctx.cwd, plan.runId);
+    if (!fresh) return;
+    appendEvent(fresh.manifest.eventsPath, {
+      type: "crew.run.recovery_declined",
+      runId: plan.runId,
+      message: "Interrupted run was not resumed.",
+      data: { recoveredFromSeq: plan.lastEventSeq }
+    });
+    updateRunStatus(fresh.manifest, "cancelled", "interrupted-not-resumed");
+  });
+}
+function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThresholdMs = 3e5, now = Date.now()) {
+  const cancelled = [];
+  const skipped = [];
+  for (const manifest of manifestCache2.list(50)) {
+    if (manifest.status !== "running" && manifest.status !== "blocked") continue;
+    if (isIntentionalWait(manifest)) {
+      skipped.push(manifest.runId);
+      continue;
+    }
+    const ownerId = manifest.ownerSessionId;
+    if (!ownerId || ownerId === currentSessionId) continue;
+    const ownerPid = manifest.async?.pid;
+    if (ownerPid !== void 0 && checkProcessLiveness(ownerPid).alive) {
+      skipped.push(manifest.runId);
+      continue;
+    }
+    if (!manifest.async) {
+      const updatedMs = manifest.updatedAt ? new Date(manifest.updatedAt).getTime() : Number.NaN;
+      if (Number.isFinite(updatedMs) && now - updatedMs <= staleThresholdMs) {
+        skipped.push(manifest.runId);
+        continue;
+      }
+    }
+    const loaded = loadRunManifestById(cwd, manifest.runId);
+    if (!loaded) continue;
+    const hasRecentActivity = loaded.tasks.some((task) => {
+      if (task.status !== "running" && task.status !== "waiting") return false;
+      const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
+      if (task.heartbeat?.alive !== false && Number.isFinite(heartbeatAt) && now - heartbeatAt <= staleThresholdMs) return true;
+      const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
+      return Number.isFinite(activityAt) && now - activityAt <= staleThresholdMs;
+    });
+    if (hasRecentActivity) {
+      skipped.push(manifest.runId);
+      continue;
+    }
+    let cancelledRun = false;
+    withRunLockSync(loaded.manifest, () => {
+      const fresh = loadRunManifestById(cwd, manifest.runId);
+      if (!fresh) return;
+      if (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked") {
+        appendEvent(loaded.manifest.eventsPath, {
+          type: "crew.run.orphan_skip",
+          runId: manifest.runId,
+          message: `Skipped orphan cancellation: status is '${fresh.manifest.status}' (was 'running'/'blocked' at initial scan)`,
+          data: { currentStatus: fresh.manifest.status }
+        });
+        return;
+      }
+      const now_iso = new Date(now).toISOString();
+      const repairedTasks = fresh.tasks.map((task) => {
+        if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+          return {
+            ...task,
+            status: "cancelled",
+            finishedAt: now_iso,
+            error: `Orphaned run: owner session ${ownerId} no longer exists`
+          };
+        }
+        return task;
+      });
+      saveRunTasks(fresh.manifest, repairedTasks);
+      if (fresh.manifest.waitState) {
+        const cleared = { ...fresh.manifest, waitState: void 0, updatedAt: new Date(now).toISOString() };
+        saveRunManifest(cleared);
+        fresh.manifest = cleared;
+      }
+      for (const task of repairedTasks) {
+        try {
+          upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+        } catch {
+        }
+      }
+      updateRunStatus(fresh.manifest, "cancelled", `Orphaned run: owner session ${ownerId} no longer exists`);
+      appendEvent(fresh.manifest.eventsPath, {
+        type: "crew.run.orphan_cancelled",
+        runId: manifest.runId,
+        message: `Auto-cancelled orphaned run (owner: ${ownerId})`,
+        data: {
+          ownerSessionId: ownerId,
+          cancelledTasks: repairedTasks.filter((t2) => t2.status === "cancelled").length
+        }
+      });
+      cancelled.push(manifest.runId);
+      cancelledRun = true;
+    });
+    if (cancelledRun)
+      void terminateLiveAgentsForRun(manifest.runId, "cancelled", appendEvent, loaded.manifest.eventsPath).catch(
+        (error) => logInternalError("crash-recovery.orphan.terminate", error, `runId=${manifest.runId}`, "warn")
+      );
+  }
+  return { cancelled, skipped };
+}
+function tryRemoveRunDirectories(entry) {
+  const roots = [projectCrewRoot(entry.cwd), userCrewRoot()];
+  for (const root of roots) {
+    try {
+      resolveRealContainedPath(root, entry.stateRoot);
+      fs42.rmSync(entry.stateRoot, { recursive: true, force: true });
+      break;
+    } catch {
+    }
+  }
+}
+function heartbeatAgeMs(entry, now) {
+  try {
+    const mtime = fs42.statSync(path35.join(entry.stateRoot, "heartbeat.json")).mtimeMs;
+    return Number.isFinite(mtime) ? now - mtime : Infinity;
+  } catch {
+    return Infinity;
+  }
+}
+function hasRecentLifeEvidence(entry, manifestUpdatedAt, now, staleThresholdMs) {
+  const manifestMs = manifestUpdatedAt ? new Date(manifestUpdatedAt).getTime() : NaN;
+  if (Number.isFinite(manifestMs) && now - manifestMs <= staleThresholdMs) return true;
+  const hbAge = heartbeatAgeMs(entry, now);
+  if (Number.isFinite(hbAge) && hbAge <= staleThresholdMs) return true;
+  return false;
+}
+function purgeStaleActiveRunIndex(staleThresholdMs = 3e5, now = Date.now(), currentSessionId) {
+  const purged = [];
+  const kept = [];
+  const entries = readActiveRunRegistry();
+  for (const entry of entries) {
+    if (!fs42.existsSync(entry.manifestPath)) {
+      if (!fs42.existsSync(entry.stateRoot)) {
+        tryRemoveRunDirectories(entry);
+      }
+      unregisterActiveRun(entry.runId);
+      purged.push(entry.runId);
+      continue;
+    }
+    if (!fs42.existsSync(entry.cwd)) {
+      if (!fs42.existsSync(entry.stateRoot)) {
+        tryRemoveRunDirectories(entry);
+      }
+      unregisterActiveRun(entry.runId);
+      purged.push(entry.runId);
+      continue;
+    }
+    let manifest;
+    try {
+      manifest = readManifestWithTransientRetry(entry.manifestPath);
+    } catch (err2) {
+      const code = err2.code;
+      const isTransient = code !== void 0 && TRANSIENT_READ_ERRNO_CODES.has(code);
+      if (isTransient) continue;
+      try {
+        fs42.renameSync(entry.manifestPath, entry.manifestPath + ".corrupt-" + Date.now() + "-" + process.pid);
+      } catch {
+      }
+      unregisterActiveRun(entry.runId);
+      purged.push(entry.runId);
+      continue;
+    }
+    const terminalStatuses = /* @__PURE__ */ new Set(["completed", "failed", "cancelled", "blocked"]);
+    if (manifest && terminalStatuses.has(manifest.status ?? "")) {
+      unregisterActiveRun(entry.runId);
+      purged.push(entry.runId);
+      continue;
+    }
+    if (currentSessionId && manifest?.ownerSessionId && manifest.ownerSessionId === currentSessionId) {
+      kept.push(entry.runId);
+      continue;
+    }
+    if (manifest?.status === "running" && manifest.async?.pid !== void 0) {
+      const pidAlive = checkProcessLiveness(manifest.async.pid).alive;
+      if (!pidAlive && !hasRecentLifeEvidence(entry, manifest.updatedAt, now, staleThresholdMs)) {
+        try {
+          const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
+          if (fullLoaded) {
+            withRunLockSync(fullLoaded.manifest, () => {
+              const fresh = loadRunManifestById(entry.cwd, entry.runId);
+              if (!fresh) return;
+              if (fresh.manifest.status !== "running") return;
+              const now_iso = new Date(now).toISOString();
+              const repairedTasks = fresh.tasks.map((task) => {
+                if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+                  return {
+                    ...task,
+                    status: "cancelled",
+                    finishedAt: now_iso,
+                    error: "Orphaned run: worker process dead and no recent activity"
+                  };
+                }
+                return task;
+              });
+              saveRunTasks(fresh.manifest, repairedTasks);
+              for (const task of repairedTasks) {
+                try {
+                  upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+                } catch {
+                }
+              }
+              updateRunStatus(fresh.manifest, "cancelled", "Orphaned run: worker process dead and no recent activity");
+            });
+            void terminateLiveAgentsForRun(
+              fullLoaded.manifest.runId,
+              "cancelled",
+              appendEvent,
+              fullLoaded.manifest.eventsPath
+            ).catch(
+              (error) => logInternalError("crash-recovery.pid-dead.terminate", error, `runId=${fullLoaded.manifest.runId}`, "warn")
+            );
+          }
+        } catch {
+        }
+        unregisterActiveRun(entry.runId);
+        purged.push(entry.runId);
+        continue;
+      }
+    }
+    if (manifest?.status === "running" && manifest.async === void 0) {
+      if (!hasRecentLifeEvidence(entry, manifest.updatedAt, now, staleThresholdMs)) {
+        try {
+          const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
+          if (fullLoaded && fullLoaded.manifest.status === "running") {
+            withRunLockSync(fullLoaded.manifest, () => {
+              const fresh = loadRunManifestById(entry.cwd, entry.runId);
+              if (fresh?.manifest.status !== "running") return;
+              const now_iso = new Date(now).toISOString();
+              const repairedTasks = fresh.tasks.map((task) => {
+                if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
+                  return {
+                    ...task,
+                    status: "cancelled",
+                    finishedAt: now_iso,
+                    error: "Orphaned run: workflow completed but manifest never updated to terminal status"
+                  };
+                }
+                return task;
+              });
+              saveRunTasks(fresh.manifest, repairedTasks);
+              for (const task of repairedTasks) {
+                try {
+                  upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+                } catch {
+                }
+              }
+              updateRunStatus(
+                fresh.manifest,
+                "cancelled",
+                "Orphaned run: no async worker and no manifest update in over " + Math.round(staleThresholdMs / 6e4) + " minutes"
+              );
+            });
+            void terminateLiveAgentsForRun(
+              fullLoaded.manifest.runId,
+              "cancelled",
+              appendEvent,
+              fullLoaded.manifest.eventsPath
+            ).catch(
+              (error) => logInternalError("crash-recovery.pid-dead.terminate", error, `runId=${fullLoaded.manifest.runId}`, "warn")
+            );
+          }
+        } catch {
+        }
+        unregisterActiveRun(entry.runId);
+        purged.push(entry.runId);
+        continue;
+      }
+    }
+    kept.push(entry.runId);
+  }
+  return { purged, kept };
+}
+function reconcileAllStaleRuns(cwd, manifestCache2, now = Date.now(), currentSessionId) {
+  const results = [];
+  const runIds = manifestCache2.list(50).filter((m) => {
+    if (m.status !== "running" && m.status !== "blocked") return false;
+    if (currentSessionId && m.ownerSessionId && m.ownerSessionId === currentSessionId) return false;
+    return true;
+  }).map((m) => m.runId);
+  for (const runId of runIds) {
+    const cached2 = manifestCache2.get(runId);
+    if (!cached2) continue;
+    const loaded = loadRunManifestById(cwd, runId);
+    if (!loaded) continue;
+    withRunLockSync(loaded.manifest, () => {
+      const fresh = loadRunManifestById(cwd, runId);
+      if (!fresh || fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked") return;
+      if (isPlanApprovalPendingEffective(fresh.manifest)) {
+        results.push({
+          runId,
+          verdict: "blocked_awaiting_approval",
+          repaired: false,
+          detail: "Plan approval is pending; stale reconciliation skipped"
+        });
+        return;
+      }
+      const result4 = reconcileStaleRun(fresh.manifest, fresh.tasks, now);
+      if (result4.repaired || result4.verdict === "result_exists") {
+        if (result4.repairedTasks) {
+          saveRunTasks(fresh.manifest, result4.repairedTasks);
+          for (const task of result4.repairedTasks) {
+            try {
+              upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+            } catch {
+            }
+          }
+        }
+        updateRunStatus(fresh.manifest, "failed", `Stale run reconciled: ${result4.detail}`);
+        void terminateLiveAgentsForRun(fresh.manifest.runId, "failed", appendEvent, fresh.manifest.eventsPath).catch(
+          (error) => logInternalError("crash-recovery.reconcile.terminate", error, `runId=${fresh.manifest.runId}`, "warn")
+        );
+        appendEvent(fresh.manifest.eventsPath, {
+          type: "crew.run.reconciled_stale",
+          runId,
+          message: result4.detail,
+          data: { verdict: result4.verdict }
+        });
+      }
+      if (result4.verdict !== "healthy") {
+        results.push(result4);
+      }
+    });
+  }
+  return results;
+}
+var TRANSIENT_READ_ERRNO_CODES, _readManifestFileSync;
+var init_crash_recovery = __esm({
+  "src/runtime/recovery/crash-recovery.ts"() {
+    "use strict";
+    init_registry2();
+    init_locks();
+    init_event_log();
+    init_active_run_registry();
+    init_state_store();
+    init_internal_error();
+    init_paths();
+    init_safe_paths();
+    init_sleep();
+    init_crew_agent_records();
+    init_worker_heartbeat();
+    init_live_agent_manager();
+    init_process_status();
+    init_stale_reconciler();
+    TRANSIENT_READ_ERRNO_CODES = /* @__PURE__ */ new Set(["EBUSY", "EACCES", "EAGAIN", "EPERM", "ENFILE", "EMFILE"]);
+    _readManifestFileSync = (p) => fs42.readFileSync(p, "utf-8");
+  }
+});
+
+// src/ui/widget/widget-model.ts
+function agentsFor(run) {
+  try {
+    return readCrewAgents(run);
+  } catch {
+    return [];
+  }
+}
+function activeWidgetRuns(cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId) {
+  evictStaleLiveAgentHandles();
+  const now = Date.now();
+  if (now - lastStaleReconcileAt > STALE_RECONCILE_INTERVAL_MS && manifestCache2) {
+    lastStaleReconcileAt = now;
+    try {
+      reconcileAllStaleRuns(cwd, manifestCache2, Date.now(), workspaceId);
+    } catch {
+    }
+  }
+  let runs = preloadedManifests ?? (manifestCache2 ? manifestCache2.list(20) : listRecentRuns(cwd, 20));
+  if (workspaceId) {
+    runs = runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === workspaceId);
+  }
+  return runs.map((run) => {
+    try {
+      const snapshot = snapshotCache?.get(run.runId);
+      if (snapshot) {
+        return {
+          run: snapshot.manifest,
+          agents: snapshot.agents,
+          snapshot
+        };
+      }
+      if (snapshotCache) return null;
+      return { run, agents: agentsFor(run) };
+    } catch {
+      if (snapshotCache) return null;
+      return { run, agents: agentsFor(run) };
+    }
+  }).filter((item) => item !== null && isDisplayActiveRun(item.run, item.agents));
+}
+function statusSummary(runs) {
+  const agents = runs.flatMap((item) => item.agents);
+  const runningAgents = agents.filter((a) => a.status === "running").length;
+  const queuedAgents = agents.filter((a) => a.status === "queued" || a.status === "waiting").length;
+  const completedAgents = agents.filter((a) => a.status === "completed").length;
+  const totalAgents = agents.length;
+  const totalRuns = runs.length;
+  const model = agents.find((a) => a.model)?.model?.split("/").at(-1);
+  const parts = [`\u2699 ${runningAgents}r`];
+  if (queuedAgents > 0) parts.push(`${queuedAgents}q`);
+  if (completedAgents > 0) parts.push(`${completedAgents}/${totalAgents}done`);
+  if (totalRuns > 1) parts.push(`${totalRuns}runs`);
+  if (model) parts.push(model);
+  return parts.join(" \xB7 ");
+}
+function shortRunLabel(run) {
+  return `${run.team}/${run.workflow ?? "none"}`;
+}
+var lastStaleReconcileAt, STALE_RECONCILE_INTERVAL_MS;
+var init_widget_model = __esm({
+  "src/ui/widget/widget-model.ts"() {
+    "use strict";
+    init_run_index();
+    init_crew_agent_records();
+    init_live_agent_manager();
+    init_process_status();
+    init_crash_recovery();
+    lastStaleReconcileAt = 0;
+    STALE_RECONCILE_INTERVAL_MS = 6e4;
+  }
+});
+
 // src/ui/agents-jobs-browser.ts
 import { matchesKey } from "@earendil-works/pi-tui";
-function agentTokPerSec(handle, nowMs3) {
-  if (handle.status !== "running") return void 0;
-  const usage = getTaskUsage(handle.taskId);
-  const totalTokens2 = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
-  if (totalTokens2 <= 0) return void 0;
-  const ms = computeLiveDurationMs(handle.activity, nowMs3);
-  if (ms <= 1e3) return void 0;
-  const tps = Math.round(totalTokens2 / (ms / 1e3));
-  return tps > 0 ? tps : void 0;
+function recordTokPerSec(record, nowMs3) {
+  if (record.status !== "running") return void 0;
+  try {
+    const usage = getTaskUsage(record.taskId);
+    const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
+    if (total <= 0) return void 0;
+    const started = record.startedAt ? Date.parse(record.startedAt) : Number.NaN;
+    if (!Number.isFinite(started)) return void 0;
+    const ms = Math.max(0, nowMs3 - started);
+    if (ms < 1e3) return void 0;
+    const tps = Math.round(total / (ms / 1e3));
+    return tps > 0 ? tps : void 0;
+  } catch {
+    return void 0;
+  }
 }
 function statusRank(status) {
   if (status === "running") return 0;
@@ -26623,6 +27940,7 @@ var init_agents_jobs_browser = __esm({
     init_live_duration();
     init_spinner();
     init_status_colors();
+    init_widget_model();
     REFRESH_TTL_MS_DEFAULT = 600;
     POLL_INTERVAL_MS = 400;
     MIN_BODY = 8;
@@ -26700,22 +28018,30 @@ var init_agents_jobs_browser = __esm({
         if (this.options.agentsProvider) {
           return [...this.options.agentsProvider()].sort((a, b) => statusRank(a.status) - statusRank(b.status));
         }
-        const handles = this.options.workspaceId ? listLiveAgentsByWorkspace(this.options.workspaceId) : listLiveAgents();
+        let runs = [];
+        try {
+          runs = activeWidgetRuns(this.options.cwd, void 0, void 0, void 0, this.options.workspaceId);
+        } catch (error) {
+          logInternalError("agents-browser.loadAgents", error);
+          return [];
+        }
         const nowMs3 = this.nowMs();
-        return handles.map((handle) => {
-          const record = this.recordFor(handle.runId, handle.taskId);
-          return {
-            kind: "agent",
-            runId: handle.runId,
-            taskId: handle.taskId,
-            role: handle.role ?? record?.role ?? handle.agent ?? "agent",
-            agentName: handle.agent,
-            status: handle.status,
-            tokPerSec: agentTokPerSec(handle, nowMs3),
-            record,
-            handle
-          };
-        }).sort((a, b) => statusRank(a.status) - statusRank(b.status));
+        const entries = [];
+        for (const { run, agents } of runs) {
+          for (const record of agents) {
+            entries.push({
+              kind: "agent",
+              runId: run.runId,
+              taskId: record.taskId,
+              role: record.role || record.agent || "agent",
+              agentName: record.agent,
+              status: record.status,
+              tokPerSec: recordTokPerSec(record, nowMs3),
+              record
+            });
+          }
+        }
+        return entries.sort((a, b) => statusRank(a.status) - statusRank(b.status));
       }
       loadJobs() {
         if (this.options.jobsProvider) return this.options.jobsProvider();
@@ -27568,7 +28894,7 @@ var init_syntax_highlight = __esm({
 });
 
 // src/ui/transcript-cache.ts
-import * as fs40 from "node:fs";
+import * as fs43 from "node:fs";
 function cacheKey(path103, options) {
   return `${path103}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
@@ -27581,14 +28907,14 @@ function getTranscriptCacheEntry(path103, options = {}) {
 }
 function readTranscriptText(path103, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
-    const raw = fs40.readFileSync(path103);
+    const raw = fs43.readFileSync(path103);
     return { raw, offset: 0, bytesRead: raw.length, truncated: false };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs40.openSync(path103, "r");
+  const fd = fs43.openSync(path103, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
-    fs40.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+    fs43.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
     const firstNewline = buffer.indexOf(10);
     const start = firstNewline >= 0 ? firstNewline + 1 : 0;
     return {
@@ -27598,24 +28924,24 @@ function readTranscriptText(path103, stat2, options) {
       truncated: true
     };
   } finally {
-    fs40.closeSync(fd);
+    fs43.closeSync(fd);
   }
 }
 function appendTranscriptText(path103, previous, stat2, options) {
   const deltaLength = stat2.size - previous.size;
-  const fd = fs40.openSync(path103, "r");
+  const fd = fs43.openSync(path103, "r");
   let delta;
   try {
     delta = Buffer.alloc(deltaLength);
     let read = 0;
     while (read < deltaLength) {
-      const n = fs40.readSync(fd, delta, read, deltaLength - read, previous.size + read);
+      const n = fs43.readSync(fd, delta, read, deltaLength - read, previous.size + read);
       if (n <= 0) break;
       read += n;
     }
     if (read < deltaLength) return null;
   } finally {
-    fs40.closeSync(fd);
+    fs43.closeSync(fd);
   }
   let raw = Buffer.concat([previous.raw, delta], previous.raw.length + deltaLength);
   let offset = previous.offset;
@@ -27643,7 +28969,7 @@ function readTranscriptLinesCached(path103, parse4, now = Date.now(), options = 
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs40.statSync(path103);
+    stat2 = fs43.statSync(path103);
   } catch {
     return previous?.lines ?? [];
   }
@@ -27698,7 +29024,7 @@ __export(transcript_viewer_exports, {
   formatTranscriptText: () => formatTranscriptText,
   readRunTranscript: () => readRunTranscript
 });
-import * as fs41 from "node:fs";
+import * as fs44 from "node:fs";
 function readRunTranscriptCacheKey(manifest, taskId, readOptions) {
   return `${manifest.runId}|${taskId ?? ""}|${readOptions.full ? "full" : "tail"}|${readOptions.maxTailBytes}`;
 }
@@ -27835,7 +29161,7 @@ function readRunTranscript(manifest, taskId, options = {}) {
   if (agent?.transcriptPath) {
     try {
       const safeTranscriptPath = resolveRealContainedPath(manifest.artifactsRoot, agent.transcriptPath);
-      if (fs41.existsSync(safeTranscriptPath)) transcriptPath = safeTranscriptPath;
+      if (fs44.existsSync(safeTranscriptPath)) transcriptPath = safeTranscriptPath;
     } catch {
     }
   }
@@ -28253,7 +29579,7 @@ var init_viewers = __esm({
 });
 
 // src/runtime/heartbeat/heartbeat-gradient.ts
-function heartbeatAgeMs(heartbeat, now = Date.now()) {
+function heartbeatAgeMs2(heartbeat, now = Date.now()) {
   if (!heartbeat) return Number.POSITIVE_INFINITY;
   const lastSeen = Date.parse(heartbeat.lastSeenAt);
   return Number.isFinite(lastSeen) ? Math.max(0, now - lastSeen) : Number.POSITIVE_INFINITY;
@@ -28261,7 +29587,7 @@ function heartbeatAgeMs(heartbeat, now = Date.now()) {
 function classifyHeartbeat(heartbeat, thresholds = DEFAULT_GRADIENT_THRESHOLDS, now = Date.now()) {
   if (!heartbeat) return "dead";
   if (heartbeat.alive === false) return "dead";
-  const elapsed = heartbeatAgeMs(heartbeat, now);
+  const elapsed = heartbeatAgeMs2(heartbeat, now);
   if (!Number.isFinite(elapsed)) return "dead";
   if (elapsed > thresholds.deadMs) return "dead";
   if (elapsed > thresholds.staleMs) return "stale";
@@ -28312,7 +29638,7 @@ function summarizeHeartbeats(snapshot, opts = {}) {
       summary.gradient.dead += 1;
       continue;
     }
-    const age = heartbeatAgeMs(heartbeat, current);
+    const age = heartbeatAgeMs2(heartbeat, current);
     if (!Number.isFinite(age)) {
       summary.missing += 1;
       summary.gradient.dead += 1;
@@ -28477,8 +29803,8 @@ var init_recovery_recipes = __esm({
 });
 
 // src/runtime/diagnostic-export.ts
-import * as fs42 from "node:fs";
-import * as path33 from "node:path";
+import * as fs45 from "node:fs";
+import * as path36 from "node:path";
 function envRedacted() {
   const output = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -28560,19 +29886,19 @@ async function exportDiagnostic(ctx, runId, options = {}) {
     runMailboxUnread: snapshot.mailbox,
     recoveryLedger
   };
-  const dir = path33.join(loaded.manifest.artifactsRoot, "diagnostic");
-  fs42.mkdirSync(dir, { recursive: true });
-  const filePath = path33.join(dir, `diagnostic-${safeTimestamp}.json`);
+  const dir = path36.join(loaded.manifest.artifactsRoot, "diagnostic");
+  fs45.mkdirSync(dir, { recursive: true });
+  const filePath = path36.join(dir, `diagnostic-${safeTimestamp}.json`);
   atomicWriteFile(filePath, `${JSON.stringify(report, null, 2)}
 `);
   return { path: filePath, report };
 }
 function listRecentDiagnostic(dir, windowMs, now = Date.now()) {
   try {
-    if (!fs42.existsSync(dir)) return void 0;
-    return fs42.readdirSync(dir).filter((file) => file.startsWith("diagnostic-") && file.endsWith(".json")).map((file) => ({
+    if (!fs45.existsSync(dir)) return void 0;
+    return fs45.readdirSync(dir).filter((file) => file.startsWith("diagnostic-") && file.endsWith(".json")).map((file) => ({
       file,
-      mtimeMs: fs42.statSync(path33.join(dir, file)).mtimeMs
+      mtimeMs: fs45.statSync(path36.join(dir, file)).mtimeMs
     })).filter((entry) => now - entry.mtimeMs < windowMs).sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.file;
   } catch {
     return void 0;
@@ -28596,12 +29922,12 @@ var init_diagnostic_export = __esm({
 
 // src/extension/plan-orchestrate.ts
 import { randomUUID as randomUUID6 } from "node:crypto";
-import * as fs43 from "node:fs";
+import * as fs46 from "node:fs";
 function parsePlanDocument(planPath) {
-  if (!fs43.existsSync(planPath)) {
+  if (!fs46.existsSync(planPath)) {
     throw new Error(`Plan document not found: ${planPath}`);
   }
-  const content = fs43.readFileSync(planPath, "utf-8");
+  const content = fs46.readFileSync(planPath, "utf-8");
   return parsePlanDocumentContent(content);
 }
 function parsePlanDocumentContent(content) {
@@ -28654,10 +29980,10 @@ function parsePlanDocumentContent(content) {
   return steps;
 }
 function parsePlanDocumentSimple(planPath) {
-  if (!fs43.existsSync(planPath)) {
+  if (!fs46.existsSync(planPath)) {
     throw new Error(`Plan document not found: ${planPath}`);
   }
-  const content = fs43.readFileSync(planPath, "utf-8");
+  const content = fs46.readFileSync(planPath, "utf-8");
   const steps = parsePlanDocumentContent(content);
   if (steps.length === 0) {
     const tag = detectImplicitTag(content);
@@ -28835,170 +30161,21 @@ var init_plan_orchestrate = __esm({
   }
 });
 
-// src/state/stores/plan-store.ts
-import * as fs44 from "node:fs";
-import * as path34 from "node:path";
-function planFilePath(manifest) {
-  return path34.join(manifest.stateRoot, PLAN_SUBPATH);
-}
-function loadPlanRecords(manifest) {
-  try {
-    const raw = fs44.readFileSync(planFilePath(manifest), "utf-8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.revisions)) return [];
-    return parsed.revisions.filter((r) => Boolean(r?.id && typeof r.version === "number"));
-  } catch (err2) {
-    if (err2.code === "ENOENT") return [];
-    logInternalError("plan-store.read-failed", err2 instanceof Error ? err2 : new Error(String(err2)), `run=${manifest.runId}`);
-    return [];
-  }
-}
-function getCurrentPlanRecord(manifest) {
-  const revisions = loadPlanRecords(manifest);
-  if (revisions.length === 0) return void 0;
-  const pointer = manifest.plan;
-  if (pointer) {
-    const pointed = revisions.find((r) => r.id === pointer.id && r.version === pointer.version);
-    if (pointed) return pointed;
-  }
-  return revisions.reduce((acc, r) => r.version > acc.version ? r : acc, revisions[0]);
-}
-function writePlanFile(manifest, revisions) {
-  const file = { version: 1, revisions };
-  fs44.mkdirSync(path34.dirname(planFilePath(manifest)), { recursive: true });
-  atomicWriteJson(planFilePath(manifest), file);
-}
-function assertRecordWellFormed(record) {
-  const ids = /* @__PURE__ */ new Set();
-  for (const item of record.items) {
-    if (!ID_PATTERN.test(item.id))
-      throw new Error(`plan-store: item id must match [A-Za-z0-9][A-Za-z0-9._-]{0,127} \u2014 got "${item.id.slice(0, 40)}"`);
-    if (item.title.length > TITLE_MAX) throw new Error(`plan-store: item title exceeds ${TITLE_MAX} chars`);
-    if (ids.has(item.id)) throw new Error(`plan-store: duplicate item id "${item.id}" in revision v${record.version}`);
-    ids.add(item.id);
-  }
-  const known = new Set(record.items.map((i) => i.id));
-  for (const phase of record.phases) {
-    for (const itemId of phase.itemIds) {
-      if (!known.has(itemId)) throw new Error(`plan-store: phase "${phase.id}" references unknown item "${itemId}"`);
-    }
-  }
-}
-function appendPlanRevision(manifest, record) {
-  return withRunLockSync(manifest, () => {
-    const revisions = loadPlanRecords(manifest);
-    if (revisions.length === 0) {
-      if (record.version !== 1) throw new Error(`plan-store: first revision must be v1, got v${record.version}`);
-      if (record.revisionOf) throw new Error("plan-store: first revision must not set revisionOf");
-    } else {
-      const last = revisions[revisions.length - 1];
-      if (record.id !== last.id) throw new Error(`plan-store: lineage break \u2014 expected id ${last.id}, got ${record.id}`);
-      if (record.version !== last.version + 1)
-        throw new Error(`plan-store: version must be ${last.version + 1}, got ${record.version}`);
-      if (!record.revisionOf) record.revisionOf = { id: last.id, version: last.version };
-      else if (record.revisionOf.id !== last.id || record.revisionOf.version !== last.version)
-        throw new Error(`plan-store: revisionOf must point at v${last.version} of ${last.id}`);
-      const carried = new Map(last.items.map((i) => [i.id, i.taskIds]));
-      for (const item of record.items) {
-        const prior = carried.get(item.id);
-        if (prior) item.taskIds = [.../* @__PURE__ */ new Set([...prior, ...item.taskIds])];
-      }
-    }
-    assertRecordWellFormed(record);
-    revisions.push(record);
-    writePlanFile(manifest, revisions);
-    const dropped = record.items.filter((i) => i.status === "dropped").length;
-    appendEvent(manifest.eventsPath, {
-      type: record.version === 1 ? "plan.created" : "plan.revised",
-      runId: manifest.runId,
-      message: record.version === 1 ? `Plan v1 created: ${record.items.length} item(s) in ${record.phases.length} phase(s)` : `Plan v${record.version} revised (${record.items.length} item(s), ${dropped} dropped)`,
-      data: { planId: record.id, version: record.version, dropped }
-    });
-    return record;
-  });
-}
-function linkTaskToPlanItem(manifest, itemId, taskId) {
-  return withRunLockSync(manifest, () => {
-    const revisions = loadPlanRecords(manifest);
-    if (revisions.length === 0) return false;
-    const current = revisions[revisions.length - 1];
-    const item = current.items.find((i) => i.id === itemId);
-    if (!item || item.status === "dropped" || item.taskIds.includes(taskId)) return false;
-    item.taskIds.push(taskId);
-    writePlanFile(manifest, revisions);
-    return true;
-  });
-}
-function setPlanApproval(manifest, approval) {
-  return withRunLockSync(manifest, () => {
-    const revisions = loadPlanRecords(manifest);
-    if (revisions.length === 0) return void 0;
-    const current = revisions[revisions.length - 1];
-    if (approval.planVersion !== current.version)
-      throw new Error(`plan-store: approval targets v${approval.planVersion} but current is v${current.version}`);
-    current.approval = {
-      status: approval.status,
-      by: approval.by,
-      at: (/* @__PURE__ */ new Date()).toISOString(),
-      planVersion: approval.planVersion
-    };
-    writePlanFile(manifest, revisions);
-    if (approval.status !== "pending") {
-      appendEvent(manifest.eventsPath, {
-        type: approval.status === "approved" ? "plan.approved" : "plan.rejected",
-        runId: manifest.runId,
-        message: `Plan v${approval.planVersion} ${approval.status}${approval.by ? ` by ${approval.by}` : ""}`,
-        data: { planId: current.id, version: approval.planVersion, status: approval.status }
-      });
-    }
-    return current;
-  });
-}
-function deriveItemProgress(record, tasks) {
-  const byId = new Map(tasks.map((t2) => [t2.id, t2]));
-  const out = /* @__PURE__ */ new Map();
-  for (const item of record.items) {
-    const p = { itemId: item.id, total: item.taskIds.length, done: 0, failed: 0, running: 0, pending: 0 };
-    for (const taskId of item.taskIds) {
-      const status = byId.get(taskId)?.status;
-      if (status === "completed") p.done++;
-      else if (status === "failed") p.failed++;
-      else if (status === "running" || status === "waiting" || status === "needs_attention") p.running++;
-      else if (status === "queued") p.pending++;
-    }
-    out.set(item.id, p);
-  }
-  return out;
-}
-var PLAN_SUBPATH, ID_PATTERN, TITLE_MAX;
-var init_plan_store = __esm({
-  "src/state/stores/plan-store.ts"() {
-    "use strict";
-    init_internal_error();
-    init_atomic_write();
-    init_locks();
-    init_event_log();
-    PLAN_SUBPATH = path34.join("plans", "plans.json");
-    ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
-    TITLE_MAX = 512;
-  }
-});
-
 // src/runtime/plan-approval.ts
-import * as fs45 from "node:fs";
+import * as fs47 from "node:fs";
 function requiresPlanApproval(_workflow, runtimeConfig) {
   return runtimeConfig?.requirePlanApproval === true;
 }
 function isPlanApprovalStatePending(approval) {
   return approval?.required === true && approval.status === "pending";
 }
-function isPlanApprovalPending(manifest) {
+function isPlanApprovalPending2(manifest) {
   return isPlanApprovalStatePending(manifest.planApproval);
 }
-function isPlanApprovalPendingEffective(manifest) {
+function isPlanApprovalPendingEffective2(manifest) {
   const current = getCurrentPlanRecord(manifest);
   if (current?.approval) return current.approval.status === "pending";
-  return isPlanApprovalPending(manifest);
+  return isPlanApprovalPending2(manifest);
 }
 function isPlanApprovalDenied(manifest) {
   if (manifest.planApproval?.status === "cancelled") return true;
@@ -29015,7 +30192,7 @@ async function ensurePlanApprovalRequested(manifest, tasks) {
   let record = getCurrentPlanRecord(manifest);
   if (!record && planTask?.resultArtifact?.path) {
     try {
-      const text = fs45.readFileSync(planTask.resultArtifact.path, "utf-8");
+      const text = fs47.readFileSync(planTask.resultArtifact.path, "utf-8");
       const parsed = parsePlannerPlanOutput(text, manifest.runId, planTask.id);
       if (parsed) record = appendPlanRevision(manifest, parsed);
     } catch {
@@ -29093,8 +30270,8 @@ var init_key_utils = __esm({
 });
 
 // src/ui/keybinding-map.ts
-import * as fs46 from "node:fs";
-import * as path35 from "node:path";
+import * as fs48 from "node:fs";
+import * as path37 from "node:path";
 import { matchesKey as matchesKey4 } from "@earendil-works/pi-tui";
 function parseKeybindingOverride(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -29145,7 +30322,7 @@ function computeEffectiveBindings(overrides) {
 }
 function readConfigKeybindings(cwd) {
   try {
-    const raw = JSON.parse(fs46.readFileSync(path35.join(cwd, ".crew", "config.json"), "utf-8"));
+    const raw = JSON.parse(fs48.readFileSync(path37.join(cwd, ".crew", "config.json"), "utf-8"));
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
     return parseKeybindingOverride(raw.keybindings);
   } catch {
@@ -29163,7 +30340,7 @@ function readEnvKeybindings() {
 }
 function configKeybindingsMtime(cwd) {
   try {
-    return fs46.statSync(path35.join(cwd, ".crew", "config.json")).mtimeMs;
+    return fs48.statSync(path37.join(cwd, ".crew", "config.json")).mtimeMs;
   } catch {
     return void 0;
   }
@@ -29374,8 +30551,8 @@ var init_keybinding_map = __esm({
 });
 
 // src/state/coordination/mailbox.ts
-import * as fs47 from "node:fs";
-import * as path36 from "node:path";
+import * as fs49 from "node:fs";
+import * as path38 from "node:path";
 function registerMailboxAppendObserver(fn) {
   mailboxAppendObservers.add(fn);
   return () => {
@@ -29395,19 +30572,19 @@ function notifyMailboxAppended(message) {
   });
 }
 function mailboxDir(manifest) {
-  return path36.join(manifest.stateRoot, "mailbox");
+  return path38.join(manifest.stateRoot, "mailbox");
 }
 function safeMailboxDir(manifest, create = false) {
   const dir = mailboxDir(manifest);
   if (create) {
     try {
-      fs47.mkdirSync(dir, { recursive: true });
+      fs49.mkdirSync(dir, { recursive: true });
     } catch (error) {
       if (process.platform === "win32" && error.code === "EPERM") {
         try {
-          const realDir = fs47.realpathSync(path36.dirname(dir));
-          const correctedDir = path36.join(realDir, path36.basename(dir));
-          fs47.mkdirSync(correctedDir, { recursive: true });
+          const realDir = fs49.realpathSync(path38.dirname(dir));
+          const correctedDir = path38.join(realDir, path38.basename(dir));
+          fs49.mkdirSync(correctedDir, { recursive: true });
         } catch {
           throw error;
         }
@@ -29416,51 +30593,51 @@ function safeMailboxDir(manifest, create = false) {
       }
     }
   }
-  if (!fs47.existsSync(dir)) {
+  if (!fs49.existsSync(dir)) {
     if (create) throw new Error(`Mailbox directory creation failed: ${dir}`);
-    return path36.join(dir);
+    return path38.join(dir);
   }
-  if (fs47.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid mailbox directory: ${dir}`);
+  if (fs49.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid mailbox directory: ${dir}`);
   return dir;
 }
 function safeTaskId(taskId) {
-  if (!/^[\w.-]+$/.test(taskId) || taskId.includes("..") || path36.isAbsolute(taskId))
+  if (!/^[\w.-]+$/.test(taskId) || taskId.includes("..") || path38.isAbsolute(taskId))
     throw new Error(`Invalid mailbox task id: ${taskId}`);
   return taskId;
 }
 function safeMailboxTasksRoot(manifest, create = false) {
-  const root = path36.join(safeMailboxDir(manifest, create), "tasks");
-  if (create) fs47.mkdirSync(root, { recursive: true });
-  if (!fs47.existsSync(root)) return root;
-  if (fs47.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid mailbox tasks directory: ${root}`);
+  const root = path38.join(safeMailboxDir(manifest, create), "tasks");
+  if (create) fs49.mkdirSync(root, { recursive: true });
+  if (!fs49.existsSync(root)) return root;
+  if (fs49.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid mailbox tasks directory: ${root}`);
   return root;
 }
 function taskMailboxDir(manifest, taskId, create = false) {
   const tasksRoot = safeMailboxTasksRoot(manifest, create);
   const normalizedTaskId = safeTaskId(taskId);
-  const resolved = path36.resolve(tasksRoot, normalizedTaskId);
-  const relative8 = path36.relative(tasksRoot, resolved);
-  if (relative8.startsWith("..") || path36.isAbsolute(relative8)) throw new Error(`Invalid mailbox task id: ${taskId}`);
-  if (create) fs47.mkdirSync(resolved, { recursive: true });
-  if (fs47.existsSync(resolved) && fs47.lstatSync(resolved).isSymbolicLink()) throw new Error(`Invalid mailbox task directory: ${resolved}`);
+  const resolved = path38.resolve(tasksRoot, normalizedTaskId);
+  const relative8 = path38.relative(tasksRoot, resolved);
+  if (relative8.startsWith("..") || path38.isAbsolute(relative8)) throw new Error(`Invalid mailbox task id: ${taskId}`);
+  if (create) fs49.mkdirSync(resolved, { recursive: true });
+  if (fs49.existsSync(resolved) && fs49.lstatSync(resolved).isSymbolicLink()) throw new Error(`Invalid mailbox task directory: ${resolved}`);
   return resolved;
 }
 function safeMailboxFile(filePath, parentDir) {
-  if (!fs47.existsSync(filePath)) return filePath;
-  if (fs47.lstatSync(filePath).isSymbolicLink()) throw new Error(`Invalid mailbox file: ${filePath}`);
+  if (!fs49.existsSync(filePath)) return filePath;
+  if (fs49.lstatSync(filePath).isSymbolicLink()) throw new Error(`Invalid mailbox file: ${filePath}`);
   return filePath;
 }
 function mailboxFile(manifest, direction, taskId, create = false) {
   const parent = taskId ? taskMailboxDir(manifest, taskId, create) : safeMailboxDir(manifest, create);
-  return safeMailboxFile(path36.join(parent, `${direction}.jsonl`), parent);
+  return safeMailboxFile(path38.join(parent, `${direction}.jsonl`), parent);
 }
 function deliveryFile(manifest, create = false) {
   try {
     const parent = safeMailboxDir(manifest, create);
-    return safeMailboxFile(path36.join(parent, "delivery.json"), parent);
+    return safeMailboxFile(path38.join(parent, "delivery.json"), parent);
   } catch (err2) {
     if (err2.code === "ENOENT") {
-      return path36.join(mailboxDir(manifest), "delivery.json");
+      return path38.join(mailboxDir(manifest), "delivery.json");
     }
     throw err2;
   }
@@ -29469,14 +30646,14 @@ function ensureRunMailbox(manifest) {
   safeMailboxDir(manifest, true);
   for (const direction of ["inbox", "outbox"]) {
     const filePath = mailboxFile(manifest, direction, void 0, true);
-    if (!fs47.existsSync(filePath)) {
-      fs47.mkdirSync(path36.dirname(filePath), { recursive: true });
+    if (!fs49.existsSync(filePath)) {
+      fs49.mkdirSync(path38.dirname(filePath), { recursive: true });
       atomicWriteFile(filePath, "");
     }
   }
   const delivery = deliveryFile(manifest, true);
-  if (!fs47.existsSync(delivery)) {
-    fs47.mkdirSync(path36.dirname(delivery), { recursive: true });
+  if (!fs49.existsSync(delivery)) {
+    fs49.mkdirSync(path38.dirname(delivery), { recursive: true });
     atomicWriteFile(delivery, `${JSON.stringify({ messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }, null, 2)}
 `);
   }
@@ -29486,7 +30663,7 @@ function ensureTaskMailbox(manifest, taskId) {
   taskMailboxDir(manifest, taskId, true);
   for (const direction of ["inbox", "outbox"]) {
     const filePath = mailboxFile(manifest, direction, taskId, true);
-    if (!fs47.existsSync(filePath)) atomicWriteFile(filePath, "");
+    if (!fs49.existsSync(filePath)) atomicWriteFile(filePath, "");
   }
 }
 function isDirection(value) {
@@ -29537,7 +30714,7 @@ function parseMailboxMessage(raw, expectedDirection) {
 }
 function parseMailboxFile(filePath, direction) {
   const messages = [];
-  const raw = fs47.readFileSync(filePath, "utf-8");
+  const raw = fs49.readFileSync(filePath, "utf-8");
   for (const line4 of raw.split(/\r?\n/).filter(Boolean)) {
     try {
       const message = parseMailboxMessage(JSON.parse(line4), direction);
@@ -29550,7 +30727,7 @@ function parseMailboxFile(filePath, direction) {
 function cachedMailboxRead(filePath, direction) {
   let stat2;
   try {
-    stat2 = fs47.statSync(filePath);
+    stat2 = fs49.statSync(filePath);
   } catch {
     mailboxParseCache.delete(filePath);
     return [];
@@ -29568,11 +30745,11 @@ function cachedMailboxRead(filePath, direction) {
 function safeReadMailboxFile(filePath, direction) {
   const messages = cachedMailboxRead(filePath, direction);
   try {
-    const dir = path36.dirname(filePath);
-    const base = path36.basename(filePath);
-    for (const entry of fs47.readdirSync(dir)) {
+    const dir = path38.dirname(filePath);
+    const base = path38.basename(filePath);
+    for (const entry of fs49.readdirSync(dir)) {
       if (!entry.startsWith(`${base}.`) || !entry.endsWith(".archive.jsonl")) continue;
-      const archivePath = path36.join(dir, entry);
+      const archivePath = path38.join(dir, entry);
       messages.push(...cachedMailboxRead(archivePath, direction));
     }
   } catch {
@@ -29581,12 +30758,12 @@ function safeReadMailboxFile(filePath, direction) {
 }
 function rotateMailboxFileIfNeeded(filePath, thresholdBytes = MAILBOX_ARCHIVE_THRESHOLD_BYTES) {
   try {
-    if (!fs47.existsSync(filePath)) return false;
-    const stat2 = fs47.statSync(filePath);
+    if (!fs49.existsSync(filePath)) return false;
+    const stat2 = fs49.statSync(filePath);
     if (stat2.size < thresholdBytes) return false;
     const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
     const archivePath = `${filePath}.${ts}.archive.jsonl`;
-    fs47.renameSync(filePath, archivePath);
+    fs49.renameSync(filePath, archivePath);
     atomicWriteFile(filePath, "");
     pruneOldMailboxArchives(filePath);
     return true;
@@ -29597,12 +30774,12 @@ function rotateMailboxFileIfNeeded(filePath, thresholdBytes = MAILBOX_ARCHIVE_TH
 }
 function pruneOldMailboxArchives(mailboxFilePath) {
   try {
-    const dir = path36.dirname(mailboxFilePath);
-    const base = path36.basename(mailboxFilePath);
-    const archives = fs47.readdirSync(dir).filter((f) => f.startsWith(base) && f.includes(".archive.jsonl")).sort();
+    const dir = path38.dirname(mailboxFilePath);
+    const base = path38.basename(mailboxFilePath);
+    const archives = fs49.readdirSync(dir).filter((f) => f.startsWith(base) && f.includes(".archive.jsonl")).sort();
     const excess = archives.length - DEFAULT_MAILBOX.maxArchivesPerDirection;
     for (let i = 0; i < excess; i += 1) {
-      fs47.rmSync(path36.join(dir, archives[i]), { force: true });
+      fs49.rmSync(path38.join(dir, archives[i]), { force: true });
     }
   } catch (error) {
     logInternalError("mailbox.prune", error, mailboxFilePath);
@@ -29615,8 +30792,8 @@ function readMailbox(manifest, direction, taskId, kind) {
 function readAllMessages(manifest, direction, signal) {
   const messages = [...safeReadMailboxFile(mailboxFile(manifest, direction), direction)];
   const tasksDir = safeMailboxTasksRoot(manifest);
-  if (fs47.existsSync(tasksDir)) {
-    for (const entry of fs47.readdirSync(tasksDir, { withFileTypes: true })) {
+  if (fs49.existsSync(tasksDir)) {
+    for (const entry of fs49.readdirSync(tasksDir, { withFileTypes: true })) {
       if (signal?.aborted) break;
       if (!entry.isDirectory()) continue;
       messages.push(...safeReadMailboxFile(mailboxFile(manifest, direction, entry.name), direction));
@@ -29641,7 +30818,7 @@ function readDeliveryState(manifest) {
   const filePath = deliveryFile(manifest);
   let stat2;
   try {
-    stat2 = fs47.statSync(filePath);
+    stat2 = fs49.statSync(filePath);
   } catch (e) {
     if (e.code !== "ENOENT") throw e;
     deliveryCache.delete(filePath);
@@ -29652,7 +30829,7 @@ function readDeliveryState(manifest) {
     return { ...cached2.state, messages: { ...cached2.state.messages } };
   }
   try {
-    const raw = JSON.parse(fs47.readFileSync(filePath, "utf-8"));
+    const raw = JSON.parse(fs49.readFileSync(filePath, "utf-8"));
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid delivery state.");
     const obj = raw;
     const messages = {};
@@ -29668,7 +30845,7 @@ function readDeliveryState(manifest) {
   } catch (error) {
     const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
     try {
-      fs47.renameSync(filePath, quarantinePath);
+      fs49.renameSync(filePath, quarantinePath);
     } catch (renameError) {
       logInternalError("mailbox.readDeliveryState.quarantine", renameError, `filePath=${filePath}`);
     }
@@ -29699,7 +30876,7 @@ function writeDeliveryState(manifest, state2, options) {
     durability: options?.durability ?? "best-effort"
   });
   try {
-    const postStat = fs47.statSync(filePath);
+    const postStat = fs49.statSync(filePath);
     setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state: state2 });
   } catch {
     deliveryCache.delete(filePath);
@@ -29731,7 +30908,7 @@ function appendMailboxMessage(manifest, message) {
     replyContent: message.replyContent
   };
   withFileLockSync(mailboxFile(manifest, complete.direction, complete.taskId), () => {
-    fs47.appendFileSync(
+    fs49.appendFileSync(
       mailboxFile(manifest, complete.direction, complete.taskId),
       `${JSON.stringify(redactSecrets(complete))}
 `,
@@ -29803,7 +30980,7 @@ async function appendMailboxMessageAsync(manifest, message) {
   };
   const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
   await withFileLockAsync(mbFile, async () => {
-    await fs47.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}
+    await fs49.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}
 `, "utf-8");
     rotateMailboxFileIfNeeded(mbFile);
   });
@@ -29870,8 +31047,8 @@ function updateMailboxMessageReply(manifest, originalMessageId, replyContent) {
     });
   }
   const tasksDir = safeMailboxTasksRoot(manifest);
-  if (fs47.existsSync(tasksDir)) {
-    for (const entry of fs47.readdirSync(tasksDir, { withFileTypes: true })) {
+  if (fs49.existsSync(tasksDir)) {
+    for (const entry of fs49.readdirSync(tasksDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       for (const direction of directions) {
         filesToSearch.push({
@@ -29882,9 +31059,9 @@ function updateMailboxMessageReply(manifest, originalMessageId, replyContent) {
     }
   }
   for (const { filePath, direction } of filesToSearch) {
-    if (!fs47.existsSync(filePath)) continue;
+    if (!fs49.existsSync(filePath)) continue;
     const found = withFileLockSync(filePath, () => {
-      const lines = fs47.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
+      const lines = fs49.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
       let localFound = false;
       const updatedLines = [];
       for (const line4 of lines) {
@@ -29934,7 +31111,7 @@ function validateMailbox(manifest, options = {}) {
     if (options.signal?.aborted) break;
     const filePath = mailboxFile(manifest, direction);
     withFileLockSync(filePath, () => {
-      const lines = fs47.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
+      const lines = fs49.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
       const validLines = [];
       for (let i = 0; i < lines.length; i += 1) {
         if (options.signal?.aborted) break;
@@ -29995,8 +31172,8 @@ var init_mailbox = __esm({
 
 // src/state/stores/artifact-store.ts
 import { createHash as createHash3 } from "node:crypto";
-import * as fs48 from "node:fs";
-import * as path37 from "node:path";
+import * as fs50 from "node:fs";
+import * as path39 from "node:path";
 function hashContent(content) {
   return createHash3("sha256").update(content).digest("hex");
 }
@@ -30012,7 +31189,7 @@ function nowMs2() {
 }
 function readMarkerMtime(artifactsRoot, markerFile) {
   try {
-    return fs48.statSync(path37.join(artifactsRoot, markerFile)).mtimeMs;
+    return fs50.statSync(path39.join(artifactsRoot, markerFile)).mtimeMs;
   } catch {
     return void 0;
   }
@@ -30023,11 +31200,11 @@ function shouldCleanup(artifactsRoot, markerFile, scanGraceMs) {
   return nowMs2() - marker >= scanGraceMs;
 }
 function writeCleanupMarker(artifactsRoot, markerFile) {
-  fs48.mkdirSync(artifactsRoot, { recursive: true });
-  atomicWriteFile(path37.join(artifactsRoot, markerFile), String(nowMs2()));
+  fs50.mkdirSync(artifactsRoot, { recursive: true });
+  atomicWriteFile(path39.join(artifactsRoot, markerFile), String(nowMs2()));
 }
 function cleanupOldArtifacts(artifactsRoot, options) {
-  if (!fs48.existsSync(artifactsRoot)) return;
+  if (!fs50.existsSync(artifactsRoot)) return;
   const maxAgeDays = parseAgeDays(options.maxAgeDays);
   if (maxAgeDays === void 0) return;
   const markerFile = options.markerFile ?? CLEANUP_MARKER_FILE;
@@ -30037,18 +31214,18 @@ function cleanupOldArtifacts(artifactsRoot, options) {
   const cutoff = nowMs2() - maxAgeMs;
   let didCleanup = false;
   try {
-    const entries = fs48.readdirSync(artifactsRoot, { withFileTypes: true });
+    const entries = fs50.readdirSync(artifactsRoot, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.name === markerFile) continue;
       if (entry.isSymbolicLink()) continue;
-      const target = path37.join(artifactsRoot, entry.name);
+      const target = path39.join(artifactsRoot, entry.name);
       try {
-        const stat2 = fs48.statSync(target);
+        const stat2 = fs50.statSync(target);
         if (stat2.mtimeMs >= cutoff) continue;
         if (entry.isDirectory()) {
-          fs48.rmSync(target, { recursive: true, force: true });
+          fs50.rmSync(target, { recursive: true, force: true });
         } else {
-          fs48.unlinkSync(target);
+          fs50.unlinkSync(target);
         }
         didCleanup = true;
       } catch {
@@ -30077,7 +31254,7 @@ function pruneExpiredArtifacts(descriptors, options) {
   for (const desc of descriptors) {
     if (!isArtifactExpired(desc, nowMs3, temporaryTtlMs)) continue;
     try {
-      fs48.unlinkSync(desc.path);
+      fs50.unlinkSync(desc.path);
       deleted++;
     } catch {
     }
@@ -30086,24 +31263,24 @@ function pruneExpiredArtifacts(descriptors, options) {
 }
 function resolveInside(baseDir, relativePath) {
   try {
-    if (fs48.lstatSync(baseDir).isSymbolicLink()) throw new Error(`Artifacts root is a symbolic link \u2014 not allowed: ${baseDir}`);
+    if (fs50.lstatSync(baseDir).isSymbolicLink()) throw new Error(`Artifacts root is a symbolic link \u2014 not allowed: ${baseDir}`);
   } catch (err2) {
     if (err2.code !== "ENOENT") throw err2;
   }
   const normalizedRelativePath = relativePath.replaceAll("\\", "/").replace(/^\.\/+/, "");
-  if (!normalizedRelativePath || normalizedRelativePath.split("/").some((segment) => segment === "..") || path37.isAbsolute(normalizedRelativePath)) {
+  if (!normalizedRelativePath || normalizedRelativePath.split("/").some((segment) => segment === "..") || path39.isAbsolute(normalizedRelativePath)) {
     throw new Error(`Invalid artifact path: ${relativePath}`);
   }
   return resolveRealContainedPath(baseDir, normalizedRelativePath);
 }
 function writeArtifact(artifactsRoot, options) {
-  fs48.mkdirSync(artifactsRoot, { recursive: true });
-  if (fs48.lstatSync(artifactsRoot).isSymbolicLink()) {
+  fs50.mkdirSync(artifactsRoot, { recursive: true });
+  if (fs50.lstatSync(artifactsRoot).isSymbolicLink()) {
     throw new Error(`Artifacts root is a symbolic link \u2014 not allowed: ${artifactsRoot}`);
   }
   const filePath = resolveInside(artifactsRoot, options.relativePath);
-  fs48.mkdirSync(path37.dirname(filePath), { recursive: true });
-  resolveRealContainedPath(artifactsRoot, path37.dirname(filePath));
+  fs50.mkdirSync(path39.dirname(filePath), { recursive: true });
+  resolveRealContainedPath(artifactsRoot, path39.dirname(filePath));
   let content = options.content;
   const trimmed = content.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -30117,7 +31294,7 @@ function writeArtifact(artifactsRoot, options) {
   content = redactSecretString(content);
   atomicWriteFile(filePath, content);
   const contentHash = hashContent(content);
-  const stats = fs48.statSync(filePath);
+  const stats = fs50.statSync(filePath);
   return {
     kind: options.kind,
     path: filePath,
@@ -30531,9 +31708,9 @@ var init_provider_quota = __esm({
 });
 
 // src/runtime/model/model-fallback.ts
-import * as fs49 from "node:fs";
-import * as os10 from "node:os";
-import * as path38 from "node:path";
+import * as fs51 from "node:fs";
+import * as os11 from "node:os";
+import * as path40 from "node:path";
 function modelInfoFromUnknown(value) {
   if (typeof value === "string") {
     const raw = value.trim();
@@ -30583,7 +31760,7 @@ function uniqueModelInfos(models) {
 }
 function readJsonObject(filePath) {
   try {
-    const parsed = JSON.parse(fs49.readFileSync(filePath, "utf-8"));
+    const parsed = JSON.parse(fs51.readFileSync(filePath, "utf-8"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
   } catch {
     return void 0;
@@ -30592,11 +31769,11 @@ function readJsonObject(filePath) {
 function piAgentDir() {
   const envDir = process.env.PI_CODING_AGENT_DIR?.trim();
   if (envDir) {
-    if (envDir === "~") return os10.homedir();
-    if (envDir.startsWith("~/")) return path38.join(os10.homedir(), envDir.slice(2));
+    if (envDir === "~") return os11.homedir();
+    if (envDir.startsWith("~/")) return path40.join(os11.homedir(), envDir.slice(2));
     return envDir;
   }
-  return path38.join(os10.homedir(), ".pi", "agent");
+  return path40.join(os11.homedir(), ".pi", "agent");
 }
 function settingsModelInfo(settings) {
   if (typeof settings?.defaultProvider !== "string" || typeof settings.defaultModel !== "string") return void 0;
@@ -30627,7 +31804,7 @@ function modelsJsonInfos(modelsJson) {
 }
 function providersWithCredentials(modelsJson, env = process.env) {
   const providers = /* @__PURE__ */ new Set();
-  const auth = readJsonObject(path38.join(piAgentDir(), "auth.json"));
+  const auth = readJsonObject(path40.join(piAgentDir(), "auth.json"));
   for (const key of Object.keys(auth ?? {})) providers.add(key);
   if (modelsJson?.providers && typeof modelsJson.providers === "object" && !Array.isArray(modelsJson.providers)) {
     for (const [provider, rawConfig] of Object.entries(modelsJson.providers)) {
@@ -30645,7 +31822,7 @@ function providersWithCredentials(modelsJson, env = process.env) {
 }
 function fileSignature(filePath) {
   try {
-    const stat2 = fs49.statSync(filePath);
+    const stat2 = fs51.statSync(filePath);
     return `${stat2.mtimeMs}:${stat2.size}`;
   } catch {
     return "-";
@@ -30653,10 +31830,10 @@ function fileSignature(filePath) {
 }
 function configuredModelInfosFromPiConfig(cwd, options) {
   const agentDir = piAgentDir();
-  const globalSettingsPath = path38.join(agentDir, "settings.json");
-  const modelsJsonPath = path38.join(agentDir, "models.json");
-  const authPath = path38.join(agentDir, "auth.json");
-  const projectSettingsPath = cwd ? path38.join(cwd, ".pi", "settings.json") : void 0;
+  const globalSettingsPath = path40.join(agentDir, "settings.json");
+  const modelsJsonPath = path40.join(agentDir, "models.json");
+  const authPath = path40.join(agentDir, "auth.json");
+  const projectSettingsPath = cwd ? path40.join(cwd, ".pi", "settings.json") : void 0;
   const cacheKey2 = `${agentDir}\0${cwd ?? ""}`;
   const signature = [globalSettingsPath, modelsJsonPath, authPath, ...projectSettingsPath ? [projectSettingsPath] : []].map(fileSignature).join("|");
   const cached2 = configuredModelCache.get(cacheKey2);
@@ -31307,7 +32484,7 @@ __export(run_tracker_exports, {
   resolveRunPromise: () => resolveRunPromise,
   waitForRun: () => waitForRun
 });
-import * as fs50 from "node:fs";
+import * as fs52 from "node:fs";
 function registerRunPromise(runId) {
   const existing = activeRunPromises.get(runId);
   if (existing) return existing;
@@ -31390,7 +32567,7 @@ async function waitForRun(runId, cwd, options = {}) {
     if (entryNow) return await raceRunPromise(entryNow, timeoutMs, deadline);
     if (attempt === 0) {
       const runDir = createRunPaths(cwd, runId).stateRoot;
-      if (!fs50.existsSync(runDir)) {
+      if (!fs52.existsSync(runDir)) {
         throw new Error(`Run ${runId} not found. No run directory at ${runDir}`);
       }
     }
@@ -31558,18 +32735,18 @@ var init_crew_hooks = __esm({
 });
 
 // src/runtime/skill-effectiveness.ts
-import { existsSync as existsSync28, mkdirSync as mkdirSync17, readFileSync as readFileSync32, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname22, join as join36 } from "node:path";
+import { existsSync as existsSync30, mkdirSync as mkdirSync18, readFileSync as readFileSync34, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname22, join as join38 } from "node:path";
 function getSkillMetricsPath(cwd, runId) {
-  return join36(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
+  return join38(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
 }
 function getSkillActivationsPath(cwd, runId) {
-  return join36(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
+  return join38(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
 }
 function ensureSkillMetricsDir(cwd, runId) {
   const dir = dirname22(getSkillMetricsPath(cwd, runId));
-  if (!existsSync28(dir)) {
-    mkdirSync17(dir, { recursive: true });
+  if (!existsSync30(dir)) {
+    mkdirSync18(dir, { recursive: true });
   }
 }
 function computeInitialConfidence(observationCount) {
@@ -31618,10 +32795,10 @@ function recordSkillActivation(cwd, activation) {
 }
 function getSkillActivations(cwd, runId) {
   const path103 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync28(path103)) {
+  if (!existsSync30(path103)) {
     return [];
   }
-  const content = readFileSync32(path103, "utf-8");
+  const content = readFileSync34(path103, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -31799,9 +32976,9 @@ __export(skill_instructions_exports, {
   resetSkillCacheStats: () => resetSkillCacheStats,
   resolveTaskSkillNames: () => resolveTaskSkillNames
 });
-import * as fs51 from "node:fs";
-import * as path39 from "node:path";
-import * as os11 from "node:os";
+import * as fs53 from "node:fs";
+import * as path41 from "node:path";
+import * as os12 from "node:os";
 function isValidSkillName(name) {
   return name.length > 0 && name.length <= MAX_SKILL_NAME_CHARS && isSafePathId(name);
 }
@@ -31862,18 +33039,18 @@ function candidateSkillDirs(cwd) {
     // F6 (v0.7.9): same five roots as discover-skills, in the same precedence
     // order. The first hit wins, so a project `.pi/skills/foo/SKILL.md`
     // overrides both the bundled `foo` and any legacy `<cwd>/skills/foo`.
-    { root: path39.resolve(cwd, ".pi", "skills"), source: "project-pi" },
+    { root: path41.resolve(cwd, ".pi", "skills"), source: "project-pi" },
     {
-      root: path39.resolve(cwd, ".agents", "skills"),
+      root: path41.resolve(cwd, ".agents", "skills"),
       source: "project-agents"
     },
-    { root: path39.resolve(cwd, "skills"), source: "project" },
-    { root: path39.join(getAgentDir(), "skills"), source: "user-pi" },
+    { root: path41.resolve(cwd, "skills"), source: "project" },
+    { root: path41.join(getAgentDir(), "skills"), source: "user-pi" },
     {
-      root: path39.join(os11.homedir(), ".agents", "skills"),
+      root: path41.join(os12.homedir(), ".agents", "skills"),
       source: "user-agents"
     },
-    { root: path39.join(os11.homedir(), ".pi", "skills"), source: "user-pi" }
+    { root: path41.join(os12.homedir(), ".pi", "skills"), source: "user-pi" }
   ];
 }
 function rememberSkill(key, value) {
@@ -31911,7 +33088,7 @@ function _setSkillCacheMaxEntriesForTesting(max) {
 }
 function cachedSkillFresh(value) {
   try {
-    const stat2 = fs51.statSync(value.path);
+    const stat2 = fs53.statSync(value.path);
     return stat2.mtimeMs === value.mtimeMs && stat2.size === value.size;
   } catch {
     return false;
@@ -31919,7 +33096,7 @@ function cachedSkillFresh(value) {
 }
 function readSkillMarkdown(cwd, name) {
   if (!isValidSkillName(name)) return void 0;
-  const cacheKey2 = `${path39.resolve(cwd)}:${name}`;
+  const cacheKey2 = `${path41.resolve(cwd)}:${name}`;
   const cached2 = skillReadCache.get(cacheKey2);
   if (cached2 && cachedSkillFresh(cached2)) {
     skillCacheStats.hits++;
@@ -31930,13 +33107,13 @@ function readSkillMarkdown(cwd, name) {
   skillCacheStats.currentSize = skillReadCache.size;
   for (const entry of candidateSkillDirs(cwd)) {
     try {
-      const relative8 = path39.join(name, "SKILL.md");
+      const relative8 = path41.join(name, "SKILL.md");
       const contained = resolveRealContainedPath(entry.root, relative8);
-      if (!fs51.existsSync(contained)) continue;
-      if (fs51.lstatSync(contained).isSymbolicLink()) continue;
+      if (!fs53.existsSync(contained)) continue;
+      if (fs53.lstatSync(contained).isSymbolicLink()) continue;
       const filePath = resolveRealContainedPath(entry.root, relative8);
-      const stat2 = fs51.statSync(filePath);
-      const rawContent = fs51.readFileSync(filePath, "utf-8");
+      const stat2 = fs53.statSync(filePath);
+      const rawContent = fs53.readFileSync(filePath, "utf-8");
       return rememberSkill(cacheKey2, {
         path: filePath,
         source: entry.source,
@@ -32005,7 +33182,7 @@ Skill '${safeName}' was selected but no SKILL.md file was found. Continue with t
       if (!pushSection(missing)) omittedCount += 1;
       continue;
     }
-    skillPaths.push(path39.dirname(loaded.path));
+    skillPaths.push(path41.dirname(loaded.path));
     const description = frontmatterDescription(loaded.content);
     const source = loaded.source === "project" ? `project:skills/${safeName}` : `package:skills/${safeName}`;
     const weighted = weightedSkills?.find((w) => w.skillId === name);
@@ -32020,7 +33197,7 @@ Skill '${safeName}' was selected but no SKILL.md file was found. Continue with t
       // spec "small instruction + large local reference" pattern, e.g.
       // effective-html's `references/html-effectiveness/`) leave the agent
       // guessing the skill dir. No behavior change for corpus-less skills.
-      `Path: ${path39.dirname(loaded.path)}`
+      `Path: ${path41.dirname(loaded.path)}`
     ].filter(Boolean).join("\n");
     const rawContent = loaded.compacted;
     const wrappedContent = `<!-- skill: ${safeName} -->
@@ -32065,7 +33242,7 @@ var init_skill_instructions = __esm({
     init_safe_paths();
     init_skill_effectiveness();
     init_peer_dep();
-    PACKAGE_SKILLS_DIR = path39.join(packageRoot(), "skills");
+    PACKAGE_SKILLS_DIR = path41.join(packageRoot(), "skills");
     MAX_SKILL_CHARS = 1500;
     MAX_TOTAL_CHARS = 6e3;
     MAX_SKILL_NAME_CHARS = 80;
@@ -32973,7 +34150,7 @@ var init_anchor = __esm({
 });
 
 // src/runtime/live-session/live-agent-control.ts
-import * as fs52 from "node:fs";
+import * as fs54 from "node:fs";
 function liveAgentControlFile(manifest, taskId) {
   return agentStateFile(manifest, taskId, "live-control.jsonl");
 }
@@ -32991,7 +34168,7 @@ function appendLiveAgentControlRequest(manifest, input) {
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const filePath = liveAgentControlFile(manifest, input.taskId);
-  fs52.appendFileSync(filePath, `${JSON.stringify(request)}
+  fs54.appendFileSync(filePath, `${JSON.stringify(request)}
 `, "utf-8");
   return request;
 }
@@ -33002,8 +34179,8 @@ function readLiveAgentControlRequests(manifest, taskId, cursor = { offset: 0 }) 
   } catch {
     return { requests: [], cursor };
   }
-  if (!fs52.existsSync(filePath)) return { requests: [], cursor };
-  const text = fs52.readFileSync(filePath, "utf-8");
+  if (!fs54.existsSync(filePath)) return { requests: [], cursor };
+  const text = fs54.readFileSync(filePath, "utf-8");
   const lines = text.split(/\r?\n/).filter(Boolean);
   const requests = lines.slice(cursor.offset).flatMap((line4) => {
     try {
@@ -33406,22 +34583,6 @@ var init_agent_control = __esm({
       "resume-agent": handleLiveAgentControl,
       "interrupt-agent": handleLiveAgentControl
     };
-  }
-});
-
-// src/runtime/heartbeat/worker-heartbeat.ts
-function createWorkerHeartbeat(workerId, pid, now = /* @__PURE__ */ new Date()) {
-  return { workerId, pid, lastSeenAt: now.toISOString(), alive: true };
-}
-function touchWorkerHeartbeat(heartbeat, updates = {}, now = /* @__PURE__ */ new Date()) {
-  return { ...heartbeat, ...updates, lastSeenAt: now.toISOString() };
-}
-function isWorkerHeartbeatStale(heartbeat, staleMs, now = /* @__PURE__ */ new Date()) {
-  return now.getTime() - Date.parse(heartbeat.lastSeenAt) > staleMs;
-}
-var init_worker_heartbeat = __esm({
-  "src/runtime/heartbeat/worker-heartbeat.ts"() {
-    "use strict";
   }
 });
 
@@ -33959,15 +35120,15 @@ var init_plan_approval2 = __esm({
 });
 
 // src/runtime/agent-observability.ts
-import * as fs53 from "node:fs";
+import * as fs55 from "node:fs";
 function readTextTail(filePath, maxBytes = 64e3) {
-  if (!fs53.existsSync(filePath)) return { path: filePath, text: "", bytes: 0, truncated: false };
-  const stat2 = fs53.statSync(filePath);
+  if (!fs55.existsSync(filePath)) return { path: filePath, text: "", bytes: 0, truncated: false };
+  const stat2 = fs55.statSync(filePath);
   const bytesToRead = Math.min(stat2.size, Math.max(0, maxBytes));
-  const fd = fs53.openSync(filePath, "r");
+  const fd = fs55.openSync(filePath, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
-    fs53.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+    fs55.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
     return {
       path: filePath,
       text: buffer.toString("utf-8"),
@@ -33975,7 +35136,7 @@ function readTextTail(filePath, maxBytes = 64e3) {
       truncated: stat2.size > bytesToRead
     };
   } finally {
-    fs53.closeSync(fd);
+    fs55.closeSync(fd);
   }
 }
 function compactDuration(ms) {
@@ -34014,8 +35175,8 @@ function outputWarning(manifest, agent) {
   if (agent.status !== "completed") return "";
   try {
     const outputPath = agentOutputPath(manifest, agent.taskId);
-    if (!fs53.existsSync(outputPath)) return " no-output";
-    return fs53.statSync(outputPath).size === 0 ? " no-output" : "";
+    if (!fs55.existsSync(outputPath)) return " no-output";
+    return fs55.statSync(outputPath).size === 0 ? " no-output" : "";
   } catch {
     return " no-output";
   }
@@ -34067,9 +35228,9 @@ var init_agent_observability = __esm({
 });
 
 // src/skills/validate.ts
-import * as fs54 from "node:fs";
+import * as fs56 from "node:fs";
 import { createRequire as createRequire5 } from "node:module";
-import * as path40 from "node:path";
+import * as path42 from "node:path";
 function getYaml() {
   if (!yamlModule) {
     const require5 = createRequire5(import.meta.url);
@@ -34105,11 +35266,11 @@ function warn(path103, field, reason) {
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
-  const skillMdPath = path40.join(skillDir, "SKILL.md");
-  const derivedName = path40.basename(skillDir);
+  const skillMdPath = path42.join(skillDir, "SKILL.md");
+  const derivedName = path42.basename(skillDir);
   let content;
   try {
-    content = fs54.readFileSync(skillMdPath, "utf-8");
+    content = fs56.readFileSync(skillMdPath, "utf-8");
   } catch (e) {
     errors2.push(hard(skillDir, "SKILL.md", `Cannot read SKILL.md: ${e.message}`));
     return { ok: false, errors: errors2 };
@@ -34240,24 +35401,24 @@ var init_validate = __esm({
 });
 
 // src/skills/discover-skills.ts
-import * as fs55 from "node:fs";
-import * as os12 from "node:os";
-import * as path41 from "node:path";
+import * as fs57 from "node:fs";
+import * as os13 from "node:os";
+import * as path43 from "node:path";
 function listSkillDirs(cwd) {
   return [
     { root: PACKAGE_SKILLS_DIR2, source: "package" },
-    { root: path41.resolve(cwd, ".pi", "skills"), source: "project-pi" },
+    { root: path43.resolve(cwd, ".pi", "skills"), source: "project-pi" },
     {
-      root: path41.resolve(cwd, ".agents", "skills"),
+      root: path43.resolve(cwd, ".agents", "skills"),
       source: "project-agents"
     },
-    { root: path41.resolve(cwd, "skills"), source: "project" },
-    { root: path41.join(getAgentDir(), "skills"), source: "user-pi" },
+    { root: path43.resolve(cwd, "skills"), source: "project" },
+    { root: path43.join(getAgentDir(), "skills"), source: "user-pi" },
     {
-      root: path41.join(os12.homedir(), ".agents", "skills"),
+      root: path43.join(os13.homedir(), ".agents", "skills"),
       source: "user-agents"
     },
-    { root: path41.join(os12.homedir(), ".pi", "skills"), source: "user-pi" }
+    { root: path43.join(os13.homedir(), ".pi", "skills"), source: "user-pi" }
   ];
 }
 function readDescription(content) {
@@ -34282,29 +35443,29 @@ function discoverSkills(cwd) {
   const results = [];
   const diagnostics = [];
   for (const dir of listSkillDirs(cwd)) {
-    if (!fs55.existsSync(dir.root)) continue;
+    if (!fs57.existsSync(dir.root)) continue;
     try {
-      for (const entry of fs55.readdirSync(dir.root, {
+      for (const entry of fs57.readdirSync(dir.root, {
         withFileTypes: true
       })) {
         if (!entry.isDirectory()) continue;
         if (!isSafePathId(entry.name)) continue;
-        const skillDirPath = path41.join(dir.root, entry.name);
+        const skillDirPath = path43.join(dir.root, entry.name);
         try {
-          if (fs55.lstatSync(skillDirPath).isSymbolicLink()) continue;
+          if (fs57.lstatSync(skillDirPath).isSymbolicLink()) continue;
         } catch {
           continue;
         }
-        const skillMdRelative = path41.join(entry.name, "SKILL.md");
+        const skillMdRelative = path43.join(entry.name, "SKILL.md");
         let skillMdPath;
         try {
           skillMdPath = resolveContainedPath(dir.root, skillMdRelative);
         } catch {
           continue;
         }
-        if (!fs55.existsSync(skillMdPath)) continue;
+        if (!fs57.existsSync(skillMdPath)) continue;
         try {
-          if (fs55.lstatSync(skillMdPath).isSymbolicLink()) continue;
+          if (fs57.lstatSync(skillMdPath).isSymbolicLink()) continue;
         } catch {
           continue;
         }
@@ -34316,12 +35477,12 @@ function discoverSkills(cwd) {
             skillMdPath = readPath;
           } catch {
           }
-          const content = fs55.readFileSync(readPath, "utf-8");
+          const content = fs57.readFileSync(readPath, "utf-8");
           const { description: desc, parseError } = readDescription(content);
           description = desc;
           if (parseError) {
             diagnostics.push({
-              path: path41.dirname(skillMdPath),
+              path: path43.dirname(skillMdPath),
               field: "frontmatter",
               reason: parseError,
               severity: "error"
@@ -34343,7 +35504,7 @@ function discoverSkills(cwd) {
   }
   const filtered = [];
   for (const skill of results) {
-    const validation = validateSkillFrontmatter(path41.dirname(skill.path));
+    const validation = validateSkillFrontmatter(path43.dirname(skill.path));
     if (validation.ok) {
       filtered.push(skill);
     } else {
@@ -34363,7 +35524,7 @@ var init_discover_skills = __esm({
     init_paths();
     init_safe_paths();
     init_validate();
-    PACKAGE_SKILLS_DIR2 = path41.join(packageRoot(), "skills");
+    PACKAGE_SKILLS_DIR2 = path43.join(packageRoot(), "skills");
     CACHE_TTL_MS = 3e4;
     cache2 = null;
     lastDiagnostics = [];
@@ -34470,15 +35631,15 @@ var init_capability_inventory = __esm({
 });
 
 // src/runtime/foreground-control.ts
-import * as fs56 from "node:fs";
-import * as path42 from "node:path";
+import * as fs58 from "node:fs";
+import * as path44 from "node:path";
 function foregroundControlPath(manifest) {
-  return path42.join(manifest.stateRoot, "foreground-control.json");
+  return path44.join(manifest.stateRoot, "foreground-control.json");
 }
 function readLastRequest(controlPath) {
-  if (!fs56.existsSync(controlPath)) return void 0;
+  if (!fs58.existsSync(controlPath)) return void 0;
   try {
-    const parsed = JSON.parse(fs56.readFileSync(controlPath, "utf-8"));
+    const parsed = JSON.parse(fs58.readFileSync(controlPath, "utf-8"));
     return parsed.requests?.at(-1);
   } catch {
     return void 0;
@@ -34502,7 +35663,7 @@ function readForegroundControlStatus(manifest, tasks) {
 function writeForegroundInterruptRequest(manifest, reason = "User requested foreground interrupt.") {
   const controlPath = foregroundControlPath(manifest);
   const lockDir = `${controlPath}.lock`;
-  const pidFile = path42.join(lockDir, "pid");
+  const pidFile = path44.join(lockDir, "pid");
   let requests = [];
   const acquireLock = () => {
     const timeout = 5e3;
@@ -34510,7 +35671,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
     const start = Date.now();
     while (true) {
       try {
-        fs56.mkdirSync(lockDir, { recursive: true });
+        fs58.mkdirSync(lockDir, { recursive: true });
         try {
           atomicWriteFile(pidFile, String(process.pid));
         } catch {
@@ -34519,7 +35680,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
       } catch {
         if (Date.now() - start > timeout) {
           try {
-            const raw = fs56.readFileSync(pidFile, "utf-8").trim();
+            const raw = fs58.readFileSync(pidFile, "utf-8").trim();
             const ownerPid = Number.parseInt(raw, 10);
             if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
               let alive = false;
@@ -34529,7 +35690,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
               } catch {
               }
               if (!alive) {
-                fs56.rmSync(lockDir, {
+                fs58.rmSync(lockDir, {
                   recursive: true,
                   force: true
                 });
@@ -34546,7 +35707,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
           throw err2;
         }
         try {
-          const raw = fs56.readFileSync(pidFile, "utf-8").trim();
+          const raw = fs58.readFileSync(pidFile, "utf-8").trim();
           const ownerPid = Number.parseInt(raw, 10);
           if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
             let alive = false;
@@ -34556,9 +35717,9 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
             } catch {
             }
             if (!alive) {
-              const stat2 = fs56.statSync(lockDir);
+              const stat2 = fs58.statSync(lockDir);
               if (Date.now() - stat2.mtimeMs > staleMs) {
-                fs56.rmSync(lockDir, {
+                fs58.rmSync(lockDir, {
                   recursive: true,
                   force: true
                 });
@@ -34574,15 +35735,15 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
   };
   const releaseLock2 = () => {
     try {
-      fs56.rmSync(lockDir, { recursive: true, force: true });
+      fs58.rmSync(lockDir, { recursive: true, force: true });
     } catch {
     }
   };
   acquireLock();
   try {
-    if (fs56.existsSync(controlPath)) {
+    if (fs58.existsSync(controlPath)) {
       try {
-        const parsed = JSON.parse(fs56.readFileSync(controlPath, "utf-8"));
+        const parsed = JSON.parse(fs58.readFileSync(controlPath, "utf-8"));
         requests = Array.isArray(parsed.requests) ? parsed.requests : [];
       } catch {
         requests = [];
@@ -34595,7 +35756,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
       reason,
       acknowledged: false
     };
-    fs56.mkdirSync(path42.dirname(controlPath), { recursive: true });
+    fs58.mkdirSync(path44.dirname(controlPath), { recursive: true });
     atomicWriteFile(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}
 `);
     try {
@@ -34928,8 +36089,8 @@ var init_mcp_proxy = __esm({
 });
 
 // src/runtime/output/sidechain-output.ts
-import * as fs57 from "node:fs";
-import * as path43 from "node:path";
+import * as fs59 from "node:fs";
+import * as path45 from "node:path";
 function queueJsonlLine(filePath, line4) {
   const pending2 = pendingJsonlBatches.get(filePath);
   if (pending2) {
@@ -34946,8 +36107,8 @@ function flushJsonlBatch(filePath) {
   pendingJsonlBatches.delete(filePath);
   clearTimeout(pending2.timer);
   try {
-    fs57.mkdirSync(path43.dirname(filePath), { recursive: true });
-    fs57.appendFileSync(filePath, pending2.lines.join(""), "utf-8");
+    fs59.mkdirSync(path45.dirname(filePath), { recursive: true });
+    fs59.appendFileSync(filePath, pending2.lines.join(""), "utf-8");
   } catch (error) {
     logInternalError("sidechain-output.flush", error, `path=${filePath}`);
   }
@@ -34964,7 +36125,7 @@ function flushPendingSidechainWrites() {
 }
 function sidechainOutputPath(stateRoot, taskId) {
   if (!isSafePathId(taskId)) throw new Error(`Invalid taskId: ${taskId}`);
-  return path43.join(stateRoot, "agents", taskId, "sidechain.output.jsonl");
+  return path45.join(stateRoot, "agents", taskId, "sidechain.output.jsonl");
 }
 function eventToSidechainType(event) {
   if (!event || typeof event !== "object" || Array.isArray(event)) return void 0;
@@ -34987,13 +36148,13 @@ var init_sidechain_output = __esm({
 });
 
 // src/runtime/output/streaming-output.ts
-import * as fs58 from "node:fs";
-import * as path44 from "node:path";
+import * as fs60 from "node:fs";
+import * as path46 from "node:path";
 function createStreamingOutput(manifest, taskId) {
   if (!isSafePathId(taskId)) throw new Error(`Invalid taskId: ${taskId}`);
-  const outputDir = path44.join(manifest.artifactsRoot, "streaming");
-  fs58.mkdirSync(outputDir, { recursive: true });
-  const outputPath = path44.join(outputDir, `${taskId}.md`);
+  const outputDir = path46.join(manifest.artifactsRoot, "streaming");
+  fs60.mkdirSync(outputDir, { recursive: true });
+  const outputPath = path46.join(outputDir, `${taskId}.md`);
   let buffer = "";
   let closed = false;
   return {
@@ -35001,7 +36162,7 @@ function createStreamingOutput(manifest, taskId) {
       if (closed) return;
       buffer += text;
       if (buffer.length > 4096) {
-        fs58.appendFileSync(outputPath, buffer, "utf-8");
+        fs60.appendFileSync(outputPath, buffer, "utf-8");
         buffer = "";
       }
     },
@@ -35009,7 +36170,7 @@ function createStreamingOutput(manifest, taskId) {
       if (closed) return;
       closed = true;
       if (buffer) {
-        fs58.appendFileSync(outputPath, buffer, "utf-8");
+        fs60.appendFileSync(outputPath, buffer, "utf-8");
         buffer = "";
       }
     },
@@ -42746,7 +43907,7 @@ var init_glob_match = __esm({
 });
 
 // src/extension/team-tool/api/read.ts
-import * as fs59 from "node:fs";
+import * as fs61 from "node:fs";
 function safeReadContainedFile(baseDir, filePath) {
   if (!filePath) return void 0;
   let safePath;
@@ -42755,7 +43916,7 @@ function safeReadContainedFile(baseDir, filePath) {
   } catch {
     return void 0;
   }
-  return fs59.existsSync(safePath) ? fs59.readFileSync(safePath, "utf-8") : void 0;
+  return fs61.existsSync(safePath) ? fs61.readFileSync(safePath, "utf-8") : void 0;
 }
 function safeContainedPath(baseDir, filePath) {
   if (!filePath) return void 0;
@@ -43904,157 +45065,6 @@ var init_automate = __esm({
   }
 });
 
-// src/hooks/registry.ts
-function clearHooksScoped() {
-  for (const [name, hooks] of registry) {
-    const remaining = hooks.filter((h) => !("_hookId" in h && _piCrewHookIds.has(h._hookId ?? -1)));
-    if (remaining.length === 0) {
-      registry.delete(name);
-    } else {
-      registry.set(name, remaining);
-    }
-  }
-  _piCrewHookIds.clear();
-  _nextHookId = 1;
-}
-function getHooks(name) {
-  return registry.get(name) ?? [];
-}
-function sanitizeMergeData(data) {
-  const clean = {};
-  for (const [k, v] of Object.entries(data)) {
-    if (!POLLUTED_KEYS.has(k.toLowerCase().normalize("NFKC"))) {
-      if (v !== null && typeof v === "object") {
-        if (Array.isArray(v)) {
-          clean[k] = v.map(
-            (item) => item !== null && typeof item === "object" && !Array.isArray(item) ? sanitizeMergeData(item) : item
-          );
-        } else {
-          clean[k] = sanitizeMergeData(v);
-        }
-      } else {
-        clean[k] = v;
-      }
-    }
-  }
-  return clean;
-}
-function sanitizeContext(ctx) {
-  for (const key of Object.keys(ctx)) {
-    if (POLLUTED_KEYS.has(key.toLowerCase().normalize("NFKC"))) {
-      delete ctx[key];
-    }
-  }
-  return ctx;
-}
-function sanitizeErrorMessage(message) {
-  return message.replace(/\/[^:\s]+/g, "[path]").replace(/\b[A-Z_0-9]+\s*=/g, "[env]").replace(/\b\d+\.\d+\.\d+\.\d+\b/g, "[ip]");
-}
-async function executeHook(name, ctx) {
-  const hooks = getHooks(name);
-  if (hooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
-  const scopedHooks = hooks.filter((h) => {
-    if (h.workspaceId !== void 0) {
-      return h.workspaceId === ctx.workspaceId;
-    }
-    return ctx.includeGlobalHooks !== false;
-  });
-  if (scopedHooks.length === 0) return { hookName: name, outcome: "allow", durationMs: 0 };
-  const start = Date.now();
-  const diagnostics = [];
-  let capturedModifications;
-  for (const hook of scopedHooks) {
-    try {
-      const result4 = await hook.handler(sanitizeContext(ctx));
-      sanitizeContext(ctx);
-      if (hook.mode === "blocking" && result4.outcome === "block") {
-        return {
-          hookName: name,
-          outcome: "block",
-          durationMs: Date.now() - start,
-          reason: result4.reason
-        };
-      }
-      if (result4.outcome === "modify" && result4.data) {
-        const clonedData = sanitizeMergeData(result4.data);
-        Object.assign(ctx, clonedData);
-        capturedModifications = clonedData;
-      }
-    } catch (error) {
-      const message = sanitizeErrorMessage(error instanceof Error ? error.message : String(error));
-      if (hook.mode === "blocking") {
-        return {
-          hookName: name,
-          outcome: "block",
-          durationMs: Date.now() - start,
-          reason: `Hook error: ${message}`
-        };
-      }
-      diagnostics.push(message);
-    }
-  }
-  if (diagnostics.length > 0) {
-    return {
-      hookName: name,
-      outcome: "diagnostic",
-      durationMs: Date.now() - start,
-      reason: diagnostics.join("; "),
-      modifiedData: capturedModifications
-    };
-  }
-  return {
-    hookName: name,
-    outcome: "allow",
-    durationMs: Date.now() - start,
-    modifiedData: capturedModifications
-  };
-}
-function appendHookEvent(manifest, report) {
-  appendEvent(manifest.eventsPath, {
-    type: "hook.executed",
-    runId: manifest.runId,
-    message: `Hook ${report.hookName} completed with outcome=${report.outcome}${report.reason ? `: ${report.reason}` : ""}`,
-    data: {
-      hookName: report.hookName,
-      outcome: report.outcome,
-      durationMs: report.durationMs,
-      reason: report.reason
-    }
-  });
-  runEventBus.emit({
-    type: "effectiveness_changed",
-    runId: manifest.runId,
-    data: { hookName: report.hookName, outcome: report.outcome }
-  });
-}
-var registry, _piCrewHookIds, _nextHookId, POLLUTED_KEYS;
-var init_registry2 = __esm({
-  "src/hooks/registry.ts"() {
-    "use strict";
-    init_event_log();
-    init_run_event_bus();
-    registry = /* @__PURE__ */ new Map();
-    _piCrewHookIds = /* @__PURE__ */ new Set();
-    _nextHookId = 1;
-    POLLUTED_KEYS = new Set(
-      [
-        "__proto__",
-        "constructor",
-        "prototype",
-        "hasOwnProperty",
-        "toString",
-        "valueOf",
-        "isPrototypeOf",
-        "propertyIsEnumerable",
-        "__defineGetter__",
-        "__defineSetter__",
-        "__lookupGetter__",
-        "__lookupSetter__"
-      ].map((k) => k.toLowerCase().normalize("NFKC"))
-    );
-  }
-});
-
 // src/extension/team-tool/intent-policy.ts
 function intentFromConfig(config) {
   const cfg = configRecord(config);
@@ -44591,10 +45601,10 @@ var init_drift_detector = __esm({
 });
 
 // src/runtime/process/zombie-scanner.ts
-import * as fs60 from "node:fs";
+import * as fs62 from "node:fs";
 function readProcEnviron(pid) {
   try {
-    const raw = fs60.readFileSync(`/proc/${pid}/environ`, "utf-8");
+    const raw = fs62.readFileSync(`/proc/${pid}/environ`, "utf-8");
     const out = {};
     for (const entry of raw.split("\0")) {
       const eq = entry.indexOf("=");
@@ -44607,7 +45617,7 @@ function readProcEnviron(pid) {
 }
 function readProcStat(pid) {
   try {
-    const stat2 = fs60.readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const stat2 = fs62.readFileSync(`/proc/${pid}/stat`, "utf-8");
     const rest = fieldsAfterComm(stat2);
     if (!rest) return void 0;
     const ppid = Number.parseInt(rest[PROC_STAT_PPID_INDEX] ?? "", 10);
@@ -44623,7 +45633,7 @@ function computeElapsedSec(starttimeTicks) {
   if (starttimeTicks === void 0 || !Number.isFinite(starttimeTicks)) return void 0;
   try {
     const ticksPerSec = 100;
-    const uptimeRaw = fs60.readFileSync("/proc/uptime", "utf-8");
+    const uptimeRaw = fs62.readFileSync("/proc/uptime", "utf-8");
     const uptimeSec = Number.parseFloat(uptimeRaw.split(" ")[0] ?? "");
     if (!Number.isFinite(uptimeSec)) return void 0;
     const startAgeSec = starttimeTicks / ticksPerSec;
@@ -44643,7 +45653,7 @@ function isPidAlive(pid) {
 }
 function readProcCmdline(pid) {
   try {
-    const raw = fs60.readFileSync(`/proc/${pid}/cmdline`, "utf-8");
+    const raw = fs62.readFileSync(`/proc/${pid}/cmdline`, "utf-8");
     return raw.split("\0").filter(Boolean).join(" ").trim() || `pid ${pid}`;
   } catch {
     return `pid ${pid}`;
@@ -44651,7 +45661,7 @@ function readProcCmdline(pid) {
 }
 function readProcRssKb(pid) {
   try {
-    const status = fs60.readFileSync(`/proc/${pid}/status`, "utf-8");
+    const status = fs62.readFileSync(`/proc/${pid}/status`, "utf-8");
     const match = status.match(/^VmRSS:\s+(\d+)\s+kB/m);
     return match ? Number.parseInt(match[1] ?? "", 10) : 0;
   } catch {
@@ -44662,7 +45672,7 @@ function listCandidatePids() {
   if (process.platform !== "linux") return [];
   const pids = [];
   try {
-    for (const entry of fs60.readdirSync("/proc")) {
+    for (const entry of fs62.readdirSync("/proc")) {
       if (/^\d+$/.test(entry)) pids.push(Number.parseInt(entry, 10));
     }
   } catch {
@@ -44718,7 +45728,7 @@ function tryGetUid() {
 }
 function getProcUid(pid) {
   try {
-    const status = fs60.readFileSync(`/proc/${pid}/status`, "utf-8");
+    const status = fs62.readFileSync(`/proc/${pid}/status`, "utf-8");
     const match = status.match(/^Uid:\s+(\d+)/m);
     return match ? Number.parseInt(match[1] ?? "", 10) : void 0;
   } catch {
@@ -44969,8 +45979,8 @@ var init_validate_resources = __esm({
 
 // src/extension/team-tool/doctor.ts
 import { execFileSync as execFileSync4, spawnSync } from "node:child_process";
-import * as fs61 from "node:fs";
-import * as path45 from "node:path";
+import * as fs63 from "node:fs";
+import * as path47 from "node:path";
 function relativeTimeAgo(iso) {
   const ms = Date.now() - Date.parse(iso);
   if (!Number.isFinite(ms)) return iso;
@@ -44982,13 +45992,13 @@ function relativeTimeAgo(iso) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 function scanRecentFsFailureCauses(cwd) {
-  const runsRoot = path45.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
+  const runsRoot = path47.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
   let recentRunIds;
   try {
-    recentRunIds = fs61.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+    recentRunIds = fs63.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
       let mtimeMs = 0;
       try {
-        mtimeMs = fs61.statSync(path45.join(runsRoot, entry.name)).mtimeMs;
+        mtimeMs = fs63.statSync(path47.join(runsRoot, entry.name)).mtimeMs;
       } catch {
       }
       return { runId: entry.name, mtimeMs };
@@ -45001,7 +46011,7 @@ function scanRecentFsFailureCauses(cwd) {
   for (const runId of recentRunIds) {
     let tasks;
     try {
-      tasks = JSON.parse(fs61.readFileSync(path45.join(runsRoot, runId, "tasks.json"), "utf-8"));
+      tasks = JSON.parse(fs63.readFileSync(path47.join(runsRoot, runId, "tasks.json"), "utf-8"));
     } catch {
       continue;
     }
@@ -45076,12 +46086,12 @@ function piCommandExists() {
 }
 function checkWritableDir(dir) {
   try {
-    if (!fs61.existsSync(dir)) return { ok: false, detail: `${dir}: missing` };
-    if (!fs61.statSync(dir).isDirectory()) return { ok: false, detail: `${dir}: not a directory` };
+    if (!fs63.existsSync(dir)) return { ok: false, detail: `${dir}: missing` };
+    if (!fs63.statSync(dir).isDirectory()) return { ok: false, detail: `${dir}: not a directory` };
     const probePath = `${dir}/.pi-crew-write-test`;
     try {
       atomicWriteFile(probePath, "ok");
-      fs61.rmSync(probePath, { force: true });
+      fs63.rmSync(probePath, { force: true });
     } catch {
       return {
         ok: false,
@@ -45182,12 +46192,12 @@ function buildTeamDoctorReport(input) {
         {
           label: "project state root",
           ok: true,
-          detail: path45.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.runsSubdir)
+          detail: path47.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.runsSubdir)
         },
         {
           label: "artifacts root",
           ok: true,
-          detail: path45.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.artifactsSubdir)
+          detail: path47.join(projectCrewRoot(input.cwd), DEFAULT_PATHS.state.artifactsSubdir)
         },
         {
           // bug-026 sub-issue B: INFORMATIONAL (ok always true) — a historical
@@ -45394,13 +46404,13 @@ function collectTerminalRunOrphanTabs(records) {
   return tabs;
 }
 function readRecentRunManifests(cwd, limit) {
-  const runsRoot = path45.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
+  const runsRoot = path47.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
   let recentRunIds;
   try {
-    recentRunIds = fs61.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+    recentRunIds = fs63.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
       let mtimeMs = 0;
       try {
-        mtimeMs = fs61.statSync(path45.join(runsRoot, entry.name)).mtimeMs;
+        mtimeMs = fs63.statSync(path47.join(runsRoot, entry.name)).mtimeMs;
       } catch {
       }
       return { runId: entry.name, mtimeMs };
@@ -45410,10 +46420,10 @@ function readRecentRunManifests(cwd, limit) {
   }
   const records = [];
   for (const runId of recentRunIds) {
-    const manifestPath = path45.join(runsRoot, runId, "manifest.json");
+    const manifestPath = path47.join(runsRoot, runId, "manifest.json");
     let manifest;
     try {
-      manifest = JSON.parse(fs61.readFileSync(manifestPath, "utf-8"));
+      manifest = JSON.parse(fs63.readFileSync(manifestPath, "utf-8"));
     } catch {
       continue;
     }
@@ -45521,7 +46531,7 @@ async function cleanupOrphanSurfacePanes(input) {
     }
     if (!allResolved) continue;
     try {
-      const manifest = JSON.parse(fs61.readFileSync(orphan.manifestPath, "utf-8"));
+      const manifest = JSON.parse(fs63.readFileSync(orphan.manifestPath, "utf-8"));
       if (Array.isArray(manifest.surface?.tabs?.[orphan.tabKey])) {
         manifest.surface.tabs[orphan.tabKey] = [];
         atomicWriteJson(orphan.manifestPath, manifest);
@@ -45674,7 +46684,7 @@ var init_doctor = __esm({
 });
 
 // src/config/markers.ts
-import * as fs62 from "node:fs";
+import * as fs64 from "node:fs";
 function renderBlocks(blocks) {
   const sorted = [...blocks].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
   return sorted.map((block) => `<!-- PI-CREW:BLOCK:${block.id} -->
@@ -45715,10 +46725,10 @@ ${MARKER_END}
 `;
 }
 function removeGuidance(filePath, ids) {
-  if (!fs62.existsSync(filePath)) {
+  if (!fs64.existsSync(filePath)) {
     return { path: filePath, modified: false, added: [], removed: [] };
   }
-  const original = fs62.readFileSync(filePath, "utf-8");
+  const original = fs64.readFileSync(filePath, "utf-8");
   const startIdx = original.indexOf(MARKER_START);
   const endIdx = original.indexOf(MARKER_END);
   if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
@@ -45733,7 +46743,7 @@ function removeGuidance(filePath, ids) {
     if (newContent2 === original) {
       return { path: filePath, modified: false, added: [], removed: [] };
     }
-    fs62.writeFileSync(filePath, newContent2, "utf-8");
+    fs64.writeFileSync(filePath, newContent2, "utf-8");
     return { path: filePath, modified: true, added: [], removed: allIds };
   }
   const existingBlocks = parseExistingBlocks(inner);
@@ -45749,12 +46759,12 @@ function removeGuidance(filePath, ids) {
   const merged = [...existingBlocks.values()];
   if (merged.length === 0) {
     const newContent2 = trimTrailingNewlines(before) + after;
-    fs62.writeFileSync(filePath, newContent2, "utf-8");
+    fs64.writeFileSync(filePath, newContent2, "utf-8");
     return { path: filePath, modified: true, added: [], removed };
   }
   const section2 = buildMarkerSection(merged);
   const newContent = trimTrailingNewlines(before) + section2 + trimLeadingNewlines(after);
-  fs62.writeFileSync(filePath, newContent, "utf-8");
+  fs64.writeFileSync(filePath, newContent, "utf-8");
   return { path: filePath, modified: true, added: [], removed };
 }
 function trimTrailingNewlines(s) {
@@ -45774,8 +46784,8 @@ var init_markers = __esm({
 
 // src/worktree/cleanup.ts
 import { execFileSync as execFileSync5 } from "node:child_process";
-import * as fs63 from "node:fs";
-import * as path46 from "node:path";
+import * as fs65 from "node:fs";
+import * as path48 from "node:path";
 function sanitizeBranchPart(value) {
   return value.toLowerCase().replace(/[^a-z0-9._/-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
 }
@@ -45819,20 +46829,20 @@ function captureDiff(worktreePath) {
 }
 function cleanupRunWorktrees(manifest, options = {}) {
   const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
-  const worktreeRoot = path46.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
+  const worktreeRoot = path48.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
   const result4 = {
     removed: [],
     preserved: [],
     artifactPaths: [],
     committedBranches: []
   };
-  if (!fs63.existsSync(worktreeRoot)) return result4;
-  const withFileTypes = fs63.readdirSync(worktreeRoot, { withFileTypes: true });
+  if (!fs65.existsSync(worktreeRoot)) return result4;
+  const withFileTypes = fs65.readdirSync(worktreeRoot, { withFileTypes: true });
   for (const entry of withFileTypes) {
     if (options.signal?.aborted) break;
     if (!entry.isDirectory()) continue;
     if (options.signal?.aborted) break;
-    const worktreePath = path46.join(worktreeRoot, entry.name);
+    const worktreePath = path48.join(worktreeRoot, entry.name);
     if (options.signal?.aborted) break;
     const dirty = isDirty(worktreePath);
     const branchName = `pi-crew/${manifest.runId}/${sanitizeBranchPart(entry.name)}`;
@@ -45916,7 +46926,7 @@ function cleanupRunWorktrees(manifest, options = {}) {
           result4.removed.push(worktreePath);
         } catch (removeError) {
           try {
-            fs63.rmSync(worktreePath, {
+            fs65.rmSync(worktreePath, {
               recursive: true,
               force: true
             });
@@ -45998,7 +47008,7 @@ function cleanupRunWorktrees(manifest, options = {}) {
     logInternalError("cleanup.worktreePrune", error instanceof Error ? error : new Error(String(error)));
   }
   try {
-    fs63.rmdirSync(worktreeRoot);
+    fs65.rmdirSync(worktreeRoot);
   } catch (error) {
     const code = error.code;
     if (code !== "ENOENT" && code !== "ENOTEMPTY") {
@@ -46051,22 +47061,22 @@ var init_cleanup = __esm({
 });
 
 // src/extension/import-index.ts
-import * as fs64 from "node:fs";
-import * as path47 from "node:path";
+import * as fs66 from "node:fs";
+import * as path49 from "node:path";
 function readEntry(root, scope, runId) {
   if (!isSafePathId(runId)) return void 0;
   let bundlePath;
   let summaryPath;
   try {
     const entryRoot = resolveRealContainedPath(root, runId);
-    bundlePath = resolveRealContainedPath(root, path47.join(runId, "run-export.json"));
-    summaryPath = path47.join(entryRoot, "README.md");
+    bundlePath = resolveRealContainedPath(root, path49.join(runId, "run-export.json"));
+    summaryPath = path49.join(entryRoot, "README.md");
   } catch {
     return void 0;
   }
-  if (!fs64.existsSync(bundlePath)) return void 0;
+  if (!fs66.existsSync(bundlePath)) return void 0;
   try {
-    const raw = JSON.parse(fs64.readFileSync(bundlePath, "utf-8"));
+    const raw = JSON.parse(fs66.readFileSync(bundlePath, "utf-8"));
     const manifest = raw.manifest && typeof raw.manifest === "object" && !Array.isArray(raw.manifest) ? raw.manifest : {};
     return {
       runId,
@@ -46084,18 +47094,18 @@ function readEntry(root, scope, runId) {
   }
 }
 function collect(root, scope) {
-  if (!fs64.existsSync(root)) return [];
+  if (!fs66.existsSync(root)) return [];
   try {
-    if (fs64.lstatSync(root).isSymbolicLink()) return [];
-    resolveRealContainedPath(path47.dirname(root), path47.basename(root));
+    if (fs66.lstatSync(root).isSymbolicLink()) return [];
+    resolveRealContainedPath(path49.dirname(root), path49.basename(root));
   } catch {
     return [];
   }
-  return fs64.readdirSync(root).filter((entry) => isSafePathId(entry)).map((entry) => readEntry(root, scope, entry)).filter((entry) => entry !== void 0);
+  return fs66.readdirSync(root).filter((entry) => isSafePathId(entry)).map((entry) => readEntry(root, scope, entry)).filter((entry) => entry !== void 0);
 }
 function listImportedRuns(cwd) {
-  const projectRoot = path47.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.importsSubdir);
-  const userRoot = path47.join(userCrewRoot(), DEFAULT_PATHS.state.importsSubdir);
+  const projectRoot = path49.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.importsSubdir);
+  const userRoot = path49.join(userCrewRoot(), DEFAULT_PATHS.state.importsSubdir);
   return [...collect(userRoot, "user"), ...collect(projectRoot, "project")].sort(
     (a, b) => (b.importedAt ?? "").localeCompare(a.importedAt ?? "")
   );
@@ -46111,9 +47121,9 @@ var init_import_index = __esm({
 
 // src/extension/run-export.ts
 import * as crypto4 from "node:crypto";
-import * as fs65 from "node:fs";
-import * as os13 from "node:os";
-import * as path48 from "node:path";
+import * as fs67 from "node:fs";
+import * as os14 from "node:os";
+import * as path50 from "node:path";
 function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -46121,7 +47131,7 @@ function redactHomePathInString(str, home) {
   return str.replace(new RegExp(`(^|(?<=[:=/]))${escapeRegex(home)}`, "g"), "$1~");
 }
 function redactHomePaths(obj) {
-  const home = os13.homedir();
+  const home = os14.homedir();
   if (!home) return redactSecrets(obj);
   const json = JSON.stringify(obj);
   const safe = redactHomePathInString(json, home);
@@ -46177,7 +47187,7 @@ function exportRunBundle(manifest, tasks) {
       ""
     ].join("\n")
   });
-  fs65.statSync(path48.dirname(json.path));
+  fs67.statSync(path50.dirname(json.path));
   return { jsonPath: json.path, markdownPath: markdown.path };
 }
 var init_run_export = __esm({
@@ -46428,14 +47438,14 @@ var init_run_bundle_schema = __esm({
 
 // src/extension/run-import.ts
 import * as crypto5 from "node:crypto";
-import * as fs66 from "node:fs";
-import * as path49 from "node:path";
+import * as fs68 from "node:fs";
+import * as path51 from "node:path";
 function importRoot(cwd, scope) {
   const base = scope === "project" ? projectCrewRoot(cwd) : userCrewRoot();
-  return path49.join(base, DEFAULT_PATHS.state.importsSubdir);
+  return path51.join(base, DEFAULT_PATHS.state.importsSubdir);
 }
 function importRunBundle(cwd, bundlePath, scope = "project") {
-  const resolvedPath = path49.isAbsolute(bundlePath) ? bundlePath : path49.resolve(cwd, bundlePath);
+  const resolvedPath = path51.isAbsolute(bundlePath) ? bundlePath : path51.resolve(cwd, bundlePath);
   const allowedBases = [];
   try {
     allowedBases.push(userCrewRoot());
@@ -46456,11 +47466,11 @@ function importRunBundle(cwd, bundlePath, scope = "project") {
     }
   }
   if (!isContained) throw new Error(`Import path must be within project directory or crew root: ${resolvedPath}`);
-  const bundleStat = fs66.statSync(resolvedPath);
+  const bundleStat = fs68.statSync(resolvedPath);
   if (bundleStat.size > MAX_IMPORT_BUNDLE_BYTES) {
     throw new Error(`Import bundle exceeds size limit: ${bundleStat.size} bytes > ${MAX_IMPORT_BUNDLE_BYTES} bytes (${resolvedPath})`);
   }
-  const bundleJson = fs66.readFileSync(resolvedPath, "utf-8");
+  const bundleJson = fs68.readFileSync(resolvedPath, "utf-8");
   const raw = JSON.parse(bundleJson);
   assertRunBundle(raw);
   const parsedForHash = JSON.parse(bundleJson);
@@ -46486,9 +47496,9 @@ function importRunBundle(cwd, bundlePath, scope = "project") {
   );
   let conflictReport;
   try {
-    const existingManifestPath = path49.join(importRoot(cwd, scope), runId, "run-export.json");
-    if (fs66.existsSync(existingManifestPath)) {
-      const existingRaw = JSON.parse(fs66.readFileSync(existingManifestPath, "utf-8"));
+    const existingManifestPath = path51.join(importRoot(cwd, scope), runId, "run-export.json");
+    if (fs68.existsSync(existingManifestPath)) {
+      const existingRaw = JSON.parse(fs68.readFileSync(existingManifestPath, "utf-8"));
       conflictReport = detectImportConflicts(
         {
           manifest: raw.manifest,
@@ -46500,17 +47510,17 @@ function importRunBundle(cwd, bundlePath, scope = "project") {
   } catch {
   }
   const importsRoot = importRoot(cwd, scope);
-  fs66.mkdirSync(importsRoot, { recursive: true });
-  if (fs66.lstatSync(importsRoot).isSymbolicLink()) throw new Error(`Invalid import root: ${importsRoot}`);
-  resolveRealContainedPath(path49.dirname(importsRoot), path49.basename(importsRoot));
+  fs68.mkdirSync(importsRoot, { recursive: true });
+  if (fs68.lstatSync(importsRoot).isSymbolicLink()) throw new Error(`Invalid import root: ${importsRoot}`);
+  resolveRealContainedPath(path51.dirname(importsRoot), path51.basename(importsRoot));
   const root = resolveContainedRelativePath(importsRoot, runId, "runId");
-  fs66.mkdirSync(root, { recursive: true });
-  if (fs66.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid import directory: ${root}`);
+  fs68.mkdirSync(root, { recursive: true });
+  if (fs68.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid import directory: ${root}`);
   resolveRealContainedPath(importsRoot, runId);
-  const targetJson = path49.join(root, "run-export.json");
-  const targetSummary = path49.join(root, "README.md");
+  const targetJson = path51.join(root, "run-export.json");
+  const targetSummary = path51.join(root, "README.md");
   for (const target of [targetJson, targetSummary]) {
-    if (fs66.existsSync(target) && fs66.lstatSync(target).isSymbolicLink()) throw new Error(`Invalid import target: ${target}`);
+    if (fs68.existsSync(target) && fs68.lstatSync(target).isSymbolicLink()) throw new Error(`Invalid import target: ${target}`);
   }
   atomicWriteFile(targetJson, `${JSON.stringify({ ...raw, importedAt, importedFrom: resolvedPath }, null, 2)}
 `);
@@ -46558,32 +47568,32 @@ var init_run_import = __esm({
 });
 
 // src/extension/run-maintenance.ts
-import * as fs67 from "node:fs";
-import * as path50 from "node:path";
+import * as fs69 from "node:fs";
+import * as path52 from "node:path";
 function sweepStaleCorruptFiles(runsDir, maxAgeMs = DEFAULT_CORRUPT_FILE_TTL_MS, now = Date.now()) {
   let deleted = 0;
   let runDirs;
   try {
-    runDirs = fs67.readdirSync(runsDir, { withFileTypes: true });
+    runDirs = fs69.readdirSync(runsDir, { withFileTypes: true });
   } catch {
     return 0;
   }
   for (const dir of runDirs) {
     if (!dir.isDirectory()) continue;
-    const runDirPath = path50.join(runsDir, dir.name);
+    const runDirPath = path52.join(runsDir, dir.name);
     let files;
     try {
-      files = fs67.readdirSync(runDirPath);
+      files = fs69.readdirSync(runDirPath);
     } catch {
       continue;
     }
     for (const file of files) {
       if (!file.includes(".corrupt-")) continue;
-      const filePath = path50.join(runDirPath, file);
+      const filePath = path52.join(runDirPath, file);
       try {
-        const mtime = fs67.statSync(filePath).mtimeMs;
+        const mtime = fs69.statSync(filePath).mtimeMs;
         if (now - mtime > maxAgeMs) {
-          fs67.unlinkSync(filePath);
+          fs69.unlinkSync(filePath);
           deleted++;
         }
       } catch {
@@ -46597,7 +47607,7 @@ function isFinished(run) {
 }
 function isSafeToPrune(cwd, run) {
   try {
-    const crewRoot = run.stateRoot.startsWith(userCrewRoot() + path50.sep) ? userCrewRoot() : projectCrewRoot(cwd);
+    const crewRoot = run.stateRoot.startsWith(userCrewRoot() + path52.sep) ? userCrewRoot() : projectCrewRoot(cwd);
     resolveRealContainedPath(crewRoot, run.stateRoot);
     resolveRealContainedPath(crewRoot, run.artifactsRoot);
     return true;
@@ -46607,9 +47617,9 @@ function isSafeToPrune(cwd, run) {
 }
 function appendPruneAudit(cwd, payload) {
   try {
-    const filePath = path50.join(projectCrewRoot(cwd), "audit", "prune.jsonl");
-    fs67.mkdirSync(path50.dirname(filePath), { recursive: true });
-    fs67.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ ...payload, auditedAt: (/* @__PURE__ */ new Date()).toISOString() }))}
+    const filePath = path52.join(projectCrewRoot(cwd), "audit", "prune.jsonl");
+    fs69.mkdirSync(path52.dirname(filePath), { recursive: true });
+    fs69.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ ...payload, auditedAt: (/* @__PURE__ */ new Date()).toISOString() }))}
 `, "utf-8");
     return filePath;
   } catch (error) {
@@ -46649,12 +47659,12 @@ function pruneFinishedRuns(cwd, keep, options = {}) {
       );
       continue;
     }
-    fs67.rmSync(run.stateRoot, { recursive: true, force: true });
-    fs67.rmSync(run.artifactsRoot, { recursive: true, force: true });
+    fs69.rmSync(run.stateRoot, { recursive: true, force: true });
+    fs69.rmSync(run.artifactsRoot, { recursive: true, force: true });
     removed.push(run.runId);
   }
   if (!options.dryRun) {
-    sweepStaleCorruptFiles(path50.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir));
+    sweepStaleCorruptFiles(path52.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir));
   }
   const auditPath = options.dryRun ? void 0 : appendPruneAudit(cwd, {
     action: "prune",
@@ -46667,23 +47677,23 @@ function pruneFinishedRuns(cwd, keep, options = {}) {
 }
 function pruneUserLevelRuns(keep) {
   const crewRoot = userCrewRoot();
-  const runsRoot = path50.join(crewRoot, DEFAULT_PATHS.state.runsSubdir);
-  if (!fs67.existsSync(runsRoot)) return { kept: [], removed: [] };
+  const runsRoot = path52.join(crewRoot, DEFAULT_PATHS.state.runsSubdir);
+  if (!fs69.existsSync(runsRoot)) return { kept: [], removed: [] };
   const MAX_DIRS = 500;
   const finished = [];
   const ghostRemoved = [];
-  const dirs = fs67.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory() && isSafePathId(entry.name)).slice(0, MAX_DIRS).map((entry) => entry.name);
+  const dirs = fs69.readdirSync(runsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory() && isSafePathId(entry.name)).slice(0, MAX_DIRS).map((entry) => entry.name);
   for (const dir of dirs) {
-    const manifestPath = path50.join(runsRoot, dir, DEFAULT_PATHS.state.manifestFile);
+    const manifestPath = path52.join(runsRoot, dir, DEFAULT_PATHS.state.manifestFile);
     let manifest;
     try {
-      manifest = JSON.parse(fs67.readFileSync(manifestPath, "utf-8"));
+      manifest = JSON.parse(fs69.readFileSync(manifestPath, "utf-8"));
     } catch {
       continue;
     }
     const isActive = manifest.status === "queued" || manifest.status === "running" || manifest.status === "planning";
-    if (isActive && manifest.cwd && !fs67.existsSync(manifest.cwd)) {
-      fs67.rmSync(path50.join(runsRoot, dir), {
+    if (isActive && manifest.cwd && !fs69.existsSync(manifest.cwd)) {
+      fs69.rmSync(path52.join(runsRoot, dir), {
         recursive: true,
         force: true
       });
@@ -46708,8 +47718,8 @@ function pruneUserLevelRuns(keep) {
   const kept = finished.slice(0, keep).map((r) => r.runId);
   const removed = [];
   for (const run of finished.slice(keep)) {
-    fs67.rmSync(run.stateRoot, { recursive: true, force: true });
-    fs67.rmSync(run.artifactsRoot, { recursive: true, force: true });
+    fs69.rmSync(run.stateRoot, { recursive: true, force: true });
+    fs69.rmSync(run.artifactsRoot, { recursive: true, force: true });
     removed.push(run.runId);
   }
   sweepStaleCorruptFiles(runsRoot);
@@ -46732,8 +47742,8 @@ var init_run_maintenance = __esm({
 });
 
 // src/extension/team-tool/lifecycle-actions.ts
-import * as fs68 from "node:fs";
-import * as path51 from "node:path";
+import * as fs70 from "node:fs";
+import * as path53 from "node:path";
 function handleWorktrees(params, ctx) {
   if (!params.runId)
     return result(
@@ -46964,15 +47974,15 @@ async function handleForget(params, ctx) {
       logInternalError("team-tool.handleForget.killAsync", error, `runId=${loaded.manifest.runId},pid=${asyncPid}`);
     }
   }
-  const crewRoot = loaded.manifest.stateRoot.startsWith(userCrewRoot() + path51.sep) ? userCrewRoot() : projectCrewRoot(loaded.manifest.cwd);
+  const crewRoot = loaded.manifest.stateRoot.startsWith(userCrewRoot() + path53.sep) ? userCrewRoot() : projectCrewRoot(loaded.manifest.cwd);
   const resolvedStateRoot = resolveRealContainedPath(crewRoot, loaded.manifest.stateRoot);
   const resolvedArtifactsRoot = resolveRealContainedPath(crewRoot, loaded.manifest.artifactsRoot);
-  fs68.rmSync(resolvedStateRoot, { recursive: true, force: true });
-  fs68.rmSync(resolvedArtifactsRoot, { recursive: true, force: true });
-  if (fs68.existsSync(resolvedStateRoot) || fs68.existsSync(resolvedArtifactsRoot)) {
+  fs70.rmSync(resolvedStateRoot, { recursive: true, force: true });
+  fs70.rmSync(resolvedArtifactsRoot, { recursive: true, force: true });
+  if (fs70.existsSync(resolvedStateRoot) || fs70.existsSync(resolvedArtifactsRoot)) {
     await sleep(250);
-    fs68.rmSync(resolvedStateRoot, { recursive: true, force: true });
-    fs68.rmSync(resolvedArtifactsRoot, { recursive: true, force: true });
+    fs70.rmSync(resolvedStateRoot, { recursive: true, force: true });
+    fs70.rmSync(resolvedArtifactsRoot, { recursive: true, force: true });
   }
   return result(
     [
@@ -47019,10 +48029,10 @@ function handleProjectCleanup(params, ctx) {
     );
   }
   const lines = ["Project cleanup for pi-crew:"];
-  const guidancePath = path51.join(cwd, "AGENTS.md");
+  const guidancePath = path53.join(cwd, "AGENTS.md");
   const guidanceResult = dryRun ? {
     path: guidancePath,
-    modified: fs68.existsSync(guidancePath),
+    modified: fs70.existsSync(guidancePath),
     added: [],
     removed: dryRunRemovedIds(guidancePath)
   } : removeGuidance(guidancePath);
@@ -47036,7 +48046,7 @@ function handleProjectCleanup(params, ctx) {
   }
   const crewRoot = projectCrewRoot(cwd);
   lines.push(".crew/ state directory:");
-  const crewExists = fs68.existsSync(crewRoot);
+  const crewExists = fs70.existsSync(crewRoot);
   if (!crewExists) {
     lines.push(`  - (not present at ${crewRoot} \u2014 nothing to do)`);
   } else if (!removeState) {
@@ -47046,17 +48056,17 @@ function handleProjectCleanup(params, ctx) {
   } else {
     let resolved;
     try {
-      resolved = fs68.realpathSync.native(crewRoot);
+      resolved = fs70.realpathSync.native(crewRoot);
     } catch {
       lines.push(`  - ERROR: could not resolve ${crewRoot} (skipped)`);
       return result(lines.join("\n"), { action: "cleanup", status: "ok", scope }, false);
     }
-    if (!resolved.endsWith(path51.sep + ".crew") && !resolved.endsWith("/teams") && path51.basename(resolved) !== ".crew") {
+    if (!resolved.endsWith(path53.sep + ".crew") && !resolved.endsWith("/teams") && path53.basename(resolved) !== ".crew") {
       lines.push(`  - ERROR: refused to remove ${resolved} (does not look like a .crew dir) \u2014 skipped`);
     } else {
       if (!dryRun) {
         try {
-          fs68.rmSync(resolved, { recursive: true, force: true });
+          fs70.rmSync(resolved, { recursive: true, force: true });
         } catch (e) {
           lines.push(`  - ERROR removing ${resolved}: ${e.message}`);
         }
@@ -47072,8 +48082,8 @@ function handleProjectCleanup(params, ctx) {
 }
 function dryRunRemovedIds(guidancePath) {
   try {
-    if (!fs68.existsSync(guidancePath)) return [];
-    const content = fs68.readFileSync(guidancePath, "utf-8");
+    if (!fs70.existsSync(guidancePath)) return [];
+    const content = fs70.readFileSync(guidancePath, "utf-8");
     const startIdx = content.indexOf("<!-- PI-CREW:GUIDANCE:START -->");
     const endIdx = content.indexOf("<!-- PI-CREW:GUIDANCE:END -->");
     if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return [];
@@ -47089,14 +48099,14 @@ function handleUserCleanup(params, ctx) {
   const crewStateDir = userCrewRoot();
   lines.push(`pi-crew user state dir (${crewStateDir}):`);
   let crewStateBytes = 0;
-  if (fs68.existsSync(crewStateDir)) {
+  if (fs70.existsSync(crewStateDir)) {
     try {
       crewStateBytes = dirSize(crewStateDir);
     } catch {
     }
     if (!dryRun) {
       try {
-        fs68.rmSync(crewStateDir, { recursive: true, force: true });
+        fs70.rmSync(crewStateDir, { recursive: true, force: true });
       } catch (e) {
         lines.push(`  - ERROR removing: ${e.message}`);
       }
@@ -47105,30 +48115,30 @@ function handleUserCleanup(params, ctx) {
   } else {
     lines.push("  - (not present \u2014 nothing to do)");
   }
-  const userConfigPath = path51.join(userPiRoot(), "pi-crew.json");
+  const userConfigPath = path53.join(userPiRoot(), "pi-crew.json");
   lines.push("pi-crew global config:");
-  if (!fs68.existsSync(userConfigPath)) {
+  if (!fs70.existsSync(userConfigPath)) {
     lines.push(`  - (not present at ${userConfigPath} \u2014 nothing to do)`);
   } else if (!force) {
     lines.push(`  - present at ${userConfigPath} (preserved \u2014 use force: true to remove; may hold your customized settings)`);
   } else {
     if (!dryRun) {
       try {
-        fs68.rmSync(userConfigPath, { force: true });
+        fs70.rmSync(userConfigPath, { force: true });
       } catch (e) {
         lines.push(`  - ERROR removing: ${e.message}`);
       }
     }
     lines.push(`  - ${dryRun ? "would remove" : "removed"}: ${userConfigPath}`);
   }
-  const agentsDir = path51.join(userPiRoot(), "agents");
+  const agentsDir = path53.join(userPiRoot(), "agents");
   lines.push("pi-crew test junk in agents dir:");
   const bakJunk = [];
-  if (fs68.existsSync(agentsDir)) {
+  if (fs70.existsSync(agentsDir)) {
     try {
-      for (const entry of fs68.readdirSync(agentsDir)) {
+      for (const entry of fs70.readdirSync(agentsDir)) {
         if (/^.*\.md\.bak-\d{17,}-[0-9a-f]+$/i.test(entry)) {
-          bakJunk.push(path51.join(agentsDir, entry));
+          bakJunk.push(path53.join(agentsDir, entry));
         }
       }
     } catch {
@@ -47140,9 +48150,9 @@ function handleUserCleanup(params, ctx) {
     for (const junk of bakJunk) {
       if (!dryRun) {
         try {
-          fs68.rmSync(junk, { force: true });
+          fs70.rmSync(junk, { force: true });
         } catch (e) {
-          lines.push(`  - ERROR removing ${path51.basename(junk)}: ${e.message}`);
+          lines.push(`  - ERROR removing ${path53.basename(junk)}: ${e.message}`);
         }
       }
     }
@@ -47161,14 +48171,14 @@ function dirSize(dir) {
     const cur = stack.pop();
     let entries;
     try {
-      entries = fs68.readdirSync(cur);
+      entries = fs70.readdirSync(cur);
     } catch {
       continue;
     }
     for (const entry of entries) {
-      const full = path51.join(cur, entry);
+      const full = path53.join(cur, entry);
       try {
-        const stat2 = fs68.statSync(full);
+        const stat2 = fs70.statSync(full);
         if (stat2.isDirectory()) stack.push(full);
         else total += stat2.size;
       } catch {
@@ -47744,15 +48754,15 @@ var init_correlation = __esm({
 });
 
 // src/runtime/deadletter.ts
-import * as fs69 from "node:fs";
-import * as path52 from "node:path";
+import * as fs71 from "node:fs";
+import * as path54 from "node:path";
 function deadletterPath(manifest) {
-  return path52.join(manifest.stateRoot, "deadletter.jsonl");
+  return path54.join(manifest.stateRoot, "deadletter.jsonl");
 }
 function appendDeadletter(manifest, entry) {
   try {
-    fs69.mkdirSync(manifest.stateRoot, { recursive: true });
-    fs69.appendFileSync(deadletterPath(manifest), `${JSON.stringify(entry)}
+    fs71.mkdirSync(manifest.stateRoot, { recursive: true });
+    fs71.appendFileSync(deadletterPath(manifest), `${JSON.stringify(entry)}
 `, "utf-8");
   } catch (error) {
     logInternalError("deadletter.append", error, `taskId=${entry.taskId}`);
@@ -47999,21 +49009,21 @@ var init_path_overlap = __esm({
 });
 
 // src/runtime/plan-replan.ts
-import * as fs70 from "node:fs";
-import * as path53 from "node:path";
+import * as fs72 from "node:fs";
+import * as path55 from "node:path";
 function appendSteeringAdvisory(manifest, taskId) {
   try {
-    const steeringDir = path53.join(manifest.artifactsRoot, "steering");
-    fs70.mkdirSync(steeringDir, { recursive: true });
+    const steeringDir = path55.join(manifest.artifactsRoot, "steering");
+    fs72.mkdirSync(steeringDir, { recursive: true });
     const safePath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
     try {
-      if (fs70.statSync(safePath).size > 256 * 1024) {
+      if (fs72.statSync(safePath).size > 256 * 1024) {
         logInternalError("plan-replan.steer-refused-too-large", new Error("steering file over cap"), `taskId=${taskId}`);
         return false;
       }
     } catch {
     }
-    fs70.appendFileSync(
+    fs72.appendFileSync(
       safePath,
       `${JSON.stringify({ type: "steer", message: WRAP_UP_ADVISORY, ts: (/* @__PURE__ */ new Date()).toISOString() })}
 `,
@@ -48363,7 +49373,7 @@ var init_semaphore = __esm({
 });
 
 // src/runtime/scheduling/global-worker-cap.ts
-import * as os14 from "node:os";
+import * as os15 from "node:os";
 function resolveCapacity() {
   const env = getCrewEnv("PI_CREW_MAX_WORKERS");
   if (env !== void 0 && env !== "") {
@@ -48372,7 +49382,7 @@ function resolveCapacity() {
       return parsed;
     }
   }
-  const cpus2 = os14.cpus().length;
+  const cpus2 = os15.cpus().length;
   return Math.max(2, cpus2 - 2);
 }
 function getWorkerCapCapacity() {
@@ -48466,30 +49476,30 @@ var init_run_worker = __esm({
 
 // src/state/stores/spec-store.ts
 import { createHash as createHash7 } from "node:crypto";
-import * as fs71 from "node:fs";
-import * as os15 from "node:os";
-import * as path54 from "node:path";
+import * as fs73 from "node:fs";
+import * as os16 from "node:os";
+import * as path56 from "node:path";
 function specsDir(cwd) {
-  return path54.join(projectCrewRoot(cwd), "state", "specs");
+  return path56.join(projectCrewRoot(cwd), "state", "specs");
 }
 function userSpecsDir(cwd) {
   const slugSource = (() => {
     try {
-      return fs71.realpathSync(path54.resolve(cwd));
+      return fs73.realpathSync(path56.resolve(cwd));
     } catch {
-      return path54.resolve(cwd);
+      return path56.resolve(cwd);
     }
   })();
   const slug2 = createHash7("sha256").update(slugSource).digest("hex").slice(0, 16);
-  return path54.join(os15.homedir(), ".pi", "agent", "specs", slug2);
+  return path56.join(os16.homedir(), ".pi", "agent", "specs", slug2);
 }
 function recordPath(dir, id) {
   assertSafeSpecId(id);
-  return path54.join(dir, `${id}.json`);
+  return path56.join(dir, `${id}.json`);
 }
 function sidecarPath(dir, id) {
   assertSafeSpecId(id);
-  return path54.join(dir, `${id}.trusted`);
+  return path56.join(dir, `${id}.trusted`);
 }
 function assertSafeSpecId(id) {
   if (!SPEC_ID_PATTERN.test(id)) throw new Error(`Invalid spec id: ${id}`);
@@ -48508,7 +49518,7 @@ function canonicalSpecJson(value) {
 }
 function readRecordAt(file, id) {
   try {
-    const parsed = JSON.parse(fs71.readFileSync(file, "utf-8"));
+    const parsed = JSON.parse(fs73.readFileSync(file, "utf-8"));
     if (parsed?.id !== id) return void 0;
     return parsed;
   } catch {
@@ -48527,7 +49537,7 @@ function isSpecTrusted(cwd, id, record) {
   const candidate = record ?? readRecordAt(recordPath(dir, id), id);
   if (!candidate) return false;
   try {
-    const sidecar = fs71.readFileSync(sidecarPath(dir, id), "utf-8").trim();
+    const sidecar = fs73.readFileSync(sidecarPath(dir, id), "utf-8").trim();
     const digest = createHash7("sha256").update(canonicalSpecJson(candidate), "utf8").digest("hex");
     return sidecar === digest;
   } catch {
@@ -48597,7 +49607,7 @@ var init_task_id = __esm({
 });
 
 // src/runtime/task-packet.ts
-import * as path55 from "node:path";
+import * as path57 from "node:path";
 function sanitizeTaskText(task) {
   let sanitized = task;
   sanitized = sanitized.replace(/[\u200B-\u200F\u2028-\u202F\u2060-\u206F\uFEFF]/g, "");
@@ -48647,7 +49657,7 @@ function buildTaskPacket(input) {
     ...input.specStrict === true ? { specStrict: true } : {},
     scope,
     scopePath,
-    repo: path55.basename(input.manifest.cwd) || input.manifest.cwd,
+    repo: path57.basename(input.manifest.cwd) || input.manifest.cwd,
     worktree: input.worktreePath,
     branchPolicy: input.manifest.workspaceMode === "worktree" ? "Use the assigned task worktree and avoid modifying the leader checkout." : "Use the current checkout; do not create branches unless explicitly requested.",
     acceptanceTests: [],
@@ -48798,8 +49808,8 @@ var init_team_runner_artifacts = __esm({
 });
 
 // src/runtime/workspace-tree.ts
-import * as fs72 from "node:fs/promises";
-import * as path56 from "node:path";
+import * as fs74 from "node:fs/promises";
+import * as path58 from "node:path";
 function formatBytes2(bytes) {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -48834,10 +49844,10 @@ function applyDirLimit(children, limit) {
   return { visible, dropped: children.length - limit };
 }
 async function readChildren(rootPath, parent, excludedDirs) {
-  const dirPath = parent.relativePath ? path56.join(rootPath, parent.relativePath) : rootPath;
+  const dirPath = parent.relativePath ? path58.join(rootPath, parent.relativePath) : rootPath;
   let names;
   try {
-    names = await fs72.readdir(dirPath);
+    names = await fs74.readdir(dirPath);
   } catch {
     return [];
   }
@@ -48845,9 +49855,9 @@ async function readChildren(rootPath, parent, excludedDirs) {
     names.map(async (name) => {
       if (name.startsWith(".")) return null;
       const relativePath = parent.relativePath ? `${parent.relativePath}/${name}` : name;
-      const absolutePath = path56.join(rootPath, relativePath);
+      const absolutePath = path58.join(rootPath, relativePath);
       try {
-        const stat2 = await fs72.stat(absolutePath);
+        const stat2 = await fs74.stat(absolutePath);
         if (stat2.isDirectory() && excludedDirs.has(name)) return null;
         return {
           name,
@@ -48867,7 +49877,7 @@ async function readChildren(rootPath, parent, excludedDirs) {
   return nodes.filter((n) => n !== null).sort(compareByRecency);
 }
 async function collectTree(rootPath, maxDepth, dirLimit, excludedDirs) {
-  const rootStat = await fs72.stat(rootPath);
+  const rootStat = await fs74.stat(rootPath);
   const root = {
     name: ".",
     relativePath: "",
@@ -48948,10 +49958,10 @@ function applyLineCap(lines, cap) {
   return { lines: kept, elided: removable.length };
 }
 function treeCacheKey(cwd, options) {
-  return `${path56.resolve(cwd)}|${options?.maxDepth ?? ""}|${options?.dirLimit ?? ""}|${options?.lineCap ?? ""}`;
+  return `${path58.resolve(cwd)}|${options?.maxDepth ?? ""}|${options?.dirLimit ?? ""}|${options?.lineCap ?? ""}`;
 }
 async function buildWorkspaceTree(cwd, options) {
-  const rootPath = path56.resolve(cwd);
+  const rootPath = path58.resolve(cwd);
   const cacheKey2 = treeCacheKey(cwd, options);
   const cached2 = treeCache.get(cacheKey2);
   if (cached2 && cached2.expiresAt > Date.now()) {
@@ -49402,10 +50412,10 @@ var init_task_display = __esm({
 });
 
 // src/extension/knowledge-injection.ts
-import * as fs73 from "node:fs";
-import * as path57 from "node:path";
+import * as fs75 from "node:fs";
+import * as path59 from "node:path";
 function knowledgePath(cwd) {
-  return path57.join(projectCrewRoot(cwd), KNOWLEDGE_FILENAME);
+  return path59.join(projectCrewRoot(cwd), KNOWLEDGE_FILENAME);
 }
 function tokenizeHeader(header) {
   const tokens = /* @__PURE__ */ new Set();
@@ -49521,7 +50531,7 @@ function readKnowledge(cwd, query) {
     if (!query || !query.goal && !query.taskText) {
       const cached2 = knowledgeCache.get(p);
       if (cached2 && cached2.key === cacheKey2) return cached2.content;
-      let content = sanitizeAgentSystemPrompt(fs73.readFileSync(p, "utf8").trim(), "project");
+      let content = sanitizeAgentSystemPrompt(fs75.readFileSync(p, "utf8").trim(), "project");
       if (content.length > MAX_KNOWLEDGE_HEAD_BYTES) {
         content = `${content.slice(0, MAX_KNOWLEDGE_HEAD_BYTES)}
 
@@ -49539,7 +50549,7 @@ function readKnowledge(cwd, query) {
         sessionLog: cachedSections.sessionLog
       };
     } else {
-      const content = sanitizeAgentSystemPrompt(fs73.readFileSync(p, "utf8").trim(), "project");
+      const content = sanitizeAgentSystemPrompt(fs75.readFileSync(p, "utf8").trim(), "project");
       parsed = parseKnowledgeSections(content);
       sectionCache.set(p, {
         key: cacheKey2,
@@ -49577,7 +50587,7 @@ Full file: ${p} -->`
 }
 function tryStat(p) {
   try {
-    const s = fs73.lstatSync(p);
+    const s = fs75.lstatSync(p);
     return { mtimeMs: s.mtimeMs, size: s.size, isSymbolicLink: s.isSymbolicLink() };
   } catch {
     return void 0;
@@ -49674,43 +50684,43 @@ var init_knowledge_injection = __esm({
 });
 
 // src/runtime/agent-memory.ts
-import * as fs74 from "node:fs";
-import * as os16 from "node:os";
-import * as path58 from "node:path";
+import * as fs76 from "node:fs";
+import * as os17 from "node:os";
+import * as path60 from "node:path";
 function isUnsafeMemoryName(name) {
   return !name || name.length > 128 || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name);
 }
 function isSymlink(filePath) {
   try {
-    return fs74.lstatSync(filePath).isSymbolicLink();
+    return fs76.lstatSync(filePath).isSymbolicLink();
   } catch {
     return false;
   }
 }
 function safeReadMemoryFile(filePath) {
-  if (!fs74.existsSync(filePath) || isSymlink(filePath)) return void 0;
+  if (!fs76.existsSync(filePath) || isSymlink(filePath)) return void 0;
   try {
-    return fs74.readFileSync(filePath, "utf-8");
+    return fs76.readFileSync(filePath, "utf-8");
   } catch {
     return void 0;
   }
 }
 function resolveMemoryDir(agentName, scope, cwd) {
   if (isUnsafeMemoryName(agentName)) throw new Error(`Unsafe agent name for memory directory: ${agentName}`);
-  if (scope === "user") return path58.join(os16.homedir(), ".pi", "agent-memory", agentName);
-  if (scope === "project") return path58.join(cwd, ".pi", "agent-memory", agentName);
-  return path58.join(cwd, ".pi", "agent-memory-local", agentName);
+  if (scope === "user") return path60.join(os17.homedir(), ".pi", "agent-memory", agentName);
+  if (scope === "project") return path60.join(cwd, ".pi", "agent-memory", agentName);
+  return path60.join(cwd, ".pi", "agent-memory-local", agentName);
 }
 function ensureMemoryDir(memoryDir) {
-  if (fs74.existsSync(memoryDir)) {
+  if (fs76.existsSync(memoryDir)) {
     if (isSymlink(memoryDir)) throw new Error(`Refusing to use symlinked memory directory: ${memoryDir}`);
     return;
   }
-  fs74.mkdirSync(memoryDir, { recursive: true });
+  fs76.mkdirSync(memoryDir, { recursive: true });
 }
 function readMemoryIndex(memoryDir) {
   if (isSymlink(memoryDir)) return void 0;
-  const memPath = path58.join(memoryDir, "MEMORY.md");
+  const memPath = path60.join(memoryDir, "MEMORY.md");
   const content = safeReadMemoryFile(memPath);
   if (content === void 0) return void 0;
   const lines = content.split(/\r?\n/);
@@ -49787,8 +50797,8 @@ var init_context_retrieval = __esm({
 
 // src/runtime/task-runner/retrieval-orchestrator.ts
 import { spawn as spawn3 } from "node:child_process";
-import * as fs75 from "node:fs";
-import * as path59 from "node:path";
+import * as fs77 from "node:fs";
+import * as path61 from "node:path";
 function getCachedDiscovered(cwd) {
   const hit = discoveredCache.get(cwd);
   if (hit && Date.now() - hit.at < DISCOVERED_TTL_MS) {
@@ -49921,24 +50931,24 @@ async function walkFilesFallback(cwd, keywords) {
   async function walk(dir) {
     let entries;
     try {
-      entries = await fs75.promises.readdir(dir, { withFileTypes: true });
+      entries = await fs77.promises.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
     for (const entry of entries) {
       if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
-      const full = path59.join(dir, entry.name);
+      const full = path61.join(dir, entry.name);
       if (entry.isDirectory()) {
         await walk(full);
         continue;
       }
       if (!entry.isFile()) continue;
-      const ext = path59.extname(entry.name).toLowerCase();
+      const ext = path61.extname(entry.name).toLowerCase();
       if (!RELEVANT_EXTS.has(ext)) continue;
       const content = "";
       const score = scoreRelevance(full, content, keywords);
       if (score > 0) {
-        out.push({ path: path59.relative(lowerCwd, full), score, reason: reasonFor(full, keywords) });
+        out.push({ path: path61.relative(lowerCwd, full), score, reason: reasonFor(full, keywords) });
       }
     }
   }
@@ -49961,7 +50971,7 @@ async function runRetrievalCycle(task, goal, cwd) {
         discovered = cached2;
       } else {
         const stdout = await runRipgrep(["--files", "-g", "!node_modules", "-g", "!.git", cwd], cwd);
-        discovered = stdout.split("\n").map((p) => p.trim()).filter((p) => p && RELEVANT_EXTS.has(path59.extname(p).toLowerCase())).map((p) => path59.relative(cwd, p));
+        discovered = stdout.split("\n").map((p) => p.trim()).filter((p) => p && RELEVANT_EXTS.has(path61.extname(p).toLowerCase())).map((p) => path61.relative(cwd, p));
         storeDiscovered(cwd, discovered);
       }
     } else {
@@ -49973,7 +50983,7 @@ async function runRetrievalCycle(task, goal, cwd) {
   }
   const byPath = /* @__PURE__ */ new Map();
   for (const relPath of discovered) {
-    const absPath = path59.isAbsolute(relPath) ? relPath : path59.join(cwd, relPath);
+    const absPath = path61.isAbsolute(relPath) ? relPath : path61.join(cwd, relPath);
     if (byPath.has(absPath)) continue;
     const score = scoreRelevance(absPath, "", keywords);
     if (score > 0) {
@@ -49990,7 +51000,7 @@ async function runRetrievalCycle(task, goal, cwd) {
   evaluations.sort((a, b) => b.relevance - a.relevance);
   const cap = Math.min(MAX_SUGGESTED_FILES, Math.max(MIN_SUGGESTED_FILES, evaluations.length));
   const top = evaluations.slice(0, cap).map((e) => ({
-    path: path59.isAbsolute(e.path) ? path59.relative(cwd, e.path) : e.path,
+    path: path61.isAbsolute(e.path) ? path61.relative(cwd, e.path) : e.path,
     score: e.relevance,
     reason: e.reason
   }));
@@ -50364,17 +51374,17 @@ var init_prompt_builder = __esm({
 });
 
 // src/state/stores/ownership-map.ts
-import * as fs76 from "node:fs";
-import * as path60 from "node:path";
+import * as fs78 from "node:fs";
+import * as path62 from "node:path";
 function emptyOwnershipMap() {
   return { version: 1, entries: {} };
 }
 function ownershipMapPath(manifest) {
-  return path60.join(manifest.stateRoot, "ownership-map.json");
+  return path62.join(manifest.stateRoot, "ownership-map.json");
 }
 function readOwnershipMap(manifest) {
   try {
-    const raw = fs76.readFileSync(ownershipMapPath(manifest), "utf-8");
+    const raw = fs78.readFileSync(ownershipMapPath(manifest), "utf-8");
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return emptyOwnershipMap();
     const entries = parsed.entries;
@@ -50489,7 +51499,7 @@ var init_progress_event_coalescer = __esm({
 });
 
 // src/runtime/session-usage.ts
-import * as fs77 from "node:fs";
+import * as fs79 from "node:fs";
 function asRecord9(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
@@ -50553,8 +51563,8 @@ function parseSessionUsageFromJsonlText(text) {
 }
 function parseSessionUsage(filePath) {
   try {
-    if (!fs77.existsSync(filePath)) return void 0;
-    return parseSessionUsageFromJsonlText(fs77.readFileSync(filePath, "utf-8"));
+    if (!fs79.existsSync(filePath)) return void 0;
+    return parseSessionUsageFromJsonlText(fs79.readFileSync(filePath, "utf-8"));
   } catch {
     return void 0;
   }
@@ -50764,7 +51774,7 @@ var init_result_utils = __esm({
 });
 
 // src/runtime/task-runner/state-helpers.ts
-import * as fs78 from "node:fs";
+import * as fs80 from "node:fs";
 function updateTask(tasks, updated) {
   return tasks.map((task) => task.id === updated.id ? updated : task);
 }
@@ -50784,7 +51794,7 @@ function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPha
         flushPendingAtomicWrites(manifest.tasksPath);
         let baseMtime;
         try {
-          baseMtime = fs78.statSync(manifest.tasksPath).mtimeMs;
+          baseMtime = fs80.statSync(manifest.tasksPath).mtimeMs;
         } catch {
           baseMtime = 0;
         }
@@ -50792,7 +51802,7 @@ function persistSingleTaskUpdate(manifest, fallbackTasks, updated, checkpointPha
         merged = updateTask(latest, taskWithCheckpoint);
         let currentMtime;
         try {
-          currentMtime = fs78.statSync(manifest.tasksPath).mtimeMs;
+          currentMtime = fs80.statSync(manifest.tasksPath).mtimeMs;
         } catch {
           return fallbackTasks;
         }
@@ -50858,21 +51868,21 @@ var init_state_helpers = __esm({
 });
 
 // src/runtime/task-runner/tail-read.ts
-import * as fs79 from "node:fs";
+import * as fs81 from "node:fs";
 function tailReadWithLineSnap(filePath, maxBytes, fallbackContent) {
-  if (!fs79.existsSync(filePath)) return fallbackContent;
-  const stat2 = fs79.statSync(filePath);
+  if (!fs81.existsSync(filePath)) return fallbackContent;
+  const stat2 = fs81.statSync(filePath);
   if (stat2.size === 0) return fallbackContent;
-  if (stat2.size <= maxBytes) return fs79.readFileSync(filePath, "utf-8");
-  const fd = fs79.openSync(filePath, "r");
+  if (stat2.size <= maxBytes) return fs81.readFileSync(filePath, "utf-8");
+  const fd = fs81.openSync(filePath, "r");
   try {
     const buf = Buffer.alloc(maxBytes);
-    const bytesRead = fs79.readSync(fd, buf, 0, maxBytes, stat2.size - maxBytes);
+    const bytesRead = fs81.readSync(fd, buf, 0, maxBytes, stat2.size - maxBytes);
     const raw = buf.slice(0, bytesRead).toString("utf-8");
     const firstNewline = raw.indexOf("\n");
     return firstNewline >= 0 ? raw.slice(firstNewline + 1) : raw;
   } finally {
-    fs79.closeSync(fd);
+    fs81.closeSync(fd);
   }
 }
 var init_tail_read = __esm({
@@ -50882,11 +51892,11 @@ var init_tail_read = __esm({
 });
 
 // src/runtime/task-runner/child-executor.ts
-import * as fs80 from "node:fs";
-import * as path61 from "node:path";
+import * as fs82 from "node:fs";
+import * as path63 from "node:path";
 async function appendSteeringAsync(steeringDir, taskId, steers) {
   try {
-    await fs80.promises.mkdir(steeringDir, { recursive: true });
+    await fs82.promises.mkdir(steeringDir, { recursive: true });
     const steeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
     const lines = steers.map(
       (msg) => JSON.stringify({
@@ -50895,14 +51905,14 @@ async function appendSteeringAsync(steeringDir, taskId, steers) {
         ts: (/* @__PURE__ */ new Date()).toISOString()
       }) + "\n"
     ).join("");
-    await fs80.promises.appendFile(steeringPath, lines, "utf-8");
+    await fs82.promises.appendFile(steeringPath, lines, "utf-8");
   } catch (error) {
     logInternalError("task-runner.steering-write-failed", error, `taskId=${taskId}`);
   }
 }
 async function appendBackgroundLogAsync(bgLogPath, eventLine) {
   try {
-    await fs80.promises.appendFile(bgLogPath, `${eventLine}
+    await fs82.promises.appendFile(bgLogPath, `${eventLine}
 `, "utf-8");
   } catch (error) {
     logInternalError("task-runner.background-log-write-failed", error, `path=${bgLogPath}`);
@@ -51092,7 +52102,7 @@ async function runChildProcessTask(ctx) {
   const taskDispatchStartedAtMs = Date.now();
   for (let i = 0; i < attemptModels.length; i++) {
     transcriptPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${i}.jsonl`;
-    await fs80.promises.mkdir(path61.join(manifest.artifactsRoot, "transcripts"), {
+    await fs82.promises.mkdir(path63.join(manifest.artifactsRoot, "transcripts"), {
       recursive: true
     });
     const model = attemptModels[i];
@@ -51190,10 +52200,10 @@ async function runChildProcessTask(ctx) {
                 const safeSteeringPath = resolveRealContainedPath(steeringDir, `${task.id}.jsonl`);
                 let racedSteerArrived = false;
                 try {
-                  racedSteerArrived = fs80.statSync(safeSteeringPath).mtimeMs >= taskDispatchStartedAtMs - 1;
+                  racedSteerArrived = fs82.statSync(safeSteeringPath).mtimeMs >= taskDispatchStartedAtMs - 1;
                 } catch {
                 }
-                if (!racedSteerArrived) fs80.writeFileSync(safeSteeringPath, "");
+                if (!racedSteerArrived) fs82.writeFileSync(safeSteeringPath, "");
               } catch (truncateErr) {
                 logInternalError("task-runner.steering-truncate", truncateErr, `taskId=${task.id}`);
               }
@@ -51452,7 +52462,7 @@ async function runChildProcessTask(ctx) {
   for (let attemptIdx = 0; attemptIdx < modelAttempts.length; attemptIdx++) {
     if (attemptIdx === usedAttempt) continue;
     const tPath = `${manifest.artifactsRoot}/transcripts/${task.id}.attempt-${attemptIdx}.jsonl`;
-    if (!fs80.existsSync(tPath)) continue;
+    if (!fs82.existsSync(tPath)) continue;
     const MAX_ATTEMPT_TRANSCRIPT = 5 * 1024 * 1024;
     const tContent = tailReadWithLineSnap(tPath, MAX_ATTEMPT_TRANSCRIPT, "");
     if (tContent) {
@@ -51600,8 +52610,8 @@ var init_child_executor = __esm({
 // src/worktree/worktree-manager.ts
 import { execFile, execFileSync as execFileSync6, spawnSync as spawnSync2 } from "node:child_process";
 import { randomBytes as randomBytes3 } from "node:crypto";
-import * as fs81 from "node:fs";
-import * as path62 from "node:path";
+import * as fs83 from "node:fs";
+import * as path64 from "node:path";
 import { promisify } from "node:util";
 function git2(cwd, args) {
   return execFileSync6("git", args, {
@@ -51711,18 +52721,18 @@ async function assertCleanLeaderAsync(repoRoot) {
   }
 }
 function linkNodeModulesIfPresent(repoRoot, worktreePath) {
-  const source = path62.join(repoRoot, "node_modules");
-  const target = path62.join(worktreePath, "node_modules");
+  const source = path64.join(repoRoot, "node_modules");
+  const target = path64.join(worktreePath, "node_modules");
   let sourceStat;
   try {
-    sourceStat = fs81.statSync(source);
+    sourceStat = fs83.statSync(source);
   } catch {
     return false;
   }
   if (!sourceStat.isDirectory()) return false;
-  if (fs81.existsSync(target)) return false;
+  if (fs83.existsSync(target)) return false;
   try {
-    fs81.symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
+    fs83.symlinkSync(source, target, process.platform === "win32" ? "junction" : "dir");
     return true;
   } catch (error) {
     const isWindows = process.platform === "win32";
@@ -51735,15 +52745,15 @@ function linkNodeModulesIfPresent(repoRoot, worktreePath) {
   }
 }
 function normalizeSyntheticPath(worktreePath, rawPath) {
-  const resolved = path62.resolve(worktreePath, rawPath);
-  const relative8 = path62.relative(worktreePath, resolved);
-  if (!relative8 || relative8.startsWith("..") || path62.isAbsolute(relative8)) throw new Error(`synthetic path escapes worktree: ${rawPath}`);
-  return path62.normalize(relative8);
+  const resolved = path64.resolve(worktreePath, rawPath);
+  const relative8 = path64.relative(worktreePath, resolved);
+  if (!relative8 || relative8.startsWith("..") || path64.isAbsolute(relative8)) throw new Error(`synthetic path escapes worktree: ${rawPath}`);
+  return path64.normalize(relative8);
 }
 function isAllowedSetupHook(hookPath) {
   if (!hookPath || hookPath.trim().length === 0) return false;
-  if (!path62.isAbsolute(hookPath)) {
-    const normalized = path62.posix.normalize(hookPath);
+  if (!path64.isAbsolute(hookPath)) {
+    const normalized = path64.posix.normalize(hookPath);
     return normalized === ".hooks" || normalized.startsWith(".hooks/");
   }
   const normalizedHookPath = hookPath.replace(/\\/g, "/");
@@ -51752,9 +52762,9 @@ function isAllowedSetupHook(hookPath) {
 }
 function isHookPathContainedInRepoRoot(repoRoot, hookPath) {
   try {
-    const realRepoRoot = fs81.realpathSync(repoRoot);
-    const realHookPath = fs81.realpathSync(path62.dirname(hookPath));
-    return realHookPath.startsWith(realRepoRoot + path62.sep) || realHookPath === realRepoRoot;
+    const realRepoRoot = fs83.realpathSync(repoRoot);
+    const realHookPath = fs83.realpathSync(path64.dirname(hookPath));
+    return realHookPath.startsWith(realRepoRoot + path64.sep) || realHookPath === realRepoRoot;
   } catch {
     return false;
   }
@@ -51767,15 +52777,15 @@ function runSetupHook(manifest, task, repoRoot, worktreePath, branch) {
     logInternalError("worktree.setupHook.rejected", new Error("hook path not allowed: " + rawHookPath), `cwd=${manifest.cwd}`);
     return [];
   }
-  if (path62.isAbsolute(rawHookPath)) {
+  if (path64.isAbsolute(rawHookPath)) {
     logInternalError(
       "worktree.setupHook.homeHook",
       new Error("Home directory hook used \u2014 ensure ~/.pi/hooks/ is trusted"),
       `hookPath=${rawHookPath}`
     );
   }
-  const hookPath = path62.isAbsolute(rawHookPath) ? rawHookPath : path62.resolve(repoRoot, rawHookPath);
-  if (!path62.isAbsolute(rawHookPath) && !isHookPathContainedInRepoRoot(repoRoot, hookPath)) {
+  const hookPath = path64.isAbsolute(rawHookPath) ? rawHookPath : path64.resolve(repoRoot, rawHookPath);
+  if (!path64.isAbsolute(rawHookPath) && !isHookPathContainedInRepoRoot(repoRoot, hookPath)) {
     logInternalError(
       "worktree.setupHook.contained",
       new Error("hook path escapes repoRoot after realpath resolution: " + hookPath),
@@ -51784,7 +52794,7 @@ function runSetupHook(manifest, task, repoRoot, worktreePath, branch) {
     return [];
   }
   try {
-    const hookStat = fs81.lstatSync(hookPath);
+    const hookStat = fs83.lstatSync(hookPath);
     if (!hookStat.isFile()) {
       logInternalError("worktree.setupHook.missing", new Error("hook not found or is directory: " + hookPath), `cwd=${manifest.cwd}`);
       return [];
@@ -51805,7 +52815,7 @@ function runSetupHook(manifest, task, repoRoot, worktreePath, branch) {
   }
   let realHookPath;
   try {
-    realHookPath = fs81.realpathSync(hookPath);
+    realHookPath = fs83.realpathSync(hookPath);
   } catch {
     logInternalError("worktree.setupHook.realpath", new Error("hook realpath resolution failed: " + hookPath), `cwd=${manifest.cwd}`);
     return [];
@@ -51923,19 +52933,19 @@ async function pruneStaleWorktreesAsync(repoRoot) {
   return p;
 }
 function normalizeSeedPaths(seedPaths, repoRoot) {
-  const resolvedRepoRoot = path62.resolve(repoRoot);
+  const resolvedRepoRoot = path64.resolve(repoRoot);
   const entries = Array.isArray(seedPaths) ? seedPaths : [];
   const seen = /* @__PURE__ */ new Set();
   const normalized = [];
   for (const entry of entries) {
     if (typeof entry !== "string" || entry.trim().length === 0) continue;
-    const absolutePath = path62.resolve(resolvedRepoRoot, entry);
-    const relativePath = path62.relative(resolvedRepoRoot, absolutePath);
-    if (relativePath.startsWith("..") || path62.isAbsolute(relativePath)) {
+    const absolutePath = path64.resolve(resolvedRepoRoot, entry);
+    const relativePath = path64.relative(resolvedRepoRoot, absolutePath);
+    if (relativePath.startsWith("..") || path64.isAbsolute(relativePath)) {
       throw new Error(`seedPaths entries must stay inside repoRoot: ${entry}`);
     }
     try {
-      const stat2 = fs81.lstatSync(absolutePath);
+      const stat2 = fs83.lstatSync(absolutePath);
       if (stat2.isSymbolicLink()) {
         throw new Error(`seedPaths entries cannot be symlinks: ${entry}`);
       }
@@ -51945,7 +52955,7 @@ function normalizeSeedPaths(seedPaths, repoRoot) {
         throw new Error(`seedPaths entries must be accessible: ${entry}`);
       }
     }
-    const normalizedPath = relativePath.split(path62.sep).join("/");
+    const normalizedPath = relativePath.split(path64.sep).join("/");
     if (seen.has(normalizedPath)) continue;
     seen.add(normalizedPath);
     normalized.push(normalizedPath);
@@ -51955,11 +52965,11 @@ function normalizeSeedPaths(seedPaths, repoRoot) {
 function overlaySeedPaths(repoRoot, worktreePath, seedPaths) {
   const normalized = normalizeSeedPaths(seedPaths, repoRoot);
   for (const seedPath of normalized) {
-    const sourcePath = path62.join(repoRoot, seedPath);
-    const destinationPath = path62.join(worktreePath, seedPath);
+    const sourcePath = path64.join(repoRoot, seedPath);
+    const destinationPath = path64.join(worktreePath, seedPath);
     let sourceStat;
     try {
-      sourceStat = fs81.lstatSync(sourcePath);
+      sourceStat = fs83.lstatSync(sourcePath);
     } catch {
       logInternalError("worktree.seedPaths.missing", new Error(`Seed path does not exist: ${seedPath}`));
       continue;
@@ -51972,9 +52982,9 @@ function overlaySeedPaths(repoRoot, worktreePath, seedPaths) {
       logInternalError("worktree.seedPaths.invalid", new Error(`Seed path is neither file nor directory: ${seedPath}`));
       continue;
     }
-    fs81.mkdirSync(path62.dirname(destinationPath), { recursive: true });
-    fs81.rmSync(destinationPath, { force: true, recursive: true });
-    fs81.cpSync(sourcePath, destinationPath, {
+    fs83.mkdirSync(path64.dirname(destinationPath), { recursive: true });
+    fs83.rmSync(destinationPath, { force: true, recursive: true });
+    fs83.cpSync(sourcePath, destinationPath, {
       dereference: true,
       force: true,
       preserveTimestamps: true,
@@ -52005,9 +53015,9 @@ function snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus) {
       const rel = line4.slice(3).replace(/^"|"$/g, "");
       if (!rel) continue;
       try {
-        const abs = path62.join(worktreePath, rel);
-        if (!fs81.existsSync(abs) || fs81.statSync(abs).isDirectory()) continue;
-        const buf = fs81.readFileSync(abs);
+        const abs = path64.join(worktreePath, rel);
+        if (!fs83.existsSync(abs) || fs83.statSync(abs).isDirectory()) continue;
+        const buf = fs83.readFileSync(abs);
         const originalSize = buf.byteLength;
         let data = buf;
         let note2 = "";
@@ -52051,7 +53061,7 @@ async function cleanupCreatedWorktreeAsync(repoRoot, worktreePath, branch) {
     await gitAsync(repoRoot, ["worktree", "remove", "--force", worktreePath]);
   } catch {
     try {
-      if (fs81.existsSync(worktreePath)) fs81.rmSync(worktreePath, { recursive: true, force: true });
+      if (fs83.existsSync(worktreePath)) fs83.rmSync(worktreePath, { recursive: true, force: true });
     } catch {
     }
   }
@@ -52066,27 +53076,27 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
   const loadedConfig = loadConfig(manifest.cwd);
   if (loadedConfig.config.requireCleanWorktreeLeader !== false) await assertCleanLeaderAsync(repoRoot);
   const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
-  const worktreeRoot = path62.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-  fs81.mkdirSync(worktreeRoot, { recursive: true });
+  const worktreeRoot = path64.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
+  fs83.mkdirSync(worktreeRoot, { recursive: true });
   let resolvedWorktreeRoot = worktreeRoot;
   try {
-    const r = fs81.realpathSync.native(worktreeRoot);
+    const r = fs83.realpathSync.native(worktreeRoot);
     resolvedWorktreeRoot = r.startsWith("\\\\?\\") ? r.slice(4) : r;
   } catch {
     try {
-      resolvedWorktreeRoot = fs81.realpathSync(worktreeRoot);
+      resolvedWorktreeRoot = fs83.realpathSync(worktreeRoot);
     } catch {
     }
   }
   const sanitizedTaskId = sanitizeBranchPart2(task.id);
-  const worktreePath = path62.join(resolvedWorktreeRoot, sanitizedTaskId);
+  const worktreePath = path64.join(resolvedWorktreeRoot, sanitizedTaskId);
   const branch = `pi-crew/${sanitizeBranchPart2(manifest.runId)}/${sanitizeBranchPart2(task.id)}`;
   let worktreeExists = false;
   try {
     const worktreeList = await gitAsync(repoRoot, ["worktree", "list", "--porcelain"]);
     const normalizedWtPath = process.platform === "win32" ? (() => {
       try {
-        const r = fs81.realpathSync.native(worktreePath);
+        const r = fs83.realpathSync.native(worktreePath);
         return r.startsWith("\\\\?\\") ? r.slice(4) : r;
       } catch {
         return worktreePath;
@@ -52163,9 +53173,9 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
     }
     worktreeCreated = true;
   } catch (error) {
-    if (fs81.existsSync(worktreePath)) {
+    if (fs83.existsSync(worktreePath)) {
       try {
-        fs81.rmSync(worktreePath, { recursive: true, force: true });
+        fs83.rmSync(worktreePath, { recursive: true, force: true });
       } catch {
       }
     }
@@ -52236,11 +53246,11 @@ async function prepareAgentWorktreeAsync(manifest, agentId) {
     return void 0;
   }
   const sanitizedRunId = manifest.runId.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "run";
-  const worktreeRoot = path62.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
-  fs81.mkdirSync(worktreeRoot, { recursive: true });
+  const worktreeRoot = path64.join(projectCrewRoot(manifest.cwd), DEFAULT_PATHS.state.worktreesSubdir, sanitizedRunId);
+  fs83.mkdirSync(worktreeRoot, { recursive: true });
   const sanitizedAgentId = sanitizeBranchPart2(agentId);
   const stamp = `${Date.now()}-${randomBytes3(4).toString("hex")}`;
-  const worktreePath = path62.join(worktreeRoot, `${sanitizedAgentId}-${stamp}`);
+  const worktreePath = path64.join(worktreeRoot, `${sanitizedAgentId}-${stamp}`);
   const branch = `pi-crew/${sanitizedRunId}/${sanitizedAgentId}-${stamp}`;
   await pruneStaleWorktreesAsync(repoRoot);
   await gitAsync(repoRoot, ["worktree", "add", "-b", branch, worktreePath, "HEAD"]);
@@ -52266,7 +53276,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
     repoRoot = await findGitRootAsync(manifest.cwd);
   } catch {
     try {
-      fs81.rmSync(worktreePath, { recursive: true, force: true });
+      fs83.rmSync(worktreePath, { recursive: true, force: true });
     } catch (rmError) {
       logInternalError("worktree.agent-cleanup.rm", rmError, `worktreePath=${worktreePath}`);
     }
@@ -52277,7 +53287,7 @@ async function cleanupAgentWorktreeAsync(manifest, worktreePath, branch) {
   } catch (error) {
     logInternalError("worktree.agent-cleanup.remove", error, `worktreePath=${worktreePath}`);
     try {
-      fs81.rmSync(worktreePath, { recursive: true, force: true });
+      fs83.rmSync(worktreePath, { recursive: true, force: true });
     } catch (rmError) {
       logInternalError("worktree.agent-cleanup.rm", rmError, `worktreePath=${worktreePath}`);
     }
@@ -52803,12 +53813,12 @@ var init_tool_output_pruner = __esm({
 });
 
 // src/runtime/task-output-context.ts
-import * as fs82 from "node:fs";
-import * as path63 from "node:path";
+import * as fs84 from "node:fs";
+import * as path65 from "node:path";
 function containedExists(filePath, baseDir) {
   try {
     const safePath = baseDir ? resolveRealContainedPath(baseDir, filePath) : filePath;
-    return fs82.existsSync(safePath);
+    return fs84.existsSync(safePath);
   } catch {
     return false;
   }
@@ -52818,11 +53828,11 @@ function safeTeeName(taskId, artifactName) {
   return `${safe(taskId)}-${safe(artifactName)}.full.txt`;
 }
 function teePathForArtifact(artifactsRoot, taskId, artifactName) {
-  return path63.join(artifactsRoot, "tee", safeTeeName(taskId, artifactName));
+  return path65.join(artifactsRoot, "tee", safeTeeName(taskId, artifactName));
 }
 function writeTeeFile(fullOutputPath, content) {
   try {
-    fs82.mkdirSync(path63.dirname(fullOutputPath), { recursive: true });
+    fs84.mkdirSync(path65.dirname(fullOutputPath), { recursive: true });
     atomicWriteFile(fullOutputPath, content);
     return true;
   } catch {
@@ -52833,7 +53843,7 @@ function readIfSmallWithTee(filePath, opts = {}) {
   const maxChars = MAX_RESULT_INLINE_BYTES;
   try {
     const safePath = opts.baseDir ? resolveRealContainedPath(opts.baseDir, filePath) : filePath;
-    const content = fs82.readFileSync(safePath, "utf-8");
+    const content = fs84.readFileSync(safePath, "utf-8");
     if (content.length > maxChars) {
       let fullOutputPath;
       if (opts.tee && content.length > maxChars * TEE_THRESHOLD_MULTIPLIER) {
@@ -52867,15 +53877,15 @@ function readIfSmall(filePath, baseDir) {
 }
 function safeSharedName(name) {
   const normalized = name.replaceAll("\\", "/").replace(/^\.\/+/, "");
-  if (!normalized || normalized.split("/").some((segment) => segment === "..") || path63.isAbsolute(normalized))
+  if (!normalized || normalized.split("/").some((segment) => segment === "..") || path65.isAbsolute(normalized))
     throw new Error(`Invalid shared artifact name: ${name}`);
   return normalized;
 }
 function sharedPath(manifest, name) {
-  const sharedRoot = path63.resolve(manifest.artifactsRoot, "shared");
-  const resolved = path63.resolve(sharedRoot, safeSharedName(name));
-  const relative8 = path63.relative(sharedRoot, resolved);
-  if (relative8.startsWith("..") || path63.isAbsolute(relative8)) throw new Error(`Invalid shared artifact name: ${name}`);
+  const sharedRoot = path65.resolve(manifest.artifactsRoot, "shared");
+  const resolved = path65.resolve(sharedRoot, safeSharedName(name));
+  const relative8 = path65.relative(sharedRoot, resolved);
+  if (relative8.startsWith("..") || path65.isAbsolute(relative8)) throw new Error(`Invalid shared artifact name: ${name}`);
   return resolved;
 }
 function tryParseJson(text) {
@@ -52890,7 +53900,7 @@ function listTaskArtifacts(manifest, taskId) {
   const produced = manifest.artifacts.filter((a) => a.producer === taskId);
   if (produced.length === 0) return void 0;
   return produced.map((a) => {
-    const relative8 = path63.relative(manifest.artifactsRoot, a.path);
+    const relative8 = path65.relative(manifest.artifactsRoot, a.path);
     return relative8.startsWith("..") ? a.path : relative8;
   });
 }
@@ -52948,7 +53958,7 @@ function pruneSharedReads(reads, dependencies, artifactsRoot) {
     for (const artifact of produced) {
       if (typeof artifact !== "string") continue;
       fileEdits.push({
-        target: path63.resolve(artifactsRoot, artifact),
+        target: path65.resolve(artifactsRoot, artifact),
         index: reads.length + depIndex
       });
     }
@@ -53005,7 +54015,7 @@ function collectDependencyOutputContext(manifest, tasks, task, step, cache3) {
     const filePath = sharedPath(manifest, name);
     const teePath = teePathForArtifact(manifest.artifactsRoot, task.id, name);
     const teeResult = readIfSmallWithTee(filePath, {
-      baseDir: path63.resolve(manifest.artifactsRoot, "shared"),
+      baseDir: path65.resolve(manifest.artifactsRoot, "shared"),
       tee: { fullOutputPath: teePath }
     });
     if (teeResult === void 0) return { name, path: filePath, content: "" };
@@ -53190,7 +54200,7 @@ var init_task_output_context = __esm({
 });
 
 // src/runtime/verification/completion-guard.ts
-import * as fs83 from "node:fs";
+import * as fs85 from "node:fs";
 function asRecord11(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
@@ -53238,7 +54248,7 @@ function collectToolCallsFromEvent(event) {
 function transcriptText(input) {
   if (input.transcriptPath) {
     try {
-      return fs83.readFileSync(input.transcriptPath, "utf-8");
+      return fs85.readFileSync(input.transcriptPath, "utf-8");
     } catch (error) {
       if (error.code === "ENOENT") return input.stdout ?? "";
       throw error;
@@ -53385,8 +54395,8 @@ var init_green_contract = __esm({
 
 // src/runtime/verification/verification-gates.ts
 import { spawn as spawn4 } from "node:child_process";
-import * as fs84 from "node:fs";
-import * as path64 from "node:path";
+import * as fs86 from "node:fs";
+import * as path66 from "node:path";
 function isVerificationEnvSanitizeEnabled() {
   if (getCrewEnv("PI_CREW_VERIFICATION_SANITIZE_ENV") === "0" || getCrewEnv("PI_TEAMS_VERIFICATION_SANITIZE_ENV") === "0") {
     return false;
@@ -53542,9 +54552,9 @@ async function executeVerificationCommands(contract, cwd, runId, taskId, artifac
     critical: true
     // All verification commands are critical by default
   }));
-  const gatesDir = path64.join(artifactsRoot, "verification-gates");
-  if (!fs84.existsSync(gatesDir)) {
-    fs84.mkdirSync(gatesDir, { recursive: true });
+  const gatesDir = path66.join(artifactsRoot, "verification-gates");
+  if (!fs86.existsSync(gatesDir)) {
+    fs86.mkdirSync(gatesDir, { recursive: true });
   }
   const execCwd = worktreeCwd ?? cwd;
   const bundle = await runPhaseGates(gates, execCwd, signal, (phaseResult) => {
@@ -53709,13 +54719,13 @@ var init_capabilities = __esm({
 });
 
 // src/runtime/task-runner/prompt-pipeline.ts
-import * as path65 from "node:path";
+import * as path67 from "node:path";
 function artifactReference(artifactsRoot, artifact) {
   if (!artifact) return void 0;
-  const root = path65.resolve(artifactsRoot);
-  const target = path65.resolve(artifact.path);
-  const relative8 = path65.relative(root, target);
-  if (!relative8 || relative8.startsWith("..") || path65.isAbsolute(relative8)) return void 0;
+  const root = path67.resolve(artifactsRoot);
+  const target = path67.resolve(artifact.path);
+  const relative8 = path67.relative(root, target);
+  if (!relative8 || relative8.startsWith("..") || path67.isAbsolute(relative8)) return void 0;
   return relative8.replaceAll("\\", "/");
 }
 function buildWorkerPromptPipeline(input) {
@@ -54178,7 +55188,7 @@ var init_spec_evidence = __esm({
 });
 
 // src/runtime/task-runner/post-execution.ts
-import { readFileSync as readFileSync57 } from "node:fs";
+import { readFileSync as readFileSync59 } from "node:fs";
 async function finalizeTaskResult(ctx, execResult) {
   const input = ctx.input;
   let manifest = ctx.manifest;
@@ -54355,7 +55365,7 @@ ${input.step.task}`,
     if (finalTextEmpty && finalStdoutEmpty && resultArtifact?.path) {
       let artifactContent;
       try {
-        artifactContent = readFileSync57(resultArtifact.path, "utf8");
+        artifactContent = readFileSync59(resultArtifact.path, "utf8");
       } catch {
         artifactContent = void 0;
       }
@@ -55021,7 +56031,7 @@ var live_executor_exports = {};
 __export(live_executor_exports, {
   runLiveTask: () => runLiveTask
 });
-import * as fs85 from "node:fs";
+import * as fs87 from "node:fs";
 function updateTask2(tasks, updated) {
   return tasks.map((task) => task.id === updated.id ? updated : task);
 }
@@ -55170,10 +56180,10 @@ async function runLiveTask(input) {
     ].join("\n"),
     producer: task.id
   });
-  const transcriptArtifact = fs85.existsSync(transcriptPath) ? writeArtifact(manifest.artifactsRoot, {
+  const transcriptArtifact = fs87.existsSync(transcriptPath) ? writeArtifact(manifest.artifactsRoot, {
     kind: "log",
     relativePath: `transcripts/${task.id}.jsonl`,
-    content: fs85.readFileSync(transcriptPath, "utf-8"),
+    content: fs87.readFileSync(transcriptPath, "utf-8"),
     producer: task.id
   }) : void 0;
   return {
@@ -55685,7 +56695,7 @@ async function selectDispatchBatch(ctx) {
     for (const taskId of pendingUnit.taskIds) inFlightTaskIds.add(taskId);
   }
   const slotsAvailable = Math.max(0, concurrency.maxConcurrent - ctx.pendingUnits.size);
-  const approvalPending = isPlanApprovalPendingEffective(ctx.manifest);
+  const approvalPending = isPlanApprovalPendingEffective2(ctx.manifest);
   const dispatchableReady = serializedReady.filter((id) => !inFlightTaskIds.has(id));
   const readyIds = approvalPending ? dispatchableReady : dispatchableReady.slice(0, slotsAvailable);
   const taskByIdDispatch = new Map(ctx.tasks.map((t2) => [t2.id, t2]));
@@ -56488,8 +57498,8 @@ var init_workflow_serializer = __esm({
 
 // src/extension/management.ts
 import * as crypto6 from "node:crypto";
-import * as fs86 from "node:fs";
-import * as path66 from "node:path";
+import * as fs88 from "node:fs";
+import * as path68 from "node:path";
 function invalidateResourceCaches() {
   invalidateAgentDiscoveryCache();
   invalidateTeamDiscoveryCache();
@@ -56500,9 +57510,9 @@ function result2(text, status = "ok", isError = false) {
 }
 function scopeDir(ctx, resource, scope) {
   const base = scope === "user" ? userPiRoot() : projectCrewRoot(ctx.cwd);
-  if (resource === "agent") return path66.join(base, "agents");
-  if (resource === "team") return path66.join(base, "teams");
-  return path66.join(base, "workflows");
+  if (resource === "agent") return path68.join(base, "agents");
+  if (resource === "team") return path68.join(base, "teams");
+  return path68.join(base, "workflows");
 }
 function extensionFor(resource) {
   if (resource === "agent") return ".md";
@@ -56513,11 +57523,11 @@ function backupFile(filePath) {
   const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:.TZ]/g, "");
   const random = crypto6.randomUUID().slice(0, 8);
   const backupPath = `${filePath}.bak-${ts.slice(0, 17)}-${random}`;
-  fs86.copyFileSync(filePath, backupPath);
+  fs88.copyFileSync(filePath, backupPath);
   return backupPath;
 }
 function targetPath(ctx, resource, scope, name) {
-  return path66.join(scopeDir(ctx, resource, scope), `${name}${extensionFor(resource)}`);
+  return path68.join(scopeDir(ctx, resource, scope), `${name}${extensionFor(resource)}`);
 }
 function parseStringArray(value) {
   if (typeof value === "string")
@@ -56631,9 +57641,9 @@ function escapeRegex2(str) {
 }
 function walkTsFiles(dir) {
   const results = [];
-  if (!fs86.existsSync(dir)) return results;
-  for (const entry of fs86.readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = path66.join(dir, entry.name);
+  if (!fs88.existsSync(dir)) return results;
+  for (const entry of fs88.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path68.join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...walkTsFiles(fullPath));
     } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".md")) {
@@ -56681,10 +57691,10 @@ function updateReferencesForRename(ctx, resource, oldName, newName, scope, dryRu
       atomicWriteFile(workflow.filePath, serializeWorkflow({ ...workflow, steps: newSteps }));
     }
   }
-  const testDir = scope === "user" ? path66.join(projectCrewRoot(ctx.cwd), "test") : path66.join(ctx.cwd, "test", "fixtures");
-  if (fs86.existsSync(testDir)) {
+  const testDir = scope === "user" ? path68.join(projectCrewRoot(ctx.cwd), "test") : path68.join(ctx.cwd, "test", "fixtures");
+  if (fs88.existsSync(testDir)) {
     for (const fixture of walkTsFiles(testDir)) {
-      const content = fs86.readFileSync(fixture, "utf-8");
+      const content = fs88.readFileSync(fixture, "utf-8");
       if (!content.includes(oldName)) continue;
       const agentPattern = new RegExp(`(["'\\\`]agent[="':\\s]*)` + escapeRegex2(oldName) + "([\"'\\`]|\\s)", "g");
       const newContent = content.replace(agentPattern, `$1${newName}$2`);
@@ -56732,8 +57742,8 @@ function handleCreate(params, ctx) {
   if (!name) return result2("config.name is invalid after sanitization.", "error", true);
   const scope = cfg.scope === "project" ? "project" : "user";
   const filePath = targetPath(ctx, params.resource, scope, name);
-  if (fs86.existsSync(filePath)) return result2(`File already exists: ${filePath}`, "error", true);
-  fs86.mkdirSync(path66.dirname(filePath), { recursive: true });
+  if (fs88.existsSync(filePath)) return result2(`File already exists: ${filePath}`, "error", true);
+  fs88.mkdirSync(path68.dirname(filePath), { recursive: true });
   let content;
   if (params.resource === "agent") {
     const agent = {
@@ -56806,7 +57816,7 @@ function handleUpdate(params, ctx) {
   if (!nextName) return result2("config.name is invalid after sanitization.", "error", true);
   const source = current.source === "project" ? "project" : "user";
   const nextPath = targetPath(ctx, params.resource, source, nextName);
-  if (nextPath !== current.filePath && fs86.existsSync(nextPath)) return result2(`Target file already exists: ${nextPath}`, "error", true);
+  if (nextPath !== current.filePath && fs88.existsSync(nextPath)) return result2(`Target file already exists: ${nextPath}`, "error", true);
   let content;
   if (params.resource === "agent") {
     const agent = current;
@@ -56878,11 +57888,11 @@ function handleUpdate(params, ctx) {
   try {
     if (nextPath !== current.filePath) {
       try {
-        fs86.renameSync(current.filePath, nextPath);
+        fs88.renameSync(current.filePath, nextPath);
       } catch (renameError) {
         if (renameError.code === "EXDEV") {
-          fs86.copyFileSync(current.filePath, nextPath);
-          fs86.unlinkSync(current.filePath);
+          fs88.copyFileSync(current.filePath, nextPath);
+          fs88.unlinkSync(current.filePath);
         } else {
           throw renameError;
         }
@@ -56928,7 +57938,7 @@ ${refs.map((ref) => `- ${ref}`).join("\n")}` : ""}`
     );
   const backupPath = backupFile(resolved.resource.filePath);
   try {
-    fs86.unlinkSync(resolved.resource.filePath);
+    fs88.unlinkSync(resolved.resource.filePath);
   } catch (deleteError) {
     return result2(
       `Failed to delete ${params.resource}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`,
@@ -56957,28 +57967,28 @@ var init_management = __esm({
 });
 
 // src/extension/project-init.ts
-import * as fs87 from "node:fs";
-import * as path67 from "node:path";
+import * as fs89 from "node:fs";
+import * as path69 from "node:path";
 function ensureDir(dir, createdDirs) {
-  if (!fs87.existsSync(dir)) {
-    fs87.mkdirSync(dir, { recursive: true });
+  if (!fs89.existsSync(dir)) {
+    fs89.mkdirSync(dir, { recursive: true });
     createdDirs.push(dir);
   } else {
-    fs87.mkdirSync(dir, { recursive: true });
+    fs89.mkdirSync(dir, { recursive: true });
   }
 }
 function copyBuiltinDir(kind, targetDir, overwrite, copiedFiles, skippedFiles) {
-  const sourceDir = path67.join(packageRoot(), kind);
-  if (!fs87.existsSync(sourceDir)) return;
-  for (const entry of fs87.readdirSync(sourceDir)) {
-    const source = path67.join(sourceDir, entry);
-    const target = path67.join(targetDir, entry);
-    if (!fs87.statSync(source).isFile()) continue;
-    if (fs87.existsSync(target) && !overwrite) {
+  const sourceDir = path69.join(packageRoot(), kind);
+  if (!fs89.existsSync(sourceDir)) return;
+  for (const entry of fs89.readdirSync(sourceDir)) {
+    const source = path69.join(sourceDir, entry);
+    const target = path69.join(targetDir, entry);
+    if (!fs89.statSync(source).isFile()) continue;
+    if (fs89.existsSync(target) && !overwrite) {
       skippedFiles.push(target);
       continue;
     }
-    fs87.copyFileSync(source, target);
+    fs89.copyFileSync(source, target);
     copiedFiles.push(target);
   }
 }
@@ -56987,24 +57997,24 @@ function initializeProject(cwd, options = {}) {
   const copiedFiles = [];
   const skippedFiles = [];
   const crewRoot = projectCrewRoot(cwd);
-  const usingLegacyPi = path67.basename(crewRoot) === "teams" && path67.basename(path67.dirname(crewRoot)) === ".pi";
+  const usingLegacyPi = path69.basename(crewRoot) === "teams" && path69.basename(path69.dirname(crewRoot)) === ".pi";
   const ignorePrefix = usingLegacyPi ? ".pi/teams" : ".crew";
-  const agentsDir = path67.join(crewRoot, "agents");
-  const teamsDir = path67.join(crewRoot, "teams");
-  const workflowsDir = path67.join(crewRoot, "workflows");
+  const agentsDir = path69.join(crewRoot, "agents");
+  const teamsDir = path69.join(crewRoot, "teams");
+  const workflowsDir = path69.join(crewRoot, "workflows");
   const configScope = options.configScope ?? "global";
-  const configPath3 = configScope === "project" ? path67.join(projectPiRoot(cwd), "pi-crew.json") : configScope === "global" ? configPath() : "";
+  const configPath3 = configScope === "project" ? path69.join(projectPiRoot(cwd), "pi-crew.json") : configScope === "global" ? configPath() : "";
   ensureDir(agentsDir, createdDirs);
   ensureDir(teamsDir, createdDirs);
   ensureDir(workflowsDir, createdDirs);
-  ensureDir(path67.join(crewRoot, "imports"), createdDirs);
+  ensureDir(path69.join(crewRoot, "imports"), createdDirs);
   let configCreated = false;
   let configSkipped = false;
   if (configPath3) {
-    if (configScope === "project") ensureDir(path67.dirname(configPath3), createdDirs);
-    else fs87.mkdirSync(path67.dirname(configPath3), { recursive: true });
-    if (!fs87.existsSync(configPath3) || options.overwrite === true) {
-      fs87.writeFileSync(configPath3, `${JSON.stringify(DEFAULT_PI_CREW_CONFIG, null, 2)}
+    if (configScope === "project") ensureDir(path69.dirname(configPath3), createdDirs);
+    else fs89.mkdirSync(path69.dirname(configPath3), { recursive: true });
+    if (!fs89.existsSync(configPath3) || options.overwrite === true) {
+      fs89.writeFileSync(configPath3, `${JSON.stringify(DEFAULT_PI_CREW_CONFIG, null, 2)}
 `, "utf-8");
       configCreated = true;
     } else {
@@ -57018,20 +58028,20 @@ function initializeProject(cwd, options = {}) {
   }
   const ignoreMethod = options.ignoreMethod ?? "gitignore";
   const desired = [`${ignorePrefix}/state/`, `${ignorePrefix}/artifacts/`, `${ignorePrefix}/worktrees/`, `${ignorePrefix}/imports/`];
-  const gitignorePath = ignoreMethod === "exclude" ? path67.join(cwd, ".git", "info", "exclude") : path67.join(cwd, ".gitignore");
+  const gitignorePath = ignoreMethod === "exclude" ? path69.join(cwd, ".git", "info", "exclude") : path69.join(cwd, ".gitignore");
   let gitignoreUpdated = false;
   if (ignoreMethod === "exclude") {
-    const infoDir = path67.dirname(gitignorePath);
-    if (!fs87.existsSync(infoDir)) {
-      fs87.mkdirSync(infoDir, { recursive: true });
+    const infoDir = path69.dirname(gitignorePath);
+    if (!fs89.existsSync(infoDir)) {
+      fs89.mkdirSync(infoDir, { recursive: true });
     }
   }
-  const existing = fs87.existsSync(gitignorePath) ? fs87.readFileSync(gitignorePath, "utf-8") : "";
+  const existing = fs89.existsSync(gitignorePath) ? fs89.readFileSync(gitignorePath, "utf-8") : "";
   const missing = desired.filter((entry) => !existing.split(/\r?\n/).includes(entry));
   if (missing.length > 0) {
     const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
     const comment = "# pi-crew runtime state";
-    fs87.writeFileSync(gitignorePath, `${existing}${prefix}
+    fs89.writeFileSync(gitignorePath, `${existing}${prefix}
 ${comment}
 ${missing.join("\n")}
 `, "utf-8");
@@ -57728,10 +58738,10 @@ var init_handle_settings = __esm({
 });
 
 // src/extension/team-tool/workflow-manage.ts
-import { existsSync as existsSync54, readFileSync as readFileSync61, rmSync as rmSync17, writeFileSync as writeFileSync9 } from "node:fs";
-import { dirname as dirname35, join as join63 } from "node:path";
+import { existsSync as existsSync56, readFileSync as readFileSync63, rmSync as rmSync19, writeFileSync as writeFileSync9 } from "node:fs";
+import { dirname as dirname35, join as join65 } from "node:path";
 function allowedWorkflowDirs(cwd) {
-  return [join63(projectCrewRoot(cwd), "workflows"), join63(userPiRoot(), "workflows"), join63(packageRoot(), "workflows")];
+  return [join65(projectCrewRoot(cwd), "workflows"), join65(userPiRoot(), "workflows"), join65(packageRoot(), "workflows")];
 }
 function validateScriptContent(content) {
   for (const pattern of FORBIDDEN_PATTERNS) {
@@ -57743,7 +58753,7 @@ function validateScriptContent(content) {
 }
 function resolveWorkflowWritePath(cwd, name, scope = "project") {
   assertSafePathId("workflowName", name);
-  const base = scope === "user" ? join63(userPiRoot(), "workflows") : join63(projectCrewRoot(cwd), "workflows");
+  const base = scope === "user" ? join65(userPiRoot(), "workflows") : join65(projectCrewRoot(cwd), "workflows");
   return resolveRealContainedPath(base, `${name}.dwf.ts`);
 }
 function handleWorkflowCreate(params, ctx) {
@@ -57798,9 +58808,9 @@ function handleWorkflowGet(params, ctx) {
   if (!wf) return result(`Workflow '${name}' not found.`, { action: "workflow-get", status: "error" }, true);
   const isDynamic = wf.runtime === "dynamic";
   let source = "(static workflow \u2014 no script source)";
-  if (isDynamic && wf.filePath && existsSync54(wf.filePath)) {
+  if (isDynamic && wf.filePath && existsSync56(wf.filePath)) {
     try {
-      source = readFileSync61(wf.filePath, "utf-8").slice(0, 8e3);
+      source = readFileSync63(wf.filePath, "utf-8").slice(0, 8e3);
     } catch (error) {
       logInternalError("workflow-manage.get", error, `filePath=${wf.filePath}`);
     }
@@ -57916,7 +58926,7 @@ function handleWorkflowDelete(params, ctx) {
         { action: "workflow-delete", status: "error" },
         true
       );
-    rmSync17(wf.filePath, { force: true });
+    rmSync19(wf.filePath, { force: true });
     return result(
       `Deleted dynamic workflow '${name}' (${wf.filePath}).`,
       {
@@ -58094,9 +59104,9 @@ var init_manage = __esm({
 
 // src/runtime/orphan-worker-registry.ts
 import { execFileSync as execFileSync7 } from "node:child_process";
-import * as fs88 from "node:fs";
-import * as path68 from "node:path";
-function getProcessStartTime(pid) {
+import * as fs90 from "node:fs";
+import * as path70 from "node:path";
+function getProcessStartTime2(pid) {
   try {
     process.kill(pid, 0);
   } catch {
@@ -58114,7 +59124,7 @@ function getProcessStartTime(pid) {
 }
 function getProcessStartTimeLinux(pid) {
   try {
-    const stat2 = fs88.readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const stat2 = fs90.readFileSync(`/proc/${pid}/stat`, "utf-8");
     const lastParen = stat2.lastIndexOf(")");
     if (lastParen === -1) return void 0;
     const fieldsAfterComm2 = stat2.slice(lastParen + 1).trim().split(/\s+/);
@@ -58163,7 +59173,7 @@ function isValidId(id) {
 function readRegistry() {
   const p = getRegistryPath();
   try {
-    const raw = fs88.readFileSync(p, "utf-8");
+    const raw = fs90.readFileSync(p, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
@@ -58179,7 +59189,7 @@ function readRegistry() {
 }
 function writeRegistry(entries) {
   const p = getRegistryPath();
-  const dir = path68.dirname(p);
+  const dir = path70.dirname(p);
   for (const entry of entries) {
     if (!isValidId(entry.sessionId) || !isValidId(entry.runId)) {
       logInternalError(
@@ -58206,8 +59216,8 @@ function writeRegistry(entries) {
     );
     return;
   }
-  if (!fs88.existsSync(dir)) {
-    fs88.mkdirSync(dir, { recursive: true, mode: 448 });
+  if (!fs90.existsSync(dir)) {
+    fs90.mkdirSync(dir, { recursive: true, mode: 448 });
   }
   try {
     atomicWriteFile(p, JSON.stringify(entries, null, 2), { mode: 384 });
@@ -58218,8 +59228,8 @@ function writeRegistry(entries) {
 function registerWorker(pid, sessionId, runId, parentPid, options) {
   if (!Number.isFinite(pid) || pid <= 0) return;
   if (!isValidId(sessionId) || !isValidId(runId)) return;
-  const startTime = getProcessStartTime(pid) ?? 0;
-  const parentPidStartTime = Number.isFinite(parentPid) && parentPid > 0 ? getProcessStartTime(parentPid) ?? 0 : 0;
+  const startTime = getProcessStartTime2(pid) ?? 0;
+  const parentPidStartTime = Number.isFinite(parentPid) && parentPid > 0 ? getProcessStartTime2(parentPid) ?? 0 : 0;
   withFileLockSync(getRegistryPath(), () => {
     const entries = readRegistry();
     const filtered = entries.filter((e) => e.pid !== pid);
@@ -58267,7 +59277,7 @@ function cleanupOrphanWorkers(currentSessionId) {
           continue;
         }
         if (entry.parentPid > 0) {
-          const currentParentStartTime = getProcessStartTime(entry.parentPid);
+          const currentParentStartTime = getProcessStartTime2(entry.parentPid);
           if (currentParentStartTime !== void 0 && entry.parentPidStartTime !== 0 && currentParentStartTime !== entry.parentPidStartTime) {
           } else {
             try {
@@ -58282,7 +59292,7 @@ function cleanupOrphanWorkers(currentSessionId) {
             }
           }
         }
-        const currentStartTime = getProcessStartTime(entry.pid);
+        const currentStartTime = getProcessStartTime2(entry.pid);
         if (currentStartTime === void 0 || entry.startTime === 0) {
         } else if (currentStartTime !== entry.startTime) {
           pruned++;
@@ -58335,28 +59345,28 @@ var init_orphan_worker_registry = __esm({
     init_paths();
     STALE_REGISTRATION_MS = 60 * 60 * 1e3;
     GRACE_PERIOD_MS = 5 * 60 * 1e3;
-    REGISTRY_PATH = path68.join(userPiRoot(), "state", "orphan-workers.json");
+    REGISTRY_PATH = path70.join(userPiRoot(), "state", "orphan-workers.json");
   }
 });
 
 // src/runtime/async-runner.ts
 import { spawn as spawn6 } from "node:child_process";
-import * as fs89 from "node:fs";
+import * as fs91 from "node:fs";
 import { createRequire as createRequire6 } from "node:module";
-import * as path69 from "node:path";
+import * as path71 from "node:path";
 import { pathToFileURL as pathToFileURL2 } from "node:url";
 function jitiRegisterPathFromPackageJson(packageJsonPath) {
-  return path69.join(path69.dirname(packageJsonPath), "lib", "jiti-register.mjs");
+  return path71.join(path71.dirname(packageJsonPath), "lib", "jiti-register.mjs");
 }
-function resolveJitiRegisterPath(pkgRoot, exists = fs89.existsSync) {
+function resolveJitiRegisterPath(pkgRoot, exists = fs91.existsSync) {
   const effectiveRoot = pkgRoot ?? packageRoot();
-  let current = path69.resolve(effectiveRoot);
-  const root = path69.parse(current).root;
+  let current = path71.resolve(effectiveRoot);
+  const root = path71.parse(current).root;
   while (true) {
-    const candidate = path69.join(current, "node_modules", "jiti", "lib", "jiti-register.mjs");
+    const candidate = path71.join(current, "node_modules", "jiti", "lib", "jiti-register.mjs");
     if (exists(candidate)) return candidate;
     if (current === root) break;
-    const parent = path69.dirname(current);
+    const parent = path71.dirname(current);
     if (parent === current) break;
     current = parent;
   }
@@ -58364,8 +59374,8 @@ function resolveJitiRegisterPath(pkgRoot, exists = fs89.existsSync) {
     const pkgPath = requireFromHere.resolve("jiti/package.json");
     const candidates = [
       jitiRegisterPathFromPackageJson(pkgPath),
-      path69.join(path69.dirname(pkgPath), "register.mjs"),
-      path69.join(path69.dirname(pkgPath), "dist", "register.mjs")
+      path71.join(path71.dirname(pkgPath), "register.mjs"),
+      path71.join(path71.dirname(pkgPath), "dist", "register.mjs")
     ];
     for (const c of candidates) if (exists(c)) return c;
   } catch (error) {
@@ -58406,7 +59416,7 @@ function getBackgroundRunnerCommand(runnerPath, cwd, runId, loaderInput = resolv
   if (!loader) throw new Error(buildLoaderUnavailableMessage(packageRoot()));
   const memoryLimit = "--max-old-space-size=512";
   const reportOn = !(getCrewEnv("PI_CREW_BG_REPORT_ON_FATAL") === "0" || getCrewEnv("PI_TEAMS_BG_REPORT_ON_FATAL") === "0");
-  const reportDir = reportDirectory ?? path69.dirname(runnerPath);
+  const reportDir = reportDirectory ?? path71.dirname(runnerPath);
   const reportFlags = reportOn ? ["--report-on-fatalerror", "--report-compact", `--report-directory=${reportDir}`] : [];
   if (loader.kind === "jiti") {
     return {
@@ -58438,9 +59448,9 @@ function buildBrokerStdinLine(runId, socketPath, tasks) {
 `;
 }
 async function spawnBackgroundTeamRun(manifest) {
-  const runnerPath = path69.join(packageRoot(), "src", "runtime", "background-runner.ts");
-  const logPath = path69.join(manifest.stateRoot, "background.log");
-  fs89.mkdirSync(manifest.stateRoot, { recursive: true });
+  const runnerPath = path71.join(packageRoot(), "src", "runtime", "background-runner.ts");
+  const logPath = path71.join(manifest.stateRoot, "background.log");
+  fs91.mkdirSync(manifest.stateRoot, { recursive: true });
   const filteredEnv = sanitizeEnvSecrets(process.env, {
     allowList: BACKGROUND_RUNNER_ENV_ALLOWLIST
   });
@@ -58457,7 +59467,7 @@ async function spawnBackgroundTeamRun(manifest) {
     throw new Error(message);
   }
   const command = getBackgroundRunnerCommand(runnerPath, manifest.cwd, manifest.runId, loader, manifest.stateRoot);
-  fs89.appendFileSync(logPath, `[pi-crew] background loader=${command.loader}
+  fs91.appendFileSync(logPath, `[pi-crew] background loader=${command.loader}
 `, "utf-8");
   const spawnOpts = {
     cwd: manifest.cwd,
@@ -58523,7 +59533,7 @@ async function spawnBackgroundTeamRun(manifest) {
     stderrChunks.length = 0;
     try {
       const redacted = redactSecretString(body);
-      fs89.appendFileSync(logPath, `[child stderr] ${redacted}${redacted.endsWith("\n") ? "" : "\n"}`, "utf-8");
+      fs91.appendFileSync(logPath, `[child stderr] ${redacted}${redacted.endsWith("\n") ? "" : "\n"}`, "utf-8");
     } catch {
     }
   };
@@ -58532,7 +59542,7 @@ async function spawnBackgroundTeamRun(manifest) {
       if (!stderrTruncated) {
         stderrTruncated = true;
         try {
-          fs89.appendFileSync(logPath, `[child stderr truncated at ${STDERR_CAPTURE_LIMIT} bytes]
+          fs91.appendFileSync(logPath, `[child stderr truncated at ${STDERR_CAPTURE_LIMIT} bytes]
 `, "utf-8");
         } catch {
         }
@@ -58659,7 +59669,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync16, existsSync as existsSync57, mkdirSync as mkdirSync35, openSync as openSync16, readdirSync as readdirSync25, readFileSync as readFileSync63, statSync as statSync44, unlinkSync as unlinkSync8 } from "node:fs";
+import { closeSync as closeSync17, existsSync as existsSync59, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync26, readFileSync as readFileSync65, statSync as statSync46, unlinkSync as unlinkSync9 } from "node:fs";
 import { dirname as dirname38 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -58692,8 +59702,8 @@ var init_goal_state_store = __esm({
       load(goalId) {
         const path103 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync57(path103)) return void 0;
-          const raw = readFileSync63(path103, "utf-8");
+          if (!existsSync59(path103)) return void 0;
+          const raw = readFileSync65(path103, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -58707,7 +59717,7 @@ var init_goal_state_store = __esm({
         const path103 = goalFilePath(this.cwd, state2.goalId);
         const next = { ...state2, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
         try {
-          mkdirSync35(dirname38(path103), { recursive: true });
+          mkdirSync36(dirname38(path103), { recursive: true });
           atomicWriteJson(path103, next);
           if (eventsPath) {
             appendEvent(eventsPath, {
@@ -58775,7 +59785,7 @@ var init_goal_state_store = __esm({
           return updated;
         } finally {
           try {
-            unlinkSync8(lockPath2);
+            unlinkSync9(lockPath2);
           } catch {
           }
         }
@@ -58783,18 +59793,18 @@ var init_goal_state_store = __esm({
       /** Acquire an O_EXCL lockfile for CAS, with stale-lock recovery (5s age guard). */
       acquireCasLock(lockPath2) {
         try {
-          const fd = openSync16(lockPath2, "wx");
-          closeSync16(fd);
+          const fd = openSync17(lockPath2, "wx");
+          closeSync17(fd);
           return true;
         } catch (error) {
           const code = error.code;
           if (code !== "EEXIST") return false;
           try {
-            const stat2 = statSync44(lockPath2);
+            const stat2 = statSync46(lockPath2);
             if (Date.now() - stat2.mtimeMs > 5e3) {
-              unlinkSync8(lockPath2);
-              const fd = openSync16(lockPath2, "wx");
-              closeSync16(fd);
+              unlinkSync9(lockPath2);
+              const fd = openSync17(lockPath2, "wx");
+              closeSync17(fd);
               return true;
             }
           } catch {
@@ -58806,8 +59816,8 @@ var init_goal_state_store = __esm({
       remove(goalId) {
         try {
           const path103 = goalFilePath(this.cwd, goalId);
-          if (!existsSync57(path103)) return false;
-          unlinkSync8(path103);
+          if (!existsSync59(path103)) return false;
+          unlinkSync9(path103);
           return true;
         } catch (error) {
           logInternalError("goal-state-store.remove", error, `goalId=${goalId}`);
@@ -58818,8 +59828,8 @@ var init_goal_state_store = __esm({
       list() {
         try {
           const root = resolveGoalsRoot(this.cwd);
-          if (!existsSync57(root)) return [];
-          const entries = readdirSync25(root);
+          if (!existsSync59(root)) return [];
+          const entries = readdirSync26(root);
           const goals = [];
           for (const entry of entries) {
             if (!entry.endsWith(".json")) continue;
@@ -58841,21 +59851,21 @@ var init_goal_state_store = __esm({
 
 // src/runtime/verification/verification-integrity.ts
 import { createHash as createHash10 } from "node:crypto";
-import * as fs90 from "node:fs";
-import * as path70 from "node:path";
+import * as fs92 from "node:fs";
+import * as path72 from "node:path";
 function snapshotManifests(cwd) {
   const snapshot = {};
   for (const rel of MANIFEST_FILES) {
-    const abs = path70.join(cwd, rel);
+    const abs = path72.join(cwd, rel);
     let stat2;
     try {
-      stat2 = fs90.statSync(abs);
+      stat2 = fs92.statSync(abs);
     } catch {
       continue;
     }
     if (!stat2.isFile()) continue;
     try {
-      const content = fs90.readFileSync(abs);
+      const content = fs92.readFileSync(abs);
       snapshot[rel] = createHash10("sha256").update(content).digest("hex");
     } catch (error) {
       logInternalError("verification-integrity.snapshot", error, `rel=${rel}`, "debug");
@@ -58883,19 +59893,19 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash11 } from "node:crypto";
-import { closeSync as closeSync17, existsSync as existsSync58, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync26, readFileSync as readFileSync65, statSync as statSync46, unlinkSync as unlinkSync9, writeFileSync as writeFileSync10 } from "node:fs";
-import * as path71 from "node:path";
+import { closeSync as closeSync18, existsSync as existsSync60, mkdirSync as mkdirSync37, openSync as openSync18, readdirSync as readdirSync27, readFileSync as readFileSync67, statSync as statSync48, unlinkSync as unlinkSync10, writeFileSync as writeFileSync10 } from "node:fs";
+import * as path73 from "node:path";
 function workspaceLockPath(cwd) {
-  const absCwd = path71.resolve(cwd);
+  const absCwd = path73.resolve(cwd);
   const crewRoot = projectCrewRoot(absCwd) ?? userCrewRoot();
-  const locksDir = path71.join(crewRoot, "state", "workspace-locks");
+  const locksDir = path73.join(crewRoot, "state", "workspace-locks");
   const hash = createHash11("sha256").update(absCwd).digest("hex");
-  return path71.join(locksDir, `${hash}.lock`);
+  return path73.join(locksDir, `${hash}.lock`);
 }
 function readLock(lockPath2) {
-  if (!existsSync58(lockPath2)) return void 0;
+  if (!existsSync60(lockPath2)) return void 0;
   try {
-    const parsed = JSON.parse(readFileSync65(lockPath2, "utf-8"));
+    const parsed = JSON.parse(readFileSync67(lockPath2, "utf-8"));
     if (!parsed || typeof parsed !== "object") return void 0;
     return parsed;
   } catch {
@@ -58934,7 +59944,7 @@ var init_workspace_lock = __esm({
     DEFAULT_HEARTBEAT_STALE_MS = 6e4;
     defaultStartTimeResolver = (pid) => {
       try {
-        const stat2 = readFileSync65(`/proc/${pid}/stat`, "utf-8");
+        const stat2 = readFileSync67(`/proc/${pid}/stat`, "utf-8");
         const lastParen = stat2.lastIndexOf(")");
         if (lastParen === -1) return void 0;
         const fieldsAfterComm2 = stat2.slice(lastParen + 1).trim().split(/\s+/);
@@ -59424,7 +60434,7 @@ var init_goal = __esm({
 });
 
 // src/extension/team-tool/orchestrate.ts
-import * as fs91 from "node:fs";
+import * as fs93 from "node:fs";
 async function handleOrchestrate(params, ctx) {
   const planPath = params.planPath;
   if (!planPath) {
@@ -59440,7 +60450,7 @@ async function handleOrchestrate(params, ctx) {
   } catch {
     return result(`planPath must be within project directory: ${planPath}`, { action: "orchestrate", status: "error" }, true);
   }
-  if (!fs91.existsSync(resolvedPath)) {
+  if (!fs93.existsSync(resolvedPath)) {
     return result(`Plan document not found: ${resolvedPath}`, { action: "orchestrate", status: "error" }, true);
   }
   let steps = parsePlanDocument(resolvedPath);
@@ -59656,7 +60666,7 @@ var init_widget_formatters = __esm({
 });
 
 // src/ui/powerbar-publisher.ts
-import * as fs92 from "node:fs";
+import * as fs94 from "node:fs";
 function hasPowerbarConsumer(events) {
   try {
     return (events?.listenerCount?.("powerbar:register-segment") ?? 0) > 0 || (events?.listenerCount?.("powerbar:update") ?? 0) > 0;
@@ -59674,7 +60684,7 @@ function safeEmit(events, event, data) {
 function readTasks(tasksPath) {
   try {
     const parse4 = () => {
-      const parsed = JSON.parse(fs92.readFileSync(tasksPath, "utf-8"));
+      const parsed = JSON.parse(fs94.readFileSync(tasksPath, "utf-8"));
       return Array.isArray(parsed) ? parsed : [];
     };
     return readJsonFileCoalesced(tasksPath, TASK_READ_TTL_MS, parse4);
@@ -59927,7 +60937,7 @@ var init_powerbar_publisher = __esm({
           barSegments: 8
         };
         const stepsPayload = buildStepsPayload(active, tasks);
-        const planPayload = active.some((item) => isPlanApprovalPending(item.run)) ? { id: "pi-crew-plan", text: "plan:pending", color: "warning" } : { id: "pi-crew-plan" };
+        const planPayload = active.some((item) => isPlanApprovalPending2(item.run)) ? { id: "pi-crew-plan", text: "plan:pending", color: "warning" } : { id: "pi-crew-plan" };
         const activeKey = powerbarKey(activePayload);
         const progressKey = powerbarKey(progressPayload);
         const stepsKey = powerbarKey(stepsPayload);
@@ -60821,1001 +61831,6 @@ var init_layout_primitives = __esm({
         return this.cachedResult;
       }
     };
-  }
-});
-
-// src/runtime/stale-reconciler.ts
-import * as fs93 from "node:fs";
-import * as os17 from "node:os";
-import * as path72 from "node:path";
-function isPlanApprovalPending2(manifest) {
-  return manifest.status === "blocked" && manifest.planApproval?.required === true && manifest.planApproval.status === "pending";
-}
-function isPlanApprovalPendingEffective2(manifest) {
-  if (isPlanApprovalPending2(manifest)) return true;
-  if (manifest.status !== "blocked") return false;
-  return getCurrentPlanRecord(manifest)?.approval?.status === "pending";
-}
-function isWaitAnswerPending(manifest, now = Date.now()) {
-  const askedAtMs = manifest.waitState?.askedAt ? new Date(manifest.waitState.askedAt).getTime() : Number.NaN;
-  return Number.isFinite(askedAtMs) && now - askedAtMs <= WAITING_TTL_MS;
-}
-function isIntentionalWait(manifest, now = Date.now()) {
-  return isPlanApprovalPendingEffective2(manifest) || isWaitAnswerPending(manifest, now);
-}
-function checkResultFile(manifest, tasks) {
-  const allTerminal = tasks.length > 0 && tasks.every(
-    (t2) => t2.status === "completed" || t2.status === "failed" || t2.status === "cancelled" || t2.status === "skipped" || t2.status === "needs_attention"
-  );
-  if (allTerminal) {
-    const hasFailed = tasks.some((t2) => t2.status === "failed" || t2.status === "needs_attention");
-    const onlyCancelledOrSkipped = tasks.every((t2) => t2.status === "cancelled" || t2.status === "skipped");
-    manifest.status = hasFailed ? "failed" : onlyCancelledOrSkipped ? "cancelled" : "completed";
-    saveRunManifest(manifest);
-    for (const task of tasks) {
-      try {
-        upsertCrewAgent(manifest, recordFromTask(manifest, task, "scaffold"));
-      } catch {
-      }
-    }
-    return { found: true, repaired: false };
-  }
-  return { found: false, repaired: false };
-}
-function getProcessStartTime2(pid) {
-  try {
-    const stat2 = fs93.readFileSync(`/proc/${pid}/stat`, "utf-8");
-    const lastParen = stat2.lastIndexOf(")");
-    if (lastParen === -1) return void 0;
-    const fieldsAfterComm2 = stat2.slice(lastParen + 1).trim().split(/\s+/);
-    const startTimeClockTicks = Number(fieldsAfterComm2[19]);
-    if (!Number.isFinite(startTimeClockTicks)) return void 0;
-    return Math.floor(startTimeClockTicks * 10);
-  } catch {
-    return void 0;
-  }
-}
-function checkPidLiveness(pid, stateRoot) {
-  if (pid === void 0 || !Number.isInteger(pid) || pid <= 0) {
-    return { alive: false, detail: "no pid recorded" };
-  }
-  const startTimeBefore = getProcessStartTime2(pid);
-  const liveness = checkProcessLiveness(pid);
-  const startTimeAfter = getProcessStartTime2(pid);
-  if (startTimeBefore !== void 0 && startTimeAfter !== void 0 && startTimeBefore !== startTimeAfter) {
-    return { alive: false, detail: "pid_recycled" };
-  }
-  if (liveness.alive) return { alive: true, detail: liveness.detail };
-  let heartbeatNote = "";
-  if (stateRoot) {
-    try {
-      const heartbeatPath = path72.join(stateRoot, "heartbeat.json");
-      if (fs93.existsSync(heartbeatPath)) {
-        const hb = JSON.parse(fs93.readFileSync(heartbeatPath, "utf-8"));
-        if (hb?.pid === pid && hb?.at) {
-          heartbeatNote = ` (heartbeat was ${Math.round((Date.now() - hb.at) / 1e3)}s old)`;
-        }
-      }
-    } catch {
-    }
-  }
-  return { alive: false, detail: `${liveness.detail}${heartbeatNote}` };
-}
-function evaluateStaleness(manifest, pidAlive, now) {
-  if (!pidAlive) {
-    return { stale: true, reason: "pid_dead" };
-  }
-  const updatedAt = new Date(manifest.updatedAt).getTime();
-  if (!Number.isFinite(updatedAt)) {
-    return { stale: false, reason: "updated_at_invalid" };
-  }
-  if (now - updatedAt > STALE_ALIVE_PID_MS) {
-    return {
-      stale: true,
-      reason: `alive_but_stale_${Math.round((now - updatedAt) / 36e5)}h`
-    };
-  }
-  return { stale: false, reason: "alive_and_recent" };
-}
-function hasRecentActiveEvidence(tasks, now) {
-  return tasks.some((task) => {
-    if (task.status !== "running" && task.status !== "waiting") return false;
-    const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
-    if (task.heartbeat?.alive !== false && Number.isFinite(heartbeatAt) && now - heartbeatAt <= ACTIVE_EVIDENCE_TTL_MS) return true;
-    const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
-    return Number.isFinite(activityAt) && now - activityAt <= ACTIVE_EVIDENCE_TTL_MS;
-  });
-}
-function isTaskHeartbeatStale(task, now) {
-  const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
-  const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
-  if (!Number.isFinite(heartbeatAt) && !Number.isFinite(activityAt)) return false;
-  const heartbeatAge = Number.isFinite(heartbeatAt) ? now - heartbeatAt : Number.MAX_SAFE_INTEGER;
-  const activityAge = Number.isFinite(activityAt) ? now - activityAt : Number.MAX_SAFE_INTEGER;
-  const elapsed = Math.min(heartbeatAge, activityAge);
-  if (elapsed <= NO_PID_HEARTBEAT_STALE_MS) return false;
-  const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
-  const pidAlive = taskPid ? checkProcessLiveness(taskPid).alive : false;
-  if (taskPid && pidAlive) return false;
-  if (process.env.PI_CREW_DEBUG_STALE === "1") {
-    try {
-      fs93.appendFileSync(
-        "/tmp/pi-crew-f1-debug.log",
-        `${JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), taskId: task.id, status: task.status, taskPid, pidAlive, heartbeatAge, activityAge, hbLastSeen: task.heartbeat?.lastSeenAt })}
-`
-      );
-    } catch {
-    }
-  }
-  return true;
-}
-function getRunningTaskStaleness(tasks, now) {
-  const runningTasks = tasks.filter((t2) => t2.status === "running" || t2.status === "waiting");
-  if (runningTasks.length === 0) return { allStale: false, staleTaskIds: [] };
-  const staleTaskIds = [];
-  for (const task of runningTasks) {
-    if (isTaskHeartbeatStale(task, now)) {
-      staleTaskIds.push(task.id);
-    }
-  }
-  return {
-    allStale: staleTaskIds.length === runningTasks.length,
-    staleTaskIds
-  };
-}
-function buildStaleReconcileError(task, reason) {
-  const heartbeatAgeSeconds = task.heartbeat?.lastSeenAt ? Math.round((Date.now() - new Date(task.heartbeat.lastSeenAt).getTime()) / 1e3) : void 0;
-  return errors.runStale(reason, heartbeatAgeSeconds);
-}
-function repairStaleRun(manifest, tasks, reason) {
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const repairedTasks = tasks.map((task) => {
-    if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-      return {
-        ...task,
-        status: "cancelled",
-        finishedAt: now,
-        // E3/E1 (Round 15): structured CrewError (E012) with code + help hint.
-        error: buildStaleReconcileError(task, reason).message
-      };
-    }
-    return task;
-  });
-  for (const task of repairedTasks) {
-    try {
-      upsertCrewAgent(manifest, recordFromTask(manifest, task, "scaffold"));
-    } catch {
-    }
-  }
-  return repairedTasks;
-}
-function reconcileStaleRun(manifest, tasks, now = Date.now()) {
-  const runId = manifest.runId;
-  if (isPlanApprovalPendingEffective2(manifest)) {
-    return {
-      runId,
-      verdict: "blocked_awaiting_approval",
-      repaired: false,
-      detail: "Plan approval is pending; blocked run is intentionally waiting and must not be stale-repaired"
-    };
-  }
-  if (isWaitAnswerPending(manifest, now)) {
-    return {
-      runId,
-      verdict: "waiting_answer",
-      repaired: false,
-      detail: "Ask answer pending (manifest.waitState.askedAt within waiting TTL); run is intentionally waiting and must not be stale-repaired"
-    };
-  }
-  const phase1 = checkResultFile(manifest, tasks);
-  if (phase1.found) {
-    saveRunManifest(manifest);
-    return {
-      runId,
-      verdict: "result_exists",
-      repaired: false,
-      detail: "All tasks already terminal \u2014 no repair needed"
-    };
-  }
-  const pid = manifest.async?.pid;
-  const pidStatus = checkPidLiveness(pid, manifest.stateRoot);
-  if (pidStatus.detail === "no pid recorded") {
-    if (hasRecentActiveEvidence(tasks, now)) {
-      return {
-        runId,
-        verdict: "no_status",
-        repaired: false,
-        detail: "No PID recorded, but recent task heartbeat/progress exists; not repairing"
-      };
-    }
-    const { allStale, staleTaskIds } = getRunningTaskStaleness(tasks, now);
-    if (allStale) {
-      const repaired2 = repairStaleRun(manifest, tasks, "no_pid_heartbeat_stale");
-      return {
-        runId,
-        verdict: "no_status",
-        repaired: true,
-        detail: `No PID; all running task heartbeats stale >${Math.round(NO_PID_HEARTBEAT_STALE_MS / 6e4)}min; repaired ${repaired2.filter((t2) => t2.status === "cancelled").length} tasks`,
-        repairedTasks: repaired2
-      };
-    }
-    if (staleTaskIds.length > 0) {
-      const repaired2 = repairStaleRun(manifest, tasks, "no_pid_individual_stale_task");
-      return {
-        runId,
-        verdict: "no_status",
-        repaired: true,
-        detail: `No PID; ${staleTaskIds.length} individually stale task(s) repaired: ${staleTaskIds.join(", ")}`,
-        repairedTasks: repaired2.filter((t2) => staleTaskIds.includes(t2.id))
-      };
-    }
-    const updatedAt = new Date(manifest.updatedAt).getTime();
-    if (Number.isFinite(updatedAt) && now - updatedAt > STALE_ALIVE_PID_MS) {
-      const repaired2 = repairStaleRun(manifest, tasks, "no_pid_stale");
-      return {
-        runId,
-        verdict: "no_status",
-        repaired: true,
-        detail: `No PID; stale ${Math.round((now - updatedAt) / 36e5)}h; repaired ${repaired2.filter((t2) => t2.status === "cancelled").length} tasks`,
-        repairedTasks: repaired2
-      };
-    }
-    return {
-      runId,
-      verdict: "no_status",
-      repaired: false,
-      detail: "No PID recorded; not stale enough to repair"
-    };
-  }
-  const staleness = evaluateStaleness(manifest, pidStatus.alive, now);
-  if (!staleness.stale) {
-    return {
-      runId,
-      verdict: "healthy",
-      repaired: false,
-      detail: `PID ${pid}: ${pidStatus.detail}, ${staleness.reason}`
-    };
-  }
-  const repaired = repairStaleRun(manifest, tasks, staleness.reason);
-  return {
-    runId,
-    verdict: pidStatus.alive ? "pid_alive_stale" : "pid_dead",
-    repaired: true,
-    detail: `PID ${pid}: ${pidStatus.detail}; ${staleness.reason}; repaired ${repaired.filter((t2) => t2.status === "cancelled").length} tasks`,
-    repairedTasks: repaired
-  };
-}
-function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
-  const tmpDir = options?.tmpDir ?? getSafeTempDir();
-  if (!tmpDir) return { repaired: 0, cleanedDirs: 0 };
-  let repaired = 0;
-  let cleanedDirs = 0;
-  try {
-    const entries = fs93.readdirSync(tmpDir, { withFileTypes: true });
-    const scanBatch = options?.scanBatchSize ?? ORPHAN_TEMP_SCAN_BATCH_SIZE;
-    const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-")).sort((a, b) => a.name.localeCompare(b.name)).slice(0, scanBatch);
-    for (const entry of candidates) {
-      if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
-      const workspaceDir = path72.join(tmpDir, entry.name);
-      const crewDir = path72.join(workspaceDir, ".crew");
-      if (!fs93.existsSync(crewDir)) continue;
-      const stateRunsDir = path72.join(crewDir, "state", "runs");
-      if (!fs93.existsSync(stateRunsDir)) continue;
-      let hasRunning = false;
-      try {
-        for (const runDir of fs93.readdirSync(stateRunsDir)) {
-          const manifestPath = path72.join(stateRunsDir, runDir, "manifest.json");
-          const tasksPath = path72.join(stateRunsDir, runDir, "tasks.json");
-          if (!fs93.existsSync(manifestPath) || !fs93.existsSync(tasksPath)) continue;
-          try {
-            const manifest = loadManifestWithRecovery(manifestPath, runDir);
-            if (!manifest) continue;
-            if (manifest.status !== "running") continue;
-            const tasks = loadTasksWithRecovery(tasksPath, path72.join(stateRunsDir, runDir, "events.jsonl"), runDir);
-            const result4 = reconcileStaleRun(manifest, tasks, now);
-            if (result4.repaired && result4.repairedTasks) {
-              atomicWriteJson(tasksPath, result4.repairedTasks);
-              const updated = {
-                ...manifest,
-                status: "cancelled",
-                updatedAt: new Date(now).toISOString(),
-                summary: `Stale run reconciled: ${result4.detail}`
-              };
-              atomicWriteJson(manifestPath, updated);
-              for (const task of result4.repairedTasks) {
-                try {
-                  upsertCrewAgent(updated, recordFromTask(updated, task, "scaffold"));
-                } catch {
-                }
-              }
-              repaired++;
-            }
-            if (result4.verdict === "result_exists") {
-              for (const task of tasks) {
-                try {
-                  upsertCrewAgent(manifest, recordFromTask(manifest, task, "scaffold"));
-                } catch {
-                }
-              }
-            }
-            if (result4.verdict === "healthy" || // WP-2/R2: a run intentionally waiting on an ask answer keeps the
-            // temp workspace alive (its stateRoot + mailbox must survive for
-            // the parked worker to receive the answer).
-            result4.verdict === "waiting_answer" || result4.verdict === "no_status" && !result4.repaired) {
-              hasRunning = true;
-            }
-          } catch (err2) {
-            const scanManifestPath = manifestPath;
-            logInternalError(
-              "stale-reconciler",
-              new Error(`Skipping manifest due to parse error: ${scanManifestPath}: ${err2}`),
-              void 0,
-              "warn"
-            );
-          }
-        }
-      } catch (err2) {
-        hasRunning = true;
-        logInternalError("stale-reconciler", new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`), void 0, "warn");
-      }
-      const sentinelPath = path72.join(workspaceDir, ".cleanup-in-progress");
-      let canCleanup = !hasRunning;
-      const cleanupEnabled = options?.cleanupOrphanedTempDirs !== false;
-      let dirAge = 0;
-      if (cleanupEnabled && !hasRunning) {
-        try {
-          const stat2 = fs93.statSync(workspaceDir);
-          dirAge = now - stat2.mtimeMs;
-        } catch {
-        }
-      }
-      if (canCleanup) {
-        try {
-          if (!fs93.existsSync(workspaceDir)) {
-            fs93.mkdirSync(workspaceDir, { recursive: true });
-          }
-          const sentinelFd = fs93.openSync(sentinelPath, "wx");
-          fs93.closeSync(sentinelFd);
-          atomicWriteFile(sentinelPath, JSON.stringify({ startedAt: now }));
-        } catch {
-          canCleanup = false;
-        }
-      }
-      if (canCleanup) {
-        if (fs93.existsSync(stateRunsDir)) {
-          try {
-            for (const runDir of fs93.readdirSync(stateRunsDir)) {
-              const manifestPath = path72.join(stateRunsDir, runDir, "manifest.json");
-              if (!fs93.existsSync(manifestPath)) continue;
-              const manifest = loadManifestWithRecovery(manifestPath, runDir);
-              if (!manifest) continue;
-              if (manifest?.status === "running") {
-                canCleanup = false;
-                break;
-              }
-            }
-          } catch (err2) {
-            logInternalError(
-              "stale-reconciler",
-              new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`),
-              void 0,
-              "warn"
-            );
-          }
-        }
-      }
-      if (canCleanup) {
-        if (dirAge > ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS) {
-          let stillClean = true;
-          if (fs93.existsSync(stateRunsDir)) {
-            try {
-              for (const runDir of fs93.readdirSync(stateRunsDir)) {
-                const manifestPath = path72.join(stateRunsDir, runDir, "manifest.json");
-                if (!fs93.existsSync(manifestPath)) continue;
-                const manifest = loadManifestWithRecovery(manifestPath, runDir);
-                if (!manifest) continue;
-                if (manifest.status === "running") {
-                  stillClean = false;
-                  break;
-                }
-              }
-            } catch {
-              stillClean = false;
-            }
-          }
-          if (stillClean) {
-            fs93.rmSync(workspaceDir, {
-              recursive: true,
-              force: true
-            });
-            cleanedDirs++;
-          }
-        }
-        try {
-          fs93.unlinkSync(sentinelPath);
-        } catch {
-        }
-      }
-    }
-  } catch {
-  }
-  return { repaired, cleanedDirs };
-}
-function getSafeTempDir() {
-  try {
-    return fs93.existsSync(os17.tmpdir()) ? os17.tmpdir() : void 0;
-  } catch {
-    return void 0;
-  }
-}
-var ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS, ORPHAN_TEMP_SCAN_BATCH_SIZE, WAITING_TTL_MS, STALE_ALIVE_PID_MS, ACTIVE_EVIDENCE_TTL_MS, NO_PID_HEARTBEAT_STALE_MS;
-var init_stale_reconciler = __esm({
-  "src/runtime/stale-reconciler.ts"() {
-    "use strict";
-    init_errors3();
-    init_atomic_write();
-    init_plan_store();
-    init_state_store();
-    init_internal_error();
-    init_crew_agent_records();
-    init_process_status();
-    ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS = 60 * 60 * 1e3;
-    ORPHAN_TEMP_SCAN_BATCH_SIZE = 50;
-    WAITING_TTL_MS = 24 * 60 * 60 * 1e3;
-    STALE_ALIVE_PID_MS = 24 * 60 * 60 * 1e3;
-    ACTIVE_EVIDENCE_TTL_MS = 5 * 60 * 1e3;
-    NO_PID_HEARTBEAT_STALE_MS = 5 * 60 * 1e3;
-  }
-});
-
-// src/runtime/recovery/crash-recovery.ts
-var crash_recovery_exports = {};
-__export(crash_recovery_exports, {
-  _setReadManifestFileSyncForTest: () => _setReadManifestFileSyncForTest,
-  applyRecoveryPlan: () => applyRecoveryPlan,
-  cancelOrphanedRuns: () => cancelOrphanedRuns,
-  declineRecoveryPlan: () => declineRecoveryPlan,
-  detectInterruptedRuns: () => detectInterruptedRuns,
-  purgeStaleActiveRunIndex: () => purgeStaleActiveRunIndex,
-  readManifestWithTransientRetry: () => readManifestWithTransientRetry,
-  reconcileAllStaleRuns: () => reconcileAllStaleRuns,
-  shouldRecoverTask: () => shouldRecoverTask
-});
-import * as fs94 from "node:fs";
-import * as path73 from "node:path";
-function isTerminalTask(task) {
-  return task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "skipped" || task.status === "needs_attention";
-}
-function _setReadManifestFileSyncForTest(fn) {
-  _readManifestFileSync = fn ?? ((p) => fs94.readFileSync(p, "utf-8"));
-}
-function readManifestWithTransientRetry(manifestPath, maxRetries = 3, baseDelayMs = 100) {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return JSON.parse(_readManifestFileSync(manifestPath));
-    } catch (err2) {
-      if (err2 instanceof SyntaxError) throw err2;
-      const code = err2.code;
-      if (code !== void 0 && TRANSIENT_READ_ERRNO_CODES.has(code)) {
-        if (attempt < maxRetries) {
-          sleepSync(baseDelayMs * 2 ** attempt);
-          continue;
-        }
-      }
-      throw err2;
-    }
-  }
-  throw new Error(`unreachable: readManifestWithTransientRetry exhausted for ${manifestPath}`);
-}
-function shouldRecoverTask(task, deadMs) {
-  if (task.status !== "running") return false;
-  if (!task.heartbeat) return true;
-  return task.heartbeat.alive === false || isWorkerHeartbeatStale(task.heartbeat, deadMs);
-}
-function detectInterruptedRuns(cwd, manifestCache2, deadMs = 3e5, currentSessionId) {
-  const plans = [];
-  for (const manifest of manifestCache2.list(50)) {
-    if (manifest.status !== "running" && manifest.status !== "blocked") continue;
-    if (isIntentionalWait(manifest)) continue;
-    if (manifest.async?.pid !== void 0 && checkProcessLiveness(manifest.async.pid).alive) continue;
-    if (currentSessionId && manifest.ownerSessionId && manifest.ownerSessionId === currentSessionId) continue;
-    const loaded = loadRunManifestById(cwd, manifest.runId);
-    if (!loaded) continue;
-    const resumableTasks = loaded.tasks.filter((task) => shouldRecoverTask(task, deadMs)).map((task) => task.id);
-    if (!resumableTasks.length) continue;
-    plans.push({
-      runId: manifest.runId,
-      resumableTasks,
-      preservedTasks: loaded.tasks.filter(isTerminalTask).map((task) => task.id),
-      lastEventSeq: scanSequence(loaded.manifest.eventsPath)
-    });
-  }
-  return plans;
-}
-async function applyRecoveryPlan(plan, ctx, registry2) {
-  const loaded = loadRunManifestById(ctx.cwd, plan.runId);
-  if (!loaded) throw new Error(`Run '${plan.runId}' not found.`);
-  const hookReport = await executeHook("run_recovery", {
-    runId: plan.runId,
-    cwd: ctx.cwd
-  });
-  withRunLockSync(loaded.manifest, () => {
-    const fresh = loadRunManifestById(ctx.cwd, plan.runId);
-    if (!fresh) throw new Error(`Run '${plan.runId}' not found.`);
-    if (fresh.manifest.status === "completed" || fresh.manifest.status === "failed" || fresh.manifest.status === "cancelled") {
-      appendEvent(fresh.manifest.eventsPath, {
-        type: "crew.run.recovery_skipped",
-        runId: plan.runId,
-        message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
-        data: { status: fresh.manifest.status }
-      });
-      return;
-    }
-    appendHookEvent(fresh.manifest, hookReport);
-    if (hookReport.outcome === "block") {
-      appendEvent(fresh.manifest.eventsPath, {
-        type: "crew.run.recovery_blocked",
-        runId: plan.runId,
-        message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
-        data: { hookOutcome: "block", reason: hookReport.reason }
-      });
-      return;
-    }
-    const reset = new Set(plan.resumableTasks);
-    const tasks = fresh.tasks.map(
-      (task) => reset.has(task.id) ? {
-        ...task,
-        status: "queued",
-        startedAt: void 0,
-        finishedAt: void 0,
-        error: void 0,
-        heartbeat: void 0,
-        // WP-2/R2 (ADR-0 item 9): a requeued task must not resume parked
-        // state — drop any stale ask-park marker along with the other
-        // per-attempt transient fields. Tasks NOT reset (e.g. a task parked
-        // in `waiting`) pass through untouched, marker intact; the marker's
-        // deadline is then owned by the scheduler tick (dispatch-batch).
-        waiting: void 0
-      } : task
-    );
-    saveRunTasks(fresh.manifest, tasks);
-    appendEvent(fresh.manifest.eventsPath, {
-      type: "crew.run.resumed",
-      runId: plan.runId,
-      message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
-      data: {
-        recoveredFromSeq: plan.lastEventSeq,
-        resumableTasks: plan.resumableTasks
-      }
-    });
-    registry2?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
-  });
-}
-function declineRecoveryPlan(plan, ctx) {
-  const loaded = loadRunManifestById(ctx.cwd, plan.runId);
-  if (!loaded) throw new Error(`Run '${plan.runId}' not found.`);
-  withRunLockSync(loaded.manifest, () => {
-    const fresh = loadRunManifestById(ctx.cwd, plan.runId);
-    if (!fresh) return;
-    appendEvent(fresh.manifest.eventsPath, {
-      type: "crew.run.recovery_declined",
-      runId: plan.runId,
-      message: "Interrupted run was not resumed.",
-      data: { recoveredFromSeq: plan.lastEventSeq }
-    });
-    updateRunStatus(fresh.manifest, "cancelled", "interrupted-not-resumed");
-  });
-}
-function cancelOrphanedRuns(cwd, manifestCache2, currentSessionId, staleThresholdMs = 3e5, now = Date.now()) {
-  const cancelled = [];
-  const skipped = [];
-  for (const manifest of manifestCache2.list(50)) {
-    if (manifest.status !== "running" && manifest.status !== "blocked") continue;
-    if (isIntentionalWait(manifest)) {
-      skipped.push(manifest.runId);
-      continue;
-    }
-    const ownerId = manifest.ownerSessionId;
-    if (!ownerId || ownerId === currentSessionId) continue;
-    const ownerPid = manifest.async?.pid;
-    if (ownerPid !== void 0 && checkProcessLiveness(ownerPid).alive) {
-      skipped.push(manifest.runId);
-      continue;
-    }
-    if (!manifest.async) {
-      const updatedMs = manifest.updatedAt ? new Date(manifest.updatedAt).getTime() : Number.NaN;
-      if (Number.isFinite(updatedMs) && now - updatedMs <= staleThresholdMs) {
-        skipped.push(manifest.runId);
-        continue;
-      }
-    }
-    const loaded = loadRunManifestById(cwd, manifest.runId);
-    if (!loaded) continue;
-    const hasRecentActivity = loaded.tasks.some((task) => {
-      if (task.status !== "running" && task.status !== "waiting") return false;
-      const heartbeatAt = task.heartbeat?.lastSeenAt ? new Date(task.heartbeat.lastSeenAt).getTime() : Number.NaN;
-      if (task.heartbeat?.alive !== false && Number.isFinite(heartbeatAt) && now - heartbeatAt <= staleThresholdMs) return true;
-      const activityAt = task.agentProgress?.lastActivityAt ? new Date(task.agentProgress.lastActivityAt).getTime() : Number.NaN;
-      return Number.isFinite(activityAt) && now - activityAt <= staleThresholdMs;
-    });
-    if (hasRecentActivity) {
-      skipped.push(manifest.runId);
-      continue;
-    }
-    let cancelledRun = false;
-    withRunLockSync(loaded.manifest, () => {
-      const fresh = loadRunManifestById(cwd, manifest.runId);
-      if (!fresh) return;
-      if (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked") {
-        appendEvent(loaded.manifest.eventsPath, {
-          type: "crew.run.orphan_skip",
-          runId: manifest.runId,
-          message: `Skipped orphan cancellation: status is '${fresh.manifest.status}' (was 'running'/'blocked' at initial scan)`,
-          data: { currentStatus: fresh.manifest.status }
-        });
-        return;
-      }
-      const now_iso = new Date(now).toISOString();
-      const repairedTasks = fresh.tasks.map((task) => {
-        if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-          return {
-            ...task,
-            status: "cancelled",
-            finishedAt: now_iso,
-            error: `Orphaned run: owner session ${ownerId} no longer exists`
-          };
-        }
-        return task;
-      });
-      saveRunTasks(fresh.manifest, repairedTasks);
-      if (fresh.manifest.waitState) {
-        const cleared = { ...fresh.manifest, waitState: void 0, updatedAt: new Date(now).toISOString() };
-        saveRunManifest(cleared);
-        fresh.manifest = cleared;
-      }
-      for (const task of repairedTasks) {
-        try {
-          upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
-        } catch {
-        }
-      }
-      updateRunStatus(fresh.manifest, "cancelled", `Orphaned run: owner session ${ownerId} no longer exists`);
-      appendEvent(fresh.manifest.eventsPath, {
-        type: "crew.run.orphan_cancelled",
-        runId: manifest.runId,
-        message: `Auto-cancelled orphaned run (owner: ${ownerId})`,
-        data: {
-          ownerSessionId: ownerId,
-          cancelledTasks: repairedTasks.filter((t2) => t2.status === "cancelled").length
-        }
-      });
-      cancelled.push(manifest.runId);
-      cancelledRun = true;
-    });
-    if (cancelledRun)
-      void terminateLiveAgentsForRun(manifest.runId, "cancelled", appendEvent, loaded.manifest.eventsPath).catch(
-        (error) => logInternalError("crash-recovery.orphan.terminate", error, `runId=${manifest.runId}`, "warn")
-      );
-  }
-  return { cancelled, skipped };
-}
-function tryRemoveRunDirectories(entry) {
-  const roots = [projectCrewRoot(entry.cwd), userCrewRoot()];
-  for (const root of roots) {
-    try {
-      resolveRealContainedPath(root, entry.stateRoot);
-      fs94.rmSync(entry.stateRoot, { recursive: true, force: true });
-      break;
-    } catch {
-    }
-  }
-}
-function heartbeatAgeMs2(entry, now) {
-  try {
-    const mtime = fs94.statSync(path73.join(entry.stateRoot, "heartbeat.json")).mtimeMs;
-    return Number.isFinite(mtime) ? now - mtime : Infinity;
-  } catch {
-    return Infinity;
-  }
-}
-function hasRecentLifeEvidence(entry, manifestUpdatedAt, now, staleThresholdMs) {
-  const manifestMs = manifestUpdatedAt ? new Date(manifestUpdatedAt).getTime() : NaN;
-  if (Number.isFinite(manifestMs) && now - manifestMs <= staleThresholdMs) return true;
-  const hbAge = heartbeatAgeMs2(entry, now);
-  if (Number.isFinite(hbAge) && hbAge <= staleThresholdMs) return true;
-  return false;
-}
-function purgeStaleActiveRunIndex(staleThresholdMs = 3e5, now = Date.now(), currentSessionId) {
-  const purged = [];
-  const kept = [];
-  const entries = readActiveRunRegistry();
-  for (const entry of entries) {
-    if (!fs94.existsSync(entry.manifestPath)) {
-      if (!fs94.existsSync(entry.stateRoot)) {
-        tryRemoveRunDirectories(entry);
-      }
-      unregisterActiveRun(entry.runId);
-      purged.push(entry.runId);
-      continue;
-    }
-    if (!fs94.existsSync(entry.cwd)) {
-      if (!fs94.existsSync(entry.stateRoot)) {
-        tryRemoveRunDirectories(entry);
-      }
-      unregisterActiveRun(entry.runId);
-      purged.push(entry.runId);
-      continue;
-    }
-    let manifest;
-    try {
-      manifest = readManifestWithTransientRetry(entry.manifestPath);
-    } catch (err2) {
-      const code = err2.code;
-      const isTransient = code !== void 0 && TRANSIENT_READ_ERRNO_CODES.has(code);
-      if (isTransient) continue;
-      try {
-        fs94.renameSync(entry.manifestPath, entry.manifestPath + ".corrupt-" + Date.now() + "-" + process.pid);
-      } catch {
-      }
-      unregisterActiveRun(entry.runId);
-      purged.push(entry.runId);
-      continue;
-    }
-    const terminalStatuses = /* @__PURE__ */ new Set(["completed", "failed", "cancelled", "blocked"]);
-    if (manifest && terminalStatuses.has(manifest.status ?? "")) {
-      unregisterActiveRun(entry.runId);
-      purged.push(entry.runId);
-      continue;
-    }
-    if (currentSessionId && manifest?.ownerSessionId && manifest.ownerSessionId === currentSessionId) {
-      kept.push(entry.runId);
-      continue;
-    }
-    if (manifest?.status === "running" && manifest.async?.pid !== void 0) {
-      const pidAlive = checkProcessLiveness(manifest.async.pid).alive;
-      if (!pidAlive && !hasRecentLifeEvidence(entry, manifest.updatedAt, now, staleThresholdMs)) {
-        try {
-          const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
-          if (fullLoaded) {
-            withRunLockSync(fullLoaded.manifest, () => {
-              const fresh = loadRunManifestById(entry.cwd, entry.runId);
-              if (!fresh) return;
-              if (fresh.manifest.status !== "running") return;
-              const now_iso = new Date(now).toISOString();
-              const repairedTasks = fresh.tasks.map((task) => {
-                if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-                  return {
-                    ...task,
-                    status: "cancelled",
-                    finishedAt: now_iso,
-                    error: "Orphaned run: worker process dead and no recent activity"
-                  };
-                }
-                return task;
-              });
-              saveRunTasks(fresh.manifest, repairedTasks);
-              for (const task of repairedTasks) {
-                try {
-                  upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
-                } catch {
-                }
-              }
-              updateRunStatus(fresh.manifest, "cancelled", "Orphaned run: worker process dead and no recent activity");
-            });
-            void terminateLiveAgentsForRun(
-              fullLoaded.manifest.runId,
-              "cancelled",
-              appendEvent,
-              fullLoaded.manifest.eventsPath
-            ).catch(
-              (error) => logInternalError("crash-recovery.pid-dead.terminate", error, `runId=${fullLoaded.manifest.runId}`, "warn")
-            );
-          }
-        } catch {
-        }
-        unregisterActiveRun(entry.runId);
-        purged.push(entry.runId);
-        continue;
-      }
-    }
-    if (manifest?.status === "running" && manifest.async === void 0) {
-      if (!hasRecentLifeEvidence(entry, manifest.updatedAt, now, staleThresholdMs)) {
-        try {
-          const fullLoaded = loadRunManifestById(entry.cwd, entry.runId);
-          if (fullLoaded && fullLoaded.manifest.status === "running") {
-            withRunLockSync(fullLoaded.manifest, () => {
-              const fresh = loadRunManifestById(entry.cwd, entry.runId);
-              if (fresh?.manifest.status !== "running") return;
-              const now_iso = new Date(now).toISOString();
-              const repairedTasks = fresh.tasks.map((task) => {
-                if (task.status === "running" || task.status === "queued" || task.status === "waiting") {
-                  return {
-                    ...task,
-                    status: "cancelled",
-                    finishedAt: now_iso,
-                    error: "Orphaned run: workflow completed but manifest never updated to terminal status"
-                  };
-                }
-                return task;
-              });
-              saveRunTasks(fresh.manifest, repairedTasks);
-              for (const task of repairedTasks) {
-                try {
-                  upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
-                } catch {
-                }
-              }
-              updateRunStatus(
-                fresh.manifest,
-                "cancelled",
-                "Orphaned run: no async worker and no manifest update in over " + Math.round(staleThresholdMs / 6e4) + " minutes"
-              );
-            });
-            void terminateLiveAgentsForRun(
-              fullLoaded.manifest.runId,
-              "cancelled",
-              appendEvent,
-              fullLoaded.manifest.eventsPath
-            ).catch(
-              (error) => logInternalError("crash-recovery.pid-dead.terminate", error, `runId=${fullLoaded.manifest.runId}`, "warn")
-            );
-          }
-        } catch {
-        }
-        unregisterActiveRun(entry.runId);
-        purged.push(entry.runId);
-        continue;
-      }
-    }
-    kept.push(entry.runId);
-  }
-  return { purged, kept };
-}
-function reconcileAllStaleRuns(cwd, manifestCache2, now = Date.now(), currentSessionId) {
-  const results = [];
-  const runIds = manifestCache2.list(50).filter((m) => {
-    if (m.status !== "running" && m.status !== "blocked") return false;
-    if (currentSessionId && m.ownerSessionId && m.ownerSessionId === currentSessionId) return false;
-    return true;
-  }).map((m) => m.runId);
-  for (const runId of runIds) {
-    const cached2 = manifestCache2.get(runId);
-    if (!cached2) continue;
-    const loaded = loadRunManifestById(cwd, runId);
-    if (!loaded) continue;
-    withRunLockSync(loaded.manifest, () => {
-      const fresh = loadRunManifestById(cwd, runId);
-      if (!fresh || fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked") return;
-      if (isPlanApprovalPendingEffective2(fresh.manifest)) {
-        results.push({
-          runId,
-          verdict: "blocked_awaiting_approval",
-          repaired: false,
-          detail: "Plan approval is pending; stale reconciliation skipped"
-        });
-        return;
-      }
-      const result4 = reconcileStaleRun(fresh.manifest, fresh.tasks, now);
-      if (result4.repaired || result4.verdict === "result_exists") {
-        if (result4.repairedTasks) {
-          saveRunTasks(fresh.manifest, result4.repairedTasks);
-          for (const task of result4.repairedTasks) {
-            try {
-              upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
-            } catch {
-            }
-          }
-        }
-        updateRunStatus(fresh.manifest, "failed", `Stale run reconciled: ${result4.detail}`);
-        void terminateLiveAgentsForRun(fresh.manifest.runId, "failed", appendEvent, fresh.manifest.eventsPath).catch(
-          (error) => logInternalError("crash-recovery.reconcile.terminate", error, `runId=${fresh.manifest.runId}`, "warn")
-        );
-        appendEvent(fresh.manifest.eventsPath, {
-          type: "crew.run.reconciled_stale",
-          runId,
-          message: result4.detail,
-          data: { verdict: result4.verdict }
-        });
-      }
-      if (result4.verdict !== "healthy") {
-        results.push(result4);
-      }
-    });
-  }
-  return results;
-}
-var TRANSIENT_READ_ERRNO_CODES, _readManifestFileSync;
-var init_crash_recovery = __esm({
-  "src/runtime/recovery/crash-recovery.ts"() {
-    "use strict";
-    init_registry2();
-    init_locks();
-    init_event_log();
-    init_active_run_registry();
-    init_state_store();
-    init_internal_error();
-    init_paths();
-    init_safe_paths();
-    init_sleep();
-    init_crew_agent_records();
-    init_worker_heartbeat();
-    init_live_agent_manager();
-    init_process_status();
-    init_stale_reconciler();
-    TRANSIENT_READ_ERRNO_CODES = /* @__PURE__ */ new Set(["EBUSY", "EACCES", "EAGAIN", "EPERM", "ENFILE", "EMFILE"]);
-    _readManifestFileSync = (p) => fs94.readFileSync(p, "utf-8");
-  }
-});
-
-// src/ui/widget/widget-model.ts
-function agentsFor(run) {
-  try {
-    return readCrewAgents(run);
-  } catch {
-    return [];
-  }
-}
-function activeWidgetRuns(cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId) {
-  evictStaleLiveAgentHandles();
-  const now = Date.now();
-  if (now - lastStaleReconcileAt > STALE_RECONCILE_INTERVAL_MS && manifestCache2) {
-    lastStaleReconcileAt = now;
-    try {
-      reconcileAllStaleRuns(cwd, manifestCache2, Date.now(), workspaceId);
-    } catch {
-    }
-  }
-  let runs = preloadedManifests ?? (manifestCache2 ? manifestCache2.list(20) : listRecentRuns(cwd, 20));
-  if (workspaceId) {
-    runs = runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === workspaceId);
-  }
-  return runs.map((run) => {
-    try {
-      const snapshot = snapshotCache?.get(run.runId);
-      if (snapshot) {
-        return {
-          run: snapshot.manifest,
-          agents: snapshot.agents,
-          snapshot
-        };
-      }
-      if (snapshotCache) return null;
-      return { run, agents: agentsFor(run) };
-    } catch {
-      if (snapshotCache) return null;
-      return { run, agents: agentsFor(run) };
-    }
-  }).filter((item) => item !== null && isDisplayActiveRun(item.run, item.agents));
-}
-function statusSummary(runs) {
-  const agents = runs.flatMap((item) => item.agents);
-  const runningAgents = agents.filter((a) => a.status === "running").length;
-  const queuedAgents = agents.filter((a) => a.status === "queued" || a.status === "waiting").length;
-  const completedAgents = agents.filter((a) => a.status === "completed").length;
-  const totalAgents = agents.length;
-  const totalRuns = runs.length;
-  const model = agents.find((a) => a.model)?.model?.split("/").at(-1);
-  const parts = [`\u2699 ${runningAgents}r`];
-  if (queuedAgents > 0) parts.push(`${queuedAgents}q`);
-  if (completedAgents > 0) parts.push(`${completedAgents}/${totalAgents}done`);
-  if (totalRuns > 1) parts.push(`${totalRuns}runs`);
-  if (model) parts.push(model);
-  return parts.join(" \xB7 ");
-}
-function shortRunLabel(run) {
-  return `${run.team}/${run.workflow ?? "none"}`;
-}
-var lastStaleReconcileAt, STALE_RECONCILE_INTERVAL_MS;
-var init_widget_model = __esm({
-  "src/ui/widget/widget-model.ts"() {
-    "use strict";
-    init_run_index();
-    init_crew_agent_records();
-    init_live_agent_manager();
-    init_process_status();
-    init_crash_recovery();
-    lastStaleReconcileAt = 0;
-    STALE_RECONCILE_INTERVAL_MS = 6e4;
   }
 });
 
@@ -73520,7 +73535,7 @@ function renderPlanPane(snapshot, options = {}) {
   const progress = deriveItemProgress(current, snapshot.tasks);
   const tasksById = new Map(snapshot.tasks.map((t2) => [t2.id, t2]));
   const itemById = new Map(current.items.map((i) => [i.id, i]));
-  const pending2 = isPlanApprovalPending(snapshot.manifest);
+  const pending2 = isPlanApprovalPending2(snapshot.manifest);
   const header = `Plan pane: ${current.title} @v${current.version} (${current.phases.length} phases \xB7 ${current.items.length} items)`;
   const approval = pending2 ? ["\u26A0 plan approval pending \u2014 A approve \xB7 n deny"] : [];
   const lines = [header, ...approval];
@@ -73666,7 +73681,7 @@ function renderProgressPane(snapshot) {
   }) : [];
   const phaseHeader = phaseLines.length > 0 ? [formatPhaseProgressLine(runProgress), ...phaseLines] : [];
   const dwfPhaseLines = snapshot.dwfPhaseState ? renderDwfPhaseLines(snapshot.dwfPhaseState) : [];
-  const planBanner = isPlanApprovalPending(snapshot.manifest) ? ["\u26A0 plan approval pending \u2014 A approve / n deny"] : [];
+  const planBanner = isPlanApprovalPending2(snapshot.manifest) ? ["\u26A0 plan approval pending \u2014 A approve / n deny"] : [];
   return [
     `Progress pane: ${progress.completed}/${progress.total} completed \xB7 running=${progress.running} queued=${progress.queued} failed=${progress.failed}`,
     ...planBanner,
@@ -74605,7 +74620,7 @@ var init_run_dashboard = __esm({
         if (action === "plan-approve" || action === "plan-deny") {
           const run = selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache);
           const manifest = run ? snapshotFor(run, this.options.snapshotCache)?.manifest ?? run : void 0;
-          if (run && manifest && isPlanApprovalPending(manifest)) {
+          if (run && manifest && isPlanApprovalPending2(manifest)) {
             this.done({ runId: run.runId, action });
           }
           return;
@@ -76915,7 +76930,7 @@ async function handlePlanDashboardAction(ctx, selection2) {
     depsNotify(ctx, `Run '${selection2.runId}' not found.`, "error");
     return;
   }
-  if (!isPlanApprovalPendingEffective(loaded.manifest)) {
+  if (!isPlanApprovalPendingEffective2(loaded.manifest)) {
     depsNotify(ctx, "no pending plan approval", "warning");
     return;
   }
@@ -81096,7 +81111,7 @@ var init_heartbeat_watcher = __esm({
             const key = `${run.runId}:${task.id}`;
             activeKeys.add(key);
             this.lastSeen.set(key, now);
-            let elapsed = heartbeatAgeMs(task.heartbeat, now);
+            let elapsed = heartbeatAgeMs2(task.heartbeat, now);
             if (task.agentProgress?.lastActivityAt) {
               const activityAt = new Date(task.agentProgress.lastActivityAt).getTime();
               if (Number.isFinite(activityAt)) {

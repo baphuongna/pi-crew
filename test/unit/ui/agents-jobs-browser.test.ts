@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -268,4 +268,65 @@ test("kitty-protocol key sequences navigate and close (freeze regression)", () =
 	browser.handleInput("\x1b[113u");
 	assert.equal(browser.isClosed, true, "kitty q closes the browser");
 	browser.dispose();
+});
+
+test("default agents source mirrors the widget pipeline (state/runs agents.json)", () => {
+	// Regression (live probe 2026-09-14): Agent-tool subagents (foreground AND
+	// background) run as child processes and never registerLiveAgent() in the
+	// extension process — the old default (in-process live-agent registry) listed
+	// NOTHING while the widget said "1 running". The browser must read the same
+	// `.crew/state/runs/*/agents.json` pipeline the widget counts use.
+	const dir = mkdtempSync(join(tmpdir(), "crew-browser-default-"));
+	try {
+		const runId = "team_test_browser_default";
+		const stateRoot = join(dir, ".crew", "state", "runs", runId);
+		mkdirSync(stateRoot, { recursive: true });
+		const now = new Date();
+		const iso = now.toISOString();
+		writeFileSync(
+			join(stateRoot, "manifest.json"),
+			JSON.stringify({
+				schemaVersion: 1,
+				runId,
+				sessionId: "sess-test",
+				team: "direct-explorer",
+				workflow: "direct-agent",
+				goal: "live probe fixture",
+				status: "running",
+				createdAt: iso,
+				updatedAt: iso,
+				stateRoot,
+			}),
+		);
+		writeFileSync(
+			join(stateRoot, "agents.json"),
+			JSON.stringify([
+				{
+					id: `${runId}:01_01-agent`,
+					runId,
+					taskId: "01_01-agent",
+					agent: "explorer",
+					role: "Explorer",
+					runtime: "child-process",
+					status: "running",
+					startedAt: iso,
+				},
+			]),
+		);
+		const browser = new AgentsJobsBrowser({
+			cwd: dir,
+			now: () => now.getTime() + 5000,
+			refreshTtlMs: 0,
+		});
+		const agents = browser.entriesView.filter((e) => e.kind === "agent");
+		assert.equal(agents.length, 1, `expected 1 agent, got ${agents.length}`);
+		assert.equal(agents[0].role, "Explorer");
+		assert.equal(agents[0].status, "running");
+		const text = browser.render(100).join("\n");
+		assert.match(text, /Live agents \(1\)/);
+		assert.match(text, /Explorer/);
+		browser.dispose();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

@@ -67,6 +67,7 @@ import type { RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerFrame } from "./spinner.ts";
 import { iconForStatus } from "./status-colors.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
+import { activeWidgetRuns } from "./widget/widget-model.ts";
 
 // ─── Public data types ─────────────────────────────────────────────────────
 
@@ -153,6 +154,24 @@ export function agentTokPerSec(handle: LiveAgentHandle, nowMs: number): number |
 	if (ms <= 1000) return undefined;
 	const tps = Math.round(totalTokens / (ms / 1000));
 	return tps > 0 ? tps : undefined;
+}
+
+/** tok/s for record-based entries (no live handle in this process). */
+function recordTokPerSec(record: CrewAgentRecord, nowMs: number): number | undefined {
+	if (record.status !== "running") return undefined;
+	try {
+		const usage = getTaskUsage(record.taskId);
+		const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
+		if (total <= 0) return undefined;
+		const started = record.startedAt ? Date.parse(record.startedAt) : Number.NaN;
+		if (!Number.isFinite(started)) return undefined;
+		const ms = Math.max(0, nowMs - started);
+		if (ms < 1000) return undefined;
+		const tps = Math.round(total / (ms / 1000));
+		return tps > 0 ? tps : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 /** Status rank for "live agents first, running before the rest" ordering. */
@@ -271,24 +290,36 @@ export class AgentsJobsBrowser {
 		if (this.options.agentsProvider) {
 			return [...this.options.agentsProvider()].sort((a, b) => statusRank(a.status) - statusRank(b.status));
 		}
-		const handles = this.options.workspaceId ? listLiveAgentsByWorkspace(this.options.workspaceId) : listLiveAgents();
+		// FIX (live probe 2026-09-14): read the SAME pipeline the widget counts
+		// use — activeWidgetRuns() over `.crew/state/runs/*/agents.json` — NOT the
+		// in-process live-agent registry. Agent-tool subagents (foreground AND
+		// background) run as child processes and never registerLiveAgent() in this
+		// process, so the registry listed nothing while the widget said "1 running".
+		// Source parity with the widget also means the counts can never disagree.
+		let runs: ReturnType<typeof activeWidgetRuns> = [];
+		try {
+			runs = activeWidgetRuns(this.options.cwd, undefined, undefined, undefined, this.options.workspaceId);
+		} catch (error) {
+			logInternalError("agents-browser.loadAgents", error as Error);
+			return [];
+		}
 		const nowMs = this.nowMs();
-		return handles
-			.map((handle): AgentsBrowserAgentEntry => {
-				const record = this.recordFor(handle.runId, handle.taskId);
-				return {
+		const entries: AgentsBrowserAgentEntry[] = [];
+		for (const { run, agents } of runs) {
+			for (const record of agents) {
+				entries.push({
 					kind: "agent",
-					runId: handle.runId,
-					taskId: handle.taskId,
-					role: handle.role ?? record?.role ?? handle.agent ?? "agent",
-					agentName: handle.agent,
-					status: handle.status,
-					tokPerSec: agentTokPerSec(handle, nowMs),
+					runId: run.runId,
+					taskId: record.taskId,
+					role: record.role || record.agent || "agent",
+					agentName: record.agent,
+					status: record.status,
+					tokPerSec: recordTokPerSec(record, nowMs),
 					record,
-					handle,
-				};
-			})
-			.sort((a, b) => statusRank(a.status) - statusRank(b.status));
+				});
+			}
+		}
+		return entries.sort((a, b) => statusRank(a.status) - statusRank(b.status));
 	}
 
 	private loadJobs(): { jobs: ScheduledJob[]; hiddenCount: number } {
