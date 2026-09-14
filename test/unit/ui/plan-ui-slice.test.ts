@@ -240,9 +240,9 @@ test("widget degrade (negative AC): >3 agents → summary line, no data loss —
 		}) as unknown as CrewAgentRecord;
 	const agents = [mk(1, "running"), mk(2, "running"), mk(3, "running"), mk(4, "running"), mk(5, "queued")];
 	const lines = buildWidgetLines(manifest.cwd, 0, 8, [{ run: manifest, agents, snapshot: snap }], 0, 120);
-	const agentRows = lines.filter((l) => /a[0-9]|executor/.test(l));
-	// Crowding: at most MAX_AGENTS_DISPLAY(3) worker rows render…
-	assert.ok(agentRows.length <= 4, `crowded widget keeps ≤3 agent rows + header (got ${agentRows.length})`);
-	// …but the data is NOT lost: counts surface on the run line.
-	assert.match(lines.join("\n"), /0\/5 agents/, "all five agents counted in the summary");
+	// SINGLE-LINE widget: no agent rows at all — the ONE count row carries
+	// the full tally (4 running + 1 queued).
+	assert.equal(lines.length, 1, `exactly one row, got ${JSON.stringify(lines)}`);
+	assert.match(lines[0] ?? "", /4 running/, "four running agents counted");
+	assert.match(lines[0] ?? "", /1 queued/, "queued agent counted");
 });

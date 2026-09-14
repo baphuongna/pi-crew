@@ -27096,12 +27096,12 @@ var init_live_conversation_overlay = __esm({
         const statusIcon4 = this.handle.status === "running" ? th.fg("accent", spinnerFrame(this.handle.taskId ?? this.handle.agentId)) : iconForStatus(this.handle.status);
         const name = this.handle.agent ?? this.handle.taskId;
         const act = this.handle.activity;
-        const elapsed2 = `${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s`;
+        const elapsed = `${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s`;
         const headerParts = [];
         if (act.maxTurns != null) headerParts.push(`turn ${act.turnCount}/${act.maxTurns}`);
         else if (act.turnCount > 0) headerParts.push(`turn ${act.turnCount}`);
         if (act.toolUses > 0) headerParts.push(`${act.toolUses} tools`);
-        headerParts.push(elapsed2);
+        headerParts.push(elapsed);
         try {
           const ctxPct = this.handle.session.getSessionStats?.()?.contextUsage?.percent;
           if (ctxPct != null) {
@@ -28239,11 +28239,11 @@ function heartbeatAgeMs(heartbeat, now = Date.now()) {
 function classifyHeartbeat(heartbeat, thresholds = DEFAULT_GRADIENT_THRESHOLDS, now = Date.now()) {
   if (!heartbeat) return "dead";
   if (heartbeat.alive === false) return "dead";
-  const elapsed2 = heartbeatAgeMs(heartbeat, now);
-  if (!Number.isFinite(elapsed2)) return "dead";
-  if (elapsed2 > thresholds.deadMs) return "dead";
-  if (elapsed2 > thresholds.staleMs) return "stale";
-  if (elapsed2 > thresholds.warnMs) return "warn";
+  const elapsed = heartbeatAgeMs(heartbeat, now);
+  if (!Number.isFinite(elapsed)) return "dead";
+  if (elapsed > thresholds.deadMs) return "dead";
+  if (elapsed > thresholds.staleMs) return "stale";
+  if (elapsed > thresholds.warnMs) return "warn";
   return "healthy";
 }
 var DEFAULT_GRADIENT_THRESHOLDS;
@@ -59613,240 +59613,6 @@ function computeColorEnabled() {
   if (process.stdout?.isTTY !== true) return false;
   return true;
 }
-function paint(text, sgr) {
-  if (!colorEnabled || !text) return text;
-  return `${sgr}${text}${RESET}`;
-}
-function alignMetric2(value, width) {
-  const pad2 = Math.max(0, width - visibleWidth(value));
-  return " ".repeat(pad2) + value;
-}
-function formatTokensCompact(count2) {
-  if (typeof count2 !== "number" || !Number.isFinite(count2)) return "";
-  if (count2 >= 1e6) return `${(count2 / 1e6).toFixed(1)}M tok`;
-  if (count2 >= 1e3) return `${(count2 / 1e3).toFixed(1)}k tok`;
-  return `${count2} tok`;
-}
-function elapsed(iso, now = Date.now()) {
-  if (!iso) return void 0;
-  const ms = Math.max(0, now - new Date(iso).getTime());
-  if (!Number.isFinite(ms)) return void 0;
-  if (ms < 1e3) return "now";
-  if (ms < 6e4) return `${Math.floor(ms / 1e3)}s`;
-  if (ms < 36e5) return `${Math.floor(ms / 6e4)}m`;
-  return `${Math.floor(ms / 36e5)}h`;
-}
-function dockElapsed(iso, now = Date.now()) {
-  const value = elapsed(iso, now);
-  return value === void 0 ? "" : value === "now" ? "0s" : value;
-}
-function describeLiveActivity(handle) {
-  const act = handle.activity;
-  if (act.activeTools.size > 0) {
-    const groups = /* @__PURE__ */ new Map();
-    for (const toolName of act.activeTools.values()) {
-      groups.set(toolName, (groups.get(toolName) ?? 0) + 1);
-    }
-    const parts = [];
-    for (const [toolName, count2] of groups) {
-      const icon = TOOL_ICONS[toolName] ?? "?";
-      const label = TOOL_LABELS3[toolName] ?? toolName;
-      if (count2 > 1) {
-        parts.push(`${icon}${count2} ${label}s`);
-      } else {
-        parts.push(`${icon} ${label}`);
-      }
-    }
-    return parts.join(", ") + "\u2026";
-  }
-  if (act.responseText?.trim()) {
-    const line4 = act.responseText.split("\n").find((l) => l.trim())?.trim() ?? "";
-    return line4.length > 60 ? line4.slice(0, 60) + "\u2026" : line4;
-  }
-  return "thinking\u2026";
-}
-function agentActivity(agent, liveHandle) {
-  if (liveHandle && liveHandle.status === "running") {
-    const live = describeLiveActivity(liveHandle);
-    if (live === "thinking\u2026" && agent.progress?.currentTool)
-      return `${TOOL_LABELS3[agent.progress.currentTool] ?? agent.progress.currentTool}\u2026`;
-    return live;
-  }
-  if (agent.progress?.currentTool) return `${TOOL_LABELS3[agent.progress.currentTool] ?? agent.progress.currentTool}\u2026`;
-  const recent = agent.progress?.recentOutput?.at(-1);
-  if (recent) {
-    const cleaned = recent.replace(/\s+/g, " ").trim();
-    return cleaned.length > 60 ? cleaned.slice(0, 60) + "\u2026" : cleaned;
-  }
-  if (agent.progress?.activityState === "needs_attention") return paint("needs attention", COLOR_YELLOW);
-  if (agent.status === "queued") return "queued";
-  if (agent.status === "running") {
-    const age = agent.startedAt ? Date.now() - new Date(agent.startedAt).getTime() : Infinity;
-    if (age < 5e3 && !agent.progress?.currentTool) return "spawning\u2026";
-    return "thinking\u2026";
-  }
-  if (agent.status === "failed") return paint(agent.error ?? "failed", COLOR_RED);
-  return "done";
-}
-function formatCostCompact(cost) {
-  if (cost >= 1) return `$${cost.toFixed(2)}`;
-  if (cost >= 0.01) return `$${cost.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`;
-  if (cost >= 1e-3) return `$${cost.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
-  return "< $0.001";
-}
-function agentCost(agent) {
-  const cost = agent.usage?.cost;
-  if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) return "";
-  return formatCostCompact(cost);
-}
-function dockStatusIcon(status) {
-  switch (status) {
-    case "running":
-      return "\u273B";
-    case "queued":
-    case "waiting":
-      return "\u25CB";
-    case "completed":
-      return "\u2713";
-    case "failed":
-      return "\u2717";
-    case "needs_attention":
-      return "\u26A0";
-    case "cancelled":
-    case "stopped":
-      return "\u25A0";
-    default:
-      return "?";
-  }
-}
-function dockStatusLabel(status) {
-  switch (status) {
-    case "completed":
-      return "done";
-    case "failed":
-      return "failed";
-    case "cancelled":
-    case "stopped":
-      return "stopped";
-    case "needs_attention":
-      return "needs attention";
-    case "queued":
-      return "queued";
-    case "waiting":
-      return "waiting";
-    default:
-      return status;
-  }
-}
-function tokenCountShort(count2) {
-  if (count2 < 1e3) return `${count2}`;
-  if (count2 < 1e6) return `${Math.round(count2 / 1e3)}k`;
-  return `${(count2 / 1e6).toFixed(1)}M`;
-}
-function dockUsageText(agent, liveHandle, options = {}) {
-  const parts = [];
-  if (liveHandle) {
-    const usage = getTaskUsage(liveHandle.taskId);
-    const input = usage.input ?? 0;
-    const output = usage.output ?? 0;
-    const cacheWrite = usage.cacheWrite ?? 0;
-    if (input > 0) parts.push(`\u2191${tokenCountShort(input)}`);
-    if (output > 0) parts.push(`\u2193${tokenCountShort(output)}`);
-    if (cacheWrite > 0) parts.push(`R${tokenCountShort(cacheWrite)}`);
-    const promptTokens = input + cacheWrite;
-    if (cacheWrite > 0 && promptTokens > 0) {
-      parts.push(`CH${(cacheWrite / promptTokens * 100).toFixed(1)}%`);
-    }
-    const cost2 = agent.usage?.cost;
-    if (typeof cost2 === "number" && Number.isFinite(cost2) && cost2 > 0) parts.push(`$${cost2.toFixed(4)}`);
-    if (options.viewed) {
-      const act = liveHandle.activity;
-      const ms = computeLiveDurationMs(act, options.nowMs);
-      const totalTokens2 = input + output + cacheWrite;
-      if (totalTokens2 > 0 && ms > 1e3) {
-        const tps = Math.round(totalTokens2 / (ms / 1e3));
-        if (tps > 0) parts.push(`${tps} tok/s`);
-      }
-      try {
-        const ctxPct = liveHandle.session.getSessionStats?.()?.contextUsage?.percent;
-        if (ctxPct != null) {
-          const window = options.contextWindow && options.contextWindow >= 1e6 ? `${(options.contextWindow / 1e6).toFixed(1)}M` : options.contextWindow ? tokenCountShort(options.contextWindow) : "";
-          parts.push(`${Math.round(ctxPct)}%${window ? ` / ${window}` : ""}`);
-        }
-      } catch {
-      }
-    }
-    return parts.join(" ");
-  }
-  const tokens = agent.progress?.tokens;
-  const tokenCount = typeof tokens === "number" && Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
-  if (tokenCount > 0) parts.push(`${tokenCountShort(tokenCount)} tok`);
-  const cost = agent.usage?.cost;
-  if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) parts.push(`$${cost.toFixed(4)}`);
-  return parts.join(" ");
-}
-function budgetedRow(parts, width) {
-  const sep10 = parts.separator ?? " \xB7 ";
-  const { lead, suffix } = parts;
-  const name = parts.name.replace(/\s+/g, " ").trim();
-  const activity = parts.activity.replace(/\s+/g, " ").trim();
-  if (!name && !activity) return truncateToWidth(lead + suffix, width);
-  if (!activity) return fitNameOnly(lead, name, suffix, width);
-  if (!name) return fitNameOnly(lead, activity, suffix, width);
-  const budget = width - visibleWidth(lead) - visibleWidth(suffix) - visibleWidth(sep10);
-  if (budget < MIN_FIELD_WIDTH * 2) return fitNameOnly(lead, name, suffix, width);
-  const nameNatural = visibleWidth(name);
-  const activityNatural = visibleWidth(activity);
-  const activityRoom = Math.min(activityNatural, Math.max(MIN_FIELD_WIDTH, budget - nameNatural));
-  const nameRoom = Math.max(MIN_FIELD_WIDTH, budget - activityRoom);
-  const assembled = lead + truncateToWidth(name, nameRoom) + sep10 + truncateToWidth(activity, activityRoom) + suffix;
-  if (visibleWidth(assembled) <= width) return assembled;
-  return fitNameOnly(lead, name, suffix, width);
-}
-function fitNameOnly(lead, name, suffix, width) {
-  const fixed = visibleWidth(lead) + visibleWidth(suffix);
-  if (fixed >= width) return truncateToWidth(lead + suffix, width);
-  return lead + truncateToWidth(name, width - fixed) + suffix;
-}
-function agentStats(agent, liveHandle, nowMs3) {
-  const parts = [];
-  if (liveHandle) {
-    const act = liveHandle.activity;
-    if (act.toolUses > 0) parts.push(alignMetric2(`${act.toolUses} tools`, TOOLS_METRIC_WIDTH));
-    const usage = getTaskUsage(liveHandle.taskId);
-    const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
-    if (total > 0) parts.push(alignMetric2(formatTokensCompact(total), TOKENS_METRIC_WIDTH2));
-    const liveCost = agentCost(agent);
-    if (liveCost) parts.push(alignMetric2(liveCost, COST_METRIC_WIDTH2));
-    try {
-      const stats = liveHandle.session.getSessionStats?.();
-      const ctxPct = stats?.contextUsage?.percent;
-      if (ctxPct != null) parts.push(alignMetric2(`${Math.round(ctxPct)}% ctx`, CTX_METRIC_WIDTH));
-    } catch {
-    }
-    const ms = computeLiveDurationMs(act, nowMs3);
-    if (total > 0 && ms > 1e3) {
-      const tps = Math.round(total / (ms / 1e3));
-      if (tps > 0) parts.push(alignMetric2(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
-    }
-    parts.push(alignMetric2(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH2));
-  } else {
-    const tokens = agent.progress?.tokens;
-    const tokenCount = typeof tokens === "number" ? tokens : void 0;
-    if (agent.toolUses) parts.push(alignMetric2(`${agent.toolUses} tools`, TOOLS_METRIC_WIDTH));
-    if (tokenCount && tokenCount > 0) parts.push(alignMetric2(formatTokensCompact(tokenCount), TOKENS_METRIC_WIDTH2));
-    const cost = agentCost(agent);
-    if (cost) parts.push(alignMetric2(cost, COST_METRIC_WIDTH2));
-    const ageMs = agent.startedAt ? Math.max(0, (nowMs3 ?? Date.now()) - new Date(agent.startedAt).getTime()) : 0;
-    if (tokenCount && tokenCount > 0 && ageMs > 1e3) {
-      const tps = Math.round(tokenCount / (ageMs / 1e3));
-      if (tps > 0) parts.push(alignMetric2(`${formatTokensCompact(tps)}/s`, TPS_METRIC_WIDTH));
-    }
-    const age = elapsed(agent.completedAt ?? agent.startedAt);
-    if (age) parts.push(alignMetric2(age, DURATION_METRIC_WIDTH2));
-  }
-  return parts.join(" \xB7 ");
-}
 function notificationBadge(count2, env = process.env) {
   if (!count2 || count2 <= 0) return "";
   const term = `${env.TERM ?? ""} ${env.WT_SESSION ?? ""} ${env.TERM_PROGRAM ?? ""}`.toLowerCase();
@@ -59855,43 +59621,14 @@ function notificationBadge(count2, env = process.env) {
   const label = count2 > NOTIFICATION_BADGE_CAP ? `${NOTIFICATION_BADGE_CAP}+ alerts` : `${count2} alerts`;
   return supportsEmoji ? ` \xB7 ${label}` : ` [${label}]`;
 }
-var RESET, COLOR_RED, COLOR_YELLOW, colorEnabled, TOOLS_METRIC_WIDTH, TOKENS_METRIC_WIDTH2, TPS_METRIC_WIDTH, CTX_METRIC_WIDTH, DURATION_METRIC_WIDTH2, COST_METRIC_WIDTH2, TOOL_LABELS3, TOOL_ICONS, MIN_FIELD_WIDTH, NOTIFICATION_BADGE_CAP;
+var colorEnabled, NOTIFICATION_BADGE_CAP;
 var init_widget_formatters = __esm({
   "src/ui/widget/widget-formatters.ts"() {
     "use strict";
     init_usage_tracker();
     init_visual();
     init_live_duration();
-    RESET = "\x1B[0m";
-    COLOR_RED = "\x1B[31m";
-    COLOR_YELLOW = "\x1B[33m";
     colorEnabled = computeColorEnabled();
-    TOOLS_METRIC_WIDTH = 8;
-    TOKENS_METRIC_WIDTH2 = 10;
-    TPS_METRIC_WIDTH = 9;
-    CTX_METRIC_WIDTH = 7;
-    DURATION_METRIC_WIDTH2 = 6;
-    COST_METRIC_WIDTH2 = 9;
-    TOOL_LABELS3 = {
-      read: "reading",
-      bash: "running command",
-      edit: "editing",
-      write: "writing",
-      grep: "searching",
-      find: "finding files",
-      ls: "listing"
-    };
-    TOOL_ICONS = {
-      read: "\u{1F4D6}",
-      bash: ">",
-      edit: "\u270F",
-      write: "\u{1F4DD}",
-      grep: "\u{1F50D}",
-      find: "\u{1F4C1}",
-      ls: "\u{1F4CB}",
-      agent: "\u{1F916}"
-    };
-    MIN_FIELD_WIDTH = 12;
     NOTIFICATION_BADGE_CAP = 99;
   }
 });
@@ -60479,15 +60216,15 @@ function padWithBackground(line4, targetWidth, bgAnsi) {
   }
   const width = visibleWidth2(line4);
   const pad2 = width >= targetWidth ? "" : " ".repeat(targetWidth - width);
-  return `${bgAnsi}${line4}${pad2}${RESET2}`;
+  return `${bgAnsi}${line4}${pad2}${RESET}`;
 }
-var BLACK, RESET2;
+var BLACK, RESET;
 var init_card_colors = __esm({
   "src/ui/card-colors.ts"() {
     "use strict";
     init_visual();
     BLACK = { r: 0, g: 0, b: 0 };
-    RESET2 = "\x1B[0m";
+    RESET = "\x1B[0m";
   }
 });
 
@@ -60600,21 +60337,21 @@ function renderTeamResult(result4, options, theme, ctx) {
       const spinnerFrames = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"];
       const frameIdx = Math.floor(Date.now() / 80) % spinnerFrames.length;
       const spinner = theme.fg("accent", spinnerFrames[frameIdx]);
-      const elapsed2 = formatDuration(parsed.elapsedMs);
+      const elapsed = formatDuration(parsed.elapsedMs);
       if (parsed.completed != null && parsed.total != null && parsed.total > 0) {
         const ratio = parsed.completed / parsed.total;
         const barW = Math.min(innerW - 22, 30);
         const bar = progressBar(ratio, barW, theme);
         const count2 = theme.fg("muted", ` ${parsed.completed}/${parsed.total}`);
         contentLines.push(
-          padVisual(` ${spinner} ${theme.fg("toolTitle", theme.bold("crew run"))}  ${theme.fg("dim", elapsed2)}`, innerW)
+          padVisual(` ${spinner} ${theme.fg("toolTitle", theme.bold("crew run"))}  ${theme.fg("dim", elapsed)}`, innerW)
         );
         contentLines.push(padVisual(`   ${bar}${count2}`, innerW));
         if (parsed.activeAgent) contentLines.push(padVisual(`   ${theme.fg("dim", parsed.activeAgent)}`, innerW));
       } else {
         const barW = Math.min(innerW - 20, 30);
         const scanBar = renderScanBar(barW, parsed.elapsedMs, theme);
-        contentLines.push(padVisual(` ${spinner} ${theme.fg("muted", "crew starting")}  ${theme.fg("dim", elapsed2)}`, innerW));
+        contentLines.push(padVisual(` ${spinner} ${theme.fg("muted", "crew starting")}  ${theme.fg("dim", elapsed)}`, innerW));
         contentLines.push(padVisual(`   ${scanBar}`, innerW));
       }
     } else if (content) {
@@ -61173,8 +60910,8 @@ function isTaskHeartbeatStale(task, now) {
   if (!Number.isFinite(heartbeatAt) && !Number.isFinite(activityAt)) return false;
   const heartbeatAge = Number.isFinite(heartbeatAt) ? now - heartbeatAt : Number.MAX_SAFE_INTEGER;
   const activityAge = Number.isFinite(activityAt) ? now - activityAt : Number.MAX_SAFE_INTEGER;
-  const elapsed2 = Math.min(heartbeatAge, activityAge);
-  if (elapsed2 <= NO_PID_HEARTBEAT_STALE_MS) return false;
+  const elapsed = Math.min(heartbeatAge, activityAge);
+  if (elapsed <= NO_PID_HEARTBEAT_STALE_MS) return false;
   const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
   const pidAlive = taskPid ? checkProcessLiveness(taskPid).alive : false;
   if (taskPid && pidAlive) return false;
@@ -62071,8 +61808,10 @@ function widgetHeader(runs, runningGlyph, maxLines = 20, notificationCount = 0, 
   if (queuedAgents) parts.push(`${queuedAgents} queued`);
   if (waitingAgents) parts.push(`${waitingAgents} waiting`);
   if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
+  const planPending = runs.find((item) => isPlanApprovalStatePending(item.run.planApproval));
+  if (planPending) parts.push(`\u26A0 plan:${planPending.run.runId.slice(-8)}`);
   const sched = schedSegment ? ` \xB7 ${schedSegment}` : "";
-  return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} \xB7 ${parts.join(" \xB7 ")}${sched} \xB7 /team-dashboard`;
+  return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} \xB7 ${parts.join(" \xB7 ")}${sched} \u2014 \u2193\xB7enter`;
 }
 function isActiveStatus(status) {
   return status === "running" || status === "queued" || status === "waiting";
@@ -62092,66 +61831,6 @@ function orderWidgetAgents(entry, now = Date.now()) {
     active: [...active].sort((a, b) => (ACTIVE_PRIORITY[a.status] ?? 9) - (ACTIVE_PRIORITY[b.status] ?? 9)),
     finished
   };
-}
-function shortModelLabel(agent, run) {
-  const model = agent.model ?? run.modelContext?.parentModel ?? run.modelContext?.override;
-  if (typeof model !== "string" || !model) return void 0;
-  return model.split("/").at(-1) ?? model;
-}
-function compactAgentRow(run, agent, finished, runs, options, width, liveHandle, nowMs3) {
-  const marker = options.selectedTaskId === agent.taskId ? "\u276F" : " ";
-  const dockGlyph = options.viewedTaskId === agent.taskId ? "\u23FA" : dockStatusIcon(agent.status);
-  const name = liveHandle?.agent ?? agent.agent;
-  const label = liveHandle?.description ?? agent.role ?? "";
-  const runTag = runs.length > 1 ? `${shortRunLabel(run)} \xB7 ` : "";
-  const taskTag = agent.taskId ? ` \xB7 ${agent.taskId}` : "";
-  const roleTag = label && label !== agent.taskId && label !== name ? ` \xB7 ${label}` : "";
-  const nameText = runTag + name + taskTag + roleTag;
-  const liveLine = liveHandle?.activity?.responseText?.split("\n").find((line4) => line4.trim())?.trim();
-  const activity = !finished && liveHandle?.status === "running" && liveLine ? liveLine.length > 60 ? `${liveLine.slice(0, 60)}\u2026` : liveLine : finished ? dockStatusLabel(agent.status) : agentActivity(agent, liveHandle);
-  const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId, nowMs: nowMs3 });
-  const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
-  const model = shortModelLabel(agent, run);
-  const suffix = `${model ? ` \xB7 ${model}` : ""}${usage ? ` \xB7 ${usage}` : ""}${ageText ? ` \xB7 ${ageText}` : ""}`;
-  return budgetedRow({ lead: `${marker} ${dockGlyph} `, name: nameText, activity, suffix }, width);
-}
-function compactDockLines(runs, options, width, maxLines, notificationCount, runningGlyph, nowMs3, schedLine) {
-  const flat = [];
-  for (const entry of runs) {
-    const { active, finished } = orderWidgetAgents(entry, nowMs3);
-    const liveForRun = listLiveAgents().filter((a) => a.runId === entry.run.runId);
-    for (const agent of active) {
-      flat.push({ run: entry.run, agent, finished: false, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
-    }
-    for (const agent of finished) {
-      flat.push({ run: entry.run, agent, finished: true, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
-    }
-  }
-  if (flat.length === 0) return [truncate(widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine), width)];
-  const lines = [];
-  let hint;
-  if (options.viewedTaskId) {
-    const viewedName = flat.find((row) => row.agent.taskId === options.viewedTaskId)?.agent.agent ?? "agent";
-    hint = `viewing @${viewedName} \u2014 typing goes to the agent \xB7 \u2193 switch \xB7 esc back`;
-  } else if (options.focused) {
-    hint = "enter to view \xB7 x to stop/cancel \xB7 esc back";
-  } else {
-    hint = `agents (${flat.length})${schedLine ? ` \xB7 ${schedLine}` : ""} \u2014 \u2193 to select`;
-  }
-  lines.push(truncate(hint, width));
-  const mainMarker = options.focused && !options.selectedTaskId ? "\u276F" : " ";
-  const mainIcon = options.viewedTaskId ? "\u25EF" : "\u25CF";
-  lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
-  const selectedIndex = options.selectedTaskId ? flat.findIndex((row) => row.agent.taskId === options.selectedTaskId) : -1;
-  const windowStart = selectedIndex >= 0 ? Math.max(0, selectedIndex - MAX_AGENTS_DISPLAY + 1) : 0;
-  const windowEnd = Math.min(flat.length, windowStart + MAX_AGENTS_DISPLAY);
-  if (windowStart > 0) lines.push(truncate(`  \u2026 \u2191${windowStart} earlier (\u2191 to scroll)`, width));
-  for (const row of flat.slice(windowStart, windowEnd)) {
-    lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle, nowMs3));
-  }
-  if (windowEnd < flat.length) lines.push(truncate(`  \u2026 +${flat.length - windowEnd} more (\u2193 to scroll)`, width));
-  if (schedLine && (options.focused || options.viewedTaskId)) lines.push(truncate(schedLine, width));
-  return lines;
 }
 function buildSchedulesWidgetLine(jobs, now, hiddenCount = 0) {
   const enabled = jobs.filter((job) => job.enabled);
@@ -62179,77 +61858,17 @@ function schedulesWidgetLine(cwd, now) {
   return buildSchedulesWidgetLine(scheduledJobsReader(cwd), now, hiddenJobsReader(cwd));
 }
 function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
-  const rowStyle = options.rowStyle ?? "detailed";
-  const focused = options.focused === true;
   const schedLine = schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
   const runs = providedRuns ?? activeWidgetRuns(cwd);
-  if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
+  if (!runs.length) {
+    const zero = schedLine ?? null;
+    if (!zero) return [];
+    const base2 = `${zero} \u2014 \u2193\xB7enter`;
+    return [truncate(options.focused ? `\u276F ${base2}` : base2, width)];
+  }
   const runningGlyph = spinnerFrame("widget-header");
-  if (rowStyle === "compact") {
-    const lines2 = compactDockLines(
-      runs,
-      options,
-      width,
-      maxLines,
-      notificationCount,
-      runningGlyph,
-      (options.now ?? /* @__PURE__ */ new Date()).getTime(),
-      schedLine
-    );
-    return focused ? lines2 : lines2.slice(0, maxLines);
-  }
-  const lines = [truncate(widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine), width)];
-  for (const entry of runs) {
-    const { run, agents } = entry;
-    const nowMs3 = (options.now ?? /* @__PURE__ */ new Date()).getTime();
-    const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, nowMs3);
-    const completed = agents.filter((a) => a.status === "completed").length;
-    const planPending = isPlanApprovalStatePending(run.planApproval);
-    const runGlyph = planPending ? `\u26A0 plan:${run.runId.slice(-8)}` : iconForStatus(run.status, { runningGlyph });
-    const isTerminal = isFinishedRunStatus(run.status);
-    const agentCountText = `${completed}/${agents.length} agents`;
-    const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : nowMs3;
-    const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
-    const runElapsedText = `${Math.floor(runElapsedMs / 1e3)}s`;
-    const statusLabel = isTerminal ? ` \xB7 ${run.status}` : "";
-    const progressPart = `${agentCountText} \xB7 ${runElapsedText}${statusLabel}`;
-    lines.push(truncate(`\u251C\u2500 ${runGlyph} ${shortRunLabel(run)} \xB7 ${progressPart} \xB7 ${run.runId.slice(-8)}`, width));
-    const liveForRun = listLiveAgents().filter((a) => a.runId === run.runId);
-    const activeCap = focused ? activeAgents.length : MAX_AGENTS_DISPLAY;
-    const finishedSlots = focused ? finishedAgents.length : Math.max(0, Math.min(2, MAX_AGENTS_DISPLAY - activeAgents.length));
-    const markerFor2 = (taskId) => options.selectedTaskId === taskId ? "\u276F" : " ";
-    const visibleAgents = activeAgents.slice(0, activeCap);
-    for (const [index, agent] of visibleAgents.entries()) {
-      const last = index === visibleAgents.length - 1 && activeAgents.length <= activeCap && finishedSlots === 0;
-      const branch = last ? "\u2514\u2500" : "\u251C\u2500";
-      const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-      const legacyGlyph = options.viewedTaskId === agent.taskId ? "\u25C9" : iconForStatus(agent.status, { runningGlyph });
-      const stats = agentStats(agent, liveHandle, nowMs3);
-      const name = liveHandle?.agent ?? agent.agent;
-      const activity = agentActivity(agent, liveHandle);
-      const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
-      const _activeMain = truncate(`\u2502  ${branch} ${legacyGlyph} ${name}${desc ? ` \xB7 ${desc}` : ` \xB7 ${agent.role}`}`, width);
-      lines.push(_activeMain);
-      const _activity = truncate(`\u2502     \u22B6 ${activity}${stats ? ` \xB7 ${stats}` : ""}`, width);
-      lines.push(_activity);
-    }
-    if (activeAgents.length > activeCap) {
-      lines.push(truncate(`\u2502  \u2514\u2500 \u2026 +${activeAgents.length - activeCap} more agents`, width));
-    }
-    for (const [index, agent] of finishedAgents.slice(0, finishedSlots).entries()) {
-      const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-      const name = liveHandle?.agent ?? agent.agent;
-      const legacyIcon = agent.status === "completed" ? "\u2713" : agent.status === "failed" ? "\u2717" : agent.status === "needs_attention" ? "\u26A0" : "\u25AA";
-      const stats = agentStats(agent, liveHandle, nowMs3);
-      const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
-      const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
-      const branch = isLastFinished ? "\u2514\u2500" : "\u251C\u2500";
-      const _finished = truncate(`\u2502  ${branch} ${legacyIcon} ${name} \xB7 ${desc}${stats ? ` \xB7 ${stats}` : ""}`, width);
-      lines.push(_finished);
-    }
-    if (lines.length >= maxLines && !focused) break;
-  }
-  return focused ? lines : lines.slice(0, maxLines);
+  const base = widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine);
+  return [truncate(options.focused ? `\u276F ${base}` : base, width)];
 }
 function colorWidgetLine(line4, index, theme) {
   let result4 = line4;
@@ -62269,12 +61888,11 @@ function renderLines(lines, width) {
   }
   return box.render(width);
 }
-var MAX_AGENTS_DISPLAY, FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY, scheduledJobsReader, hiddenJobsReader;
+var FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY, scheduledJobsReader, hiddenJobsReader;
 var init_widget_renderer = __esm({
   "src/ui/widget/widget-renderer.ts"() {
     "use strict";
     init_handle_schedule();
-    init_live_agent_manager();
     init_plan_approval();
     init_process_status();
     init_relative_time();
@@ -62284,7 +61902,6 @@ var init_widget_renderer = __esm({
     init_status_colors();
     init_widget_formatters();
     init_widget_model();
-    MAX_AGENTS_DISPLAY = 3;
     FINISHED_LINGER_MAX_AGE = 1;
     DEFAULT_WIDGET_WIDTH = 100;
     TASK_DESC_MAX = 60;
@@ -62767,8 +62384,8 @@ function runningSuffix(task) {
   const start = Date.parse(task.startedAt ?? "");
   if (Number.isFinite(start) && start > 0) {
     const end = task.finishedAt ? Date.parse(task.finishedAt) : Date.now();
-    const elapsed2 = formatDuration2(end - start);
-    if (elapsed2) parts.push(elapsed2);
+    const elapsed = formatDuration2(end - start);
+    if (elapsed) parts.push(elapsed);
   }
   const input = task.usage?.input ?? 0;
   const output = task.usage?.output ?? 0;
@@ -63477,15 +63094,15 @@ function startTeamToolProgressBinder(onUpdate) {
   const tick = () => {
     try {
       if (!cwd || !runId) {
-        const elapsed2 = Math.max(0, Math.round((Date.now() - startedAt) / 1e3));
-        const msg = `team status=starting elapsed=${elapsed2}s`;
+        const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1e3));
+        const msg = `team status=starting elapsed=${elapsed}s`;
         onUpdate({ content: [{ type: "text", text: msg }] });
         return;
       }
       const loaded = loadRunManifestById(cwd, runId);
       if (!loaded) {
-        const elapsed2 = Math.max(0, Math.round((Date.now() - startedAt) / 1e3));
-        const msg = `team run=${runId} elapsed=${elapsed2}s (manifest pending)`;
+        const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1e3));
+        const msg = `team run=${runId} elapsed=${elapsed}s (manifest pending)`;
         onUpdate({ content: [{ type: "text", text: msg }] });
         return;
       }
@@ -81453,13 +81070,13 @@ var init_heartbeat_watcher = __esm({
             const key = `${run.runId}:${task.id}`;
             activeKeys.add(key);
             this.lastSeen.set(key, now);
-            let elapsed2 = heartbeatAgeMs(task.heartbeat, now);
+            let elapsed = heartbeatAgeMs(task.heartbeat, now);
             if (task.agentProgress?.lastActivityAt) {
               const activityAt = new Date(task.agentProgress.lastActivityAt).getTime();
               if (Number.isFinite(activityAt)) {
                 const activityAge = now - activityAt;
-                if (activityAge < elapsed2) {
-                  elapsed2 = activityAge;
+                if (activityAge < elapsed) {
+                  elapsed = activityAge;
                 }
               }
             }
@@ -81472,7 +81089,7 @@ var init_heartbeat_watcher = __esm({
               } catch {
               }
             }
-            let level = elapsed2 > thresholds.deadMs ? "dead" : elapsed2 > thresholds.staleMs ? "stale" : elapsed2 > thresholds.warnMs ? "warn" : "healthy";
+            let level = elapsed > thresholds.deadMs ? "dead" : elapsed > thresholds.staleMs ? "stale" : elapsed > thresholds.warnMs ? "warn" : "healthy";
             if (level === "dead" && isProcessAlive) {
               level = "stale";
             }
@@ -81483,7 +81100,7 @@ var init_heartbeat_watcher = __esm({
                 level = "stale";
               }
             }
-            this.opts.registry.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds").set({ runId: run.runId, taskId: task.id }, Number.isFinite(elapsed2) ? elapsed2 : thresholds.deadMs);
+            this.opts.registry.gauge("crew.heartbeat.staleness_ms", "Heartbeat elapsed since last seen, milliseconds").set({ runId: run.runId, taskId: task.id }, Number.isFinite(elapsed) ? elapsed : thresholds.deadMs);
             this.opts.registry.counter("crew.heartbeat.level_total", "Heartbeat classifications by level").inc({ runId: run.runId, level });
             const previous = this.lastLevel.get(key);
             this.lastLevel.set(key, level);
@@ -81495,7 +81112,7 @@ var init_heartbeat_watcher = __esm({
                 taskId: task.id,
                 message: `Task ${task.id} heartbeat dead.`,
                 data: {
-                  elapsedMs: Number.isFinite(elapsed2) ? elapsed2 : void 0
+                  elapsedMs: Number.isFinite(elapsed) ? elapsed : void 0
                 }
               }).catch((e) => logInternalError("heartbeat_watcher.buffered", e, "type=crew.task.heartbeat_dead"));
               const runLabel2 = run.runId.slice(0, 8);
@@ -81507,7 +81124,7 @@ var init_heartbeat_watcher = __esm({
                 title: `[${runLabel2}] Task ${task.id} heartbeat dead`,
                 body: "Background watcher detected a stuck worker."
               });
-              this.opts.onDead?.(run.runId, task.id, Number.isFinite(elapsed2) ? elapsed2 : thresholds.deadMs);
+              this.opts.onDead?.(run.runId, task.id, Number.isFinite(elapsed) ? elapsed : thresholds.deadMs);
             }
             if (level === "dead") {
               const count2 = (this.consecutiveDead.get(key) ?? 0) + 1;
@@ -88416,14 +88033,14 @@ var CrewInlineEditor = class extends CustomEditor {
     }
     if (getPanelSelection() === null) {
       if (matchesKey4(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
-        const result4 = dispatchPanelKey(this.panelKeys(data), rows, null);
+        const result4 = dispatchPanelKey(this.panelKeys(data), [], null);
         setPanelSelection(result4.selection);
         return;
       }
       super.handleInput(data);
       return;
     }
-    this.applyDispatch(data, rows, this.panelKeys(data), false);
+    this.applyDispatch(data, [], this.panelKeys(data), false);
   }
   /**
    * Relabel the editor's top border with the viewed agent, so it is

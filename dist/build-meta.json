@@ -15276,17 +15276,12 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 27223,
+      "bytes": 16636,
       "imports": [
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
           "kind": "import-statement",
           "original": "../../extension/team-tool/handle-schedule.ts"
-        },
-        {
-          "path": "src/runtime/live-session/live-agent-manager.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/live-session/live-agent-manager.ts"
         },
         {
           "path": "src/runtime/plan-approval.ts",
@@ -20401,7 +20396,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/crew-editor.ts": {
-      "bytes": 8008,
+      "bytes": 8160,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -21269,7 +21264,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8134672
+      "bytes": 8109980
     },
     "dist/index.mjs": {
       "imports": [
@@ -24222,7 +24217,7 @@
           "bytesInOutput": 18529
         },
         "src/ui/live-conversation-overlay.ts": {
-          "bytesInOutput": 6108
+          "bytesInOutput": 6106
         },
         "src/ui/theme-adapter.ts": {
           "bytesInOutput": 6431
@@ -24243,7 +24238,7 @@
           "bytesInOutput": 4421
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
-          "bytesInOutput": 961
+          "bytesInOutput": 956
         },
         "src/ui/heartbeat-aggregator.ts": {
           "bytesInOutput": 1902
@@ -24972,7 +24967,7 @@
           "bytesInOutput": 2165
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 11725
+          "bytesInOutput": 994
         },
         "src/ui/powerbar-publisher.ts": {
           "bytesInOutput": 14565
@@ -24984,16 +24979,16 @@
           "bytesInOutput": 6374
         },
         "src/ui/card-colors.ts": {
-          "bytesInOutput": 1876
+          "bytesInOutput": 1873
         },
         "src/ui/tool-renderers/index.ts": {
-          "bytesInOutput": 21472
+          "bytesInOutput": 21469
         },
         "src/ui/layout-primitives.ts": {
           "bytesInOutput": 2240
         },
         "src/runtime/stale-reconciler.ts": {
-          "bytesInOutput": 17637
+          "bytesInOutput": 17635
         },
         "src/runtime/recovery/crash-recovery.ts": {
           "bytesInOutput": 19533
@@ -25002,7 +24997,7 @@
           "bytesInOutput": 2438
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 13000
+          "bytesInOutput": 5151
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
@@ -25020,7 +25015,7 @@
           "bytesInOutput": 1690
         },
         "src/ui/widget/task-list.ts": {
-          "bytesInOutput": 5368
+          "bytesInOutput": 5365
         },
         "src/ui/widget/index.ts": {
           "bytesInOutput": 15215
@@ -25032,7 +25027,7 @@
           "bytesInOutput": 2682
         },
         "src/extension/registration/team-tool.ts": {
-          "bytesInOutput": 10546
+          "bytesInOutput": 10542
         },
         "src/extension/team-tool/parallel-dispatch.ts": {
           "bytesInOutput": 5288
@@ -25341,7 +25336,7 @@
           "bytesInOutput": 2716
         },
         "src/runtime/heartbeat/heartbeat-watcher.ts": {
-          "bytesInOutput": 6634
+          "bytesInOutput": 6622
         },
         "src/extension/registration/observability.ts": {
           "bytesInOutput": 7881
@@ -25500,7 +25495,7 @@
           "bytesInOutput": 10433
         },
         "src/ui/inline-panel/crew-editor.ts": {
-          "bytesInOutput": 4275
+          "bytesInOutput": 4271
         },
         "src/utils/run-watcher-registry.ts": {
           "bytesInOutput": 3326
@@ -25542,7 +25537,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3401016
+      "bytes": 3382398
     }
   }
 }

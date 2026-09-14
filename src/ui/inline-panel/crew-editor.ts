@@ -165,10 +165,10 @@ export class CrewInlineEditor extends CustomEditor {
 		// already lands at `main`; `enter` there opens the browser).
 		if (getPanelSelection() === null) {
 			if (matchesKey(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
-				// dispatch enters at the MAIN row; the widget renders that row
-				// with its own ❯ marker so the very first press is visible
-				// (pi-subtask's selectRow(rows, 0)).
-				const result = dispatchPanelKey(this.panelKeys(data), rows, null);
+				// SINGLE-LINE WIDGET: dispatch over EMPTY rows — the cursor
+				// lands on the ONE status line (rendered with its own ❯
+				// prefix by the widget), never on invisible agent rows.
+				const result = dispatchPanelKey(this.panelKeys(data), [], null);
 				setPanelSelection(result.selection);
 				return;
 			}
@@ -177,7 +177,9 @@ export class CrewInlineEditor extends CustomEditor {
 		}
 
 		// ── Navigating: consume or fall through ────────────────────────────
-		this.applyDispatch(data, rows, this.panelKeys(data), false);
+		// SINGLE-LINE WIDGET: navigating over [] keeps the cursor on the one
+		// status line (main); enter opens the browser, escape/up returns.
+		this.applyDispatch(data, [], this.panelKeys(data), false);
 	}
 
 	/**
