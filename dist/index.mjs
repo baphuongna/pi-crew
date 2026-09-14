@@ -26580,6 +26580,7 @@ var init_schedules_pane = __esm({
 });
 
 // src/ui/agents-jobs-browser.ts
+import { matchesKey } from "@earendil-works/pi-tui";
 function agentTokPerSec(handle, nowMs3) {
   if (handle.status !== "running") return void 0;
   const usage = getTaskUsage(handle.taskId);
@@ -26849,8 +26850,8 @@ var init_agents_jobs_browser = __esm({
        */
       handleInput(data) {
         if (this.closed) return;
-        const up = data === "k" || data === "\x1B[A" || data === "up";
-        const down = data === "j" || data === "\x1B[B" || data === "down";
+        const up = matchesKey(data, "k") || matchesKey(data, "up");
+        const down = matchesKey(data, "j") || matchesKey(data, "down");
         if (this.focus === "list") {
           if (up || down) {
             const count2 = this.cachedEntries.length;
@@ -26859,21 +26860,21 @@ var init_agents_jobs_browser = __esm({
             }
             return;
           }
-          if (data === "\r" || data === "\n" || data === "enter") {
+          if (matchesKey(data, "return")) {
             if (this.cachedEntries.length > 0) {
               this.focus = "detail";
               this.detailScroll = 0;
             }
             return;
           }
-          if (data === "p") {
+          if (matchesKey(data, "p")) {
             const entry = this.cachedEntries[this.selected];
             if (this.surfaceReachable() && entry && entry.kind === "agent") {
               this.surfaceSelectedAgent(entry);
             }
             return;
           }
-          if (data === "q" || data === "escape" || data === "\x1B") {
+          if (matchesKey(data, "q") || matchesKey(data, "escape")) {
             this.close();
             return;
           }
@@ -26883,7 +26884,7 @@ var init_agents_jobs_browser = __esm({
           this.detailScroll = up ? Math.max(0, this.detailScroll - 1) : this.detailScroll + 1;
           return;
         }
-        if (data === "q" || data === "escape" || data === "\x1B" || data === "\r" || data === "\n" || data === "enter") {
+        if (matchesKey(data, "q") || matchesKey(data, "escape") || matchesKey(data, "return")) {
           this.focus = "list";
           return;
         }
@@ -29040,10 +29041,10 @@ var init_plan_approval = __esm({
 });
 
 // src/ui/key-utils.ts
-import { matchesKey } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
 function keyOf(data) {
   for (const id of COMMON_IDS) {
-    if (matchesKey(data, id)) return id;
+    if (matchesKey2(data, id)) return id;
   }
   return data;
 }
@@ -29073,7 +29074,7 @@ var init_key_utils = __esm({
 // src/ui/keybinding-map.ts
 import * as fs46 from "node:fs";
 import * as path35 from "node:path";
-import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
 function parseKeybindingOverride(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result4 = {};
@@ -29173,7 +29174,7 @@ function dashboardActionForKey(data, activePane) {
     if (!paneScopeMatches(binding.pane, activePane)) continue;
     for (const candidate of binding.keys) {
       if (key === candidate) return binding.action;
-      if (matchesKey2(data, candidate)) return binding.action;
+      if (matchesKey3(data, candidate)) return binding.action;
     }
   }
   return void 0;
@@ -87501,7 +87502,7 @@ function resetAllAgentTranscriptCursors() {
 
 // src/ui/inline-panel/agent-view-overlay.ts
 init_theme_adapter();
-import { matchesKey as matchesKey3, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey4, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
 
 // src/ui/inline-panel/agent-pane.ts
 init_state_store();
@@ -87854,12 +87855,12 @@ var CrewAgentOverlay = class {
   handleInput(data) {
     if (this.disposed || this.closed) return;
     if (this.inputMode) {
-      if (matchesKey3(data, "escape")) {
+      if (matchesKey4(data, "escape")) {
         this.inputMode = false;
         this.inputText = "";
-      } else if (matchesKey3(data, "return")) {
+      } else if (matchesKey4(data, "return")) {
         this.sendSteer();
-      } else if (matchesKey3(data, "backspace")) {
+      } else if (matchesKey4(data, "backspace")) {
         this.inputText = this.inputText.slice(0, -1);
       } else if (data === "") {
         this.inputMode = false;
@@ -87870,7 +87871,7 @@ var CrewAgentOverlay = class {
       this.tui.requestRender();
       return;
     }
-    if (matchesKey3(data, "escape") || data === "") {
+    if (matchesKey4(data, "escape") || data === "") {
       this.requestClose();
       return;
     }
@@ -87878,35 +87879,35 @@ var CrewAgentOverlay = class {
       this.requestClose();
       return;
     }
-    if (matchesKey3(data, "pageUp")) {
+    if (matchesKey4(data, "pageUp")) {
       this.pane.scrollBy(10);
       return;
     }
-    if (matchesKey3(data, "pageDown")) {
+    if (matchesKey4(data, "pageDown")) {
       this.pane.scrollBy(-10);
       return;
     }
-    if (matchesKey3(data, "up") || data === "k") {
+    if (matchesKey4(data, "up") || data === "k") {
       this.pane.scrollBy(1);
       return;
     }
-    if (matchesKey3(data, "down") || data === "j") {
+    if (matchesKey4(data, "down") || data === "j") {
       this.pane.scrollBy(-1);
       return;
     }
-    if (data === "g" || matchesKey3(data, "home")) {
+    if (data === "g" || matchesKey4(data, "home")) {
       this.pane.scrollHome();
       return;
     }
-    if (data === "G" || matchesKey3(data, "end")) {
+    if (data === "G" || matchesKey4(data, "end")) {
       this.pane.scrollEnd();
       return;
     }
-    if (matchesKey3(data, "tab")) {
+    if (matchesKey4(data, "tab")) {
       this.cycleAgent(1);
       return;
     }
-    if (matchesKey3(data, "shift+tab")) {
+    if (matchesKey4(data, "shift+tab")) {
       this.cycleAgent(-1);
       return;
     }
@@ -87941,7 +87942,7 @@ var CrewAgentOverlay = class {
 init_panel_selection();
 init_panel_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { matchesKey as matchesKey4, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey5, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
 var CrewInlineEditor = class extends CustomEditor {
   options;
@@ -87951,11 +87952,11 @@ var CrewInlineEditor = class extends CustomEditor {
   }
   panelKeys(data) {
     return {
-      up: matchesKey4(data, "up"),
-      down: matchesKey4(data, "down"),
-      enter: matchesKey4(data, "return"),
-      escape: matchesKey4(data, "escape"),
-      act: matchesKey4(data, "x")
+      up: matchesKey5(data, "up"),
+      down: matchesKey5(data, "down"),
+      enter: matchesKey5(data, "return"),
+      escape: matchesKey5(data, "escape"),
+      act: matchesKey5(data, "x")
     };
   }
   /**
@@ -88000,23 +88001,23 @@ var CrewInlineEditor = class extends CustomEditor {
         this.applyDispatch(data, rows, this.panelKeys(data), true);
         return;
       }
-      if (matchesKey4(data, "down") && this.getText() === "" && rows.length > 0) {
+      if (matchesKey5(data, "down") && this.getText() === "" && rows.length > 0) {
         setPanelSelection("main");
         return;
       }
-      if (matchesKey4(data, "escape")) {
+      if (matchesKey5(data, "escape")) {
         this.options.onClosePane();
         return;
       }
-      if (matchesKey4(data, "pageUp")) {
+      if (matchesKey5(data, "pageUp")) {
         this.options.onScrollPane(10);
         return;
       }
-      if (matchesKey4(data, "pageDown")) {
+      if (matchesKey5(data, "pageDown")) {
         this.options.onScrollPane(-10);
         return;
       }
-      if (matchesKey4(data, "return")) {
+      if (matchesKey5(data, "return")) {
         const text = (this.getExpandedText?.() ?? this.getText()).trim();
         if (!text) {
           super.handleInput(data);
@@ -88034,7 +88035,7 @@ var CrewInlineEditor = class extends CustomEditor {
       return;
     }
     if (getPanelSelection() === null) {
-      if (matchesKey4(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
+      if (matchesKey5(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
         const result4 = dispatchPanelKey(this.panelKeys(data), [], null);
         setPanelSelection(result4.selection);
         return;

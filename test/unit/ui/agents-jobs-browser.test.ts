@@ -159,7 +159,7 @@ test("j/k and arrows move selection with bounds; Enter focuses detail; Esc retur
 	browser.handleInput("\r");
 	assert.equal(browser.focusMode, "detail", "Enter opens detail");
 	browser.handleInput("j");
-	browser.handleInput("escape");
+	browser.handleInput("\x1b");
 	assert.equal(browser.focusMode, "list", "Esc backs out of detail");
 	browser.dispose();
 });
@@ -241,4 +241,31 @@ test("openAgentsJobsBrowser is a no-op returning false without UI", async () => 
 	const { openAgentsJobsBrowser } = await import("../../../src/extension/registration/viewers.ts");
 	const result = await openAgentsJobsBrowser({ hasUI: false } as never);
 	assert.equal(result, false);
+});
+
+// ─── Freeze regression (2026-09-14): kitty/enhanced keyboard protocol ───
+// Live bug: terminals delivering keys as kitty CSI-u sequences (Escape =
+// "\x1b[27u", letters as "\x1b[<code>u") left the browser permanently
+// stuck — raw byte comparisons matched NOTHING, so no key worked and the
+// overlay could not close. matchesKey normalizes all encodings.
+test("kitty-protocol key sequences navigate and close (freeze regression)", () => {
+	const browser = makeBrowser({
+		agents: [agent({ taskId: "a", status: "running" }), agent({ taskId: "b", status: "completed" })],
+		jobs: [job()],
+	});
+	// down as kitty CSI-u (j = 106): moves selection
+	browser.handleInput("\x1b[106u");
+	assert.equal(browser.selectedIndex, 1, "kitty j moves down");
+	// up (k = 107)
+	browser.handleInput("\x1b[107u");
+	assert.equal(browser.selectedIndex, 0, "kitty k moves up");
+	// enter as kitty CSI-u (return = 13)
+	browser.handleInput("\x1b[13u");
+	assert.equal(browser.focusMode, "detail", "kitty enter opens detail");
+	browser.handleInput("\x1b[27u");
+	assert.equal(browser.focusMode, "list", "kitty escape backs out");
+	// q as kitty CSI-u (113) closes
+	browser.handleInput("\x1b[113u");
+	assert.equal(browser.isClosed, true, "kitty q closes the browser");
+	browser.dispose();
 });

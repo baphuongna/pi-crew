@@ -61,6 +61,7 @@ import { formatRelativeTime } from "../utils/relative-time.ts";
 import { pad, sanitizeLine, truncate, visibleWidth } from "../utils/visual.ts";
 import { renderAgentsPane } from "./dashboard-panes/agents-pane.ts";
 import { renderScheduleDetails, schedulesHiddenJobsHintLine } from "./dashboard-panes/schedules-pane.ts";
+import { matchesKey } from "@earendil-works/pi-tui";
 import { computeLiveDurationMs } from "./live-duration.ts";
 import type { RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerFrame } from "./spinner.ts";
@@ -437,8 +438,14 @@ export class AgentsJobsBrowser {
 	 */
 	handleInput(data: string): void {
 		if (this.closed) return;
-		const up = data === "k" || data === "\x1b[A" || data === "up";
-		const down = data === "j" || data === "\x1b[B" || data === "down";
+		// Key normalization (freeze fix 2026-09-14): NEVER raw-compare terminal
+		// bytes — terminals using the kitty/enhanced keyboard protocol deliver
+		// Escape as `\x1b[27u` and letters as `\x1b[<code>u`, which match NO
+		// legacy sequence and left the overlay permanently stuck (live bug:
+		// every key dead, uncloseable). `matchesKey` is the SAME normalizer
+		// every other pi-crew input surface uses (crew-editor precedent).
+		const up = matchesKey(data, "k") || matchesKey(data, "up");
+		const down = matchesKey(data, "j") || matchesKey(data, "down");
 		if (this.focus === "list") {
 			if (up || down) {
 				const count = this.cachedEntries.length;
@@ -447,21 +454,21 @@ export class AgentsJobsBrowser {
 				}
 				return;
 			}
-			if (data === "\r" || data === "\n" || data === "enter") {
+			if (matchesKey(data, "return")) {
 				if (this.cachedEntries.length > 0) {
 					this.focus = "detail";
 					this.detailScroll = 0;
 				}
 				return;
 			}
-			if (data === "p") {
+			if (matchesKey(data, "p")) {
 				const entry = this.cachedEntries[this.selected];
 				if (this.surfaceReachable() && entry && entry.kind === "agent") {
 					this.surfaceSelectedAgent(entry);
 				}
 				return;
 			}
-			if (data === "q" || data === "escape" || data === "\x1b") {
+			if (matchesKey(data, "q") || matchesKey(data, "escape")) {
 				this.close();
 				return;
 			}
@@ -472,7 +479,7 @@ export class AgentsJobsBrowser {
 			this.detailScroll = up ? Math.max(0, this.detailScroll - 1) : this.detailScroll + 1;
 			return;
 		}
-		if (data === "q" || data === "escape" || data === "\x1b" || data === "\r" || data === "\n" || data === "enter") {
+		if (matchesKey(data, "q") || matchesKey(data, "escape") || matchesKey(data, "return")) {
 			this.focus = "list";
 			return;
 		}

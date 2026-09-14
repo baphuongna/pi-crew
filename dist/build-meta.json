@@ -8512,7 +8512,7 @@
       "format": "esm"
     },
     "src/ui/agents-jobs-browser.ts": {
-      "bytes": 26167,
+      "bytes": 26607,
       "imports": [
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
@@ -8568,6 +8568,11 @@
           "path": "src/ui/dashboard-panes/schedules-pane.ts",
           "kind": "import-statement",
           "original": "./dashboard-panes/schedules-pane.ts"
+        },
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
         },
         {
           "path": "src/ui/live-duration.ts",
@@ -21264,7 +21269,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8110378
+      "bytes": 8110890
     },
     "dist/index.mjs": {
       "imports": [
@@ -21785,6 +21790,11 @@
         },
         {
           "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -24214,7 +24224,7 @@
           "bytesInOutput": 3756
         },
         "src/ui/agents-jobs-browser.ts": {
-          "bytesInOutput": 18529
+          "bytesInOutput": 18535
         },
         "src/ui/live-conversation-overlay.ts": {
           "bytesInOutput": 6106
@@ -24259,7 +24269,7 @@
           "bytesInOutput": 2889
         },
         "src/ui/key-utils.ts": {
-          "bytesInOutput": 508
+          "bytesInOutput": 524
         },
         "src/ui/keybinding-map.ts": {
           "bytesInOutput": 10608
@@ -25537,7 +25547,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3382529
+      "bytes": 3382551
     }
   }
 }
