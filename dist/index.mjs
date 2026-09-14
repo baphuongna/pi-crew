@@ -26605,7 +26605,7 @@ function detectViewSurfaceKind(env) {
 function shellQuote(value) {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
-var REFRESH_TTL_MS_DEFAULT, POLL_INTERVAL_MS, MIN_BODY, MAX_BODY, MIN_LIST_WIDTH, MAX_LIST_WIDTH, AgentsJobsBrowser;
+var REFRESH_TTL_MS_DEFAULT, POLL_INTERVAL_MS, MIN_BODY, MAX_BODY, MAX_LIST_WIDTH, AgentsJobsBrowser;
 var init_agents_jobs_browser = __esm({
   "src/ui/agents-jobs-browser.ts"() {
     "use strict";
@@ -26627,7 +26627,6 @@ var init_agents_jobs_browser = __esm({
     POLL_INTERVAL_MS = 400;
     MIN_BODY = 8;
     MAX_BODY = 24;
-    MIN_LIST_WIDTH = 26;
     MAX_LIST_WIDTH = 64;
     AgentsJobsBrowser = class {
       options;
@@ -26894,26 +26893,47 @@ var init_agents_jobs_browser = __esm({
        *  exceed `width` (truncate/visibleWidth from utils/visual — the same
        *  width model pi-tui enforces). */
       render(width) {
-        const w = Math.max(40, width ?? this.options.columns ?? 80);
+        const w = Math.max(60, width ?? this.options.columns ?? 80);
         const nowMs3 = this.nowMs();
-        const listWidth = Math.max(MIN_LIST_WIDTH, Math.min(MAX_LIST_WIDTH, Math.round(w * 0.38)));
-        const detailWidth = Math.max(20, w - listWidth - 3);
-        const rowWidth = Math.min(w, listWidth + detailWidth + 3);
-        const safeList = rowWidth >= listWidth + 3 + 20 ? listWidth : Math.max(10, rowWidth - 23);
-        const safeDetail = Math.max(10, rowWidth - safeList - 3);
-        const bodyHeight = Math.max(MIN_BODY, Math.min(MAX_BODY, (this.options.rows ?? 24) - 6));
-        const separator = this.options.theme ? this.options.theme.fg("border", "\u2502") : "\u2502";
-        const header = truncate(`Agents & Jobs \u2014 ${this.countAgents()} agents \xB7 ${this.countJobs()} jobs`, w);
-        const lines = [header];
+        const inner = w - 7;
+        const listWidth = Math.max(20, Math.min(MAX_LIST_WIDTH, Math.round(inner * 0.42)));
+        const detailWidth = Math.max(16, inner - listWidth);
+        const maxBody = Math.max(MIN_BODY, Math.min(MAX_BODY, (this.options.rows ?? 24) - 6));
+        const dim = (text) => this.options.theme ? this.options.theme.fg("border", text) : text;
+        const accent = (text) => this.options.theme ? this.options.theme.fg("accent", text) : text;
+        const sep10 = dim("\u2502");
+        const counts = [
+          `${this.countAgents()} agent${this.countAgents() === 1 ? "" : "s"}`,
+          `${this.countJobs()} job${this.countJobs() === 1 ? "" : "s"}`
+        ];
+        if (this.hiddenCount > 0) counts.push(`${this.hiddenCount} hidden`);
+        const lines = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(` ${counts.join(" \xB7 ")} `), w)];
         const hiddenHint = schedulesHiddenJobsHintLine(this.hiddenCount);
-        if (hiddenHint) lines.push(truncate(hiddenHint, w));
-        const left = this.renderListColumn(safeList, bodyHeight, nowMs3);
-        const right = this.renderDetailColumn(safeDetail, bodyHeight);
+        if (hiddenHint) lines.push(`${dim("\u2502")} ${pad(dim(truncate(hiddenHint, w - 4)), w - 3)}${dim("\u2502")}`);
+        const left = this.renderListColumn(listWidth, maxBody, nowMs3);
+        const right = this.renderDetailColumn(detailWidth, maxBody);
+        const bodyHeight = Math.max(5, Math.min(maxBody, Math.max(left.length, right.length)));
         for (let i = 0; i < bodyHeight; i++) {
-          lines.push(`${pad(left[i] ?? "", safeList)} ${separator} ${pad(right[i] ?? "", safeDetail)}`);
+          const l = pad(left[i] ?? "", listWidth);
+          const r = pad(right[i] ?? "", detailWidth);
+          lines.push(`${dim("\u2502")} ${l} ${sep10} ${r} ${dim("\u2502")}`);
         }
-        lines.push(truncate(this.hintRow(), w));
+        lines.push(this.framedBorderRow("bottom", dim(" " + this.hintRow() + " "), "", w));
         return lines;
+      }
+      /** `╭─ title ── right ─────╮` / `╰─ hint ───────────────╯` — always exactly `w` visible cells. */
+      framedBorderRow(which, title, right, w) {
+        const cornerL = which === "top" ? "\u256D" : "\u2570";
+        const cornerR = which === "top" ? "\u256E" : "\u256F";
+        const rule = which === "top" ? "\u2500" : "\u2500";
+        const titleCells = visibleWidth(title);
+        const rightCells = right ? visibleWidth(right) : 0;
+        const budget = w - 2 - titleCells - rightCells;
+        if (budget < 1) {
+          const t2 = truncate(title, w - 2);
+          return `${cornerL}${t2}${cornerR}`;
+        }
+        return `${cornerL}${title}${rule.repeat(budget)}${right}${cornerR}`;
       }
       countAgents() {
         return this.cachedEntries.filter((entry) => entry.kind === "agent").length;
@@ -26922,7 +26942,7 @@ var init_agents_jobs_browser = __esm({
         return this.cachedEntries.filter((entry) => entry.kind === "job").length;
       }
       hintRow() {
-        const base = this.focus === "list" ? `[\u2191\u2193] navigate \xB7 [Enter] open detail${this.surfaceReachable() ? " \xB7 [p] surface" : ""} \xB7 [Esc] close` : "[\u2191\u2193] scroll detail \xB7 [Esc] back";
+        const base = this.focus === "list" ? `[\u2191\u2193] move \xB7 [\u23CE] detail${this.surfaceReachable() ? " \xB7 [p] pane" : ""} \xB7 [q] close` : "[\u2191\u2193] scroll \xB7 [\u23CE/Esc] back";
         return base;
       }
       /** LEFT column: section labels + unified rows, windowed around selection. */
@@ -28089,6 +28109,7 @@ __export(viewers_exports, {
   openTranscriptViewer: () => openTranscriptViewer,
   selectAgentTask: () => selectAgentTask
 });
+import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
 async function getViewer() {
   const mod = await Promise.resolve().then(() => (init_transcript_viewer(), transcript_viewer_exports));
   return mod.DurableTranscriptViewer;
@@ -28150,7 +28171,7 @@ async function openLiveConversation(ctx, initialRunId, initialTaskId) {
           return overlay.render(width);
         },
         handleInput(data) {
-          if (data === "\x1B" || data === "q") {
+          if (matchesKey2(data, "escape") || matchesKey2(data, "q")) {
             overlay.close();
             done(void 0);
           }
@@ -29041,10 +29062,10 @@ var init_plan_approval = __esm({
 });
 
 // src/ui/key-utils.ts
-import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
 function keyOf(data) {
   for (const id of COMMON_IDS) {
-    if (matchesKey2(data, id)) return id;
+    if (matchesKey3(data, id)) return id;
   }
   return data;
 }
@@ -29074,7 +29095,7 @@ var init_key_utils = __esm({
 // src/ui/keybinding-map.ts
 import * as fs46 from "node:fs";
 import * as path35 from "node:path";
-import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey4 } from "@earendil-works/pi-tui";
 function parseKeybindingOverride(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result4 = {};
@@ -29174,7 +29195,7 @@ function dashboardActionForKey(data, activePane) {
     if (!paneScopeMatches(binding.pane, activePane)) continue;
     for (const candidate of binding.keys) {
       if (key === candidate) return binding.action;
-      if (matchesKey3(data, candidate)) return binding.action;
+      if (matchesKey4(data, candidate)) return binding.action;
     }
   }
   return void 0;
@@ -74700,6 +74721,7 @@ var init_confirm_overlay = __esm({
     init_visual();
     init_layout_primitives();
     init_theme_adapter();
+    init_key_utils();
     ConfirmOverlay = class {
       opts;
       done;
@@ -74737,11 +74759,11 @@ var init_confirm_overlay = __esm({
           this.done(true);
           return;
         }
-        if ((data === "\r" || data === "\n") && this.opts.defaultAction === "confirm") {
+        if (matchesKey3(data, "return") && this.opts.defaultAction === "confirm") {
           this.done(true);
           return;
         }
-        if (data === "n" || data === "N" || data === "\x1B" || data === "q" || data === "\r" || data === "\n") this.done(false);
+        if (data === "n" || data === "N" || matchesKey3(data, "escape") || data === "q" || matchesKey3(data, "return")) this.done(false);
       }
     };
   }
@@ -74845,7 +74867,7 @@ var init_mailbox_detail_overlay = __esm({
         return pad(truncate(`${marker}${status} ${message.from}->${message.to}: ${message.body.replace(/\s+/g, " ")}`, width), width);
       }
       handleInput(data) {
-        if (data === "\x1B" || data === "q") {
+        if (matchesKey3(data, "escape") || data === "q") {
           this.done({ type: "close" });
           return;
         }
@@ -74862,7 +74884,7 @@ var init_mailbox_detail_overlay = __esm({
           this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
           return;
         }
-        if (data === "\r" || data === "\n") {
+        if (matchesKey3(data, "return")) {
           this.expanded = !this.expanded;
           return;
         }
@@ -74970,6 +74992,7 @@ var init_mailbox_compose_overlay = __esm({
     init_theme_adapter();
     init_confirm_overlay();
     init_mailbox_compose_preview();
+    init_key_utils();
     FIELD_ORDER = ["from", "to", "body", "taskId", "direction"];
     MailboxComposeOverlay = class {
       done;
@@ -75086,7 +75109,7 @@ var init_mailbox_compose_overlay = __esm({
           this.confirm.handleInput(data);
           return;
         }
-        if (data === "\x1B") {
+        if (matchesKey3(data, "escape")) {
           this.cancel();
           return;
         }
@@ -75103,11 +75126,11 @@ var init_mailbox_compose_overlay = __esm({
           else this.appendText(data);
           return;
         }
-        if (data === "\b" || data === "\x7F") {
+        if (matchesKey3(data, "backspace")) {
           this.backspace();
           return;
         }
-        if (data === "\r" || data === "\n") {
+        if (matchesKey3(data, "return")) {
           if (this.activeName() === "body" || this.fields.body.trim()) this.submit();
           else this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
           return;
@@ -75158,7 +75181,7 @@ var init_agent_picker_overlay = __esm({
         return lines.map((line4) => pad(truncate(line4, inner), inner));
       }
       handleInput(data) {
-        if (data === "\x1B" || data === "q") {
+        if (matchesKey3(data, "escape") || data === "q") {
           this.done(void 0);
           return;
         }
@@ -75170,7 +75193,7 @@ var init_agent_picker_overlay = __esm({
           this.selected = Math.min(Math.max(0, this.agents.length - 1), this.selected + 1);
           return;
         }
-        if (data === "\r" || data === "\n") {
+        if (matchesKey3(data, "return")) {
           const agent = this.agents[this.selected];
           this.done(agent ? { agentId: agent.taskId } : void 0);
         }
@@ -87502,7 +87525,7 @@ function resetAllAgentTranscriptCursors() {
 
 // src/ui/inline-panel/agent-view-overlay.ts
 init_theme_adapter();
-import { matchesKey as matchesKey4, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey5, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
 
 // src/ui/inline-panel/agent-pane.ts
 init_state_store();
@@ -87855,12 +87878,12 @@ var CrewAgentOverlay = class {
   handleInput(data) {
     if (this.disposed || this.closed) return;
     if (this.inputMode) {
-      if (matchesKey4(data, "escape")) {
+      if (matchesKey5(data, "escape")) {
         this.inputMode = false;
         this.inputText = "";
-      } else if (matchesKey4(data, "return")) {
+      } else if (matchesKey5(data, "return")) {
         this.sendSteer();
-      } else if (matchesKey4(data, "backspace")) {
+      } else if (matchesKey5(data, "backspace")) {
         this.inputText = this.inputText.slice(0, -1);
       } else if (data === "") {
         this.inputMode = false;
@@ -87871,7 +87894,7 @@ var CrewAgentOverlay = class {
       this.tui.requestRender();
       return;
     }
-    if (matchesKey4(data, "escape") || data === "") {
+    if (matchesKey5(data, "escape") || data === "") {
       this.requestClose();
       return;
     }
@@ -87879,35 +87902,35 @@ var CrewAgentOverlay = class {
       this.requestClose();
       return;
     }
-    if (matchesKey4(data, "pageUp")) {
+    if (matchesKey5(data, "pageUp")) {
       this.pane.scrollBy(10);
       return;
     }
-    if (matchesKey4(data, "pageDown")) {
+    if (matchesKey5(data, "pageDown")) {
       this.pane.scrollBy(-10);
       return;
     }
-    if (matchesKey4(data, "up") || data === "k") {
+    if (matchesKey5(data, "up") || data === "k") {
       this.pane.scrollBy(1);
       return;
     }
-    if (matchesKey4(data, "down") || data === "j") {
+    if (matchesKey5(data, "down") || data === "j") {
       this.pane.scrollBy(-1);
       return;
     }
-    if (data === "g" || matchesKey4(data, "home")) {
+    if (data === "g" || matchesKey5(data, "home")) {
       this.pane.scrollHome();
       return;
     }
-    if (data === "G" || matchesKey4(data, "end")) {
+    if (data === "G" || matchesKey5(data, "end")) {
       this.pane.scrollEnd();
       return;
     }
-    if (matchesKey4(data, "tab")) {
+    if (matchesKey5(data, "tab")) {
       this.cycleAgent(1);
       return;
     }
-    if (matchesKey4(data, "shift+tab")) {
+    if (matchesKey5(data, "shift+tab")) {
       this.cycleAgent(-1);
       return;
     }
@@ -87942,7 +87965,7 @@ var CrewAgentOverlay = class {
 init_panel_selection();
 init_panel_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { matchesKey as matchesKey5, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey6, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
 var CrewInlineEditor = class extends CustomEditor {
   options;
@@ -87952,11 +87975,11 @@ var CrewInlineEditor = class extends CustomEditor {
   }
   panelKeys(data) {
     return {
-      up: matchesKey5(data, "up"),
-      down: matchesKey5(data, "down"),
-      enter: matchesKey5(data, "return"),
-      escape: matchesKey5(data, "escape"),
-      act: matchesKey5(data, "x")
+      up: matchesKey6(data, "up"),
+      down: matchesKey6(data, "down"),
+      enter: matchesKey6(data, "return"),
+      escape: matchesKey6(data, "escape"),
+      act: matchesKey6(data, "x")
     };
   }
   /**
@@ -88001,23 +88024,23 @@ var CrewInlineEditor = class extends CustomEditor {
         this.applyDispatch(data, rows, this.panelKeys(data), true);
         return;
       }
-      if (matchesKey5(data, "down") && this.getText() === "" && rows.length > 0) {
+      if (matchesKey6(data, "down") && this.getText() === "" && rows.length > 0) {
         setPanelSelection("main");
         return;
       }
-      if (matchesKey5(data, "escape")) {
+      if (matchesKey6(data, "escape")) {
         this.options.onClosePane();
         return;
       }
-      if (matchesKey5(data, "pageUp")) {
+      if (matchesKey6(data, "pageUp")) {
         this.options.onScrollPane(10);
         return;
       }
-      if (matchesKey5(data, "pageDown")) {
+      if (matchesKey6(data, "pageDown")) {
         this.options.onScrollPane(-10);
         return;
       }
-      if (matchesKey5(data, "return")) {
+      if (matchesKey6(data, "return")) {
         const text = (this.getExpandedText?.() ?? this.getText()).trim();
         if (!text) {
           super.handleInput(data);
@@ -88035,7 +88058,7 @@ var CrewInlineEditor = class extends CustomEditor {
       return;
     }
     if (getPanelSelection() === null) {
-      if (matchesKey5(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
+      if (matchesKey6(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
         const result4 = dispatchPanelKey(this.panelKeys(data), [], null);
         setPanelSelection(result4.selection);
         return;

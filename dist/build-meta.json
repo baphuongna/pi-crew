@@ -8512,8 +8512,13 @@
       "format": "esm"
     },
     "src/ui/agents-jobs-browser.ts": {
-      "bytes": 26607,
+      "bytes": 28473,
       "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
           "kind": "import-statement",
@@ -8568,11 +8573,6 @@
           "path": "src/ui/dashboard-panes/schedules-pane.ts",
           "kind": "import-statement",
           "original": "./dashboard-panes/schedules-pane.ts"
-        },
-        {
-          "path": "@earendil-works/pi-tui",
-          "kind": "import-statement",
-          "external": true
         },
         {
           "path": "src/ui/live-duration.ts",
@@ -8718,8 +8718,13 @@
       "format": "esm"
     },
     "src/extension/registration/viewers.ts": {
-      "bytes": 5815,
+      "bytes": 5888,
       "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/config/config.ts",
           "kind": "import-statement",
@@ -8939,7 +8944,7 @@
       "format": "esm"
     },
     "src/ui/key-utils.ts": {
-      "bytes": 1224,
+      "bytes": 1321,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -18269,7 +18274,7 @@
       "format": "esm"
     },
     "src/ui/overlays/confirm-overlay.ts": {
-      "bytes": 2162,
+      "bytes": 2207,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -18285,12 +18290,17 @@
           "path": "src/ui/theme-adapter.ts",
           "kind": "import-statement",
           "original": "../theme-adapter.ts"
+        },
+        {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "../key-utils.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/overlays/mailbox-detail-overlay.ts": {
-      "bytes": 5355,
+      "bytes": 5372,
       "imports": [
         {
           "path": "src/state/coordination/mailbox.ts",
@@ -18337,7 +18347,7 @@
       "format": "esm"
     },
     "src/ui/overlays/mailbox-compose-overlay.ts": {
-      "bytes": 5361,
+      "bytes": 5407,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -18358,12 +18368,17 @@
           "path": "src/ui/overlays/mailbox-compose-preview.ts",
           "kind": "import-statement",
           "original": "./mailbox-compose-preview.ts"
+        },
+        {
+          "path": "src/ui/key-utils.ts",
+          "kind": "import-statement",
+          "original": "../key-utils.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/overlays/agent-picker-overlay.ts": {
-      "bytes": 2169,
+      "bytes": 2186,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -21269,7 +21284,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8110890
+      "bytes": 8114556
     },
     "dist/index.mjs": {
       "imports": [
@@ -21820,6 +21835,11 @@
         },
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -24224,7 +24244,7 @@
           "bytesInOutput": 3756
         },
         "src/ui/agents-jobs-browser.ts": {
-          "bytesInOutput": 18535
+          "bytesInOutput": 19676
         },
         "src/ui/live-conversation-overlay.ts": {
           "bytesInOutput": 6106
@@ -24245,7 +24265,7 @@
           "bytesInOutput": 16890
         },
         "src/extension/registration/viewers.ts": {
-          "bytesInOutput": 4421
+          "bytesInOutput": 4511
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
           "bytesInOutput": 956
@@ -25250,19 +25270,19 @@
           "bytesInOutput": 39732
         },
         "src/ui/overlays/confirm-overlay.ts": {
-          "bytesInOutput": 2237
+          "bytesInOutput": 2263
         },
         "src/ui/overlays/mailbox-detail-overlay.ts": {
-          "bytesInOutput": 5269
+          "bytesInOutput": 5278
         },
         "src/ui/overlays/mailbox-compose-preview.ts": {
           "bytesInOutput": 2326
         },
         "src/ui/overlays/mailbox-compose-overlay.ts": {
-          "bytesInOutput": 5449
+          "bytesInOutput": 5478
         },
         "src/ui/overlays/agent-picker-overlay.ts": {
-          "bytesInOutput": 1943
+          "bytesInOutput": 1952
         },
         "src/ui/mascot.ts": {
           "bytesInOutput": 15969
@@ -25547,7 +25567,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3382551
+      "bytes": 3383855
     }
   }
 }

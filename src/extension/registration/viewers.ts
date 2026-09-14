@@ -1,4 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { matchesKey } from "@earendil-works/pi-tui";
 import { loadConfig } from "../../config/config.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
@@ -89,7 +90,7 @@ export async function openLiveConversation(
 					return overlay.render(width);
 				},
 				handleInput(data: string) {
-					if (data === "\x1b" || data === "q") {
+					if (matchesKey(data, "escape") || matchesKey(data, "q")) {
 						overlay.close();
 						done(undefined);
 					}

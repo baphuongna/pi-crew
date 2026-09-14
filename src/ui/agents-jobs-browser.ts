@@ -47,6 +47,7 @@
  * dashboard overlay, so headless sessions never reach it.
  */
 
+import { matchesKey } from "@earendil-works/pi-tui";
 import { getScheduledJobs, getScheduledJobsHiddenCountView } from "../extension/team-tool/handle-schedule.ts";
 import { agentEventsPath, readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
@@ -61,7 +62,6 @@ import { formatRelativeTime } from "../utils/relative-time.ts";
 import { pad, sanitizeLine, truncate, visibleWidth } from "../utils/visual.ts";
 import { renderAgentsPane } from "./dashboard-panes/agents-pane.ts";
 import { renderScheduleDetails, schedulesHiddenJobsHintLine } from "./dashboard-panes/schedules-pane.ts";
-import { matchesKey } from "@earendil-works/pi-tui";
 import { computeLiveDurationMs } from "./live-duration.ts";
 import type { RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerFrame } from "./spinner.ts";
@@ -491,30 +491,64 @@ export class AgentsJobsBrowser {
 	 *  exceed `width` (truncate/visibleWidth from utils/visual — the same
 	 *  width model pi-tui enforces). */
 	render(width?: number): string[] {
-		const w = Math.max(40, width ?? this.options.columns ?? 80);
+		// FRAMED PANEL (redesign 2026-09-14, "dễ nhìn"): a full box —
+		//
+		//   ╭─ Agents & Jobs ── 2 agents · 1 job ─────────────────────╮
+		//   │ Live agents (2)        │ ▸ adaptive-01-executor        │
+		//   │ › ⠋ Explorer · 41 t/s  │   0/1 tasks · 1 agents        │
+		//   ╰─ [↑↓] move · [⏎] detail · [p] pane · [q] close ────────╯
+		//
+		// Title + counts embed in the TOP border, key hints in the BOTTOM
+		// border (the omp EditorTopBorder idiom) so the body is pure content
+		// and the panel reads as one visual unit over the terminal.
+		const w = Math.max(60, width ?? this.options.columns ?? 80);
 		const nowMs = this.nowMs();
-		const listWidth = Math.max(MIN_LIST_WIDTH, Math.min(MAX_LIST_WIDTH, Math.round(w * 0.38)));
-		const detailWidth = Math.max(20, w - listWidth - 3);
-		// Narrow-terminal guard (target range is 80..250, but never overflow):
-		// below the natural split, shrink BOTH columns so row width === w.
-		const rowWidth = Math.min(w, listWidth + detailWidth + 3);
-		const safeList = rowWidth >= listWidth + 3 + 20 ? listWidth : Math.max(10, rowWidth - 23);
-		const safeDetail = Math.max(10, rowWidth - safeList - 3);
-		const bodyHeight = Math.max(MIN_BODY, Math.min(MAX_BODY, (this.options.rows ?? 24) - 6));
-		const separator = this.options.theme ? this.options.theme.fg("border", "│") : "│";
+		// Inner budget: 2 border cols + 4 padding cols + 1 divider col.
+		const inner = w - 7;
+		const listWidth = Math.max(20, Math.min(MAX_LIST_WIDTH, Math.round(inner * 0.42)));
+		const detailWidth = Math.max(16, inner - listWidth);
+		const maxBody = Math.max(MIN_BODY, Math.min(MAX_BODY, (this.options.rows ?? 24) - 6));
+		const dim = (text: string) => (this.options.theme ? this.options.theme.fg("border", text) : text);
+		const accent = (text: string) => (this.options.theme ? this.options.theme.fg("accent", text) : text);
+		const sep = dim("│");
 
-		const header = truncate(`Agents & Jobs — ${this.countAgents()} agents · ${this.countJobs()} jobs`, w);
-		const lines = [header];
+		const counts = [
+			`${this.countAgents()} agent${this.countAgents() === 1 ? "" : "s"}`,
+			`${this.countJobs()} job${this.countJobs() === 1 ? "" : "s"}`,
+		];
+		if (this.hiddenCount > 0) counts.push(`${this.hiddenCount} hidden`);
+		const lines: string[] = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(` ${counts.join(" · ")} `), w)];
 		const hiddenHint = schedulesHiddenJobsHintLine(this.hiddenCount);
-		if (hiddenHint) lines.push(truncate(hiddenHint, w));
+		if (hiddenHint) lines.push(`${dim("│")} ${pad(dim(truncate(hiddenHint, w - 4)), w - 3)}${dim("│")}`);
 
-		const left = this.renderListColumn(safeList, bodyHeight, nowMs);
-		const right = this.renderDetailColumn(safeDetail, bodyHeight);
+		const left = this.renderListColumn(listWidth, maxBody, nowMs);
+		const right = this.renderDetailColumn(detailWidth, maxBody);
+		// Content-fit height (redesign): no seas of blank rows — the body is
+		// as tall as its tallest column, clamped to [5, maxBody].
+		const bodyHeight = Math.max(5, Math.min(maxBody, Math.max(left.length, right.length)));
 		for (let i = 0; i < bodyHeight; i++) {
-			lines.push(`${pad(left[i] ?? "", safeList)} ${separator} ${pad(right[i] ?? "", safeDetail)}`);
+			const l = pad(left[i] ?? "", listWidth);
+			const r = pad(right[i] ?? "", detailWidth);
+			lines.push(`${dim("│")} ${l} ${sep} ${r} ${dim("│")}`);
 		}
-		lines.push(truncate(this.hintRow(), w));
+		lines.push(this.framedBorderRow("bottom", dim(" " + this.hintRow() + " "), "", w));
 		return lines;
+	}
+
+	/** `╭─ title ── right ─────╮` / `╰─ hint ───────────────╯` — always exactly `w` visible cells. */
+	private framedBorderRow(which: "top" | "bottom", title: string, right: string, w: number): string {
+		const cornerL = which === "top" ? "╭" : "╰";
+		const cornerR = which === "top" ? "╮" : "╯";
+		const rule = which === "top" ? "─" : "─";
+		const titleCells = visibleWidth(title);
+		const rightCells = right ? visibleWidth(right) : 0;
+		const budget = w - 2 - titleCells - rightCells;
+		if (budget < 1) {
+			// Degenerate narrow: title only, truncated.
+			const t = truncate(title, w - 2);
+			return `${cornerL}${t}${cornerR}`;
+		}
+		return `${cornerL}${title}${rule.repeat(budget)}${right}${cornerR}`;
 	}
 
 	private countAgents(): number {
@@ -528,8 +562,8 @@ export class AgentsJobsBrowser {
 	private hintRow(): string {
 		const base =
 			this.focus === "list"
-				? `[↑↓] navigate · [Enter] open detail${this.surfaceReachable() ? " · [p] surface" : ""} · [Esc] close`
-				: "[↑↓] scroll detail · [Esc] back";
+				? `[↑↓] move · [⏎] detail${this.surfaceReachable() ? " · [p] pane" : ""} · [q] close`
+				: "[↑↓] scroll · [⏎/Esc] back";
 		return base;
 	}
 
