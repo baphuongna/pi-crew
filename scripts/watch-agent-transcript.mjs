@@ -57,6 +57,9 @@ function renderEvent(evt) {
 	return `${stamp(evt.timestamp ?? msg.timestamp) || "        "} ${who} ${out.join(" │ ")}`;
 }
 
+// Clear the pane first — herdr/tmux panes boot via the shell, so the echoed
+// prompt + full node command would otherwise sit above the watcher output.
+process.stdout.write("\x1b[2J\x1b[H");
 console.log(`── watching ${basename(path)} ──`);
 
 let offset = 0;
