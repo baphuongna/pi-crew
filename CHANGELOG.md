@@ -4,9 +4,9 @@
 
 ## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
 
-### feat(vibes): tok/s speed UI off by default — pi's built-in working indicator restored
+### feat(vibes): tok/s speed UI REMOVED — pi's built-in working indicator always used
 
-- Maintainer decision: the custom spinner frames + `Working N tok/s` message are no longer the default experience — pi's own working indicator (braille spinner + `Working` label) shows instead. `DEFAULT_CONFIG.speed.enabled` is now `false`; opt back in via `/team-vibes speed on`.
+- Maintainer decision: the entire speed subsystem is deleted, not toggled off — custom spinner frames (`setWorkingIndicator`), the `Working N tok/s` message (`setWorkingMessage`), SpeedTracker/SpeedAnimator, the speed config block, and every speed event handler (agent_start/turn_start/message_*/turn_end/agent_end wiring). crew-vibes is now a single-purpose module: fetch the provider rate-limit quota and publish it as a status entry on pi's native footer. `/team-vibes` shrinks to `[on|off]`.
 
 
 ### feat(footer): restore pi's NATIVE footer — custom footer replacement retired (UI-review option 1)
