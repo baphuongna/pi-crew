@@ -356,3 +356,40 @@ test("Enter on an agent fires onOpenTranscript seam; job still focuses inline de
 	assert.equal(browser.focusMode, "detail", "job Enter focuses the inline detail column");
 	browser.dispose();
 });
+
+test("p outside a tmux/herdr surface shows a header notice instead of silence", () => {
+	let rendered = 0;
+	const browser = new AgentsJobsBrowser({
+		cwd: tmpdir(),
+		now: () => Date.UTC(2026, 8, 14, 12),
+		refreshTtlMs: 0,
+		surfaceReachable: false, // no tmux/herdr — the live case that swallowed `p`
+		requestRender: () => rendered++,
+		agentsProvider: () => [{ kind: "agent", runId: "r1", taskId: "t1", role: "Explorer", status: "running" }],
+		jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
+	});
+	browser.handleInput("p");
+	assert.ok(rendered > 0, "notice triggers a re-render");
+	const header = browser.render(100)[0] ?? "";
+	assert.match(header, /no tmux\/herdr surface/, `header explains the dead key: ${header}`);
+	// Notice expiry is covered by the next test.
+	browser.dispose();
+});
+
+test("notice expires and the top border returns to counts", () => {
+	let clock = Date.UTC(2026, 8, 14, 12);
+	const browser = new AgentsJobsBrowser({
+		cwd: tmpdir(),
+		now: () => clock,
+		refreshTtlMs: 0,
+		surfaceReachable: false,
+		agentsProvider: () => [{ kind: "agent", runId: "r1", taskId: "t1", role: "Explorer", status: "running" }],
+		jobsProvider: () => ({ jobs: [], hiddenCount: 0 }),
+	});
+	browser.handleInput("p");
+	assert.match(browser.render(100)[0] ?? "", /no tmux\/herdr surface/);
+	clock += 3000; // past the 2.5s notice window
+	assert.doesNotMatch(browser.render(100)[0] ?? "", /no tmux\/herdr surface/);
+	assert.match(browser.render(100)[0] ?? "", /1 agent/);
+	browser.dispose();
+});

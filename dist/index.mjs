@@ -27891,14 +27891,15 @@ var init_widget_model = __esm({
 });
 
 // src/ui/agents-jobs-browser.ts
+import { existsSync as existsSync24 } from "node:fs";
 import { fileURLToPath as fileURLToPath4 } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
 function watchAgentTranscriptScript() {
-  try {
-    return fileURLToPath4(new URL("../../scripts/watch-agent-transcript.mjs", import.meta.url));
-  } catch {
-    return fileURLToPath4(new URL("../../../scripts/watch-agent-transcript.mjs", import.meta.url));
-  }
+  const candidates = [
+    fileURLToPath4(new URL("../../scripts/watch-agent-transcript.mjs", import.meta.url)),
+    fileURLToPath4(new URL("../scripts/watch-agent-transcript.mjs", import.meta.url))
+  ];
+  return candidates.find((c) => existsSync24(c));
 }
 function recordTokPerSec(record, nowMs3) {
   if (record.status !== "running") return void 0;
@@ -27964,6 +27965,8 @@ var init_agents_jobs_browser = __esm({
       focus = "list";
       detailScroll = 0;
       closed = false;
+      /** Transient header notice (e.g. why `p` did nothing) — auto-expires. */
+      notice;
       pollTimer;
       manifests = /* @__PURE__ */ new Map();
       constructor(options) {
@@ -28005,6 +28008,10 @@ var init_agents_jobs_browser = __esm({
           clearInterval(this.pollTimer);
           this.pollTimer = void 0;
         }
+      }
+      setNotice(text) {
+        this.notice = { text, until: this.nowMs() + 2500 };
+        this.options.requestRender?.();
       }
       nowMs() {
         return this.options.now ? this.options.now() : Date.now();
@@ -28160,14 +28167,16 @@ var init_agents_jobs_browser = __esm({
         try {
           const kind = detectViewSurfaceKind(process.env);
           if (!kind || !tailPath) return false;
+          const watcherScript = watchAgentTranscriptScript();
           const provider = surfaceProviderForCleanup(kind);
           if (!provider) return false;
           await provider.createSurface(`crew-view-${entry.taskId.slice(0, 12)}`, {
             cwd: this.options.cwd,
             // Watcher formats the session transcript one readable line per
             // message (live "what is the agent doing") — raw tail would
-            // show unbounded JSON walls.
-            command: `${shellQuote(process.execPath)} ${shellQuote(watchAgentTranscriptScript())} ${shellQuote(tailPath)}`,
+            // show unbounded JSON walls. Missing script (unexpected layout)
+            // degrades to plain tail so the pane still opens.
+            command: watcherScript ? `${shellQuote(process.execPath)} ${shellQuote(watcherScript)} ${shellQuote(tailPath)}` : `tail -n 40 -F ${shellQuote(tailPath)}`,
             title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`
           });
           return true;
@@ -28211,8 +28220,12 @@ var init_agents_jobs_browser = __esm({
           }
           if (matchesKey(data, "p")) {
             const entry = this.cachedEntries[this.selected];
-            if (this.surfaceReachable() && entry && entry.kind === "agent") {
-              this.surfaceSelectedAgent(entry);
+            if (entry && entry.kind === "agent") {
+              if (this.surfaceReachable()) {
+                this.surfaceSelectedAgent(entry);
+              } else {
+                this.setNotice("\u26A0 no tmux/herdr surface \u2014 run pi inside tmux for panes");
+              }
             }
             return;
           }
@@ -28250,7 +28263,8 @@ var init_agents_jobs_browser = __esm({
           `${this.countJobs()} job${this.countJobs() === 1 ? "" : "s"}`
         ];
         if (this.hiddenCount > 0) counts.push(`${this.hiddenCount} hidden`);
-        const lines = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(` ${counts.join(" \xB7 ")} `), w)];
+        const activeNotice = this.notice && this.notice.until > nowMs3 ? ` ${this.notice.text} ` : ` ${counts.join(" \xB7 ")} `;
+        const lines = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(truncate(activeNotice, w - 20)), w)];
         const hiddenHint = schedulesHiddenJobsHintLine(this.hiddenCount);
         if (hiddenHint) lines.push(`${dim("\u2502")} ${pad(dim(truncate(hiddenHint, w - 4)), w - 3)}${dim("\u2502")}`);
         const left = this.renderListColumn(listWidth, maxBody, nowMs3);
@@ -32757,7 +32771,7 @@ var init_crew_hooks = __esm({
 });
 
 // src/runtime/skill-effectiveness.ts
-import { existsSync as existsSync30, mkdirSync as mkdirSync18, readFileSync as readFileSync34, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync31, mkdirSync as mkdirSync18, readFileSync as readFileSync34, writeFileSync as writeFileSync4 } from "node:fs";
 import { dirname as dirname22, join as join38 } from "node:path";
 function getSkillMetricsPath(cwd, runId) {
   return join38(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
@@ -32767,7 +32781,7 @@ function getSkillActivationsPath(cwd, runId) {
 }
 function ensureSkillMetricsDir(cwd, runId) {
   const dir = dirname22(getSkillMetricsPath(cwd, runId));
-  if (!existsSync30(dir)) {
+  if (!existsSync31(dir)) {
     mkdirSync18(dir, { recursive: true });
   }
 }
@@ -32817,7 +32831,7 @@ function recordSkillActivation(cwd, activation) {
 }
 function getSkillActivations(cwd, runId) {
   const path103 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync30(path103)) {
+  if (!existsSync31(path103)) {
     return [];
   }
   const content = readFileSync34(path103, "utf-8");
@@ -58760,7 +58774,7 @@ var init_handle_settings = __esm({
 });
 
 // src/extension/team-tool/workflow-manage.ts
-import { existsSync as existsSync56, readFileSync as readFileSync63, rmSync as rmSync19, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync57, readFileSync as readFileSync63, rmSync as rmSync19, writeFileSync as writeFileSync9 } from "node:fs";
 import { dirname as dirname35, join as join65 } from "node:path";
 function allowedWorkflowDirs(cwd) {
   return [join65(projectCrewRoot(cwd), "workflows"), join65(userPiRoot(), "workflows"), join65(packageRoot(), "workflows")];
@@ -58830,7 +58844,7 @@ function handleWorkflowGet(params, ctx) {
   if (!wf) return result(`Workflow '${name}' not found.`, { action: "workflow-get", status: "error" }, true);
   const isDynamic = wf.runtime === "dynamic";
   let source = "(static workflow \u2014 no script source)";
-  if (isDynamic && wf.filePath && existsSync56(wf.filePath)) {
+  if (isDynamic && wf.filePath && existsSync57(wf.filePath)) {
     try {
       source = readFileSync63(wf.filePath, "utf-8").slice(0, 8e3);
     } catch (error) {
@@ -59691,7 +59705,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync17, existsSync as existsSync59, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync26, readFileSync as readFileSync65, statSync as statSync46, unlinkSync as unlinkSync9 } from "node:fs";
+import { closeSync as closeSync17, existsSync as existsSync60, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync26, readFileSync as readFileSync65, statSync as statSync46, unlinkSync as unlinkSync9 } from "node:fs";
 import { dirname as dirname38 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -59724,7 +59738,7 @@ var init_goal_state_store = __esm({
       load(goalId) {
         const path103 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync59(path103)) return void 0;
+          if (!existsSync60(path103)) return void 0;
           const raw = readFileSync65(path103, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
@@ -59838,7 +59852,7 @@ var init_goal_state_store = __esm({
       remove(goalId) {
         try {
           const path103 = goalFilePath(this.cwd, goalId);
-          if (!existsSync59(path103)) return false;
+          if (!existsSync60(path103)) return false;
           unlinkSync9(path103);
           return true;
         } catch (error) {
@@ -59850,7 +59864,7 @@ var init_goal_state_store = __esm({
       list() {
         try {
           const root = resolveGoalsRoot(this.cwd);
-          if (!existsSync59(root)) return [];
+          if (!existsSync60(root)) return [];
           const entries = readdirSync26(root);
           const goals = [];
           for (const entry of entries) {
@@ -59915,7 +59929,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash11 } from "node:crypto";
-import { closeSync as closeSync18, existsSync as existsSync60, mkdirSync as mkdirSync37, openSync as openSync18, readdirSync as readdirSync27, readFileSync as readFileSync67, statSync as statSync48, unlinkSync as unlinkSync10, writeFileSync as writeFileSync10 } from "node:fs";
+import { closeSync as closeSync18, existsSync as existsSync61, mkdirSync as mkdirSync37, openSync as openSync18, readdirSync as readdirSync27, readFileSync as readFileSync67, statSync as statSync48, unlinkSync as unlinkSync10, writeFileSync as writeFileSync10 } from "node:fs";
 import * as path73 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path73.resolve(cwd);
@@ -59925,7 +59939,7 @@ function workspaceLockPath(cwd) {
   return path73.join(locksDir, `${hash}.lock`);
 }
 function readLock(lockPath2) {
-  if (!existsSync60(lockPath2)) return void 0;
+  if (!existsSync61(lockPath2)) return void 0;
   try {
     const parsed = JSON.parse(readFileSync67(lockPath2, "utf-8"));
     if (!parsed || typeof parsed !== "object") return void 0;
@@ -70824,7 +70838,7 @@ var init_deterministic_ast = __esm({
 });
 
 // src/runtime/dwf-state-store.ts
-import { existsSync as existsSync74, mkdirSync as mkdirSync42, readFileSync as readFileSync79, unlinkSync as unlinkSync13 } from "node:fs";
+import { existsSync as existsSync75, mkdirSync as mkdirSync42, readFileSync as readFileSync79, unlinkSync as unlinkSync13 } from "node:fs";
 import { dirname as dirname43 } from "node:path";
 var DwfStore;
 var init_dwf_state_store = __esm({
@@ -70844,7 +70858,7 @@ var init_dwf_state_store = __esm({
       load() {
         const path103 = this.path;
         try {
-          if (!existsSync74(path103)) return void 0;
+          if (!existsSync75(path103)) return void 0;
           const raw = readFileSync79(path103, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
@@ -70869,7 +70883,7 @@ var init_dwf_state_store = __esm({
       delete() {
         const path103 = this.path;
         try {
-          if (!existsSync74(path103)) return;
+          if (!existsSync75(path103)) return;
           unlinkSync13(path103);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
@@ -82333,7 +82347,7 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync77, mkdirSync as mkdirSync45, readFileSync as readFileSync84, writeFileSync as writeFileSync11 } from "node:fs";
+import { existsSync as existsSync78, mkdirSync as mkdirSync45, readFileSync as readFileSync84, writeFileSync as writeFileSync11 } from "node:fs";
 import { dirname as dirname45, join as join87 } from "node:path";
 var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
@@ -82396,7 +82410,7 @@ function normalizeConfig(raw) {
 function loadConfig2() {
   try {
     const path103 = configPath2();
-    if (!existsSync77(path103)) return normalizeConfig(void 0);
+    if (!existsSync78(path103)) return normalizeConfig(void 0);
     return normalizeConfig(JSON.parse(readFileSync84(path103, "utf8")));
   } catch {
     return normalizeConfig(void 0);

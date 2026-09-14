@@ -47,6 +47,7 @@
  * dashboard overlay, so headless sessions never reach it.
  */
 
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { getScheduledJobs, getScheduledJobsHiddenCountView } from "../extension/team-tool/handle-schedule.ts";
@@ -160,12 +161,17 @@ export function agentTokPerSec(handle: LiveAgentHandle, nowMs: number): number |
 }
 
 /** Resolve scripts/watch-agent-transcript.mjs in both repo (src) and dist layouts. */
-function watchAgentTranscriptScript(): string {
-	try {
-		return fileURLToPath(new URL("../../scripts/watch-agent-transcript.mjs", import.meta.url));
-	} catch {
-		return fileURLToPath(new URL("../../../scripts/watch-agent-transcript.mjs", import.meta.url));
-	}
+function watchAgentTranscriptScript(): string | undefined {
+	// Live bug (2026-09-14): `new URL(...)` NEVER throws for well-formed paths,
+	// so a try/catch fallback never ran — under the dist bundle the first
+	// candidate resolved to <workspace>/scripts/... which does not exist and
+	// the pane died with "Cannot find module". Probe with existsSync instead.
+	// Layouts: src/ui/<file>.ts → ../../scripts · dist/index.mjs → ../scripts
+	const candidates = [
+		fileURLToPath(new URL("../../scripts/watch-agent-transcript.mjs", import.meta.url)),
+		fileURLToPath(new URL("../scripts/watch-agent-transcript.mjs", import.meta.url)),
+	];
+	return candidates.find((c) => existsSync(c));
 }
 
 /** tok/s for record-based entries (no live handle in this process). */
@@ -225,6 +231,8 @@ export class AgentsJobsBrowser {
 	private focus: AgentsJobsBrowserFocus = "list";
 	private detailScroll = 0;
 	private closed = false;
+	/** Transient header notice (e.g. why `p` did nothing) — auto-expires. */
+	private notice: { text: string; until: number } | undefined;
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly manifests = new Map<string, TeamRunManifest | null>();
 
@@ -277,6 +285,11 @@ export class AgentsJobsBrowser {
 			clearInterval(this.pollTimer);
 			this.pollTimer = undefined;
 		}
+	}
+
+	private setNotice(text: string): void {
+		this.notice = { text, until: this.nowMs() + 2500 };
+		this.options.requestRender?.();
 	}
 
 	private nowMs(): number {
@@ -454,6 +467,7 @@ export class AgentsJobsBrowser {
 		try {
 			const kind = detectViewSurfaceKind(process.env);
 			if (!kind || !tailPath) return false;
+			const watcherScript = watchAgentTranscriptScript();
 			const provider = surfaceProviderForCleanup(kind);
 			if (!provider) return false;
 			// Legacy (no tabKey) path: the viewer pane splits from the HOST's
@@ -463,8 +477,11 @@ export class AgentsJobsBrowser {
 				cwd: this.options.cwd,
 				// Watcher formats the session transcript one readable line per
 				// message (live "what is the agent doing") — raw tail would
-				// show unbounded JSON walls.
-				command: `${shellQuote(process.execPath)} ${shellQuote(watchAgentTranscriptScript())} ${shellQuote(tailPath)}`,
+				// show unbounded JSON walls. Missing script (unexpected layout)
+				// degrades to plain tail so the pane still opens.
+				command: watcherScript
+					? `${shellQuote(process.execPath)} ${shellQuote(watcherScript)} ${shellQuote(tailPath)}`
+					: `tail -n 40 -F ${shellQuote(tailPath)}`,
 				title: `crew: ${entry.role}/${entry.taskId.slice(-8)}`,
 			});
 			return true;
@@ -520,8 +537,14 @@ export class AgentsJobsBrowser {
 			}
 			if (matchesKey(data, "p")) {
 				const entry = this.cachedEntries[this.selected];
-				if (this.surfaceReachable() && entry && entry.kind === "agent") {
-					this.surfaceSelectedAgent(entry);
+				if (entry && entry.kind === "agent") {
+					if (this.surfaceReachable()) {
+						this.surfaceSelectedAgent(entry);
+					} else {
+						// Live feedback (2026-09-14): pressing p outside tmux/herdr
+						// used to swallow the key silently — "p không hoạt động".
+						this.setNotice("⚠ no tmux/herdr surface — run pi inside tmux for panes");
+					}
 				}
 				return;
 			}
@@ -574,7 +597,8 @@ export class AgentsJobsBrowser {
 			`${this.countJobs()} job${this.countJobs() === 1 ? "" : "s"}`,
 		];
 		if (this.hiddenCount > 0) counts.push(`${this.hiddenCount} hidden`);
-		const lines: string[] = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(` ${counts.join(" · ")} `), w)];
+		const activeNotice = this.notice && this.notice.until > nowMs ? ` ${this.notice.text} ` : ` ${counts.join(" · ")} `;
+		const lines: string[] = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(truncate(activeNotice, w - 20)), w)];
 		const hiddenHint = schedulesHiddenJobsHintLine(this.hiddenCount);
 		if (hiddenHint) lines.push(`${dim("│")} ${pad(dim(truncate(hiddenHint, w - 4)), w - 3)}${dim("│")}`);
 
