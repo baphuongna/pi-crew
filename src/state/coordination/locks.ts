@@ -307,6 +307,21 @@ function releaseLock(filePath: string, token: string): void {
 	// (probably stale and overtaken). Do not touch it — the new holder owns it.
 }
 
+/**
+ * Error codes that mean "the lock file exists / is momentarily un-creatable
+ * because another process holds it" rather than "something is broken".
+ *
+ * EEXIST is the POSIX O_CREAT|O_EXCL loser signal. On Windows (libuv),
+ * CREATE_NEW against a file that another process has open mid-create can
+ * surface as EPERM (ERROR_ACCESS_DENIED) or EBUSY instead of EEXIST —
+ * observed on the windows-latest CI runner (ST-3 cross-process flock test).
+ * Retrying these is correct: the holder always closes/releases within the
+ * stale-deadline budget, and the deadline still bounds the wait.
+ */
+function isLockContention(code: string | undefined): boolean {
+	return code === "EEXIST" || code === "EPERM" || code === "EBUSY";
+}
+
 function acquireLockWithRetry(filePath: string, staleMs: number, kind: LockKind = "file"): string {
 	let attempt = 0;
 	const deadline = Date.now() + staleMs * 2;
@@ -317,7 +332,7 @@ function acquireLockWithRetry(filePath: string, staleMs: number, kind: LockKind 
 			return token;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== "EEXIST") throw error;
+			if (!isLockContention(code)) throw error;
 			if (Date.now() > deadline) {
 				throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
 			}
@@ -355,7 +370,7 @@ async function acquireLockWithRetryAsync(filePath: string, staleMs: number, kind
 			return token;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== "EEXIST") throw error;
+			if (!isLockContention(code)) throw error;
 			if (Date.now() > deadline) {
 				throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
 			}

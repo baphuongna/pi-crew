@@ -1826,6 +1826,9 @@ function releaseLock(filePath, token) {
     }
   }
 }
+function isLockContention(code) {
+  return code === "EEXIST" || code === "EPERM" || code === "EBUSY";
+}
 function acquireLockWithRetry(filePath, staleMs, kind = "file") {
   let attempt = 0;
   const deadline = Date.now() + staleMs * 2;
@@ -1836,7 +1839,7 @@ function acquireLockWithRetry(filePath, staleMs, kind = "file") {
       return token;
     } catch (error) {
       const code = error.code;
-      if (code !== "EEXIST") throw error;
+      if (!isLockContention(code)) throw error;
       if (Date.now() > deadline) {
         throw new Error(`Run '${path3.basename(filePath)}' is locked by another operation.`);
       }
@@ -1866,7 +1869,7 @@ async function acquireLockWithRetryAsync(filePath, staleMs, kind = "file") {
       return token;
     } catch (error) {
       const code = error.code;
-      if (code !== "EEXIST") throw error;
+      if (!isLockContention(code)) throw error;
       if (Date.now() > deadline) {
         throw new Error(`Run '${path3.basename(filePath)}' is locked by another operation.`);
       }

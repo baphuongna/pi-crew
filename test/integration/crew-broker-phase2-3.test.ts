@@ -83,8 +83,11 @@ async function connectClient(args: { runId: string; taskId: string; token: strin
 		taskId: args.taskId,
 		socketPath: args.socketPath,
 		token: args.token,
-		setTimeoutFn: ((cb: () => void, _ms: number) => {
-			const t = setTimeout(cb, 100);
+		// Compress ONLY connect/hello deadlines (≤1s); per-request timeouts
+		// (explicit 2s here) must stay REAL — a blanket 100ms cap turns slow
+		// durable writes (Windows NTFS CI) into spurious request-timeouts.
+		setTimeoutFn: ((cb: () => void, ms: number) => {
+			const t = setTimeout(cb, ms <= 1000 ? Math.min(ms, 100) : ms);
 			return new Proxy(t, {
 				get(target, prop) {
 					if (prop === "unref" || prop === "ref" || prop === "hasRef") return undefined;
