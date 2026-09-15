@@ -2,7 +2,32 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
-## [Unreleased] — Scheduled Jobs UI: dashboard pane, widget line, toasts, /schedules command (tiers A/C/D/E)
+## [0.11.0] — Scheduled Jobs UI + Agents & Jobs browser + kitty CSI-u hardening (2026-09-15)
+
+### feat(ui): Agents & Jobs browser — the crew widget's ↓+Enter popup
+
+- The crew widget is now ONE screen line (`Crew agents 3/5 · 1 running · 24m · ↓·enter`); pressing `↓` or Enter opens the Agents & Jobs browser — a framed modal (border box with live counts in the top frame, key hints in the bottom frame) listing every widget-visible agent and scheduled job from the SAME data source as the widget counts (`activeWidgetRuns()` over `.crew/state/runs/*/agents.json` + `recordTokPerSec()` usage snapshots), so the browser and the widget can never disagree.
+- Agent rows show role/status/duration/tok-per-sec live; job rows show cron/interval + next run. Focus modes cycle Agents → Jobs; jobs keep their inline detail view.
+- Pressing Enter on an agent row opens the full transcript overlay (`DurableTranscriptViewer` — the same experience as `/crew transcript`). For RUNNING agents the transcript path resolves through a 3-tier fallback (record.transcriptPath → status.json → artifacts-root `transcripts/<taskId>.attempt-N.jsonl` convention), because records only carry the path after completion.
+- The legacy `p` key (spawn a mux pane tailing the watcher-formatted log) is retired: a log tail is not a real pi session. The retired code stays as commented blocks for a future "focus the existing surface pane" key.
+
+### feat(agents): live surface panes — watch a worker's REAL pi TUI
+
+- New `runtime.surface` config (`~/.pi/agent/pi-crew.json`): `{ mode: "herdr" | "tmux", visibleAgents: ["agent", ...] }` boots eligible workers inside a real mux pane running the pi TUI (the worker's `--mode json -p` args are stripped for the pane) — watch the worker's actual footer/model/widget live instead of log tails. The pane closes itself when the worker finishes; resume is never used (resuming would kill the subagent).
+- Surface spawns emit `worker.surface_spawned` (+ `surfacePaneId` on `worker.started`); gate rejections emit `worker.surface_gate_blocked` with the reason. Async workers forward TERM/HERDR_*/mux env into the child.
+
+### fix(ui): kitty CSI-u hardening — matchesKey everywhere
+
+- Every overlay now routes Enter/Escape through `@earendil-works/pi-tui`'s `matchesKey` instead of raw byte compare: kitty's disambiguate-codes protocol sends `\x1b[13u`/`\x1b[27u`, so raw `\r`/`\x1b` compares silently swallowed keys. Sweep covered the agents browser, confirm, agent-picker, mailbox detail, mailbox compose, live-conversation overlays, transcript viewer, mascot, and settings overlay (backspace ×2).
+- `src/ui/key-utils.ts` re-exports `matchesKey` for overlays that cannot import pi-tui directly.
+
+### fix(ci-windows): the two real flakes behind windows-latest failures
+
+- Broker integration helpers compressed EVERY client timer to 100ms (intent: only the 1s hello deadline) — the 15s request timeout and the explicit 2s escalate budget fired before slow NTFS durable writes could land, nondeterministically killing clients with fallback-sticky `request-timeout` (broadcast/DM/escalate tests). Timers ≤1s compress; real request budgets stay real.
+- `O_CREAT|O_EXCL` against a `.flock` held mid-create by another process surfaces as EPERM/EBUSY (not EEXIST) on Windows — both lock retry loops now treat EPERM/EBUSY as contention (deadline still bounds the wait). Fixes the ST-3 cross-process flock EPERM crash.
+- Also in this release: `npm run lint` (biome) added to the pre-push gate — three unused members left by the p retirement had slipped past a tsc+format-only gate.
+
+### Scheduled Jobs UI (tiers A/C/D/E — previously unreleased)
 
 ### feat(vibes): tok/s speed UI REMOVED — pi's built-in working indicator always used
 
