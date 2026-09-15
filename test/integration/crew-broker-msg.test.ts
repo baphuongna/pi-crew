@@ -93,10 +93,14 @@ async function connectClient(args: { runId: string; taskId: string; token: strin
 		taskId: args.taskId,
 		socketPath: args.socketPath,
 		token: args.token,
-		// Compress the 1s hello deadline; mask unref so the test event loop
-		// stays alive across the retry budget.
-		setTimeoutFn: ((cb: () => void, _ms: number) => {
-			const t = setTimeout(cb, 100);
+		// Compress ONLY the connect/hello deadlines (≤1s) so retry budgets
+		// stay fast; per-request timeouts (15s, or explicit 2s) must stay
+		// REAL — a blanket 100ms cap turns any slow durable write (Windows
+		// NTFS CI) into a spurious request-timeout and kills the client
+		// (fallback-sticky). Mask unref so the test event loop stays alive
+		// across the retry budget.
+		setTimeoutFn: ((cb: () => void, ms: number) => {
+			const t = setTimeout(cb, ms <= 1000 ? Math.min(ms, 100) : ms);
 			return new Proxy(t, {
 				get(target, prop) {
 					if (prop === "unref" || prop === "ref" || prop === "hasRef") return undefined;

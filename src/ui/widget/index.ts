@@ -408,7 +408,12 @@ class CrewWidgetComponent implements WidgetComponent {
 			// meaningful on run-transition frames, which always have runs>0 and take
 			// a different branch. At zero runs the only paintable content is the
 			// schedules line (or nothing).
-			return schedLine ? [truncate(schedLine, width)] : [];
+			// Single-line contract (round 3): the keep-alive row carries the
+			// ↓·enter interaction hint + the focused ❯ marker — identical to
+			// buildWidgetLines' zero-runs branch.
+			const zeroBase = `${schedLine} — ↓·enter`;
+			const focused = panel.focused === true;
+			return [truncate(focused ? `❯ ${zeroBase}` : zeroBase, width)];
 		}
 
 		this.ensureTruncated(width);

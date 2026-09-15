@@ -612,7 +612,13 @@ test("FINDING-3: KHÔNG emit khi surface chưa opt-in (visibleAgents []) — def
 		await __test__trySurfaceBranch(
 			makeRunInput(workRoot, {
 				onLifecycleEvent: (event: ChildPiLifecycleEvent) => lifecycle.push(event),
-				surface: { baseDir: launchDir }, // không config → visibleAgents [] (default)
+				// ISOLATION (2026-09-14): pass an EXPLICIT empty config — without it
+				// child-pi falls back to safeLoadSurfaceConfig(cwd) which reads the
+				// REAL ~/.pi/agent/pi-crew.json, and a developer machine with
+				// runtime.surface.visibleAgents set (live surface testing) broke
+				// this test: the role gate passed and surface_gate_blocked fired
+				// from the later no-mux gate, failing "must be silent".
+				surface: { config: {}, baseDir: launchDir }, // visibleAgents [] (default)
 			}),
 			noMuxEnv,
 			["--mode", "json", "-p", "task"],

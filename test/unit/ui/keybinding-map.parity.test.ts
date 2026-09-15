@@ -38,6 +38,9 @@ import { type ActivePane, DASHBOARD_KEYS, dashboardActionForKey, KEY_RESERVED } 
 // regenerate with the snippet above if the dispatch contract intentionally
 // changes, and document WHY in the commit message.
 const GOLDEN: Record<string, string | null> = {
+	// Regenerated (feat/agents-browser): added root key 'b' → "browser" for
+	// every pane; all pre-existing entries byte-identical (verified by diff
+	// before replacement). Prior regeneration note:
 	// Regenerated (tier A — schedules pane): added pane 'schedules', key '8',
 	// the schedules group T/N/V/X/R, and the help group to the checked set.
 	// All pre-existing entries are byte-identical (verified by diff before
@@ -68,6 +71,7 @@ const GOLDEN: Record<string, string | null> = {
 	'agents|"\\t"': "select",
 	'agents|"\\u001b"': "close",
 	'agents|"a"': "artifacts",
+	'agents|"b"': "browser",
 	'agents|"d"': "agents",
 	'agents|"down"': "down",
 	'agents|"e"': "events",
@@ -113,6 +117,7 @@ const GOLDEN: Record<string, string | null> = {
 	'health|"\\t"': "select",
 	'health|"\\u001b"': "close",
 	'health|"a"': "artifacts",
+	'health|"b"': "browser",
 	'health|"d"': "agents",
 	'health|"down"': "down",
 	'health|"e"': "events",
@@ -158,6 +163,7 @@ const GOLDEN: Record<string, string | null> = {
 	'mailbox|"\\t"': "select",
 	'mailbox|"\\u001b"': "close",
 	'mailbox|"a"': "artifacts",
+	'mailbox|"b"': "browser",
 	'mailbox|"d"': "agents",
 	'mailbox|"down"': "down",
 	'mailbox|"e"': "events",
@@ -203,6 +209,7 @@ const GOLDEN: Record<string, string | null> = {
 	'metrics|"\\t"': "select",
 	'metrics|"\\u001b"': "close",
 	'metrics|"a"': "artifacts",
+	'metrics|"b"': "browser",
 	'metrics|"d"': "agents",
 	'metrics|"down"': "down",
 	'metrics|"e"': "events",
@@ -248,6 +255,7 @@ const GOLDEN: Record<string, string | null> = {
 	'output|"\\t"': "select",
 	'output|"\\u001b"': "close",
 	'output|"a"': "artifacts",
+	'output|"b"': "browser",
 	'output|"d"': "agents",
 	'output|"down"': "down",
 	'output|"e"': "events",
@@ -293,6 +301,7 @@ const GOLDEN: Record<string, string | null> = {
 	'plan|"\\t"': "select",
 	'plan|"\\u001b"': "close",
 	'plan|"a"': "artifacts",
+	'plan|"b"': "browser",
 	'plan|"d"': "agents",
 	'plan|"down"': "down",
 	'plan|"e"': "events",
@@ -338,6 +347,7 @@ const GOLDEN: Record<string, string | null> = {
 	'progress|"\\t"': "select",
 	'progress|"\\u001b"': "close",
 	'progress|"a"': "artifacts",
+	'progress|"b"': "browser",
 	'progress|"d"': "agents",
 	'progress|"down"': "down",
 	'progress|"e"': "events",
@@ -383,6 +393,7 @@ const GOLDEN: Record<string, string | null> = {
 	'schedules|"\\t"': "select",
 	'schedules|"\\u001b"': "close",
 	'schedules|"a"': "artifacts",
+	'schedules|"b"': "browser",
 	'schedules|"d"': "agents",
 	'schedules|"down"': "down",
 	'schedules|"e"': "events",
@@ -430,6 +441,7 @@ const GOLDEN: Record<string, string | null> = {
 	'undefined|"\\u001bOA"': "up",
 	'undefined|"\\u001bOB"': "down",
 	'undefined|"a"': "artifacts",
+	'undefined|"b"': "browser",
 	'undefined|"d"': "agents",
 	'undefined|"down"': "down",
 	'undefined|"e"': "events",
@@ -564,7 +576,26 @@ describe("KEY_RESERVED — derived key set", () => {
 
 	it("does NOT contain unbound keys", () => {
 		assert.ok(!KEY_RESERVED.has("z"));
-		assert.ok(!KEY_RESERVED.has("b"));
 		assert.ok(!KEY_RESERVED.has("f"));
+	});
+
+	it("contains the agents-jobs browser root key (feat/agents-browser)", () => {
+		// Root binding `b` → action "browser" — reserved AND dispatched in
+		// every pane (unscoped root action, collision-free).
+		assert.ok(KEY_RESERVED.has("b"), "browser key must be reserved");
+		const panes: (ActivePane | undefined)[] = [
+			undefined,
+			"agents",
+			"progress",
+			"mailbox",
+			"output",
+			"health",
+			"metrics",
+			"plan",
+			"schedules",
+		];
+		for (const pane of panes) {
+			assert.equal(dashboardActionForKey("b", pane), "browser", `pane=${String(pane)}`);
+		}
 	});
 });

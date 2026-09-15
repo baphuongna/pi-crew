@@ -54,12 +54,15 @@ function headerRun(planApproval?: WidgetRun["run"]["planApproval"]): WidgetRun {
 	} as unknown as WidgetRun;
 }
 
-test("WP-3: widgetHeader is byte-identical regardless of planApproval state (golden regression)", () => {
-	// The plan badge lives on the RUN line (see widget-truncate tests); the
-	// header must stay untouched so the alerts badge remains the only header badge.
+test("WP-3 (single line): pending planApproval surfaces ⚠ plan:<run8> on the header; alerts badge stays too", () => {
+	// Single-line widget (round-2 design): the plan badge MOVED from the
+	// (deleted) run tree into the count row header — it lives next to the
+	// counts alongside the alerts badge.
 	const pending = widgetHeader([headerRun({ required: true, status: "pending", requestedAt: "t", updatedAt: "t" })], "⠋", 20, 4);
 	const none = widgetHeader([headerRun()], "⠋", 20, 4);
-	assert.equal(pending, none);
-	assert.doesNotMatch(pending, /plan:/);
-	assert.match(pending, /4 alerts/);
+	assert.notEqual(pending, none, "pending plan should add a segment to the header");
+	assert.match(pending, /⚠ plan:/, "the plan badge appears on the count row");
+	assert.match(pending, /4 alerts/, "alerts badge still present");
+	// No-pending run: no plan segment.
+	assert.doesNotMatch(none, /plan:/);
 });

@@ -17,6 +17,9 @@ import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
 
 export type PiKeyName = KeyId | string;
 
+/** Re-exported so overlays can import the normalizer from one place. */
+export { matchesKey };
+
 const COMMON_IDS: readonly KeyId[] = [
 	"up",
 	"down",

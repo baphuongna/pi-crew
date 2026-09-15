@@ -6,7 +6,7 @@
 
 import { truncateToWidth, visibleWidth } from "../utils/visual.ts";
 import { DynamicCrewBorder } from "./dynamic-border.ts";
-import { keyOf } from "./key-utils.ts";
+import { keyOf, matchesKey } from "./key-utils.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { discoverPiThemes, getActivePiTheme } from "./theme-discovery.ts";
 
@@ -608,7 +608,7 @@ class TextinputSubmenu {
 			return;
 		}
 		// Backspace
-		if (data === "\x7f" || data === "\b" || k === "backspace") {
+		if (matchesKey(data, "backspace") || k === "backspace") {
 			this.buffer = this.buffer.slice(0, -1);
 			return;
 		}
@@ -761,7 +761,7 @@ class AgentOverridesSubmenu {
 			this.editField = null;
 			return;
 		}
-		if (data === "\x7f" || data === "\b" || k === "backspace") {
+		if (matchesKey(data, "backspace") || k === "backspace") {
 			this.editBuffer = this.editBuffer.slice(0, -1);
 			return;
 		}

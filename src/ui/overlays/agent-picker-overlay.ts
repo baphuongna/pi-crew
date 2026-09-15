@@ -2,7 +2,7 @@ import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { pad, truncate } from "../../utils/visual.ts";
-import { keyOf } from "../key-utils.ts";
+import { keyOf, matchesKey } from "../key-utils.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
 export interface AgentPickerSelection {
@@ -46,7 +46,7 @@ export class AgentPickerOverlay {
 	}
 
 	handleInput(data: string): void {
-		if (data === "\u001b" || data === "q") {
+		if (matchesKey(data, "escape") || data === "q") {
 			this.done(undefined);
 			return;
 		}
@@ -58,7 +58,7 @@ export class AgentPickerOverlay {
 			this.selected = Math.min(Math.max(0, this.agents.length - 1), this.selected + 1);
 			return;
 		}
-		if (data === "\r" || data === "\n") {
+		if (matchesKey(data, "return")) {
 			const agent = this.agents[this.selected];
 			this.done(agent ? { agentId: agent.taskId } : undefined);
 		}

@@ -6,7 +6,7 @@
 
 import { getCrewScheduler, getScheduledJobs, getScheduledJobsHiddenCountView } from "../../extension/team-tool/handle-schedule.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
-import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
+import type { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
 import type { ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
@@ -15,11 +15,10 @@ import { formatRelativeTime } from "../../utils/relative-time.ts";
 import { truncate } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
 import { spinnerFrame } from "../spinner.ts";
-import { colorizeStatusGlyphs, iconForStatus } from "../status-colors.ts";
+import { colorizeStatusGlyphs } from "../status-colors.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 import {
 	agentActivity,
-	agentStats,
 	budgetedRow,
 	dockElapsed,
 	dockStatusIcon,
@@ -44,7 +43,7 @@ const ERROR_STATUSES = new Set(["failed", "cancelled", "stopped", "needs_attenti
 
 // ── Header ────────────────────────────────────────────────────────────
 
-export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines = 20, notificationCount = 0): string {
+export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines = 20, notificationCount = 0, schedSegment?: string): string {
 	const agents = runs.flatMap((item) => item.agents);
 	const runningAgents = agents.filter((a) => a.status === "running").length;
 	const queuedAgents = agents.filter((a) => a.status === "queued").length;
@@ -54,7 +53,20 @@ export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines =
 	if (queuedAgents) parts.push(`${queuedAgents} queued`);
 	if (waitingAgents) parts.push(`${waitingAgents} waiting`);
 	if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
-	return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} · ${parts.join(" · ")} · /team-dashboard`;
+	// WP-3 on the single line (2026-09-14 round 2): a run parked awaiting plan
+	// approval surfaces as a `⚠ plan:<run8>` segment — the row-level badge is
+	// gone with the run tree, so the count row carries the signal.
+	const planPending = runs.find((item) => isPlanApprovalStatePending(item.run.planApproval));
+	if (planPending) parts.push(`⚠ plan:${planPending.run.runId.slice(-8)}`);
+	// Tier C (merged 2026-09-14): the header is the widget's ONE compact status
+	// row in detailed mode — agent stats + the schedules segment on a single
+	// line, with the `/team-dashboard` hint still trailing so it stays
+	// reachable. `schedSegment` is the ALREADY-BUILT `⏰ …` string (jobs, hidden
+	// count, and clock are all injected upstream — buildWidgetLines); undefined
+	// means nothing schedules-related paints and the header stays
+	// byte-identical to the pre-merge format.
+	const sched = schedSegment ? ` · ${schedSegment}` : "";
+	return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} · ${parts.join(" · ")}${sched} — ↓·enter`;
 }
 
 // ── Agent ordering (shared with the inline panel) ──────────────────────
@@ -182,74 +194,6 @@ function compactAgentRow(
 	return budgetedRow({ lead: `${marker} ${dockGlyph} `, name: nameText, activity, suffix }, width);
 }
 
-/**
- * The compact dock: hint line, the `main` conversation row, then a
- * MAX_AGENTS_DISPLAY-row SCROLL WINDOW over the flat agent list (exactly the
- * order the inline panel navigates — `panelRowsFromRuns` parity). The window
- * follows the panel selection bottom-pinned: moving the cursor past the
- * window scrolls one row at a time and the ❯ marker is always painted; idle
- * (no selection) shows the top of the list, which the shared ordering puts at
- * the highest-priority live agents. Hidden rows surface as `… ↑N earlier` /
- * `… +N more` indicators.
- */
-function compactDockLines(
-	runs: WidgetRun[],
-	options: WidgetRenderOptions,
-	width: number,
-	maxLines: number,
-	notificationCount: number,
-	runningGlyph: string,
-	nowMs: number,
-): string[] {
-	const flat: Array<{
-		run: TeamRunManifest;
-		agent: CrewAgentRecord;
-		finished: boolean;
-		liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined;
-	}> = [];
-	for (const entry of runs) {
-		const { active, finished } = orderWidgetAgents(entry, nowMs);
-		const liveForRun = listLiveAgents().filter((a) => a.runId === entry.run.runId);
-		for (const agent of active) {
-			flat.push({ run: entry.run, agent, finished: false, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
-		}
-		for (const agent of finished) {
-			flat.push({ run: entry.run, agent, finished: true, liveHandle: liveForRun.find((h) => h.taskId === agent.taskId) });
-		}
-	}
-
-	// No agents at all: fall back to the legacy header so the space under the
-	// editor is never just blank.
-	if (flat.length === 0) return [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
-
-	const lines: string[] = [];
-	let hint: string;
-	if (options.viewedTaskId) {
-		const viewedName = flat.find((row) => row.agent.taskId === options.viewedTaskId)?.agent.agent ?? "agent";
-		hint = `viewing @${viewedName} — typing goes to the agent · ↓ switch · esc back`;
-	} else if (options.focused) {
-		hint = "enter to view · x to stop/cancel · esc back";
-	} else {
-		hint = `agents (${flat.length}) — ↓ to select`;
-	}
-	lines.push(truncate(hint, width));
-	// Filled ● = you're on the main conversation; hollow ◯ = an agent view is
-	// open (same convention as pi-subtask's main row).
-	const mainMarker = options.focused && !options.selectedTaskId ? "❯" : " ";
-	const mainIcon = options.viewedTaskId ? "◯" : "●";
-	lines.push(truncate(`${mainMarker} ${mainIcon} main`, width));
-
-	const selectedIndex = options.selectedTaskId ? flat.findIndex((row) => row.agent.taskId === options.selectedTaskId) : -1;
-	const windowStart = selectedIndex >= 0 ? Math.max(0, selectedIndex - MAX_AGENTS_DISPLAY + 1) : 0;
-	const windowEnd = Math.min(flat.length, windowStart + MAX_AGENTS_DISPLAY);
-	if (windowStart > 0) lines.push(truncate(`  … ↑${windowStart} earlier (↑ to scroll)`, width));
-	for (const row of flat.slice(windowStart, windowEnd)) {
-		lines.push(compactAgentRow(row.run, row.agent, row.finished, runs, options, width, row.liveHandle, nowMs));
-	}
-	if (windowEnd < flat.length) lines.push(truncate(`  … +${flat.length - windowEnd} more (↓ to scroll)`, width));
-	return lines;
-}
-
 // ── Schedules line (Tier C) ───────────────────────────────────────────
 
 /**
@@ -350,139 +294,31 @@ export function buildWidgetLines(
 	width = DEFAULT_WIDGET_WIDTH,
 	options: WidgetRenderOptions = {},
 ): string[] {
-	const rowStyle: WidgetRowStyle = options.rowStyle ?? "detailed";
-	const focused = options.focused === true;
-	// Tier C: one injected clock for the schedules line (options.now pins it in
-	// tests; the pure builder above never reads the clock itself).
+	// SINGLE-LINE WIDGET (maintainer design 2026-09-14, round 2): the dock
+	// paints EXACTLY ONE row — counts only (running/queued/waiting/done
+	// agents + the schedules segment + the ↓·enter interaction hint). No
+	// per-agent rows, no run tree, no visible "main" row, no scroll window —
+	// ALL browsing lives in the Agents & Jobs browser, opened by ↓·enter from
+	// THIS line (crew-editor: idle enter at the line target = browser).
+	//
+	// Focused (the ↓ cursor sits ON this line): prefix a ❯ marker so the
+	// keystroke is visibly acknowledged — the line itself is the cursor
+	// target; there is no second row to land on. maxLines/frame remain in the
+	// signature for call-site compatibility; a single line is always within
+	// budget.
 	const schedLine = schedulesWidgetLine(cwd, options.now ?? new Date());
-	// Match the legacy `buildCrewWidgetLines` API: when no runs are supplied,
-	// auto-fetch via activeWidgetRuns(cwd). Otherwise widgets calling with
-	// only `(cwd, frame)` would render an empty line set (regression vs. the
-	// pre-refactor implementation that called activeWidgetRuns here).
 	const runs = providedRuns ?? activeWidgetRuns(cwd);
-	// Empty-render gate: with no active runs the widget collapses to nothing —
-	// EXCEPT the schedules line. Scheduled jobs are exactly what runs while
-	// nothing interactive is active; dropping the line here would make Tier C
-	// invisible most of the time (jobs fire BETWEEN interactive runs).
-	if (!runs.length) return schedLine ? [truncate(schedLine, width)] : [];
-
+	if (!runs.length) {
+		// Zero runs keep-alive (Tier C): jobs are exactly what run while no
+		// interactive run is active. The ⏰ segment stands alone as the row.
+		const zero = schedLine ?? null;
+		if (!zero) return [];
+		const base = `${zero} — ↓·enter`;
+		return [truncate(options.focused ? `❯ ${base}` : base, width)];
+	}
 	const runningGlyph = spinnerFrame("widget-header");
-
-	// Compact = pi-subtask's dock: NO "Crew agents" header, NO tree — hint
-	// line, `main` row, then a 3-row scroll window over the flat agent list.
-	if (rowStyle === "compact") {
-		const lines = compactDockLines(
-			runs,
-			options,
-			width,
-			maxLines,
-			notificationCount,
-			runningGlyph,
-			(options.now ?? new Date()).getTime(),
-		);
-		// Tier C: appended after the dock window so it can never displace a
-		// live-agent row; clipped by the idle maxLines budget.
-		if (schedLine) lines.push(truncate(schedLine, width));
-		return focused ? lines : lines.slice(0, maxLines);
-	}
-
-	const lines: string[] = [widgetHeader(runs, runningGlyph, maxLines, notificationCount)];
-
-	for (const entry of runs) {
-		const { run, agents } = entry;
-		const nowMs = (options.now ?? new Date()).getTime();
-		const { active: activeAgents, finished: finishedAgents } = orderWidgetAgents(entry, nowMs);
-		const completed = agents.filter((a) => a.status === "completed").length;
-		// WP-3 (H4): while a run is parked awaiting plan approval, the spinner
-		// glyph is replaced by a `⚠ plan:<last-8 runId>` badge. Plain-unicode ⚠
-		// (the same glyph needs_attention already uses) stays legible in no-color
-		// mode and is colorized by the shared colorizeStatusGlyphs pass. In-place
-		// glyph swap only — no extra line, so the MAX_AGENTS_DISPLAY / maxLines
-		// budget and the truncate(width) rule are untouched.
-		const planPending = isPlanApprovalStatePending(run.planApproval);
-		const runGlyph = planPending ? `⚠ plan:${run.runId.slice(-8)}` : iconForStatus(run.status, { runningGlyph });
-		const isTerminal = isFinishedRunStatus(run.status);
-		// Run progress line. v1–v3 flickered on snapshot.tasks state, v4 was
-		// too minimal (`0/1 agents` only), v5 duplicated the worker activity
-		// line (tools/tokens/duration already shown one row below). v6 (this)
-		// shows only data that is RUN-level (not already in the per-agent
-		// activity line) and is GUARANTEED stable across ticks:
-		//   - agents count — from `agents` array, always populated, never empty.
-		//   - run elapsed   — from `run.createdAt`, always set on manifest.
-		//
-		// Bug 022 (timer-fix + label): for TERMINAL runs (failed/cancelled/
-		// completed) the elapsed counter previously kept ticking up forever
-		// from createdAt (a failed run showed `2028s` and climbing, read as
-		// "still running"). Now it FREEZES at updatedAt (when the run
-		// reached its terminal status). The status label is also surfaced
-		// explicitly so the row cannot be misread as an active run.
-		const agentCountText = `${completed}/${agents.length} agents`;
-		const runEndMs = isTerminal ? new Date(run.updatedAt).getTime() : nowMs;
-		const runElapsedMs = Math.max(0, Number.isFinite(runEndMs) ? runEndMs - new Date(run.createdAt).getTime() : 0);
-		const runElapsedText = `${Math.floor(runElapsedMs / 1000)}s`;
-		const statusLabel = isTerminal ? ` · ${run.status}` : "";
-		const progressPart = `${agentCountText} · ${runElapsedText}${statusLabel}`;
-		lines.push(truncate(`├─ ${runGlyph} ${shortRunLabel(run)} · ${progressPart} · ${run.runId.slice(-8)}`, width));
-
-		const liveForRun = listLiveAgents().filter((a) => a.runId === run.runId);
-
-		// Focused: list every agent so the keyboard cursor can reach it. Idle: keep
-		// the historical cap so the prompt area stays small.
-		const activeCap = focused ? activeAgents.length : MAX_AGENTS_DISPLAY;
-		// Finished rows only appear in slots not used by active agents (max 2). When
-		// there are >= MAX_AGENTS_DISPLAY live workers, finished rows are suppressed
-		// entirely so they cannot push a live agent's activity line off-screen.
-		const finishedSlots = focused ? finishedAgents.length : Math.max(0, Math.min(2, MAX_AGENTS_DISPLAY - activeAgents.length));
-
-		/** Cursor marker column, mirroring the inline panel's selection. */
-		const markerFor = (taskId: string): string => (options.selectedTaskId === taskId ? "❯" : " ");
-
-		const visibleAgents = activeAgents.slice(0, activeCap);
-		for (const [index, agent] of visibleAgents.entries()) {
-			const last = index === visibleAgents.length - 1 && activeAgents.length <= activeCap && finishedSlots === 0;
-			const branch = last ? "└─" : "├─";
-			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-			const legacyGlyph = options.viewedTaskId === agent.taskId ? "◉" : iconForStatus(agent.status, { runningGlyph });
-			const stats = agentStats(agent, liveHandle, nowMs);
-			const name = liveHandle?.agent ?? agent.agent;
-			const activity = agentActivity(agent, liveHandle);
-			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
-			const _activeMain = truncate(`│  ${branch} ${legacyGlyph} ${name}${desc ? ` · ${desc}` : ` · ${agent.role}`}`, width);
-			lines.push(_activeMain);
-			const _activity = truncate(`│     ⊶ ${activity}${stats ? ` · ${stats}` : ""}`, width);
-			lines.push(_activity);
-		}
-
-		if (activeAgents.length > activeCap) {
-			lines.push(truncate(`│  └─ … +${activeAgents.length - activeCap} more agents`, width));
-		}
-
-		for (const [index, agent] of finishedAgents.slice(0, finishedSlots).entries()) {
-			const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-			const name = liveHandle?.agent ?? agent.agent;
-			const legacyIcon =
-				agent.status === "completed" ? "✓" : agent.status === "failed" ? "✗" : agent.status === "needs_attention" ? "⚠" : "▪";
-			const stats = agentStats(agent, liveHandle, nowMs);
-			const desc = truncate(liveHandle?.description ?? agent.role ?? "", TASK_DESC_MAX);
-			const isLastFinished = index === Math.min(finishedAgents.length, finishedSlots) - 1;
-			const branch = isLastFinished ? "└─" : "├─";
-			const _finished = truncate(`│  ${branch} ${legacyIcon} ${name} · ${desc}${stats ? ` · ${stats}` : ""}`, width);
-			lines.push(_finished);
-		}
-
-		// Focused (inline panel cursor active): the keyboard can reach every
-		// agent, so the renderer must list them ALL — clipping here would put
-		// the cursor marker (❯) on rows that are never painted. The idle
-		// widget keeps its historical cap to hold the prompt area small.
-		if (lines.length >= maxLines && !focused) break;
-	}
-
-	// Tier C: the schedules line is the LOWEST-priority widget row — appended
-	// after all active-run info and clipped by the idle maxLines budget, so it
-	// never displaces a live agent's row.
-	if (schedLine) lines.push(truncate(schedLine, width));
-
-	return focused ? lines : lines.slice(0, maxLines);
+	const base = widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine);
+	return [truncate(options.focused ? `❯ ${base}` : base, width)];
 }
 
 // ── Colorization ──────────────────────────────────────────────────────

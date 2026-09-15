@@ -1,7 +1,7 @@
 import { type MailboxMessage, readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { pad, truncate } from "../../utils/visual.ts";
-import { keyOf } from "../key-utils.ts";
+import { keyOf, matchesKey } from "../key-utils.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
 export type MailboxAction =
@@ -113,7 +113,7 @@ export class MailboxDetailOverlay {
 	}
 
 	handleInput(data: string): void {
-		if (data === "\u001b" || data === "q") {
+		if (matchesKey(data, "escape") || data === "q") {
 			this.done({ type: "close" });
 			return;
 		}
@@ -130,7 +130,7 @@ export class MailboxDetailOverlay {
 			this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
 			return;
 		}
-		if (data === "\r" || data === "\n") {
+		if (matchesKey(data, "return")) {
 			this.expanded = !this.expanded;
 			return;
 		}

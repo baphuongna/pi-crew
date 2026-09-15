@@ -1,9 +1,12 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { matchesKey } from "@earendil-works/pi-tui";
 import { loadConfig } from "../../config/config.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
+import { AgentsJobsBrowser } from "../../ui/agents-jobs-browser.ts";
 import { LiveConversationOverlay } from "../../ui/live-conversation-overlay.ts";
+import { requestRenderTarget } from "../../ui/pi-ui-compat.ts";
 import { asCrewTheme } from "../../ui/theme-adapter.ts";
 // Lazy-loaded: DurableTranscriptViewer is 658ms — only needed for /crew transcript command
 import type { DurableTranscriptViewer as DurableTranscriptViewerType } from "../../ui/transcript-viewer.ts";
@@ -87,7 +90,7 @@ export async function openLiveConversation(
 					return overlay.render(width);
 				},
 				handleInput(data: string) {
-					if (data === "\x1b" || data === "q") {
+					if (matchesKey(data, "escape") || matchesKey(data, "q")) {
 						overlay.close();
 						done(undefined);
 					}
@@ -105,6 +108,68 @@ export async function openLiveConversation(
 			overlayOptions: {
 				width: "90%",
 				maxHeight: "85%",
+				anchor: "center",
+			},
+		},
+	);
+	return true;
+}
+
+/**
+ * feat/agents-browser: open the unified Agents & Jobs browser overlay.
+ *
+ * Full-view component (the SAME custom() precedent as openLiveConversation —
+ * pi's overlay-anchor option was evaluated and set aside: overlays float over
+ * chat with different key routing; the modal form matches every existing
+ * pi-crew viewer, so users get one consistent interaction model). Opened from the run
+ * dashboard with ONE keypress (`b`); lists ALL live agents + scheduled jobs
+ * via the G17 providers — independent of any single run. Headless sessions
+ * (`ctx.hasUI === false`) are a silent no-op returning false.
+ */
+export async function openAgentsJobsBrowser(
+	ctx: Pick<ExtensionCommandContext, "hasUI" | "cwd" | "ui" | "sessionManager">,
+): Promise<boolean> {
+	if (!ctx.hasUI) return false;
+	const theme = asCrewTheme({});
+	const workspaceId = ctx.sessionManager?.getSessionId?.();
+	await ctx.ui.custom<undefined>(
+		(tui, _theme, _keybindings, done) => {
+			const columns = tui?.terminal?.columns ?? 80;
+			const rows = tui?.terminal?.rows ?? 24;
+			const browser = new AgentsJobsBrowser({
+				cwd: ctx.cwd,
+				workspaceId,
+				theme,
+				columns,
+				rows,
+				requestRender: () => requestRenderTarget(tui),
+				// Enter on an agent opens the full transcript overlay — the
+				// `/crew transcript` experience ("chi tiết như subagent cũ").
+				onOpenTranscript: ({ runId, taskId }) => {
+					void openTranscriptViewer(ctx as ExtensionCommandContext, runId, taskId);
+				},
+			});
+			return {
+				render(width: number) {
+					return browser.render(width);
+				},
+				handleInput(data: string) {
+					browser.handleInput(data);
+					if (browser.isClosed) done(undefined);
+				},
+				invalidate() {
+					browser.refreshData(true);
+				},
+				dispose() {
+					browser.dispose();
+				},
+			};
+		},
+		{
+			overlay: true,
+			overlayOptions: {
+				width: "92%",
+				maxHeight: "70%",
 				anchor: "center",
 			},
 		},

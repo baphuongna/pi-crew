@@ -105,6 +105,7 @@ export type RunDashboardAction =
 	| "agent-output"
 	| "agent-transcript"
 	| "agent-live"
+	| "browser-open"
 	| "mailbox"
 	| "reload"
 	| "mailbox-detail"
@@ -1127,6 +1128,15 @@ export class RunDashboard implements DashboardComponent {
 		}
 		if (action === "live-conversation") {
 			this.done(selectedRunId ? { runId: selectedRunId, action: "agent-live" } : undefined);
+			return;
+		}
+		// Agents & Jobs browser (feat/agents-browser): one-keypress overlay,
+		// mirrors the live-conversation branch. Unlike it, a missing run
+		// selection does NOT dead-end — the browser lists live agents and
+		// scheduled jobs independent of any single run, so runId "" keeps it
+		// reachable with zero runs (the reload-action precedent).
+		if (action === "browser") {
+			this.done(selectedRunId ? { runId: selectedRunId, action: "browser-open" } : { runId: "", action: "browser-open" });
 			return;
 		}
 		if (action === "progressToggle") {

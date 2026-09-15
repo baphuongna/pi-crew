@@ -1,4 +1,5 @@
 import { pad, truncate } from "../../utils/visual.ts";
+import { matchesKey } from "../key-utils.ts";
 import { Box, Text } from "../layout-primitives.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
@@ -51,10 +52,10 @@ export class ConfirmOverlay {
 			this.done(true);
 			return;
 		}
-		if ((data === "\r" || data === "\n") && this.opts.defaultAction === "confirm") {
+		if (matchesKey(data, "return") && this.opts.defaultAction === "confirm") {
 			this.done(true);
 			return;
 		}
-		if (data === "n" || data === "N" || data === "\u001b" || data === "q" || data === "\r" || data === "\n") this.done(false);
+		if (data === "n" || data === "N" || matchesKey(data, "escape") || data === "q" || matchesKey(data, "return")) this.done(false);
 	}
 }

@@ -138,3 +138,24 @@ test("act on main is not a panel action (x on the conversation row falls through
 	const result = dispatchPanelKey(keys({ act: true }), [row("t1")], "main");
 	assert.equal(result.action.kind, "none");
 });
+
+// ── Maintainer design 2026-09-14: ↓ + enter at MAIN opens the browser ──
+// The state machine already returns `open` with target undefined at main;
+// the browser entry is the crew-editor's response to that result. These
+// tests pin the machine half of the contract.
+
+test("enter at main (idle) is an open with no target — the browser hook's trigger", () => {
+	const result = dispatchPanelKey(keys({ enter: true }), [row("t1")], "main");
+	assert.equal(result.action.kind, "open");
+	assert.equal(result.action.target, undefined);
+	assert.equal(result.selection, null, "selection cleared after open");
+});
+
+test("down with ZERO agent rows still lands at main — jobs-only sessions can reach the browser", () => {
+	const result = dispatchPanelKey(keys({ down: true }), [], null);
+	assert.equal(result.action.kind, "consumed");
+	assert.equal(result.selection, "main");
+	const enter = dispatchPanelKey(keys({ enter: true }), [], result.selection);
+	assert.equal(enter.action.kind, "open");
+	assert.equal(enter.action.target, undefined);
+});

@@ -92,8 +92,14 @@ test("not viewing: filter uses the ctx session id as before", () => {
 		const install = harness.widgetCalls.find((c) => c.key === "pi-crew-active" && typeof c.content === "function");
 		assert.ok(install, "widget installed in the main session");
 		const factory = install.content as (tui: unknown, theme: unknown) => { render(w: number): string[] };
-		const joined = factory({}, undefined).render(100).join("\n");
-		assert.ok(joined.includes("main"), `widget shows the main session's run:\n${joined}`);
+		const lines = factory({}, undefined).render(100);
+		assert.ok(Array.isArray(lines), "single-line widget renders an array");
+		// Run identifiers moved to the Agents & Jobs browser overlay (the
+		// widget's single status row carries counts only).
+		assert.ok(
+			lines.length <= 2,
+			`single-line widget renders <=2 rows (header or ⏰ or both), got ${lines.length}: ${JSON.stringify(lines)}`,
+		);
 	} finally {
 		resetCrewViewSessionState();
 		removeTrackedTempDir(cwd);

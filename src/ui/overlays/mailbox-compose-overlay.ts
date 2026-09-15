@@ -1,5 +1,6 @@
 import type { MailboxDirection } from "../../state/coordination/mailbox.ts";
 import { pad, truncate } from "../../utils/visual.ts";
+import { matchesKey } from "../key-utils.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { ConfirmOverlay } from "./confirm-overlay.ts";
 import { renderComposePreview } from "./mailbox-compose-preview.ts";
@@ -150,7 +151,7 @@ export class MailboxComposeOverlay {
 			this.confirm.handleInput(data);
 			return;
 		}
-		if (data === "\u001b") {
+		if (matchesKey(data, "escape")) {
 			this.cancel();
 			return;
 		}
@@ -167,11 +168,11 @@ export class MailboxComposeOverlay {
 			else this.appendText(data);
 			return;
 		}
-		if (data === "\b" || data === "\u007f") {
+		if (matchesKey(data, "backspace")) {
 			this.backspace();
 			return;
 		}
-		if (data === "\r" || data === "\n") {
+		if (matchesKey(data, "return")) {
 			if (this.activeName() === "body" || this.fields.body.trim()) this.submit();
 			else this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
 			return;

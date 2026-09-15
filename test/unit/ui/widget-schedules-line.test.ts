@@ -1,11 +1,14 @@
 /**
- * Tier C (schedules UI): the crew widget's ONE low-priority schedules line —
- * `⏰ N sched · next Xm`.
+ * Tier C (schedules UI, merged 2026-09-14): the crew widget's ONE compact
+ * status row — agents count + `⏰ N sched · next Xm` merged onto a single
+ * line per mode (detailed: the header, before the trailing /team-dashboard
+ * hint; compact dock idle: the count row; focused/viewing: dedicated last
+ * row — no agents-count row to merge with; zero runs: the bare ⏰ row).
  *
  * Coverage per task packet: presence/absence by enabled count, relative time
  * via the INJECTED clock (no Date.now() in the render path), empty-runs gate
- * bypass, truncation, and the hermetic default reader (no scheduler
- * registered → no line, no settings hit).
+ * bypass, hidden-segment semantics, truncation, and the hermetic default
+ * reader (no scheduler registered → no line, no settings hit).
  */
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
@@ -163,7 +166,7 @@ test("schedulesWidgetLine: the injected hidden reader flows into the live line",
 test("schedulesWidgetLine: hidden-only line at zero visible jobs keeps the empty-runs widget mounted", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ enabled: false })]);
 	setWidgetHiddenJobsReader(() => 1);
-	assert.deepEqual(buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 }), ["⏰ 0 sched · 1 hidden"]);
+	assert.deepEqual(buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 }), ["⏰ 0 sched · 1 hidden — ↓·enter"]);
 });
 
 test("default hidden reader is hermetic: NO registered scheduler → 0 (paint path never reads settings)", () => {
@@ -173,14 +176,14 @@ test("default hidden reader is hermetic: NO registered scheduler → 0 (paint pa
 
 test("default hidden reader: registered scheduler WITHOUT a stash → 0 segment (in-memory only, no disk)", () => {
 	const saved = getCrewScheduler();
-	registerCrewScheduler({
-		add: () => undefined,
-		list: () => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })],
-		remove: () => false,
-		update: () => undefined,
-		runNow: () => ({ ok: false, error: "not started" }),
-	});
 	try {
+		registerCrewScheduler({
+			add: () => undefined,
+			list: () => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })],
+			remove: () => false,
+			update: () => undefined,
+			runNow: () => ({ ok: false, error: "not started" }),
+		});
 		// Registered singleton but no registration-time stash: the paint path
 		// must stay in-memory (0), NOT fall back to the real settings files.
 		assert.equal(schedulesWidgetLine(FAKE_CWD, T0), "⏰ 1 sched · next 84m");
@@ -192,27 +195,64 @@ test("default hidden reader: registered scheduler WITHOUT a stash → 0 segment 
 
 // ── buildWidgetLines integration ───────────────────────────────────────
 
-test("buildWidgetLines (detailed): schedules line is the LAST row, below active-run info", () => {
+test("buildWidgetLines (detailed): SINGLE LINE — counts + schedules + ↓·enter hint, nothing else", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
-	assert.ok(lines.length >= 2, `expected agent rows + schedules line, got ${lines.length}`);
-	assert.equal(lines.at(-1), "⏰ 1 sched · next 84m");
-	assert.ok(!lines.slice(0, -1).some((line) => line.includes("sched")), "schedules content must not leak into run rows");
+	assert.equal(lines.length, 1, `exactly ONE row, got ${JSON.stringify(lines)}`);
+	const header = lines[0] ?? "";
+	assert.ok(header.includes("Crew agents"), `the one row is the header, got '${header}'`);
+	assert.ok(header.includes("⏰ 1 sched · next 84m"), `merged schedules segment, got '${header}'`);
+	assert.ok(header.endsWith("↓·enter"), `trailing ↓·enter interaction hint, got '${header}'`);
 });
 
-test("buildWidgetLines (compact dock): schedules line appended after the dock window", () => {
+test("buildWidgetLines (detailed): NO schedules segment → single count row, no ⏰", () => {
+	setWidgetScheduledJobsReader(() => []);
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
+	assert.equal(lines.length, 1);
+	assert.ok(!lines[0].includes("⏰"), "no ⏰ without sched content");
+	assert.ok(lines[0].endsWith("↓·enter"), "interaction hint survives");
+});
+
+test("buildWidgetLines (compact): same SINGLE row as detailed — counts + schedules merged", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 30 * 60_000).toISOString() })]);
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", now: T0 });
-	assert.equal(lines.at(-1), "⏰ 1 sched · next 30m");
+	assert.equal(lines.length, 1);
+	assert.ok(lines[0].includes("Crew agents"), `count header, got '${lines[0]}'`);
+	assert.ok(lines[0].includes("⏰ 1 sched · next 30m"), `merged schedules, got '${lines[0]}'`);
+	assert.ok(lines[0].endsWith("↓·enter"), `interaction hint, got '${lines[0]}'`);
 });
 
-test("buildWidgetLines: NO schedules line when the reader reports no enabled jobs", () => {
+test("buildWidgetLines (compact): focused prefixes the ❯ cursor marker on the SAME single row", () => {
+	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", focused: true, now: T0 });
+	assert.equal(lines.length, 1);
+	assert.ok(lines[0].startsWith("❯ "), `focused marker on the row itself, got '${lines[0]}'`);
+	assert.ok(lines[0].includes("⏰ 1 sched · next 84m"), `schedules still merged, got '${lines[0]}'`);
+});
+
+test("buildWidgetLines (compact): count row carries the `· N hidden` segment (P2-1)", () => {
+	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+	setWidgetHiddenJobsReader(() => 2);
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", now: T0 });
+	assert.equal(lines.length, 1);
+	assert.ok(lines[0].includes("⏰ 1 sched · next 84m · 2 hidden"), `hidden segment merged, got '${lines[0]}'`);
+});
+
+test("buildWidgetLines (compact): hidden-only sched content still merges into the count row (invisible-gate fix)", () => {
+	setWidgetScheduledJobsReader(() => [makeJob({ enabled: false })]);
+	setWidgetHiddenJobsReader(() => 1);
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", now: T0 });
+	assert.equal(lines.length, 1);
+	assert.ok(lines[0].includes("⏰ 0 sched · 1 hidden"), `hidden-only segment merged, got '${lines[0]}'`);
+});
+
+test("buildWidgetLines: NO schedules segment when the reader reports no enabled jobs", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ enabled: false })]);
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
 	assert.ok(!lines.some((line) => line.includes("sched")));
 });
 
-test("buildWidgetLines: NO schedules line under the default reader (no scheduler registered — hermetic)", () => {
+test("buildWidgetLines: NO schedules segment under the default reader (no scheduler registered — hermetic)", () => {
 	// No reader injected: default probes the scheduler singleton, which is NOT
 	// registered in unit tests → [] without touching the settings store.
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
@@ -225,14 +265,14 @@ test("buildWidgetLines: injected clock drives the relative bucket (no hidden Dat
 	const atT0Plus30m = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, {
 		now: new Date(T0.getTime() + 30 * 60_000),
 	});
-	assert.equal(atT0.at(-1), "⏰ 1 sched · next 84m");
-	assert.equal(atT0Plus30m.at(-1), "⏰ 1 sched · next 54m");
+	assert.ok(atT0[0].includes("⏰ 1 sched · next 84m"), `merged header bucket at T0, got '${atT0[0]}'`);
+	assert.ok(atT0Plus30m[0].includes("⏰ 1 sched · next 54m"), `merged header bucket at T0+30m, got '${atT0Plus30m[0]}'`);
 });
 
 test("buildWidgetLines: empty runs + enabled jobs → widget shows ONLY the schedules line", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 });
-	assert.deepEqual(lines, ["⏰ 1 sched · next 84m"]);
+	assert.deepEqual(lines, ["⏰ 1 sched · next 84m — ↓·enter"]);
 });
 
 test("buildWidgetLines: empty runs + no enabled jobs → still [] (legacy behavior preserved)", () => {
@@ -240,12 +280,18 @@ test("buildWidgetLines: empty runs + no enabled jobs → still [] (legacy behavi
 	assert.deepEqual(buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 }), []);
 });
 
-test("buildWidgetLines: schedules line is truncated to the render width", () => {
+test("buildWidgetLines: merged status rows are truncated to the render width (both row styles)", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
-	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 10, { now: T0 });
-	const schedRow = lines.at(-1);
-	assert.ok(schedRow);
-	assert.ok(schedRow.length <= 10, `expected width<=10, got '${schedRow}' (${schedRow.length})`);
+	// Detailed: the header is the merged status row now — it must clip too.
+	const detailed = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 10, { now: T0 });
+	for (const [i, line] of detailed.entries()) {
+		assert.ok(line.length <= 10, `detailed line ${i} expected width<=10, got '${line}' (${line.length})`);
+	}
+	// Compact idle: the merged count row (line 0) must clip.
+	const compact = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 12, { rowStyle: "compact", now: T0 });
+	for (const [i, line] of compact.entries()) {
+		assert.ok(line.length <= 12, `compact line ${i} expected width<=12, got '${line}' (${line.length})`);
+	}
 });
 
 // ── Default reader safety ─────────────────────────────────────────────
@@ -298,29 +344,23 @@ function freshWidgetState(): CrewWidgetState {
 }
 
 test("updateCrewWidget: no runs + enabled job → widget INSTALLED (schedules line stays alive)", () => {
-	try {
-		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
-		const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
-		updateCrewWidget(ctx, freshWidgetState(), undefined, undefined, undefined, []);
-		const installs = widgetCalls.filter((c) => c.key === "pi-crew-active" && typeof c.content === "function");
-		assert.ok(installs.length > 0, `expected a component install, got ${JSON.stringify(widgetCalls)}`);
-		const clears = widgetCalls.filter((c) => c.key === "pi-crew-active" && c.content === undefined && !("legacy" in c));
-		// A legacy clear may precede the install; the FINAL state must be mounted.
-		assert.ok(installs.length > 0 && clears.every(() => true), "install survives");
-	} finally {
-	}
+	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
+	const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
+	updateCrewWidget(ctx, freshWidgetState(), undefined, undefined, undefined, []);
+	const installs = widgetCalls.filter((c) => c.key === "pi-crew-active" && typeof c.content === "function");
+	assert.ok(installs.length > 0, `expected a component install, got ${JSON.stringify(widgetCalls)}`);
+	const clears = widgetCalls.filter((c) => c.key === "pi-crew-active" && c.content === undefined && !("legacy" in c));
+	// A legacy clear may precede the install; the FINAL state must be mounted.
+	assert.ok(installs.length > 0 && clears.every(() => true), "install survives");
 });
 test("updateCrewWidget: no runs + NO jobs → widget cleared (legacy hide behavior preserved)", () => {
-	try {
-		setWidgetScheduledJobsReader(() => []);
-		const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
-		updateCrewWidget(ctx, freshWidgetState(), undefined, undefined, undefined, []);
-		const installs = widgetCalls.filter((c) => c.key === "pi-crew-active" && typeof c.content === "function");
-		assert.equal(installs.length, 0, "no install without jobs");
-		const clears = widgetCalls.filter((c) => c.key === "pi-crew-active" && c.content === undefined);
-		assert.ok(clears.length > 0, "widget cleared");
-	} finally {
-	}
+	setWidgetScheduledJobsReader(() => []);
+	const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
+	updateCrewWidget(ctx, freshWidgetState(), undefined, undefined, undefined, []);
+	const installs = widgetCalls.filter((c) => c.key === "pi-crew-active" && typeof c.content === "function");
+	assert.equal(installs.length, 0, "no install without jobs");
+	const clears = widgetCalls.filter((c) => c.key === "pi-crew-active" && c.content === undefined);
+	assert.ok(clears.length > 0, "widget cleared");
 });
 
 // ── Maintainer decision 2026-09-13: the crew-vibes footer owns the schedules
@@ -344,8 +384,8 @@ test("slot component: zero runs + job + snapshotCache present → ONLY the sched
 });
 
 test("slot mode (no footer sink) at zero runs STILL paints the ⏰ line", () => {
+	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
 	try {
-		setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
 		const { ctx, widgetCalls } = makeUpdateHarness(FAKE_CWD);
 		updateCrewWidget(ctx, freshWidgetState(), { widgetPlacement: "bottom" }, undefined, undefined, []);
 		const install = widgetCalls.find((c) => c.key === "pi-crew-active" && typeof c.content === "function");
@@ -356,5 +396,6 @@ test("slot mode (no footer sink) at zero runs STILL paints the ⏰ line", () => 
 		assert.equal(lines.length, 1, `exactly the ⏰ line, got ${JSON.stringify(lines)}`);
 		assert.ok(lines[0].includes("⏰"), `line is the schedules line: '${lines[0]}'`);
 	} finally {
+		resetWidgetScheduledJobsReader();
 	}
 });
