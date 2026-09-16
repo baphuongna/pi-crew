@@ -40,21 +40,19 @@ function runWith(agents: CrewAgentRecord[], runStatus = "running"): WidgetRun[] 
 }
 
 test("idle paint keeps the maxLines cap", () => {
-	const lines = buildWidgetLines("/tmp", 0, 8, runWith(Array.from({ length: 12 }, (_, i) => agent(`t${i}`))), 0, 100, {
-		rowStyle: "compact",
-	});
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(Array.from({ length: 12 }, (_, i) => agent(`t${i}`))), 0, 100, {});
 	assert.ok(lines.length <= 8, `idle must stay within maxLines, got ${lines.length}`);
 });
 
 test("finished agents age out of the linger window once the run is terminal", () => {
 	const finished = [agent("t1", { status: "completed", completedAt: new Date(Date.now() - 10 * 60_000).toISOString() })];
-	const lines = buildWidgetLines("/tmp", 0, 8, runWith(finished, "completed"), 0, 100, { rowStyle: "compact" });
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(finished, "completed"), 0, 100, {});
 	assert.ok(!lines.some((line) => line.includes("agent1")), "terminal run: old completion ages out");
 });
 
 test("detailed rows get no hint/main (no panel navigation there)", () => {
 	const agents = [agent("t1"), agent("t2")];
-	const lines = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, { rowStyle: "detailed" });
+	const lines = buildWidgetLines("/tmp", 0, 8, runWith(agents), 0, 100, {});
 	assert.ok(!lines.some((line) => line.includes("↓ to select")), "no hint in detailed mode");
 	assert.ok(!lines.some((line) => line.includes(" main")), "no main row in detailed mode");
 });

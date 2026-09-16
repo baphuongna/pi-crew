@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getCrewEnv } from "../../config/env-vars.ts";
-import { hasCrewFontFile, isWebTerminal } from "./font-detect.ts";
 
 /**
  * Self-contained config for the crew-vibes module (provider quota).
@@ -51,26 +50,6 @@ export const DEFAULT_CONFIG: CrewVibesConfig = {
 		providerRefreshMs: 120000,
 	},
 };
-
-// Fallback capacity icons using standard Unicode characters that render
-// on any terminal without the crew-vibes PUA font.
-const FALLBACK_CAPACITY_ICONS: [string, string, string, string, string, string] = [
-	"\u25CB ", // ○ empty circle (lean)
-	"\u25D4 ", // ◔ circle with dot (chonking)
-	"\u25D1 ", // ◑ circle half filled (chonky)
-	"\u25CF ", // ● filled circle (big chonk)
-	"\u2B24 ", // ⬤ large filled circle (mega chonk)
-	"\u2B22 ", // ⬢ filled hexagon (oh lawd)
-];
-
-/** Return capacity icons: standard Unicode glyphs that render on any terminal.
- * PUA glyphs (U+E710..U+E715) require crew-vibes.ttf AND terminal PUA
- * support — many terminals cannot render them even with the font installed. */
-export function capacityIcons(): [string, string, string, string, string, string] {
-	// Web terminals cannot render PUA glyphs — use fallback.
-	if (isWebTerminal()) return FALLBACK_CAPACITY_ICONS;
-	return hasCrewFontFile() ? DEFAULT_CONFIG.capacity.icons : FALLBACK_CAPACITY_ICONS;
-}
 
 function asRecord(value: unknown): Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};

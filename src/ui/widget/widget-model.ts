@@ -12,11 +12,15 @@ import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import { isDisplayActiveRun } from "../../runtime/process-status.ts";
 import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
+import { ACTIVE, RAIL, shortId } from "../rail.ts";
 import type { RunSnapshotCache } from "../snapshot-types.ts";
 import type { WidgetRun } from "./widget-types.ts";
 
 let lastStaleReconcileAt = 0;
 const STALE_RECONCILE_INTERVAL_MS = 60_000;
+
+/** The dock/status-bar identity word (kept next to its only two painters). */
+const IDLE_WORD = "CREW";
 
 function agentsFor(run: TeamRunManifest): CrewAgentRecord[] {
 	try {
@@ -81,7 +85,13 @@ export function activeWidgetRuns(
 }
 
 /**
- * Build a status summary string for the status bar.
+ * Build a status summary string for the status bar (RAIL design system §2.B):
+ *
+ *   `┃ CREW ▸ 2r · 2q · 3/5 done · <model>`
+ *
+ * The rail glyph + identity word are the same ones the dock paints, so the
+ * footer and the dock read as one surface. The multi-run case appends a
+ * `N runs` segment (the `r`/`q` counts are AGENT counts, never run counts).
  */
 export function statusSummary(runs: WidgetRun[]): string {
 	const agents = runs.flatMap((item) => item.agents);
@@ -94,17 +104,28 @@ export function statusSummary(runs: WidgetRun[]): string {
 		.find((a) => a.model)
 		?.model?.split("/")
 		.at(-1);
-	const parts = [`⚙ ${runningAgents}r`];
+	// Zero counts are noise on a one-line status row (live 2026-09-16: after a run
+	// finished the bar read `┃ CREW ▸ 0r · 3/3 done · MiniMax-M3`). Same rule the
+	// dock header follows — a zero segment never prints.
+	const parts: string[] = [];
+	if (runningAgents > 0) parts.push(`${runningAgents}r`);
 	if (queuedAgents > 0) parts.push(`${queuedAgents}q`);
-	if (completedAgents > 0) parts.push(`${completedAgents}/${totalAgents}done`);
-	if (totalRuns > 1) parts.push(`${totalRuns}runs`);
+	if (totalAgents > 0) parts.push(`${completedAgents}/${totalAgents} done`);
+	if (totalRuns > 1) parts.push(`${totalRuns} runs`);
 	if (model) parts.push(model);
-	return parts.join(" · ");
+	if (parts.length === 0) parts.push("idle");
+	return `${RAIL.body} ${IDLE_WORD} ${ACTIVE} ${parts.join(" · ")}`;
 }
 
 /**
- * Build the short run label (team/workflow).
+ * Build the short run label (team/workflow) — collapsed to ONE word when both
+ * halves agree (`fast-fix/fast-fix` is what every built-in team produced in
+ * live data), and guarded: a manifest read off disk may miss either half, and
+ * a literal `undefined` must never reach a rendered line.
  */
 export function shortRunLabel(run: TeamRunManifest): string {
-	return `${run.team}/${run.workflow ?? "none"}`;
+	const team = (run.team ?? "").trim();
+	const workflow = (run.workflow ?? "").trim();
+	if (team && workflow && team !== workflow) return `${team}/${workflow}`;
+	return team || workflow || shortId(run.runId);
 }

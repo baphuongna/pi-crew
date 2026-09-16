@@ -30,11 +30,6 @@ export interface DwfPhaseState {
 	currentPhase: string | null;
 }
 
-export interface RenderDwfPhaseOptions {
-	/** When true, render ASCII fallback markers instead of Unicode glyphs. */
-	ascii?: boolean;
-}
-
 // ---------------------------------------------------------------------------
 // Markers
 // ---------------------------------------------------------------------------
@@ -44,19 +39,9 @@ const MARKER_RUNNING = "▶";
 const MARKER_COMPLETED = "✓";
 const MARKER_PENDING = "⏸";
 
-// ASCII fallbacks for terminals that mis-render the Unicode glyphs above.
-const MARKER_RUNNING_ASCII = "[>]";
-const MARKER_COMPLETED_ASCII = "[v]";
-const MARKER_PENDING_ASCII = "[ ]";
-
 const DWF_PHASE_HEADER = "  ── DWF Phases ──";
 
-function markerFor(status: DwfPhaseStatus, ascii: boolean): string {
-	if (ascii) {
-		if (status === "running") return MARKER_RUNNING_ASCII;
-		if (status === "completed") return MARKER_COMPLETED_ASCII;
-		return MARKER_PENDING_ASCII;
-	}
+function markerFor(status: DwfPhaseStatus): string {
 	if (status === "running") return MARKER_RUNNING;
 	if (status === "completed") return MARKER_COMPLETED;
 	return MARKER_PENDING;
@@ -136,16 +121,14 @@ export function extractDwfPhaseState(events: TeamEvent[]): DwfPhaseState | null 
  *
  * - One line per phase: `  ▶ Phase: Scan`, `  ✓ Phase: Scan`, `  ⏸ Phase: Review`.
  * - A grouping header is emitted only when more than one phase is present.
- * - When `options.ascii` is true, ASCII fallback markers are used.
  *
  * Always returns a non-empty array (the caller guarantees a non-null state).
  */
-export function renderDwfPhaseLines(state: DwfPhaseState, options?: RenderDwfPhaseOptions): string[] {
-	const ascii = options?.ascii === true;
+export function renderDwfPhaseLines(state: DwfPhaseState): string[] {
 	const lines: string[] = [];
 	if (state.phases.length > 1) lines.push(DWF_PHASE_HEADER);
 	for (const entry of state.phases) {
-		lines.push(`  ${markerFor(entry.status, ascii)} Phase: ${entry.name}`);
+		lines.push(`  ${markerFor(entry.status)} Phase: ${entry.name}`);
 	}
 	return lines;
 }

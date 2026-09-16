@@ -1,7 +1,7 @@
 ---
 name: real-test-pi-crew
 description: >
-  End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, a live feature-action battery (team tool + subagent tools), a surface-mode battery (workers in real tmux/herdr panes, degrade-to-headless), and a resource-contract battery (agent .md frontmatter dual-parse, routing render, output contracts).
+  End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, a live feature-action battery (team tool + subagent tools), a surface-mode battery (workers in real tmux/herdr panes, degrade-to-headless), a resource-contract battery (agent .md frontmatter dual-parse, routing render, output contracts), and a real-run UI render battery (every surface rendered from a real run's on-disk state: state glyphs, invented strings, pluralisation, truncation priority, usage formats, width survival).
   When NOT to use: unit tests for isolated modules (use test runner directly); pure test execution.
 
 origin: pi-crew
@@ -54,6 +54,17 @@ triggers:
   - "silent bash"
   - "worker killed mid command"
   - "tier 12"
+  - "tier 13"
+  - "check the UI"
+  - "run the UI"
+  - "render every surface"
+  - "full UI"
+  - "does the card look right"
+  - "undefined in the widget"
+  - "spinner keeps spinning"
+  - "hint cut off"
+  - "tofu glyph"
+  - "catalog png"
 ---
 
 # real-test-pi-crew
@@ -808,6 +819,129 @@ node --experimental-strip-types --no-warnings --test --test-force-exit \
 
 ---
 
+## Tier 13 — Real-run UI render battery (every surface, real state, no fixtures)
+
+**What**: run a REAL team run, then render **every UI surface from that run's on-disk state** (`manifest.json` / `agents.json` / `tasks.json` / the snapshot cache / the real widget model) at several widths, and assert the cross-surface invariants that per-module unit tests structurally cannot see.
+
+**Why this is its own tier**: unit tests assert whatever strings their author chose with fixtures their author built; executor summaries claim behaviour. Neither can catch a surface painting something that maps to **no data field** or **contradicts the state**. Measured 2026-09-16: a 4-executor parallel UI migration + an independent verifier + **7857 green tests** left **7 real defects** in the UI — one render pass over a real run found all of them in ~2 minutes. The battery is cheap; the class of bug it kills is invisible to everything else.
+
+| Defect class | Real example (2026-09-16) | Why unit tests missed it |
+|---|---|---|
+| **Invented string** (hardcoded, maps to no field) | sidebar painted `122ab0dd · completed · right default` | no test asserts the ABSENCE of unexplained words |
+| **Cross-surface inconsistency** | `fast-fix/fast-fix` in sidebar AND dashboard (each site joined `team/workflow` itself) | per-file fixtures used differing team names, so neither site looked wrong |
+| **Wrong state glyph** | dock spun `⠹` on a finished run (`0 running · 3/3 done`) | the header always received a spinner frame; no test crossed "0 running" with the glyph |
+| **Truncation eats the important token** | dashboard run list painted `› ✓ 122ab0dd complete…` — the status cut in half | fixture goals fit the width, so the narrow-width fallback never ran |
+| **Wire format leaking into TUI** | sidebar `input=2780, output=3715, cacheRead=57216, cost=0.000000, turns=0` | the shared `formatUsage` helper IS correct for CLI output; only the TUI usage is wrong |
+| **Unit-less / wrong-scale numbers** | `314.7s` instead of `5m44s` in the agents pane | tests asserted the numbers, never the format |
+| **Pluralisation** | `1 runs`, `3 agents`, `1 tools` | fixtures used plural counts |
+| **Optional segment unguarded** | live `undefined — ↓·enter` after a run finished — the pure builder guarded it, the **component path did not** | the builder test passed; the component path had no zero-runs test |
+
+**When required**: ANY change under `src/ui/**`, or any change that alters what a surface prints (a formatter, a status-slot map, a label helper). Also required after parallel/subagent UI work — delegated claims are hypotheses until rendered.
+
+**How**:
+
+```bash
+# 0. Produce real state — a real run (read-only goal keeps it safe + fast):
+#    from the parent Pi session: team action='run' team='fast-fix' goal='<read-only 1-question task>'
+#    → note the runId; state lands in <workspace>/.crew/state/runs/<runId>/
+# 1. Write the harness to /tmp (NEVER into the repo) and render every surface.
+#    Template (adjust imports to the surfaces you touched):
+cat > /tmp/full-ui.ts <<'EOF'
+import * as fs from "node:fs";
+import { asCrewTheme } from "/ABS/PATH/pi-crew/src/ui/theme-adapter.ts";
+import { formatCompactToolProgress } from "/ABS/PATH/pi-crew/src/ui/tool-progress-formatter.ts";
+import { teamToolRenderer } from "/ABS/PATH/pi-crew/src/ui/tool-renderers/index.ts";
+import { buildWidgetLines } from "/ABS/PATH/pi-crew/src/ui/widget/widget-renderer.ts";
+import { buildTaskListLines } from "/ABS/PATH/pi-crew/src/ui/widget/task-list.ts";
+import { LiveRunSidebar } from "/ABS/PATH/pi-crew/src/ui/live-run-sidebar.ts";
+
+const CWD = "/ABS/PATH/WORKSPACE";                 // where .crew/state lives
+const RUN = `${CWD}/.crew/state/runs/<runId>`;
+const manifest = JSON.parse(fs.readFileSync(`${RUN}/manifest.json`, "utf8"));
+const agents = JSON.parse(fs.readFileSync(`${RUN}/agents.json`, "utf8"));
+const tasks = JSON.parse(fs.readFileSync(`${RUN}/tasks.json`, "utf8"));
+const theme = asCrewTheme({});
+const R = (c: any, w = 118) => c.render(w).map((l: string) => l.replace(/\s+$/, "")).join("\n");
+const L = (ls: string[]) => ls.map((l) => l.replace(/\s+$/, "")).join("\n");
+const hdr = (t: string) => `\n═══ ${t} ═══`;
+const details = { action: "run", status: manifest.status, runId: manifest.runId, team: manifest.team, agentRecords: agents };
+
+console.log(hdr("CALL"), R(teamToolRenderer.renderCall({ action: "run", goal: manifest.goal, team: manifest.team }, theme, { argsComplete: true })));
+// STREAMING must go through the PRODUCER, not a hand-built string:
+const stream = formatCompactToolProgress({ agentId: manifest.runId, status: "running", runId: manifest.runId,
+  startedAt: new Date(manifest.createdAt).getTime(), manifest, tasks, agents });
+console.log(hdr("STREAMING"), R(teamToolRenderer.renderResult({ details: { action: "run" }, content: [{ type: "text", text: stream }] }, { isPartial: true }, theme, {})));
+console.log(hdr("COLLAPSED"), R(teamToolRenderer.renderResult({ details }, { action: "run" }, theme, {})));
+console.log(hdr("EXPANDED"), R(teamToolRenderer.renderResult({ details }, { action: "run" }, theme, { expanded: true })));
+console.log(hdr("EXPANDED@80"), R(teamToolRenderer.renderResult({ details }, { action: "run" }, theme, { expanded: true }), 80));
+
+// WidgetRun NEEDS `snapshot` (the plan card reads snapshot.tasks) — a bare {run, agents} renders EMPTY and looks like a bug:
+const { createRunSnapshotCache } = await import("/ABS/PATH/pi-crew/src/ui/run-snapshot-cache.ts");
+const snap = createRunSnapshotCache(CWD).refreshIfStale(manifest.runId);
+const done = [{ run: manifest, agents, snapshot: snap }];
+const live = [{ run: { ...manifest, status: "running" }, agents: agents.map((a: any, i: number) => ({ ...a, status: i === 0 ? "running" : a.status })), snapshot: snap }];
+const dead = [{ run: { ...manifest, status: "failed" }, agents, snapshot: snap }];
+for (const [name, runs, w] of [["done", done, 118], ["done@50", done, 50], ["running", live, 118], ["failed", dead, 118]] as const) {
+  console.log(hdr(`DOCK ${name}`), L(buildWidgetLines(CWD, 0, 8, runs as never, 0, w, {})));
+}
+console.log(hdr("PLAN CARD"), L(buildTaskListLines(done as never, 118, theme)) || "(empty)");
+
+const sidebar = new LiveRunSidebar({ cwd: CWD, runId: manifest.runId, done: () => undefined, theme: {}, config: {} as never });
+console.log(hdr("SIDEBAR"), R(sidebar, 118));
+// Dashboard + browser: see docs/ui-samples/capture.ts sections 13/14 for the exact constructors.
+EOF
+node --experimental-strip-types --no-warnings /tmp/full-ui.ts | tee /tmp/full-ui.txt
+
+# 2. Invariant sweep over the rendered text (all of these must be ZERO hits):
+grep -nE "undefined|[╭╮╰╯├┤]|->" /tmp/full-ui.txt                          # unguarded segment / retired frame / legacy separator
+grep -nE "\b1 (runs|tools|agents|tasks|edits)\b" /tmp/full-ui.txt        # pluralisation (note: `11 tools` legitimately contains `1 tools` — anchor the match)
+grep -nE "input=|output=|cacheRead=|cost=[0-9]" /tmp/full-ui.txt           # wire format leaked into a TUI surface
+python3 - <<'PY'
+import re
+bad = []
+for ln in open("/tmp/full-ui.txt", encoding="utf-8"):
+    if "═══" in ln: continue
+    # spinner present while nothing is running?
+    if re.search(r"[⠁-⣿]", ln) and re.search(r"0 running", ln): bad.append(("spinner+0-running", ln.rstrip()))
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", ln)
+    if len(plain.rstrip("\n")) > 120: bad.append(("over-width", plain.rstrip()))
+    if "··" in plain and "↓·enter" in plain and plain.rstrip().endswith("…"): bad.append(("hint clipped", plain.rstrip()))
+print("BAD:", bad if bad else "none")
+PY
+
+# 3. Narrow-width survival: the actionable hint must be the LAST thing to go.
+#    Render the dock at 40/50/60 and assert `↓·enter` (or its tail) is still there.
+
+# 4. Cross-surface consistency (same run, every surface):
+#    - team label identical everywhere (`fast-fix`, never `fast-fix/fast-fix`)
+#    - run id rendered at the same width everywhere (shortId = last 8)
+#    - durations in ONE format (`5m44s`, never `344.3s`)
+#    - usage in ONE format (`↑2.8k ↓3.7k`, never `input=…`)
+#    - status word never truncated (`completed`, never `complete…`)
+```
+
+**Mandatory rules for this tier**
+
+- **Render REAL state, never hand-built fixtures.** Fixtures are how the seven defects above survived: the author picks values that fit and read well. `team action='run'` costs ~120s and gives you goals, ids, counts and usage that are the wrong length, the wrong shape and the wrong scale — which is the point.
+- **Feed STREAMING through the producer** (`formatCompactToolProgress`), not a string you typed. Half the streaming bugs live in the producer→parser contract (`test/unit/runtime/core/tool-progress-formatter.test.ts`).
+- **Render EVERY state you support**: running / done / failed / focused / idle / narrow. A glyph or fallback that is correct in one state is routinely wrong in another (spinner on a finished run; a hint clipped at 50 columns).
+- **`undefined` sweep must cover the COMPONENT path**, not just the pure builder. `widget-renderer.buildWidgetLines` had `if (!zero) return []` for three weeks while `src/ui/widget/index.ts` composed the same row with an unguarded template literal — the live `undefined — ↓·enter`.
+- **Any word you cannot trace to a data field is a bug.** For each literal in the rendered output ask "which field/derivation produced this?" — `right default` had no answer.
+- Keep the harness in `/tmp`. It is a probe, not a deliverable; if it is worth keeping, it belongs in the repo's catalog script (see below), not in a random test file.
+
+**Catalog (if the repo ships one, `docs/ui-samples/`)**
+
+- `capture.ts` renders real components into `captures/*.txt`; `render_png.py` turns them into terminal-style PNGs. Re-run BOTH after any UI change, then look at one image — text captures hide font-level breakage.
+- `render_png.py` must **fail loudly when the font has no glyph** for a character (the coverage self-check compares each glyph against the `.notdef` box). DejaVu Sans Mono — the best-covered mono font on a stock Linux box — lacks the **braille spinner range** (U+2800–U+28FF) and `⟳ ⏰ ⎿`, so a naive render ships `□` for every running row. Mappings in use: braille → `◐`, `⟳` → `↻`, `⎿` → `└`, `⏰`/`⏱` → `o`.
+- Set **line-height == font-size**, otherwise box-drawing rails paint as a dashed line.
+- Heavy box glyphs (`┏ ┃ ┗`) render with light strokes in DejaVu/Noto — a font trait, not a capture bug. Document it instead of hunting fonts.
+
+**Acceptance**: every surface renders; the invariant sweep returns zero hits; each state (running/done/failed/focused/idle/narrow) renders the right glyph and keeps the actionable hint; no `undefined`, no retired frame glyph, no `->`, no wire format, no invented word; durations/usage/plurals consistent across surfaces; catalog (if present) regenerated and one PNG visually inspected.
+
+**Reference implementations**: `docs/ui-samples/capture.ts` (sections 13–18 render dashboard/browser/inline panel/transcript/live-conversation/settings from a REAL temp run written through the state-store APIs), `docs/ui-samples/render_png.py` (glyph coverage self-check + substitutions), `docs/UI-DESIGN-SYSTEM.md` (the grammar each surface must follow), `src/ui/rail.ts` (the single source of glyphs/helpers).
+
+---
+
 ## Anti-patterns (the cost is real, observed in this session)
 
 | Anti-pattern | Cost | Where fixed | Reference |
@@ -844,6 +978,14 @@ node --experimental-strip-types --no-warnings --test --test-force-exit \
 | **Test vacuous — assert trên fixture chứ không trên wiring** (P1 remediation, `09dda842`): migration-validator test 2 từng assert key tự chế không có trong registry → luôn pass dù validator chưa được wire vào registerPiTeams. | `09dda842` | Test phải dùng key THẬT từ registry (`PI_CREW_BROKER_DIAG_UI` severity "removed"), và wiring test phải prove call-site (register.ts:68), không chỉ prove pure function. |
 | **Folded YAML scalar (`key: >`) in agent/team/workflow frontmatter** (Batch-9 regression, fixed `aa899a1e`): `utils/frontmatter.ts` is line-based — folded descriptions parsed as literal `">"` for ALL 17 agents while typecheck/lint/test:critical stayed green (skills unaffected: real `yaml` package). Symptom: guidance renders `name (builtin): >`, When-NOT text missing. | `aa899a1e` | Agent/teams/workflows frontmatter values stay single-line; quote values containing `": "` (parser strips symmetric quotes); run the Tier 12b dual-parse probe after EVERY resource `.md` frontmatter edit. Folded scalars remain fine in `skills/*/SKILL.md` only. |
 | **Worker killed mid long-silent-bash** (Batch-1 postmortem): one >5–10 min command (full `npm test` ≈ 10 min) emits no LLM activity → the broker's responsiveness check SIGTERMs the worker mid-run — exit 143 WHILE the command runs, not a 600s response timeout. Work was intact; manual re-run green — the kill WAS the "hang". | n/a (quirk — `CONTEXT.md` Flagged #1; P2 candidate) | Split long suites into <5 min chunks or emit progress between commands. On exit-143-mid-command: re-run manually BEFORE diagnosing a code bug. Postmortem: `postmortem-batch-1-sigterm.md` (workspace root). |
+| **`pkill -f "test:unit"` kills your own shell** (2026-09-16): the pattern matches the `bash -c` cmdline of the tool call that runs it, so the command dies before it starts the replacement suite — and the log file simply never appears. | n/a (self-inflicted) | Kill by pid (`pgrep -f test-runner` → `kill <pid>`), or match a pattern the sink does not contain | Tier 13 "How" step 0 — detached start: `(setsid nohup npm run test:unit > /tmp/suite.log 2>&1 < /dev/null &)` |
+| **`pgrep -f test-runner` read as liveness** (2026-09-16): the same self-match makes it report `RUNNING` forever, so a suite that died 10 minutes ago looks alive and the "result" you read is a truncated log. | n/a (self-inflicted) | Liveness = `ps -eo pid,etime,cmd \| grep -E "test-runner\|node --test"` with the grep itself excluded | Tier 13 harness step 1 — a run is DONE only when the `# tests/# pass/# fail` block exists at EOF |
+| **Reading a truncated suite log as a summary** (2026-09-16): the runner died with `Test runner error: spawnSync … ETIMEDOUT` at subtest 3946/7860 under load; the last numbers looked like a verdict. | n/a (runner) | The verdict is the `# tests/# pass/# fail` block at EOF — absent means the run did not finish; re-run in the foreground with nothing else heavy running | Failure symptoms row "Test runner error: spawnSync … ETIMEDOUT" |
+| **Running the full suite on a tree you are still editing** (2026-09-16): a 12-minute suite started before the last fixes reports failures that no longer exist — and passes fixes that were not in yet. | n/a (process) | Freeze the tree first; if you must edit, the run is VOID — say so instead of quoting its numbers | Done-criteria: "Full `test:unit` fresh-run" |
+| **Grepping the bundle without context or escape-awareness** (2026-09-16): esbuild escapes non-ASCII as `\u250F` (uppercase hex) so glyph greps miss, while `"->"` (the progress **wire format**, `roleSeparator`) and `Crew agents` (error message + task-graph markdown) are permanent false positives. | n/a (permanent) | Grep the codepoint escape (`u250F`, `u258F`) and always print ±90 chars of context before concluding | Tier 3 bundle check + Tier 13 step 2 (escape-aware proof snippet) |
+| **Trusting a delegated UI claim** (2026-09-16): four parallel executors + a verifier reported "dedupe applied" and "hints canonical"; the rendered surfaces still showed `fast-fix/fast-fix` and an invented `· right default`. Summaries describe intent. | n/a (process) | Render the surface with REAL state before believing any UI claim — including your own | Tier 13 (this entire tier exists for this class) |
+| **Declaring a red gate "pre-existing" (or "my regression") from reasoning alone** (2026-09-16): `check:env-vars` was red; the file was untouched, but that is an argument, not evidence. | n/a (process) | Prove it in a clean-HEAD worktree: `git worktree add -q /tmp/pc-head HEAD && (cd /tmp/pc-head && node scripts/check-env-vars.mjs); git worktree remove --force /tmp/pc-head` | Same recipe as the broker-flake proof (Tier 1 / Failure symptoms) |
+| **Shipping a catalog PNG with tofu boxes** (2026-09-16): the catalog rendered the braille spinner + `⟳` + `⎿` as `□` — invisible in the `.txt` captures, obvious the moment the image was opened. | `docs/ui-samples/render_png.py` glyph self-check | Make the renderer FAIL on any character it cannot paint (compare against the `.notdef` box), then map the offender | Tier 13 "Catalog" + `render_png.py` (`_has_glyph`, `BRAILLE_TO`) |
 | **Treating `wait-request-broker.test.ts` load-timeout as a product bug**: the test runner's per-file 180s timeout is below this file's full-suite runtime under parallel load — fails only with the whole suite, passes in isolation. Pre-existing flake, NOT a regression from your change. | n/a (test infra) | Re-run the single file before fixing anything: `node scripts/test-runner.mjs test/unit/runtime/broker/wait-request-broker.test.ts`. Green in isolation = infra flake; move on. |
 
 ---
@@ -876,6 +1018,14 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | Surface run >5 phút bị stale-reconcile giết oan (worker khỏe, pane sống) | F1 (đã fix f12f4f5d + af2f8eb4): recorder chỉ flush ở turn boundary → lastSeen đóng băng giữa turn; reconciler cũ time-based không pid-gate. **Bẫy đa host**: MỘT pi session chạy bundle cũ cũng đủ giết run của session khác (sweep quét mọi runs) — tát cả host phải cùng version | Kiểm tra mọi pi process cùng bundle (`ps` lstart vs dist mtime); `PI_CREW_DEBUG_STALE=1` sidecar /tmp/pi-crew-f1-debug.log ghi mọi verdict STALE để bắt hung thủ; kỳ vọng sidecar rỗng khi mọi host đã fix |
 | Worker exits 143 WHILE a long bash command is still running (no LLM-activity window before the kill) | Broker responsiveness SIGTERM on silent long commands (`CONTEXT.md` Flagged #1) — distinct from `RESPONSE_TIMEOUT_MS` (600s no-response) | Split the command; emit progress between steps; re-run the suite manually — work is usually intact. See `postmortem-batch-1-sigterm.md` |
 | Full `test:unit` fails ONLY on `wait-request-broker.test.ts` under parallel load | Per-file 180s runner timeout vs the file's real runtime (passes isolated) | `node scripts/test-runner.mjs test/unit/runtime/broker/wait-request-broker.test.ts` — green in isolation = infra flake, not a regression |
+| `undefined` (or `undefined — …`) painted in a live surface | an optional segment interpolated into a template literal without a guard. **Check BOTH paths**: the pure builder and the component that composes the same row (2026-09-16: `widget-renderer.buildWidgetLines` guarded it, `src/ui/widget/index.ts` did not). | Guard before composing (`if (!x) return [] / return undefined`), add a regression lock that renders the zero-state through the COMPONENT, and sweep every `${optional}` on the surface. |
+| Spinner keeps spinning after the run finished (`⠹ … 0 running`) | the surface hardcodes a spinner frame instead of deriving the glyph from state | Derive it: spinner only while an agent/run is actually running, otherwise the outcome glyph (`✓`/`✗`). Assert in the battery that "0 running" never coexists with a braille glyph. |
+| Actionable hint clipped at a narrow width (`···· ↓…`) | the leader/hint is composed at a pinned budget and the WHOLE line is truncated afterwards, so the tail dies first | Compose the tail with the shared leader helper at `budget = min(pinned, width - 2)` so the LEFT segment is trimmed (with `…`) and the hint survives. Probe at 40/50/60 columns. |
+| A status/word truncated mid-token (`complete…`, `fast-f…`) | a narrow-width fallback truncating `head · meta` as ONE string | Give the fallback an explicit priority order (status > id > goal > meta) and clip the lowest-priority segment; never `truncate()` a concatenation that mixes a must-survive token with a droppable one. |
+| A surface shows a word nobody can trace to data (`· right default`) | a hardcoded literal left in a template | Delete it or replace it with the real field (`run.workspaceMode`). Add "every literal traces to a field" to the Tier 13 sweep. |
+| `input=2780, output=3715, cost=0.000000` inside a TUI panel | a `key=value` formatter (CLI/status output) reused where the compact TUI form belongs | Keep the wire formatter for CLI/log output; add a compact form for the rail (`↑2.8k ↓3.7k`, cost only when > 0). Same for durations: `formatDuration` (`5m44s`), never `(ms/1000).toFixed(1)}s`. |
+| Catalog PNG shows `□` / dashed rails | the render font lacks the glyph (braille spinner, `⟳ ⏰ ⎿`) or `line-height > font-size` | Re-run with the coverage self-check in `render_png.py`; keep the substitution map up to date; set `LH = FS`. |
+| `Test runner error: spawnSync … ETIMEDOUT` mid-suite | the runner's own spawn deadline hit under load (a real test spawns node children) | Re-run in the foreground with nothing else heavy running; a truncated log is not a verdict. If it repeats on one file, run that file alone. |
 | Guidance / `team action='list'` shows an agent description as `>` or missing When-NOT text | Folded-scalar frontmatter (`description: >`) — the line-based parser reads `>` literally (CONTEXT.md Flagged #4) | Restore the single-line value (double-quote it if it contains `": "`); re-run the Tier 12b dual-parse probe |
 
 ## Performance budget (per-tier soft limits)
@@ -894,6 +1044,7 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | 10a (surface E2E suite) | 90s | 180s | tmux server issue or a real spawn/degrade regression — investigate, don't bump |
 | 10b (live surface run) | ~120s (one fast-fix run) | 600s (worker hard limit) | Pane never engaged (check `visibleAgents`) or auto-exit failed leaving panes open |
 | 10c (herdr path) | ~120s | 600s | herdr socket protocol drift — check `herdr api schema --json` against `src/runtime/surface/herdr-provider.ts` |
+| 13 (real-run UI render: 1 real fast-fix run + harness + sweep) | 150s | 300s | A surface is reading disk on the paint path, or the run itself hung — the render is <10ms, so a slow Tier 13 means the harness is doing I/O it shouldn't |
 
 If a tier runs over the hard limit, **stop and investigate** — don't bump the budget silently. The budget exists precisely so regressions in test runtime (which usually means a regression in test setup/teardown) are caught early.
 
@@ -995,6 +1146,8 @@ Use this to answer "đủ full tính năng chưa?" without re-deriving. Every us
 | Surface panes tmux/herdr (A1) | `src/runtime/surface/` | T10 (10a E2E + 10b live + 10c herdr) |
 | Broker (mailbox, steer, tokens) | `src/runtime/broker/` | T1/T2 + 9c steer/respond + T10a test #2 |
 | Dashboard + keybindings + overlays | `src/ui/`, commands `src/extension/registration/commands/` | T5/T6 probe + parity golden test |
+| **UI surfaces render from real run state** (tool card, dock widget, plan card, sidebar, dashboard, browser, overlays) | `src/ui/**`, grammar in `docs/UI-DESIGN-SYSTEM.md`, primitives in `src/ui/rail.ts` | T13 (real-run render battery: state glyphs, invented strings, pluralisation, truncation priority, usage/duration formats, narrow-width hint survival) |
+| UI catalog artifacts (`captures/*.txt` + `png/*.png`, regenerated from real components) | `docs/ui-samples/capture.ts`, `docs/ui-samples/render_png.py` | T13 catalog step (regenerate both + open one PNG; renderer fails on a missing glyph) |
 | Slash commands (8: run/status/doctor/help/dashboard/settings/init/config) | `commands/{run,status,manage,dashboard}.ts` | T5 send-keys một lệnh `/team-*` |
 | team-settings / config | `src/extension/team-tool/handle-settings.ts` | 9a settings get + 10b set visibleAgents |
 | Worktree isolation | `src/worktree/` | 9a worktrees + 9b run `workspaceMode='worktree'` |
@@ -1111,6 +1264,22 @@ node -e 'const yaml=require("yaml"),fs=require("fs");let ok=0;for(const f of fs.
 node --experimental-strip-types --no-warnings --test --test-force-exit test/unit/bundle-skill-resolution.test.ts test/unit/extension/registration/tool-loop-guard.test.ts test/unit/runtime/core/skill-instructions.test.ts  # 12d
 node scripts/check-bundle-staleness.mjs                              # staleness + ARCH-7 path-leak scan (also after every build:bundle)
 node scripts/release-smoke.mjs                                       # release cut: peer install + tarball import + shape check (ARCH-6)
+# Tier 13 (real-run UI render battery — any src/ui/** change, or after ANY delegated UI work)
+#   from the parent Pi session: team action='run' team='fast-fix' goal='<read-only 1-question task>'   # ~120s, gives REAL state
+#   then render every surface from that run's on-disk state (harness template in Tier 13; keep it in /tmp):
+node --experimental-strip-types --no-warnings /tmp/full-ui.ts | tee /tmp/full-ui.txt
+grep -nE "undefined|[╭╮╰╯├┤]|->" /tmp/full-ui.txt                     # 0 hits (unguarded segment / retired frame / legacy separator)
+grep -nE "(^|[^0-9])1 (runs|tools|agents|tasks)\b" /tmp/full-ui.txt    # 0 hits (anchor the plural check — `11 tools` contains `1 tools`)
+grep -nE "input=|output=|cacheRead=|cost=[0-9]" /tmp/full-ui.txt        # 0 hits (wire format leaked into a TUI panel)
+#   state glyph: a braille spinner must never coexist with `0 running`; hint (`↓·enter`) must survive at 40/50/60 cols
+#   catalog: regenerate BOTH artifacts, then LOOK at one image
+node --experimental-strip-types --no-warnings docs/ui-samples/capture.ts   # captures/*.txt
+python3 docs/ui-samples/render_png.py                                      # png/*.png (fails loudly on a glyph the font lacks)
+#   bundle-side proof (escape-aware — esbuild writes \u250F uppercase):
+python3 - <<'PY'
+s=open("dist/index.mjs",encoding="utf-8").read()
+for k,v in {"rail open u250F":"u250F" in s,"section u2523":"u2523" in s,"retired u256D":"u256D" in s,"raw undefined-hint":"undefined \u2014 " in s}.items(): print(f"{k}: {v}")
+PY
 #   11a full gate (after ANY delayed-write conversion program): npm run test:unit  # ~7500 tests, 15-18 min
 ```
 
@@ -1128,6 +1297,7 @@ Before claiming "tested":
 - [ ] Tier 7: smoke team run for any `src/runtime/goal-workflow/plan-templates.ts` or `workflows/*.workflow.md` change — completed, no hang, verifier output under 60s
 - [ ] Tier 8: final md5 sync check passed
 - [ ] Tier 9: feature battery — **required if you touched `src/schema/team-tool-schema.ts`, `src/extension/registration/team-tool.ts`, any `Type.Unsafe({...})` schema, or any armed-role tool list (`agents/*.md` / `src/config/role-tools.ts`)**. 9a read-only batch all return clean; one probe per 9b spawn path (sync / async / chain / `Agent` / `crew_agent`+`get_subagent_result`) completes with `consistency=1`. Run 9c–9f only when the change touches their code path; **at least one full 9c/9e/9f sweep per release is recommended so the battery stays proven** (see `real-test-2026-08-11-scratchpad-I-batch.md`); 9d (destructive) requires explicit user confirmation. **After every run: `git status` to catch unauthorized agent edits.**
+- [ ] Tier 13: real-run render battery — **required for ANY `src/ui/**` change** (and after any parallel/delegated UI work). One real `team action='run'` producing on-disk state; every surface rendered from that state at 118 + a narrow width; invariant sweep clean (no `undefined` / retired frame glyph / `->` / wire format / invented word / bad plural); the correct glyph per state (running vs done vs failed — never a spinner with `0 running`); the actionable hint survives the narrowest width; durations, usage and run ids formatted identically on every surface; catalog regenerated (capture + PNG) and one image visually inspected. **Fixtures do not count** — the defects this tier exists to catch (invented strings, wrong-state glyphs, truncation that eats a must-survive token) are invisible to author-chosen fixture values.
 - [ ] **Output report**: save `docs/real-test/reports/real-test-<YYYY-MM-DD>-<slug>.md` from `skills/real-test-pi-crew/REPORT-TEMPLATE.md`, filled DURING the run with per-tier evidence (counts/md5/runId) — not reconstructed from memory afterward. This is what makes past runs verifiable instead of trust-the-summary.
 - [ ] Tier 10: surface battery — **required if you touched `src/runtime/surface/**`, `src/prompt/surface-worker.ts`, the surface branch of `src/runtime/child-pi/child-pi.ts`, or the surface config keys**. 10a E2E 3/3 per backend available (tmux trong tmux; herdr ngoài tmux + socket sống — skip vì thiếu mux là correct-by-design nhưng KHÔNG tính pass cho backend đó); 10b live run với session ĐÃ reload bundle mới (xem Anti-patterns "file-md5 only") + `visibleAgents` set + pane-level evidence (pane id/title during run, `worker.surface_spawned`/`worker.surface_closed` events, pane auto-closed after — KHÔNG dùng `manifest.surface.panes` làm evidence engage, xem Anti-patterns "panes == {}"); 10c herdr live chỉ khi pi chạy trong herdr pane (skip kèm lý do nếu không).
 - [ ] Tier 11: remediation regression battery — **required if you touched `src/state/**` write paths, `migration-validator.ts`/its wiring, `scripts/wc-gate.mjs` or `ci` scripts, `.github/workflows/*` env, EFFECTIVE_DEFAULTS maps, or you are cutting a release**. Sub-checks a–j per Tier 11; 11a item 4 (full `test:unit`) mandatory after any delayed-write conversion program, skippable for doc-only changes. Record: buffered-site census count, wc-gate max, staleness `--committed-hash` result.
@@ -1198,6 +1368,16 @@ Workflow files:
 - `workflows/default.workflow.md:31` — verifier prompt
 - `workflows/plan-execute.workflow.md:30` — verifier prompt
 - `workflows/review.workflow.md:31` — verifier prompt
+
+UI design system + catalog (Tier 13):
+- `docs/UI-DESIGN-SYSTEM.md` — the RAIL grammar every surface must follow (glyphs `┏ ┣ ┃ ┗`, canopy `NAME ▸ SUBJECT`, dot leaders, eighth-block gauge, cursor `›`, overflow `▲/▼`, hint format) + the 7 surface classes + the width contract
+- `src/ui/rail.ts` — SINGLE SOURCE of the glyphs/helpers (`RAIL`, `canopyLine`, `sectionLine`, `railLine`, `railLeaders`, `gaugeBar`, `statusSlot/Badge/Icon`, `overflowHint`, `formatHint`/`keyToken`, `CURSOR`/`ACTIVE`, `dedupeAgentLabel`, `padVisual`/`truncVisual`). Surfaces must import from here, never re-declare `┏`/`┃`/`▕` locally.
+- `src/ui/adaptive-card.ts` — width-deferred wrapper (`render(width)` is the real width; a frame baked for 116 columns tears at 100)
+- `src/ui/format-helpers.ts` — `formatCount` (pluralisation: `1 tool`), `formatDuration` (`5m44s`, never `314.7s`), `teamWorkflowLabel` (collapses `team/team`), `truncLine`
+- `src/ui/widget/widget-renderer.ts` — dock row (`buildWidgetLines`, `idleWidgetLine`, `widgetActivityGlyph`, `widgetRailSlot`, `dockTail` hint budget) — the zero-runs branch is the live `undefined — ↓·enter` regression site
+- `src/ui/live-run-sidebar.ts` / `src/ui/run-dashboard.ts` / `src/ui/agents-jobs-browser.ts` / `src/ui/settings-overlay.ts` / `src/ui/dashboard-panes/*` — surfaces migrated to RAIL 2026-09-16
+- `docs/ui-samples/capture.ts` (real renders incl. sections 13–18 from a run written through the state-store APIs) + `docs/ui-samples/render_png.py` (glyph coverage self-check + substitution map) + `docs/ui-samples/README.md`
+- Tests: `test/unit/ui/rail.test.ts`, `dock-rail`, `dashboard-rail`, `panes-rail`, `overlays-rail` (grammar locks), `test/unit/ui/tool-renderers-redesign.test.ts` (card), `test/unit/ui/tool-renderers-frame-width.test.ts` (width invariant)
 
 Resource-contract files (Tier 12):
 - `src/utils/frontmatter.ts` — LINE-BASED parser (`parseLines`): single-line values, symmetric-quote strip (`aa899a1e`); folded scalars unsupported for agents/teams/workflows (skills use the real `yaml` package — folded OK there)

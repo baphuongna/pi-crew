@@ -260,6 +260,11 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 					onJsonEvent: deps.onJsonEvent,
 					getRunSnapshotCache: deps.getRunSnapshotCache,
 				});
+				// W5: surface the team name on the collapsed run card — the renderer
+				// reads `details.team`; enrich (non-destructively) for run results.
+				if (resolved.action === "run" && !output.isError && output.details && typeof output.details === "object") {
+					(output.details as unknown as Record<string, unknown>).team ??= resolved.team ?? resolved.agent ?? "";
+				}
 				if (resolved.action === "run" && !output.isError && typeof output.details?.runId === "string") {
 					pi.appendEntry("crew:run-started", {
 						runId: output.details.runId,
@@ -296,8 +301,10 @@ export function registerTeamTool(pi: ExtensionAPI, deps: RegisterTeamToolDeps): 
 					theme,
 					context as ToolRenderContext,
 				);
-			} catch {
-				return new Text(statusIcon("completed", theme) + " done", 0, 0);
+			} catch (e) {
+				// W1: fail-visible at the adapter layer too — never fake a "done".
+				const msg = e instanceof Error ? e.message : String(e);
+				return new Text(theme.fg("error", `✖ team render error: ${msg.slice(0, 60)}`), 0, 0);
 			}
 		},
 	};

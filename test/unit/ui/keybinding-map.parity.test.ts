@@ -32,12 +32,26 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { type ActivePane, DASHBOARD_KEYS, dashboardActionForKey, KEY_RESERVED } from "../../../src/ui/keybinding-map.ts";
+import {
+	type ActivePane,
+	DASHBOARD_KEYS,
+	type DashboardKeyAction,
+	dashboardActionForKey,
+	KEY_RESERVED,
+} from "../../../src/ui/keybinding-map.ts";
 
 // Golden snapshot from the pre-L2 implementation. DO NOT edit by hand —
 // regenerate with the snippet above if the dispatch contract intentionally
 // changes, and document WHY in the commit message.
 const GOLDEN: Record<string, string | null> = {
+	// Regenerated (M1-7 / P1-5): removed the phantom `p` → "progressToggle"
+	// row. `progressToggle` was deleted from `DASHBOARD_KEYS.root`, the
+	// `DashboardKeyAction` union and `DEFAULT_BINDINGS` because the flag it
+	// toggled (`showFullProgress`) was never read to change rendered output.
+	// Every remaining entry was verified byte-identical (only the 9 `|'p'`
+	// rows were dropped — one per pane); the two legacy app-cursor variants
+	// (\u001bOA/OB) are preserved. `p` is now unbound in every pane, asserted
+	// by the dedicated M1-7 test below. Prior regeneration note:
 	// Regenerated (feat/agents-browser): added root key 'b' → "browser" for
 	// every pane; all pre-existing entries byte-identical (verified by diff
 	// before replacement). Prior regeneration note:
@@ -83,7 +97,6 @@ const GOLDEN: Record<string, string | null> = {
 	'agents|"m"': "mailbox",
 	'agents|"n"': null,
 	'agents|"o"': "output",
-	'agents|"p"': "progressToggle",
 	'agents|"q"': "close",
 	'agents|"r"': "reload",
 	'agents|"s"': "select",
@@ -129,7 +142,6 @@ const GOLDEN: Record<string, string | null> = {
 	'health|"m"': "mailbox",
 	'health|"n"': null,
 	'health|"o"': "output",
-	'health|"p"': "progressToggle",
 	'health|"q"': "close",
 	'health|"r"': "reload",
 	'health|"s"': "select",
@@ -175,7 +187,6 @@ const GOLDEN: Record<string, string | null> = {
 	'mailbox|"m"': "mailbox",
 	'mailbox|"n"': null,
 	'mailbox|"o"': "output",
-	'mailbox|"p"': "progressToggle",
 	'mailbox|"q"': "close",
 	'mailbox|"r"': "reload",
 	'mailbox|"s"': "select",
@@ -221,7 +232,6 @@ const GOLDEN: Record<string, string | null> = {
 	'metrics|"m"': "mailbox",
 	'metrics|"n"': null,
 	'metrics|"o"': "output",
-	'metrics|"p"': "progressToggle",
 	'metrics|"q"': "close",
 	'metrics|"r"': "reload",
 	'metrics|"s"': "select",
@@ -267,7 +277,6 @@ const GOLDEN: Record<string, string | null> = {
 	'output|"m"': "mailbox",
 	'output|"n"': null,
 	'output|"o"': "output",
-	'output|"p"': "progressToggle",
 	'output|"q"': "close",
 	'output|"r"': "reload",
 	'output|"s"': "select",
@@ -313,7 +322,6 @@ const GOLDEN: Record<string, string | null> = {
 	'plan|"m"': "mailbox",
 	'plan|"n"': "plan-deny",
 	'plan|"o"': "output",
-	'plan|"p"': "progressToggle",
 	'plan|"q"': "close",
 	'plan|"r"': "reload",
 	'plan|"s"': "select",
@@ -359,7 +367,6 @@ const GOLDEN: Record<string, string | null> = {
 	'progress|"m"': "mailbox",
 	'progress|"n"': "plan-deny",
 	'progress|"o"': "output",
-	'progress|"p"': "progressToggle",
 	'progress|"q"': "close",
 	'progress|"r"': "reload",
 	'progress|"s"': "select",
@@ -405,7 +412,6 @@ const GOLDEN: Record<string, string | null> = {
 	'schedules|"m"': "mailbox",
 	'schedules|"n"': "schedule-run-now",
 	'schedules|"o"': "output",
-	'schedules|"p"': "progressToggle",
 	'schedules|"q"': "close",
 	'schedules|"r"': "reload",
 	'schedules|"s"': "select",
@@ -453,7 +459,6 @@ const GOLDEN: Record<string, string | null> = {
 	'undefined|"m"': "mailbox",
 	'undefined|"n"': null,
 	'undefined|"o"': "output",
-	'undefined|"p"': "progressToggle",
 	'undefined|"q"': "close",
 	'undefined|"r"': "reload",
 	'undefined|"s"': "select",
@@ -554,6 +559,57 @@ describe("dashboardActionForKey — precedence and pane-scoping", () => {
 		assert.equal(dashboardActionForKey("z", undefined), undefined);
 		assert.equal(dashboardActionForKey("z", "mailbox"), undefined);
 		assert.equal(dashboardActionForKey("", undefined), undefined);
+	});
+});
+
+describe("M1-7 — phantom progressToggle binding removed (P1-5)", () => {
+	const panes: (ActivePane | undefined)[] = [
+		undefined,
+		"agents",
+		"progress",
+		"mailbox",
+		"output",
+		"health",
+		"metrics",
+		"plan",
+		"schedules",
+	];
+
+	// Compile-time proof: "progressToggle" is no longer a member of the
+	// DashboardKeyAction union. If someone re-adds it, this annotation stops
+	// type-checking (G1) — the test cannot silently pass.
+	type ProgressToggleGone = "progressToggle" extends DashboardKeyAction ? false : true;
+	const progressToggleGone: ProgressToggleGone = true;
+
+	it("no longer declares progressToggle in DASHBOARD_KEYS.root", () => {
+		assert.ok(!("progressToggle" in DASHBOARD_KEYS.root), "DASHBOARD_KEYS.root still declares progressToggle");
+		assert.ok(
+			!(Object.values(DASHBOARD_KEYS.root).flat() as readonly string[]).includes("p"),
+			"key 'p' is still claimed by a root binding",
+		);
+	});
+
+	it("no longer exposes progressToggle in the DashboardKeyAction union", () => {
+		assert.equal(progressToggleGone, true);
+	});
+
+	it("'p' now resolves to undefined in every pane (was progressToggle)", () => {
+		for (const pane of panes) {
+			assert.equal(dashboardActionForKey("p", pane), undefined, `pane=${String(pane)}`);
+		}
+	});
+
+	it("'p' is no longer a reserved key", () => {
+		assert.ok(!KEY_RESERVED.has("p"), "KEY_RESERVED still reserves 'p'");
+	});
+
+	it("every OTHER golden key keeps its action (spot-check the 'p' neighbours)", () => {
+		// The neighbours of the removed 'p' row in the golden table: 'o'→output
+		// and 'q'→close must be untouched in every pane.
+		for (const pane of panes) {
+			assert.equal(dashboardActionForKey("o", pane), "output", `o in pane=${String(pane)}`);
+			assert.equal(dashboardActionForKey("q", pane), "close", `q in pane=${String(pane)}`);
+		}
 	});
 });
 

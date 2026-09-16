@@ -1,5 +1,5 @@
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
-import type { HistogramPoint, MetricLabels, MetricPoint } from "../../observability/metrics-primitives.ts";
+import type { HistogramPoint, MetricLabels, MetricLabelValue, MetricPoint } from "../../observability/metrics-primitives.ts";
 import type { RunUiSnapshot } from "../snapshot-types.ts";
 
 export interface MetricsPaneOptions {
@@ -7,9 +7,17 @@ export interface MetricsPaneOptions {
 	maxCounters?: number;
 }
 
-function labelsText(labels: MetricLabels): string {
-	const entries = Object.entries(labels);
-	return entries.length ? `{${entries.map(([key, value]) => `${key}=${value}`).join(",")}}` : "";
+// Metric label values come from an unvalidated `Record` (disk/producer fed) —
+// every interpolation is guarded so `undefined` can never reach the pane.
+function labelValue(value: MetricLabelValue | undefined): string {
+	if (value === undefined || value === null) return "?";
+	if (typeof value === "number" && !Number.isFinite(value)) return "?";
+	return `${value}`;
+}
+
+function labelsText(labels: MetricLabels | undefined): string {
+	const entries = Object.entries(labels ?? {});
+	return entries.length ? `{${entries.map(([key, value]) => `${key}=${labelValue(value)}`).join(",")}}` : "";
 }
 
 function isHistogramPoint(point: MetricPoint | HistogramPoint): point is HistogramPoint {
@@ -24,14 +32,14 @@ export function renderMetricsPane(_snapshot: RunUiSnapshot | undefined, opts: Me
 	for (const snapshot of snapshots.slice(0, opts.maxCounters ?? 10)) {
 		const first = snapshot.values[0];
 		if (!first) {
-			lines.push(`${snapshot.name}: empty`);
+			lines.push(`${snapshot.name ?? "?"}: empty`);
 			continue;
 		}
 		if (isHistogramPoint(first))
 			lines.push(
-				`${snapshot.name}${labelsText(first.labels)} count=${first.count} p95=${Number.isFinite(first.quantiles.p95) ? Math.round(first.quantiles.p95) : "n/a"}`,
+				`${snapshot.name ?? "?"}${labelsText(first.labels)} count=${first.count ?? 0} p95=${Number.isFinite(first.quantiles?.p95) ? Math.round(first.quantiles.p95) : "n/a"}`,
 			);
-		else lines.push(`${snapshot.name}${labelsText(first.labels)} ${first.value}`);
+		else lines.push(`${snapshot.name ?? "?"}${labelsText(first.labels)} ${labelValue(first.value)}`);
 	}
 	return lines;
 }

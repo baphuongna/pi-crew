@@ -271,7 +271,6 @@ class PowerbarPublisher {
 		workspaceId?: string,
 	): void {
 		if (config?.powerbar === false) return;
-		const useStatusFallback = !hasPowerbarConsumer(events);
 		// P3 (#10): prefer an explicit workspaceId arg; otherwise self-derive
 		// from the ctx every caller already passes (ExtensionContext exposes
 		// sessionManager). Back-compat: when neither is present, no filtering.

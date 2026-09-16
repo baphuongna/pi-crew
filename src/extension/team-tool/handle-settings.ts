@@ -245,11 +245,18 @@ const KNOWN_KEYS = new Set([
 	// ui
 	"ui.widgetPlacement",
 	"ui.widgetMaxLines",
+	// M1-9/P1-8: widgetRowStyle + inlinePanel are schema keys (config-schema.ts
+	// PiTeamsUiConfigSchema) and ui.autoCloseDashboardMs is parsed by
+	// parseUiConfig — keep this list mirroring the schema's ui block so
+	// `team-settings schema` lists what the schema actually accepts.
+	"ui.widgetRowStyle",
+	"ui.inlinePanel",
 	"ui.dashboardPlacement",
 	"ui.dashboardWidth",
 	"ui.dashboardLiveRefreshMs",
 	"ui.autoOpenDashboard",
 	"ui.autoOpenDashboardForForegroundRuns",
+	"ui.autoCloseDashboardMs",
 	"ui.showModel",
 	"ui.showTokens",
 	"ui.showTools",
@@ -440,9 +447,13 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 		const key = args.slice(4).trim();
 		if (!key) return result("Usage: team-settings get <key>\nUse 'team-settings schema' to see all known keys.", { ...ERR }, true);
 		const value = getNested(effective, key);
-		// Try to provide helpful note for unknown keys
+		// Try to provide helpful note for unknown keys.
+		// M1-9/P1-8: `ui.*` is exempt exactly like the `set` path below (:497) —
+		// every ui.* key is accepted by the schema's ui block, so `get
+		// ui.widgetRowStyle` must not answer "(unknown key — may not take
+		// effect)" for a key the config layer actually honours.
 		let note = "";
-		if (!KNOWN_KEYS.has(key) && !key.startsWith("agents.overrides.")) {
+		if (!KNOWN_KEYS.has(key) && !key.startsWith("agents.overrides.") && !key.startsWith("ui.")) {
 			const suggestion = suggestConfigKey(key, KNOWN_SORTED);
 			if (suggestion) note = `\n(did you mean '${suggestion}'?)`;
 			else note = "\n(unknown key — may not take effect)";

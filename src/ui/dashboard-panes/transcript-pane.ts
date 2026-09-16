@@ -1,3 +1,4 @@
+import { formatHint } from "../rail.ts";
 import type { RunUiSnapshot } from "../snapshot-types.ts";
 
 /**
@@ -21,21 +22,26 @@ function modelAttemptLines(snapshot: RunUiSnapshot): string[] {
 		const attempts = (task.modelAttempts ?? [])
 			.map(
 				(attempt) =>
-					`${attempt.model} ${attempt.success ? "✓" : `✗${attempt.exitCode !== undefined ? `(${attempt.exitCode})` : ""}`}`,
+					`${attempt.model ?? "?"} ${attempt.success ? "✓" : `✗${attempt.exitCode !== undefined ? `(${attempt.exitCode})` : ""}`}`,
 			)
 			.join(" → ");
 		const resolved = task.modelRouting?.resolved ? ` · resolved ${task.modelRouting.resolved}` : "";
-		lines.push(`  ${task.id} (${task.role})${resolved}: ${attempts}`);
+		lines.push(`  ${task.id ?? "?"} (${task.role ?? "?"})${resolved}: ${attempts}`);
 	}
 	return lines;
 }
 
 export function renderTranscriptPane(snapshot: RunUiSnapshot | undefined): string[] {
 	if (!snapshot) return ["Output pane: snapshot unavailable"];
+	const lines = snapshot.recentOutputLines ?? [];
 	return [
-		`Output pane: ${snapshot.recentOutputLines.length} recent lines · press v for transcript viewer · o for raw output`,
+		// Hint format owned by rail.ts (`formatHint`): keys `label` joined by ` · `.
+		`Output pane: ${lines.length} recent lines · press ${formatHint([
+			["v", "for transcript viewer"],
+			["o", "for raw output"],
+		])}`,
 		...modelAttemptLines(snapshot),
-		...snapshot.recentOutputLines.slice(-12).map((line) => `⎿ ${line}`),
-		...(snapshot.recentOutputLines.length ? [] : ["No recent output"]),
+		...lines.slice(-12).map((line) => `⎿ ${line}`),
+		...(lines.length ? [] : ["No recent output"]),
 	];
 }

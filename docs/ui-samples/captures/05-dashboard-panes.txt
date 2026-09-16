@@ -1,0 +1,69 @@
+### Pane 1 — Agents (phím 1)
+────────────────────────────────────────────────────────────
+1/5 tasks · 5 agents
+  ⠦ t1 explorer · 16.1k $0.0310     5m
+    thinking…
+  ⠧ t2 planner · 16.1k $0.0310     5m
+    thinking…
+  ○ t3 executor · 16.1k $0.0310     5m
+    queued
+  ⏳ t4 executor · 16.1k $0.0310     5m
+    done
+  ✓ t5 reviewer · 39.0k $0.0800     5m
+    done
+
+### Pane 2 — Progress (phím 2)
+────────────────────────────────────────────────────────────
+Progress pane: 1/5 completed · running=2 queued=1 failed=0
+All 1 phases done: 20% (1/5)
+  Phase 1 default: 20% (1/5) [waiting]
+group joins: none
+#40 2026-09-16T16:30:57.089Z task.started t1
+#41 2026-09-16T16:31:27.089Z agent.progress t1
+#42 2026-09-16T16:31:57.089Z task.completed t5
+
+### Pane 3 — Mailbox (phím 3)
+────────────────────────────────────────────────────────────
+Mailbox pane: inbox unread=2 · outbox pending=1 · attention=1
+  Breakdown: steer=1 · response=1
+  ⚠ Urgent: steering messages require immediate attention.
+Needs attention: press Enter for detail · A ack · N nudge · C compose · X ack all.
+
+### Pane 5 — Health (phím 5)
+────────────────────────────────────────────────────────────
+Health pane: 0/5 healthy · stale=0 · dead=0 · missing=0
+Actions: D diagnostic export
+
+### Pane 6 — Metrics (phím 6)
+────────────────────────────────────────────────────────────
+Metrics pane: registry unavailable
+
+### Pane 7 — Plan (phím 7)
+────────────────────────────────────────────────────────────
+Plan pane: no plan records (PI_CREW_PLAN_UI=1; plan-producing runs only)
+
+### Pane 8 — Schedules (phím 8)
+────────────────────────────────────────────────────────────
+Scheduled jobs (3):
+● ?  once at ? · — · · · 0 runs
+  ◦ ? · last: never
+● ?  once at ? · — · · · 0 runs
+  ◦ ? · last: never
+○ ?  once at ? · — · · · 0 runs
+  ◦ ? · last: never
+Actions: T toggle · N run now · V details · X delete · R refresh
+
+### Schedules — detail (Enter trên job)
+────────────────────────────────────────────────────────────
+▸ ? — id job_nightly
+  goal: ?
+  schedule: ? (?) · humanized: once at ? · next: —
+  agent: ? · runs: 0 · last: never · status: ·
+  spawned runs: none
+
+### Pane 4 — Transcript (phím 4)
+────────────────────────────────────────────────────────────
+Output pane: 3 recent lines · press V for transcript viewer · O for raw output
+⎿ [explorer] ✔ quét 70/70 file src/ui — tìm thấy 15 finding
+⎿ [planner] ⠋ dựng spec M1-1..M3-3 cho 15 finding
+⎿ [executor] ▶ npm run typecheck — pass

@@ -26,6 +26,12 @@
  *   - run just completed → Ghostty state 1/100 (green flash), schedule clear.
  *   - idle (no active runs) → restore pi's natural title, Ghostty state 0.
  *
+ * M3-1 (2026-09-15): the wiring now exists — see
+ * `src/extension/registration/terminal-status-wiring.ts` (installed from
+ * `register.ts`). From v0.8.3 (819d71ad) until this change the controller was
+ * constructed only by its unit tests: `ctx.terminalStatus` was never assigned,
+ * so neither channel ever ran (UI-AUDIT P0-2/P1-1).
+ *
  * @module terminal-status
  */
 
@@ -61,7 +67,7 @@ const MAX_TITLE_ROLES = 3;
 const IDLE_REASSERT_START_MS = 200;
 const IDLE_REASSERT_MAX_MS = 5000;
 /** How long the green completion flash stays before clearing. */
-const COMPLETE_FLASH_MS = 1500;
+export const COMPLETE_FLASH_MS = 1500;
 
 /** Injected for tests (defaults write to the real /dev/tty). */
 export type GhosttyWriter = (seq: string) => void;

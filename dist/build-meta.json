@@ -6253,7 +6253,7 @@
       "format": "esm"
     },
     "src/schema/config-schema.ts": {
-      "bytes": 16706,
+      "bytes": 17454,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -8424,7 +8424,7 @@
       "format": "esm"
     },
     "src/utils/visual.ts": {
-      "bytes": 9001,
+      "bytes": 8877,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -8439,9 +8439,36 @@
       "imports": [],
       "format": "esm"
     },
+    "src/ui/format-helpers.ts": {
+      "bytes": 2333,
+      "imports": [
+        {
+          "path": "src/utils/visual.ts",
+          "kind": "import-statement",
+          "original": "../utils/visual.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/ui/live-duration.ts": {
       "bytes": 2487,
       "imports": [],
+      "format": "esm"
+    },
+    "src/ui/rail.ts": {
+      "bytes": 13888,
+      "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/visual.ts",
+          "kind": "import-statement",
+          "original": "../utils/visual.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/ui/spinner.ts": {
@@ -8454,8 +8481,24 @@
       "imports": [],
       "format": "esm"
     },
+    "src/ui/theme-adapter.ts": {
+      "bytes": 7849,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/ui/dashboard-panes/pane-theme.ts": {
+      "bytes": 1021,
+      "imports": [
+        {
+          "path": "src/ui/theme-adapter.ts",
+          "kind": "import-statement",
+          "original": "../theme-adapter.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/ui/dashboard-panes/agents-pane.ts": {
-      "bytes": 6814,
+      "bytes": 8455,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -8473,9 +8516,19 @@
           "original": "../../utils/visual.ts"
         },
         {
+          "path": "src/ui/format-helpers.ts",
+          "kind": "import-statement",
+          "original": "../format-helpers.ts"
+        },
+        {
           "path": "src/ui/live-duration.ts",
           "kind": "import-statement",
           "original": "../live-duration.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
         },
         {
           "path": "src/ui/spinner.ts",
@@ -8486,12 +8539,17 @@
           "path": "src/ui/status-colors.ts",
           "kind": "import-statement",
           "original": "../status-colors.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/pane-theme.ts",
+          "kind": "import-statement",
+          "original": "./pane-theme.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/dashboard-panes/schedules-pane.ts": {
-      "bytes": 8132,
+      "bytes": 9448,
       "imports": [
         {
           "path": "src/runtime/scheduling/scheduler.ts",
@@ -8507,6 +8565,21 @@
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
           "original": "../../utils/visual.ts"
+        },
+        {
+          "path": "src/ui/format-helpers.ts",
+          "kind": "import-statement",
+          "original": "../format-helpers.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/pane-theme.ts",
+          "kind": "import-statement",
+          "original": "./pane-theme.ts"
         }
       ],
       "format": "esm"
@@ -8711,7 +8784,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-model.ts": {
-      "bytes": 3712,
+      "bytes": 4942,
       "imports": [
         {
           "path": "src/extension/run-index.ts",
@@ -8737,12 +8810,17 @@
           "path": "src/runtime/recovery/crash-recovery.ts",
           "kind": "import-statement",
           "original": "../../runtime/recovery/crash-recovery.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/agents-jobs-browser.ts": {
-      "bytes": 34867,
+      "bytes": 35334,
       "imports": [
         {
           "path": "node:fs",
@@ -8825,6 +8903,11 @@
           "original": "./live-duration.ts"
         },
         {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "./rail.ts"
+        },
+        {
           "path": "src/ui/spinner.ts",
           "kind": "import-statement",
           "original": "./spinner.ts"
@@ -8833,6 +8916,11 @@
           "path": "src/ui/status-colors.ts",
           "kind": "import-statement",
           "original": "./status-colors.ts"
+        },
+        {
+          "path": "src/ui/theme-adapter.ts",
+          "kind": "import-statement",
+          "original": "./theme-adapter.ts"
         },
         {
           "path": "src/ui/widget/widget-model.ts",
@@ -8843,17 +8931,32 @@
       "format": "esm"
     },
     "src/ui/live-conversation-overlay.ts": {
-      "bytes": 6467,
+      "bytes": 12079,
       "imports": [
+        {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
         {
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
           "original": "../utils/visual.ts"
         },
         {
+          "path": "src/ui/format-helpers.ts",
+          "kind": "import-statement",
+          "original": "./format-helpers.ts"
+        },
+        {
           "path": "src/ui/live-duration.ts",
           "kind": "import-statement",
           "original": "./live-duration.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "./rail.ts"
         },
         {
           "path": "src/ui/spinner.ts",
@@ -8866,11 +8969,6 @@
           "original": "./status-colors.ts"
         }
       ],
-      "format": "esm"
-    },
-    "src/ui/theme-adapter.ts": {
-      "bytes": 9135,
-      "imports": [],
       "format": "esm"
     },
     "src/ui/render-diff.ts": {
@@ -8917,7 +9015,7 @@
       "format": "esm"
     },
     "src/ui/transcript-viewer.ts": {
-      "bytes": 21055,
+      "bytes": 21876,
       "imports": [
         {
           "path": "node:fs",
@@ -8943,6 +9041,11 @@
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
           "original": "../utils/visual.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "./rail.ts"
         },
         {
           "path": "src/ui/render-diff.ts",
@@ -8973,7 +9076,7 @@
       "format": "esm"
     },
     "src/extension/registration/viewers.ts": {
-      "bytes": 6137,
+      "bytes": 6418,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -9174,7 +9277,7 @@
       "format": "esm"
     },
     "src/ui/keybinding-map.ts": {
-      "bytes": 20351,
+      "bytes": 29149,
       "imports": [
         {
           "path": "node:fs",
@@ -13129,7 +13232,7 @@
       "format": "esm"
     },
     "src/runtime/task-display.ts": {
-      "bytes": 1868,
+      "bytes": 1869,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -14637,28 +14740,18 @@
       "format": "esm"
     },
     "src/ui/theme-discovery.ts": {
-      "bytes": 6279,
+      "bytes": 6725,
       "imports": [
         {
           "path": "node:fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "require-call",
+          "kind": "import-statement",
           "external": true
         }
       ],
       "format": "esm"
     },
     "src/extension/team-tool/handle-settings.ts": {
-      "bytes": 19384,
+      "bytes": 20039,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -15139,28 +15232,12 @@
       "format": "esm"
     },
     "src/ui/widget/widget-formatters.ts": {
-      "bytes": 20843,
-      "imports": [
-        {
-          "path": "src/runtime/usage-tracker.ts",
-          "kind": "import-statement",
-          "original": "../../runtime/usage-tracker.ts"
-        },
-        {
-          "path": "src/utils/visual.ts",
-          "kind": "import-statement",
-          "original": "../../utils/visual.ts"
-        },
-        {
-          "path": "src/ui/live-duration.ts",
-          "kind": "import-statement",
-          "original": "../live-duration.ts"
-        }
-      ],
+      "bytes": 4038,
+      "imports": [],
       "format": "esm"
     },
     "src/ui/powerbar-publisher.ts": {
-      "bytes": 19936,
+      "bytes": 19878,
       "imports": [
         {
           "path": "node:fs",
@@ -15230,19 +15307,24 @@
       ],
       "format": "esm"
     },
-    "src/ui/format-helpers.ts": {
-      "bytes": 1375,
+    "src/ui/adaptive-card.ts": {
+      "bytes": 2740,
       "imports": [
         {
-          "path": "src/utils/visual.ts",
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
-          "original": "../utils/visual.ts"
+          "external": true
         }
       ],
       "format": "esm"
     },
+    "src/ui/tool-progress-formatter.ts": {
+      "bytes": 8866,
+      "imports": [],
+      "format": "esm"
+    },
     "src/ui/tool-renderers/brief-mode.ts": {
-      "bytes": 8171,
+      "bytes": 6292,
       "imports": [
         {
           "path": "src/ui/format-helpers.ts",
@@ -15252,19 +15334,8 @@
       ],
       "format": "esm"
     },
-    "src/ui/card-colors.ts": {
-      "bytes": 5533,
-      "imports": [
-        {
-          "path": "src/utils/visual.ts",
-          "kind": "import-statement",
-          "original": "../utils/visual.ts"
-        }
-      ],
-      "format": "esm"
-    },
     "src/ui/tool-renderers/index.ts": {
-      "bytes": 29807,
+      "bytes": 25327,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -15272,9 +15343,9 @@
           "external": true
         },
         {
-          "path": "src/utils/visual.ts",
+          "path": "src/ui/adaptive-card.ts",
           "kind": "import-statement",
-          "original": "../../utils/visual.ts"
+          "original": "../adaptive-card.ts"
         },
         {
           "path": "src/ui/format-helpers.ts",
@@ -15282,19 +15353,24 @@
           "original": "../format-helpers.ts"
         },
         {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
+        },
+        {
           "path": "src/ui/spinner.ts",
           "kind": "import-statement",
           "original": "../spinner.ts"
         },
         {
+          "path": "src/ui/tool-progress-formatter.ts",
+          "kind": "import-statement",
+          "original": "../tool-progress-formatter.ts"
+        },
+        {
           "path": "src/ui/tool-renderers/brief-mode.ts",
           "kind": "import-statement",
           "original": "./brief-mode.ts"
-        },
-        {
-          "path": "src/ui/card-colors.ts",
-          "kind": "import-statement",
-          "original": "../card-colors.ts"
         }
       ],
       "format": "esm"
@@ -15311,7 +15387,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 16636,
+      "bytes": 21033,
       "imports": [
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
@@ -15344,6 +15420,11 @@
           "original": "../layout-primitives.ts"
         },
         {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
+        },
+        {
           "path": "src/ui/spinner.ts",
           "kind": "import-statement",
           "original": "../spinner.ts"
@@ -15352,6 +15433,11 @@
           "path": "src/ui/status-colors.ts",
           "kind": "import-statement",
           "original": "../status-colors.ts"
+        },
+        {
+          "path": "src/ui/theme-adapter.ts",
+          "kind": "import-statement",
+          "original": "../theme-adapter.ts"
         },
         {
           "path": "src/ui/widget/widget-formatters.ts",
@@ -15431,7 +15517,7 @@
       "format": "esm"
     },
     "src/ui/widget/task-list.ts": {
-      "bytes": 8180,
+      "bytes": 10021,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -15439,9 +15525,24 @@
           "original": "../../utils/visual.ts"
         },
         {
+          "path": "src/ui/format-helpers.ts",
+          "kind": "import-statement",
+          "original": "../format-helpers.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
+        },
+        {
           "path": "src/ui/spinner.ts",
           "kind": "import-statement",
           "original": "../spinner.ts"
+        },
+        {
+          "path": "src/ui/theme-adapter.ts",
+          "kind": "import-statement",
+          "original": "../theme-adapter.ts"
         },
         {
           "path": "src/ui/widget/widget-model.ts",
@@ -15452,7 +15553,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 25946,
+      "bytes": 25240,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -15510,6 +15611,11 @@
           "original": "./widget-renderer.ts"
         },
         {
+          "path": "src/ui/widget/widget-formatters.ts",
+          "kind": "import-statement",
+          "original": "./widget-formatters.ts"
+        },
+        {
           "path": "src/ui/widget/widget-model.ts",
           "kind": "import-statement",
           "original": "./widget-model.ts"
@@ -15518,11 +15624,6 @@
           "path": "src/ui/widget/widget-renderer.ts",
           "kind": "import-statement",
           "original": "./widget-renderer.ts"
-        },
-        {
-          "path": "src/ui/widget/widget-formatters.ts",
-          "kind": "import-statement",
-          "original": "./widget-formatters.ts"
         },
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -15543,13 +15644,8 @@
       ],
       "format": "esm"
     },
-    "src/ui/tool-progress-formatter.ts": {
-      "bytes": 3806,
-      "imports": [],
-      "format": "esm"
-    },
     "src/extension/registration/team-tool.ts": {
-      "bytes": 15761,
+      "bytes": 16297,
       "imports": [
         {
           "path": "node:fs",
@@ -15938,7 +16034,7 @@
       "format": "esm"
     },
     "src/extension/help.ts": {
-      "bytes": 2755,
+      "bytes": 2649,
       "imports": [],
       "format": "esm"
     },
@@ -18049,33 +18145,44 @@
       "format": "esm"
     },
     "src/ui/dashboard-panes/cancellation-pane.ts": {
-      "bytes": 2454,
+      "bytes": 1012,
       "imports": [],
       "format": "esm"
     },
     "src/ui/dashboard-panes/health-pane.ts": {
-      "bytes": 1347,
+      "bytes": 1501,
       "imports": [
         {
           "path": "src/ui/heartbeat-aggregator.ts",
           "kind": "import-statement",
           "original": "../heartbeat-aggregator.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/dashboard-panes/mailbox-pane.ts": {
-      "bytes": 1492,
-      "imports": [],
+      "bytes": 1816,
+      "imports": [
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/ui/dashboard-panes/metrics-pane.ts": {
-      "bytes": 1490,
+      "bytes": 1950,
       "imports": [],
       "format": "esm"
     },
     "src/ui/dashboard-panes/plan-pane.ts": {
-      "bytes": 5795,
+      "bytes": 7519,
       "imports": [
         {
           "path": "src/runtime/plan-approval.ts",
@@ -18086,17 +18193,27 @@
           "path": "src/state/stores/plan-store.ts",
           "kind": "import-statement",
           "original": "../../state/stores/plan-store.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/pane-theme.ts",
+          "kind": "import-statement",
+          "original": "./pane-theme.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/dwf-phase-display.ts": {
-      "bytes": 5430,
+      "bytes": 4776,
       "imports": [],
       "format": "esm"
     },
     "src/ui/dashboard-panes/progress-pane.ts": {
-      "bytes": 2535,
+      "bytes": 2598,
       "imports": [
         {
           "path": "src/runtime/phase-progress.ts",
@@ -18112,22 +18229,28 @@
           "path": "src/ui/dwf-phase-display.ts",
           "kind": "import-statement",
           "original": "../dwf-phase-display.ts"
+        },
+        {
+          "path": "src/ui/dashboard-panes/plan-pane.ts",
+          "kind": "import-statement",
+          "original": "./plan-pane.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/dashboard-panes/transcript-pane.ts": {
-      "bytes": 1663,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/ui/dynamic-border.ts": {
-      "bytes": 925,
-      "imports": [],
+      "bytes": 1832,
+      "imports": [
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/ui/overlays/help-overlay.ts": {
-      "bytes": 5113,
+      "bytes": 7588,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -18140,9 +18263,9 @@
           "original": "../keybinding-map.ts"
         },
         {
-          "path": "src/ui/layout-primitives.ts",
+          "path": "src/ui/rail.ts",
           "kind": "import-statement",
-          "original": "../layout-primitives.ts"
+          "original": "../rail.ts"
         },
         {
           "path": "src/ui/theme-adapter.ts",
@@ -18153,7 +18276,7 @@
       "format": "esm"
     },
     "src/ui/run-dashboard.ts": {
-      "bytes": 54914,
+      "bytes": 55222,
       "imports": [
         {
           "path": "node:fs",
@@ -18256,9 +18379,9 @@
           "original": "./dashboard-panes/transcript-pane.ts"
         },
         {
-          "path": "src/ui/dynamic-border.ts",
+          "path": "src/ui/format-helpers.ts",
           "kind": "import-statement",
-          "original": "./dynamic-border.ts"
+          "original": "./format-helpers.ts"
         },
         {
           "path": "src/ui/keybinding-map.ts",
@@ -18269,6 +18392,11 @@
           "path": "src/ui/overlays/help-overlay.ts",
           "kind": "import-statement",
           "original": "./overlays/help-overlay.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "./rail.ts"
         },
         {
           "path": "src/ui/shared-overlay-scheduler.ts",
@@ -18299,7 +18427,7 @@
       "format": "esm"
     },
     "src/ui/overlays/confirm-overlay.ts": {
-      "bytes": 2207,
+      "bytes": 3083,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -18307,14 +18435,14 @@
           "original": "../../utils/visual.ts"
         },
         {
-          "path": "src/ui/key-utils.ts",
+          "path": "src/ui/keybinding-map.ts",
           "kind": "import-statement",
-          "original": "../key-utils.ts"
+          "original": "../keybinding-map.ts"
         },
         {
-          "path": "src/ui/layout-primitives.ts",
+          "path": "src/ui/rail.ts",
           "kind": "import-statement",
-          "original": "../layout-primitives.ts"
+          "original": "../rail.ts"
         },
         {
           "path": "src/ui/theme-adapter.ts",
@@ -18325,7 +18453,7 @@
       "format": "esm"
     },
     "src/ui/overlays/mailbox-detail-overlay.ts": {
-      "bytes": 5372,
+      "bytes": 8055,
       "imports": [
         {
           "path": "src/state/coordination/mailbox.ts",
@@ -18343,9 +18471,14 @@
           "original": "../../utils/visual.ts"
         },
         {
-          "path": "src/ui/key-utils.ts",
+          "path": "src/ui/keybinding-map.ts",
           "kind": "import-statement",
-          "original": "../key-utils.ts"
+          "original": "../keybinding-map.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
         },
         {
           "path": "src/ui/theme-adapter.ts",
@@ -18372,7 +18505,7 @@
       "format": "esm"
     },
     "src/ui/overlays/mailbox-compose-overlay.ts": {
-      "bytes": 5407,
+      "bytes": 7611,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -18380,9 +18513,14 @@
           "original": "../../utils/visual.ts"
         },
         {
-          "path": "src/ui/key-utils.ts",
+          "path": "src/ui/keybinding-map.ts",
           "kind": "import-statement",
-          "original": "../key-utils.ts"
+          "original": "../keybinding-map.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
         },
         {
           "path": "src/ui/theme-adapter.ts",
@@ -18403,7 +18541,7 @@
       "format": "esm"
     },
     "src/ui/overlays/agent-picker-overlay.ts": {
-      "bytes": 2186,
+      "bytes": 3832,
       "imports": [
         {
           "path": "src/runtime/crew-agent-records.ts",
@@ -18421,9 +18559,14 @@
           "original": "../../utils/visual.ts"
         },
         {
-          "path": "src/ui/key-utils.ts",
+          "path": "src/ui/keybinding-map.ts",
           "kind": "import-statement",
-          "original": "../key-utils.ts"
+          "original": "../keybinding-map.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
         },
         {
           "path": "src/ui/theme-adapter.ts",
@@ -18434,7 +18577,7 @@
       "format": "esm"
     },
     "src/ui/mascot.ts": {
-      "bytes": 14900,
+      "bytes": 15009,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -18442,14 +18585,9 @@
           "external": true
         },
         {
-          "path": "src/utils/visual.ts",
+          "path": "src/ui/rail.ts",
           "kind": "import-statement",
-          "original": "../utils/visual.ts"
-        },
-        {
-          "path": "src/ui/dynamic-border.ts",
-          "kind": "import-statement",
-          "original": "./dynamic-border.ts"
+          "original": "./rail.ts"
         },
         {
           "path": "src/ui/theme-adapter.ts",
@@ -18460,7 +18598,7 @@
       "format": "esm"
     },
     "src/ui/settings-overlay.ts": {
-      "bytes": 32745,
+      "bytes": 33307,
       "imports": [
         {
           "path": "src/utils/visual.ts",
@@ -18468,14 +18606,14 @@
           "original": "../utils/visual.ts"
         },
         {
-          "path": "src/ui/dynamic-border.ts",
-          "kind": "import-statement",
-          "original": "./dynamic-border.ts"
-        },
-        {
           "path": "src/ui/key-utils.ts",
           "kind": "import-statement",
           "original": "./key-utils.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "./rail.ts"
         },
         {
           "path": "src/ui/theme-discovery.ts",
@@ -18486,7 +18624,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/shared.ts": {
-      "bytes": 28071,
+      "bytes": 28022,
       "imports": [
         {
           "path": "node:path",
@@ -18699,7 +18837,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/manage.ts": {
-      "bytes": 12025,
+      "bytes": 12132,
       "imports": [
         {
           "path": "node:fs",
@@ -18874,29 +19012,8 @@
       ],
       "format": "esm"
     },
-    "src/extension/crew-vibes/font-detect.ts": {
-      "bytes": 2463,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
     "src/extension/crew-vibes/config.ts": {
-      "bytes": 5114,
+      "bytes": 4041,
       "imports": [
         {
           "path": "node:fs",
@@ -18912,11 +19029,6 @@
           "path": "src/config/env-vars.ts",
           "kind": "import-statement",
           "original": "../../config/env-vars.ts"
-        },
-        {
-          "path": "src/extension/crew-vibes/font-detect.ts",
-          "kind": "import-statement",
-          "original": "./font-detect.ts"
         }
       ],
       "format": "esm"
@@ -18942,29 +19054,19 @@
       ],
       "format": "esm"
     },
-    "src/extension/crew-vibes/figures.ts": {
-      "bytes": 948,
-      "imports": [],
-      "format": "esm"
-    },
     "src/extension/crew-vibes/render.ts": {
-      "bytes": 6249,
+      "bytes": 3977,
       "imports": [
         {
           "path": "src/extension/crew-vibes/config.ts",
           "kind": "import-statement",
           "original": "./config.ts"
-        },
-        {
-          "path": "src/extension/crew-vibes/figures.ts",
-          "kind": "import-statement",
-          "original": "./figures.ts"
         }
       ],
       "format": "esm"
     },
     "src/extension/crew-vibes/index.ts": {
-      "bytes": 5394,
+      "bytes": 5339,
       "imports": [
         {
           "path": "src/utils/internal-error.ts",
@@ -19325,7 +19427,7 @@
       "format": "esm"
     },
     "src/ui/live-run-sidebar.ts": {
-      "bytes": 11699,
+      "bytes": 15232,
       "imports": [
         {
           "path": "node:fs",
@@ -19366,6 +19468,21 @@
           "path": "src/utils/visual.ts",
           "kind": "import-statement",
           "original": "../utils/visual.ts"
+        },
+        {
+          "path": "src/ui/format-helpers.ts",
+          "kind": "import-statement",
+          "original": "./format-helpers.ts"
+        },
+        {
+          "path": "src/ui/keybinding-map.ts",
+          "kind": "import-statement",
+          "original": "./keybinding-map.ts"
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "./rail.ts"
         },
         {
           "path": "src/ui/shared-overlay-scheduler.ts",
@@ -20446,7 +20563,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/crew-editor.ts": {
-      "bytes": 8160,
+      "bytes": 8634,
       "imports": [
         {
           "path": "@earendil-works/pi-coding-agent",
@@ -20457,6 +20574,11 @@
           "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
+        },
+        {
+          "path": "src/ui/rail.ts",
+          "kind": "import-statement",
+          "original": "../rail.ts"
         },
         {
           "path": "src/ui/inline-panel/panel-selection.ts",
@@ -20472,7 +20594,7 @@
       "format": "esm"
     },
     "src/ui/inline-panel/index.ts": {
-      "bytes": 11976,
+      "bytes": 14100,
       "imports": [
         {
           "path": "src/extension/tool-result.ts",
@@ -20940,8 +21062,50 @@
       ],
       "format": "esm"
     },
+    "src/ui/terminal-status.ts": {
+      "bytes": 9364,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/live-session/live-agent-manager.ts",
+          "kind": "import-statement",
+          "original": "../runtime/live-session/live-agent-manager.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/extension/registration/terminal-status-wiring.ts": {
+      "bytes": 6468,
+      "imports": [
+        {
+          "path": "src/runtime/live-session/live-agent-manager.ts",
+          "kind": "import-statement",
+          "original": "../../runtime/live-session/live-agent-manager.ts"
+        },
+        {
+          "path": "src/ui/run-event-bus.ts",
+          "kind": "import-statement",
+          "original": "../../ui/run-event-bus.ts"
+        },
+        {
+          "path": "src/ui/terminal-status.ts",
+          "kind": "import-statement",
+          "original": "../../ui/terminal-status.ts"
+        },
+        {
+          "path": "src/extension/crew-cleanup.ts",
+          "kind": "import-statement",
+          "original": "../crew-cleanup.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/extension/registration/subagent-tools.ts": {
-      "bytes": 29323,
+      "bytes": 29926,
       "imports": [
         {
           "path": "node:fs",
@@ -21132,7 +21296,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 6805,
+      "bytes": 7166,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -21265,6 +21429,11 @@
           "original": "./registration/subagent-manager-setup.ts"
         },
         {
+          "path": "src/extension/registration/terminal-status-wiring.ts",
+          "kind": "import-statement",
+          "original": "./registration/terminal-status-wiring.ts"
+        },
+        {
           "path": "src/extension/registration/tool-registration.ts",
           "kind": "import-statement",
           "original": "./registration/tool-registration.ts"
@@ -21314,7 +21483,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8123581
+      "bytes": 8196554
     },
     "dist/index.mjs": {
       "imports": [
@@ -21844,6 +22013,11 @@
           "external": true
         },
         {
+          "path": "@earendil-works/pi-tui",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
@@ -21885,6 +22059,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -22535,17 +22714,7 @@
         },
         {
           "path": "node:fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "require-call",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "require-call",
+          "kind": "import-statement",
           "external": true
         },
         {
@@ -22645,6 +22814,11 @@
         },
         {
           "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "@earendil-works/pi-tui",
           "kind": "import-statement",
           "external": true
         },
@@ -23195,6 +23369,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -23985,7 +24164,7 @@
           "bytesInOutput": 127
         },
         "src/schema/config-schema.ts": {
-          "bytesInOutput": 17327
+          "bytesInOutput": 18141
         },
         "src/config/suggestions.ts": {
           "bytesInOutput": 1325
@@ -24278,8 +24457,14 @@
         "src/state/usage.ts": {
           "bytesInOutput": 3670
         },
+        "src/ui/format-helpers.ts": {
+          "bytesInOutput": 1044
+        },
         "src/ui/live-duration.ts": {
           "bytesInOutput": 793
+        },
+        "src/ui/rail.ts": {
+          "bytesInOutput": 6116
         },
         "src/ui/spinner.ts": {
           "bytesInOutput": 850
@@ -24287,11 +24472,17 @@
         "src/ui/status-colors.ts": {
           "bytesInOutput": 2289
         },
+        "src/ui/theme-adapter.ts": {
+          "bytesInOutput": 4995
+        },
+        "src/ui/dashboard-panes/pane-theme.ts": {
+          "bytesInOutput": 181
+        },
         "src/ui/dashboard-panes/agents-pane.ts": {
-          "bytesInOutput": 4596
+          "bytesInOutput": 4986
         },
         "src/ui/dashboard-panes/schedules-pane.ts": {
-          "bytesInOutput": 3756
+          "bytesInOutput": 4188
         },
         "src/hooks/registry.ts": {
           "bytesInOutput": 4427
@@ -24309,16 +24500,13 @@
           "bytesInOutput": 19530
         },
         "src/ui/widget/widget-model.ts": {
-          "bytesInOutput": 2438
+          "bytesInOutput": 2769
         },
         "src/ui/agents-jobs-browser.ts": {
-          "bytesInOutput": 22784
+          "bytesInOutput": 22766
         },
         "src/ui/live-conversation-overlay.ts": {
-          "bytesInOutput": 6106
-        },
-        "src/ui/theme-adapter.ts": {
-          "bytesInOutput": 6431
+          "bytesInOutput": 10340
         },
         "src/ui/render-diff.ts": {
           "bytesInOutput": 4489
@@ -24330,10 +24518,10 @@
           "bytesInOutput": 4313
         },
         "src/ui/transcript-viewer.ts": {
-          "bytesInOutput": 17002
+          "bytesInOutput": 17032
         },
         "src/extension/registration/viewers.ts": {
-          "bytesInOutput": 4750
+          "bytesInOutput": 4807
         },
         "src/runtime/heartbeat/heartbeat-gradient.ts": {
           "bytesInOutput": 958
@@ -24357,7 +24545,7 @@
           "bytesInOutput": 524
         },
         "src/ui/keybinding-map.ts": {
-          "bytesInOutput": 10608
+          "bytesInOutput": 13854
         },
         "src/state/coordination/mailbox.ts": {
           "bytesInOutput": 23806
@@ -24867,7 +25055,7 @@
           "bytesInOutput": 2747
         },
         "src/runtime/task-display.ts": {
-          "bytesInOutput": 1490
+          "bytesInOutput": 1494
         },
         "src/extension/knowledge-injection.ts": {
           "bytesInOutput": 8842
@@ -25020,13 +25208,13 @@
           "bytesInOutput": 5557
         },
         "src/ui/theme-discovery.ts": {
-          "bytesInOutput": 4557
+          "bytesInOutput": 4464
         },
         "src/extension/team-tool/handle-settings.ts": {
-          "bytesInOutput": 17597
+          "bytesInOutput": 18012
         },
         "src/extension/team-tool/workflow-manage.ts": {
-          "bytesInOutput": 8636
+          "bytesInOutput": 8639
         },
         "src/extension/team-tool/dispatch/manage.ts": {
           "bytesInOutput": 5808
@@ -25056,28 +25244,28 @@
           "bytesInOutput": 2165
         },
         "src/ui/widget/widget-formatters.ts": {
-          "bytesInOutput": 994
+          "bytesInOutput": 923
         },
         "src/ui/powerbar-publisher.ts": {
-          "bytesInOutput": 14566
+          "bytesInOutput": 14286
         },
-        "src/ui/format-helpers.ts": {
-          "bytesInOutput": 709
+        "src/ui/adaptive-card.ts": {
+          "bytesInOutput": 1425
+        },
+        "src/ui/tool-progress-formatter.ts": {
+          "bytesInOutput": 6062
         },
         "src/ui/tool-renderers/brief-mode.ts": {
-          "bytesInOutput": 6374
-        },
-        "src/ui/card-colors.ts": {
-          "bytesInOutput": 1873
+          "bytesInOutput": 4188
         },
         "src/ui/tool-renderers/index.ts": {
-          "bytesInOutput": 21469
+          "bytesInOutput": 16668
         },
         "src/ui/layout-primitives.ts": {
           "bytesInOutput": 2240
         },
         "src/ui/widget/widget-renderer.ts": {
-          "bytesInOutput": 5151
+          "bytesInOutput": 7805
         },
         "src/ui/inline-panel/panel-rows.ts": {
           "bytesInOutput": 627
@@ -25095,19 +25283,16 @@
           "bytesInOutput": 1690
         },
         "src/ui/widget/task-list.ts": {
-          "bytesInOutput": 5365
+          "bytesInOutput": 6130
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 15346
+          "bytesInOutput": 14502
         },
         "src/utils/safe-abort.ts": {
           "bytesInOutput": 436
         },
-        "src/ui/tool-progress-formatter.ts": {
-          "bytesInOutput": 2682
-        },
         "src/extension/registration/team-tool.ts": {
-          "bytesInOutput": 10542
+          "bytesInOutput": 10834
         },
         "src/extension/team-tool/parallel-dispatch.ts": {
           "bytesInOutput": 5288
@@ -25137,7 +25322,7 @@
           "bytesInOutput": 5605
         },
         "src/extension/help.ts": {
-          "bytesInOutput": 2957
+          "bytesInOutput": 2847
         },
         "src/extension/team-onboard.ts": {
           "bytesInOutput": 4612
@@ -25146,7 +25331,7 @@
           "bytesInOutput": 10013
         },
         "src/extension/team-tool/explain.ts": {
-          "bytesInOutput": 6986
+          "bytesInOutput": 6990
         },
         "src/extension/team-tool/health-monitor.ts": {
           "bytesInOutput": 9380
@@ -25290,58 +25475,55 @@
           "bytesInOutput": 465
         },
         "src/ui/dashboard-panes/health-pane.ts": {
-          "bytesInOutput": 1170
+          "bytesInOutput": 1199
         },
         "src/ui/dashboard-panes/mailbox-pane.ts": {
-          "bytesInOutput": 1509
+          "bytesInOutput": 1766
         },
         "src/ui/dashboard-panes/metrics-pane.ts": {
-          "bytesInOutput": 1149
+          "bytesInOutput": 1384
         },
         "src/ui/dashboard-panes/plan-pane.ts": {
-          "bytesInOutput": 4298
+          "bytesInOutput": 4842
         },
         "src/ui/dwf-phase-display.ts": {
-          "bytesInOutput": 2364
+          "bytesInOutput": 1954
         },
         "src/ui/dashboard-panes/progress-pane.ts": {
-          "bytesInOutput": 2062
+          "bytesInOutput": 2094
         },
         "src/ui/dashboard-panes/transcript-pane.ts": {
-          "bytesInOutput": 1320
-        },
-        "src/ui/dynamic-border.ts": {
-          "bytesInOutput": 850
+          "bytesInOutput": 1473
         },
         "src/ui/overlays/help-overlay.ts": {
-          "bytesInOutput": 4154
+          "bytesInOutput": 5244
         },
         "src/ui/run-dashboard.ts": {
-          "bytesInOutput": 39733
+          "bytesInOutput": 39592
         },
         "src/ui/overlays/confirm-overlay.ts": {
-          "bytesInOutput": 2263
+          "bytesInOutput": 2087
         },
         "src/ui/overlays/mailbox-detail-overlay.ts": {
-          "bytesInOutput": 5278
+          "bytesInOutput": 6843
         },
         "src/ui/overlays/mailbox-compose-preview.ts": {
           "bytesInOutput": 2326
         },
         "src/ui/overlays/mailbox-compose-overlay.ts": {
-          "bytesInOutput": 5478
+          "bytesInOutput": 6019
         },
         "src/ui/overlays/agent-picker-overlay.ts": {
-          "bytesInOutput": 1952
+          "bytesInOutput": 2649
         },
         "src/ui/mascot.ts": {
-          "bytesInOutput": 16059
+          "bytesInOutput": 16127
         },
         "src/ui/settings-overlay.ts": {
-          "bytesInOutput": 31794
+          "bytesInOutput": 31885
         },
         "src/extension/registration/commands/shared.ts": {
-          "bytesInOutput": 17803
+          "bytesInOutput": 17751
         },
         "src/extension/registration/commands/dashboard.ts": {
           "bytesInOutput": 4862
@@ -25353,7 +25535,7 @@
           "bytesInOutput": 4578
         },
         "src/extension/registration/commands/manage.ts": {
-          "bytesInOutput": 11144
+          "bytesInOutput": 11231
         },
         "src/extension/registration/commands/run.ts": {
           "bytesInOutput": 9140
@@ -25374,7 +25556,7 @@
           "bytesInOutput": 4573
         },
         "src/ui/live-run-sidebar.ts": {
-          "bytesInOutput": 9644
+          "bytesInOutput": 12041
         },
         "src/extension/registration/ui.ts": {
           "bytesInOutput": 4187
@@ -25428,7 +25610,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 2493
+          "bytesInOutput": 2431
         },
         "src/config/migration-validator.ts": {
           "bytesInOutput": 1081
@@ -25563,7 +25745,7 @@
           "bytesInOutput": 409
         },
         "src/ui/inline-panel/index.ts": {
-          "bytesInOutput": 5824
+          "bytesInOutput": 6132
         },
         "src/ui/inline-panel/agent-transcript.ts": {
           "bytesInOutput": 6318
@@ -25575,7 +25757,7 @@
           "bytesInOutput": 10433
         },
         "src/ui/inline-panel/crew-editor.ts": {
-          "bytesInOutput": 4271
+          "bytesInOutput": 4383
         },
         "src/utils/run-watcher-registry.ts": {
           "bytesInOutput": 3326
@@ -25598,8 +25780,14 @@
         "src/extension/registration/subagent-manager-setup.ts": {
           "bytesInOutput": 7761
         },
+        "src/extension/registration/terminal-status-wiring.ts": {
+          "bytesInOutput": 2275
+        },
+        "src/ui/terminal-status.ts": {
+          "bytesInOutput": 3756
+        },
         "src/extension/registration/subagent-tools.ts": {
-          "bytesInOutput": 22305
+          "bytesInOutput": 22651
         },
         "src/extension/registration/tool-registration.ts": {
           "bytesInOutput": 1118
@@ -25617,7 +25805,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3387524
+      "bytes": 3413989
     }
   }
 }

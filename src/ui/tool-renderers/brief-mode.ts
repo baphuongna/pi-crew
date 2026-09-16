@@ -57,24 +57,17 @@ export { BRIEF_ENTRY_TYPE };
 
 // ── Brief renderers ────────────────────────────────────────────────────
 
-/** Brief summary for a single tool result. */
+/** Brief summary for a single tool result.
+ *
+ * SCOPE (audit P1-12): this is only ever called with the hard-coded names
+ * "team" (`tool-renderers/index.ts:303`) and "agent" (`:414`). The 7
+ * native-tool arms (read/bash/edit/write/find/grep/ls) were unreachable and
+ * were REMOVED in M3-3 — turning /crew-brief on cannot change native tool
+ * output; only team/agent results and the default fallback render brief.
+ */
 export function briefToolResult(toolName: string, result: { content?: unknown[] }, theme: CrewTheme): string {
 	const text = extractText(result?.content);
 	switch (toolName) {
-		case "read":
-			return briefRead(text, theme);
-		case "bash":
-			return briefBash(text, theme);
-		case "edit":
-			return briefEdit(text, theme);
-		case "write":
-			return briefWrite(text, theme);
-		case "find":
-			return briefFind(text, theme);
-		case "grep":
-			return briefGrep(text, theme);
-		case "ls":
-			return briefLs(text, theme);
 		case "team":
 			return briefTeam(result, theme);
 		case "agent":
@@ -82,57 +75,6 @@ export function briefToolResult(toolName: string, result: { content?: unknown[] 
 		default:
 			return briefDefault(text, theme);
 	}
-}
-
-function briefRead(text: string, theme: CrewTheme): string {
-	if (!text) return theme.fg("dim", "→ empty");
-	const count = text.trim().split("\n").filter(Boolean).length;
-	return theme.fg("muted", `→ ${count} lines`);
-}
-
-function briefBash(text: string, theme: CrewTheme): string {
-	if (!text?.trim()) return theme.fg("dim", "→ done");
-	const lines = text.trim().split("\n");
-	if (lines.length === 1 && lines[0]!.length < 40) {
-		return theme.fg("muted", `→ ${lines[0]}`);
-	}
-	return theme.fg("muted", `→ ${lines.length} lines`);
-}
-
-function briefEdit(text: string, theme: CrewTheme): string {
-	if (!text) return theme.fg("dim", "→ edited");
-	if (text.includes("Error") || text.includes("error")) {
-		return theme.fg("error", "→ failed");
-	}
-	const added = (text.match(/^\+ /gm) ?? []).length;
-	const removed = (text.match(/^- /gm) ?? []).length;
-	if (added === 0 && removed === 0) {
-		return theme.fg("success", "→ edited");
-	}
-	return theme.fg("success", "→ edited ") + theme.fg("toolDiffAdded", `+${added} `) + theme.fg("toolDiffRemoved", `-${removed}`);
-}
-
-function briefWrite(text: string, theme: CrewTheme): string {
-	if (text) return theme.fg("error", `→ ${text}`);
-	return theme.fg("success", "→ written");
-}
-
-function briefFind(text: string, theme: CrewTheme): string {
-	if (!text) return theme.fg("dim", "→ none");
-	const count = text.trim().split("\n").filter(Boolean).length;
-	return theme.fg("muted", `→ ${count} files`);
-}
-
-function briefGrep(text: string, theme: CrewTheme): string {
-	if (!text) return theme.fg("dim", "→ none");
-	const count = text.trim().split("\n").filter(Boolean).length;
-	return theme.fg("muted", `→ ${count} matches`);
-}
-
-function briefLs(text: string, theme: CrewTheme): string {
-	if (!text) return theme.fg("dim", "→ empty");
-	const count = text.trim().split("\n").filter(Boolean).length;
-	return theme.fg("muted", `→ ${count} entries`);
 }
 
 function briefTeam(result: { content?: unknown[] }, theme: CrewTheme): string {

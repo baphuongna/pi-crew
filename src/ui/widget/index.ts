@@ -14,17 +14,22 @@ import { truncate } from "../../utils/visual.ts";
 import { panelRowsFromRuns } from "../inline-panel/panel-rows.ts";
 import { panelDisplayState, setPanelRowsProvider, subscribePanelChange } from "../inline-panel/panel-store.ts";
 import { requestRender, requestRenderTarget, setExtensionWidget } from "../pi-ui-compat.ts";
+import type { RailSlot } from "../rail.ts";
 import type { OverlaySchedulerHandle } from "../shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "../shared-overlay-scheduler.ts";
 import type { RunSnapshotCache } from "../snapshot-types.ts";
-import { spinnerBucket, spinnerFrame } from "../spinner.ts";
+import { spinnerBucket } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 import { asCrewTheme, subscribeThemeChange } from "../theme-adapter.ts";
 import { buildTaskListLines } from "./task-list.ts";
 import { activeWidgetRuns, statusSummary } from "./widget-model.ts";
-import { buildWidgetLines, colorWidgetLine, DEFAULT_WIDGET_WIDTH, renderLines, schedulesWidgetLine } from "./widget-renderer.ts";
+import { buildWidgetLines, colorWidgetLine, idleWidgetLine, renderLines, schedulesWidgetLine, widgetRailSlot } from "./widget-renderer.ts";
 import type { CrewWidgetModel, CrewWidgetState, WidgetRun } from "./widget-types.ts";
 
+export {
+	NOTIFICATION_BADGE_CAP,
+	notificationBadge,
+} from "./widget-formatters.ts";
 export { activeWidgetRuns, statusSummary } from "./widget-model.ts";
 export {
 	buildWidgetLines as buildCrewWidgetLines,
@@ -38,27 +43,6 @@ export type {
 	CrewWidgetState,
 	WidgetRun,
 } from "./widget-types.ts";
-
-/**
- * Resolve the real render width for widget lines, in priority order:
- *   1. explicit `width` argument (e.g. from caller that already knows terminal width)
- *   2. `process.stdout.columns` (works in Node when stdout is a TTY)
- *   3. `DEFAULT_WIDGET_WIDTH` (100) — last-resort fallback so we never paint
- *      a line wider than the smallest expected TUI.
- *
- * Callers SHOULD pass the width they already hold (e.g. `WidgetRender.render(width)`
- * in this file already receives one). This helper exists for paths that don't.
- */
-export function getRenderWidth(width?: number): number {
-	if (Number.isFinite(width) && width! > 0) return Math.floor(width!);
-	const stdoutCols = (globalThis as { process?: { stdout?: { columns?: number } } }).process?.stdout?.columns;
-	if (Number.isFinite(stdoutCols) && stdoutCols! > 0) return Math.floor(stdoutCols!);
-	return DEFAULT_WIDGET_WIDTH;
-}
-export {
-	NOTIFICATION_BADGE_CAP,
-	notificationBadge,
-} from "./widget-formatters.ts";
 
 // ── Constants ─────────────────────────────────────────────────────────
 
@@ -270,9 +254,9 @@ class CrewWidgetComponent implements WidgetComponent {
 		return sig;
 	}
 
-	private colorize(lines: string[], width: number): string[] {
+	private colorize(lines: string[], width: number, slot: RailSlot = "border"): string[] {
 		return renderLines(
-			lines.map((line, index) => colorWidgetLine(line, index, this.theme)),
+			lines.map((line, index) => colorWidgetLine(line, index, this.theme, slot)),
 			width,
 		);
 	}
@@ -334,14 +318,13 @@ class CrewWidgetComponent implements WidgetComponent {
 			this.cachedBuildSignatureAt = now;
 		}
 		const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
-		const runningGlyph = spinnerFrame("widget-header");
 
 		// Task-list variant: the run's plan above the editor (task-list.ts).
 		// No panel state, no spinner glyph — the list changes only on task
 		// transitions, which the run signature already covers.
 		if (this.variant === "tasks") {
 			if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
-				this.cachedBaseLines = buildTaskListLines(runs, width);
+				this.cachedBaseLines = buildTaskListLines(runs, width, this.theme);
 				this.cachedLines = this.colorize(this.cachedBaseLines, width);
 				this.cachedWidth = width;
 				this.cachedTheme = this.theme;
@@ -372,11 +355,12 @@ class CrewWidgetComponent implements WidgetComponent {
 		const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
 		const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
 
-		// The spinner-frame swap only belongs on the LEGACY header, whose line 0
-		// already starts with a glyph position (`<frame> Crew agents …`). The
-		// compact dock's line 0 is the HINT text ("agents (N) — ↓ to select"):
-		// swapping would visibly eat its first character on every frame.
-		const compactDock = this.model.rowStyle === "compact";
+		// RAIL (§2.B): the dock is ONE row whose identity is `CREW ▸ <subject>`
+		// and whose leading `┃` carries the AGGREGATE run state as its colour.
+		// The spinner rides INSIDE the row (buildWidgetLines composes it), so the
+		// old "swap line[0]'s first character" hack is gone — it would eat the
+		// rail glyph. The cache key still carries the spinner bucket when a worker
+		// is running, so the row rebuilds once per frame and animates.
 		if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
 			this.cachedBaseLines = buildWidgetLines(
 				this.model.cwd,
@@ -385,12 +369,9 @@ class CrewWidgetComponent implements WidgetComponent {
 				runs,
 				this.model.notificationCount ?? 0,
 				width,
-				{ rowStyle: this.model.rowStyle, now: schedNow, ...panel },
-			).map((line, index) => {
-				if (!compactDock && index === 0 && line.length > 0) return `${runningGlyph}${line.slice(1)}`;
-				return line;
-			});
-			this.cachedLines = this.colorize(this.cachedBaseLines, width);
+				{ now: schedNow, ...panel },
+			);
+			this.cachedLines = this.colorize(this.cachedBaseLines, width, widgetRailSlot(runs));
 			this.cachedWidth = width;
 			this.cachedTheme = this.theme;
 			this.cacheSignature = signatureWithPanel;
@@ -408,20 +389,22 @@ class CrewWidgetComponent implements WidgetComponent {
 			// meaningful on run-transition frames, which always have runs>0 and take
 			// a different branch. At zero runs the only paintable content is the
 			// schedules line (or nothing).
-			// Single-line contract (round 3): the keep-alive row carries the
-			// ↓·enter interaction hint + the focused ❯ marker — identical to
-			// buildWidgetLines' zero-runs branch.
-			const zeroBase = `${schedLine} — ↓·enter`;
-			const focused = panel.focused === true;
-			return [truncate(focused ? `❯ ${zeroBase}` : zeroBase, width)];
+			// Single-line contract (round 3): the keep-alive row is the SAME
+			// `┃ CREW ▸ idle · ⏰ … ···· ↓·enter` row buildWidgetLines paints at zero
+			// runs (idleWidgetLine) — one helper, one row shape.
+			// Zero runs + no schedules = nothing to paint. Guard BEFORE composing:
+			// without it the row painted the literal string `undefined — ↓·enter`
+			// (live bug 2026-09-16: right after a team run finished,
+			// activeWidgetRuns() empties and schedulesWidgetLine() returns
+			// undefined). widget-renderer.buildWidgetLines has always guarded this
+			// branch; the component path did not.
+			if (!schedLine) return [];
+			const zeroLine = idleWidgetLine(schedLine, panel.focused === true, width);
+			if (!zeroLine) return [];
+			return [truncate(colorWidgetLine(zeroLine, 0, this.theme), width)];
 		}
 
 		this.ensureTruncated(width);
-		if (!compactDock) {
-			const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
-			this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
-			this.truncatedLines[0] = truncate(this.cachedLines[0], width);
-		}
 		return this.truncatedLines;
 	}
 }

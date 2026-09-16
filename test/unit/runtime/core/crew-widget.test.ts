@@ -51,12 +51,13 @@ test("crew widget renders installed-style run and agent summary lines", async ()
 				},
 			},
 		]);
-		// Single-line widget (f0b9762e): counts only — team/workflow and agent
-		// detail moved into the Agents & Jobs browser (↓ + Enter).
+		// Single-line dock (RAIL §2.B): the identity canopy + counts only —
+		// team/workflow and agent detail moved into the Agents & Jobs browser
+		// (↓ + Enter).
 		const lines = buildCrewWidgetLines(cwd, 1);
-		assert.match(lines[0]!, /Crew agents/);
+		assert.match(lines[0]!, /^┃ \S+ CREW ▸ fast-fix/, `rail + canopy, got '${lines[0]}'`);
 		assert.match(lines.join("\n"), /1 running/);
-		assert.match(lines.join("\n"), /↓·enter/);
+		assert.match(lines.join("\n"), /···· ↓·enter/);
 		const calls: Array<{ key: string; content: string[] | undefined }> = [];
 		const state: CrewWidgetState = { frame: 0 };
 		updateCrewWidget(
@@ -243,9 +244,9 @@ test("crew widget keeps persistent component until placement changes and refresh
 			fg: (_color: string, value: string) => value,
 			bold: (value: string) => value,
 		});
-		// Single-line widget: currentTool/read detail moved to the browser —
-		// the persistent component now renders the counts line.
-		assert.match(component.render(100).join("\n"), /Crew agents/);
+		// Single-line dock: currentTool/read detail moved to the browser —
+		// the persistent component now renders the canopy row.
+		assert.match(component.render(100).join("\n"), /CREW ▸ /);
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -270,7 +271,7 @@ test("crew widget keeps persistent component until placement changes and refresh
 		// onInvalidate. This unit test has no event bus wired, so simulate the
 		// event-driven invalidation explicitly.
 		component.invalidate();
-		assert.match(component.render(100).join("\n"), /Crew agents/, "stable counts render after invalidate");
+		assert.match(component.render(100).join("\n"), /CREW ▸ /, "stable counts render after invalidate");
 		updateCrewWidget(ctx, state, { widgetPlacement: "belowEditor" });
 		assert.equal(setWidgetCalls.filter((call) => call.key === "pi-crew-active" && call.content).length, 2);
 	} finally {
@@ -346,11 +347,15 @@ test("crew widget header spinner animates time-based across renders even when st
 			bold: (value: string) => value,
 		});
 		const first = component.render(100)[0] ?? "";
-		const firstGlyph = first.codePointAt(0);
+		// The spinner rides INSIDE the dock row, right after the `┃` rail
+		// (`┃ <frame> CREW ▸ …`), so the rail glyph is never overwritten.
+		const spinnerOf = (line: string): number => line.codePointAt(2) ?? 0;
+		const firstGlyph = spinnerOf(first);
 		// Wait > spinner frame interval; state.frame is unchanged but glyph should rotate.
 		await new Promise((resolve) => setTimeout(resolve, 220));
 		const second = component.render(100)[0] ?? "";
-		const secondGlyph = second.codePointAt(0);
+		const secondGlyph = spinnerOf(second);
+		assert.equal(first.slice(0, 2), "┃ ", `the rail survives the spinner, got ${JSON.stringify(first)}`);
 		assert.notEqual(firstGlyph, secondGlyph, "expected spinner glyph to advance with wall-clock time even when state.frame is stable");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
@@ -413,11 +418,13 @@ test("compact dock hint line never gets the legacy spinner-frame swap (pi-subtas
 		});
 		const lines = component.render(100);
 		const hint = lines[0] ?? "";
-		// Single-line widget: the spinner is now part of the counts line BY
-		// DESIGN ("⠸ Crew agents · N running — ↓·enter"). The regression guard
-		// stays: the spinner swap must never EAT the text after it.
-		assert.ok(hint.includes("Crew agents"), `counts text must stay intact, got ${JSON.stringify(hint)}`);
-		assert.ok(hint.includes("↓·enter"), `entry hint must stay intact, got ${JSON.stringify(hint)}`);
+		// Single-line dock: the spinner is part of the row BY DESIGN
+		// ("┃ ⠸ CREW ▸ fast-fix · 1 running ···· ↓·enter"). The regression guard
+		// stays: the spinner must never EAT the rail or the text after it (the old
+		// component-level `line[0]` swap would have overwritten the `┃`).
+		assert.ok(hint.startsWith("┃ "), `the rail survives, got ${JSON.stringify(hint)}`);
+		assert.ok(hint.includes("CREW ▸ "), `counts text must stay intact, got ${JSON.stringify(hint)}`);
+		assert.ok(hint.includes("···· ↓·enter"), `entry hint must stay intact, got ${JSON.stringify(hint)}`);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
@@ -531,11 +538,11 @@ test("C4: widget signature cache invalidates on write so genuine state changes t
 			bold: (value: string) => value,
 		});
 
-		// First render — builds and caches the signature. (Single-line widget:
-		// the tool detail this test used to pin moved to the browser; the
+		// First render — builds and caches the signature. (Single-line dock: the
+		// tool detail this test used to pin moved to the browser; the
 		// cache-invalidation contract below is what still matters.)
 		const firstRender = component.render(100).join("\n");
-		assert.match(firstRender, /Crew agents/, "first render should show the counts line");
+		assert.match(firstRender, /CREW ▸ /, "first render should show the canopy row");
 
 		// Change agent data on disk (simulates a genuine state change).
 		saveCrewAgents(created.manifest, [
@@ -567,7 +574,7 @@ test("C4: widget signature cache invalidates on write so genuine state changes t
 		// (the observable surface is the counts line; tool detail lives in the
 		// Agents & Jobs browser now, so "differs" is no longer assertable).
 		const secondRender = component.render(100).join("\n");
-		assert.match(secondRender, /Crew agents/, "re-render after invalidation stays healthy");
+		assert.match(secondRender, /CREW ▸ /, "re-render after invalidation stays healthy");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

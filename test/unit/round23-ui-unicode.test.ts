@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { visibleWidth } from "../../src/ui/card-colors.ts";
+import { deriveCardBackground, visibleWidth } from "../../src/ui/card-colors.ts";
 import { truncLine } from "../../src/ui/format-helpers.ts";
 
 // truncVisual is module-private in tool-renderers/index.ts; it now delegates
@@ -55,4 +55,125 @@ test("BUG 4: truncLine passes through short strings unchanged", () => {
 
 test("regression: truncLine still collapses newlines to arrow", () => {
 	assert.equal(truncLine("line1\nline2", 50), "line1↵ line2");
+});
+
+// ── P1-6 (2026-09-15): deriveCardBackground must probe a VALID ThemeBg slot ──
+//
+// Pi's `ThemeBg` = selectedBg | scrollbarThumb | userMessageBg | customMessageBg
+// | toolPendingBg | toolSuccessBg | toolErrorBg, and `getBgAnsi` THROWS for any
+// other string. The old probe passed "background" (not a member), so the throw
+// was swallowed by the surrounding catch and `base` stayed BLACK on every
+// theme. These tests pin the slot AND prove the theme base is really used.
+
+/** Mirrors Pi's ThemeBg union (node_modules/.../theme/theme.d.ts). */
+const THEME_BG_SLOTS = new Set([
+	"selectedBg",
+	"scrollbarThumb",
+	"userMessageBg",
+	"customMessageBg",
+	"toolPendingBg",
+	"toolSuccessBg",
+	"toolErrorBg",
+]);
+
+interface ProbeRecording {
+	bgSlots: string[];
+	fgSlots: string[];
+}
+
+/**
+ * A fake Theme whose `getBgAnsi` records every probed slot and — exactly like
+ * Pi's real implementation — THROWS for a slot outside ThemeBg.
+ */
+function recordingTheme(base: string | undefined, accent: string | undefined, recording: ProbeRecording) {
+	return {
+		fg: (_color: string, text: string) => text,
+		bold: (text: string) => text,
+		getBgAnsi: (slot: string) => {
+			recording.bgSlots.push(slot);
+			if (!THEME_BG_SLOTS.has(slot)) throw new Error(`Unknown theme background color: ${slot}`);
+			return base as string;
+		},
+		getFgAnsi: (slot: string) => {
+			recording.fgSlots.push(slot);
+			return accent as string;
+		},
+	};
+}
+
+test("P1-6: deriveCardBackground only probes getBgAnsi with a slot inside ThemeBg", () => {
+	for (const statusSlot of ["success", "error", "borderAccent", "border"] as const) {
+		const recording: ProbeRecording = { bgSlots: [], fgSlots: [] };
+		const theme = recordingTheme("\x1b[48;2;40;40;40m", "\x1b[38;2;184;187;38m", recording);
+		const out = deriveCardBackground(theme as never, statusSlot);
+
+		assert.ok(
+			recording.bgSlots.length > 0,
+			`getBgAnsi was never probed for ${statusSlot} — the tint base is not derived from the theme`,
+		);
+		for (const probed of recording.bgSlots) {
+			assert.ok(
+				THEME_BG_SLOTS.has(probed),
+				`getBgAnsi probed with non-ThemeBg slot '${probed}' — Pi throws for it and the catch then pins base=BLACK (P1-6)`,
+			);
+		}
+		assert.equal(
+			recording.bgSlots.includes("background"),
+			false,
+			"'background' is not a ThemeBg member and must never be probed again",
+		);
+		assert.ok(out.startsWith("\x1b[48;2;"), `expected a truecolor bg SGR, got ${JSON.stringify(out)}`);
+	}
+});
+
+test("P1-6: the theme's own background reaches mixBg as the tint base (not hard-wired BLACK)", () => {
+	// intensity 0 → mixBg(base, accent, 0) returns `base` verbatim, so the
+	// output equals whatever the probe resolved. Pre-P1-6 both cases were BLACK.
+	const whiteRecording: ProbeRecording = { bgSlots: [], fgSlots: [] };
+	const blackRecording: ProbeRecording = { bgSlots: [], fgSlots: [] };
+	const fromWhite = deriveCardBackground(
+		recordingTheme("\x1b[48;2;255;255;255m", "\x1b[38;2;0;0;0m", whiteRecording) as never,
+		"success",
+		0,
+	);
+	const fromBlack = deriveCardBackground(recordingTheme("\x1b[48;2;0;0;0m", "\x1b[38;2;0;0;0m", blackRecording) as never, "success", 0);
+
+	assert.equal(fromWhite, "\x1b[48;2;255;255;255m", "a light theme background must be used as the base");
+	assert.equal(fromBlack, "\x1b[48;2;0;0;0m");
+	assert.notEqual(fromWhite, fromBlack, "the theme background must affect the result — pre-P1-6 both were BLACK");
+});
+
+test("P1-6: a theme without getBgAnsi still renders a tint (no crash, BLACK base)", () => {
+	const noBg = { fg: (_c: string, t: string) => t, bold: (t: string) => t, getFgAnsi: () => "\x1b[38;2;184;187;38m" };
+	const out = deriveCardBackground(noBg as never, "success");
+	assert.ok(out.startsWith("\x1b[48;2;"), `expected a tint, got ${JSON.stringify(out)}`);
+});
+
+test("P1-6: a throwing getBgAnsi shim cannot crash the renderer", () => {
+	const throwing = {
+		fg: (_c: string, t: string) => t,
+		bold: (t: string) => t,
+		getBgAnsi: () => {
+			throw new Error("shim exploded");
+		},
+		getFgAnsi: () => "\x1b[38;2;184;187;38m",
+	};
+	const out = deriveCardBackground(throwing as never, "success");
+	assert.ok(out.startsWith("\x1b[48;2;"), `expected a fallback tint, got ${JSON.stringify(out)}`);
+});
+
+test('P1-6: every literal getBgAnsi("…") slot in card-colors.ts is inside ThemeBg', async () => {
+	const fs = await import("node:fs");
+	const path = await import("node:path");
+	const file = path.join(import.meta.dirname ?? process.cwd(), "../../src/ui/card-colors.ts");
+	const source = fs.readFileSync(file, "utf8");
+	const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/gm, "$1");
+	const slots = [...code.matchAll(/getBgAnsi\(\s*"([^"]+)"/g)].map((m) => m[1]);
+	assert.ok(slots.length > 0, "expected at least one literal getBgAnsi slot probe in card-colors.ts");
+	for (const slot of slots) {
+		assert.ok(
+			THEME_BG_SLOTS.has(slot),
+			`getBgAnsi("${slot}") is not a ThemeBg slot — Pi throws for it and the catch silently pins base=BLACK (P1-6)`,
+		);
+	}
 });

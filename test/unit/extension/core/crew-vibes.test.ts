@@ -1,14 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DEFAULT_CONFIG, normalizeConfig, PROVIDER_STATUS_ID } from "../../../../src/extension/crew-vibes/config.ts";
-import { capacityIndex, isDangerStage } from "../../../../src/extension/crew-vibes/figures.ts";
-import {
-	asCrewTheme,
-	formatCount,
-	getCapacityUsage,
-	renderCapacity,
-	renderProviderUsage,
-} from "../../../../src/extension/crew-vibes/render.ts";
+import { asCrewTheme, renderProviderUsage } from "../../../../src/extension/crew-vibes/render.ts";
 import type { CrewTheme } from "../../../../src/ui/theme-adapter.ts";
 
 const theme: CrewTheme = {
@@ -28,50 +21,6 @@ test("normalizeConfig accepts a valid custom sextet and tokenDisplay", () => {
 	assert.equal(cfg.capacity.tokenDisplay, "percentage");
 	assert.deepEqual(cfg.capacity.labels, ["a", "b", "c", "d", "e", "f"]);
 	assert.deepEqual(cfg.capacity.icons, ["1", "2", "3", "4", "5", "6"]);
-});
-
-test("capacityIndex maps percent across six stages", () => {
-	assert.equal(capacityIndex(null), 0);
-	assert.equal(capacityIndex(0), 0);
-	assert.equal(capacityIndex(17), 1);
-	assert.equal(capacityIndex(50), 3);
-	assert.equal(capacityIndex(99), 5);
-	assert.equal(capacityIndex(150), 5);
-});
-
-test("isDangerStage flags only the last two stages", () => {
-	assert.equal(isDangerStage(0, 6), false);
-	assert.equal(isDangerStage(4, 6), true);
-	assert.equal(isDangerStage(5, 6), true);
-});
-
-test("formatCount scales compactly", () => {
-	assert.equal(formatCount(999), "999");
-	assert.equal(formatCount(1500), "1.5k");
-	assert.equal(formatCount(25_000), "25k");
-	assert.equal(formatCount(1_500_000), "1.5M");
-});
-
-test("renderCapacity colors the last two stages as error", () => {
-	const usage = { tokens: 180_000, percent: 98 };
-	const out = renderCapacity(theme, DEFAULT_CONFIG.capacity, usage);
-	assert.match(out, /<error>.*<\/error>/);
-});
-
-test("renderCapacity keeps early stages as success", () => {
-	const usage = { tokens: 5_000, percent: 10 };
-	const out = renderCapacity(theme, DEFAULT_CONFIG.capacity, usage);
-	assert.match(out, /<success>.*<\/success>/);
-	assert.doesNotMatch(out, /<error>/);
-});
-
-test("getCapacityUsage tolerates a stub context", () => {
-	const ctx = {
-		getContextUsage: () => ({ tokens: 12_000, percent: 30, contextWindow: 200_000 }),
-	} as unknown as Parameters<typeof getCapacityUsage>[0];
-	const usage = getCapacityUsage(ctx);
-	assert.equal(usage.tokens, 12_000);
-	assert.equal(usage.percent, 30);
 });
 
 test("asCrewTheme returns undefined for non-theme objects", () => {

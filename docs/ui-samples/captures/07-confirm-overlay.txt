@@ -1,0 +1,3 @@
+┏ CONFIRM ▸ Xoá run team_20260915_ui_demo?                      
+┃ 7 file sẽ bị xoá vĩnh viễn khỏi .crew/state. Hành động này kh…
+┗ Y confirm · Enter/N/Esc cancel                                

@@ -49,51 +49,6 @@ export type CrewThemeColor =
 
 export type CrewThemeBg = "selectedBg" | "userMessageBg" | "customMessageBg" | "toolPendingBg" | "toolSuccessBg" | "toolErrorBg";
 
-/** ANSI fallback values for theme color slots when the active theme doesn't define them. */
-export const THEME_COLOR_FALLBACKS: Record<CrewThemeColor, string> = {
-	accent: "\x1b[36m",
-	border: "\x1b[38;5;240m",
-	borderAccent: "\x1b[35m",
-	borderMuted: "\x1b[38;5;236m",
-	success: "\x1b[32m",
-	error: "\x1b[31m",
-	warning: "\x1b[33m",
-	muted: "\x1b[38;5;245m",
-	dim: "\x1b[38;5;240m",
-	text: "\x1b[39m",
-	thinkingText: "\x1b[38;5;245m",
-	toolTitle: "\x1b[36m",
-	toolOutput: "\x1b[38;5;245m",
-	toolDiffAdded: "\x1b[32m",
-	toolDiffRemoved: "\x1b[31m",
-	toolDiffContext: "\x1b[38;5;245m",
-	mdHeading: "\x1b[33m",
-	mdLink: "\x1b[35m",
-	mdCode: "\x1b[32m",
-	mdCodeBlock: "\x1b[39m",
-	mdQuote: "\x1b[38;5;245m",
-	mdHr: "\x1b[38;5;240m",
-	mdListBullet: "\x1b[36m",
-	syntaxKeyword: "\x1b[35m",
-	syntaxString: "\x1b[32m",
-	syntaxNumber: "\x1b[33m",
-	syntaxComment: "\x1b[38;5;245m",
-	syntaxFunction: "\x1b[36m",
-	syntaxVariable: "\x1b[39m",
-	syntaxType: "\x1b[35m",
-	syntaxOperator: "\x1b[35m",
-	syntaxPunctuation: "\x1b[35m",
-	userMessageText: "\x1b[39m",
-	customMessageLabel: "\x1b[35m",
-	thinkingOff: "\x1b[38;5;236m",
-	thinkingMinimal: "\x1b[38;5;245m",
-	thinkingLow: "\x1b[35m",
-	thinkingMedium: "\x1b[35m",
-	thinkingHigh: "\x1b[36m",
-	thinkingXhigh: "\x1b[35m",
-	bashMode: "\x1b[32m",
-};
-
 export interface CrewTheme {
 	fg(color: CrewThemeColor, text: string): string;
 	bg?(color: CrewThemeBg, text: string): string;

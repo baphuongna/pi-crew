@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { openTeamDashboard, setTeamCommandsDeps } from "../../../src/extension/registration/commands/shared.ts";
 import { saveCrewAgents } from "../../../src/runtime/crew-agent-records.ts";
 import { appendMailboxMessage } from "../../../src/state/coordination/mailbox.ts";
 import { createRunManifest, saveRunManifest } from "../../../src/state/stores/state-store.ts";
@@ -36,7 +37,8 @@ test("RunDashboard renders and selects runs", () => {
 		selected = selection;
 	});
 	const lines = dashboard.render(80);
-	assert.ok(lines.some((line) => line.includes("pi-crew")));
+	// RAIL (M4, 2026-09-16): the canopy replaced the `▐ pi-crew · N runs` title row.
+	assert.ok(lines.some((line) => line.includes("┏ DASHBOARD ▸ 2 runs")));
 	assert.ok(lines.some((line) => line.includes("2 runs")));
 	assert.ok(lines.some((line) => line.includes("team_a") && line.includes("completed")));
 	assert.ok(lines.some((line) => line.includes("team_a")));
@@ -45,11 +47,29 @@ test("RunDashboard renders and selects runs", () => {
 	assert.deepEqual(selected, { runId: "team_b", action: "status" });
 });
 
-test("RunDashboard renders a visibly right-sidebar title when requested", () => {
-	const dashboard = new RunDashboard([run("team_right", "running")], () => undefined, {}, { placement: "right" });
+test("RunDashboard renders the canonical canopy + key-hint rows", () => {
+	// M1-8: this test used to pass `{ placement: "right" }` and assert only
+	// generic strings ("pi-crew", the runId) — it therefore proved nothing
+	// about the removed no-op option. The right-vs-center decision is owned by
+	// the overlay HOST (`shared.ts` overlayOptions), asserted by the M1-8
+	// anchor tests at the bottom of this file.
+	const dashboard = new RunDashboard([run("team_title", "running")], () => undefined);
 	const lines = dashboard.render(70);
-	assert.ok(lines.some((line) => line.includes("pi-crew")));
-	assert.ok(lines.some((line) => line.includes("team_right")));
+	// `┏ DASHBOARD ▸ <n> runs` is the RAIL canopy; the hint rides its dot-led
+	// right segment in the shared `formatHint` format, and the close action
+	// lives in the `┗` cap (close LAST).
+	assert.ok(
+		lines.some((line) => line.includes("┏ DASHBOARD ▸ 1 run")),
+		`canonical canopy missing (runs count not rendered): ${JSON.stringify(lines.slice(0, 3))}`,
+	);
+	assert.ok(
+		lines.some((line) => line.includes("1-8 pane · ↑/↓ move · Enter select · ? help")),
+		`header hint missing: ${JSON.stringify(lines.slice(0, 3))}`,
+	);
+	assert.ok(
+		lines.some((line) => line.trimEnd().endsWith("┗ R reload · Esc close")),
+		`end cap missing: ${JSON.stringify(lines.slice(-2))}`,
+	);
 });
 
 test("RunDashboard emits health and notification actions", () => {
@@ -117,7 +137,10 @@ test("RunDashboard renders compact agent preview", () => {
 		const dashboard = new RunDashboard([manifest], () => undefined);
 		const lines = dashboard.render(120);
 		assert.ok(lines.some((line) => line.includes("Agents:")));
-		assert.ok(lines.some((line) => line.includes("executor->executor")));
+		assert.ok(
+			lines.some((line) => line.includes("executor▸executor")),
+			"RAIL separator `▸`, not the retired `->`",
+		);
 		assert.ok(lines.some((line) => line.includes("tool=bash")));
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
@@ -261,4 +284,78 @@ test("RunDashboard renders progress preview", () => {
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
+});
+
+// ─── M1-8 (P1-5b): the `placement` no-op option is gone ─────────────────────
+//
+// The removed `RunDashboardOptions.placement` field was never read by
+// RunDashboard; the real right-vs-center decision is made by the overlay HOST
+// (`openTeamDashboard` in commands/shared.ts) through `overlayOptions.anchor`.
+// These two tests drive the REAL host and capture the options it hands to
+// `ctx.ui.custom`, so "the dashboard still opens right/centre correctly" is
+// proven against the production code path rather than a render string.
+//
+// Sandbox: `loadConfig(cwd)` reads `<cwd>/.crew/config.json` and the user
+// config under HOME, so both cwd and HOME/USERPROFILE/PI_CREW_HOME are pointed
+// at a mkdtemp — nothing is written to the repo or the real ~/.pi.
+
+async function captureDashboardOverlayOptions(
+	uiConfig: Record<string, unknown> | undefined,
+): Promise<{ overlay?: boolean; overlayOptions?: { anchor?: string; width?: number | string } }> {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-anchor-"));
+	const prev = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, PI_CREW_HOME: process.env.PI_CREW_HOME };
+	process.env.HOME = tmp;
+	process.env.USERPROFILE = tmp;
+	process.env.PI_CREW_HOME = tmp;
+	try {
+		if (uiConfig) {
+			fs.mkdirSync(path.join(tmp, ".crew"), { recursive: true });
+			fs.writeFileSync(path.join(tmp, ".crew", "config.json"), JSON.stringify({ ui: uiConfig }), "utf-8");
+		}
+		const captures: Array<{ overlay?: boolean; overlayOptions?: { anchor?: string; width?: number | string } }> = [];
+		const ctx = {
+			cwd: tmp,
+			hasUI: true,
+			ui: {
+				// The component factory is never invoked (returning `undefined`
+				// breaks the action loop after one dashboard open).
+				custom: (_factory: unknown, opts: { overlay?: boolean; overlayOptions?: { anchor?: string } }) => {
+					captures.push(opts);
+					return Promise.resolve(undefined);
+				},
+				notify: () => undefined,
+			},
+		};
+		setTeamCommandsDeps({
+			startForegroundRun: () => undefined,
+			abortForegroundRun: () => false,
+			openLiveSidebar: () => undefined,
+			getManifestCache: () => ({ list: () => [] }),
+		});
+		await openTeamDashboard(ctx as never);
+		assert.equal(captures.length, 1, "dashboard host opened the overlay exactly once");
+		return captures[0] ?? {};
+	} finally {
+		if (prev.HOME === undefined) delete process.env.HOME;
+		else process.env.HOME = prev.HOME;
+		if (prev.USERPROFILE === undefined) delete process.env.USERPROFILE;
+		else process.env.USERPROFILE = prev.USERPROFILE;
+		if (prev.PI_CREW_HOME === undefined) delete process.env.PI_CREW_HOME;
+		else process.env.PI_CREW_HOME = prev.PI_CREW_HOME;
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+}
+
+test("M1-8: ui.dashboardPlacement='right' anchors the overlay top-right (host-owned, not a RunDashboard option)", async () => {
+	const opts = await captureDashboardOverlayOptions({ dashboardPlacement: "right" });
+	assert.equal(opts.overlay, true, "dashboard still opens as an overlay");
+	assert.equal(opts.overlayOptions?.anchor, "top-right", "right placement must anchor top-right");
+	assert.equal(typeof opts.overlayOptions?.width, "number", "right panel uses an explicit column width");
+});
+
+test("M1-8: default ui.dashboardPlacement='center' anchors the overlay center", async () => {
+	const opts = await captureDashboardOverlayOptions(undefined);
+	assert.equal(opts.overlay, true, "dashboard still opens as an overlay");
+	assert.equal(opts.overlayOptions?.anchor, "center", "default placement must anchor center");
+	assert.equal(opts.overlayOptions?.width, "90%", "center panel keeps the 90% width default");
 });

@@ -1,6 +1,28 @@
+/**
+ * Mailbox compose overlay — RAIL design language (M4/E1, 2026-09-16).
+ *
+ *   ┏ COMPOSE ▸ mailbox
+ *   ┃ › from: operator                    │ Preview
+ *   ┃ › to: leader                        │ # Title
+ *   ┃ › body: hello                       │ • item
+ *   ┃ › taskId:                           │
+ *   ┃ › [ ] Send to outbox                │
+ *   ┗ P close preview · Tab cycle · Enter submit · Esc discard
+ *
+ * Frame: canopy + `┃` body + `┗` close cap. When the preview is on, the body is
+ * a genuine two-column layout and `│` is the inner COLUMN separator (§2.D); the
+ * canopy/hint rows are NOT part of the split any more, so the hint keeps its
+ * full width instead of being cropped to 60% of the overlay.
+ *
+ * Keys/behaviour are unchanged (same `overlay:*` dispatch, same free-text
+ * passthrough, same validation errors, same discard confirmation). Hints come
+ * from `formatHint` (discard LAST, keys through `keyToken`).
+ */
+
 import type { MailboxDirection } from "../../state/coordination/mailbox.ts";
-import { pad, truncate } from "../../utils/visual.ts";
-import { matchesKey } from "../key-utils.ts";
+import { pad, sanitizeLine, truncate } from "../../utils/visual.ts";
+import { overlayActionForKey } from "../keybinding-map.ts";
+import { CURSOR, canopyLine, formatHint, RAIL, railLine, railRaw } from "../rail.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { ConfirmOverlay } from "./confirm-overlay.ts";
 import { renderComposePreview } from "./mailbox-compose-preview.ts";
@@ -49,36 +71,53 @@ export class MailboxComposeOverlay {
 
 	render(width: number): string[] {
 		if (this.confirm) return this.confirm.render(width);
-		const inner = Math.max(24, width - 4);
-		const formWidth = this.preview ? Math.max(24, Math.floor(inner * 0.6)) : inner;
-		const lines = [
-			this.theme.bold("Compose mailbox message"),
-			this.preview
-				? "P close preview · Tab cycle · Enter submit · ESC discard"
-				: "P preview · Tab cycle · Enter submit · ESC discard",
-			...(this.error ? [this.theme.fg("error", this.error)] : []),
-			this.fieldLine("from", formWidth),
-			this.fieldLine("to", formWidth),
-			this.fieldLine("body", formWidth),
-			this.fieldLine("taskId", formWidth),
-			`${this.activeField === 4 ? "›" : " "} [${this.fields.direction === "outbox" ? "x" : " "}] Send to outbox`,
+		if (width < 10) return [];
+		const theme = this.theme;
+		const budget = width - 2;
+		const hint = formatHint([
+			["P", this.preview ? "close preview" : "preview"],
+			["tab", "cycle"],
+			["enter", "submit"],
+			["escape", "discard"],
+		]);
+		const lines: string[] = [canopyLine({ word: "COMPOSE", subject: "mailbox", theme, budget })];
+		if (this.error) lines.push(railLine(RAIL.body, "error", truncate(this.error, budget), theme, budget));
+
+		const formBudget = this.preview ? Math.max(10, Math.floor(budget * 0.6)) : budget;
+		const previewBudget = Math.max(8, budget - formBudget - 3);
+		const formRows = [
+			this.fieldLine("from", formBudget),
+			this.fieldLine("to", formBudget),
+			this.fieldLine("body", formBudget),
+			this.fieldLine("taskId", formBudget),
+			`${this.activeField === 4 ? CURSOR : " "} [${this.fields.direction === "outbox" ? "x" : " "}] Send to outbox`,
 		];
-		if (!this.preview) return lines.map((line) => pad(truncate(line, inner), inner));
-		const previewLines = renderComposePreview(this.fields.body, Math.max(20, inner - formWidth - 3), this.theme);
-		const max = Math.max(lines.length, previewLines.length);
-		const split: string[] = [];
-		for (let index = 0; index < max; index += 1) {
-			split.push(
-				`${pad(truncate(lines[index] ?? "", formWidth), formWidth)} │ ${truncate(previewLines[index] ?? "", inner - formWidth - 3)}`,
-			);
+		if (!this.preview) {
+			for (const row of formRows) lines.push(railLine(RAIL.body, "border", truncate(row, budget), theme, budget));
+		} else {
+			const previewLines = renderComposePreview(this.fields.body, previewBudget, theme);
+			const max = Math.max(formRows.length, previewLines.length);
+			for (let index = 0; index < max; index += 1) {
+				const left = pad(truncate(formRows[index] ?? "", formBudget), formBudget);
+				const right = truncate(previewLines[index] ?? "", previewBudget);
+				// No separator when the preview column has no row at this height:
+				// a `│` with nothing to its right reads as a frame edge.
+				lines.push(railRaw(RAIL.body, "border", right ? `${left} ${theme.fg("dim", "│")} ${right}` : left, theme));
+			}
 		}
-		return split;
+		lines.push(railLine(RAIL.close, "border", theme.fg("dim", hint), theme, budget));
+		return lines;
 	}
 
 	private fieldLine(field: Exclude<FieldName, "direction">, width: number): string {
 		const active = FIELD_ORDER[this.activeField] === field;
 		const label = field === "taskId" ? "taskId" : field;
-		return `${active ? "›" : " "} ${label}: ${truncate(this.fields[field] ?? "", Math.max(8, width - label.length - 5))}`;
+		// `sanitizeLine`: a pasted / pre-filled value can carry a raw newline or
+		// TAB — printing it verbatim would break the rail row into several lines
+		// (the field is a single-line cell; multi-line content belongs to the
+		// preview column).
+		const value = sanitizeLine(this.fields[field] ?? "");
+		return `${active ? CURSOR : " "} ${label}: ${truncate(value, Math.max(8, width - label.length - 5))}`;
 	}
 
 	private activeName(): FieldName {
@@ -151,32 +190,32 @@ export class MailboxComposeOverlay {
 			this.confirm.handleInput(data);
 			return;
 		}
-		if (matchesKey(data, "escape")) {
-			this.cancel();
-			return;
+		// M2-1: keys come from the central `overlay:*` keyspace (remappable via
+		// `.crew/config.json` → keybindings["overlay:mailbox-compose:<action>"]).
+		switch (overlayActionForKey("mailbox-compose", data)) {
+			case "cancel":
+				this.cancel();
+				return;
+			case "preview":
+				this.preview = !this.preview;
+				return;
+			case "nextField":
+				this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
+				return;
+			case "space":
+				if (this.activeName() === "direction") this.fields.direction = this.fields.direction === "inbox" ? "outbox" : "inbox";
+				else this.appendText(data);
+				return;
+			case "backspace":
+				this.backspace();
+				return;
+			case "submit":
+				if (this.activeName() === "body" || this.fields.body.trim()) this.submit();
+				else this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
+				return;
 		}
-		if (data === "P") {
-			this.preview = !this.preview;
-			return;
-		}
-		if (data === "\t") {
-			this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
-			return;
-		}
-		if (data === " ") {
-			if (this.activeName() === "direction") this.fields.direction = this.fields.direction === "inbox" ? "outbox" : "inbox";
-			else this.appendText(data);
-			return;
-		}
-		if (matchesKey(data, "backspace")) {
-			this.backspace();
-			return;
-		}
-		if (matchesKey(data, "return")) {
-			if (this.activeName() === "body" || this.fields.body.trim()) this.submit();
-			else this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
-			return;
-		}
+		// Free-text passthrough (unchanged): any other printable char is typed
+		// into the active field.
 		if (data.length === 1 && data >= " ") this.appendText(data);
 	}
 }

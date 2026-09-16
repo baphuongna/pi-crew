@@ -7,15 +7,17 @@
  * precedent: a dedicated bottom-anchored overlay, NOT a new dashboard pane —
  * the pane route would churn the ActivePane union + keybinding parity goldens.
  *
- * Layout (width-aware for terminals 80..250):
+ * Layout (width-aware for terminals 80..250) — RAIL frame (M4, 2026-09-16):
+ * canopy + rail-prefixed body rows + `┗` cap, the two columns joined by DOT
+ * LEADERS (no inner `│` frame column):
  *
- *   Agents & Jobs — 2 agents · 1 job
- *   Live agents (2)            │ ▸ adaptive-01-executor
- *   › ⠋ Explorer · 41 tok/s    │   0/1 tasks · 1 agents
- *     ✓ Writer                 │   ⠋ adaptive-01-executor executor
- *   Scheduled jobs (1)         │     reading…
- *   › ⏰ watch: omo · cron · next 23h …   │
- *   [↑↓] navigate · [Enter] …  │
+ *   ┏ AGENTS ▸ 2 agents · 1 job ············· ↑/↓ move · Enter transcript
+ *   ┃ Live agents (2)          ··············· ▸ adaptive-01-executor
+ *   ┃ › ⠋ Explorer · 41 tok/s  ···············   0/1 tasks · 1 agents
+ *   ┃   ✓ Writer               ···············    ⠋ adaptive-01-executor
+ *   ┃ Scheduled jobs (1)       ···············      reading…
+ *   ┃   ⏰ watch: omo · cron · next 23h ······
+ *   ┗ Q close
  *
  * LEFT column — unified list: live agents first (status glyph via
  * iconForStatus/spinnerFrame, role name, tok/s while running — the SAME
@@ -67,10 +69,11 @@ import { pad, sanitizeLine, truncate, visibleWidth } from "../utils/visual.ts";
 import { renderAgentsPane } from "./dashboard-panes/agents-pane.ts";
 import { renderScheduleDetails, schedulesHiddenJobsHintLine } from "./dashboard-panes/schedules-pane.ts";
 import { computeLiveDurationMs } from "./live-duration.ts";
+import { CURSOR, canopyLine, formatHint, overflowHint, RAIL, railLeaders, railLine } from "./rail.ts";
 import type { RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerFrame } from "./spinner.ts";
 import { iconForStatus } from "./status-colors.ts";
-import type { CrewTheme } from "./theme-adapter.ts";
+import { asCrewTheme, type CrewTheme } from "./theme-adapter.ts";
 import { activeWidgetRuns } from "./widget/widget-model.ts";
 
 // ─── Public data types ─────────────────────────────────────────────────────
@@ -182,6 +185,7 @@ function watchAgentTranscriptScript(): string | undefined {
 /** tok/s for record-based entries (no live handle in this process). */
 function recordTokPerSec(record: CrewAgentRecord, nowMs: number): number | undefined {
 	if (record.status !== "running") return undefined;
+	if (!record.taskId) return undefined;
 	try {
 		const usage = getTaskUsage(record.taskId);
 		const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
@@ -228,6 +232,9 @@ function shellQuote(value: string): string {
 
 export class AgentsJobsBrowser {
 	private readonly options: AgentsJobsBrowserOptions;
+	/** RAIL helpers need a theme; `asCrewTheme(undefined)` is the no-op theme,
+	 *  so a headless/test render stays plain text exactly as before. */
+	private readonly theme: CrewTheme;
 	private cachedEntries: AgentsJobsBrowserEntry[] = [];
 	private cachedAt = -Infinity;
 	private hiddenCount = 0;
@@ -243,6 +250,7 @@ export class AgentsJobsBrowser {
 
 	constructor(options: AgentsJobsBrowserOptions) {
 		this.options = options;
+		this.theme = options.theme ?? asCrewTheme(undefined);
 		this.refreshData(true);
 		this.pollTimer = setInterval(() => {
 			if (this.closed) return;
@@ -408,8 +416,8 @@ export class AgentsJobsBrowser {
 		const manifest = this.manifestFor(entry.runId);
 		if (!record || !manifest) {
 			return [
-				`▸ ${entry.taskId} (${entry.role})`,
-				`  status: ${entry.status}`,
+				`▸ ${entry.taskId ?? "?"} (${entry.role ?? "?"})`,
+				`  status: ${entry.status ?? "?"}`,
 				"  (agent record unavailable — run manifest not found)",
 			];
 		}
@@ -626,36 +634,31 @@ export class AgentsJobsBrowser {
 	 *  exceed `width` (truncate/visibleWidth from utils/visual — the same
 	 *  width model pi-tui enforces). */
 	render(width?: number): string[] {
-		// FRAMED PANEL (redesign 2026-09-14, "dễ nhìn"): a full box —
-		//
-		//   ╭─ Agents & Jobs ── 2 agents · 1 job ─────────────────────╮
-		//   │ Live agents (2)        │ ▸ adaptive-01-executor        │
-		//   │ › ⠋ Explorer · 41 t/s  │   0/1 tasks · 1 agents        │
-		//   ╰─ [↑↓] move · [⏎] detail · [p] pane · [q] close ────────╯
-		//
-		// Title + counts embed in the TOP border, key hints in the BOTTOM
-		// border (the omp EditorTopBorder idiom) so the body is pure content
-		// and the panel reads as one visual unit over the terminal.
+		// RAIL frame (M4, 2026-09-16) — the rounded box is retired. Canopy
+		// `┏ AGENTS ▸ 2 agents · 1 job` + hint segment, every body row prefixed
+		// with the rail, the two columns joined by DOT LEADERS (railLeaders
+		// absorbs the slack; NO inner `│` frame column) and the surface capped
+		// with `┗ <hint>`. railLine owns the glyph + space and the pad/truncate
+		// to `budget`, so no line can exceed `width`.
 		const w = Math.max(60, width ?? this.options.columns ?? 80);
+		const budget = Math.max(0, w - 2);
 		const nowMs = this.nowMs();
-		// Inner budget: 2 border cols + 4 padding cols + 1 divider col.
-		const inner = w - 7;
+		const inner = budget;
 		const listWidth = Math.max(20, Math.min(MAX_LIST_WIDTH, Math.round(inner * 0.42)));
-		const detailWidth = Math.max(16, inner - listWidth);
+		const detailWidth = Math.max(16, Math.max(0, inner - listWidth - 2));
 		const maxBody = Math.max(MIN_BODY, Math.min(MAX_BODY, (this.options.rows ?? 24) - 6));
-		const dim = (text: string) => (this.options.theme ? this.options.theme.fg("border", text) : text);
-		const accent = (text: string) => (this.options.theme ? this.options.theme.fg("accent", text) : text);
-		const sep = dim("│");
+		const dim = (text: string) => this.theme.fg("border", text);
 
 		const counts = [
 			`${this.countAgents()} agent${this.countAgents() === 1 ? "" : "s"}`,
 			`${this.countJobs()} job${this.countJobs() === 1 ? "" : "s"}`,
 		];
 		if (this.hiddenCount > 0) counts.push(`${this.hiddenCount} hidden`);
-		const activeNotice = this.notice && this.notice.until > nowMs ? ` ${this.notice.text} ` : ` ${counts.join(" · ")} `;
-		const lines: string[] = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(truncate(activeNotice, w - 20)), w)];
+		// A transient notice (when one is live) replaces the counts in the canopy.
+		const subject = this.notice && this.notice.until > nowMs ? this.notice.text : counts.join(" · ");
+		const lines: string[] = [canopyLine({ word: "AGENTS", subject, right: this.hintRow(), theme: this.theme, budget })];
 		const hiddenHint = schedulesHiddenJobsHintLine(this.hiddenCount);
-		if (hiddenHint) lines.push(`${dim("│")} ${pad(dim(truncate(hiddenHint, w - 4)), w - 3)}${dim("│")}`);
+		if (hiddenHint) lines.push(railLine(RAIL.body, "border", dim(truncate(hiddenHint, budget)), this.theme, budget));
 
 		const left = this.renderListColumn(listWidth, maxBody, nowMs);
 		const right = this.renderDetailColumn(detailWidth, maxBody);
@@ -663,28 +666,18 @@ export class AgentsJobsBrowser {
 		// as tall as its tallest column, clamped to [5, maxBody].
 		const bodyHeight = Math.max(5, Math.min(maxBody, Math.max(left.length, right.length)));
 		for (let i = 0; i < bodyHeight; i++) {
-			const l = pad(left[i] ?? "", listWidth);
-			const r = pad(right[i] ?? "", detailWidth);
-			lines.push(`${dim("│")} ${l} ${sep} ${r} ${dim("│")}`);
+			const rawLeft = left[i] ?? "";
+			const rawRight = right[i] ?? "";
+			// Filler row (both columns exhausted): a bare rail row — dot leaders
+			// across an empty row would just paint noise.
+			const content =
+				rawLeft.trim() === "" && rawRight.trim() === ""
+					? ""
+					: railLeaders(pad(rawLeft, listWidth), truncate(rawRight, detailWidth), budget, this.theme);
+			lines.push(railLine(RAIL.body, "border", content, this.theme, budget));
 		}
-		lines.push(this.framedBorderRow("bottom", dim(" " + this.hintRow() + " "), "", w));
+		lines.push(railLine(RAIL.close, "border", this.capHint(), this.theme, budget));
 		return lines;
-	}
-
-	/** `╭─ title ── right ─────╮` / `╰─ hint ───────────────╯` — always exactly `w` visible cells. */
-	private framedBorderRow(which: "top" | "bottom", title: string, right: string, w: number): string {
-		const cornerL = which === "top" ? "╭" : "╰";
-		const cornerR = which === "top" ? "╮" : "╯";
-		const rule = which === "top" ? "─" : "─";
-		const titleCells = visibleWidth(title);
-		const rightCells = right ? visibleWidth(right) : 0;
-		const budget = w - 2 - titleCells - rightCells;
-		if (budget < 1) {
-			// Degenerate narrow: title only, truncated.
-			const t = truncate(title, w - 2);
-			return `${cornerL}${t}${cornerR}`;
-		}
-		return `${cornerL}${title}${rule.repeat(budget)}${right}${cornerR}`;
 	}
 
 	private countAgents(): number {
@@ -695,14 +688,28 @@ export class AgentsJobsBrowser {
 		return this.cachedEntries.filter((entry) => entry.kind === "job").length;
 	}
 
+	/** Header hint (canopy right segment) — RAIL format: `keys label` pairs. */
 	private hintRow(): string {
-		const base = this.focus === "list" ? "[↑↓] move · [⏎] transcript · [q] close" : "[↑↓] scroll · [⏎/Esc] back";
-		return base;
+		return this.focus === "list"
+			? formatHint([
+					[["up", "down"], "move"],
+					["enter", "transcript"],
+				])
+			: formatHint([
+					[["up", "down"], "scroll"],
+					["enter", "back"],
+				]);
+	}
+
+	/** End cap hint — the close/cancel action, LAST (RAIL hint rule). */
+	private capHint(): string {
+		return this.focus === "list" ? formatHint([["q", "close"]]) : formatHint([["esc", "back"]]);
 	}
 
 	/** LEFT column: section labels + unified rows, windowed around selection. */
 	private renderListColumn(listWidth: number, bodyHeight: number, nowMs: number): string[] {
 		const out: string[] = [];
+		const dim = (text: string) => this.theme.fg("border", text);
 		const push = (text: string) => out.push(truncate(sanitizeLine(text), listWidth));
 		if (this.cachedEntries.length === 0) {
 			push("No live agents · no scheduled jobs");
@@ -712,9 +719,9 @@ export class AgentsJobsBrowser {
 		const jobs = this.cachedEntries.filter((entry): entry is AgentsBrowserJobEntry => entry.kind === "job");
 		// Rows: section labels + one row per entry, in merged order.
 		const rows: { entry?: AgentsJobsBrowserEntry; text: string }[] = [];
-		if (agents.length > 0) rows.push({ text: `Live agents (${agents.length})` });
+		if (agents.length > 0) rows.push({ text: dim(`Live agents (${agents.length})`) });
 		for (const entry of agents) rows.push({ entry, text: this.agentRow(entry, nowMs) });
-		if (jobs.length > 0) rows.push({ text: `Scheduled jobs (${jobs.length})` });
+		if (jobs.length > 0) rows.push({ text: dim(`Scheduled jobs (${jobs.length})`) });
 		for (const entry of jobs) rows.push({ entry, text: this.jobRow(entry) });
 
 		// Windowing: keep the selected entry's row inside the visible slot
@@ -727,7 +734,7 @@ export class AgentsJobsBrowser {
 		}
 		for (const row of rows.slice(this.listScroll, this.listScroll + slots)) {
 			const isSelected = row.entry !== undefined && this.indexOf(row.entry) === this.selected;
-			const marker = row.entry === undefined ? "" : isSelected ? "› " : "  ";
+			const marker = row.entry === undefined ? "" : isSelected ? `${CURSOR} ` : "  ";
 			push(`${marker}${row.text}`);
 		}
 		return out;
@@ -738,9 +745,10 @@ export class AgentsJobsBrowser {
 	}
 
 	private agentRow(entry: AgentsBrowserAgentEntry, nowMs: number): string {
-		const icon = iconForStatus(entry.status, { runningGlyph: spinnerFrame(entry.taskId, nowMs) });
+		// GUARD (M4 §4): these fields come from unvalidated disk JSON.
+		const icon = iconForStatus(entry.status, { runningGlyph: spinnerFrame(entry.taskId ?? "", nowMs) });
 		const tok = entry.tokPerSec !== undefined && entry.status === "running" ? ` · ${entry.tokPerSec} tok/s` : "";
-		return `${icon} ${entry.role}${tok} · ${entry.taskId.slice(-8)}`;
+		return `${icon} ${entry.role ?? "?"}${tok} · ${(entry.taskId ?? "").slice(-8)}`;
 	}
 
 	private jobRow(entry: AgentsBrowserJobEntry): string {
@@ -765,16 +773,14 @@ export class AgentsJobsBrowser {
 		const maxScroll = Math.max(0, detail.length - (bodyHeight - 1));
 		this.detailScroll = Math.max(0, Math.min(this.detailScroll, maxScroll));
 		const windowed = detail.slice(this.detailScroll, this.detailScroll + bodyHeight - 1);
-		const title = entry.kind === "agent" ? `▸ ${entry.role} · ${entry.taskId.slice(-8)}` : `▸ ${sanitizeLine(entry.job.name)}`;
+		const title =
+			entry.kind === "agent" ? `▸ ${entry.role ?? "?"} · ${(entry.taskId ?? "").slice(-8)}` : `▸ ${sanitizeLine(entry.job.name)}`;
 		const out = [truncate(sanitizeLine(title), detailWidth)];
 		for (const line of windowed) out.push(truncate(sanitizeLine(line), detailWidth));
 		if (this.detailScroll > 0 || this.detailScroll + windowed.length < detail.length) {
-			out.push(
-				truncate(
-					`… ${this.detailScroll} above · ${Math.max(0, detail.length - this.detailScroll - windowed.length)} below`,
-					detailWidth,
-				),
-			);
+			// RAIL overflow dialect only (`▲ n above · ▼ m below`).
+			const below = Math.max(0, detail.length - this.detailScroll - windowed.length);
+			out.push(truncate(overflowHint(this.detailScroll, below, this.theme), detailWidth));
 		}
 		return out;
 	}

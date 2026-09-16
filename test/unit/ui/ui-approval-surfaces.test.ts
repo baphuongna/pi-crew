@@ -6,7 +6,7 @@
  *
  *   (a) widget renderer  — `⚠ plan:<id>` badge replaces the spinner glyph on
  *                          the pending run's line (widget-renderer.ts).
- *   (b) progress pane    — one-line banner + "A approve / n deny" hint while
+ *   (b) progress pane    — one-line banner + "A approve · n deny" hint while
  *                          snapshot.manifest.planApproval.status === "pending"
  *                          (progress-pane.ts).
  *   (c) key dispatch     — dashboardActionForKey("A"/"n", "progress") resolves
@@ -168,7 +168,7 @@ test("(b) progress pane: pending snapshot shows the approval banner with the A/n
 	const lines = renderProgressPane(makeSnapshot(makeManifest("team_pending_pane", PENDING_APPROVAL)));
 	const joined = lines.join("\n");
 	assert.ok(joined.includes("⚠ plan approval pending"), `banner must render: ${joined}`);
-	assert.ok(joined.includes("A approve / n deny"), "banner must surface the key hint");
+	assert.ok(joined.includes("A approve · n deny"), "banner must surface the key hint (one hint format)");
 	const bannerLines = lines.filter((line) => line.includes("plan approval pending"));
 	assert.equal(bannerLines.length, 1, "exactly one banner line (one-line budget)");
 });
@@ -179,7 +179,7 @@ test("(d) progress pane: approved snapshot shows no banner and no hint", () => {
 	const lines = renderProgressPane(makeSnapshot(makeManifest("team_approved_pane", APPROVED_APPROVAL)));
 	const joined = lines.join("\n");
 	assert.ok(!joined.includes("plan approval pending"), `no banner once approved: ${joined}`);
-	assert.ok(!joined.includes("A approve / n deny"), "no key hint once approved");
+	assert.ok(!joined.includes("A approve · n deny"), "no key hint once approved");
 });
 
 // ─── (c) keybinding map: pane-scoped resolution ───────────────────────────

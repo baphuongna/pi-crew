@@ -5,9 +5,12 @@ import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import { formatTaskGraphLines, waitingReason } from "../runtime/task-display.ts";
 import { loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamTaskState } from "../state/types.ts";
-import { aggregateUsage, formatUsage } from "../state/usage.ts";
+import { aggregateUsage, formatTokens } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
-import { pad, truncate } from "../utils/visual.ts";
+import { truncate } from "../utils/visual.ts";
+import { formatCount, teamWorkflowLabel } from "./format-helpers.ts";
+import { DASHBOARD_KEYS } from "./keybinding-map.ts";
+import { ACTIVE, canopyLine, formatHint, RAIL, type RailSlot, railLine, sectionLine, shortId, statusSlot } from "./rail.ts";
 import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "./shared-overlay-scheduler.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
@@ -21,13 +24,11 @@ const TASK_READ_TTL_MS = 200;
 
 type Done = (value: undefined) => void;
 
-function line(text: string, width: number): string {
-	return `│ ${pad(truncate(text, width - 4), width - 4)} │`;
-}
-
-function border(left: string, fill: string, right: string, width: number): string {
-	return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
-}
+/** The ONE footer hint of the sidebar: keys label pairs, close LAST (RAIL §1). */
+const SIDEBAR_HINT: ReadonlyArray<readonly [string, string]> = [
+	["/team-dashboard", "details"],
+	[DASHBOARD_KEYS.close[0] ?? "q", "close"],
+];
 
 function readTasks(path: string): TeamTaskState[] {
 	const parse = () => {
@@ -43,7 +44,25 @@ function readTasks(path: string): TeamTaskState[] {
 
 function shortUsage(tasks: TeamTaskState[]): string {
 	const usage = aggregateUsage(tasks);
-	return usage ? formatUsage(usage) : "usage=(none)";
+	return usage ? compactUsage(usage) : "usage=(none)";
+}
+
+/**
+ * TUI form of a usage record: `↑2.8k ↓3.7k $0.000`.
+ *
+ * `formatUsage` (state/usage.ts) is the `key=value` form used by CLI/status
+ * output (`input=2780, output=3715, cacheRead=57216, cost=0.000000, turns=0`) —
+ * correct for a log line, but on a 118-column rail row it buries the numbers
+ * the eye actually wants. The card's usage row has always used this compact
+ * form; the sidebar now matches it.
+ */
+function compactUsage(usage: ReturnType<typeof aggregateUsage>): string {
+	if (!usage) return "usage=(none)";
+	const parts: string[] = [];
+	if (usage.input !== undefined) parts.push(`↑${formatTokens(usage.input)}`);
+	if (usage.output !== undefined) parts.push(`↓${formatTokens(usage.output)}`);
+	if (usage.cost !== undefined && Number.isFinite(usage.cost) && usage.cost > 0) parts.push(`$${usage.cost.toFixed(3)}`);
+	return parts.length > 0 ? parts.join(" ") : "usage=(none)";
 }
 
 export class LiveRunSidebar {
@@ -147,13 +166,14 @@ export class LiveRunSidebar {
 
 	render(width: number): string[] {
 		const w = Math.max(36, width);
+		const budget = w - 2;
 
 		// P0-6: render from snapshots only — never read disk on every render tick.
 		// Production wires a snapshotCache (extension/registration/ui.ts). When
-		// the cache hasn't populated yet we paint a single "(loading…)" line so
-		// the pre-load frame is well-formed instead of an empty panel. When the
-		// cache is undefined (tests/dev) we fall back to direct disk reads so
-		// existing unit tests keep working.
+		// the cache hasn't populated yet we paint a well-formed two-row frame so
+		// the pre-load surface still wears the rail; when the cache is undefined
+		// (tests/dev) we fall back to direct disk reads so existing unit tests
+		// keep working.
 		let run: import("../state/types.ts").TeamRunManifest;
 		let tasks: TeamTaskState[];
 		let rawAgents: ReturnType<typeof readCrewAgents>;
@@ -165,7 +185,16 @@ export class LiveRunSidebar {
 				snapshot = undefined;
 			}
 			if (!snapshot) {
-				return ["(loading…)"];
+				// A well-formed pre-load frame: same canopy/cap grammar as the loaded
+				// one, with a single dim status row.
+				return this.renderFrame(
+					[
+						canopyLine({ word: "LIVE", subject: shortId(this.runId), theme: this.theme, budget }),
+						railLine(RAIL.body, "border", this.theme.fg("dim", "loading…"), this.theme, budget),
+					],
+					budget,
+					"border",
+				);
 			}
 			run = snapshot.manifest;
 			tasks = snapshot.tasks;
@@ -173,14 +202,13 @@ export class LiveRunSidebar {
 		} else {
 			const loaded = loadRunManifestById(this.cwd, this.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency;
 			if (!loaded) {
-				return renderLines(
+				return this.renderFrame(
 					[
-						border("╭", "─", "╮", w),
-						line(`${this.theme.fg("accent", "▐")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-						line("run not found", w),
-						border("╰", "─", "╯", w),
+						canopyLine({ word: "LIVE", subject: shortId(this.runId), theme: this.theme, budget }),
+						railLine(RAIL.body, "border", this.theme.fg("muted", "run not found"), this.theme, budget),
 					],
-					w,
+					budget,
+					"border",
 				);
 			}
 			run = loaded.manifest;
@@ -194,6 +222,10 @@ export class LiveRunSidebar {
 		const waiting = tasks.filter((task) => task.status === "queued");
 		const signature = this.buildSignature(run.updatedAt, tasks, agents, waiting.length, snapshot);
 		if (signature !== this.cachedSignature || w !== this.cachedWidth) {
+			// RAIL (§2.E): the rounded `╭─╮│╰─╯` box is retired — the surface is a
+			// `┏ LIVE ▸ <run8>` canopy, `┃` body rows, `┣ SECTION` headers and a
+			// `┗ <hint>` cap. The rail colour carries the run's state.
+			const slot: RailSlot = statusSlot(run.status);
 			// L-2: surface the cancellation/failure reason for terminal runs so the
 			// user sees *why* a run ended without having to switch panes. The reason
 			// is already computed on the consumed snapshot (cancellationReason).
@@ -203,59 +235,98 @@ export class LiveRunSidebar {
 					? ` · ${truncate(snapshot.cancellationReason, 40)}`
 					: "";
 			const lines: string[] = [
-				border("╭", "─", "╮", w),
-				line(`${this.theme.fg("accent", "▐")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-				line(`${run.runId.slice(-12)} · ${run.status}${reasonSuffix} · right default`, w),
-				line(`${run.team}/${run.workflow ?? "none"} · ${shortUsage(tasks)}`, w),
-				border("├", "─", "┤", w),
-				line(`Active agents (${active.length})`, w),
+				canopyLine({ word: "LIVE", subject: shortId(run.runId), theme: this.theme, budget, slot }),
+				railLine(
+					RAIL.body,
+					"border",
+					this.theme.fg(
+						"muted",
+						`${shortId(run.runId)} · ${run.status ?? "?"}${reasonSuffix} · ${run.workspaceMode ?? "single"}`,
+					),
+					this.theme,
+					budget,
+				),
+				railLine(
+					RAIL.body,
+					"border",
+					this.theme.fg("muted", `${teamWorkflowLabel(run.team, run.workflow)} · ${shortUsage(tasks)}`),
+					this.theme,
+					budget,
+				),
+				sectionLine({ name: "active", subject: formatCount(active.length, "agent"), theme: this.theme, budget, slot }),
 			];
 			for (const agent of active.slice(0, 8)) {
 				const status = iconForStatus(agent.status, {
 					runningGlyph: spinnerFrame(agent.taskId),
 				});
 				const usage = agent.usage
-					? formatUsage(agent.usage)
+					? compactUsage(agent.usage)
 					: agent.progress?.tokens
 						? `tokens=${agent.progress.tokens}`
 						: "usage=pending";
-				lines.push(line(`${status} ${agent.taskId} ${agent.role}->${agent.agent}`, w));
+				// The record comes from unvalidated `agents.json` — every field is
+				// guarded (`?? "?"`) and the legacy `role->agent` separator is `▸`.
 				lines.push(
-					line(
-						`  ${agent.routing ? `model ${agent.routing.requested ? `${agent.routing.requested} → ` : ""}${agent.routing.resolved}` : agent.model ? `model ${agent.model}` : "model pending"}`,
-						w,
+					railLine(
+						RAIL.body,
+						"border",
+						`${status} ${agent.taskId ?? "?"} ${agent.role ?? "?"} ${ACTIVE} ${agent.agent ?? "?"}`,
+						this.theme,
+						budget,
 					),
 				);
 				lines.push(
-					line(
-						`  ${agent.progress?.currentTool ? `tool ${agent.progress.currentTool} · ` : ""}${agent.toolUses ?? 0} tools · ${usage}`,
-						w,
+					railLine(
+						RAIL.body,
+						"border",
+						this.theme.fg(
+							"muted",
+							`  ${agent.routing ? `model ${agent.routing.requested ? `${agent.routing.requested} → ` : ""}${agent.routing.resolved ?? "pending"}` : agent.model ? `model ${agent.model}` : "model pending"}`,
+						),
+						this.theme,
+						budget,
+					),
+				);
+				lines.push(
+					railLine(
+						RAIL.body,
+						"border",
+						this.theme.fg(
+							"muted",
+							`  ${agent.progress?.currentTool ? `tool ${agent.progress.currentTool} · ` : ""}${formatCount(agent.toolUses ?? 0, "tool")} · ${usage}`,
+						),
+						this.theme,
+						budget,
 					),
 				);
 			}
-			if (!active.length) lines.push(line("- none", w));
-			lines.push(border("├", "─", "┤", w), line(`Waiting tasks (${waiting.length})`, w));
+			if (!active.length) lines.push(this.bodyRow(this.theme.fg("dim", "none"), budget));
+			lines.push(sectionLine({ name: "waiting", subject: formatCount(waiting.length, "task"), theme: this.theme, budget, slot }));
 			for (const task of waiting.slice(0, 8)) {
 				const status = iconForStatus("queued");
-				lines.push(line(`${status} ${task.id} ${waitingReason(task, tasks) ?? "waiting"}`, w));
+				lines.push(this.bodyRow(`${status} ${task.id ?? "?"} ${waitingReason(task, tasks) ?? "waiting"}`, budget));
 			}
-			if (waiting.length === 0) lines.push(line("- none", w));
-			lines.push(border("├", "─", "┤", w), line(`Completed agents (${completed.length})`, w));
+			if (waiting.length === 0) lines.push(this.bodyRow(this.theme.fg("dim", "none"), budget));
+			lines.push(sectionLine({ name: "done", subject: formatCount(completed.length, "agent"), theme: this.theme, budget, slot }));
 			for (const agent of completed) {
 				const status = iconForStatus(agent.status === "running" ? "stopped" : agent.status);
 				lines.push(
-					line(
-						`${status} ${agent.taskId} ${agent.model ? `· ${agent.model}` : ""}${agent.usage ? ` · ${formatUsage(agent.usage)}` : ""}`,
-						w,
+					this.bodyRow(
+						`${status} ${agent.taskId ?? "?"} ${agent.model ? `· ${agent.model}` : ""}${agent.usage ? ` · ${compactUsage(agent.usage)}` : ""}`,
+						budget,
 					),
 				);
 			}
-			if (completed.length === 0) lines.push(line("- none", w));
-			lines.push(border("├", "─", "┤", w));
-			for (const entry of formatTaskGraphLines(tasks).slice(0, 6)) lines.push(line(entry, w));
-			lines.push(line("q close · /team-dashboard details", w));
-			// F-6: compute the auto-close countdown BEFORE pushing the bottom border
-			// so the countdown renders inside the bordered box rather than below it.
+			if (completed.length === 0) lines.push(this.bodyRow(this.theme.fg("dim", "none"), budget));
+			lines.push(sectionLine({ name: "tasks", subject: formatCount(tasks.length, "task"), theme: this.theme, budget, slot }));
+			for (const entry of formatTaskGraphLines(tasks).slice(0, 6)) {
+				// `formatTaskGraphLines` (src/runtime/task-display.ts) still emits the
+				// legacy `role->agent` separator; normalize it at the render boundary
+				// so no `->` can reach the TUI (§4 consistency fix).
+				lines.push(this.bodyRow(this.theme.fg("muted", entry.replace(/->/g, ACTIVE)), budget));
+			}
+			// F-6: compute the auto-close countdown BEFORE the cap so the countdown
+			// renders inside the frame rather than below it.
 			// Auto-close logic: if run is terminal and no active agents, close after delay
 			const isTerminal = ["completed", "failed", "cancelled", "blocked"].includes(run.status);
 			const hasActiveAgents = agents.some((a) => a.status === "running");
@@ -268,7 +339,7 @@ export class LiveRunSidebar {
 						this.done(undefined);
 					}, autoCloseMs);
 					this.autoCloseTimeout?.unref();
-					lines.push(line(`auto-close in ${Math.round(autoCloseMs / 1000)}s…`, w));
+					lines.push(this.bodyRow(this.theme.fg("dim", `auto-close in ${Math.round(autoCloseMs / 1000)}s…`), budget));
 				}
 			}
 			// Clear timeout if conditions change
@@ -276,15 +347,23 @@ export class LiveRunSidebar {
 				clearTimeout(this.autoCloseTimeout);
 				this.autoCloseTimeout = undefined;
 			}
-			lines.push(border("╰", "─", "╯", w));
-			this.cachedLines = renderLines(
-				lines.map((entry) => this.colorLine(entry)),
-				w,
-			);
+			this.cachedLines = renderLines(this.renderFrame(lines, budget, slot), w);
 			this.cachedSignature = signature;
 			this.cachedWidth = w;
 		}
 		return this.cachedLines;
+	}
+
+	/** One `┃` body row (glyph + colour owned by the rail helper). */
+	private bodyRow(content: string, budget: number): string {
+		return railLine(RAIL.body, "border", content, this.theme, budget);
+	}
+
+	/** Append the `┗ <hint>` cap and colorize the glyphs (F-1 / V-3). */
+	private renderFrame(lines: string[], budget: number, slot: RailSlot): string[] {
+		const hint = this.theme.fg("dim", formatHint(SIDEBAR_HINT));
+		const framed = [...lines, railLine(RAIL.close, slot, hint, this.theme, budget)];
+		return framed.map((entry) => this.colorLine(entry));
 	}
 
 	handleInput(data: string): void {

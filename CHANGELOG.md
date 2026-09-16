@@ -2,6 +2,116 @@
 
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
+## [0.11.1] — RAIL: one UI design language for every surface + UI-audit fixes (2026-09-16)
+
+### feat(ui): RAIL — a single visual language for the whole product
+
+- **New shared design system.** `src/ui/rail.ts` owns every glyph and helper —
+  rail `┏ ┣ ┃ ┗`, the `NAME ▸ SUBJECT` canopy, dot leaders `······`, the
+  eighth-block gauge `▕████▎░░▏`, status slot/badge/icon maps, `overflowHint`,
+  `formatHint`/`keyToken`, `CURSOR`/`ACTIVE` — and `docs/UI-DESIGN-SYSTEM.md`
+  documents the grammar, the seven surface classes and the width contract.
+  `src/ui/tool-renderers/index.ts` now imports from it instead of declaring its
+  own copies.
+- **Tool card (team + subagent) redesigned**: width-deferred through
+  `AdaptiveCard` (a frame built for 116 columns no longer tears at 100), one
+  unified identity canopy (`┏ CREW ▸ <team>`, `┏ AGENT ▸ <name>`,
+  `┏ LIST`), agent name surfaced while the run is still streaming, fail-visible
+  outcome on three levels, `done`/`succeeded` alias handling, merged
+  tally+gauge with the elapsed segment right-aligned, and `role/agent`
+  duplication collapsed (`verifier/verifier` → `verifier`).
+- **Every other surface migrated**: crew widget (still exactly ONE row:
+  `┃ ⠧ CREW ▸ fast-fix · 2 running · 3/5 done · ⏰ 1 sched ···· ↓·enter`, idle row
+  `┃ CREW ▸ idle · …`, focused `❯` marker), plan/task list (`┏ PLAN ▸ <title>`),
+  live-run sidebar (`┏ LIVE ▸ <runId8>` + `┣ ACTIVE ▸ n`), team dashboard,
+  Agents & Jobs browser, settings overlay, transcript viewer, live-conversation
+  / help / confirm / mailbox-detail / mailbox-compose / agent-picker overlays,
+  dashboard panes and `/team-mascot`. The rounded box `╭─╮│╰─╯├┤` and the inline
+  `── label ──` rule are retired (sections are `┣ NAME ▸ x`).
+- **One dialect per concept**: cursor `›`, active/section marker `▸`, overflow
+  `▲ n above` / `▼ m below` (was four dialects), hints `keys label · …` with the
+  close/cancel action last and canonical key spelling (`Esc`, `Enter`, `Tab`) —
+  including an `exactKeys` mode for the case-sensitive plan-approval keyspace
+  (`A` approve vs `n` deny).
+
+### fix(ui): bugs found by the audit, the cold-verify pass and live runs
+
+- **`undefined — ↓·enter` in the widget after a run finished** — the zero-runs
+  branch built its row without checking `schedLine`; with no active runs and no
+  schedules it painted the literal `undefined`. It now renders nothing.
+- **No `undefined` can reach a string**: every interpolated field on records read
+  from disk (`agents.json`, schedules, metrics) is guarded — role/agent/model
+  routing in the sidebar and agent picker, every persisted job field in the
+  schedules pane, metric label values, and the settings `Edit` title.
+- `1 tools` → `1 tool` (one `formatCount` helper, five surfaces).
+- Help cheatsheet no longer prints a raw TAB (`keyToken` missed `\t`).
+- `role->agent` → `role▸agent` everywhere, including the producer
+  (`task-display.ts`) rather than only at one render boundary.
+- Settings overlay: the edit submenu hint is built by `formatHint` and no longer
+  advertises a key that is not bound.
+
+### fix(ui): phantom affordances, schema drift and theme discovery (P0)
+
+- **`/team-settings theme <name>` works again**: `theme-discovery.ts` used bare
+  `require("node:fs")` inside a module loaded by dynamic import, so discovery
+  could fail silently and only the builtin themes were selectable. Now a
+  top-level import, with a HOME-sandboxed test (13 themes discovered, active
+  theme read from `settings.json`, `setPiTheme()` writes).
+- Removed the phantom `p` (progressToggle) binding/action/help entry, the no-op
+  `placement` option, and the non-existent `/team-cleanup` / `/team-health`
+  commands from help.
+- Schema/docs drift: `ui.widgetRowStyle`, `ui.inlinePanel`,
+  `ui.autoCloseDashboardMs` added to `schema.json` + configuration schema so
+  editors stop flagging valid keys; brief-mode command description scoped to
+  what it really does; help overlay gained the Schedules and Plan key groups;
+  keyboard reference and command docs corrected.
+- `LiveConversationOverlay` gained a real `handleInput` (scroll, auto-scroll
+  toggle, close) so its advertised footer keys are reachable.
+- **Terminal status restored**: the documented tab-title + Ghostty `OSC 9;4`
+  progress integration is now wired (`installTerminalStatus`) instead of the
+  no-op dispose handler; best-effort, debounced, headless-safe.
+
+### chore: dead code removed
+
+- Deleted `overlay-stack.ts`, `ui/loaders.ts`, `crew-vibes/figures.ts`,
+  `crew-vibes/font-detect.ts`, `dynamic-border.ts` and `boxLine()` plus their
+  tests (~1.7k lines net), together with the dead `compactAgentRow` chain.
+
+### fix(ui): defects found by rendering a REAL team run
+
+Rendering the live run `team_20260916110100` through every surface (tool card,
+widget dock, plan card, sidebar, dashboard, agents & jobs browser) exposed seven
+defects the review passes had missed:
+
+- **The dock spun forever.** `┃ ⠹ CREW ▸ fast-fix · 0 running · 3/3 done` — a
+  spinner with nothing to spin for, because the header always received a braille
+  frame. The leading glyph now reflects state (`⠋…` only while a worker is
+  running, otherwise `✓`/`✗`); zero counts (`0 running`) are no longer printed.
+- **The dock lost its key hint on a narrow terminal.** At 50 columns the row
+  ended in `···· ↓…`; the leader budget now shrinks with the width so the left
+  segment is trimmed (with `…`) and `↓·enter` always survives.
+- **The run dashboard truncated the status into `complete…`.** The narrow-width
+  fallback clipped `head · meta` as one string, cutting the very token the run
+  list exists to show. Meta now yields first, then the goal; the head (run id +
+  status) is only clipped if it cannot fit at all.
+- **Sidebar printed an invented `· right default` string** — replaced with the
+  run's real `workspaceMode` (`single` / `worktree`).
+- **`fast-fix/fast-fix`** in the sidebar and dashboard — one shared
+  `teamWorkflowLabel()` collapses the workflow half when it repeats the team.
+- **Raw usage rows** (`input=2780, output=3715, cacheRead=57216, cost=0.000000,
+  turns=0`) — the sidebar now uses the compact `↑2.8k ↓3.7k` form the tool card
+  already had (the `key=value` form stays for CLI/status output).
+- **`314.7s` instead of `5m44s`**, `1 runs` instead of `1 run`, `3 agents` /
+  `N runs` without pluralisation, and `┃ - none` for empty sections — all
+  normalised through `formatDuration` / `formatCount`.
+
+### verification
+
+- `test:unit` full suite, `test:critical` (117/117), `test:bundle` (2/2), biome,
+  `format:check`, `tsc --noEmit` and bundle size/staleness gates all run on the
+  release tree; UI migration verified by an independent verifier rendering real
+  surfaces at 40/60/80/100/160 columns.
+
 ## [0.11.0] — Scheduled Jobs UI + Agents & Jobs browser + kitty CSI-u hardening (2026-09-15)
 
 ### feat(ui): Agents & Jobs browser — the crew widget's ↓+Enter popup

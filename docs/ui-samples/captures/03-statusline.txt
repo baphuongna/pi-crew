@@ -1,0 +1,4 @@
+### Segment mà pi-crew đăng ký vào status-line của Pi (key `pi-crew`)
+pi-crew: ┃ CREW ▸ 2r · 2q · 1/5 done · gpt-5
+
+(statusSummary ghép từ mọi active run: running/queued/done/runs/model)

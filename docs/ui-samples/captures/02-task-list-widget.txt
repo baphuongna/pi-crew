@@ -1,0 +1,8 @@
+### Widget thứ hai (pi-crew-tasks, phía TRÊN editor) — mount khi có run
+┏ PLAN ▸ implementation ····································· ▕██▍░░░░░░░░░▏ 1/5
+┃ ? #1 Khảo sát 70 file trong src/ui                                            
+┃ ? #2 Lập plan fix 15 finding                                                  
+┃ ? #3 Fix P0 + P1 nhóm render                                                  
+┃ ? #4 Fix P1 nhóm overlay                                                      
+┃ ✔ [9m[2m#5 Verify gates G1–G9[22m[29m                                                       
+┗ 1 done · 0 in progress · 0 open                                               

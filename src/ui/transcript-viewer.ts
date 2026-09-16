@@ -3,8 +3,9 @@ import { matchesKey } from "@earendil-works/pi-tui";
 import { agentOutputPath, readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { pad, truncate, truncateToVisualLines, truncateToVisualLinesTail } from "../utils/visual.ts";
+import { truncate, truncateToVisualLines, truncateToVisualLinesTail } from "../utils/visual.ts";
 import type { InteractiveComponent } from "./component.ts";
+import { canopyLine, formatHint, overflowHint, RAIL, railLine } from "./rail.ts";
 import { renderDiff } from "./render-diff.ts";
 import { colorForStatus, iconForStatus, type RunStatus } from "./status-colors.ts";
 import { highlightCode, highlightJson } from "./syntax-highlight.ts";
@@ -244,6 +245,21 @@ interface ViewerState {
 	sourceLen: number;
 }
 
+/**
+ * Overlay footer hints in the ONE rail hint format (`formatHint`): keys `label`
+ * pairs joined by ` · `, close action LAST, `Esc` spelled via `keyToken`.
+ * The bound keys/actions are unchanged — `handleInput` still reads j/k, PgUp/
+ * PgDn, g/G, a, f and q/Esc exactly as before.
+ */
+const VIEWER_HINTS = formatHint([
+	[["j", "k"], "scroll"],
+	[["pageup", "pagedown"], "page"],
+	["g/G", "top/bottom"],
+	["a", "auto"],
+	["f", "full/tail"],
+	[["q", "escape"], "close"],
+]);
+
 function renderViewerBase(state: ViewerState, width: number, lines: string[], title: string, subtitle: string): string[] {
 	const inner = Math.max(20, width - 4);
 	// PERF (2026-08-24): transcripts grow to thousands of lines; wrapping every
@@ -289,21 +305,23 @@ function renderViewerBase(state: ViewerState, width: number, lines: string[], ti
 	const totalLines = tailWindow ? skippedCount + visible.length : visualLines.length;
 	const totalLabel = tailWindow && skippedCount > 0 ? `≥ ${totalLines}` : `${totalLines}`;
 	const statusLine = `${totalLabel} lines · ${totalLines ? Math.round(((state.scroll + visible.length) / totalLines) * 100) : 100}% · auto-scroll ${state.autoScroll ? "on" : "off"}`;
-	const fg = (color: Parameters<TranscriptTheme["fg"]>[0], text: string) => state.theme.fg(color, text);
-	const row = (text: string) => `${fg("border", "│")} ${pad(truncate(text, inner), inner)} ${fg("border", "│")}`;
+	// RAIL frame (design system §2.E): `┏ NAME ▸ SUBJECT` canopy, `┃` body rows,
+	// `┗ <outcome/hint>` close. The rounded `╭─╮│╰─╯` box is retired. This
+	// viewer is a standalone overlay that paints its own frame, so the rail
+	// glyphs are correct here (dashboard PANES must not draw them).
+	const budget = Math.max(18, width - 2);
+	const row = (text: string) => railLine(RAIL.body, "border", text, state.theme, budget);
 	const linesOut: string[] = [
-		fg("border", `╭${"─".repeat(inner + 2)}╮`),
-		row(`${fg("accent", title)} ${fg("dim", subtitle)}`),
-		row(fg("dim", "j/k scroll · PgUp/PgDn · g/G top/bottom · a auto · f full/tail · q close")),
-		fg("border", `├${"─".repeat(inner + 2)}┤`),
-		...visible.map(row),
-		fg("border", `├${"─".repeat(inner + 2)}┤`),
-		row(fg("dim", statusLine)),
-		fg("border", `╰${"─".repeat(inner + 2)}╯`),
+		canopyLine({ word: "TRANSCRIPT", subject: title, theme: state.theme, budget, right: subtitle }),
+		row(state.theme.fg("dim", VIEWER_HINTS)),
 	];
 	if (skippedCount > 0) {
-		linesOut.splice(linesOut.length - 1, 0, row(fg("muted", `… (${skippedCount} lines truncated above`)));
+		// ONE overflow dialect (`▲ n above` / `▼ m below`) instead of the legacy
+		// `… (n lines truncated above` (which also never closed its paren).
+		linesOut.push(row(state.theme.fg("muted", overflowHint(skippedCount, 0, state.theme))));
 	}
+	for (const visibleLine of visible) linesOut.push(row(visibleLine));
+	linesOut.push(railLine(RAIL.close, "border", state.theme.fg("dim", statusLine), state.theme, budget));
 	return linesOut.map((line) => truncate(line, width));
 }
 

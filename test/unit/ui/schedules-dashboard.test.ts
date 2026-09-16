@@ -139,7 +139,7 @@ test("dashboard input '8' activates the schedules pane (pane-switch wiring)", ()
 	const { dashboard } = dashboardWith([job({ id: "j1" })]);
 	dashboard.handleInput("8");
 	const lines = dashboard.render(80).join("\n");
-	assert.ok(lines.includes("── schedules ──"), "schedules pane header should render");
+	assert.ok(lines.includes("┣ SCHEDULES"), "schedules pane section should render");
 	assert.ok(lines.includes("Scheduled jobs (1)"), "provider table should render");
 });
 
@@ -162,7 +162,7 @@ test("schedules pane renders with ZERO runs — non-run-scoped (renders in the e
 	dashboard.handleInput("8");
 	const lines = dashboard.render(80).join("\n");
 	assert.ok(lines.includes("No runs yet."), "empty-runs state still renders");
-	assert.ok(lines.includes("── schedules ──"), "schedules pane renders below the empty-runs state");
+	assert.ok(lines.includes("┣ SCHEDULES"), "schedules pane renders below the empty-runs state");
 	assert.ok(lines.includes("Scheduled jobs (1)"));
 });
 
@@ -188,8 +188,8 @@ test("with runs present, pane 8 keeps the run list but REPLACES the run-scoped d
 	dashboard.handleInput("8");
 	const lines = dashboard.render(80).join("\n");
 	assert.ok(lines.includes("schedrun"), "run list still renders above (context)");
-	assert.ok(lines.includes("── schedules ──"), "schedules section renders");
-	assert.ok(!lines.includes("── agents ──"), "run-scoped pane content is suppressed while pane 8 is active");
+	assert.ok(lines.includes("┣ SCHEDULES"), "schedules section renders");
+	assert.ok(!lines.includes("┣ AGENTS"), "run-scoped pane content is suppressed while pane 8 is active");
 	// up/down move the JOB cursor, not the run selection (k = up on job 0 → stays 0)
 	dashboard.handleInput("j");
 	assert.ok(dashboard.render(80).join("\n").includes("› ● job-j1"), "job cursor marker on selected job");

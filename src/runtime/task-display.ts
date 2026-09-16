@@ -47,6 +47,6 @@ export function formatTaskGraphLines(tasks: TeamTaskState[]): string[] {
 								? "⚠"
 								: "◦";
 		const wait = waitingReason(task, tasks);
-		return `- ${icon} ${task.id} [${task.status}] ${task.role}->${task.agent}${wait && wait !== "ready" ? ` (${wait})` : ""}`;
+		return `- ${icon} ${task.id} [${task.status}] ${task.role}▸${task.agent}${wait && wait !== "ready" ? ` (${wait})` : ""}`;
 	});
 }

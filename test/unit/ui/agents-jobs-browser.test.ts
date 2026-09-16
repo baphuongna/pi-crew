@@ -231,7 +231,7 @@ test("render lines never exceed the terminal width (80 and 200 cols)", () => {
 		}
 	}
 	const wide = browser.render(200).join("\n");
-	assert.match(wide, /1 agent.*1 job|Agents & Jobs/, "header carries counts");
+	assert.match(wide, /┏ AGENTS ▸ 2 agents · 1 job/, "canopy carries counts");
 	browser.dispose();
 });
 

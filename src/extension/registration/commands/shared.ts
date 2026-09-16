@@ -531,7 +531,6 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 		const selection = await cmdCtx.ui.custom<RunDashboardSelection | undefined>(
 			(tui, theme, _keybindings, done) =>
 				new RunDashboard(runs, done, theme, {
-					placement: rightPanel ? "right" : "center",
 					showModel: uiConfig?.showModel,
 					showTokens: uiConfig?.showTokens,
 					showTools: uiConfig?.showTools,

@@ -291,7 +291,7 @@ export function registerSubagentTools(
 							}),
 							t("agent.retrieveHint"),
 						].join("\n"),
-						{ agentId: record.id, status: record.status },
+						{ agentId: record.id, agentName: record.type, status: record.status },
 					),
 					terminate: true,
 				};
@@ -322,6 +322,7 @@ export function registerSubagentTools(
 				].join("\n"),
 				{
 					agentId: record.id,
+					agentName: record.type,
 					runId: record.runId,
 					status: record.status,
 				},
@@ -459,6 +460,7 @@ export function registerSubagentTools(
 				text,
 				{
 					agentId: current.id,
+					agentName: current.type,
 					runId: current.runId,
 					status: current.status,
 				},
@@ -531,14 +533,14 @@ export function registerSubagentTools(
 			if (!manifestTask) {
 				return subagentToolResult(
 					`Task '${taskId}' not found in the owning run; cannot steer.`,
-					{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+					{ agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
 					true,
 				);
 			}
 			if (TEAM_TERMINAL_TASK_STATUSES.has(manifestTask.status)) {
 				return subagentToolResult(
 					`Task '${taskId}' is ${manifestTask.status}; cannot steer.`,
-					{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+					{ agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
 					true,
 				);
 			}
@@ -560,7 +562,7 @@ export function registerSubagentTools(
 				if (existingBytes + Buffer.byteLength(line) > MAX_STEERING_BYTES) {
 					return subagentToolResult(
 						`Steering file for task '${taskId}' has reached its size cap (${(MAX_STEERING_BYTES / 1024).toFixed(0)}KiB); steer refused.`,
-						{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+						{ agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
 						true,
 					);
 				}
@@ -579,7 +581,7 @@ export function registerSubagentTools(
 				);
 				return subagentToolResult(
 					`Steer write failed for task '${taskId}': ${err instanceof Error ? err.message : String(err)} (see pi-crew error log)`,
-					{ agentId: record.id, runId: record.runId, taskId, status: record.status },
+					{ agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
 					true,
 				);
 			}
@@ -590,6 +592,7 @@ export function registerSubagentTools(
 				].join("\n"),
 				{
 					agentId: record.id,
+					agentName: record.type,
 					runId: record.runId,
 					taskId,
 					status: record.status,
@@ -666,7 +669,14 @@ function startAgentToolProgress(cwd: string, agentRecordId: string, onUpdate: On
 				agents,
 				error: record.error,
 			});
-			onUpdate({ content: [{ type: "text", text }] });
+			// W2: carry identity in the partial payload too — the renderer's
+			// streaming branch reads `result.details.agentName` to label the
+			// card. Pi's onUpdate TYPE is content-only; extra keys pass through
+			// to renderResult at runtime, hence the deliberate cast.
+			onUpdate({
+				content: [{ type: "text", text }],
+				details: { agentId: record.id, agentName: record.type, runId: record.runId, status: record.status },
+			} as never);
 		} catch (error) {
 			logInternalError("subagent-tools.progress", error, `agentId=${agentRecordId}`);
 		}

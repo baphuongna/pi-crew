@@ -55,6 +55,35 @@ export function mixBg(base: Rgb, accent: Rgb, intensity: number): string {
 
 const BLACK: Rgb = { r: 0, g: 0, b: 0 };
 
+/**
+ * The background slots Pi's Theme actually exposes (`ThemeBg` in
+ * node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.d.ts).
+ *
+ * P1-6 (2026-09-15): this probe used to pass "background", which is NOT a
+ * ThemeBg member. Pi's `getBgAnsi` throws `Unknown theme background color:
+ * background` for it, the surrounding catch swallowed the throw, and `base`
+ * stayed BLACK on every theme — so crew card tints were derived from the wrong
+ * base (visibly wrong on light themes). Never pass a slot outside this union.
+ * `selectedBg` is the slot whose value is the surrounding card/selection
+ * background; it is the one both Pi's `ThemeBg` and pi-crew's `CrewThemeBg`
+ * (theme-adapter.ts) define. Enforced by
+ * test/unit/round23-ui-unicode.test.ts (a fake theme records every slot).
+ */
+type ThemeBgSlot =
+	| "selectedBg"
+	| "scrollbarThumb"
+	| "userMessageBg"
+	| "customMessageBg"
+	| "toolPendingBg"
+	| "toolSuccessBg"
+	| "toolErrorBg";
+
+/** Duck-typed view of Pi's Theme methods (CrewTheme does not declare them). */
+type ThemeProbe = {
+	getBgAnsi?: (slot: ThemeBgSlot) => string | undefined;
+	getFgAnsi?: (slot: string) => string | undefined;
+};
+
 // ── Theme → background derivation ───────────────────────────────────────
 
 /**
@@ -76,17 +105,17 @@ export function deriveCardBackground(
 ): string {
 	// Prefer the theme's bg color as base (matches the card's surroundings).
 	let base = BLACK;
-	const themeAny = theme as unknown as {
-		getBgAnsi?: (slot: string) => string | undefined;
-		getFgAnsi?: (slot: string) => string | undefined;
-	};
+	const themeAny = theme as unknown as ThemeProbe;
 	if (themeAny.getBgAnsi) {
 		try {
-			const bg = themeAny.getBgAnsi("background");
-			const parsed = parseAnsiRgb(bg);
+			// "selectedBg" is a valid ThemeBg slot (P1-6). The catch only guards
+			// third-party theme shims that throw on the probe; it can no longer
+			// hide a permanently-invalid slot, because the slot type and the
+			// regression test both pin it to the ThemeBg union.
+			const parsed = parseAnsiRgb(themeAny.getBgAnsi("selectedBg"));
 			if (parsed) base = parsed;
 		} catch {
-			/* fall back to black */
+			/* shim threw — fall back to black */
 		}
 	}
 

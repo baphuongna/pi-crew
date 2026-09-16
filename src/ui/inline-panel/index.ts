@@ -66,6 +66,42 @@ function stopPaneTicker(): void {
 	livePane = undefined;
 }
 
+/**
+ * Tear the live view down completely: close the overlay (which also detaches
+ * its pane), stop the repaint ticker, and null every module-level ref.
+ *
+ * Why this must run on a session swap (P1-10): the overlay factory and its
+ * `close`/`steer` callbacks close over the `ctx` they were opened with. If the
+ * overlay survived `session_start`, those closures would keep the OLD
+ * session's `ctx.cwd` and its dead `ctx.ui.custom.done` — view/steer would
+ * quietly target the previous workspace (`openPane`'s try/catch hides the
+ * throw instead of surfacing it). Nothing here touches the run: only the view
+ * and its repaint timer.
+ */
+function teardownLiveView(): void {
+	const overlay = liveOverlay;
+	if (overlay) {
+		// The overlay owns its own teardown (refs + viewed agent + host done()).
+		// A ctx that is already stale can throw out of done(): log, never rethrow.
+		try {
+			overlay.requestClose();
+		} catch (error) {
+			logInternalError("view.teardownOverlay", error);
+		}
+		// Belt and braces: requestClose only unmounts through the host. dispose()
+		// makes render()/handleInput() inert, so even a host that ignored done()
+		// cannot route another keystroke into the old session's ctx.
+		try {
+			overlay.dispose();
+		} catch {
+			/* already disposed by the host */
+		}
+	}
+	liveOverlay = undefined;
+	// Also clears `livePane`, so a ticker that somehow survived has no target.
+	stopPaneTicker();
+}
+
 async function runTeamTool(params: Record<string, unknown>, ctx: ExtensionContext): Promise<PiTeamsToolResult> {
 	// LAZY: team-tool.ts pulls in the entire runtime chain (same boundary as
 	// run-action-dispatcher.ts).
@@ -275,11 +311,13 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 		pi.on("session_start", () => {
 			// pi may have replaced or dropped its editor between sessions; the
 			// "installed" flag is reset so the next install re-registers the
-			// factory. The open overlay outlives the session swap (it belongs
-			// to the interactive-mode UI, not the session's ctx) — keep it, but
-			// stop ticking until it is re-targeted.
+			// factory. The open overlay does NOT outlive the swap: its
+			// close/steer callbacks close over the previous session's ctx
+			// (cwd / ui.custom.done), so keeping it would make view and steer
+			// target the OLD workspace behind a try/catch. Close + dispose it
+			// and null the refs instead.
 			editorInstalled = false;
-			stopPaneTicker();
+			teardownLiveView();
 		});
 	}
 }
@@ -289,6 +327,24 @@ export function __resetInlinePanelForTest(): void {
 	editorInstalled = false;
 	liveOverlay = undefined;
 	stopPaneTicker();
+}
+
+/**
+ * Test seam: the live-view module state. Exposes the raw refs so a test can
+ * assert that a session swap left no `ctx`-holding closure behind, and whether
+ * the repaint ticker is still armed.
+ */
+export function __test__liveViewState(): {
+	liveOverlay: CrewAgentOverlay | undefined;
+	livePane: CrewAgentPane | undefined;
+	ticking: boolean;
+} {
+	return { liveOverlay, livePane, ticking: paneTickTimer !== undefined };
+}
+
+/** Test seam: run the session-swap teardown directly (same code the hook runs). */
+export function __test__teardownLiveView(): void {
+	teardownLiveView();
 }
 
 /** Test seam for openPane (the panel wires it as the dock's Enter action). */

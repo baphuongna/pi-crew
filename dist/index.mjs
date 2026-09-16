@@ -10636,6 +10636,17 @@ var init_config_schema = __esm({
       {
         widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor"), Type.Literal("bottom")])),
         widgetMaxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+        /** Dock row style. M1-9/P1-8: already parsed (config-validation.ts
+         *  parseUiConfig), already read (src/ui/widget/index.ts) and already
+         *  defaulted (defaults.ts DEFAULT_UI.widgetRowStyle = "compact"), but
+         *  absent from this schema — so validateConfig() warned "unknown key" for
+         *  a supported setting. The literals mirror `WidgetRowStyle`
+         *  (src/ui/widget/widget-renderer.ts:123). */
+        widgetRowStyle: Type.Optional(Type.Union([Type.Literal("compact"), Type.Literal("detailed")])),
+        /** Inline panel (editor-wrapper agent rows). M1-9/P1-8: parsed + read
+         *  (src/ui/inline-panel/index.ts) + defaulted (true), but absent from this
+         *  schema → same unknown-key warning. */
+        inlinePanel: Type.Optional(Type.Boolean()),
         powerbar: Type.Optional(Type.Boolean()),
         dashboardPlacement: Type.Optional(Type.Union([Type.Literal("center"), Type.Literal("right")])),
         dashboardWidth: Type.Optional(Type.Integer({ minimum: 32, maximum: 120 })),
@@ -12591,8 +12602,8 @@ function parseFrontmatter(content) {
 }
 function parseLines(raw) {
   const frontmatter = {};
-  for (const line4 of raw.split("\n")) {
-    const trimmed = line4.trim();
+  for (const line3 of raw.split("\n")) {
+    const trimmed = line3.trim();
     if (!trimmed || trimmed.startsWith("#")) continue;
     const separator = trimmed.indexOf(":");
     if (separator === -1) continue;
@@ -13420,8 +13431,8 @@ function parseRoleSkills(value) {
   const skills = value.split(",").map((entry) => entry.trim()).filter(Boolean);
   return skills.length ? skills : void 0;
 }
-function parseRoleLine(line4) {
-  const trimmed = line4.trim();
+function parseRoleLine(line3) {
+  const trimmed = line3.trim();
   if (!trimmed.startsWith("-")) return void 0;
   const value = trimmed.slice(1).trim();
   if (!value) return void 0;
@@ -13578,14 +13589,14 @@ function parseStepSection(id, body) {
   const taskLines = [];
   let inTask = false;
   let sawConfig = false;
-  for (const line4 of lines) {
+  for (const line3 of lines) {
     if (!inTask) {
-      if (line4.trim() === "") {
+      if (line3.trim() === "") {
         if (!sawConfig) continue;
         inTask = true;
         continue;
       }
-      const match = line4.match(/^([\w-]+):\s*(.*)$/);
+      const match = line3.match(/^([\w-]+):\s*(.*)$/);
       if (match) {
         config[match[1].trim()] = match[2].trim();
         sawConfig = true;
@@ -13593,7 +13604,7 @@ function parseStepSection(id, body) {
       }
       inTask = true;
     }
-    taskLines.push(line4);
+    taskLines.push(line3);
   }
   const role = config.role || id;
   return {
@@ -13631,8 +13642,8 @@ function isStepHeading(body, match) {
   const sectionStart = match.index + match[0].length + (body[match.index + match[0].length] === "\n" ? 1 : 0);
   const nextHeading = body.slice(sectionStart).search(/^##\s+.+[^\S\n]*$/m);
   const section2 = body.slice(sectionStart, nextHeading >= 0 ? sectionStart + nextHeading : body.length);
-  for (const line4 of section2.split("\n")) {
-    const trimmed = line4.trim();
+  for (const line3 of section2.split("\n")) {
+    const trimmed = line3.trim();
     if (!trimmed) continue;
     const config = trimmed.match(/^([\w-]+):\s*(.*)$/);
     if (config && STEP_CONFIG_KEYS.has(config[1])) return true;
@@ -13835,11 +13846,11 @@ function mergeMagicKeywords(configured) {
   return { ...DEFAULT_MAGIC_KEYWORDS, ...configured ?? {} };
 }
 function actionableLineCount(prompt) {
-  return prompt.split(/\r?\n/).map((line4) => line4.trim()).filter((line4) => BULLET_OR_NUMBERED_TASK_RE.test(line4) && ACTIONABLE_TASK_TERMS.some((term) => line4.toLowerCase().includes(term))).length;
+  return prompt.split(/\r?\n/).map((line3) => line3.trim()).filter((line3) => BULLET_OR_NUMBERED_TASK_RE.test(line3) && ACTIONABLE_TASK_TERMS.some((term) => line3.toLowerCase().includes(term))).length;
 }
 function hasTaskListSignal(prompt) {
   const lower = prompt.toLowerCase();
-  const bulletCount = prompt.split(/\r?\n/).filter((line4) => BULLET_OR_NUMBERED_TASK_RE.test(line4)).length;
+  const bulletCount = prompt.split(/\r?\n/).filter((line3) => BULLET_OR_NUMBERED_TASK_RE.test(line3)).length;
   const explicitList = ["c\xE1c task", "danh s\xE1ch task", "todo", "tasks sau", "task list", "l\xE0m l\u1EA7n l\u01B0\u1EE3t"].some(
     (term) => lower.includes(term)
   );
@@ -13907,13 +13918,13 @@ function sourcePriority(source) {
 function capLines(lines, maxChars) {
   const kept = [];
   let used = 0;
-  for (const line4 of lines) {
-    const next = used + line4.length + 1;
+  for (const line3 of lines) {
+    const next = used + line3.length + 1;
     if (next > maxChars) {
       kept.push("- ...resource guidance truncated to stay within prompt budget");
       break;
     }
-    kept.push(line4);
+    kept.push(line3);
     used = next;
   }
   return kept;
@@ -15558,50 +15569,50 @@ function isSecretKey(keyName) {
 function isAuthHeaderBoundary(ch) {
   return ch !== void 0 && AUTH_HEADER_BOUNDARY_CHARS.has(ch);
 }
-function redactAuthHeader(line4) {
-  const lower = line4.toLowerCase();
+function redactAuthHeader(line3) {
+  const lower = line3.toLowerCase();
   let result4 = "";
   let i = 0;
   let searchFrom = 0;
   for (; ; ) {
     const authIdx = lower.indexOf("authorization:", searchFrom);
     if (authIdx === -1) {
-      result4 += line4.substring(i);
+      result4 += line3.substring(i);
       return result4;
     }
-    result4 += line4.substring(i, authIdx);
-    const isBoundary = authIdx === 0 || isAuthHeaderBoundary(line4[authIdx - 1]);
+    result4 += line3.substring(i, authIdx);
+    const isBoundary = authIdx === 0 || isAuthHeaderBoundary(line3[authIdx - 1]);
     const afterAuth = lower.substring(authIdx + 14).trimStart();
     if (isBoundary && !afterAuth.startsWith("bearer ")) {
       let end = authIdx + 14;
-      while (end < line4.length && line4[end] !== "\r" && line4[end] !== "\n") {
+      while (end < line3.length && line3[end] !== "\r" && line3[end] !== "\n") {
         end++;
       }
-      result4 += line4.substring(authIdx, authIdx + 14) + " ***";
+      result4 += line3.substring(authIdx, authIdx + 14) + " ***";
       i = end;
       searchFrom = end;
     } else {
-      result4 += line4.substring(authIdx, authIdx + 14);
+      result4 += line3.substring(authIdx, authIdx + 14);
       i = authIdx + 14;
       searchFrom = authIdx + 14;
     }
   }
 }
-function redactBearerTokens(line4) {
-  const upper = line4.toUpperCase();
+function redactBearerTokens(line3) {
+  const upper = line3.toUpperCase();
   const result4 = [];
   let i = 0;
-  while (i < line4.length) {
+  while (i < line3.length) {
     if (upper.startsWith("BEARER ", i)) {
-      if (i > 0 && !isAuthHeaderBoundary(line4[i - 1])) {
-        result4.push(line4[i]);
+      if (i > 0 && !isAuthHeaderBoundary(line3[i - 1])) {
+        result4.push(line3[i]);
         i++;
         continue;
       }
-      const bearerPrefix = line4.substring(i, i + 7);
+      const bearerPrefix = line3.substring(i, i + 7);
       let j = i + 7;
       let tokenLen = 0;
-      while (j < line4.length && tokenLen < 200 && /[A-Za-z0-9._~+/-]/.test(line4[j])) {
+      while (j < line3.length && tokenLen < 200 && /[A-Za-z0-9._~+/-]/.test(line3[j])) {
         j++;
         tokenLen++;
       }
@@ -15611,7 +15622,7 @@ function redactBearerTokens(line4) {
         continue;
       }
     }
-    result4.push(line4[i]);
+    result4.push(line3[i]);
     i++;
   }
   return result4.join("");
@@ -15707,11 +15718,11 @@ function redactSecrets(value, keyName = "") {
   }
   return value;
 }
-function redactJsonLine(line4) {
+function redactJsonLine(line3) {
   try {
-    return JSON.stringify(redactSecrets(JSON.parse(line4)));
+    return JSON.stringify(redactSecrets(JSON.parse(line3)));
   } catch {
-    return redactSecretString(line4);
+    return redactSecretString(line3);
   }
 }
 var PEM_PRIVATE_KEY_PATTERN, TOKEN_COUNT_KEYS, JWT_PATTERN, GITHUB_PAT_PATTERN, AWS_ACCESS_KEY_PATTERN, SLACK_TOKEN_PATTERN, GOOGLE_API_KEY_PATTERN, STRIPE_KEY_PATTERN, ANTHROPIC_KEY_PATTERN, OPENAI_PROJECT_KEY_PATTERN, OPENAI_KEY_PATTERN, AUTH_HEADER_BOUNDARY_CHARS, SECRET_MARKERS_CASE_SENSITIVE, SECRET_MARKERS_LOWER;
@@ -15782,9 +15793,9 @@ function forEachLineSync(filePath, onLine) {
       leftover += buf.subarray(0, bytesRead).toString("utf-8");
       let nl;
       while ((nl = leftover.indexOf("\n")) >= 0) {
-        const line4 = leftover.slice(0, nl);
+        const line3 = leftover.slice(0, nl);
         leftover = leftover.slice(nl + 1);
-        if (line4.length > 0) onLine(line4);
+        if (line3.length > 0) onLine(line3);
       }
     }
     if (leftover.length > 0) {
@@ -15797,9 +15808,9 @@ function forEachLineSync(filePath, onLine) {
 function readLastEvents(filePath, maxKeep) {
   if (maxKeep <= 0) {
     let totalCount2 = 0;
-    forEachLineSync(filePath, (line4) => {
+    forEachLineSync(filePath, (line3) => {
       try {
-        JSON.parse(line4);
+        JSON.parse(line3);
         totalCount2++;
       } catch {
       }
@@ -15810,10 +15821,10 @@ function readLastEvents(filePath, maxKeep) {
   let ringFilled = 0;
   let writeIdx = 0;
   let totalCount = 0;
-  forEachLineSync(filePath, (line4) => {
+  forEachLineSync(filePath, (line3) => {
     let event;
     try {
-      event = JSON.parse(line4);
+      event = JSON.parse(line3);
     } catch {
       return;
     }
@@ -15833,9 +15844,9 @@ function readLastEvents(filePath, maxKeep) {
 function countEventsAndSeqs(filePath) {
   const seqs = /* @__PURE__ */ new Set();
   let count2 = 0;
-  forEachLineSync(filePath, (line4) => {
+  forEachLineSync(filePath, (line3) => {
     try {
-      const event = JSON.parse(line4);
+      const event = JSON.parse(line3);
       count2++;
       const seq = event.metadata?.seq;
       if (typeof seq === "number") seqs.add(seq);
@@ -16050,10 +16061,10 @@ function scanSequence(eventsPath) {
   if (!fs19.existsSync(eventsPath)) return 0;
   let max = 0;
   let skipped = 0;
-  for (const line4 of fs19.readFileSync(eventsPath, "utf-8").split("\n")) {
-    if (!line4.trim()) continue;
+  for (const line3 of fs19.readFileSync(eventsPath, "utf-8").split("\n")) {
+    if (!line3.trim()) continue;
     try {
-      const event = JSON.parse(line4);
+      const event = JSON.parse(line3);
       max = Math.max(max, event.metadata?.seq ?? 0);
     } catch {
       skipped++;
@@ -16264,8 +16275,8 @@ function readJsonlTail(filePath, tailBytes) {
       body = body.slice(firstNewline + 1);
     }
     const items = [];
-    for (const line4 of body.split("\n")) {
-      const trimmed = line4.trim();
+    for (const line3 of body.split("\n")) {
+      const trimmed = line3.trim();
       if (!trimmed) continue;
       try {
         items.push(JSON.parse(trimmed));
@@ -16345,9 +16356,9 @@ function readLinesSince(filePath, state2) {
 function readJsonlSince(filePath, state2) {
   const result4 = readLinesSince(filePath, state2);
   const items = [];
-  for (const line4 of result4.lines) {
+  for (const line3 of result4.lines) {
     try {
-      items.push(JSON.parse(line4));
+      items.push(JSON.parse(line3));
     } catch {
     }
   }
@@ -16385,8 +16396,8 @@ function parseJsonlEvents(filePath) {
     return [];
   }
   const events = [];
-  for (const line4 of raw.split("\n")) {
-    const trimmed = line4.trim();
+  for (const line3 of raw.split("\n")) {
+    const trimmed = line3.trim();
     if (!trimmed) continue;
     try {
       events.push(JSON.parse(trimmed));
@@ -16552,7 +16563,7 @@ function readEventsCursorTailCached(eventsPath, sinceSeq, limit) {
     if (cursorRingProvable(previous, ring, sinceSeq)) {
       if (ring !== previous.ring) cursorTailCache.set(eventsPath, { ...previous, ring });
       return cursorResultFromEvents(
-        ring.map((line4) => line4.event),
+        ring.map((line3) => line3.event),
         eventsPath,
         sinceSeq,
         limit
@@ -16600,7 +16611,7 @@ function readEventsCursorTailCached(eventsPath, sinceSeq, limit) {
           cursorTailCache.set(eventsPath, entry);
           if (cursorRingProvable(entry, ring, sinceSeq)) {
             return cursorResultFromEvents(
-              ring.map((line4) => line4.event),
+              ring.map((line3) => line3.event),
               eventsPath,
               sinceSeq,
               limit
@@ -16618,7 +16629,7 @@ function readEventsCursorTailCached(eventsPath, sinceSeq, limit) {
     if (oldestKey !== void 0) cursorTailCache.delete(oldestKey);
   }
   return cursorResultFromEvents(
-    rebuilt.lines.map((line4) => line4.event),
+    rebuilt.lines.map((line3) => line3.event),
     eventsPath,
     sinceSeq,
     limit
@@ -16995,9 +17006,9 @@ async function appendEventAsync(eventsPath, event) {
       logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
     }
     if (!skippedDueToSize) {
-      const line4 = JSON.stringify(redactSecrets(fullEvent)) + "\n";
+      const line3 = JSON.stringify(redactSecrets(fullEvent)) + "\n";
       if (isWorkerAtomicWriterEnabled()) {
-        await appendFileViaWorker(eventsPath, line4);
+        await appendFileViaWorker(eventsPath, line3);
         if (isTerminal) {
           const fd = await fs22.promises.open(eventsPath, "r+");
           try {
@@ -17009,7 +17020,7 @@ async function appendEventAsync(eventsPath, event) {
       } else {
         const fd = await fs22.promises.open(eventsPath, "a");
         try {
-          await fd.appendFile(line4, "utf-8");
+          await fd.appendFile(line3, "utf-8");
           if (isTerminal) await fd.sync();
         } finally {
           await fd.close();
@@ -17885,8 +17896,8 @@ function parsePiJsonOutput(stdout) {
   const patches = [];
   const errorMessages = [];
   let usage;
-  for (const line4 of stdout.split("\n")) {
-    const trimmed = line4.trim();
+  for (const line3 of stdout.split("\n")) {
+    const trimmed = line3.trim();
     if (!trimmed) continue;
     let event;
     try {
@@ -17979,19 +17990,19 @@ var init_compact_pipeline = __esm({
 });
 
 // src/runtime/compaction/important-line-classifier.ts
-function isImportantLine(line4) {
-  if (!line4) return false;
+function isImportantLine(line3) {
+  if (!line3) return false;
   for (const pattern of IMPORTANT_LINE_PATTERNS) {
-    if (pattern.test(line4)) return true;
+    if (pattern.test(line3)) return true;
   }
   return false;
 }
 function extractImportantLines(text, maxLines = 30) {
   if (!text || maxLines <= 0) return [];
   const out = [];
-  for (const line4 of text.split(/\r?\n/)) {
+  for (const line3 of text.split(/\r?\n/)) {
     if (out.length >= maxLines) break;
-    if (isImportantLine(line4)) out.push(line4);
+    if (isImportantLine(line3)) out.push(line3);
   }
   return out;
 }
@@ -18018,10 +18029,10 @@ function splitWithImportantLines(value, maxChars, opts = {}) {
   const candidates = extractImportantLines(middle, maxCandidates);
   const chosen = [];
   let used = 0;
-  for (const line4 of candidates) {
-    const addLen = (chosen.length > 0 ? 1 : 0) + line4.length;
+  for (const line3 of candidates) {
+    const addLen = (chosen.length > 0 ? 1 : 0) + line3.length;
     if (used + addLen > slackChars) break;
-    chosen.push(line4);
+    chosen.push(line3);
     used += addLen;
   }
   return {
@@ -18100,7 +18111,7 @@ ${joined}${this.marker.tailSeparator}${tail}`;
 
 // src/runtime/child-pi/child-pi-transcript.ts
 import * as fs24 from "node:fs";
-function appendTranscript(input, line4) {
+function appendTranscript(input, line3) {
   if (!input.transcriptPath) return;
   let safePath;
   try {
@@ -18110,7 +18121,7 @@ function appendTranscript(input, line4) {
     logInternalError("child-pi.transcript-path-rejected", error, `transcriptPath=${input.transcriptPath}`);
     return;
   }
-  trackTranscriptWrite(safePath, line4);
+  trackTranscriptWrite(safePath, line3);
 }
 function scheduleTranscriptFlush() {
   if (transcriptFlushTimer) return;
@@ -18144,8 +18155,8 @@ async function flushTranscriptBatches() {
     })
   );
 }
-function trackTranscriptWrite(safePath, line4) {
-  const content = `${redactJsonLine(line4)}
+function trackTranscriptWrite(safePath, line3) {
+  const content = `${redactJsonLine(line3)}
 `;
   let batch = transcriptBatches.get(safePath);
   if (!batch) {
@@ -18314,18 +18325,18 @@ function displayTextFromCompactEvent(event) {
   }).join("\n").trim();
   return text || (typeof record.text === "string" ? record.text : void 0);
 }
-function nonJsonLineResult(line4) {
-  return { json: false, persistedLine: line4, displayLine: line4 };
+function nonJsonLineResult(line3) {
+  return { json: false, persistedLine: line3, displayLine: line3 };
 }
-function compactChildPiLine(line4, preParsed) {
+function compactChildPiLine(line3, preParsed) {
   let parsed;
   if (preParsed !== void 0) {
     parsed = preParsed;
   } else {
     try {
-      parsed = JSON.parse(line4);
+      parsed = JSON.parse(line3);
     } catch {
-      return nonJsonLineResult(line4);
+      return nonJsonLineResult(line3);
     }
   }
   const compact = compactChildPiEvent(parsed);
@@ -18377,18 +18388,18 @@ var init_child_pi_streams = __esm({
           );
           const overflowLines = this.buffer.split(/\r?\n/);
           this.buffer = "";
-          for (const line4 of overflowLines) this.emitLine(line4);
+          for (const line3 of overflowLines) this.emitLine(line3);
           return;
         }
         const lines = this.buffer.split(/\r?\n/);
         this.buffer = lines.pop() ?? "";
-        for (const line4 of lines) this.emitLine(line4);
+        for (const line3 of lines) this.emitLine(line3);
       }
       flush() {
         if (this.buffer) {
-          const line4 = this.buffer;
+          const line3 = this.buffer;
           this.buffer = "";
-          this.emitLine(line4);
+          this.emitLine(line3);
         }
         return flushPendingTranscriptWrites();
       }
@@ -18412,11 +18423,11 @@ var init_child_pi_streams = __esm({
         if (joined.length <= maxChars) return joined;
         return joined.slice(-maxChars);
       }
-      emitLine(line4) {
-        if (!line4.trim()) return;
+      emitLine(line3) {
+        if (!line3.trim()) return;
         let parsed;
         try {
-          parsed = JSON.parse(line4);
+          parsed = JSON.parse(line3);
         } catch {
           parsed = void 0;
         }
@@ -18434,7 +18445,7 @@ var init_child_pi_streams = __esm({
             }
           }
         }
-        const compact = parsed !== void 0 ? compactChildPiLine(line4, parsed) : nonJsonLineResult(line4);
+        const compact = parsed !== void 0 ? compactChildPiLine(line3, parsed) : nonJsonLineResult(line3);
         if (compact.event !== void 0) {
           try {
             this.input.onJsonEvent?.(compact.event);
@@ -18836,11 +18847,11 @@ function makeTerminalEventProbe(deps) {
     if (!chunk) return false;
     const lines = (partial + chunk).split("\n");
     partial = lines.pop() ?? "";
-    for (const line4 of lines) {
-      if (!line4.trim()) continue;
+    for (const line3 of lines) {
+      if (!line3.trim()) continue;
       let parsed;
       try {
-        parsed = JSON.parse(line4);
+        parsed = JSON.parse(line3);
       } catch {
         continue;
       }
@@ -19671,10 +19682,10 @@ function nextAgentEventSeq(filePath) {
     return sidecarSeq + 1;
   }
   let max = 0;
-  for (const line4 of fs28.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
-    if (!line4.trim()) continue;
+  for (const line3 of fs28.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
+    if (!line3.trim()) continue;
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       if (typeof parsed.seq === "number" && Number.isFinite(parsed.seq)) max = Math.max(max, parsed.seq);
       else max += 1;
     } catch {
@@ -19739,13 +19750,13 @@ function readCrewAgentEventsCursor(manifest, taskId, options = {}) {
   }
   const sinceSeq = typeof options.sinceSeq === "number" && Number.isInteger(options.sinceSeq) && options.sinceSeq >= 0 ? options.sinceSeq : 0;
   const limit = typeof options.limit === "number" && Number.isInteger(options.limit) && options.limit >= 0 ? options.limit : void 0;
-  const parsed = fs28.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean).map((line4, index) => {
+  const parsed = fs28.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean).map((line3, index) => {
     try {
-      const event = JSON.parse(line4);
+      const event = JSON.parse(line3);
       if (typeof event.seq !== "number") event.seq = index + 1;
       return event;
     } catch {
-      return { seq: index + 1, raw: line4 };
+      return { seq: index + 1, raw: line3 };
     }
   });
   const filtered = parsed.filter((event) => typeof event.seq === "number" && event.seq > sinceSeq);
@@ -20057,9 +20068,9 @@ function defaultConnect(socketPath) {
     buffer += chunk;
     let idx = buffer.indexOf("\n");
     while (idx !== -1) {
-      const line4 = buffer.slice(0, idx);
+      const line3 = buffer.slice(0, idx);
       buffer = buffer.slice(idx + 1);
-      if (line4.trim()) lineCb?.(line4);
+      if (line3.trim()) lineCb?.(line3);
       idx = buffer.indexOf("\n");
     }
   });
@@ -20072,8 +20083,8 @@ function defaultConnect(socketPath) {
   socket.on("close", onEnd);
   socket.on("error", onEnd);
   return {
-    write(line4) {
-      socket.write(`${line4}
+    write(line3) {
+      socket.write(`${line3}
 `);
     },
     onLine(cb) {
@@ -20124,9 +20135,9 @@ function createHerdrProvider(deps = {}) {
         return;
       }
       let settled = false;
-      socket.onLine((line4) => {
+      socket.onLine((line3) => {
         if (settled) return;
-        if (!line4) {
+        if (!line3) {
           settled = true;
           socket.close();
           reject(new Error(`herdr socket closed before response to ${id} (${method})`));
@@ -20134,7 +20145,7 @@ function createHerdrProvider(deps = {}) {
         }
         let msg;
         try {
-          msg = JSON.parse(line4);
+          msg = JSON.parse(line3);
         } catch {
           return;
         }
@@ -20150,8 +20161,8 @@ function createHerdrProvider(deps = {}) {
       socket.write(JSON.stringify({ id, method, params }));
     });
   }
-  function onSubscriptionLine(line4) {
-    if (!line4) {
+  function onSubscriptionLine(line3) {
+    if (!line3) {
       subscription = null;
       subscriptionCb = null;
       for (const paneId2 of [...watchers.keys()]) fire(paneId2, "mux-dead");
@@ -20159,7 +20170,7 @@ function createHerdrProvider(deps = {}) {
     }
     let msg;
     try {
-      msg = JSON.parse(line4);
+      msg = JSON.parse(line3);
     } catch {
       return;
     }
@@ -20180,7 +20191,7 @@ function createHerdrProvider(deps = {}) {
     }
     subscription = socket;
     subscriptionCb = onSubscriptionLine;
-    socket.onLine((line4) => subscriptionCb?.(line4));
+    socket.onLine((line3) => subscriptionCb?.(line3));
     socket.write(
       JSON.stringify({
         id,
@@ -20413,15 +20424,15 @@ function defaultSchedule(fn, ms) {
 }
 function parsePaneStatus(stdout) {
   const status = /* @__PURE__ */ new Map();
-  for (const line4 of stdout.split("\n")) {
-    const match = line4.trim().match(/^(\d+)\s+(\S+)$/);
+  for (const line3 of stdout.split("\n")) {
+    const match = line3.trim().match(/^(\d+)\s+(\S+)$/);
     if (match) status.set(match[2], match[1] === "1");
   }
   return status;
 }
 function findPanePid(stdout, paneId) {
-  for (const line4 of stdout.split("\n")) {
-    const match = line4.trim().match(/^(\d+)\s+(\S+)$/);
+  for (const line3 of stdout.split("\n")) {
+    const match = line3.trim().match(/^(\d+)\s+(\S+)$/);
     if (match && match[2] === paneId) {
       const pid = Number(match[1]);
       return Number.isFinite(pid) ? pid : null;
@@ -22558,11 +22569,11 @@ ${input.task}` : input.task;
       restartNoResponseTimer();
       const lineObserver = new ChildPiLineObserver({
         ...input,
-        onStdoutLine: (line4) => {
+        onStdoutLine: (line3) => {
           if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-          stdoutTail.push(`${line4}
+          stdoutTail.push(`${line3}
 `);
-          input.onStdoutLine?.(line4);
+          input.onStdoutLine?.(line3);
         },
         onJsonEvent: (event) => {
           if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
@@ -23565,8 +23576,8 @@ function createTasksFromWorkflow(runId, workflow, team, cwd, goal) {
     const id = stepToTaskId.get(step.id) ?? createTaskId(step.id, index);
     const dependencies = step.dependsOn ?? [];
     const children = workflow.steps.filter((candidate) => candidate.dependsOn?.includes(step.id)).map((candidate) => stepToTaskId.get(candidate.id)).filter((childId) => childId !== void 0);
-    const bodyLines = typeof step.task === "string" && step.task.trim() ? step.task.split("\n").map((line4) => line4.trim()).filter(Boolean) : [];
-    const heading = bodyLines.find((line4) => line4.startsWith("#"));
+    const bodyLines = typeof step.task === "string" && step.task.trim() ? step.task.split("\n").map((line3) => line3.trim()).filter(Boolean) : [];
+    const heading = bodyLines.find((line3) => line3.startsWith("#"));
     const titleLine = heading ?? bodyLines[0];
     const substitute = (text) => goal ? text.replaceAll("{goal}", goal) : text;
     let title;
@@ -23574,10 +23585,10 @@ function createTasksFromWorkflow(runId, workflow, team, cwd, goal) {
     const placeholderAt = titleLine?.indexOf("{goal}") ?? -1;
     if (titleLine && placeholderAt >= 0) {
       title = stripGoalTail(titleLine.slice(0, placeholderAt)) || goal || step.id;
-      restLines = bodyLines.filter((line4) => line4 !== titleLine);
+      restLines = bodyLines.filter((line3) => line3 !== titleLine);
     } else {
       title = (titleLine ?? step.id).replace(/^#+\s*/, "");
-      restLines = heading ? bodyLines.filter((line4) => line4 !== titleLine) : bodyLines.slice(1);
+      restLines = heading ? bodyLines.filter((line3) => line3 !== titleLine) : bodyLines.slice(1);
     }
     const description = restLines.map(substitute).join("\n");
     return {
@@ -26117,7 +26128,7 @@ function truncateToVisualLines(text, maxVisualLines, width, paddingX = 0) {
   }
   const effectiveWidth = Math.max(1, width - paddingX * 2);
   const limit = Math.max(1, maxVisualLines);
-  const visualLines = text.split("\n").flatMap((line4) => wrapHard(pad(line4, Math.max(0, effectiveWidth)).trimEnd(), effectiveWidth));
+  const visualLines = text.split("\n").flatMap((line3) => wrapHard(pad(line3, Math.max(0, effectiveWidth)).trimEnd(), effectiveWidth));
   if (visualLines.length <= limit) return { visualLines, skippedCount: 0 };
   const truncated = visualLines.slice(-limit);
   return { visualLines: truncated, skippedCount: visualLines.length - limit };
@@ -26248,6 +26259,38 @@ var init_usage = __esm({
   }
 });
 
+// src/ui/format-helpers.ts
+function formatTokens2(n) {
+  if (n < 1e3) return String(n);
+  if (n < 1e4) return `${(n / 1e3).toFixed(1)}k`;
+  if (n < 1e6) return `${Math.round(n / 1e3)}k`;
+  return `${(n / 1e6).toFixed(1)}M`;
+}
+function formatDuration(ms) {
+  if (ms < 1e3) return `${ms}ms`;
+  if (ms < 6e4) return `${(ms / 1e3).toFixed(1)}s`;
+  const m = Math.floor(ms / 6e4), s = Math.floor(ms % 6e4 / 1e3);
+  return s > 0 ? `${m}m${s}s` : `${m}m`;
+}
+function truncLine(text, maxWidth) {
+  if (text.includes("\n") || text.includes("\r")) text = text.replace(/\r?\n/g, "\u21B5 ");
+  return truncateToWidth(text, maxWidth);
+}
+function formatCount(count2, singular, plural) {
+  return `${count2} ${count2 === 1 ? singular : plural ?? `${singular}s`}`;
+}
+function teamWorkflowLabel(team, workflow) {
+  const t2 = team && team.length > 0 ? team : "?";
+  const w = workflow && workflow.length > 0 ? workflow : void 0;
+  return !w || w === t2 ? t2 : `${t2}/${w}`;
+}
+var init_format_helpers = __esm({
+  "src/ui/format-helpers.ts"() {
+    "use strict";
+    init_visual();
+  }
+});
+
 // src/ui/live-duration.ts
 function toMs(v) {
   if (v <= 0) return 0;
@@ -26268,6 +26311,187 @@ function computeLiveDurationMs(activity, nowMs3 = Date.now()) {
 var init_live_duration = __esm({
   "src/ui/live-duration.ts"() {
     "use strict";
+  }
+});
+
+// src/ui/rail.ts
+import { visibleWidth as visibleWidth2 } from "@earendil-works/pi-tui";
+function padVisual(str, targetWidth) {
+  const vw = visibleWidth2(str);
+  if (vw >= targetWidth) return str;
+  return str + " ".repeat(targetWidth - vw);
+}
+function truncVisual(str, maxWidth) {
+  if (visibleWidth2(str) <= maxWidth) return str;
+  return truncateToWidth(str, maxWidth, "");
+}
+function shortId(id) {
+  return id ? id.slice(-8) : "????????";
+}
+function statusSlot(status) {
+  switch (status) {
+    case "completed":
+    case "done":
+    case "succeeded":
+    case "passed":
+    case "healthy":
+      return "success";
+    case "failed":
+    case "cancelled":
+    case "error":
+    case "stopped":
+    case "dead":
+      return "error";
+    case "running":
+    case "in_progress":
+    case "streaming":
+      return "borderAccent";
+    case "waiting":
+    case "needs_attention":
+    case "stale":
+    case "pending":
+      return "warning";
+    default:
+      return "border";
+  }
+}
+function railLine(glyph, slot, content, theme, budget) {
+  return theme.fg(slot, glyph) + " " + padVisual(truncVisual(content, budget), budget);
+}
+function railRaw(glyph, slot, content, theme) {
+  return `${theme.fg(slot, glyph)} ${content}`;
+}
+function railLeaders(left, right, budget, theme) {
+  const slack = budget - visibleWidth2(left) - visibleWidth2(right) - 2;
+  if (slack >= 3) {
+    const dots = theme.fg("dim", "\xB7".repeat(Math.min(slack, 120)));
+    return `${left} ${dots} ${right}`;
+  }
+  if (slack > 0) return `${left}  ${right}`;
+  const rightW = visibleWidth2(right);
+  const leftBudget = budget - rightW - 2;
+  if (leftBudget > 4) return `${truncVisual(left, leftBudget - 1)}\u2026  ${right}`;
+  return truncVisual(`${left}  ${right}`, budget);
+}
+function canopyLine(args) {
+  const { word, subject, theme, budget, slot = "border", glyph = RAIL.open, right } = args;
+  const tail = subject ? ` ${theme.fg("dim", ACTIVE)} ${theme.fg("toolTitle", theme.bold(subject))}` : "";
+  const label = `${theme.fg("accent", theme.bold(word))}${tail}`;
+  if (right) return railLine(glyph, slot, railLeaders(label, right, budget, theme), theme, budget);
+  return railLine(glyph, slot, label, theme, budget);
+}
+function sectionLine(args) {
+  const { name, subject, theme, budget, slot = "border", right } = args;
+  const tail = subject ? ` ${theme.fg("dim", ACTIVE)} ${theme.fg("muted", subject)}` : "";
+  const label = `${theme.fg("border", theme.bold(name.toUpperCase()))}${tail}`;
+  if (right) return railLine(RAIL.section, slot, railLeaders(label, right, budget, theme), theme, budget);
+  return railLine(RAIL.section, slot, label, theme, budget);
+}
+function gaugeBar(ratio, barWidth, theme, fill = "success") {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  const cells = clamped * barWidth;
+  const full = Math.floor(cells);
+  const partial = EIGHTHS[Math.round((cells - full) * 8)] ?? "";
+  const filledCells = full + (partial ? 1 : 0);
+  const empty = Math.max(0, barWidth - filledCells);
+  const body = theme.fg(fill, "\u2588".repeat(full) + partial);
+  const rest = theme.fg("dim", "\u2591".repeat(empty));
+  return `${theme.fg("dim", "\u2595")}${body}${rest}${theme.fg("dim", "\u258F")}`;
+}
+function scanGauge(barWidth, elapsedMs, theme) {
+  const pos = Math.floor(elapsedMs / 400 % (barWidth + 6)) - 3;
+  const segW = Math.max(3, Math.floor(barWidth * 0.3));
+  let bar = "";
+  for (let i = 0; i < barWidth; i++) {
+    bar += i >= pos && i < pos + segW ? theme.fg("accent", "\u2588") : theme.fg("dim", "\u2591");
+  }
+  return `${theme.fg("dim", "\u2595")}${bar}${theme.fg("dim", "\u258F")}`;
+}
+function dedupeAgentLabel(label) {
+  const slash = label.indexOf("/");
+  if (slash <= 0) return label;
+  const role = label.slice(0, slash);
+  const rest = label.slice(slash + 1);
+  const agent = rest.split(" ")[0] ?? "";
+  if (agent && role === agent) return `${role}${rest.slice(agent.length)}`;
+  return label;
+}
+function statusBadge(status, theme) {
+  switch (statusSlot(status)) {
+    case "success":
+      return theme.fg("success", "\u25CF");
+    case "error":
+      return theme.fg("error", "\u2716");
+    case "borderAccent":
+      return theme.fg("warning", "\u25C9");
+    default:
+      return theme.fg("dim", "\u25CB");
+  }
+}
+function statusIcon2(status, theme) {
+  switch (statusSlot(status)) {
+    case "success":
+      return theme.fg("success", "\u2713");
+    case "error":
+      return theme.fg("error", "\u2717");
+    case "borderAccent":
+      return theme.fg("warning", "\u27F3");
+    default:
+      return theme.fg("dim", "\u25CB");
+  }
+}
+function overflowHint(above, below, theme) {
+  const parts = [];
+  if (above > 0) parts.push(`${OVERFLOW.above} ${above} above`);
+  if (below > 0) parts.push(`${OVERFLOW.below} ${below} below`);
+  return parts.length ? theme.fg("dim", parts.join(" \xB7 ")) : "";
+}
+function keyToken(key) {
+  switch (key) {
+    case "escape":
+    case "esc":
+    case "\x1B":
+      return "Esc";
+    case "return":
+    case "enter":
+    case "\r":
+    case "\n":
+      return "Enter";
+    case "	":
+    case "tab":
+      return "Tab";
+    case "up":
+    case "down":
+      return "\u2191/\u2193";
+    case "pageup":
+      return "PgUp";
+    case "pagedown":
+      return "PgDn";
+    case " ":
+    case "space":
+      return "Space";
+    default:
+      return key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1);
+  }
+}
+function formatHint(pairs, options = {}) {
+  return pairs.map(([keys, label]) => {
+    const list = Array.isArray(keys) ? keys : [keys];
+    const tokens = [...new Set(options.exactKeys ? list : list.map(keyToken))];
+    return `${tokens.join("/")} ${label}`;
+  }).join(" \xB7 ");
+}
+var RAIL, PI_EXPAND_CHORD, CURSOR, ACTIVE, OVERFLOW, EIGHTHS;
+var init_rail = __esm({
+  "src/ui/rail.ts"() {
+    "use strict";
+    init_visual();
+    RAIL = { open: "\u250F", section: "\u2523", body: "\u2503", close: "\u2517" };
+    PI_EXPAND_CHORD = "ctrl+o";
+    CURSOR = "\u203A";
+    ACTIVE = "\u25B8";
+    OVERFLOW = { above: "\u25B2", below: "\u25BC" };
+    EIGHTHS = ["", "\u258F", "\u258E", "\u258D", "\u258C", "\u258B", "\u258A", "\u2589"];
   }
 });
 
@@ -26364,25 +26588,25 @@ function glyphColor(glyph) {
       return "accent";
   }
 }
-function colorizeStatusGlyphs(line4, theme) {
+function colorizeStatusGlyphs(line3, theme) {
   let hasGlyph = false;
   for (let i = 0; i < STATUS_GLYPH_CHARS.length; i++) {
-    if (line4.indexOf(STATUS_GLYPH_CHARS[i]) !== -1) {
+    if (line3.indexOf(STATUS_GLYPH_CHARS[i]) !== -1) {
       hasGlyph = true;
       break;
     }
   }
   if (!hasGlyph) {
-    for (let i = 0; i < line4.length; i++) {
-      const cp = line4.codePointAt(i);
+    for (let i = 0; i < line3.length; i++) {
+      const cp = line3.codePointAt(i);
       if (cp >= 10240 && cp <= 10495) {
         hasGlyph = true;
         break;
       }
     }
   }
-  if (!hasGlyph) return line4;
-  return line4.replace(/[✓✗■⏸◦·▶⏳⚠]|[\u2800-\u28FF]/g, (glyph) => theme.fg(glyphColor(glyph), glyph));
+  if (!hasGlyph) return line3;
+  return line3.replace(/[✓✗■⏸◦·▶⏳⚠]|[\u2800-\u28FF]/g, (glyph) => theme.fg(glyphColor(glyph), glyph));
 }
 var STATUS_GLYPH_CHARS;
 var init_status_colors = __esm({
@@ -26392,10 +26616,189 @@ var init_status_colors = __esm({
   }
 });
 
+// src/ui/theme-adapter.ts
+var theme_adapter_exports = {};
+__export(theme_adapter_exports, {
+  asCrewTheme: () => asCrewTheme,
+  subscribeThemeChange: () => subscribeThemeChange
+});
+function inverseAnsi(text) {
+  return `\x1B[7m${text}\x1B[27m`;
+}
+function safeNoopTheme() {
+  return {
+    fg: (_color, text) => text,
+    bold: (text) => text,
+    inverse: inverseAnsi
+  };
+}
+function asStringFn(value, owner) {
+  if (typeof value !== "function") return void 0;
+  return (color, text) => {
+    try {
+      const fn = value;
+      const result4 = fn.call(owner, color, text);
+      return typeof result4 === "string" ? result4 : text;
+    } catch {
+      return text;
+    }
+  };
+}
+function asUnaryFn(value, owner) {
+  if (typeof value !== "function") return void 0;
+  return (text) => {
+    try {
+      const fn = value;
+      const result4 = fn.call(owner, text);
+      return typeof result4 === "string" ? result4 : text;
+    } catch {
+      return text;
+    }
+  };
+}
+function asInverse(value, owner) {
+  return asUnaryFn(value, owner) ?? inverseAnsi;
+}
+function asRecord6(value) {
+  return value && typeof value === "object" ? value : void 0;
+}
+function callMaybeString(fn) {
+  if (typeof fn !== "function") return void 0;
+  try {
+    const result4 = fn();
+    return typeof result4 === "string" || typeof result4 === "number" || typeof result4 === "boolean" ? String(result4) : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function themeSignature(theme) {
+  const record = theme;
+  const primitiveEntries = Object.entries(record).filter(
+    ([_key, value]) => value === void 0 || value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+  ).map(([key, value]) => `${key}:${String(value)}`).sort();
+  const colorMode = callMaybeString(record.getColorMode);
+  return [colorMode ? `mode:${colorMode}` : void 0, ...primitiveEntries].filter((item) => Boolean(item)).join("|");
+}
+function asUnsubscribe(value) {
+  if (typeof value === "function") return value;
+  const record = asRecord6(value);
+  if (!record) return void 0;
+  if (typeof record.unsubscribe === "function") return () => record.unsubscribe();
+  if (typeof record.dispose === "function") return () => record.dispose();
+  return void 0;
+}
+function registerChangeListener(record, emit) {
+  const apis = [
+    { register: "addEventListener", revoke: "removeEventListener" },
+    { register: "on", revoke: "off" },
+    { register: "addListener", revoke: "removeListener" }
+  ];
+  for (const { register, revoke } of apis) {
+    const registerFn = record[register];
+    const revokeFn = record[revoke];
+    if (typeof registerFn === "function" && typeof revokeFn === "function") {
+      registerFn.call(record, "change", emit);
+      return () => revokeFn.call(record, "change", emit);
+    }
+  }
+  return void 0;
+}
+function startThemeSourceSubscription(theme, subscription) {
+  const record = theme;
+  const emit = () => {
+    for (const callback of [...subscription.callbacks]) callback();
+  };
+  if (typeof record.onThemeChange === "function") {
+    const result4 = record.onThemeChange(emit);
+    subscription.unsubscribeSource = asUnsubscribe(result4);
+    return;
+  }
+  const removeListener = registerChangeListener(record, emit);
+  if (removeListener) {
+    subscription.unsubscribeSource = removeListener;
+    return;
+  }
+  subscription.pollTimer = setInterval(() => {
+    const nextSignature = themeSignature(theme);
+    if (nextSignature === subscription.lastSignature) return;
+    subscription.lastSignature = nextSignature;
+    emit();
+  }, 1e3);
+  subscription.pollTimer.unref();
+}
+function subscribeThemeChange(theme, callback) {
+  if (!theme || typeof theme !== "object") return () => void 0;
+  const key = theme;
+  let subscription = themeSubscriptions.get(key);
+  if (!subscription) {
+    subscription = {
+      callbacks: /* @__PURE__ */ new Set(),
+      lastSignature: themeSignature(key)
+    };
+    themeSubscriptions.set(key, subscription);
+    startThemeSourceSubscription(key, subscription);
+  }
+  subscription.callbacks.add(callback);
+  return () => {
+    const current = themeSubscriptions.get(key);
+    if (!current) return;
+    current.callbacks.delete(callback);
+    if (current.callbacks.size > 0) return;
+    if (current.pollTimer) clearInterval(current.pollTimer);
+    current.unsubscribeSource?.();
+    themeSubscriptions.delete(key);
+  };
+}
+function asCrewTheme(raw) {
+  const fallback2 = safeNoopTheme();
+  if (!raw || typeof raw !== "object") return fallback2;
+  const record = raw;
+  const fg = asStringFn(record.fg, raw);
+  const bold = asUnaryFn(record.bold, raw);
+  if (!fg || !bold) return fallback2;
+  return {
+    fg,
+    bg: asStringFn(record.bg, raw),
+    bold,
+    italic: asUnaryFn(record.italic, raw),
+    underline: asUnaryFn(record.underline, raw),
+    inverse: asInverse(record.inverse, raw)
+  };
+}
+var themeSubscriptions;
+var init_theme_adapter = __esm({
+  "src/ui/theme-adapter.ts"() {
+    "use strict";
+    themeSubscriptions = /* @__PURE__ */ new WeakMap();
+  }
+});
+
+// src/ui/dashboard-panes/pane-theme.ts
+var PANE_THEME;
+var init_pane_theme = __esm({
+  "src/ui/dashboard-panes/pane-theme.ts"() {
+    "use strict";
+    init_theme_adapter();
+    PANE_THEME = asCrewTheme(void 0);
+  }
+});
+
 // src/ui/dashboard-panes/agents-pane.ts
 function alignMetric(value, width) {
   const gap = width - visibleWidth(value);
   return gap > 0 ? " ".repeat(gap) + value : value;
+}
+function agentGlyph(status, taskId) {
+  switch (status) {
+    case "running":
+      return spinnerFrame(taskId ?? "");
+    case "waiting":
+    case "needs_attention":
+    case "blocked":
+      return iconForStatus(status);
+    default:
+      return statusIcon2(status ?? "unknown", PANE_THEME);
+  }
 }
 function isRealAgent(agent, liveHandle, nowMs3) {
   if (agent.runtime === "live-session" || agent.runtime === "child-process") return true;
@@ -26417,8 +26820,8 @@ function describeActivity(handle) {
     return tools.join(", ") + "\u2026";
   }
   if (act.responseText?.trim()) {
-    const line4 = act.responseText.split("\n").find((l) => l.trim())?.trim() ?? "";
-    return line4.length > 40 ? line4.slice(0, 40) + "\u2026" : line4;
+    const line3 = act.responseText.split("\n").find((l) => l.trim())?.trim() ?? "";
+    return line3.length > 40 ? line3.slice(0, 40) + "\u2026" : line3;
   }
   return "thinking\u2026";
 }
@@ -26438,14 +26841,12 @@ function renderAgentsPane(snapshot, options = {}) {
     )
   );
   const lineCount = Math.min(realAgents.length, 12);
-  const label = realAgents.length !== snapshot.agents.length ? `${realAgents.length} real agents (${snapshot.agents.length} total)` : `${realAgents.length} agents`;
+  const label = realAgents.length !== snapshot.agents.length ? `${formatCount(realAgents.length, "real agent")} (${formatCount(snapshot.agents.length, "agent")} total)` : formatCount(realAgents.length, "agent");
   lines.push(`${completed}/${total} tasks \xB7 ${label}`);
   for (const agent of realAgents.slice(0, 12)) {
     const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-    const icon = iconForStatus(agent.status, {
-      runningGlyph: spinnerFrame(agent.taskId)
-    });
-    const role = `${agent.role}`;
+    const icon = agentGlyph(agent.status, agent.taskId);
+    const role = `${agent.role ?? "?"}`;
     const activity = liveHandle ? describeActivity(liveHandle) : agent.progress?.currentTool ? `${TOOL_LABELS[agent.progress.currentTool] ?? agent.progress.currentTool}\u2026` : agent.status === "running" ? "thinking\u2026" : agent.status === "queued" ? "queued" : agent.status === "failed" ? agent.error ?? "failed" : "done";
     const stats = [];
     const tokenTotal = (agent.usage?.input ?? 0) + (agent.usage?.output ?? 0) + (agent.usage?.cacheRead ?? 0) + (agent.usage?.cacheWrite ?? 0);
@@ -26458,21 +26859,20 @@ function renderAgentsPane(snapshot, options = {}) {
     }
     if (liveHandle) {
       const ms = computeLiveDurationMs(liveHandle.activity, nowMs3);
-      stats.push(alignMetric(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH));
+      stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
       if (options.showModel !== false && liveHandle.modelName && liveHandle.modelName !== "default") {
         stats.push(liveHandle.modelName);
       }
     } else if (agent.startedAt) {
       const ms = nowMs3 - new Date(agent.startedAt).getTime();
-      if (Number.isFinite(ms)) stats.push(alignMetric(`${(ms / 1e3).toFixed(1)}s`, DURATION_METRIC_WIDTH));
+      if (Number.isFinite(ms)) stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
     }
     const statsStr = stats.length ? ` \xB7 ${stats.join(" ")}` : "";
-    lines.push(`  ${icon} ${agent.taskId} ${role}${statsStr}`);
+    lines.push(`  ${icon} ${agent.taskId ?? "?"} ${role}${statsStr}`);
     lines.push(`    ${activity}`);
   }
-  if (snapshot.agents.length > 12) {
-    lines.push(`  \u2026 +${snapshot.agents.length - 12} more`);
-  }
+  const hiddenBelow = realAgents.length - 12;
+  if (hiddenBelow > 0) lines.push(`  ${overflowHint(0, hiddenBelow, PANE_THEME)}`);
   return lines;
 }
 var TOKENS_METRIC_WIDTH, COST_METRIC_WIDTH, DURATION_METRIC_WIDTH, TOOL_LABELS;
@@ -26482,9 +26882,12 @@ var init_agents_pane = __esm({
     init_live_agent_manager();
     init_usage();
     init_visual();
+    init_format_helpers();
     init_live_duration();
+    init_rail();
     init_spinner();
     init_status_colors();
+    init_pane_theme();
     TOKENS_METRIC_WIDTH = 5;
     COST_METRIC_WIDTH = 7;
     DURATION_METRIC_WIDTH = 6;
@@ -26517,7 +26920,7 @@ function renderSchedulesPane(jobs, now, opts = {}) {
   }
   if (hint) lines.push(hint);
   if (opts.foreground !== false) {
-    lines.push("Actions: T toggle \xB7 N run now \xB7 V details \xB7 X delete \xB7 R refresh");
+    lines.push(`Actions: ${formatHint(ACTION_HINTS)}`);
   }
   return lines;
 }
@@ -26530,55 +26933,65 @@ function renderSchedulesTextBlock(jobs, now, opts = {}) {
 }
 function renderJobLines(job, now, opts, selected) {
   const glyph = job.enabled ? "\u25CF" : "\u25CB";
-  const name = truncate(sanitizeLine(job.name), opts.nameWidth ?? 28);
-  const schedule = sanitizeLine(humanizeSchedule({ kind: job.scheduleType, spec: job.schedule }));
+  const name = truncate(sanitizeLine(job.name ?? "?"), opts.nameWidth ?? 28);
+  const schedule = sanitizeLine(humanizeSchedule({ kind: job.scheduleType ?? "once", spec: job.schedule ?? "?" }));
   const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "\u2014";
-  const marker = opts.selectedIndex === void 0 ? "" : selected ? "\u203A " : "  ";
-  const main = `${marker}${glyph} ${name}  ${schedule} \xB7 ${next} \xB7 ${statusGlyph(job.lastStatus)} \xB7 ${job.runCount} runs`;
+  const marker = opts.selectedIndex === void 0 ? "" : selected ? `${CURSOR} ` : "  ";
+  const main = `${marker}${glyph} ${name}  ${schedule} \xB7 ${next} \xB7 ${statusGlyph(job.lastStatus)} \xB7 ${formatCount(job.runCount ?? 0, "run")}`;
   return [main, renderSubLine(job, now, opts)];
 }
 function statusGlyph(status) {
-  if (status === "success") return "\u2713";
-  if (status === "error") return "\u2717";
-  if (status === "running") return "\u27F3";
+  if (status === "success") return statusIcon2("completed", PANE_THEME);
+  if (status === "error") return statusIcon2("failed", PANE_THEME);
+  if (status === "running") return statusIcon2("running", PANE_THEME);
   return "\xB7";
 }
 function renderSubLine(job, now, opts) {
-  const parts = [sanitizeLine(job.subagentType)];
+  const parts = [sanitizeLine(job.subagentType ?? "?")];
   parts.push(job.lastRun ? `last: ${formatRelativeTime(now, new Date(job.lastRun))}` : "last: never");
-  if (opts.includeIds) parts.push(`id: ${sanitizeLine(job.id)}`);
+  if (opts.includeIds) parts.push(`id: ${sanitizeLine(job.id ?? "?")}`);
   return `  \u25E6 ${parts.join(" \xB7 ")}`;
 }
 function scheduleGoalOf(job) {
   try {
-    const parsed = JSON.parse(job.prompt);
+    const parsed = JSON.parse(job.prompt ?? "");
     if (parsed && typeof parsed === "object" && typeof parsed.goal === "string" && parsed.goal.length > 0) {
       return parsed.goal;
     }
   } catch {
   }
-  return job.description || job.name;
+  return job.description || job.name || "?";
 }
 function renderScheduleDetails(job, now) {
-  const schedule = humanizeSchedule({ kind: job.scheduleType, spec: job.schedule });
+  const schedule = humanizeSchedule({ kind: job.scheduleType ?? "once", spec: job.schedule ?? "?" });
   const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "\u2014";
   const last = job.lastRun ? formatRelativeTime(now, new Date(job.lastRun)) : "never";
   return [
-    `\u25B8 ${sanitizeLine(job.name)} \u2014 id ${sanitizeLine(job.id)}`,
+    `${ACTIVE} ${sanitizeLine(job.name ?? "?")} \u2014 id ${sanitizeLine(job.id ?? "?")}`,
     `  goal: ${sanitizeLine(scheduleGoalOf(job))}`,
-    `  schedule: ${sanitizeLine(job.schedule)} (${sanitizeLine(job.scheduleType)}) \xB7 humanized: ${sanitizeLine(schedule)} \xB7 next: ${next}`,
-    `  agent: ${sanitizeLine(job.subagentType)} \xB7 runs: ${job.runCount} \xB7 last: ${last} \xB7 status: ${statusGlyph(job.lastStatus)}`,
-    `  spawned runs: ${job.spawnedRunIds?.length ? job.spawnedRunIds.map(sanitizeLine).join(", ") : "none"}`
+    `  schedule: ${sanitizeLine(job.schedule ?? "?")} (${sanitizeLine(job.scheduleType ?? "?")}) \xB7 humanized: ${sanitizeLine(schedule)} \xB7 next: ${next}`,
+    `  agent: ${sanitizeLine(job.subagentType ?? "?")} \xB7 runs: ${job.runCount ?? 0} \xB7 last: ${last} \xB7 status: ${statusGlyph(job.lastStatus)}`,
+    `  spawned runs: ${job.spawnedRunIds?.length ? job.spawnedRunIds.map((runId) => sanitizeLine(String(runId ?? "?"))).join(", ") : "none"}`
   ];
 }
-var SCHEDULES_EMPTY_STATE;
+var SCHEDULES_EMPTY_STATE, ACTION_HINTS;
 var init_schedules_pane = __esm({
   "src/ui/dashboard-panes/schedules-pane.ts"() {
     "use strict";
     init_scheduler();
     init_relative_time();
     init_visual();
+    init_format_helpers();
+    init_rail();
+    init_pane_theme();
     SCHEDULES_EMPTY_STATE = "No scheduled jobs \u2014 create via team tool action='schedule'";
+    ACTION_HINTS = [
+      ["T", "toggle"],
+      ["N", "run now"],
+      ["V", "details"],
+      ["X", "delete"],
+      ["R", "refresh"]
+    ];
   }
 });
 
@@ -27869,17 +28282,22 @@ function statusSummary(runs) {
   const totalAgents = agents.length;
   const totalRuns = runs.length;
   const model = agents.find((a) => a.model)?.model?.split("/").at(-1);
-  const parts = [`\u2699 ${runningAgents}r`];
+  const parts = [];
+  if (runningAgents > 0) parts.push(`${runningAgents}r`);
   if (queuedAgents > 0) parts.push(`${queuedAgents}q`);
-  if (completedAgents > 0) parts.push(`${completedAgents}/${totalAgents}done`);
-  if (totalRuns > 1) parts.push(`${totalRuns}runs`);
+  if (totalAgents > 0) parts.push(`${completedAgents}/${totalAgents} done`);
+  if (totalRuns > 1) parts.push(`${totalRuns} runs`);
   if (model) parts.push(model);
-  return parts.join(" \xB7 ");
+  if (parts.length === 0) parts.push("idle");
+  return `${RAIL.body} ${IDLE_WORD} ${ACTIVE} ${parts.join(" \xB7 ")}`;
 }
 function shortRunLabel(run) {
-  return `${run.team}/${run.workflow ?? "none"}`;
+  const team = (run.team ?? "").trim();
+  const workflow = (run.workflow ?? "").trim();
+  if (team && workflow && team !== workflow) return `${team}/${workflow}`;
+  return team || workflow || shortId(run.runId);
 }
-var lastStaleReconcileAt, STALE_RECONCILE_INTERVAL_MS;
+var lastStaleReconcileAt, STALE_RECONCILE_INTERVAL_MS, IDLE_WORD;
 var init_widget_model = __esm({
   "src/ui/widget/widget-model.ts"() {
     "use strict";
@@ -27888,8 +28306,10 @@ var init_widget_model = __esm({
     init_live_agent_manager();
     init_process_status();
     init_crash_recovery();
+    init_rail();
     lastStaleReconcileAt = 0;
     STALE_RECONCILE_INTERVAL_MS = 6e4;
+    IDLE_WORD = "CREW";
   }
 });
 
@@ -27899,6 +28319,7 @@ import { join as join33 } from "node:path";
 import { matchesKey } from "@earendil-works/pi-tui";
 function recordTokPerSec(record, nowMs3) {
   if (record.status !== "running") return void 0;
+  if (!record.taskId) return void 0;
   try {
     const usage = getTaskUsage(record.taskId);
     const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheWrite ?? 0);
@@ -27940,8 +28361,10 @@ var init_agents_jobs_browser = __esm({
     init_agents_pane();
     init_schedules_pane();
     init_live_duration();
+    init_rail();
     init_spinner();
     init_status_colors();
+    init_theme_adapter();
     init_widget_model();
     REFRESH_TTL_MS_DEFAULT = 600;
     POLL_INTERVAL_MS = 400;
@@ -27950,6 +28373,9 @@ var init_agents_jobs_browser = __esm({
     MAX_LIST_WIDTH = 64;
     AgentsJobsBrowser = class {
       options;
+      /** RAIL helpers need a theme; `asCrewTheme(undefined)` is the no-op theme,
+       *  so a headless/test render stays plain text exactly as before. */
+      theme;
       cachedEntries = [];
       cachedAt = -Infinity;
       hiddenCount = 0;
@@ -27964,6 +28390,7 @@ var init_agents_jobs_browser = __esm({
       manifests = /* @__PURE__ */ new Map();
       constructor(options) {
         this.options = options;
+        this.theme = options.theme ?? asCrewTheme(void 0);
         this.refreshData(true);
         this.pollTimer = setInterval(() => {
           if (this.closed) return;
@@ -28103,8 +28530,8 @@ var init_agents_jobs_browser = __esm({
         const manifest = this.manifestFor(entry.runId);
         if (!record || !manifest) {
           return [
-            `\u25B8 ${entry.taskId} (${entry.role})`,
-            `  status: ${entry.status}`,
+            `\u25B8 ${entry.taskId ?? "?"} (${entry.role ?? "?"})`,
+            `  status: ${entry.status ?? "?"}`,
             "  (agent record unavailable \u2014 run manifest not found)"
           ];
         }
@@ -28274,47 +28701,33 @@ var init_agents_jobs_browser = __esm({
        *  width model pi-tui enforces). */
       render(width) {
         const w = Math.max(60, width ?? this.options.columns ?? 80);
+        const budget = Math.max(0, w - 2);
         const nowMs3 = this.nowMs();
-        const inner = w - 7;
+        const inner = budget;
         const listWidth = Math.max(20, Math.min(MAX_LIST_WIDTH, Math.round(inner * 0.42)));
-        const detailWidth = Math.max(16, inner - listWidth);
+        const detailWidth = Math.max(16, Math.max(0, inner - listWidth - 2));
         const maxBody = Math.max(MIN_BODY, Math.min(MAX_BODY, (this.options.rows ?? 24) - 6));
-        const dim = (text) => this.options.theme ? this.options.theme.fg("border", text) : text;
-        const accent = (text) => this.options.theme ? this.options.theme.fg("accent", text) : text;
-        const sep10 = dim("\u2502");
+        const dim = (text) => this.theme.fg("border", text);
         const counts = [
           `${this.countAgents()} agent${this.countAgents() === 1 ? "" : "s"}`,
           `${this.countJobs()} job${this.countJobs() === 1 ? "" : "s"}`
         ];
         if (this.hiddenCount > 0) counts.push(`${this.hiddenCount} hidden`);
-        const activeNotice = this.notice && this.notice.until > nowMs3 ? ` ${this.notice.text} ` : ` ${counts.join(" \xB7 ")} `;
-        const lines = [this.framedBorderRow("top", accent(` Agents & Jobs `), dim(truncate(activeNotice, w - 20)), w)];
+        const subject = this.notice && this.notice.until > nowMs3 ? this.notice.text : counts.join(" \xB7 ");
+        const lines = [canopyLine({ word: "AGENTS", subject, right: this.hintRow(), theme: this.theme, budget })];
         const hiddenHint = schedulesHiddenJobsHintLine(this.hiddenCount);
-        if (hiddenHint) lines.push(`${dim("\u2502")} ${pad(dim(truncate(hiddenHint, w - 4)), w - 3)}${dim("\u2502")}`);
+        if (hiddenHint) lines.push(railLine(RAIL.body, "border", dim(truncate(hiddenHint, budget)), this.theme, budget));
         const left = this.renderListColumn(listWidth, maxBody, nowMs3);
         const right = this.renderDetailColumn(detailWidth, maxBody);
         const bodyHeight = Math.max(5, Math.min(maxBody, Math.max(left.length, right.length)));
         for (let i = 0; i < bodyHeight; i++) {
-          const l = pad(left[i] ?? "", listWidth);
-          const r = pad(right[i] ?? "", detailWidth);
-          lines.push(`${dim("\u2502")} ${l} ${sep10} ${r} ${dim("\u2502")}`);
+          const rawLeft = left[i] ?? "";
+          const rawRight = right[i] ?? "";
+          const content = rawLeft.trim() === "" && rawRight.trim() === "" ? "" : railLeaders(pad(rawLeft, listWidth), truncate(rawRight, detailWidth), budget, this.theme);
+          lines.push(railLine(RAIL.body, "border", content, this.theme, budget));
         }
-        lines.push(this.framedBorderRow("bottom", dim(" " + this.hintRow() + " "), "", w));
+        lines.push(railLine(RAIL.close, "border", this.capHint(), this.theme, budget));
         return lines;
-      }
-      /** `╭─ title ── right ─────╮` / `╰─ hint ───────────────╯` — always exactly `w` visible cells. */
-      framedBorderRow(which, title, right, w) {
-        const cornerL = which === "top" ? "\u256D" : "\u2570";
-        const cornerR = which === "top" ? "\u256E" : "\u256F";
-        const rule = which === "top" ? "\u2500" : "\u2500";
-        const titleCells = visibleWidth(title);
-        const rightCells = right ? visibleWidth(right) : 0;
-        const budget = w - 2 - titleCells - rightCells;
-        if (budget < 1) {
-          const t2 = truncate(title, w - 2);
-          return `${cornerL}${t2}${cornerR}`;
-        }
-        return `${cornerL}${title}${rule.repeat(budget)}${right}${cornerR}`;
       }
       countAgents() {
         return this.cachedEntries.filter((entry) => entry.kind === "agent").length;
@@ -28322,13 +28735,24 @@ var init_agents_jobs_browser = __esm({
       countJobs() {
         return this.cachedEntries.filter((entry) => entry.kind === "job").length;
       }
+      /** Header hint (canopy right segment) — RAIL format: `keys label` pairs. */
       hintRow() {
-        const base = this.focus === "list" ? "[\u2191\u2193] move \xB7 [\u23CE] transcript \xB7 [q] close" : "[\u2191\u2193] scroll \xB7 [\u23CE/Esc] back";
-        return base;
+        return this.focus === "list" ? formatHint([
+          [["up", "down"], "move"],
+          ["enter", "transcript"]
+        ]) : formatHint([
+          [["up", "down"], "scroll"],
+          ["enter", "back"]
+        ]);
+      }
+      /** End cap hint — the close/cancel action, LAST (RAIL hint rule). */
+      capHint() {
+        return this.focus === "list" ? formatHint([["q", "close"]]) : formatHint([["esc", "back"]]);
       }
       /** LEFT column: section labels + unified rows, windowed around selection. */
       renderListColumn(listWidth, bodyHeight, nowMs3) {
         const out = [];
+        const dim = (text) => this.theme.fg("border", text);
         const push = (text) => out.push(truncate(sanitizeLine(text), listWidth));
         if (this.cachedEntries.length === 0) {
           push("No live agents \xB7 no scheduled jobs");
@@ -28337,9 +28761,9 @@ var init_agents_jobs_browser = __esm({
         const agents = this.cachedEntries.filter((entry) => entry.kind === "agent");
         const jobs = this.cachedEntries.filter((entry) => entry.kind === "job");
         const rows = [];
-        if (agents.length > 0) rows.push({ text: `Live agents (${agents.length})` });
+        if (agents.length > 0) rows.push({ text: dim(`Live agents (${agents.length})`) });
         for (const entry of agents) rows.push({ entry, text: this.agentRow(entry, nowMs3) });
-        if (jobs.length > 0) rows.push({ text: `Scheduled jobs (${jobs.length})` });
+        if (jobs.length > 0) rows.push({ text: dim(`Scheduled jobs (${jobs.length})`) });
         for (const entry of jobs) rows.push({ entry, text: this.jobRow(entry) });
         const entryRowIndex = rows.findIndex((row) => row.entry !== void 0 && this.indexOf(row.entry) === this.selected);
         const slots = Math.max(1, bodyHeight);
@@ -28349,7 +28773,7 @@ var init_agents_jobs_browser = __esm({
         }
         for (const row of rows.slice(this.listScroll, this.listScroll + slots)) {
           const isSelected = row.entry !== void 0 && this.indexOf(row.entry) === this.selected;
-          const marker = row.entry === void 0 ? "" : isSelected ? "\u203A " : "  ";
+          const marker = row.entry === void 0 ? "" : isSelected ? `${CURSOR} ` : "  ";
           push(`${marker}${row.text}`);
         }
         return out;
@@ -28358,9 +28782,9 @@ var init_agents_jobs_browser = __esm({
         return this.cachedEntries.indexOf(entry);
       }
       agentRow(entry, nowMs3) {
-        const icon = iconForStatus(entry.status, { runningGlyph: spinnerFrame(entry.taskId, nowMs3) });
+        const icon = iconForStatus(entry.status, { runningGlyph: spinnerFrame(entry.taskId ?? "", nowMs3) });
         const tok = entry.tokPerSec !== void 0 && entry.status === "running" ? ` \xB7 ${entry.tokPerSec} tok/s` : "";
-        return `${icon} ${entry.role}${tok} \xB7 ${entry.taskId.slice(-8)}`;
+        return `${icon} ${entry.role ?? "?"}${tok} \xB7 ${(entry.taskId ?? "").slice(-8)}`;
       }
       jobRow(entry) {
         const job = entry.job;
@@ -28383,16 +28807,12 @@ var init_agents_jobs_browser = __esm({
         const maxScroll = Math.max(0, detail.length - (bodyHeight - 1));
         this.detailScroll = Math.max(0, Math.min(this.detailScroll, maxScroll));
         const windowed = detail.slice(this.detailScroll, this.detailScroll + bodyHeight - 1);
-        const title = entry.kind === "agent" ? `\u25B8 ${entry.role} \xB7 ${entry.taskId.slice(-8)}` : `\u25B8 ${sanitizeLine(entry.job.name)}`;
+        const title = entry.kind === "agent" ? `\u25B8 ${entry.role ?? "?"} \xB7 ${(entry.taskId ?? "").slice(-8)}` : `\u25B8 ${sanitizeLine(entry.job.name)}`;
         const out = [truncate(sanitizeLine(title), detailWidth)];
-        for (const line4 of windowed) out.push(truncate(sanitizeLine(line4), detailWidth));
+        for (const line3 of windowed) out.push(truncate(sanitizeLine(line3), detailWidth));
         if (this.detailScroll > 0 || this.detailScroll + windowed.length < detail.length) {
-          out.push(
-            truncate(
-              `\u2026 ${this.detailScroll} above \xB7 ${Math.max(0, detail.length - this.detailScroll - windowed.length)} below`,
-              detailWidth
-            )
-          );
+          const below = Math.max(0, detail.length - this.detailScroll - windowed.length);
+          out.push(truncate(overflowHint(this.detailScroll, below, this.theme), detailWidth));
         }
         return out;
       }
@@ -28401,16 +28821,22 @@ var init_agents_jobs_browser = __esm({
 });
 
 // src/ui/live-conversation-overlay.ts
-var CHROME_LINES, MIN_VIEWPORT, LiveConversationOverlay;
+import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
+var CHROME_LINES, MIN_VIEWPORT, SCROLL_LINE_STEP, SCROLL_PAGE_STEP, CTX_GAUGE_WIDTH, LiveConversationOverlay;
 var init_live_conversation_overlay = __esm({
   "src/ui/live-conversation-overlay.ts"() {
     "use strict";
     init_visual();
+    init_format_helpers();
     init_live_duration();
+    init_rail();
     init_spinner();
     init_status_colors();
-    CHROME_LINES = 6;
+    CHROME_LINES = 3;
     MIN_VIEWPORT = 3;
+    SCROLL_LINE_STEP = 1;
+    SCROLL_PAGE_STEP = 10;
+    CTX_GAUGE_WIDTH = 8;
     LiveConversationOverlay = class _LiveConversationOverlay {
       scrollOffset = 0;
       autoScroll = true;
@@ -28440,7 +28866,7 @@ var init_live_conversation_overlay = __esm({
               const text = typeof obj.text === "string" ? obj.text : typeof obj.content === "string" ? obj.content : "";
               if (text.trim()) {
                 this.pushLine(text);
-                if (this.autoScroll) this.scrollOffset = Math.max(0, this.cachedLines.length - this.viewportHeight());
+                if (this.autoScroll) this.scrollOffset = this.maxScrollOffset();
               }
             });
           } catch {
@@ -28460,8 +28886,8 @@ var init_live_conversation_overlay = __esm({
         } catch {
         }
       }
-      pushLine(line4) {
-        this.cachedLines.push(line4);
+      pushLine(line3) {
+        this.cachedLines.push(line3);
         if (this.cachedLines.length > _LiveConversationOverlay.MAX_CACHED_LINES) {
           const drop = this.cachedLines.length - _LiveConversationOverlay.MAX_CACHED_LINES;
           this.cachedLines.splice(0, drop);
@@ -28472,64 +28898,159 @@ var init_live_conversation_overlay = __esm({
       // zero-width space as summary sentinel
       refreshSummary() {
         const act = this.handle.activity;
-        const summary = `${_LiveConversationOverlay.SUMMARY_PREFIX}[${act.turnCount} turns \xB7 ${act.toolUses} tools \xB7 ${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s]`;
+        const summary = `${_LiveConversationOverlay.SUMMARY_PREFIX}[${formatCount(act.turnCount ?? 0, "turn")} \xB7 ${formatCount(act.toolUses ?? 0, "tool")} \xB7 ${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s]`;
         const lastLine = this.cachedLines[this.cachedLines.length - 1];
         if (lastLine?.startsWith(_LiveConversationOverlay.SUMMARY_PREFIX)) {
           this.cachedLines[this.cachedLines.length - 1] = summary;
         } else {
           this.pushLine(summary);
         }
-        if (this.autoScroll) this.scrollOffset = Math.max(0, this.cachedLines.length - this.viewportHeight());
+        if (this.autoScroll) this.scrollOffset = this.maxScrollOffset();
       }
       viewportHeight() {
         return Math.max(MIN_VIEWPORT, this.rows - CHROME_LINES);
+      }
+      /** Largest offset that still shows the newest line in the viewport. */
+      maxScrollOffset() {
+        return Math.max(0, this.cachedLines.length - this.viewportHeight());
+      }
+      /**
+       * autoScroll rule (M1-6):
+       *   - a manual scroll always recomputes autoScroll from the position — the
+       *     viewport tails the stream only while it sits at the newest line;
+       *   - scrolling DOWN to (or past) the newest line therefore restores
+       *     autoScroll, and scrolling UP away from it pauses it so incoming lines
+       *     cannot yank the viewport back;
+       *   - `a` toggles explicitly: turning it on jumps to the newest line,
+       *     turning it off pauses wherever the viewport currently is.
+       */
+      scrollBy(delta) {
+        this.scrollOffset = Math.max(0, Math.min(this.maxScrollOffset(), this.scrollOffset + delta));
+        this.autoScroll = this.scrollOffset >= this.maxScrollOffset();
+      }
+      /** Jump to the oldest buffered line. */
+      scrollHome() {
+        this.scrollBy(-this.cachedLines.length);
+      }
+      /** Jump to the newest line (re-enables auto-scroll). */
+      scrollEnd() {
+        this.scrollBy(this.cachedLines.length);
+      }
+      /** Toggle auto-scroll; turning it on jumps to the newest line. */
+      toggleAutoScroll() {
+        if (this.autoScroll) this.autoScroll = false;
+        else this.scrollEnd();
+      }
+      /**
+       * Handle a keypress while the overlay has focus. Mirrors the key set of
+       * src/ui/inline-panel/agent-view-overlay.ts:160-182:
+       *
+       *   esc / q            close the overlay
+       *   ↓ / j              scroll down one line
+       *   ↑ / k              scroll up one line
+       *   PgDn / PgUp        scroll one page
+       *   g (home)           jump to the oldest buffered line
+       *   G (end)            jump to the newest line (re-enables auto-scroll)
+       *   a                  toggle auto-scroll
+       *
+       * The host component in src/extension/registration/viewers.ts intercepts
+       * esc/q itself (it owns the `done()` callback) and forwards every other key
+       * here; the esc/q branch below keeps this class self-contained for direct
+       * callers and for the host contract. Unrecognised keys are ignored — the
+       * overlay never leaks keys into the editor underneath.
+       */
+      handleInput(data) {
+        if (this.closed) return;
+        if (matchesKey2(data, "escape") || data === "q") {
+          this.close();
+          return;
+        }
+        if (matchesKey2(data, "down") || data === "j") {
+          this.scrollBy(SCROLL_LINE_STEP);
+          return;
+        }
+        if (matchesKey2(data, "up") || data === "k") {
+          this.scrollBy(-SCROLL_LINE_STEP);
+          return;
+        }
+        if (matchesKey2(data, "pageDown")) {
+          this.scrollBy(SCROLL_PAGE_STEP);
+          return;
+        }
+        if (matchesKey2(data, "pageUp")) {
+          this.scrollBy(-SCROLL_PAGE_STEP);
+          return;
+        }
+        if (matchesKey2(data, "home") || data === "g") {
+          this.scrollHome();
+          return;
+        }
+        if (matchesKey2(data, "end") || data === "G") {
+          this.scrollEnd();
+          return;
+        }
+        if (data === "a") {
+          this.toggleAutoScroll();
+        }
+      }
+      /** Left half of the close cap: the key legend, through `formatHint`. */
+      hintText() {
+        return formatHint([
+          [["up", "down", "pageup", "pagedown", "g", "G"], "scroll"],
+          ["a", this.autoScroll ? "pause" : "resume"],
+          [["escape", "q"], "close"]
+        ]);
+      }
+      /**
+       * Right half of the close cap: the scroll STATE (dot-led so it can never be
+       * the segment that gets truncated). Every key advertised is handled by
+       * `handleInput` in BOTH states (P1-3: the old `↑/k ↓/j G/g` hint lived in an
+       * autoScroll === false branch that could never be reached, because nothing
+       * ever turned autoScroll off).
+       */
+      stateText() {
+        if (this.autoScroll) return "auto-scroll";
+        const total = this.cachedLines.length;
+        const from = total === 0 ? 0 : this.scrollOffset + 1;
+        const to = Math.min(total, this.scrollOffset + this.viewportHeight());
+        return `manual ${from}-${to}/${total}`;
       }
       render(width) {
         const w = width ?? this.columns;
         if (w < 6) return [];
         const th = this.theme;
-        const innerW = w - 4;
-        const row = (content) => th.fg("border", "\u2502") + " " + pad(truncate(content, innerW), innerW) + " " + th.fg("border", "\u2502");
-        const hrTop = th.fg("border", `\u256D${"\u2500".repeat(w - 2)}\u256E`);
-        const hrBot = th.fg("border", `\u2570${"\u2500".repeat(w - 2)}\u256F`);
-        const hrMid = row(th.fg("dim", "\u2500".repeat(innerW)));
-        const lines = [];
-        lines.push(hrTop);
-        const statusIcon4 = this.handle.status === "running" ? th.fg("accent", spinnerFrame(this.handle.taskId ?? this.handle.agentId)) : iconForStatus(this.handle.status);
-        const name = this.handle.agent ?? this.handle.taskId;
+        const budget = w - 2;
         const act = this.handle.activity;
-        const elapsed = `${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s`;
-        const headerParts = [];
-        if (act.maxTurns != null) headerParts.push(`turn ${act.turnCount}/${act.maxTurns}`);
-        else if (act.turnCount > 0) headerParts.push(`turn ${act.turnCount}`);
-        if (act.toolUses > 0) headerParts.push(`${act.toolUses} tools`);
-        headerParts.push(elapsed);
+        const slot = statusSlot(this.handle.status);
+        const lines = [];
+        lines.push(canopyLine({ word: "LIVE", subject: this.handle.agent ?? this.handle.taskId ?? "?", theme: th, budget }));
+        const statusIcon5 = this.handle.status === "running" ? th.fg("accent", spinnerFrame(this.handle.taskId ?? this.handle.agentId ?? "")) : iconForStatus(this.handle.status);
+        const desc = this.handle.description ?? this.handle.role ?? "";
+        const parts = [];
+        if (act.maxTurns != null) parts.push(`turn ${act.turnCount ?? 0}/${act.maxTurns}`);
+        else if ((act.turnCount ?? 0) > 0) parts.push(`turn ${act.turnCount}`);
+        if ((act.toolUses ?? 0) > 0) parts.push(formatCount(act.toolUses ?? 0, "tool"));
+        parts.push(`${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s`);
         try {
           const ctxPct = this.handle.session.getSessionStats?.()?.contextUsage?.percent;
           if (ctxPct != null) {
             const color = ctxPct >= 85 ? "error" : ctxPct >= 70 ? "warning" : "dim";
-            headerParts.push(th.fg(color, `${Math.round(ctxPct)}% ctx`));
+            parts.push(th.fg(color, `${gaugeBar(ctxPct / 100, CTX_GAUGE_WIDTH, th, color)} ${Math.round(ctxPct)}% ctx`));
           }
         } catch {
         }
-        if (act.compactionCount > 0) headerParts.push(th.fg("dim", `\u21BB${act.compactionCount}`));
-        if (this.handle.modelName) headerParts.push(th.fg("muted", this.handle.modelName));
-        const desc = this.handle.description ?? this.handle.role ?? "";
-        lines.push(
-          row(
-            `${statusIcon4} ${th.fg("accent", name)}  ${th.fg("muted", desc)} ${th.fg("dim", "\xB7")} ${th.fg("dim", headerParts.join(" \xB7 "))}`
-          )
-        );
-        lines.push(hrMid);
+        if ((act.compactionCount ?? 0) > 0) parts.push(th.fg("dim", `\u21BB${act.compactionCount}`));
+        if (this.handle.modelName) parts.push(th.fg("muted", this.handle.modelName));
+        const describe = desc ? `${th.fg("muted", desc)} ${th.fg("dim", "\xB7")} ` : "";
+        lines.push(railLine(RAIL.body, slot, truncate(`${statusIcon5} ${describe}${th.fg("dim", parts.join(" \xB7 "))}`, budget), th, budget));
         const vh = this.viewportHeight();
         const visible = this.cachedLines.slice(this.scrollOffset, this.scrollOffset + vh);
-        for (const line4 of visible) {
-          lines.push(row(th.fg("dim", line4)));
+        for (const line3 of visible) {
+          lines.push(railLine(RAIL.body, "border", th.fg("dim", truncate(line3, budget)), th, budget));
         }
-        lines.push(hrMid);
-        const footerText = this.autoScroll ? "auto-scroll \xB7 esc/q close" : `line ${this.scrollOffset + 1}/${this.cachedLines.length} \xB7 \u2191/k \u2193/j G/g \xB7 esc/q close`;
-        lines.push(row(th.fg("dim", footerText)));
-        lines.push(hrBot);
+        lines.push(
+          railLine(RAIL.close, slot, railLeaders(th.fg("dim", this.hintText()), th.fg("dim", this.stateText()), budget, th), th, budget)
+        );
         return lines;
       }
       close() {
@@ -28549,211 +29070,10 @@ var init_live_conversation_overlay = __esm({
   }
 });
 
-// src/ui/theme-adapter.ts
-var theme_adapter_exports = {};
-__export(theme_adapter_exports, {
-  THEME_COLOR_FALLBACKS: () => THEME_COLOR_FALLBACKS,
-  asCrewTheme: () => asCrewTheme,
-  subscribeThemeChange: () => subscribeThemeChange
-});
-function inverseAnsi(text) {
-  return `\x1B[7m${text}\x1B[27m`;
-}
-function safeNoopTheme() {
-  return {
-    fg: (_color, text) => text,
-    bold: (text) => text,
-    inverse: inverseAnsi
-  };
-}
-function asStringFn(value, owner) {
-  if (typeof value !== "function") return void 0;
-  return (color, text) => {
-    try {
-      const fn = value;
-      const result4 = fn.call(owner, color, text);
-      return typeof result4 === "string" ? result4 : text;
-    } catch {
-      return text;
-    }
-  };
-}
-function asUnaryFn(value, owner) {
-  if (typeof value !== "function") return void 0;
-  return (text) => {
-    try {
-      const fn = value;
-      const result4 = fn.call(owner, text);
-      return typeof result4 === "string" ? result4 : text;
-    } catch {
-      return text;
-    }
-  };
-}
-function asInverse(value, owner) {
-  return asUnaryFn(value, owner) ?? inverseAnsi;
-}
-function asRecord6(value) {
-  return value && typeof value === "object" ? value : void 0;
-}
-function callMaybeString(fn) {
-  if (typeof fn !== "function") return void 0;
-  try {
-    const result4 = fn();
-    return typeof result4 === "string" || typeof result4 === "number" || typeof result4 === "boolean" ? String(result4) : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function themeSignature(theme) {
-  const record = theme;
-  const primitiveEntries = Object.entries(record).filter(
-    ([_key, value]) => value === void 0 || value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-  ).map(([key, value]) => `${key}:${String(value)}`).sort();
-  const colorMode = callMaybeString(record.getColorMode);
-  return [colorMode ? `mode:${colorMode}` : void 0, ...primitiveEntries].filter((item) => Boolean(item)).join("|");
-}
-function asUnsubscribe(value) {
-  if (typeof value === "function") return value;
-  const record = asRecord6(value);
-  if (!record) return void 0;
-  if (typeof record.unsubscribe === "function") return () => record.unsubscribe();
-  if (typeof record.dispose === "function") return () => record.dispose();
-  return void 0;
-}
-function registerChangeListener(record, emit) {
-  const apis = [
-    { register: "addEventListener", revoke: "removeEventListener" },
-    { register: "on", revoke: "off" },
-    { register: "addListener", revoke: "removeListener" }
-  ];
-  for (const { register, revoke } of apis) {
-    const registerFn = record[register];
-    const revokeFn = record[revoke];
-    if (typeof registerFn === "function" && typeof revokeFn === "function") {
-      registerFn.call(record, "change", emit);
-      return () => revokeFn.call(record, "change", emit);
-    }
-  }
-  return void 0;
-}
-function startThemeSourceSubscription(theme, subscription) {
-  const record = theme;
-  const emit = () => {
-    for (const callback of [...subscription.callbacks]) callback();
-  };
-  if (typeof record.onThemeChange === "function") {
-    const result4 = record.onThemeChange(emit);
-    subscription.unsubscribeSource = asUnsubscribe(result4);
-    return;
-  }
-  const removeListener = registerChangeListener(record, emit);
-  if (removeListener) {
-    subscription.unsubscribeSource = removeListener;
-    return;
-  }
-  subscription.pollTimer = setInterval(() => {
-    const nextSignature = themeSignature(theme);
-    if (nextSignature === subscription.lastSignature) return;
-    subscription.lastSignature = nextSignature;
-    emit();
-  }, 1e3);
-  subscription.pollTimer.unref();
-}
-function subscribeThemeChange(theme, callback) {
-  if (!theme || typeof theme !== "object") return () => void 0;
-  const key = theme;
-  let subscription = themeSubscriptions.get(key);
-  if (!subscription) {
-    subscription = {
-      callbacks: /* @__PURE__ */ new Set(),
-      lastSignature: themeSignature(key)
-    };
-    themeSubscriptions.set(key, subscription);
-    startThemeSourceSubscription(key, subscription);
-  }
-  subscription.callbacks.add(callback);
-  return () => {
-    const current = themeSubscriptions.get(key);
-    if (!current) return;
-    current.callbacks.delete(callback);
-    if (current.callbacks.size > 0) return;
-    if (current.pollTimer) clearInterval(current.pollTimer);
-    current.unsubscribeSource?.();
-    themeSubscriptions.delete(key);
-  };
-}
-function asCrewTheme(raw) {
-  const fallback2 = safeNoopTheme();
-  if (!raw || typeof raw !== "object") return fallback2;
-  const record = raw;
-  const fg = asStringFn(record.fg, raw);
-  const bold = asUnaryFn(record.bold, raw);
-  if (!fg || !bold) return fallback2;
-  return {
-    fg,
-    bg: asStringFn(record.bg, raw),
-    bold,
-    italic: asUnaryFn(record.italic, raw),
-    underline: asUnaryFn(record.underline, raw),
-    inverse: asInverse(record.inverse, raw)
-  };
-}
-var THEME_COLOR_FALLBACKS, themeSubscriptions;
-var init_theme_adapter = __esm({
-  "src/ui/theme-adapter.ts"() {
-    "use strict";
-    THEME_COLOR_FALLBACKS = {
-      accent: "\x1B[36m",
-      border: "\x1B[38;5;240m",
-      borderAccent: "\x1B[35m",
-      borderMuted: "\x1B[38;5;236m",
-      success: "\x1B[32m",
-      error: "\x1B[31m",
-      warning: "\x1B[33m",
-      muted: "\x1B[38;5;245m",
-      dim: "\x1B[38;5;240m",
-      text: "\x1B[39m",
-      thinkingText: "\x1B[38;5;245m",
-      toolTitle: "\x1B[36m",
-      toolOutput: "\x1B[38;5;245m",
-      toolDiffAdded: "\x1B[32m",
-      toolDiffRemoved: "\x1B[31m",
-      toolDiffContext: "\x1B[38;5;245m",
-      mdHeading: "\x1B[33m",
-      mdLink: "\x1B[35m",
-      mdCode: "\x1B[32m",
-      mdCodeBlock: "\x1B[39m",
-      mdQuote: "\x1B[38;5;245m",
-      mdHr: "\x1B[38;5;240m",
-      mdListBullet: "\x1B[36m",
-      syntaxKeyword: "\x1B[35m",
-      syntaxString: "\x1B[32m",
-      syntaxNumber: "\x1B[33m",
-      syntaxComment: "\x1B[38;5;245m",
-      syntaxFunction: "\x1B[36m",
-      syntaxVariable: "\x1B[39m",
-      syntaxType: "\x1B[35m",
-      syntaxOperator: "\x1B[35m",
-      syntaxPunctuation: "\x1B[35m",
-      userMessageText: "\x1B[39m",
-      customMessageLabel: "\x1B[35m",
-      thinkingOff: "\x1B[38;5;236m",
-      thinkingMinimal: "\x1B[38;5;245m",
-      thinkingLow: "\x1B[35m",
-      thinkingMedium: "\x1B[35m",
-      thinkingHigh: "\x1B[36m",
-      thinkingXhigh: "\x1B[35m",
-      bashMode: "\x1B[32m"
-    };
-    themeSubscriptions = /* @__PURE__ */ new WeakMap();
-  }
-});
-
 // src/ui/render-diff.ts
 import * as Diff2 from "diff";
-function parseDiffLine(line4) {
-  const match = line4.match(/^([+-\s])(\s*\d*)\s(.*)$/);
+function parseDiffLine(line3) {
+  const match = line3.match(/^([+-\s])(\s*\d*)\s(.*)$/);
   if (!match) return null;
   return { prefix: match[1], lineNum: match[2], content: match[3] };
 }
@@ -28810,10 +29130,10 @@ function renderDiff(diffText, options = {}) {
   const result4 = [];
   let i = 0;
   while (i < lines.length) {
-    const line4 = lines[i] ?? "";
-    const parsed = parseDiffLine(line4);
+    const line3 = lines[i] ?? "";
+    const parsed = parseDiffLine(line3);
     if (!parsed) {
-      result4.push(theme.fg("toolDiffContext", line4));
+      result4.push(theme.fg("toolDiffContext", line3));
       i++;
       continue;
     }
@@ -28905,7 +29225,7 @@ function buildCliTheme(theme) {
 }
 function hlCliSync(code, language, theme) {
   if (!language) {
-    return code.split("\n").map((line4) => theme.fg("mdCodeBlock", line4)).join("\n");
+    return code.split("\n").map((line3) => theme.fg("mdCodeBlock", line3)).join("\n");
   }
   try {
     return cliHighlight().highlight(code, {
@@ -28914,7 +29234,7 @@ function hlCliSync(code, language, theme) {
       theme: buildCliTheme(theme)
     }).trimEnd();
   } catch {
-    return code.split("\n").map((line4) => theme.fg("mdCodeBlock", line4)).join("\n");
+    return code.split("\n").map((line3) => theme.fg("mdCodeBlock", line3)).join("\n");
   }
 }
 function highlightCode(code, language, themeLike = void 0) {
@@ -28933,9 +29253,9 @@ function highlightJson(payload, themeLike = void 0) {
   } catch {
     try {
       const parsed = JSON.parse(payload);
-      return JSON.stringify(parsed, null, 2).split("\n").map((line4) => theme.fg("mdCodeBlock", line4)).join("\n");
+      return JSON.stringify(parsed, null, 2).split("\n").map((line3) => theme.fg("mdCodeBlock", line3)).join("\n");
     } catch {
-      return payload.split("\n").map((line4) => theme.fg("mdCodeBlock", line4)).join("\n");
+      return payload.split("\n").map((line3) => theme.fg("mdCodeBlock", line3)).join("\n");
     }
   }
 }
@@ -29080,7 +29400,7 @@ __export(transcript_viewer_exports, {
   readRunTranscript: () => readRunTranscript
 });
 import * as fs44 from "node:fs";
-import { matchesKey as matchesKey2 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
 function readRunTranscriptCacheKey(manifest, taskId, readOptions) {
   return `${manifest.runId}|${taskId ?? ""}|${readOptions.full ? "full" : "tail"}|${readOptions.maxTailBytes}`;
 }
@@ -29101,7 +29421,7 @@ function textFromContent2(content) {
 }
 function isLikelyDiff(text) {
   const lines = text.split(/\r?\n/);
-  const matched = lines.filter((line4) => /^[-+\s]\d+\s/.test(line4)).length;
+  const matched = lines.filter((line3) => /^[-+\s]\d+\s/.test(line3)).length;
   return matched >= 2 && (text.includes("-") || text.includes("+"));
 }
 function highlightCodeBlocks(input, theme) {
@@ -29120,7 +29440,7 @@ function highlightCodeBlocks(input, theme) {
     index = match.index + match[0].length;
   }
   if (index < input.length) lines.push(...input.slice(index).split(/\r?\n/));
-  return lines.filter((line4) => line4.length > 0);
+  return lines.filter((line3) => line3.length > 0);
 }
 function formatTranscriptEvent(event, themeLike = void 0) {
   const theme = asCrewTheme(themeLike);
@@ -29151,7 +29471,7 @@ function formatTranscriptEvent(event, themeLike = void 0) {
     }
     return [
       header,
-      ...text.split(/\r?\n/).filter(Boolean).map((line4) => theme.fg("muted", line4))
+      ...text.split(/\r?\n/).filter(Boolean).map((line3) => theme.fg("muted", line3))
     ];
   }
   const message = asRecord7(obj.message);
@@ -29166,7 +29486,7 @@ function formatTranscriptEvent(event, themeLike = void 0) {
         return [theme.fg("accent", header), ...highlightCodeBlocks(text, theme)];
       }
       if (lines.length > 1) {
-        const block = lines.map((line4) => role === "assistant" ? theme.bold(line4) : line4).join("\n");
+        const block = lines.map((line3) => role === "assistant" ? theme.bold(line3) : line3).join("\n");
         return [theme.fg("accent", header), ...block.split(/\r?\n/).filter(Boolean)];
       }
       return [theme.fg("accent", header), ...lines.filter(Boolean)];
@@ -29270,30 +29590,27 @@ function renderViewerBase(state2, width, lines, title, subtitle) {
   const totalLines = tailWindow ? skippedCount + visible.length : visualLines.length;
   const totalLabel = tailWindow && skippedCount > 0 ? `\u2265 ${totalLines}` : `${totalLines}`;
   const statusLine = `${totalLabel} lines \xB7 ${totalLines ? Math.round((state2.scroll + visible.length) / totalLines * 100) : 100}% \xB7 auto-scroll ${state2.autoScroll ? "on" : "off"}`;
-  const fg = (color, text) => state2.theme.fg(color, text);
-  const row = (text) => `${fg("border", "\u2502")} ${pad(truncate(text, inner), inner)} ${fg("border", "\u2502")}`;
+  const budget = Math.max(18, width - 2);
+  const row = (text) => railLine(RAIL.body, "border", text, state2.theme, budget);
   const linesOut = [
-    fg("border", `\u256D${"\u2500".repeat(inner + 2)}\u256E`),
-    row(`${fg("accent", title)} ${fg("dim", subtitle)}`),
-    row(fg("dim", "j/k scroll \xB7 PgUp/PgDn \xB7 g/G top/bottom \xB7 a auto \xB7 f full/tail \xB7 q close")),
-    fg("border", `\u251C${"\u2500".repeat(inner + 2)}\u2524`),
-    ...visible.map(row),
-    fg("border", `\u251C${"\u2500".repeat(inner + 2)}\u2524`),
-    row(fg("dim", statusLine)),
-    fg("border", `\u2570${"\u2500".repeat(inner + 2)}\u256F`)
+    canopyLine({ word: "TRANSCRIPT", subject: title, theme: state2.theme, budget, right: subtitle }),
+    row(state2.theme.fg("dim", VIEWER_HINTS))
   ];
   if (skippedCount > 0) {
-    linesOut.splice(linesOut.length - 1, 0, row(fg("muted", `\u2026 (${skippedCount} lines truncated above`)));
+    linesOut.push(row(state2.theme.fg("muted", overflowHint(skippedCount, 0, state2.theme))));
   }
-  return linesOut.map((line4) => truncate(line4, width));
+  for (const visibleLine of visible) linesOut.push(row(visibleLine));
+  linesOut.push(railLine(RAIL.close, "border", state2.theme.fg("dim", statusLine), state2.theme, budget));
+  return linesOut.map((line3) => truncate(line3, width));
 }
-var READ_RUN_TRANSCRIPT_TTL_MS, READ_RUN_TRANSCRIPT_CACHE_MAX, readRunTranscriptCache, DurableTextViewer, DurableTranscriptViewer;
+var READ_RUN_TRANSCRIPT_TTL_MS, READ_RUN_TRANSCRIPT_CACHE_MAX, readRunTranscriptCache, VIEWER_HINTS, DurableTextViewer, DurableTranscriptViewer;
 var init_transcript_viewer = __esm({
   "src/ui/transcript-viewer.ts"() {
     "use strict";
     init_crew_agent_records();
     init_safe_paths();
     init_visual();
+    init_rail();
     init_render_diff();
     init_status_colors();
     init_syntax_highlight();
@@ -29302,6 +29619,14 @@ var init_transcript_viewer = __esm({
     READ_RUN_TRANSCRIPT_TTL_MS = 500;
     READ_RUN_TRANSCRIPT_CACHE_MAX = 32;
     readRunTranscriptCache = /* @__PURE__ */ new Map();
+    VIEWER_HINTS = formatHint([
+      [["j", "k"], "scroll"],
+      [["pageup", "pagedown"], "page"],
+      ["g/G", "top/bottom"],
+      ["a", "auto"],
+      ["f", "full/tail"],
+      [["q", "escape"], "close"]
+    ]);
     DurableTextViewer = class {
       scroll = 0;
       lastHeight = 16;
@@ -29331,7 +29656,7 @@ var init_transcript_viewer = __esm({
         this.unsubscribeTheme();
       }
       handleInput(data) {
-        if (matchesKey2(data, "q") || matchesKey2(data, "escape")) {
+        if (matchesKey3(data, "q") || matchesKey3(data, "escape")) {
           this.done(void 0);
           return;
         }
@@ -29415,7 +29740,7 @@ var init_transcript_viewer = __esm({
         this.unsubscribeTheme();
       }
       handleInput(data) {
-        if (matchesKey2(data, "q") || matchesKey2(data, "escape")) {
+        if (matchesKey3(data, "q") || matchesKey3(data, "escape")) {
           this.done(void 0);
           return;
         }
@@ -29491,7 +29816,7 @@ __export(viewers_exports, {
   openTranscriptViewer: () => openTranscriptViewer,
   selectAgentTask: () => selectAgentTask
 });
-import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey4 } from "@earendil-works/pi-tui";
 async function getViewer() {
   const mod = await Promise.resolve().then(() => (init_transcript_viewer(), transcript_viewer_exports));
   return mod.DurableTranscriptViewer;
@@ -29553,10 +29878,12 @@ async function openLiveConversation(ctx, initialRunId, initialTaskId) {
           return overlay.render(width);
         },
         handleInput(data) {
-          if (matchesKey3(data, "escape") || matchesKey3(data, "q")) {
+          if (matchesKey4(data, "escape") || matchesKey4(data, "q")) {
             overlay.close();
             done(void 0);
+            return;
           }
+          overlay.handleInput(data);
         },
         invalidate() {
         },
@@ -30021,8 +30348,8 @@ function parsePlanDocumentContent(content) {
     const sectionContent = sectionEndMatch >= 0 ? afterTagContent.slice(0, sectionEndMatch) : afterTagContent;
     const promptLines = [];
     const lines = sectionContent.split("\n");
-    for (const line4 of lines) {
-      const trimmed = line4.trim();
+    for (const line3 of lines) {
+      const trimmed = line3.trim();
       if (!trimmed || trimmed.startsWith("<!--")) continue;
       promptLines.push(trimmed);
     }
@@ -30299,10 +30626,10 @@ var init_plan_approval = __esm({
 });
 
 // src/ui/key-utils.ts
-import { matchesKey as matchesKey4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey5 } from "@earendil-works/pi-tui";
 function keyOf(data) {
   for (const id of COMMON_IDS) {
-    if (matchesKey4(data, id)) return id;
+    if (matchesKey5(data, id)) return id;
   }
   return data;
 }
@@ -30332,7 +30659,10 @@ var init_key_utils = __esm({
 // src/ui/keybinding-map.ts
 import * as fs48 from "node:fs";
 import * as path37 from "node:path";
-import { matchesKey as matchesKey5 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey6 } from "@earendil-works/pi-tui";
+function overlayBindingKey(overlay, action) {
+  return `overlay:${overlay}:${action}`;
+}
 function parseKeybindingOverride(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result4 = {};
@@ -30355,6 +30685,14 @@ function paneScopesCompatible(a, b) {
   const bs = Array.isArray(b) ? b : [b];
   return as.some((x) => bs.includes(x));
 }
+function collidesWithOthers(candidate, others, compatible) {
+  for (const other of others) {
+    if (other.action === candidate.action) continue;
+    if (!compatible(candidate, other)) continue;
+    if (candidate.keys.some((k) => other.keys.includes(k))) return true;
+  }
+  return false;
+}
 function computeEffectiveBindings(overrides) {
   const applied = /* @__PURE__ */ new Map();
   for (const def of DEFAULT_BINDINGS) {
@@ -30368,17 +30706,35 @@ function computeEffectiveBindings(overrides) {
     if (!ov || ov.length === 0) continue;
     const ob = applied.get(def.action);
     if (!ob) continue;
-    for (const other of effective) {
-      if (other.action === def.action) continue;
-      if (!paneScopesCompatible(ob.pane, other.pane)) continue;
-      if (ob.keys.some((k) => other.keys.includes(k))) {
-        reverted.add(def.action);
-        break;
-      }
-    }
+    if (collidesWithOthers(ob, effective, (a, b) => paneScopesCompatible(a.pane, b.pane))) reverted.add(def.action);
   }
   const bindings = reverted.size > 0 ? effective.map((b) => reverted.has(b.action) ? DEFAULT_BINDINGS.find((d) => d.action === b.action) ?? b : b) : effective;
-  return { bindings, reverted: [...reverted] };
+  const overlayBindings = /* @__PURE__ */ new Map();
+  for (const [overlay, defaults] of DEFAULT_OVERLAY_BINDINGS) {
+    const perOverlay = defaults.map((def) => {
+      const ov = overrides[overlayBindingKey(overlay, def.action)];
+      return ov && ov.length > 0 ? { overlay, action: def.action, keys: [...ov] } : def;
+    });
+    for (const def of defaults) {
+      const key = overlayBindingKey(overlay, def.action);
+      const ov = overrides[key];
+      if (!ov || ov.length === 0) continue;
+      const ob = perOverlay.find((b) => b.action === def.action);
+      if (!ob) continue;
+      if (collidesWithOthers(ob, perOverlay, () => true)) reverted.add(key);
+    }
+    if (reverted.size === 0) {
+      overlayBindings.set(overlay, perOverlay);
+      continue;
+    }
+    overlayBindings.set(
+      overlay,
+      perOverlay.map(
+        (b) => reverted.has(overlayBindingKey(overlay, b.action)) ? defaults.find((d) => d.action === b.action) ?? b : b
+      )
+    );
+  }
+  return { bindings, overlayBindings, reverted: [...reverted] };
 }
 function readConfigKeybindings(cwd) {
   try {
@@ -30412,10 +30768,14 @@ function getEffectiveBindings(cwd = process.cwd()) {
     return _effectiveCache.bindings;
   }
   const merged = { ...readConfigKeybindings(cwd), ...readEnvKeybindings() };
-  const { bindings, reverted } = computeEffectiveBindings(merged);
+  const { bindings, overlayBindings, reverted } = computeEffectiveBindings(merged);
   _overrideWarnings = reverted.map((a) => `keybinding override for '${a}' collides with another binding \u2014 reverting to default`);
-  _effectiveCache = { env: envRaw, configMtime, cwd, bindings };
+  _effectiveCache = { env: envRaw, configMtime, cwd, bindings, overlayBindings };
   return bindings;
+}
+function getEffectiveOverlayBindings(overlay) {
+  getEffectiveBindings();
+  return _effectiveCache?.overlayBindings.get(overlay) ?? DEFAULT_OVERLAY_BINDINGS.get(overlay) ?? [];
 }
 function getKeybindingOverrideWarnings() {
   getEffectiveBindings();
@@ -30432,12 +30792,27 @@ function dashboardActionForKey(data, activePane) {
     if (!paneScopeMatches(binding.pane, activePane)) continue;
     for (const candidate of binding.keys) {
       if (key === candidate) return binding.action;
-      if (matchesKey5(data, candidate)) return binding.action;
+      if (matchesKey6(data, candidate)) return binding.action;
     }
   }
   return void 0;
 }
-var DASHBOARD_KEYS, DEFAULT_BINDINGS, KEY_RESERVED, KEYBINDINGS_ENV, VALID_OVERRIDE_ACTIONS, _effectiveCache, _overrideWarnings;
+function overlayActionForKey(overlay, data) {
+  const bindings = getEffectiveOverlayBindings(overlay);
+  for (const binding of bindings) {
+    if (binding.keys.includes(data)) return binding.action;
+  }
+  const key = keyOf(data);
+  for (const binding of bindings) {
+    for (const candidate of binding.keys) {
+      if (candidate.length === 1) continue;
+      if (key === candidate) return binding.action;
+      if (matchesKey6(data, candidate)) return binding.action;
+    }
+  }
+  return void 0;
+}
+var DASHBOARD_KEYS, DEFAULT_BINDINGS, KEY_RESERVED, OVERLAY_KEYS, OVERLAY_TABLE, OVERLAY_BINDING_KEYS, DEFAULT_OVERLAY_BINDINGS, KEYBINDINGS_ENV, VALID_OVERRIDE_ACTIONS, _effectiveCache, _overrideWarnings;
 var init_keybinding_map = __esm({
   "src/ui/keybinding-map.ts"() {
     "use strict";
@@ -30458,7 +30833,6 @@ var init_keybinding_map = __esm({
         transcript: ["v"],
         liveConversation: ["V"],
         reload: ["r"],
-        progressToggle: ["p"],
         browser: ["b"]
       },
       pane: {
@@ -30573,7 +30947,6 @@ var init_keybinding_map = __esm({
       { keys: DASHBOARD_KEYS.root.transcript, action: "transcript" },
       { keys: DASHBOARD_KEYS.root.liveConversation, action: "live-conversation" },
       { keys: DASHBOARD_KEYS.root.reload, action: "reload" },
-      { keys: DASHBOARD_KEYS.root.progressToggle, action: "progressToggle" },
       // Agents & Jobs browser (one-keypress overlay, mirrors live-conversation).
       // Collision analysis: "b" is unbound everywhere else — root-unscoped is
       // safe; inside the browser overlay itself "p" is free because overlays
@@ -30603,8 +30976,53 @@ var init_keybinding_map = __esm({
       ...Object.values(DASHBOARD_KEYS.schedules).flat(),
       ...Object.values(DASHBOARD_KEYS.notification).flat()
     ]);
+    OVERLAY_KEYS = {
+      "agent-picker": {
+        close: ["escape", "q"],
+        up: ["k", "up"],
+        down: ["j", "down"],
+        select: ["return"]
+      },
+      confirm: {
+        confirm: ["y", "Y"],
+        /** Enter is dual-role: the overlay resolves it with `defaultAction`. */
+        submit: ["return"],
+        cancel: ["n", "N", "escape", "q"]
+      },
+      "mailbox-detail": {
+        close: ["escape", "q"],
+        toggleSide: ["tab", "	"],
+        up: ["k", "up"],
+        down: ["j", "down"],
+        toggleDetail: ["return"],
+        ack: ["A"],
+        nudge: ["N"],
+        compose: ["C"],
+        ackAll: ["X"]
+      },
+      "mailbox-compose": {
+        cancel: ["escape"],
+        preview: ["P"],
+        nextField: ["tab", "	"],
+        space: [" "],
+        backspace: ["backspace"],
+        submit: ["return"]
+      }
+    };
+    OVERLAY_TABLE = Object.entries(OVERLAY_KEYS);
+    OVERLAY_BINDING_KEYS = new Set(
+      OVERLAY_TABLE.flatMap(
+        ([overlay, actions]) => Object.keys(actions).map((action) => overlayBindingKey(overlay, action))
+      )
+    );
+    DEFAULT_OVERLAY_BINDINGS = new Map(
+      OVERLAY_TABLE.map(([overlay, actions]) => [
+        overlay,
+        Object.entries(actions).map(([action, keys]) => ({ overlay, action, keys }))
+      ])
+    );
     KEYBINDINGS_ENV = "PI_CREW_KEYBINDINGS";
-    VALID_OVERRIDE_ACTIONS = new Set(DEFAULT_BINDINGS.map((b) => b.action));
+    VALID_OVERRIDE_ACTIONS = /* @__PURE__ */ new Set([...DEFAULT_BINDINGS.map((b) => b.action), ...OVERLAY_BINDING_KEYS]);
     _effectiveCache = null;
     _overrideWarnings = [];
   }
@@ -30775,9 +31193,9 @@ function parseMailboxMessage(raw, expectedDirection) {
 function parseMailboxFile(filePath, direction) {
   const messages = [];
   const raw = fs49.readFileSync(filePath, "utf-8");
-  for (const line4 of raw.split(/\r?\n/).filter(Boolean)) {
+  for (const line3 of raw.split(/\r?\n/).filter(Boolean)) {
     try {
-      const message = parseMailboxMessage(JSON.parse(line4), direction);
+      const message = parseMailboxMessage(JSON.parse(line3), direction);
       if (message) messages.push(message);
     } catch {
     }
@@ -31124,9 +31542,9 @@ function updateMailboxMessageReply(manifest, originalMessageId, replyContent) {
       const lines = fs49.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
       let localFound = false;
       const updatedLines = [];
-      for (const line4 of lines) {
+      for (const line3 of lines) {
         try {
-          const parsed = JSON.parse(line4);
+          const parsed = JSON.parse(line3);
           const msg = parseMailboxMessage(parsed, direction);
           if (msg && msg.id === originalMessageId) {
             msg.repliedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -31134,10 +31552,10 @@ function updateMailboxMessageReply(manifest, originalMessageId, replyContent) {
             updatedLines.push(JSON.stringify(redactSecrets(msg)));
             localFound = true;
           } else {
-            updatedLines.push(line4);
+            updatedLines.push(line3);
           }
         } catch {
-          updatedLines.push(line4);
+          updatedLines.push(line3);
         }
       }
       if (localFound) {
@@ -31175,10 +31593,10 @@ function validateMailbox(manifest, options = {}) {
       const validLines = [];
       for (let i = 0; i < lines.length; i += 1) {
         if (options.signal?.aborted) break;
-        const line4 = lines[i];
-        if (!line4) continue;
+        const line3 = lines[i];
+        if (!line3) continue;
         try {
-          const parsed = JSON.parse(line4);
+          const parsed = JSON.parse(line3);
           const message = parseMailboxMessage(parsed, direction);
           if (!message) throw new Error("invalid message schema");
           validLines.push(JSON.stringify(redactSecrets(message)));
@@ -32849,8 +33267,8 @@ function confidenceToThreshold(confidence) {
 function recordSkillActivation(cwd, activation) {
   ensureSkillMetricsDir(cwd, activation.runId);
   const path103 = getSkillActivationsPath(cwd, activation.runId);
-  const line4 = JSON.stringify(activation) + "\n";
-  writeFileSync4(path103, line4, { flag: "a", encoding: "utf-8" });
+  const line3 = JSON.stringify(activation) + "\n";
+  writeFileSync4(path103, line3, { flag: "a", encoding: "utf-8" });
   return activation;
 }
 function getSkillActivations(cwd, runId) {
@@ -32862,7 +33280,7 @@ function getSkillActivations(cwd, runId) {
   if (!content.trim()) {
     return [];
   }
-  return content.split("\n").filter((line4) => line4.trim()).map((line4) => JSON.parse(line4));
+  return content.split("\n").filter((line3) => line3.trim()).map((line3) => JSON.parse(line3));
 }
 function computeSkillMetrics(skillId, activations) {
   const skillActivations = activations.filter((a) => a.skillId === skillId);
@@ -33191,8 +33609,8 @@ function readSkillMarkdown(cwd, name) {
 function frontmatterDescription(content) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
   if (!match) return void 0;
-  const line4 = match[1].split(/\r?\n/).find((entry) => entry.startsWith("description:"));
-  return line4?.slice("description:".length).trim();
+  const line3 = match[1].split(/\r?\n/).find((entry) => entry.startsWith("description:"));
+  return line3?.slice("description:".length).trim();
 }
 function stripFrontmatter(content) {
   return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim();
@@ -34242,9 +34660,9 @@ function readLiveAgentControlRequests(manifest, taskId, cursor = { offset: 0 }) 
   if (!fs54.existsSync(filePath)) return { requests: [], cursor };
   const text = fs54.readFileSync(filePath, "utf-8");
   const lines = text.split(/\r?\n/).filter(Boolean);
-  const requests = lines.slice(cursor.offset).flatMap((line4) => {
+  const requests = lines.slice(cursor.offset).flatMap((line3) => {
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       return parsed && parsed.runId === manifest.runId && parsed.taskId === taskId ? [parsed] : [];
     } catch {
       return [];
@@ -35492,8 +35910,8 @@ function readDescription(content) {
   }
   const legacyMatch = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
   if (legacyMatch) {
-    const line4 = legacyMatch[1].split(/\r?\n/).find((entry) => entry.startsWith("description:"));
-    const fallback2 = line4?.slice("description:".length).trim() ?? "";
+    const line3 = legacyMatch[1].split(/\r?\n/).find((entry) => entry.startsWith("description:"));
+    const fallback2 = line3?.slice("description:".length).trim() ?? "";
     return { description: fallback2, parseError: parsed.error };
   }
   return { description: "", parseError: parsed.error };
@@ -36151,15 +36569,15 @@ var init_mcp_proxy = __esm({
 // src/runtime/output/sidechain-output.ts
 import * as fs59 from "node:fs";
 import * as path45 from "node:path";
-function queueJsonlLine(filePath, line4) {
+function queueJsonlLine(filePath, line3) {
   const pending2 = pendingJsonlBatches.get(filePath);
   if (pending2) {
-    pending2.lines.push(line4);
+    pending2.lines.push(line3);
     return;
   }
   const timer = setTimeout(() => flushJsonlBatch(filePath), JSONL_FLUSH_MS);
   timer.unref();
-  pendingJsonlBatches.set(filePath, { lines: [line4], timer });
+  pendingJsonlBatches.set(filePath, { lines: [line3], timer });
 }
 function flushJsonlBatch(filePath) {
   const pending2 = pendingJsonlBatches.get(filePath);
@@ -36177,8 +36595,8 @@ function writeSidechainEntry(filePath, entry) {
   queueJsonlLine(filePath, `${JSON.stringify(redactSecrets({ isSidechain: true, timestamp: (/* @__PURE__ */ new Date()).toISOString(), ...entry }))}
 `);
 }
-function appendBatchedJsonlLine(filePath, line4) {
-  queueJsonlLine(filePath, line4);
+function appendBatchedJsonlLine(filePath, line3) {
+  queueJsonlLine(filePath, line3);
 }
 function flushPendingSidechainWrites() {
   for (const filePath of [...pendingJsonlBatches.keys()]) flushJsonlBatch(filePath);
@@ -36474,13 +36892,13 @@ var require_scope = __commonJS({
       }
     };
     exports.ValueScopeName = ValueScopeName;
-    var line4 = (0, code_1._)`\n`;
+    var line3 = (0, code_1._)`\n`;
     var ValueScope = class extends Scope {
       constructor(opts) {
         super(opts);
         this._values = {};
         this._scope = opts.scope;
-        this.opts = { ...opts, _n: opts.lines ? line4 : code_1.nil };
+        this.opts = { ...opts, _n: opts.lines ? line3 : code_1.nil };
       }
       get() {
         return this._scope;
@@ -46091,7 +46509,7 @@ function scanRecentFsFailureCauses(cwd) {
 function firstOutputLine(stdout, stderr) {
   const output = `${stdout ?? ""}
 ${stderr ?? ""}`.trim();
-  return output.split(/\r?\n/).find((line4) => line4.trim().length > 0)?.trim() ?? "available";
+  return output.split(/\r?\n/).find((line3) => line3.trim().length > 0)?.trim() ?? "available";
 }
 function commandExists(command, args) {
   const cacheKey2 = `${command} ${args.join(" ")}`;
@@ -46433,7 +46851,7 @@ function buildTeamDoctorReport(input) {
   const text = lines.join("\n");
   return {
     text,
-    hasErrors: sections.some((sectionLines) => sectionLines.some((line4) => line4.includes("FAIL"))),
+    hasErrors: sections.some((sectionLines) => sectionLines.some((line3) => line3.includes("FAIL"))),
     drift: driftResult.hasDrift ? driftResult : void 0
   };
 }
@@ -48597,13 +49015,13 @@ var init_ndjson = __esm({
         const out = [];
         let idx = this.buffer.indexOf(10);
         while (idx !== -1) {
-          const line4 = this.buffer.subarray(0, idx);
-          if (line4.length > 0) {
-            if (line4.length > MAX_BROKER_FRAME_BYTES) {
-              throw new BrokerError("oversize-frame", `line exceeds ${MAX_BROKER_FRAME_BYTES} bytes (got ${line4.length})`);
+          const line3 = this.buffer.subarray(0, idx);
+          if (line3.length > 0) {
+            if (line3.length > MAX_BROKER_FRAME_BYTES) {
+              throw new BrokerError("oversize-frame", `line exceeds ${MAX_BROKER_FRAME_BYTES} bytes (got ${line3.length})`);
             }
             try {
-              out.push(JSON.parse(line4.toString("utf8")));
+              out.push(JSON.parse(line3.toString("utf8")));
             } catch (cause) {
               throw new BrokerError("protocol", `ndjson: malformed JSON: ${cause.message}`);
             }
@@ -50006,7 +50424,7 @@ function applyLineCap(lines, cap) {
   if (lines.length <= cap) return { lines, elided: 0 };
   const target = Math.max(1, cap - 1);
   const removeCount = lines.length - target;
-  const removable = lines.map((line4, index) => ({ line: line4, index })).filter((item) => !item.line.isRoot).sort((a, b) => b.line.depth - a.line.depth || b.index - a.index).slice(0, removeCount);
+  const removable = lines.map((line3, index) => ({ line: line3, index })).filter((item) => !item.line.isRoot).sort((a, b) => b.line.depth - a.line.depth || b.index - a.index).slice(0, removeCount);
   if (removable.length === 0) return { lines, elided: 0 };
   const removedIndexes = new Set(removable.map((item) => item.index));
   const kept = lines.filter((_, index) => !removedIndexes.has(index));
@@ -50461,7 +50879,7 @@ function formatTaskGraphLines(tasks) {
   return tasks.map((task) => {
     const icon = task.status === "completed" ? "\u2713" : task.status === "running" ? "\u280B" : task.status === "failed" ? "\u2717" : task.status === "cancelled" || task.status === "skipped" ? "\u25A0" : task.status === "needs_attention" ? "\u26A0" : "\u25E6";
     const wait = waitingReason(task, tasks);
-    return `- ${icon} ${task.id} [${task.status}] ${task.role}->${task.agent}${wait && wait !== "ready" ? ` (${wait})` : ""}`;
+    return `- ${icon} ${task.id} [${task.status}] ${task.role}\u25B8${task.agent}${wait && wait !== "ready" ? ` (${wait})` : ""}`;
   });
 }
 var init_task_display = __esm({
@@ -50489,8 +50907,8 @@ function parseKnowledgeSections(content) {
   const lines = content.split(/\r?\n/);
   const sections = [];
   let current = null;
-  for (const line4 of lines) {
-    const m = /^##\s+(.+?)\s*$/.exec(line4);
+  for (const line3 of lines) {
+    const m = /^##\s+(.+?)\s*$/.exec(line3);
     if (m) {
       if (current)
         sections.push({
@@ -50498,9 +50916,9 @@ function parseKnowledgeSections(content) {
           body: current.lines.join("\n"),
           headerTokens: tokenizeHeader(current.header)
         });
-      current = { header: m[1], lines: [line4] };
+      current = { header: m[1], lines: [line3] };
     } else if (current) {
-      current.lines.push(line4);
+      current.lines.push(line3);
     }
   }
   if (current)
@@ -51608,8 +52026,8 @@ function compactUsage(total, foundKeys) {
 function parseSessionUsageFromJsonlText(text) {
   let total = {};
   const foundKeys = /* @__PURE__ */ new Set();
-  for (const line4 of text.split(/\r?\n/)) {
-    const trimmed = line4.trim();
+  for (const line3 of text.split(/\r?\n/)) {
+    const trimmed = line3.trim();
     if (!trimmed) continue;
     try {
       const usage = usageFromValue(JSON.parse(trimmed));
@@ -52287,8 +52705,8 @@ async function runChildProcessTask(ctx) {
             data: { ...event }
           }).catch((error2) => logInternalError("task-runner.lifecycle-event", error2, `taskId=${task.id}, type=${event.type}`));
         },
-        onStdoutLine: (line4) => {
-          appendCrewAgentOutputBuffered(manifest, task.id, line4);
+        onStdoutLine: (line3) => {
+          appendCrewAgentOutputBuffered(manifest, task.id, line3);
           persistHeartbeat();
         },
         onJsonEvent: (event) => {
@@ -53070,9 +53488,9 @@ function snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus) {
       parts.push("## Tracked changes (`git diff HEAD --binary`)", "```diff", trackedDiff, "```", "");
     }
     const MAX_FILE_BYTES = 256 * 1024;
-    for (const line4 of dirtyStatus.split("\n")) {
-      if (!line4.startsWith("?? ")) continue;
-      const rel = line4.slice(3).replace(/^"|"$/g, "");
+    for (const line3 of dirtyStatus.split("\n")) {
+      if (!line3.startsWith("?? ")) continue;
+      const rel = line3.slice(3).replace(/^"|"$/g, "");
       if (!rel) continue;
       try {
         const abs = path64.join(worktreePath, rel);
@@ -53162,8 +53580,8 @@ async function prepareTaskWorkspaceAsync(manifest, task, stepSeedPaths) {
         return worktreePath;
       }
     })().replace(/\\/g, "/").toLowerCase() : worktreePath;
-    worktreeExists = worktreeList.split("\n").some((line4) => {
-      const trimmed = line4.trim();
+    worktreeExists = worktreeList.split("\n").some((line3) => {
+      const trimmed = line3.trim();
       const matchPath = trimmed.startsWith("worktree ") ? trimmed.slice(9) : trimmed;
       if (process.platform === "win32") {
         return matchPath.replace(/\\/g, "/").toLowerCase() === normalizedWtPath;
@@ -53275,8 +53693,8 @@ async function captureWorktreeDiffStatAsync(worktreePath) {
     let filesChanged = 0;
     let insertions = 0;
     let deletions = 0;
-    for (const line4 of numstat.split(/\r?\n/).filter(Boolean)) {
-      const [add, del] = line4.split(/\s+/);
+    for (const line3 of numstat.split(/\r?\n/).filter(Boolean)) {
+      const [add, del] = line3.split(/\s+/);
       filesChanged += 1;
       insertions += Number(add) || 0;
       deletions += Number(del) || 0;
@@ -53510,8 +53928,8 @@ function validateWorkerOutput(role, output) {
 function isStderrOnlyResult(text) {
   if (!text?.trim()) return false;
   let noiseLines = 0;
-  for (const line4 of text.split("\n")) {
-    const trimmed = line4.trim();
+  for (const line3 of text.split("\n")) {
+    const trimmed = line3.trim();
     if (!trimmed) continue;
     const isNoise = BRACKET_TAG_LOG_LINE.test(trimmed) || PYTHON_WARNING_LINE.test(trimmed) || TIMESTAMPED_LOG_LINE.test(trimmed);
     if (!isNoise) return false;
@@ -53732,7 +54150,7 @@ function estimateTokens(text) {
   return countTokens(text);
 }
 function firstErrorLine(text) {
-  return text.split(/\r?\n/).find((line4) => /error|failed|exception|panic/i.test(line4))?.trim();
+  return text.split(/\r?\n/).find((line3) => /error|failed|exception|panic/i.test(line3))?.trim();
 }
 function truncateField(value, maxLength) {
   if (value.length <= maxLength) return value;
@@ -54325,8 +54743,8 @@ function evaluateCompletionMutationGuard(input) {
   const observedTools = [];
   let observedMutation = false;
   const text = transcriptText(input);
-  for (const line4 of text.split("\n")) {
-    const trimmed = line4.trim();
+  for (const line3 of text.split("\n")) {
+    const trimmed = line3.trim();
     if (!trimmed) continue;
     let event;
     try {
@@ -55006,8 +55424,8 @@ function parseSpecEvidenceFooter(text) {
   while (end > 0 && isBlank(lines[end - 1] ?? "")) end--;
   let start = end;
   while (start > 0) {
-    const line4 = lines[start - 1] ?? "";
-    if (isBlank(line4) || isMarker(line4) || ENTRY_PATTERN.test(line4.trim())) {
+    const line3 = lines[start - 1] ?? "";
+    if (isBlank(line3) || isMarker(line3) || ENTRY_PATTERN.test(line3.trim())) {
       start--;
       continue;
     }
@@ -55017,13 +55435,13 @@ function parseSpecEvidenceFooter(text) {
   const citedIds = [];
   let sawMarker = false;
   for (let i = start; i < end; i++) {
-    const line4 = lines[i] ?? "";
-    if (isMarker(line4)) {
+    const line3 = lines[i] ?? "";
+    if (isMarker(line3)) {
       sawMarker = true;
       continue;
     }
-    if (isBlank(line4)) continue;
-    const match = ENTRY_PATTERN.exec(line4.trim());
+    if (isBlank(line3)) continue;
+    const match = ENTRY_PATTERN.exec(line3.trim());
     if (!match) continue;
     citedIds.push(match[1]);
     entries[match[1]] = match[2].trim();
@@ -55242,8 +55660,8 @@ var init_spec_evidence = __esm({
     init_spec_sandbox();
     FOOTER_MARKER = "SPEC-EVIDENCE:";
     ENTRY_PATTERN = /^([A-Za-z0-9][A-Za-z0-9._-]{0,127}):\s?(.*)$/;
-    isBlank = (line4) => line4.trim() === "";
-    isMarker = (line4) => line4.trim() === FOOTER_MARKER;
+    isBlank = (line3) => line3.trim() === "";
+    isMarker = (line3) => line3.trim() === FOOTER_MARKER;
   }
 });
 
@@ -58174,6 +58592,7 @@ __export(theme_discovery_exports, {
   getActivePiTheme: () => getActivePiTheme,
   setPiTheme: () => setPiTheme
 });
+import * as fs90 from "node:fs";
 function detectThemeMode(json) {
   const vars = json.vars;
   const bgRaw = vars?.bg;
@@ -58207,9 +58626,8 @@ function discoverPiThemes() {
   }
   const dir = customThemesDir2();
   try {
-    const fs129 = __require("node:fs");
-    if (dir && fs129.existsSync(dir)) {
-      for (const file of fs129.readdirSync(dir)) {
+    if (dir && fs90.existsSync(dir)) {
+      for (const file of fs90.readdirSync(dir)) {
         if (!file.endsWith(".json")) continue;
         const name = file.slice(0, -5);
         if (seen.has(name)) continue;
@@ -58217,7 +58635,7 @@ function discoverPiThemes() {
         let displayName;
         let mode;
         try {
-          const json = JSON.parse(fs129.readFileSync(fullPath, "utf8"));
+          const json = JSON.parse(fs90.readFileSync(fullPath, "utf8"));
           displayName = typeof json.name === "string" ? json.name : void 0;
           mode = detectThemeMode(json);
         } catch {
@@ -58238,29 +58656,27 @@ function discoverPiThemes() {
 }
 function getActivePiTheme() {
   try {
-    const fs129 = __require("node:fs");
     const p = settingsPath();
-    if (!p || !fs129.existsSync(p)) return void 0;
-    const json = JSON.parse(fs129.readFileSync(p, "utf8"));
+    if (!p || !fs90.existsSync(p)) return void 0;
+    const json = JSON.parse(fs90.readFileSync(p, "utf8"));
     return typeof json.theme === "string" ? json.theme : void 0;
   } catch {
     return void 0;
   }
 }
 function setPiTheme(name) {
-  const fs129 = __require("node:fs");
   const p = settingsPath();
   if (!p) throw new Error("Could not determine settings path (no HOME).");
   let settings = {};
   try {
-    if (fs129.existsSync(p)) {
-      settings = JSON.parse(fs129.readFileSync(p, "utf8"));
+    if (fs90.existsSync(p)) {
+      settings = JSON.parse(fs90.readFileSync(p, "utf8"));
     }
   } catch {
     settings = {};
   }
   settings.theme = name;
-  fs129.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  fs90.writeFileSync(p, JSON.stringify(settings, null, 2) + "\n", "utf8");
   return p;
 }
 function formatThemesListing() {
@@ -58512,7 +58928,7 @@ Use 'team-settings theme <name>' to switch the Pi UI theme, which drives code-bl
     if (!key) return result("Usage: team-settings get <key>\nUse 'team-settings schema' to see all known keys.", { ...ERR }, true);
     const value = getNested(effective, key);
     let note2 = "";
-    if (!KNOWN_KEYS.has(key) && !key.startsWith("agents.overrides.")) {
+    if (!KNOWN_KEYS.has(key) && !key.startsWith("agents.overrides.") && !key.startsWith("ui.")) {
       const suggestion = suggestConfigKey(key, KNOWN_SORTED);
       if (suggestion) note2 = `
 (did you mean '${suggestion}'?)`;
@@ -58765,11 +59181,18 @@ var init_handle_settings = __esm({
       // ui
       "ui.widgetPlacement",
       "ui.widgetMaxLines",
+      // M1-9/P1-8: widgetRowStyle + inlinePanel are schema keys (config-schema.ts
+      // PiTeamsUiConfigSchema) and ui.autoCloseDashboardMs is parsed by
+      // parseUiConfig — keep this list mirroring the schema's ui block so
+      // `team-settings schema` lists what the schema actually accepts.
+      "ui.widgetRowStyle",
+      "ui.inlinePanel",
       "ui.dashboardPlacement",
       "ui.dashboardWidth",
       "ui.dashboardLiveRefreshMs",
       "ui.autoOpenDashboard",
       "ui.autoOpenDashboardForForegroundRuns",
+      "ui.autoCloseDashboardMs",
       "ui.showModel",
       "ui.showTokens",
       "ui.showTools",
@@ -58798,7 +59221,7 @@ var init_handle_settings = __esm({
 });
 
 // src/extension/team-tool/workflow-manage.ts
-import { existsSync as existsSync57, readFileSync as readFileSync63, rmSync as rmSync19, writeFileSync as writeFileSync9 } from "node:fs";
+import { existsSync as existsSync58, readFileSync as readFileSync64, rmSync as rmSync19, writeFileSync as writeFileSync10 } from "node:fs";
 import { dirname as dirname35, join as join66 } from "node:path";
 function allowedWorkflowDirs(cwd) {
   return [join66(projectCrewRoot(cwd), "workflows"), join66(userPiRoot(), "workflows"), join66(packageRoot(), "workflows")];
@@ -58843,7 +59266,7 @@ function handleWorkflowCreate(params, ctx) {
   try {
     const scope = params.scope === "user" ? "user" : "project";
     const filePath = resolveWorkflowWritePath(ctx.cwd, name, scope);
-    writeFileSync9(filePath, script, "utf-8");
+    writeFileSync10(filePath, script, "utf-8");
     return result(
       `Dynamic workflow '${name}' created at ${filePath}.
 
@@ -58868,9 +59291,9 @@ function handleWorkflowGet(params, ctx) {
   if (!wf) return result(`Workflow '${name}' not found.`, { action: "workflow-get", status: "error" }, true);
   const isDynamic = wf.runtime === "dynamic";
   let source = "(static workflow \u2014 no script source)";
-  if (isDynamic && wf.filePath && existsSync57(wf.filePath)) {
+  if (isDynamic && wf.filePath && existsSync58(wf.filePath)) {
     try {
-      source = readFileSync63(wf.filePath, "utf-8").slice(0, 8e3);
+      source = readFileSync64(wf.filePath, "utf-8").slice(0, 8e3);
     } catch (error) {
       logInternalError("workflow-manage.get", error, `filePath=${wf.filePath}`);
     }
@@ -58941,7 +59364,7 @@ function handleWorkflowSave(params, ctx) {
   if (validationError) return result(`workflow-save rejected: ${validationError}`, { action: "workflow-save", status: "error" }, true);
   try {
     const filePath = resolveWorkflowWritePath(ctx.cwd, name, "project");
-    writeFileSync9(filePath, script, "utf-8");
+    writeFileSync10(filePath, script, "utf-8");
     return result(
       `Saved dynamic workflow '${name}' \u2192 ${filePath}.`,
       { action: "workflow-save", status: "ok", data: { name, filePath } },
@@ -59164,7 +59587,7 @@ var init_manage = __esm({
 
 // src/runtime/orphan-worker-registry.ts
 import { execFileSync as execFileSync7 } from "node:child_process";
-import * as fs90 from "node:fs";
+import * as fs91 from "node:fs";
 import * as path70 from "node:path";
 function getProcessStartTime2(pid) {
   try {
@@ -59184,7 +59607,7 @@ function getProcessStartTime2(pid) {
 }
 function getProcessStartTimeLinux(pid) {
   try {
-    const stat2 = fs90.readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const stat2 = fs91.readFileSync(`/proc/${pid}/stat`, "utf-8");
     const lastParen = stat2.lastIndexOf(")");
     if (lastParen === -1) return void 0;
     const fieldsAfterComm2 = stat2.slice(lastParen + 1).trim().split(/\s+/);
@@ -59233,7 +59656,7 @@ function isValidId(id) {
 function readRegistry() {
   const p = getRegistryPath();
   try {
-    const raw = fs90.readFileSync(p, "utf-8");
+    const raw = fs91.readFileSync(p, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
@@ -59276,8 +59699,8 @@ function writeRegistry(entries) {
     );
     return;
   }
-  if (!fs90.existsSync(dir)) {
-    fs90.mkdirSync(dir, { recursive: true, mode: 448 });
+  if (!fs91.existsSync(dir)) {
+    fs91.mkdirSync(dir, { recursive: true, mode: 448 });
   }
   try {
     atomicWriteFile(p, JSON.stringify(entries, null, 2), { mode: 384 });
@@ -59411,14 +59834,14 @@ var init_orphan_worker_registry = __esm({
 
 // src/runtime/async-runner.ts
 import { spawn as spawn6 } from "node:child_process";
-import * as fs91 from "node:fs";
+import * as fs92 from "node:fs";
 import { createRequire as createRequire6 } from "node:module";
 import * as path71 from "node:path";
 import { pathToFileURL as pathToFileURL2 } from "node:url";
 function jitiRegisterPathFromPackageJson(packageJsonPath) {
   return path71.join(path71.dirname(packageJsonPath), "lib", "jiti-register.mjs");
 }
-function resolveJitiRegisterPath(pkgRoot, exists = fs91.existsSync) {
+function resolveJitiRegisterPath(pkgRoot, exists = fs92.existsSync) {
   const effectiveRoot = pkgRoot ?? packageRoot();
   let current = path71.resolve(effectiveRoot);
   const root = path71.parse(current).root;
@@ -59510,7 +59933,7 @@ function buildBrokerStdinLine(runId, socketPath, tasks) {
 async function spawnBackgroundTeamRun(manifest) {
   const runnerPath = path71.join(packageRoot(), "src", "runtime", "background-runner.ts");
   const logPath = path71.join(manifest.stateRoot, "background.log");
-  fs91.mkdirSync(manifest.stateRoot, { recursive: true });
+  fs92.mkdirSync(manifest.stateRoot, { recursive: true });
   const filteredEnv = sanitizeEnvSecrets(process.env, {
     allowList: BACKGROUND_RUNNER_ENV_ALLOWLIST
   });
@@ -59527,7 +59950,7 @@ async function spawnBackgroundTeamRun(manifest) {
     throw new Error(message);
   }
   const command = getBackgroundRunnerCommand(runnerPath, manifest.cwd, manifest.runId, loader, manifest.stateRoot);
-  fs91.appendFileSync(logPath, `[pi-crew] background loader=${command.loader}
+  fs92.appendFileSync(logPath, `[pi-crew] background loader=${command.loader}
 `, "utf-8");
   const spawnOpts = {
     cwd: manifest.cwd,
@@ -59544,7 +59967,7 @@ async function spawnBackgroundTeamRun(manifest) {
   };
   const child = spawn6(process.execPath, command.args, spawnOpts);
   try {
-    let line4;
+    let line3;
     const { getActiveBrokerIssuer: getActiveBrokerIssuer2 } = await Promise.resolve().then(() => (init_broker_issuer(), broker_issuer_exports));
     const issuer = getActiveBrokerIssuer2();
     if (issuer) {
@@ -59562,8 +59985,8 @@ async function spawnBackgroundTeamRun(manifest) {
         }
       }
       if (socketPath && Object.keys(tasks).length > 0) {
-        line4 = buildBrokerStdinLine(manifest.runId, socketPath, tasks);
-        child.stdin?.write(line4);
+        line3 = buildBrokerStdinLine(manifest.runId, socketPath, tasks);
+        child.stdin?.write(line3);
       } else {
         child.stdin?.write("\n");
       }
@@ -59593,7 +60016,7 @@ async function spawnBackgroundTeamRun(manifest) {
     stderrChunks.length = 0;
     try {
       const redacted = redactSecretString(body);
-      fs91.appendFileSync(logPath, `[child stderr] ${redacted}${redacted.endsWith("\n") ? "" : "\n"}`, "utf-8");
+      fs92.appendFileSync(logPath, `[child stderr] ${redacted}${redacted.endsWith("\n") ? "" : "\n"}`, "utf-8");
     } catch {
     }
   };
@@ -59602,7 +60025,7 @@ async function spawnBackgroundTeamRun(manifest) {
       if (!stderrTruncated) {
         stderrTruncated = true;
         try {
-          fs91.appendFileSync(logPath, `[child stderr truncated at ${STDERR_CAPTURE_LIMIT} bytes]
+          fs92.appendFileSync(logPath, `[child stderr truncated at ${STDERR_CAPTURE_LIMIT} bytes]
 `, "utf-8");
         } catch {
         }
@@ -59729,7 +60152,7 @@ var init_async_runner = __esm({
 });
 
 // src/runtime/goal-workflow/goal-state-store.ts
-import { closeSync as closeSync17, existsSync as existsSync60, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync27, readFileSync as readFileSync65, statSync as statSync46, unlinkSync as unlinkSync9 } from "node:fs";
+import { closeSync as closeSync17, existsSync as existsSync61, mkdirSync as mkdirSync36, openSync as openSync17, readdirSync as readdirSync28, readFileSync as readFileSync66, statSync as statSync46, unlinkSync as unlinkSync9 } from "node:fs";
 import { dirname as dirname38 } from "node:path";
 function resolveGoalsRoot(cwd) {
   const crewRoot = projectCrewRoot(cwd) ?? userCrewRoot();
@@ -59762,8 +60185,8 @@ var init_goal_state_store = __esm({
       load(goalId) {
         const path103 = goalFilePath(this.cwd, goalId);
         try {
-          if (!existsSync60(path103)) return void 0;
-          const raw = readFileSync65(path103, "utf-8");
+          if (!existsSync61(path103)) return void 0;
+          const raw = readFileSync66(path103, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.goalId !== "string") return void 0;
           return parsed;
@@ -59876,7 +60299,7 @@ var init_goal_state_store = __esm({
       remove(goalId) {
         try {
           const path103 = goalFilePath(this.cwd, goalId);
-          if (!existsSync60(path103)) return false;
+          if (!existsSync61(path103)) return false;
           unlinkSync9(path103);
           return true;
         } catch (error) {
@@ -59888,8 +60311,8 @@ var init_goal_state_store = __esm({
       list() {
         try {
           const root = resolveGoalsRoot(this.cwd);
-          if (!existsSync60(root)) return [];
-          const entries = readdirSync27(root);
+          if (!existsSync61(root)) return [];
+          const entries = readdirSync28(root);
           const goals = [];
           for (const entry of entries) {
             if (!entry.endsWith(".json")) continue;
@@ -59911,7 +60334,7 @@ var init_goal_state_store = __esm({
 
 // src/runtime/verification/verification-integrity.ts
 import { createHash as createHash10 } from "node:crypto";
-import * as fs92 from "node:fs";
+import * as fs93 from "node:fs";
 import * as path72 from "node:path";
 function snapshotManifests(cwd) {
   const snapshot = {};
@@ -59919,13 +60342,13 @@ function snapshotManifests(cwd) {
     const abs = path72.join(cwd, rel);
     let stat2;
     try {
-      stat2 = fs92.statSync(abs);
+      stat2 = fs93.statSync(abs);
     } catch {
       continue;
     }
     if (!stat2.isFile()) continue;
     try {
-      const content = fs92.readFileSync(abs);
+      const content = fs93.readFileSync(abs);
       snapshot[rel] = createHash10("sha256").update(content).digest("hex");
     } catch (error) {
       logInternalError("verification-integrity.snapshot", error, `rel=${rel}`, "debug");
@@ -59953,7 +60376,7 @@ var init_verification_integrity = __esm({
 
 // src/runtime/workspace-lock.ts
 import { createHash as createHash11 } from "node:crypto";
-import { closeSync as closeSync18, existsSync as existsSync61, mkdirSync as mkdirSync37, openSync as openSync18, readdirSync as readdirSync28, readFileSync as readFileSync67, statSync as statSync48, unlinkSync as unlinkSync10, writeFileSync as writeFileSync10 } from "node:fs";
+import { closeSync as closeSync18, existsSync as existsSync62, mkdirSync as mkdirSync37, openSync as openSync18, readdirSync as readdirSync29, readFileSync as readFileSync68, statSync as statSync48, unlinkSync as unlinkSync10, writeFileSync as writeFileSync11 } from "node:fs";
 import * as path73 from "node:path";
 function workspaceLockPath(cwd) {
   const absCwd = path73.resolve(cwd);
@@ -59963,9 +60386,9 @@ function workspaceLockPath(cwd) {
   return path73.join(locksDir, `${hash}.lock`);
 }
 function readLock(lockPath2) {
-  if (!existsSync61(lockPath2)) return void 0;
+  if (!existsSync62(lockPath2)) return void 0;
   try {
-    const parsed = JSON.parse(readFileSync67(lockPath2, "utf-8"));
+    const parsed = JSON.parse(readFileSync68(lockPath2, "utf-8"));
     if (!parsed || typeof parsed !== "object") return void 0;
     return parsed;
   } catch {
@@ -60004,7 +60427,7 @@ var init_workspace_lock = __esm({
     DEFAULT_HEARTBEAT_STALE_MS = 6e4;
     defaultStartTimeResolver = (pid) => {
       try {
-        const stat2 = readFileSync67(`/proc/${pid}/stat`, "utf-8");
+        const stat2 = readFileSync68(`/proc/${pid}/stat`, "utf-8");
         const lastParen = stat2.lastIndexOf(")");
         if (lastParen === -1) return void 0;
         const fieldsAfterComm2 = stat2.slice(lastParen + 1).trim().split(/\s+/);
@@ -60494,7 +60917,7 @@ var init_goal = __esm({
 });
 
 // src/extension/team-tool/orchestrate.ts
-import * as fs93 from "node:fs";
+import * as fs94 from "node:fs";
 async function handleOrchestrate(params, ctx) {
   const planPath = params.planPath;
   if (!planPath) {
@@ -60510,7 +60933,7 @@ async function handleOrchestrate(params, ctx) {
   } catch {
     return result(`planPath must be within project directory: ${planPath}`, { action: "orchestrate", status: "error" }, true);
   }
-  if (!fs93.existsSync(resolvedPath)) {
+  if (!fs94.existsSync(resolvedPath)) {
     return result(`Plan document not found: ${resolvedPath}`, { action: "orchestrate", status: "error" }, true);
   }
   let steps = parsePlanDocument(resolvedPath);
@@ -60717,23 +61140,13 @@ var colorEnabled, NOTIFICATION_BADGE_CAP;
 var init_widget_formatters = __esm({
   "src/ui/widget/widget-formatters.ts"() {
     "use strict";
-    init_usage_tracker();
-    init_visual();
-    init_live_duration();
     colorEnabled = computeColorEnabled();
     NOTIFICATION_BADGE_CAP = 99;
   }
 });
 
 // src/ui/powerbar-publisher.ts
-import * as fs94 from "node:fs";
-function hasPowerbarConsumer(events) {
-  try {
-    return (events?.listenerCount?.("powerbar:register-segment") ?? 0) > 0 || (events?.listenerCount?.("powerbar:update") ?? 0) > 0;
-  } catch {
-    return false;
-  }
-}
+import * as fs95 from "node:fs";
 function safeEmit(events, event, data) {
   try {
     events?.emit?.(event, data);
@@ -60744,7 +61157,7 @@ function safeEmit(events, event, data) {
 function readTasks(tasksPath) {
   try {
     const parse4 = () => {
-      const parsed = JSON.parse(fs94.readFileSync(tasksPath, "utf-8"));
+      const parsed = JSON.parse(fs95.readFileSync(tasksPath, "utf-8"));
       return Array.isArray(parsed) ? parsed : [];
     };
     return readJsonFileCoalesced(tasksPath, TASK_READ_TTL_MS, parse4);
@@ -60902,7 +61315,6 @@ var init_powerbar_publisher = __esm({
       }
       update(events, cwd, config, manifestCache2, snapshotCache, ctx, notificationCount = 0, preloadedManifests, workspaceId) {
         if (config?.powerbar === false) return;
-        const useStatusFallback = !hasPowerbarConsumer(events);
         const effectiveWorkspaceId = workspaceId ?? extractSessionId(ctx);
         const allRuns = preloadedManifests ?? (manifestCache2 ? manifestCache2.list(20) : listRecentRuns(cwd, 20));
         const runs = effectiveWorkspaceId ? allRuns.filter((run) => !run.ownerSessionId || run.ownerSessionId === effectiveWorkspaceId) : allRuns;
@@ -61065,27 +61477,183 @@ var init_powerbar_publisher = __esm({
   }
 });
 
-// src/ui/format-helpers.ts
-function formatTokens2(n) {
-  if (n < 1e3) return String(n);
-  if (n < 1e4) return `${(n / 1e3).toFixed(1)}k`;
-  if (n < 1e6) return `${Math.round(n / 1e3)}k`;
-  return `${(n / 1e6).toFixed(1)}M`;
-}
-function formatDuration(ms) {
-  if (ms < 1e3) return `${ms}ms`;
-  if (ms < 6e4) return `${(ms / 1e3).toFixed(1)}s`;
-  const m = Math.floor(ms / 6e4), s = Math.floor(ms % 6e4 / 1e3);
-  return s > 0 ? `${m}m${s}s` : `${m}m`;
-}
-function truncLine(text, maxWidth) {
-  if (text.includes("\n") || text.includes("\r")) text = text.replace(/\r?\n/g, "\u21B5 ");
-  return truncateToWidth(text, maxWidth);
-}
-var init_format_helpers = __esm({
-  "src/ui/format-helpers.ts"() {
+// src/ui/adaptive-card.ts
+import { Text } from "@earendil-works/pi-tui";
+var AdaptiveCard;
+var init_adaptive_card = __esm({
+  "src/ui/adaptive-card.ts"() {
     "use strict";
-    init_visual();
+    AdaptiveCard = class {
+      #builder;
+      #errorStyle;
+      #text = new Text("", 0, 0);
+      #cachedWidth;
+      #cachedLines = null;
+      /**
+       * @param builder produces the full card text (frame included) for a width.
+       *   Must keep every line within `width` visual columns — the same contract
+       *   the old fixed-width builders already obeyed for their baked width.
+       * @param errorStyle theme.fg("error", …) adapter for the fail-visible line.
+       */
+      constructor(builder, errorStyle = (t2) => t2) {
+        this.#builder = builder;
+        this.#errorStyle = errorStyle;
+      }
+      invalidate() {
+        this.#cachedLines = null;
+        this.#cachedWidth = void 0;
+      }
+      render(width) {
+        if (this.#cachedLines !== null && this.#cachedWidth === width) return this.#cachedLines;
+        let text;
+        try {
+          text = this.#builder(width);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          text = this.#errorStyle(`\u2716 card render error: ${msg.slice(0, 60)}`);
+        }
+        this.#text.setText(text);
+        this.#cachedLines = this.#text.render(width);
+        this.#cachedWidth = width;
+        return this.#cachedLines;
+      }
+    };
+  }
+});
+
+// src/ui/tool-progress-formatter.ts
+function parseCompactToolProgress(text) {
+  if (!text) return null;
+  const elapsedMatch = ELAPSED_RE.exec(text);
+  const elapsedMs = elapsedMatch ? Number.parseInt(elapsedMatch[1], 10) * 1e3 : 0;
+  let completed = null;
+  let total = null;
+  const tally = TALLY_RE.exec(text);
+  if (tally) {
+    completed = Number.parseInt(tally[1], 10);
+    total = Number.parseInt(tally[2], 10);
+  } else {
+    const buckets = BUCKETS_RE.exec(text);
+    if (buckets) {
+      completed = Number.parseInt(buckets[1], 10);
+      total = completed + Number.parseInt(buckets[2], 10);
+    }
+  }
+  if (elapsedMs === 0 && completed === null) return null;
+  const agentRow2 = AGENT_ROW_RE.exec(text);
+  const toolRow = TOOL_ROW_RE.exec(text);
+  const turns = TURN_RE.exec(text);
+  const tokens = TOKENS_RE.exec(text);
+  return {
+    elapsedMs,
+    status: STATUS_RE.exec(text)?.[1] ?? null,
+    completed,
+    total,
+    activeAgent: agentRow2 ? `${agentRow2[1]}/${agentRow2[2]}` : null,
+    currentTool: toolRow ? toolRow[1] : null,
+    turns: turns ? Number.parseInt(turns[1], 10) : null,
+    tokens: tokens ? Number.parseInt(tokens[1], 10) : null
+  };
+}
+function pickActiveAgent(agents) {
+  if (!agents || agents.length === 0) return void 0;
+  return agents.find((agent) => agent.status === "running") ?? agents.find((agent) => agent.status === "waiting") ?? agents.find((agent) => agent.status === "queued") ?? agents[agents.length - 1];
+}
+function totalTokens(agent) {
+  const fromProgress = agent.progress?.tokens;
+  if (typeof fromProgress === "number" && fromProgress > 0) return fromProgress;
+  const usage = agent.usage;
+  if (!usage) return 0;
+  const input = typeof usage.input === "number" ? usage.input : 0;
+  const output = typeof usage.output === "number" ? usage.output : 0;
+  return input + output;
+}
+function trimLine(value) {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= MAX_OUTPUT_LINE) return oneLine;
+  return `${oneLine.slice(0, MAX_OUTPUT_LINE - 3)}...`;
+}
+function taskCounts(tasks) {
+  if (!tasks || tasks.length === 0) return void 0;
+  const total = tasks.length;
+  const completed = tasks.filter((t2) => t2.status === "completed").length;
+  const buckets = /* @__PURE__ */ new Map();
+  for (const task of tasks) buckets.set(task.status, (buckets.get(task.status) ?? 0) + 1);
+  const summary = [...buckets.entries()].map(([status, count2]) => `${status}=${count2}`).join(" ");
+  return `${PROGRESS_FORMAT.tasksKey} ${completed}${PROGRESS_FORMAT.tallySeparator}${total} ${PROGRESS_FORMAT.doneWord} ${summary}`;
+}
+function formatCompactToolProgress(input) {
+  const elapsedSec = Math.max(0, Math.round((Date.now() - input.startedAt) / 1e3));
+  const head = input.agentId ? `${PROGRESS_FORMAT.agentKey}=${input.agentId}` : PROGRESS_FORMAT.agentKey;
+  const lines = [
+    `${head} ${PROGRESS_FORMAT.statusKey}=${input.status} ${PROGRESS_FORMAT.elapsedKey}=${elapsedSec}${PROGRESS_FORMAT.elapsedUnit}`
+  ];
+  const counts = taskCounts(input.tasks);
+  if (counts) lines.push(`  ${counts}`);
+  const active = pickActiveAgent(input.agents);
+  if (active) {
+    const turns = active.progress?.turns ?? 0;
+    const tokens = totalTokens(active);
+    lines.push(
+      `  ${active.role}${PROGRESS_FORMAT.roleSeparator}${active.agent} ${PROGRESS_FORMAT.turnKey}=${turns} ${PROGRESS_FORMAT.tokensKey}=${tokens}`
+    );
+    if (active.progress?.currentTool) {
+      const count2 = active.progress.toolCount ? ` (#${active.progress.toolCount})` : "";
+      lines.push(`  ${PROGRESS_FORMAT.toolKey}${PROGRESS_FORMAT.toolSeparator} ${active.progress.currentTool}${count2}`);
+    }
+    const recent = active.progress?.recentOutput?.at(-1);
+    if (recent?.trim()) lines.push(`  ${trimLine(recent)}`);
+  } else if (input.runId && !counts) {
+    lines.push(`  ${PROGRESS_FORMAT.runKey}=${input.runId} (starting)`);
+  } else if (input.error) {
+    lines.push(`  ${PROGRESS_FORMAT.errorKey}: ${trimLine(input.error)}`);
+  } else if (!counts) {
+    lines.push(`  ${PROGRESS_FORMAT.waitingLine}`);
+  }
+  return lines.join("\n");
+}
+var MAX_OUTPUT_LINE, PROGRESS_FORMAT, ELAPSED_RE, STATUS_RE, TALLY_RE, BUCKETS_RE, AGENT_ROW_RE, TURN_RE, TOKENS_RE, TOOL_ROW_RE;
+var init_tool_progress_formatter = __esm({
+  "src/ui/tool-progress-formatter.ts"() {
+    "use strict";
+    MAX_OUTPUT_LINE = 80;
+    PROGRESS_FORMAT = {
+      /** Header: `agent=<id> status=<status> elapsed=<n>s` (`agent` with no id). */
+      agentKey: "agent",
+      statusKey: "status",
+      elapsedKey: "elapsed",
+      /** Unit suffix for `elapsed=` (seconds). */
+      elapsedUnit: "s",
+      /** Task tally: `tasks <completed>/<total> done <status>=<n> …`. */
+      tasksKey: "tasks",
+      tallySeparator: "/",
+      doneWord: "done",
+      /** Active worker row: `<role>-><agent> turn=<n> tokens=<n>`. */
+      roleSeparator: "->",
+      turnKey: "turn",
+      tokensKey: "tokens",
+      /** Current tool row: `tool: <name> (#<n>)`. */
+      toolKey: "tool",
+      toolSeparator: ":",
+      /** Pending-run row: `run=<id> (starting)`. */
+      runKey: "run",
+      /** Failure row: `error: <text>`. */
+      errorKey: "error",
+      /** Fallback row before the run materializes. */
+      waitingLine: "waiting for run to start"
+    };
+    ELAPSED_RE = new RegExp(`${PROGRESS_FORMAT.elapsedKey}=(\\d+)${PROGRESS_FORMAT.elapsedUnit}`);
+    STATUS_RE = new RegExp(`${PROGRESS_FORMAT.statusKey}=(\\w+)`);
+    TALLY_RE = new RegExp(
+      `${PROGRESS_FORMAT.tasksKey}\\s+(\\d+)${PROGRESS_FORMAT.tallySeparator}(\\d+)\\s+${PROGRESS_FORMAT.doneWord}\\b`
+    );
+    BUCKETS_RE = new RegExp(
+      `${PROGRESS_FORMAT.tasksKey}[^\\n]*(?:completed|${PROGRESS_FORMAT.doneWord})=(\\d+)[^\\n]*(?:running|waiting|queued)=(\\d+)`
+    );
+    AGENT_ROW_RE = new RegExp(`\\s+(\\w+)${PROGRESS_FORMAT.roleSeparator}(\\w+)\\s+${PROGRESS_FORMAT.turnKey}=`);
+    TURN_RE = new RegExp(`${PROGRESS_FORMAT.turnKey}=(\\d+)`);
+    TOKENS_RE = new RegExp(`${PROGRESS_FORMAT.tokensKey}=(\\d+)`);
+    TOOL_ROW_RE = new RegExp(`${PROGRESS_FORMAT.toolKey}${PROGRESS_FORMAT.toolSeparator}\\s+(\\S+)`);
   }
 });
 
@@ -61121,20 +61689,6 @@ function restoreBriefState(entries) {
 function briefToolResult(toolName, result4, theme) {
   const text = extractText2(result4?.content);
   switch (toolName) {
-    case "read":
-      return briefRead(text, theme);
-    case "bash":
-      return briefBash(text, theme);
-    case "edit":
-      return briefEdit(text, theme);
-    case "write":
-      return briefWrite(text, theme);
-    case "find":
-      return briefFind(text, theme);
-    case "grep":
-      return briefGrep(text, theme);
-    case "ls":
-      return briefLs(text, theme);
     case "team":
       return briefTeam(result4, theme);
     case "agent":
@@ -61142,50 +61696,6 @@ function briefToolResult(toolName, result4, theme) {
     default:
       return briefDefault(text, theme);
   }
-}
-function briefRead(text, theme) {
-  if (!text) return theme.fg("dim", "\u2192 empty");
-  const count2 = text.trim().split("\n").filter(Boolean).length;
-  return theme.fg("muted", `\u2192 ${count2} lines`);
-}
-function briefBash(text, theme) {
-  if (!text?.trim()) return theme.fg("dim", "\u2192 done");
-  const lines = text.trim().split("\n");
-  if (lines.length === 1 && lines[0].length < 40) {
-    return theme.fg("muted", `\u2192 ${lines[0]}`);
-  }
-  return theme.fg("muted", `\u2192 ${lines.length} lines`);
-}
-function briefEdit(text, theme) {
-  if (!text) return theme.fg("dim", "\u2192 edited");
-  if (text.includes("Error") || text.includes("error")) {
-    return theme.fg("error", "\u2192 failed");
-  }
-  const added = (text.match(/^\+ /gm) ?? []).length;
-  const removed = (text.match(/^- /gm) ?? []).length;
-  if (added === 0 && removed === 0) {
-    return theme.fg("success", "\u2192 edited");
-  }
-  return theme.fg("success", "\u2192 edited ") + theme.fg("toolDiffAdded", `+${added} `) + theme.fg("toolDiffRemoved", `-${removed}`);
-}
-function briefWrite(text, theme) {
-  if (text) return theme.fg("error", `\u2192 ${text}`);
-  return theme.fg("success", "\u2192 written");
-}
-function briefFind(text, theme) {
-  if (!text) return theme.fg("dim", "\u2192 none");
-  const count2 = text.trim().split("\n").filter(Boolean).length;
-  return theme.fg("muted", `\u2192 ${count2} files`);
-}
-function briefGrep(text, theme) {
-  if (!text) return theme.fg("dim", "\u2192 none");
-  const count2 = text.trim().split("\n").filter(Boolean).length;
-  return theme.fg("muted", `\u2192 ${count2} matches`);
-}
-function briefLs(text, theme) {
-  if (!text) return theme.fg("dim", "\u2192 empty");
-  const count2 = text.trim().split("\n").filter(Boolean).length;
-  return theme.fg("muted", `\u2192 ${count2} entries`);
 }
 function briefTeam(result4, theme) {
   const details = result4.details ?? result4;
@@ -61257,401 +61767,262 @@ var init_brief_mode = __esm({
   }
 });
 
-// src/ui/card-colors.ts
-function parseAnsiRgb(ansi) {
-  if (!ansi) return null;
-  const stripped = ansi.replace(/^\x1b?\[?/, "").replace(/m?$/, "");
-  const fgMatch = stripped.match(/^38;2;(\d+);(\d+);(\d+)$/);
-  const bgMatch = stripped.match(/^48;2;(\d+);(\d+);(\d+)$/);
-  const m = fgMatch ?? bgMatch;
-  if (!m) return null;
-  const r = Number(m[1]);
-  const g = Number(m[2]);
-  const b = Number(m[3]);
-  if (![r, g, b].every(Number.isFinite)) return null;
-  return { r, g, b };
-}
-function mixBg(base, accent, intensity) {
-  const r = Math.round(base.r + (accent.r - base.r) * intensity);
-  const g = Math.round(base.g + (accent.g - base.g) * intensity);
-  const b = Math.round(base.b + (accent.b - base.b) * intensity);
-  return `\x1B[48;2;${r};${g};${b}m`;
-}
-function deriveCardBackground(theme, statusSlot, intensity = 0.08) {
-  let base = BLACK;
-  const themeAny = theme;
-  if (themeAny.getBgAnsi) {
-    try {
-      const bg = themeAny.getBgAnsi("background");
-      const parsed = parseAnsiRgb(bg);
-      if (parsed) base = parsed;
-    } catch {
-    }
-  }
-  let accentRgb = null;
-  if (themeAny.getFgAnsi) {
-    try {
-      accentRgb = parseAnsiRgb(themeAny.getFgAnsi(statusSlot));
-    } catch {
-    }
-  }
-  if (!accentRgb) return "";
-  return mixBg(base, accentRgb, intensity);
-}
-function visibleWidth2(text) {
-  return visibleWidth(text);
-}
-function padWithBackground(line4, targetWidth, bgAnsi) {
-  if (!bgAnsi) {
-    const width2 = visibleWidth2(line4);
-    return width2 >= targetWidth ? line4 : line4 + " ".repeat(targetWidth - width2);
-  }
-  const width = visibleWidth2(line4);
-  const pad2 = width >= targetWidth ? "" : " ".repeat(targetWidth - width);
-  return `${bgAnsi}${line4}${pad2}${RESET}`;
-}
-var BLACK, RESET;
-var init_card_colors = __esm({
-  "src/ui/card-colors.ts"() {
-    "use strict";
-    init_visual();
-    BLACK = { r: 0, g: 0, b: 0 };
-    RESET = "\x1B[0m";
-  }
-});
-
 // src/ui/tool-renderers/index.ts
-import { Text, visibleWidth as visibleWidth3 } from "@earendil-works/pi-tui";
-function padVisual(str, targetWidth) {
-  const vw = visibleWidth3(str);
-  if (vw >= targetWidth) return str;
-  return str + " ".repeat(targetWidth - vw);
-}
-function truncVisual(str, maxWidth) {
-  if (visibleWidth3(str) <= maxWidth) return str;
-  return truncateToWidth(str, maxWidth, "");
-}
-function statusBadge(status, theme) {
-  switch (status) {
-    case "completed":
-      return theme.fg("success", "\u25CF");
-    case "failed":
-    case "cancelled":
-      return theme.fg("error", "\u2716");
-    case "running":
-      return theme.fg("warning", "\u25C9");
-    default:
-      return theme.fg("dim", "\u25CB");
-  }
-}
-function statusIcon2(status, theme) {
-  switch (status) {
-    case "completed":
-      return theme.fg("success", "\u2713");
-    case "failed":
-    case "cancelled":
-      return theme.fg("error", "\u2717");
-    case "running":
-      return theme.fg("warning", "\u27F3");
-    default:
-      return theme.fg("dim", "\u25CB");
-  }
-}
-function shortId(id) {
-  return id ? id.slice(-8) : "????????";
-}
-function borderColorForStatus(status) {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "failed":
-    case "cancelled":
-      return "error";
-    default:
-      return "border";
-  }
-}
-function progressBar(ratio, barWidth, theme) {
-  const clamped = Math.max(0, Math.min(1, ratio));
-  const filled = Math.round(clamped * barWidth);
-  const empty = barWidth - filled;
-  const bar = theme.fg("success", "\u2588".repeat(filled)) + theme.fg("dim", "\u2591".repeat(empty));
-  const pct = theme.fg("text", ` ${Math.round(clamped * 100)}%`.padStart(5));
-  return bar + pct;
-}
-function buildFrameTop(contentLines, totalWidth, theme, borderSlot = "border", bgSlot) {
-  const frameW = totalWidth - 2;
-  const innerW = frameW - 2;
-  const top = theme.fg(borderSlot, `\u256D${"\u2500".repeat(innerW)}\u256E`);
-  const v = theme.fg(borderSlot, "\u2502");
-  const bg = bgSlot ? deriveCardBackground(theme, bgSlot) : "";
-  const lines = [top];
-  for (const line4 of contentLines) {
-    const padded = bg ? padWithBackground(line4, innerW, bg) : padVisual(line4, innerW);
-    lines.push(v + padded + v);
-  }
-  return lines.join("\n");
-}
-function buildFrameBottom(contentLines, totalWidth, theme, borderSlot = "border", bgSlot) {
-  const frameW = totalWidth - 2;
-  const innerW = frameW - 2;
-  const v = theme.fg(borderSlot, "\u2502");
-  const bottom = theme.fg(borderSlot, `\u2570${"\u2500".repeat(innerW)}\u256F`);
-  const bg = bgSlot ? deriveCardBackground(theme, bgSlot) : "";
-  const lines = [];
-  for (const line4 of contentLines) {
-    const padded = bg ? padWithBackground(line4, innerW, bg) : padVisual(line4, innerW);
-    lines.push(v + padded + v);
-  }
-  lines.push(bottom);
-  return lines.join("\n");
-}
-function borderFromContext(ctx) {
-  if (ctx.isPartial) return "borderAccent";
+import { Text as Text2, visibleWidth as visibleWidth3 } from "@earendil-works/pi-tui";
+function railOpenSlot(ctx) {
   if (ctx.isError) return "error";
-  return "success";
+  if (ctx.isPartial) return "borderAccent";
+  return "border";
 }
-function renderTeamResult(result4, options, theme, ctx) {
+function railCloseSlot(status, ctx) {
+  if (ctx.isError) return "error";
+  return statusSlot(status);
+}
+function canopy(args) {
+  const { action = "", team, agentName, runId, theme, ctx, budget } = args;
+  const isRun = !action || action === "run";
+  const word = agentName !== void 0 ? "AGENT" : isRun ? "CREW" : (action || "\u2026").toUpperCase();
+  const subject = agentName !== void 0 ? agentName : isRun ? team ?? "" : team ?? shortRun(runId);
+  const streamingArgs = ctx.argsComplete === false;
+  const tail = subject ? ` ${theme.fg("dim", ACTIVE)} ${theme.fg("toolTitle", theme.bold(subject))}` : streamingArgs ? ` ${theme.fg("dim", ACTIVE)} ${theme.fg("toolTitle", theme.bold("\u2026"))}` : "";
+  const label = `${theme.fg("accent", theme.bold(word))}${tail}`;
+  return railLine(RAIL.open, railOpenSlot(ctx), label, theme, budget);
+}
+function shortRun(runId) {
+  return runId ? shortId(runId) : "";
+}
+function previewLine(glyph, slot, text, theme, budget, shorten = false) {
+  const flat = (shorten ? shortenPath(text) : text).replace(/\n/g, " ");
+  const maxLen = budget - 2;
+  const body = visibleWidth3(flat) > maxLen ? `${truncVisual(flat, maxLen - 1)}\u2026` : flat;
+  return railLine(glyph, slot, theme.fg("dim", body), theme, budget);
+}
+function tallyText(completed, total, theme) {
+  const pct = total > 0 ? Math.round(completed / total * 100) : 0;
+  return theme.fg("muted", `${completed}/${total} \xB7 ${pct}%`);
+}
+function renderTeamResult(result4, options, theme, ctx, w) {
   const d = result4.details ?? result4;
   const records = d.agentRecords ?? d.results;
   const action = typeof d.action === "string" ? d.action : "";
   const status = typeof d.status === "string" ? d.status : "";
   const runId = typeof d.runId === "string" ? d.runId : "";
-  const w = ctx.width || process.stdout.columns || 116;
-  const innerW = w - 4;
-  const bColor = borderColorForStatus(status);
-  const contentLines = [];
+  const teamName = typeof d.team === "string" ? d.team : "";
+  const budget = w - 2;
+  const closeSlot = railCloseSlot(status, ctx);
   const isPartial = options?.isPartial === true;
   if (isPartial && !ctx.expanded) {
-    const content = extractContentText(result4?.content);
-    const parsed = parseStreamingProgress(content);
+    const parsed = parseStreamingProgress(extractContentText(result4?.content));
     if (parsed) {
-      const spinnerFrames = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"];
-      const frameIdx = Math.floor(Date.now() / 80) % spinnerFrames.length;
-      const spinner = theme.fg("accent", spinnerFrames[frameIdx]);
-      const elapsed = formatDuration(parsed.elapsedMs);
+      const spinner = theme.fg("accent", spinnerFrame(String(Date.now())));
+      const elapsed = theme.fg("dim", formatDuration(parsed.elapsedMs));
+      const lines2 = [];
       if (parsed.completed != null && parsed.total != null && parsed.total > 0) {
         const ratio = parsed.completed / parsed.total;
-        const barW = Math.min(innerW - 22, 30);
-        const bar = progressBar(ratio, barW, theme);
-        const count2 = theme.fg("muted", ` ${parsed.completed}/${parsed.total}`);
-        contentLines.push(
-          padVisual(` ${spinner} ${theme.fg("toolTitle", theme.bold("crew run"))}  ${theme.fg("dim", elapsed)}`, innerW)
-        );
-        contentLines.push(padVisual(`   ${bar}${count2}`, innerW));
-        if (parsed.activeAgent) contentLines.push(padVisual(`   ${theme.fg("dim", parsed.activeAgent)}`, innerW));
+        const barW = Math.min(Math.max(8, budget - 26), 32);
+        const left = `${spinner} ${tallyText(parsed.completed, parsed.total, theme)} ${gaugeBar(ratio, barW, theme)}`;
+        lines2.push(railLine(RAIL.body, "borderAccent", railLeaders(left, elapsed, budget, theme), theme, budget));
+        if (parsed.activeAgent) {
+          const dot = theme.fg("accent", spinnerFrame(parsed.activeAgent));
+          const label = dedupeAgentLabel(parsed.activeAgent);
+          lines2.push(railLine(RAIL.body, "border", `  ${dot} ${theme.fg("dim", label)}`, theme, budget));
+        }
       } else {
-        const barW = Math.min(innerW - 20, 30);
-        const scanBar = renderScanBar(barW, parsed.elapsedMs, theme);
-        contentLines.push(padVisual(` ${spinner} ${theme.fg("muted", "crew starting")}  ${theme.fg("dim", elapsed)}`, innerW));
-        contentLines.push(padVisual(`   ${scanBar}`, innerW));
+        const barW = Math.min(Math.max(8, budget - 24), 32);
+        const left = `${spinner} ${theme.fg("muted", "starting")} ${scanGauge(barW, parsed.elapsedMs, theme)}`;
+        lines2.push(railLine(RAIL.body, "borderAccent", railLeaders(left, elapsed, budget, theme), theme, budget));
       }
-    } else if (content) {
-      const preview = truncLine(content.split("\n").filter(Boolean).pop() ?? "", innerW - 4);
-      contentLines.push(padVisual(` ${theme.fg("warning", "\u25C9")} ${theme.fg("dim", preview)}`, innerW));
+      return lines2.join("\n");
     }
-    if (contentLines.length > 0) {
-      return buildFrameBottom(contentLines, w, theme, "borderAccent", "borderAccent");
+    const fallback2 = extractContentText(result4?.content).split("\n").filter(Boolean).pop();
+    if (fallback2) {
+      return railLine(RAIL.body, "borderAccent", `${theme.fg("warning", "\u25C9")} ${theme.fg("dim", fallback2)}`, theme, budget);
     }
   }
   if (isBrief() && !ctx.expanded && action !== "run") {
     const briefText = briefToolResult("team", result4, theme);
-    contentLines.push(padVisual(` ${briefText}`, innerW));
-    return buildFrameBottom(contentLines, w, theme, bColor, bColor);
+    return railLine(RAIL.close, closeSlot, `${briefText}`, theme, budget);
   }
   if (!ctx.expanded) {
     if (action === "run" && records?.length) {
-      appendRunCard(contentLines, records, status, runId, theme, innerW);
-    } else if (action === "run") {
+      return railLine(RAIL.close, closeSlot, `${runCap(records, status, teamName, theme, budget)}`, theme, budget);
+    }
+    if (action === "run") {
       const m = d.metrics;
-      if (m) {
-        appendMetricsCard(contentLines, m, status, runId, theme, innerW);
-      } else {
-        appendSimpleCard(contentLines, status, runId, theme, innerW);
-      }
-    } else {
-      appendSimpleCard(contentLines, status, runId, theme, innerW);
+      return railLine(RAIL.close, closeSlot, `${metricsCap(m, status, theme)}`, theme, budget);
     }
-  } else {
-    if (action === "run" && records?.length) {
-      appendExpandedRun(contentLines, records, status, runId, theme, w, innerW);
-    } else if (action === "run") {
-      const m = d.metrics;
-      appendExpandedMetrics(contentLines, m, status, runId, theme, w, innerW);
-    } else {
-      const text = extractContentText(result4?.content);
-      contentLines.push(padVisual(` ${text.slice(0, innerW - 2)}`, innerW));
-    }
-  }
-  return buildFrameBottom(contentLines, w, theme, bColor, bColor);
-}
-function renderAgentResult(result4, options, theme, ctx) {
-  const d = result4.details ?? result4;
-  const results = d.results;
-  const w = ctx.width || process.stdout.columns || 116;
-  const innerW = w - 4;
-  const status = (d.status ?? results?.[0]?.status ?? "") || "completed";
-  const bColor = status === "completed" ? "success" : status === "failed" ? "error" : "border";
-  const contentLines = [];
-  const isPartial = options?.isPartial === true;
-  if (isPartial && !ctx.expanded) {
-    const spinner = theme.fg("accent", spinnerFrame(d.agentId));
-    const parts = [theme.fg("muted", "working")];
-    const progressText = extractContentText(result4?.content);
-    if (progressText) {
-      const elapsedMatch = progressText.match(/elapsed=(\d+)s/);
-      const tokenMatch = progressText.match(/tokens=(\d+)/);
-      const toolMatch = progressText.match(/tool:\s+(\S+)/);
-      const elapsedSec = elapsedMatch ? parseInt(elapsedMatch[1], 10) : 0;
-      const tokens = tokenMatch ? parseInt(tokenMatch[1], 10) : 0;
-      const tps = elapsedSec > 0 ? Math.round(tokens / elapsedSec) : 0;
-      if (elapsedSec > 0) parts.push(theme.fg("dim", formatDuration(elapsedSec * 1e3)));
-      if (tps > 0) parts.push(theme.fg("dim", `${formatTokens2(tps)} tok/s`));
-      if (toolMatch) parts.push(theme.fg("dim", `\xB7 ${toolMatch[1]}`));
-    }
-    contentLines.push(padVisual(` ${spinner} ${parts.join("  ")}`, innerW));
-    return buildFrameBottom(contentLines, w, theme, "borderAccent", "borderAccent");
-  }
-  if (!results?.length && !d.agentId) {
-    const briefText = briefToolResult("agent", result4, theme);
-    contentLines.push(padVisual(` ${briefText}`, innerW));
-    return buildFrameBottom(contentLines, w, theme, bColor, bColor);
-  }
-  if (!ctx.expanded) {
     const badge = statusBadge(status, theme);
-    const agentId = d.agentId ?? results?.[0]?.agentId ?? "agent";
-    const nameTag = theme.fg("toolTitle", theme.bold(agentId));
-    contentLines.push(padVisual(` ${badge} ${nameTag}`, innerW));
-    if (d.error) {
-      contentLines.push(padVisual(` ${theme.fg("error", truncLine(String(d.error), innerW - 4))}`, innerW));
-    } else if (results?.length) {
-      const output = results[0].output;
-      if (output) {
-        const preview = truncLine(output.split("\n")[0] ?? "", innerW - 4);
-        contentLines.push(padVisual(` ${theme.fg("muted", preview)}`, innerW));
-      }
-    }
-  } else {
-    if (results?.length) {
-      for (let i = 0; i < results.length; i++) {
-        const item = results[i];
-        const icon = statusIcon2(item.status ?? "", theme);
-        const label = theme.fg("toolTitle", theme.bold(item.agentId ?? "agent"));
-        contentLines.push(padVisual(` ${icon} ${label}`, innerW));
-        if (item.error) {
-          contentLines.push(padVisual(`   ${theme.fg("error", truncLine(String(item.error), innerW - 6))}`, innerW));
-        } else if (item.output) {
-          const outputLines = String(item.output).split("\n").slice(0, 5);
-          for (const line4 of outputLines) {
-            contentLines.push(padVisual(`   ${theme.fg("dim", truncLine(line4, innerW - 6))}`, innerW));
-          }
-        }
-        if (i < results.length - 1) {
-          contentLines.push(padVisual(theme.fg("borderMuted", "\u2500".repeat(innerW - 2)), innerW));
-        }
-      }
-    } else if (d.agentId) {
-      const icon = statusIcon2(d.status ?? "", theme);
-      contentLines.push(padVisual(` ${icon} ${theme.fg("toolTitle", theme.bold(d.agentId))}`, innerW));
-      if (d.error) {
-        contentLines.push(padVisual(`   ${theme.fg("error", truncLine(String(d.error), innerW - 6))}`, innerW));
-      }
-    } else {
-      const text = extractContentText(result4?.content);
-      if (text) contentLines.push(padVisual(` ${theme.fg("dim", truncLine(text, innerW - 4))}`, innerW));
-    }
+    const label = [status || "done", runId ? shortId(runId) : ""].filter(Boolean).join(" \xB7 ");
+    return railLine(RAIL.close, closeSlot, `${badge} ${theme.fg("text", label)}`, theme, budget);
   }
-  return buildFrameBottom(contentLines, w, theme, bColor, bColor);
+  const lines = [];
+  if (action === "run" && records?.length) {
+    const completed = records.filter((r) => r.status === "completed").length;
+    const ratio = records.length > 0 ? completed / records.length : 0;
+    const barW = Math.min(Math.max(8, budget - 26), 40);
+    lines.push(
+      railLine(RAIL.body, "border", `${gaugeBar(ratio, barW, theme)} ${tallyText(completed, records.length, theme)}`, theme, budget)
+    );
+    for (const r of records) {
+      lines.push(railLine(RAIL.body, "border", agentRow(r, theme, budget), theme, budget));
+      const usage = usageRow(r, theme, budget);
+      if (usage) lines.push(railLine(RAIL.body, "border", usage, theme, budget));
+    }
+    const duration = computeTotalDuration2(records);
+    const tokens = computeTotalTokens2(records);
+    const cost = computeTotalCost(records);
+    const tail = [teamName, formatDuration(duration), `${formatTokens2(tokens)} tok`, cost > 0 ? `$${cost.toFixed(3)}` : ""].filter(Boolean).join(" \xB7 ");
+    lines.push(
+      railLine(
+        RAIL.close,
+        closeSlot,
+        railLeaders(theme.fg("muted", tail), theme.fg("dim", PI_EXPAND_CHORD), budget, theme),
+        theme,
+        budget
+      )
+    );
+    return lines.join("\n");
+  }
+  if (action === "run") {
+    const m = d.metrics;
+    if (m?.taskCount) {
+      const ratio = (m.completedCount ?? 0) / m.taskCount;
+      const barW = Math.min(Math.max(8, budget - 26), 40);
+      lines.push(
+        railLine(
+          RAIL.body,
+          "border",
+          `${gaugeBar(ratio, barW, theme)} ${tallyText(m.completedCount ?? 0, m.taskCount, theme)}`,
+          theme,
+          budget
+        )
+      );
+    }
+    const parts = [];
+    if (m?.durationMs) parts.push(formatDuration(m.durationMs));
+    if (m?.totalTokens) parts.push(`${formatTokens2(m.totalTokens)} tok`);
+    lines.push(railLine(RAIL.close, closeSlot, `${theme.fg("muted", parts.join(" \xB7 ") || "done")}`, theme, budget));
+    return lines.join("\n");
+  }
+  lines.push(previewLine(RAIL.body, "border", extractContentText(result4?.content), theme, budget));
+  lines.push(railLine(RAIL.close, closeSlot, "", theme, budget));
+  return lines.join("\n");
 }
-function appendRunCard(lines, records, status, runId, theme, innerW) {
+function runCap(records, status, teamName, theme, budget) {
   const completed = records.filter((r) => r.status === "completed").length;
-  const total = records.length;
   const duration = computeTotalDuration2(records);
   const tokens = computeTotalTokens2(records);
   const cost = computeTotalCost(records);
   const badge = statusBadge(status, theme);
-  const title = theme.fg("toolTitle", theme.bold("crew run"));
-  const idTag = theme.fg("dim", shortId(runId));
-  const hint = theme.fg("dim", "\u2318E");
-  const left = ` ${badge} ${title}  ${idTag}`;
-  const right = `${hint}`;
-  const gap = innerW - visibleWidth3(left) - visibleWidth3(right);
-  lines.push(padVisual(left + (gap > 1 ? " ".repeat(gap) : " ") + right, innerW));
-  const parts = [];
-  parts.push(`${completed}/${total} done`);
-  if (duration > 0) parts.push(formatDuration(duration));
-  if (tokens > 0) parts.push(`${formatTokens2(tokens)} tok`);
-  if (cost > 0) parts.push(`$${cost.toFixed(3)}`);
-  lines.push(padVisual(`   ${theme.fg("dim", parts.join(" \xB7 "))}`, innerW));
+  const parts = [
+    `${completed}/${records.length}`,
+    teamName,
+    formatDuration(duration),
+    `${formatTokens2(tokens)} tok`,
+    cost > 0 ? `$${cost.toFixed(3)}` : ""
+  ].filter(Boolean);
+  return railLeaders(`${badge} ${theme.fg("text", parts.join(" \xB7 "))}`, theme.fg("dim", PI_EXPAND_CHORD), budget, theme);
 }
-function appendMetricsCard(lines, m, status, runId, theme, innerW) {
+function metricsCap(m, status, theme) {
   const badge = statusBadge(status, theme);
-  const title = theme.fg("toolTitle", theme.bold("crew run"));
-  const idTag = theme.fg("dim", shortId(runId));
-  const hint = theme.fg("dim", "\u2318E");
-  const left = ` ${badge} ${title}  ${idTag}`;
-  const right = `${hint}`;
-  const gap = innerW - visibleWidth3(left) - visibleWidth3(right);
-  lines.push(padVisual(left + (gap > 1 ? " ".repeat(gap) : " ") + right, innerW));
   const parts = [];
-  if (m.completedCount != null && m.taskCount) parts.push(`${m.completedCount}/${m.taskCount} done`);
-  if (m.durationMs) parts.push(formatDuration(m.durationMs));
-  if (m.totalTokens) parts.push(`${formatTokens2(m.totalTokens)} tok`);
-  if (m.totalCost) parts.push(`$${m.totalCost.toFixed(3)}`);
-  if (parts.length) lines.push(padVisual(`   ${theme.fg("dim", parts.join(" \xB7 "))}`, innerW));
+  if (m?.completedCount != null && m.taskCount) parts.push(`${m.completedCount}/${m.taskCount}`);
+  if (m?.durationMs) parts.push(formatDuration(m.durationMs));
+  if (m?.totalTokens) parts.push(`${formatTokens2(m.totalTokens)} tok`);
+  if (m?.totalCost) parts.push(`$${m.totalCost.toFixed(3)}`);
+  return `${badge} ${theme.fg("text", parts.join(" \xB7 ") || status || "done")}`;
 }
-function appendSimpleCard(lines, status, runId, theme, innerW) {
-  const badge = statusBadge(status, theme);
-  const parts = [status];
-  if (runId) parts.push(shortId(runId));
-  lines.push(padVisual(` ${badge} ${theme.fg("text", parts.join(" \xB7 ") || "done")}`, innerW));
+function agentRow(r, theme, budget) {
+  const icon = statusIcon2(r.status, theme);
+  const role = theme.fg("toolTitle", theme.bold(r.role || r.agent || "agent"));
+  const model = r.model ? theme.fg("dim", ` (${r.model.split("/").at(-1)})`) : "";
+  const tools = formatCount(r.toolUses ?? r.progress?.toolCount ?? 0, "tool");
+  const dur = r.startedAt ? formatDuration(computeRecordDuration(r)) : "";
+  return `${icon} ${role}${model} ${theme.fg("dim", [tools, dur].filter(Boolean).join(" \xB7 "))}`;
 }
-function appendExpandedRun(lines, records, status, runId, theme, w, innerW) {
-  const completed = records.filter((r) => r.status === "completed").length;
-  const total = records.length;
-  const ratio = total > 0 ? completed / total : 0;
-  const duration = computeTotalDuration2(records);
-  const tokens = computeTotalTokens2(records);
-  lines.push(padVisual(` ${theme.fg("toolTitle", theme.bold("CREW RUN RESULT"))}  ${theme.fg("dim", shortId(runId))}`, innerW));
-  lines.push(padVisual(theme.fg("borderMuted", "\u2500".repeat(innerW - 2)), innerW));
-  const barW = Math.min(innerW - 22, 40);
-  const bar = progressBar(ratio, barW, theme);
-  const count2 = theme.fg("muted", ` ${completed}/${total}`);
-  lines.push(padVisual(` ${theme.fg("muted", "Progress")} ${bar}${count2}`, innerW));
-  const metricLine = [theme.fg("muted", formatDuration(duration)), theme.fg("muted", `${formatTokens2(tokens)} tok`)].join(
-    theme.fg("dim", " \xB7 ")
-  );
-  lines.push(padVisual(` ${metricLine}`, innerW));
-  lines.push(padVisual(theme.fg("borderMuted", "\u2500".repeat(innerW - 2)), innerW));
-  for (const r of records) {
-    const icon = statusIcon2(r.status, theme);
-    const role = theme.fg("toolTitle", theme.bold(r.role || r.agent || "agent"));
-    const model = r.model ? theme.fg("dim", ` (${r.model.split("/").at(-1)})`) : "";
-    const dur = r.startedAt ? formatDuration(computeRecordDuration(r)) : "";
-    const toolCount = `${r.toolUses ?? r.progress?.toolCount ?? 0} tools`;
-    lines.push(padVisual(` ${icon} ${role}${model}  ${theme.fg("dim", `${toolCount} \xB7 ${dur}`)}`, innerW));
-    const usage = r.usage;
-    const usageParts = [];
-    if (usage?.input) usageParts.push(theme.fg("dim", `\u2191${formatTokens2(usage.input)}`));
-    if (usage?.output) usageParts.push(theme.fg("dim", `\u2193${formatTokens2(usage.output)}`));
-    if (usage?.cost) usageParts.push(theme.fg("dim", `$${usage.cost.toFixed(3)}`));
-    if (usageParts.length) lines.push(padVisual(`   ${usageParts.join(" ")}`, innerW));
+function usageRow(r, theme, budget) {
+  const usage = r.usage;
+  const parts = [];
+  if (usage?.input) parts.push(theme.fg("dim", `\u2191${formatTokens2(usage.input)}`));
+  if (usage?.output) parts.push(theme.fg("dim", `\u2193${formatTokens2(usage.output)}`));
+  if (usage?.cost) parts.push(theme.fg("dim", `$${usage.cost.toFixed(3)}`));
+  return parts.length ? `  ${parts.join(" ")}` : void 0;
+}
+function renderAgentResult(result4, options, theme, ctx, w) {
+  const d = result4.details ?? result4;
+  const results = d.results;
+  const budget = w - 2;
+  const status = (d.status ?? results?.[0]?.status ?? "") || "completed";
+  const closeSlot = railCloseSlot(status, ctx);
+  const isPartial = options?.isPartial === true;
+  if (isPartial && !ctx.expanded) {
+    const name = d.agentName ?? d.agentId ?? "agent";
+    const spinner = theme.fg("accent", spinnerFrame(String(d.agentId ?? "")));
+    const meta = [];
+    const progressText = extractContentText(result4?.content);
+    if (progressText) {
+      const parsed = parseCompactToolProgress(progressText);
+      const elapsedSec = parsed ? Math.round(parsed.elapsedMs / 1e3) : 0;
+      const tokens = parsed?.tokens ?? 0;
+      const tps = elapsedSec > 0 ? Math.round(tokens / elapsedSec) : 0;
+      if (elapsedSec > 0) meta.push(formatDuration(elapsedSec * 1e3));
+      if (tps > 0) meta.push(`${formatTokens2(tps)} tok/s`);
+      if (parsed?.currentTool) meta.push(parsed.currentTool);
+    }
+    const left = `${spinner} ${theme.fg("toolTitle", theme.bold(name))}`;
+    return railLine(RAIL.body, "borderAccent", railLeaders(left, theme.fg("dim", meta.join(" \xB7 ")), budget, theme), theme, budget);
   }
-}
-function appendExpandedMetrics(lines, m, status, runId, theme, w, innerW) {
-  lines.push(padVisual(` ${theme.fg("toolTitle", theme.bold("CREW RUN RESULT"))}  ${theme.fg("dim", shortId(runId))}`, innerW));
-  lines.push(padVisual(theme.fg("borderMuted", "\u2500".repeat(innerW - 2)), innerW));
-  if (m) {
-    const ratio = m.taskCount ? (m.completedCount ?? 0) / m.taskCount : 0;
-    const barW = Math.min(innerW - 22, 40);
-    const bar = progressBar(ratio, barW, theme);
-    const count2 = theme.fg("muted", ` ${m.completedCount ?? 0}/${m.taskCount ?? 0}`);
-    lines.push(padVisual(` ${bar}${count2}`, innerW));
-    const parts = [];
-    if (m.durationMs) parts.push(formatDuration(m.durationMs));
-    if (m.totalTokens) parts.push(`${formatTokens2(m.totalTokens)} tok`);
-    if (parts.length) lines.push(padVisual(` ${theme.fg("dim", parts.join(" \xB7 "))}`, innerW));
+  if (!results?.length && !d.agentId) {
+    const briefText = briefToolResult("agent", result4, theme);
+    return railLine(RAIL.close, closeSlot, `${briefText}`, theme, budget);
   }
+  const label = d.agentName ?? d.agentId ?? results?.[0]?.agentId ?? "agent";
+  if (!ctx.expanded) {
+    const badge = statusBadge(status, theme);
+    const head = `${badge} ${theme.fg("toolTitle", theme.bold(label))}`;
+    if (d.error) {
+      return railLine(RAIL.close, "error", `${head} ${theme.fg("error", truncLine(String(d.error), budget - 24))}`, theme, budget);
+    }
+    const output = results?.length ? results[0].output : void 0;
+    const preview = output ? output.split("\n").find((l) => l.trim()) : void 0;
+    const right = theme.fg("dim", PI_EXPAND_CHORD);
+    if (preview) {
+      const left = `${head} ${theme.fg("muted", truncLine(preview, Math.max(8, budget - visibleWidth3(head) - 8)))}`;
+      return railLine(RAIL.close, closeSlot, railLeaders(left, right, budget, theme), theme, budget);
+    }
+    return railLine(RAIL.close, closeSlot, railLeaders(head, right, budget, theme), theme, budget);
+  }
+  const lines = [];
+  if (results?.length) {
+    for (const item of results) {
+      const icon = statusIcon2(item.status ?? "", theme);
+      lines.push(
+        railLine(
+          RAIL.body,
+          "border",
+          `${icon} ${theme.fg("toolTitle", theme.bold(item.agentId ?? "agent"))}`,
+          theme,
+          budget
+        )
+      );
+      if (item.error) {
+        lines.push(previewLine(RAIL.body, "error", String(item.error), theme, budget));
+      } else if (item.output) {
+        for (const line3 of String(item.output).split("\n").slice(0, 5)) {
+          lines.push(previewLine(RAIL.body, "border", line3, theme, budget));
+        }
+      }
+    }
+  } else if (d.agentId) {
+    lines.push(
+      railLine(RAIL.body, "border", `${statusIcon2(status, theme)} ${theme.fg("toolTitle", theme.bold(label))}`, theme, budget)
+    );
+    if (d.error) lines.push(previewLine(RAIL.body, "error", String(d.error), theme, budget));
+  } else {
+    lines.push(previewLine(RAIL.body, "border", extractContentText(result4?.content), theme, budget));
+  }
+  lines.push(railLine(RAIL.close, closeSlot, `${theme.fg("muted", label)} ${theme.fg("dim", PI_EXPAND_CHORD)}`, theme, budget));
+  return lines.join("\n");
 }
 function extractContentText(content) {
   if (!Array.isArray(content)) return typeof content === "string" ? content : "";
@@ -61662,57 +62033,28 @@ function extractContentText(content) {
   return String(texts[texts.length - 1].text ?? "");
 }
 function parseStreamingProgress(text) {
-  if (!text) return null;
-  const elapsedMatch = text.match(/elapsed=(\d+)s/);
-  const elapsedMs = elapsedMatch ? parseInt(elapsedMatch[1], 10) * 1e3 : 0;
-  const taskMatch = text.match(/tasks[^\n]*(?:completed|done)=(\d+)[^\n]*(?:running|waiting|queued)=(\d+)/);
-  const doneMatch = text.match(/(\d+)\/(\d+)\s+done/);
-  const agentMatch = text.match(/\s+(\w+)->(\w+)\s+turn=/);
-  const activeAgent = agentMatch ? `${agentMatch[1]}/${agentMatch[2]}` : null;
-  const toolMatch = text.match(/tool:\s+(\S+)/);
-  const toolInfo = toolMatch ? ` \xB7 ${toolMatch[1]}` : "";
-  if (doneMatch) {
+  const parsed = parseCompactToolProgress(text);
+  if (!parsed) return null;
+  const toolInfo = parsed.currentTool ? ` \xB7 ${parsed.currentTool}` : "";
+  if (parsed.completed != null && parsed.total != null) {
     return {
-      elapsedMs,
-      completed: parseInt(doneMatch[1], 10),
-      total: parseInt(doneMatch[2], 10),
+      elapsedMs: parsed.elapsedMs,
+      completed: parsed.completed,
+      total: parsed.total,
       status: null,
-      activeAgent: (activeAgent ?? "") + toolInfo
+      activeAgent: (parsed.activeAgent ?? "") + toolInfo
     };
   }
-  if (taskMatch) {
-    const done = parseInt(taskMatch[1], 10);
-    const running = parseInt(taskMatch[2], 10);
-    const total = done + running;
+  if (parsed.elapsedMs > 0) {
     return {
-      elapsedMs,
-      completed: done,
-      total,
-      status: null,
-      activeAgent: (activeAgent ?? "") + toolInfo
-    };
-  }
-  if (elapsedMs > 0) {
-    const statusMatch = text.match(/status=(\w+)/);
-    return {
-      elapsedMs,
+      elapsedMs: parsed.elapsedMs,
       completed: null,
       total: null,
-      status: statusMatch?.[1] ?? null,
-      activeAgent
+      status: parsed.status,
+      activeAgent: parsed.activeAgent
     };
   }
   return null;
-}
-function renderScanBar(barWidth, elapsedMs, theme) {
-  const pos = Math.floor(elapsedMs / 400 % (barWidth + 6)) - 3;
-  const segW = Math.max(3, Math.floor(barWidth * 0.3));
-  let bar = "";
-  for (let i = 0; i < barWidth; i++) {
-    const inSeg = i >= pos && i < pos + segW;
-    bar += inSeg ? theme.fg("accent", "\u2588") : theme.fg("dim", "\u2591");
-  }
-  return bar;
 }
 function computeTotalDuration2(records) {
   let total = 0;
@@ -61749,64 +62091,62 @@ var teamToolRenderer, agentToolRenderer;
 var init_tool_renderers = __esm({
   "src/ui/tool-renderers/index.ts"() {
     "use strict";
-    init_visual();
+    init_adaptive_card();
     init_format_helpers();
+    init_rail();
     init_spinner();
+    init_tool_progress_formatter();
     init_brief_mode();
-    init_card_colors();
     teamToolRenderer = {
       renderCall(args, theme, ctx) {
-        const action = args.action ?? "";
-        const goal = args.goal ?? "";
-        const team = args.team;
-        const w = ctx.width || process.stdout.columns || 116;
-        const innerW = w - 4;
-        const contentLines = [];
-        const actionBadge = theme.fg("accent", `\u25C0 ${action.toUpperCase()} \u25B6`);
-        const teamLabel = team ? `  ${theme.fg("dim", `via ${team}`)}` : "";
-        const header = ` ${actionBadge}${teamLabel}`;
-        contentLines.push(padVisual(header, innerW));
-        if (goal) {
-          const maxLen = innerW - 2;
-          const preview = shortenPath(goal.replace(/\n/g, " "));
-          const previewText = visibleWidth3(preview) > maxLen ? truncVisual(preview, maxLen - 1) + "\u2026" : preview;
-          contentLines.push(padVisual(` ${theme.fg("dim", previewText)}`, innerW));
-        }
-        return new Text(buildFrameTop(contentLines, w, theme, borderFromContext(ctx), borderFromContext(ctx)), 0, 0);
+        return new AdaptiveCard(
+          (w) => {
+            const budget = w - 2;
+            const action = args.action ?? "";
+            const goal = args.goal ?? "";
+            const team = args.team;
+            const lines = [canopy({ action, team, runId: args.runId ?? args.run, theme, ctx, budget })];
+            if (goal) lines.push(previewLine(RAIL.body, "border", goal, theme, budget, true));
+            return lines.join("\n");
+          },
+          (text) => theme.fg("error", text)
+        );
       },
       renderResult(result4, _options, theme, ctx) {
         try {
-          const text = renderTeamResult(result4, _options, theme, ctx);
-          return new Text(text, 0, 0);
-        } catch {
-          return new Text(statusIcon2("completed", theme) + " done", 0, 0);
+          return new AdaptiveCard(
+            (w) => renderTeamResult(result4, _options, theme, ctx, w),
+            (text) => theme.fg("error", text)
+          );
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return new Text2(theme.fg("error", `\u2716 crew render error: ${truncLine(msg, 56)}`), 0, 0);
         }
       }
     };
     agentToolRenderer = {
       renderCall(args, theme, ctx) {
-        const agentName = args.agent ?? args.subagent_type ?? "";
-        const prompt = args.prompt ?? args.task ?? "";
-        const w = ctx.width || process.stdout.columns || 116;
-        const innerW = w - 4;
-        const contentLines = [];
-        const badge = theme.fg("accent", `\u25C0 AGENT \u25B6`);
-        const nameTag = theme.fg("toolTitle", theme.bold(agentName));
-        contentLines.push(padVisual(` ${badge}  ${nameTag}`, innerW));
-        if (prompt) {
-          const maxLen = innerW - 2;
-          const preview = prompt.replace(/\n/g, " ");
-          const previewText = visibleWidth3(preview) > maxLen ? truncVisual(preview, maxLen - 1) + "\u2026" : preview;
-          contentLines.push(padVisual(` ${theme.fg("dim", previewText)}`, innerW));
-        }
-        return new Text(buildFrameTop(contentLines, w, theme, borderFromContext(ctx), borderFromContext(ctx)), 0, 0);
+        return new AdaptiveCard(
+          (w) => {
+            const budget = w - 2;
+            const agentName = args.agent ?? args.subagent_type ?? "";
+            const prompt = args.prompt ?? args.task ?? "";
+            const lines = [canopy({ agentName, theme, ctx, budget })];
+            if (prompt) lines.push(previewLine(RAIL.body, "border", prompt, theme, budget));
+            return lines.join("\n");
+          },
+          (text) => theme.fg("error", text)
+        );
       },
       renderResult(result4, _options, theme, ctx) {
         try {
-          const text = renderAgentResult(result4, _options, theme, ctx);
-          return new Text(text, 0, 0);
-        } catch {
-          return new Text(statusIcon2("completed", theme) + " agent done", 0, 0);
+          return new AdaptiveCard(
+            (w) => renderAgentResult(result4, _options, theme, ctx, w),
+            (text) => theme.fg("error", text)
+          );
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return new Text2(theme.fg("error", `\u2716 agent render error: ${truncLine(msg, 56)}`), 0, 0);
         }
       }
     };
@@ -61814,7 +62154,7 @@ var init_tool_renderers = __esm({
 });
 
 // src/ui/layout-primitives.ts
-var Container, Box, Text2;
+var Container, Box, Text3;
 var init_layout_primitives = __esm({
   "src/ui/layout-primitives.ts"() {
     "use strict";
@@ -61866,7 +62206,7 @@ var init_layout_primitives = __esm({
         return paddedRows;
       }
     };
-    Text2 = class {
+    Text3 = class {
       text;
       cachedWidth = 0;
       cachedResult = [];
@@ -61887,7 +62227,7 @@ var init_layout_primitives = __esm({
         const wrapped = wrapHard(this.text, Math.max(1, width));
         const lines = wrapped.length ? wrapped : [""];
         this.cachedWidth = width;
-        this.cachedResult = lines.map((line4) => pad(line4, width));
+        this.cachedResult = lines.map((line3) => pad(line3, width));
         return this.cachedResult;
       }
     };
@@ -61895,20 +62235,65 @@ var init_layout_primitives = __esm({
 });
 
 // src/ui/widget/widget-renderer.ts
-function widgetHeader(runs, runningGlyph, maxLines = 20, notificationCount = 0, schedSegment) {
+function dockTail(left, theme, maxWidth) {
+  const pinned = visibleWidth(left) + visibleWidth(DOCK_HINT_RIGHT) + 6;
+  const budget = maxWidth === void 0 ? pinned : Math.min(pinned, maxWidth - 2);
+  return railLeaders(left, DOCK_HINT_RIGHT, budget, theme);
+}
+function dockIdentity(subject) {
+  return subject ? `${DOCK_WORD} ${ACTIVE} ${subject}` : DOCK_WORD;
+}
+function dockLine(content, theme, slot) {
+  return railRaw(RAIL.body, slot, content, theme);
+}
+function widgetRailSlot(runs) {
+  if (runs.length === 0) return "border";
+  const slots = runs.map((entry) => statusSlot(entry.run.status));
+  if (slots.includes("error")) return "error";
+  if (slots.includes("borderAccent")) return "borderAccent";
+  return slots[0] ?? "border";
+}
+function dockSubject(runs) {
+  if (runs.length > 1) return `${runs.length} runs`;
+  const first = runs[0];
+  return first ? shortRunLabel(first.run) : "idle";
+}
+function idleWidgetLine(schedLine, focused = false, maxWidth) {
+  if (!schedLine) return void 0;
+  const left = `${dockIdentity("idle")} \xB7 ${schedLine}`;
+  const line3 = dockLine(dockTail(left, PLAIN_THEME, maxWidth), PLAIN_THEME, "border");
+  return focused ? `${FOCUS_MARKER} ${line3}` : line3;
+}
+function widgetActivityGlyph(runs) {
+  const anyAgentRunning = runs.some((entry) => entry.agents.some((agent) => agent.status === "running"));
+  const anyRunRunning = runs.some((entry) => entry.run.status === "running");
+  if (anyAgentRunning || anyRunRunning) return spinnerFrame("widget-header");
+  const slot = widgetRailSlot(runs);
+  if (slot === "error") return "\u2717";
+  if (slot === "success") return "\u2713";
+  return "";
+}
+function widgetHeader(runs, runningGlyph, maxLines = 20, notificationCount = 0, schedSegment, maxWidth) {
   const agents = runs.flatMap((item) => item.agents);
-  const runningAgents = agents.filter((a) => a.status === "running").length;
-  const queuedAgents = agents.filter((a) => a.status === "queued").length;
-  const waitingAgents = agents.filter((a) => a.status === "waiting").length;
-  const completedAgents = agents.filter((a) => a.status === "completed").length;
-  const parts = [`${runningAgents} running`];
-  if (queuedAgents) parts.push(`${queuedAgents} queued`);
-  if (waitingAgents) parts.push(`${waitingAgents} waiting`);
-  if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
-  const planPending = runs.find((item) => isPlanApprovalStatePending(item.run.planApproval));
-  if (planPending) parts.push(`\u26A0 plan:${planPending.run.runId.slice(-8)}`);
-  const sched = schedSegment ? ` \xB7 ${schedSegment}` : "";
-  return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} \xB7 ${parts.join(" \xB7 ")}${sched} \u2014 \u2193\xB7enter`;
+  const segments = [];
+  if (runs.length > 0) {
+    const runningAgents = agents.filter((a) => a.status === "running").length;
+    const queuedAgents = agents.filter((a) => a.status === "queued").length;
+    const waitingAgents = agents.filter((a) => a.status === "waiting").length;
+    const completedAgents = agents.filter((a) => a.status === "completed").length;
+    if (runningAgents) segments.push(`${runningAgents} running`);
+    if (queuedAgents) segments.push(`${queuedAgents} queued`);
+    if (waitingAgents) segments.push(`${waitingAgents} waiting`);
+    if (completedAgents) segments.push(`${completedAgents}/${agents.length} done`);
+    const planPending = runs.find((item) => isPlanApprovalStatePending(item.run.planApproval));
+    if (planPending) segments.push(`\u26A0 plan:${shortId(planPending.run.runId)}`);
+  }
+  if (schedSegment) segments.push(schedSegment);
+  const badge = notificationBadge(notificationCount).replace(/^\s*·\s*/, "").trim();
+  if (badge) segments.push(badge);
+  const head = runningGlyph ? `${runningGlyph} ${dockIdentity(dockSubject(runs))}` : dockIdentity(dockSubject(runs));
+  const left = segments.length > 0 ? `${head} \xB7 ${segments.join(" \xB7 ")}` : head;
+  return dockLine(dockTail(left, PLAIN_THEME, maxWidth), PLAIN_THEME, "border");
 }
 function isActiveStatus(status) {
   return status === "running" || status === "queued" || status === "waiting";
@@ -61957,35 +62342,37 @@ function schedulesWidgetLine(cwd, now) {
 function buildWidgetLines(cwd, frame = 0, maxLines = 8, providedRuns, notificationCount = 0, width = DEFAULT_WIDGET_WIDTH, options = {}) {
   const schedLine = schedulesWidgetLine(cwd, options.now ?? /* @__PURE__ */ new Date());
   const runs = providedRuns ?? activeWidgetRuns(cwd);
+  const focused = options.focused === true;
   if (!runs.length) {
-    const zero = schedLine ?? null;
-    if (!zero) return [];
-    const base2 = `${zero} \u2014 \u2193\xB7enter`;
-    return [truncate(options.focused ? `\u276F ${base2}` : base2, width)];
+    const idle = idleWidgetLine(schedLine, focused);
+    return idle ? [truncate(idle, width)] : [];
   }
-  const runningGlyph = spinnerFrame("widget-header");
-  const base = widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine);
-  return [truncate(options.focused ? `\u276F ${base}` : base, width)];
+  const base = widgetHeader(runs, widgetActivityGlyph(runs), maxLines, notificationCount, schedLine, width);
+  return [truncate(focused ? `${FOCUS_MARKER} ${base}` : base, width)];
 }
-function colorWidgetLine(line4, index, theme) {
-  let result4 = line4;
-  if (index === 0) {
-    result4 = result4.replace("Crew agents", theme.bold(theme.fg("accent", "Crew agents")));
+function colorWidgetLine(line3, index, theme, slot = "border") {
+  let result4 = line3;
+  if (index === 0 && !result4.includes("\x1B")) {
+    result4 = result4.replace(
+      /^([❯] )?([┃┏]) (?:(\S+) )?((?:CREW|PLAN)(?: ▸ [^·]+?)?)(?= ·|$)/,
+      (_match, cursor, glyph, spinner, identity) => {
+        const [word = "", subject] = identity.split(" \u25B8 ");
+        const tail = subject ? ` ${theme.fg("dim", ACTIVE)} ${theme.fg("toolTitle", theme.bold(subject))}` : "";
+        return `${cursor ?? ""}${theme.fg(slot, glyph)} ${spinner ? `${spinner} ` : ""}${theme.fg("accent", theme.bold(word))}${tail}`;
+      }
+    );
+    result4 = result4.replace(DOCK_HINT, theme.fg("dim", DOCK_HINT));
   }
-  result4 = colorizeStatusGlyphs(result4, theme);
-  if (index === 0) {
-    result4 = theme.fg("accent", result4);
-  }
-  return result4;
+  return colorizeStatusGlyphs(result4, theme);
 }
 function renderLines(lines, width) {
   const box = new Box(0, 0);
-  for (const line4 of lines) {
-    box.addChild(new Text2(line4));
+  for (const line3 of lines) {
+    box.addChild(new Text3(line3));
   }
   return box.render(width);
 }
-var FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, ACTIVE_PRIORITY, scheduledJobsReader, hiddenJobsReader;
+var FINISHED_LINGER_MAX_AGE, DEFAULT_WIDGET_WIDTH, TASK_DESC_MAX, ERROR_LINGER_MAX_AGE, ERROR_STATUSES, PLAIN_THEME, DOCK_WORD, DOCK_HINT_RIGHT, DOCK_HINT, FOCUS_MARKER, ACTIVE_PRIORITY, scheduledJobsReader, hiddenJobsReader;
 var init_widget_renderer = __esm({
   "src/ui/widget/widget-renderer.ts"() {
     "use strict";
@@ -61995,8 +62382,10 @@ var init_widget_renderer = __esm({
     init_relative_time();
     init_visual();
     init_layout_primitives();
+    init_rail();
     init_spinner();
     init_status_colors();
+    init_theme_adapter();
     init_widget_formatters();
     init_widget_model();
     FINISHED_LINGER_MAX_AGE = 1;
@@ -62004,6 +62393,11 @@ var init_widget_renderer = __esm({
     TASK_DESC_MAX = 60;
     ERROR_LINGER_MAX_AGE = 2;
     ERROR_STATUSES = /* @__PURE__ */ new Set(["failed", "cancelled", "stopped", "needs_attention"]);
+    PLAIN_THEME = asCrewTheme(void 0);
+    DOCK_WORD = "CREW";
+    DOCK_HINT_RIGHT = "\u2193\xB7enter";
+    DOCK_HINT = `\xB7\xB7\xB7\xB7 ${DOCK_HINT_RIGHT}`;
+    FOCUS_MARKER = "\u276F";
     ACTIVE_PRIORITY = { running: 0, queued: 1, waiting: 2 };
     scheduledJobsReader = defaultScheduledJobsReader;
     hiddenJobsReader = defaultHiddenJobsReader;
@@ -62501,14 +62895,14 @@ function blockedSuffix(task, tasks, numberById) {
   const labels = openDeps.map((dep) => `#${numberById.get(dep.id) ?? "?"}`);
   return ` \u203A blocked by ${labels.join(", ")}`;
 }
-function taskRow(task, taskNumber, tasks, numberById, width) {
+function taskRow(task, taskNumber, tasks, numberById) {
   const title = taskTitle(task);
   const suffix = task.status === "running" ? runningSuffix(task) : blockedSuffix(task, tasks, numberById);
   if (task.status === "completed") {
     const struck = `${STRIKE_ON}${DIM_ON}#${taskNumber} ${title}${DIM_OFF}${STRIKE_OFF}`;
-    return truncate(`  \u2714 ${struck}`.trimEnd(), width);
+    return `${taskStatusIcon(task)} ${struck}`;
   }
-  return truncate(`  ${taskStatusIcon(task)} #${taskNumber} ${title}${suffix}`.trimEnd(), width);
+  return `${taskStatusIcon(task)} #${taskNumber} ${title}${suffix}`.trimEnd();
 }
 function primaryRun(runs) {
   return runs.find((entry) => (entry.snapshot?.tasks ?? []).some((task) => ACTIVE_TASK_STATUSES.has(task.status))) ?? runs[0];
@@ -62524,11 +62918,12 @@ function visibleTasks(tasks) {
   }
   return tasks.filter((task) => keep.has(task.id));
 }
-function buildTaskListLines(runs, width) {
+function buildTaskListLines(runs, width, theme = PLAIN_THEME2) {
   const entry = primaryRun(runs);
   if (!entry) return [];
   const tasks = entry.snapshot?.tasks ?? [];
   if (tasks.length === 0) return [];
+  const budget = Math.max(8, width - 2);
   const numberById = new Map(tasks.map((task, index) => [task.id, index + 1]));
   const done = tasks.filter((task) => task.status === "completed").length;
   const dead = tasks.filter((task) => isDoneStatus(task.status) && task.status !== "completed").length;
@@ -62536,28 +62931,49 @@ function buildTaskListLines(runs, width) {
     (task) => task.status === "running" || task.status === "waiting" || task.status === "needs_attention"
   ).length;
   const open = tasks.filter((task) => task.status === "queued").length;
-  const counts = [`${done} done`];
-  if (dead) counts.push(`${dead} failed`);
-  counts.push(`${inProgress} in progress`, `${open} open`);
-  const headerParts = [`\u25CF ${tasks.length} tasks (${counts.join(", ")})`];
-  if (runs.length > 1) headerParts.push(shortRunLabel(entry.run));
-  const lines = [truncate(headerParts.join(" \xB7 "), width)];
+  const slot = statusSlot(entry.run.status);
+  const title = shortRunLabel(entry.run);
+  const ratio = done / tasks.length;
+  const tally = `${done}/${tasks.length}`;
+  const gauge = `${gaugeBar(ratio, GAUGE_WIDTH, theme, dead > 0 ? "error" : "success")} ${tally}`;
+  const labelWidth = visibleWidth(`PLAN ${title}`) + 5;
+  const right = budget - labelWidth - 6 >= GAUGE_WIDTH + tally.length ? gauge : void 0;
+  const lines = [
+    canopyLine({
+      word: "PLAN",
+      subject: title,
+      theme,
+      budget,
+      slot,
+      right
+    })
+  ];
   const visible = visibleTasks(tasks);
   for (const task of visible) {
-    lines.push(taskRow(task, numberById.get(task.id) ?? 0, tasks, numberById, width));
+    lines.push(railLine(RAIL.body, "border", taskRow(task, numberById.get(task.id) ?? 0, tasks, numberById), theme, budget));
   }
-  if (tasks.length > visible.length) {
-    lines.push(truncate(`  \u2026 and ${tasks.length - visible.length} more`, width));
+  const hidden = tasks.length - visible.length;
+  if (hidden > 0) {
+    lines.push(railLine(RAIL.body, "border", overflowHint(0, hidden, theme), theme, budget));
   }
+  const counts = [formatCount(done, "done", "done")];
+  if (dead) counts.push(formatCount(dead, "failed", "failed"));
+  counts.push(formatCount(inProgress, "in progress", "in progress"), formatCount(open, "open", "open"));
+  lines.push(railLine(RAIL.close, slot, counts.join(" \xB7 "), theme, budget));
   return lines;
 }
-var MAX_TASK_ROWS, ACTIVE_TASK_STATUSES, DIM_ON, DIM_OFF, STRIKE_ON, STRIKE_OFF;
+var PLAIN_THEME2, GAUGE_WIDTH, MAX_TASK_ROWS, ACTIVE_TASK_STATUSES, DIM_ON, DIM_OFF, STRIKE_ON, STRIKE_OFF;
 var init_task_list = __esm({
   "src/ui/widget/task-list.ts"() {
     "use strict";
     init_visual();
+    init_format_helpers();
+    init_rail();
     init_spinner();
+    init_theme_adapter();
     init_widget_model();
+    PLAIN_THEME2 = asCrewTheme(void 0);
+    GAUGE_WIDTH = 12;
     MAX_TASK_ROWS = 10;
     ACTIVE_TASK_STATUSES = /* @__PURE__ */ new Set(["running", "queued", "waiting", "needs_attention"]);
     DIM_ON = "\x1B[2m";
@@ -62575,7 +62991,6 @@ __export(widget_exports, {
   TASK_DESC_MAX: () => TASK_DESC_MAX,
   activeWidgetRuns: () => activeWidgetRuns,
   buildCrewWidgetLines: () => buildWidgetLines,
-  getRenderWidth: () => getRenderWidth,
   installResizeListener: () => installResizeListener,
   notificationBadge: () => notificationBadge,
   statusSummary: () => statusSummary,
@@ -62584,12 +62999,6 @@ __export(widget_exports, {
   updateCrewWidget: () => updateCrewWidget,
   widgetHeader: () => widgetHeader
 });
-function getRenderWidth(width) {
-  if (Number.isFinite(width) && width > 0) return Math.floor(width);
-  const stdoutCols = globalThis.process?.stdout?.columns;
-  if (Number.isFinite(stdoutCols) && stdoutCols > 0) return Math.floor(stdoutCols);
-  return DEFAULT_WIDGET_WIDTH;
-}
 function installResizeListener() {
   if (resizeListenerInstalled) return;
   resizeListenerInstalled = true;
@@ -62738,9 +63147,9 @@ var init_widget = __esm({
     init_task_list();
     init_widget_model();
     init_widget_renderer();
+    init_widget_formatters();
     init_widget_model();
     init_widget_renderer();
-    init_widget_formatters();
     init_live_agent_manager();
     MAX_LINES_DEFAULT = DEFAULT_UI.widgetMaxLines;
     LEGACY_WIDGET_KEY = "pi-crew";
@@ -62828,9 +63237,9 @@ var init_widget = __esm({
         ).join("|") + `|live:${liveSig}${animation}`;
         return sig;
       }
-      colorize(lines, width) {
+      colorize(lines, width, slot = "border") {
         return renderLines(
-          lines.map((line4, index) => colorWidgetLine(line4, index, this.theme)),
+          lines.map((line3, index) => colorWidgetLine(line3, index, this.theme, slot)),
           width
         );
       }
@@ -62850,7 +63259,7 @@ var init_widget = __esm({
        */
       ensureTruncated(width) {
         if (width === this.lastTruncateWidth) return;
-        this.truncatedLines = this.cachedLines.map((line4) => truncate(line4, width));
+        this.truncatedLines = this.cachedLines.map((line3) => truncate(line3, width));
         this.lastTruncateWidth = width;
       }
       /** Poke the host TUI to repaint immediately (defensive: no-op if unavailable). */
@@ -62881,10 +63290,9 @@ var init_widget = __esm({
           this.cachedBuildSignatureAt = now;
         }
         const signature = `${sigBase}:${this.model.notificationCount ?? 0}`;
-        const runningGlyph = spinnerFrame("widget-header");
         if (this.variant === "tasks") {
           if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
-            this.cachedBaseLines = buildTaskListLines(runs, width);
+            this.cachedBaseLines = buildTaskListLines(runs, width, this.theme);
             this.cachedLines = this.colorize(this.cachedBaseLines, width);
             this.cachedWidth = width;
             this.cachedTheme = this.theme;
@@ -62902,7 +63310,6 @@ var init_widget = __esm({
         const schedNow = /* @__PURE__ */ new Date();
         const schedLine = schedulesWidgetLine(this.model.cwd, schedNow);
         const signatureWithPanel = `${signature}|panel:${panel.selectedTaskId ?? ""}/${panel.viewedTaskId ?? ""}/${panel.focused ? 1 : 0}|sched:${schedLine ?? ""}`;
-        const compactDock = this.model.rowStyle === "compact";
         if (this.cacheSignature !== signatureWithPanel || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
           this.cachedBaseLines = buildWidgetLines(
             this.model.cwd,
@@ -62911,12 +63318,9 @@ var init_widget = __esm({
             runs,
             this.model.notificationCount ?? 0,
             width,
-            { rowStyle: this.model.rowStyle, now: schedNow, ...panel }
-          ).map((line4, index) => {
-            if (!compactDock && index === 0 && line4.length > 0) return `${runningGlyph}${line4.slice(1)}`;
-            return line4;
-          });
-          this.cachedLines = this.colorize(this.cachedBaseLines, width);
+            { now: schedNow, ...panel }
+          );
+          this.cachedLines = this.colorize(this.cachedBaseLines, width, widgetRailSlot(runs));
           this.cachedWidth = width;
           this.cachedTheme = this.theme;
           this.cacheSignature = signatureWithPanel;
@@ -62924,16 +63328,12 @@ var init_widget = __esm({
         }
         if (runs.length === 0) {
           this.invalidate();
-          const zeroBase = `${schedLine} \u2014 \u2193\xB7enter`;
-          const focused = panel.focused === true;
-          return [truncate(focused ? `\u276F ${zeroBase}` : zeroBase, width)];
+          if (!schedLine) return [];
+          const zeroLine = idleWidgetLine(schedLine, panel.focused === true, width);
+          if (!zeroLine) return [];
+          return [truncate(colorWidgetLine(zeroLine, 0, this.theme), width)];
         }
         this.ensureTruncated(width);
-        if (!compactDock) {
-          const updatedHeader = `${runningGlyph}${this.cachedBaseLines[0]?.slice(1) ?? ""}`;
-          this.cachedLines[0] = truncate(colorWidgetLine(updatedHeader, 0, this.theme), width);
-          this.truncatedLines[0] = truncate(this.cachedLines[0], width);
-        }
         return this.truncatedLines;
       }
     };
@@ -62960,71 +63360,9 @@ var init_safe_abort = __esm({
   }
 });
 
-// src/ui/tool-progress-formatter.ts
-function pickActiveAgent(agents) {
-  if (!agents || agents.length === 0) return void 0;
-  return agents.find((agent) => agent.status === "running") ?? agents.find((agent) => agent.status === "waiting") ?? agents.find((agent) => agent.status === "queued") ?? agents[agents.length - 1];
-}
-function totalTokens(agent) {
-  const fromProgress = agent.progress?.tokens;
-  if (typeof fromProgress === "number" && fromProgress > 0) return fromProgress;
-  const usage = agent.usage;
-  if (!usage) return 0;
-  const input = typeof usage.input === "number" ? usage.input : 0;
-  const output = typeof usage.output === "number" ? usage.output : 0;
-  return input + output;
-}
-function trimLine(value) {
-  const oneLine = value.replace(/\s+/g, " ").trim();
-  if (oneLine.length <= MAX_OUTPUT_LINE) return oneLine;
-  return `${oneLine.slice(0, MAX_OUTPUT_LINE - 3)}...`;
-}
-function taskCounts(tasks) {
-  if (!tasks || tasks.length === 0) return void 0;
-  const total = tasks.length;
-  const completed = tasks.filter((t2) => t2.status === "completed").length;
-  const buckets = /* @__PURE__ */ new Map();
-  for (const task of tasks) buckets.set(task.status, (buckets.get(task.status) ?? 0) + 1);
-  const summary = [...buckets.entries()].map(([status, count2]) => `${status}=${count2}`).join(" ");
-  return `tasks ${completed}/${total} done ${summary}`;
-}
-function formatCompactToolProgress(input) {
-  const elapsedSec = Math.max(0, Math.round((Date.now() - input.startedAt) / 1e3));
-  const head = input.agentId ? `agent=${input.agentId}` : "agent";
-  const lines = [`${head} status=${input.status} elapsed=${elapsedSec}s`];
-  const counts = taskCounts(input.tasks);
-  if (counts) lines.push(`  ${counts}`);
-  const active = pickActiveAgent(input.agents);
-  if (active) {
-    const turns = active.progress?.turns ?? 0;
-    const tokens = totalTokens(active);
-    lines.push(`  ${active.role}->${active.agent} turn=${turns} tokens=${tokens}`);
-    if (active.progress?.currentTool) {
-      const count2 = active.progress.toolCount ? ` (#${active.progress.toolCount})` : "";
-      lines.push(`  tool: ${active.progress.currentTool}${count2}`);
-    }
-    const recent = active.progress?.recentOutput?.at(-1);
-    if (recent?.trim()) lines.push(`  ${trimLine(recent)}`);
-  } else if (input.runId && !counts) {
-    lines.push(`  run=${input.runId} (starting)`);
-  } else if (input.error) {
-    lines.push(`  error: ${trimLine(input.error)}`);
-  } else if (!counts) {
-    lines.push("  waiting for run to start");
-  }
-  return lines.join("\n");
-}
-var MAX_OUTPUT_LINE;
-var init_tool_progress_formatter = __esm({
-  "src/ui/tool-progress-formatter.ts"() {
-    "use strict";
-    MAX_OUTPUT_LINE = 80;
-  }
-});
-
 // src/extension/registration/team-tool.ts
 import { statSync as statSync49 } from "node:fs";
-import { Text as Text3 } from "@earendil-works/pi-tui";
+import { Text as Text4 } from "@earendil-works/pi-tui";
 async function handleTeamTool(params, ctx) {
   const mod = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
   return mod.handleTeamTool(params, ctx);
@@ -63140,6 +63478,9 @@ function registerTeamTool(pi, deps) {
           onJsonEvent: deps.onJsonEvent,
           getRunSnapshotCache: deps.getRunSnapshotCache
         });
+        if (resolved.action === "run" && !output.isError && output.details && typeof output.details === "object") {
+          output.details.team ??= resolved.team ?? resolved.agent ?? "";
+        }
         if (resolved.action === "run" && !output.isError && typeof output.details?.runId === "string") {
           pi.appendEntry("crew:run-started", {
             runId: output.details.runId,
@@ -63176,8 +63517,9 @@ function registerTeamTool(pi, deps) {
           theme,
           context
         );
-      } catch {
-        return new Text3(statusIcon2("completed", theme) + " done", 0, 0);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Text4(theme.fg("error", `\u2716 team render error: ${msg.slice(0, 60)}`), 0, 0);
       }
     }
   };
@@ -63757,7 +64099,7 @@ var init_run = __esm({
 });
 
 // src/runtime/recovery/checkpoint.ts
-import * as fs95 from "node:fs";
+import * as fs96 from "node:fs";
 import * as path74 from "node:path";
 var FileCheckpointStore;
 var init_checkpoint = __esm({
@@ -63780,8 +64122,8 @@ var init_checkpoint = __esm({
       }
       ensureDir() {
         const dir = this.checkpointDir();
-        if (!fs95.existsSync(dir)) {
-          fs95.mkdirSync(dir, { recursive: true });
+        if (!fs96.existsSync(dir)) {
+          fs96.mkdirSync(dir, { recursive: true });
         }
       }
       save(checkpoint) {
@@ -63793,15 +64135,15 @@ var init_checkpoint = __esm({
       load(runId, taskId) {
         assertSafePathId("taskId", taskId);
         const p = this.checkpointPath(taskId);
-        if (!fs95.existsSync(p)) return null;
+        if (!fs96.existsSync(p)) return null;
         try {
-          const data = JSON.parse(fs95.readFileSync(p, "utf-8"));
+          const data = JSON.parse(fs96.readFileSync(p, "utf-8"));
           if (data.runId !== runId) return null;
           return data;
         } catch {
           logInternalError("checkpoint-load", new Error("JSON parse failed"), `file=${p}`);
           try {
-            fs95.renameSync(p, `${p}.corrupt.${Date.now()}`);
+            fs96.renameSync(p, `${p}.corrupt.${Date.now()}`);
           } catch {
           }
           return null;
@@ -63810,15 +64152,15 @@ var init_checkpoint = __esm({
       delete(runId, taskId) {
         assertSafePathId("taskId", taskId);
         const p = this.checkpointPath(taskId);
-        if (fs95.existsSync(p)) {
+        if (fs96.existsSync(p)) {
           try {
-            const data = JSON.parse(fs95.readFileSync(p, "utf-8"));
+            const data = JSON.parse(fs96.readFileSync(p, "utf-8"));
             if (data.runId === runId) {
-              fs95.unlinkSync(p);
+              fs96.unlinkSync(p);
             }
           } catch {
             try {
-              fs95.unlinkSync(p);
+              fs96.unlinkSync(p);
             } catch {
             }
           }
@@ -63826,10 +64168,10 @@ var init_checkpoint = __esm({
       }
       list(runId) {
         const dir = this.checkpointDir();
-        if (!fs95.existsSync(dir)) return [];
-        return fs95.readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => {
+        if (!fs96.existsSync(dir)) return [];
+        return fs96.readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => {
           try {
-            return JSON.parse(fs95.readFileSync(path74.join(dir, f), "utf-8"));
+            return JSON.parse(fs96.readFileSync(path74.join(dir, f), "utf-8"));
           } catch {
             return null;
           }
@@ -63844,7 +64186,7 @@ var init_checkpoint = __esm({
 
 // src/state/stores/run-cache.ts
 import * as crypto7 from "node:crypto";
-import * as fs96 from "node:fs";
+import * as fs97 from "node:fs";
 import * as path75 from "node:path";
 function computeRunCacheKey(goal, team, workflow, _cwd) {
   const normalized = goal.trim().toLowerCase().replace(/\s+/g, " ");
@@ -63856,19 +64198,19 @@ function cacheDir(cwd) {
 function getCachedRun(cwd, cacheKey2) {
   const dir = cacheDir(cwd);
   const indexPath = path75.join(dir, "index.json");
-  if (!fs96.existsSync(indexPath)) return null;
+  if (!fs97.existsSync(indexPath)) return null;
   try {
-    const index = JSON.parse(fs96.readFileSync(indexPath, "utf-8"));
+    const index = JSON.parse(fs97.readFileSync(indexPath, "utf-8"));
     const entryPath = index[cacheKey2];
-    if (!entryPath || !fs96.existsSync(entryPath)) return null;
-    const entry = JSON.parse(fs96.readFileSync(entryPath, "utf-8"));
+    if (!entryPath || !fs97.existsSync(entryPath)) return null;
+    const entry = JSON.parse(fs97.readFileSync(entryPath, "utf-8"));
     if (Date.now() > entry.expiresAt) {
       withFileLockSync(indexPath, () => {
         try {
-          fs96.unlinkSync(entryPath);
+          fs97.unlinkSync(entryPath);
         } catch {
         }
-        const updatedIndex = JSON.parse(fs96.readFileSync(indexPath, "utf-8"));
+        const updatedIndex = JSON.parse(fs97.readFileSync(indexPath, "utf-8"));
         delete updatedIndex[cacheKey2];
         atomicWriteJson(indexPath, updatedIndex);
       });
@@ -63881,17 +64223,17 @@ function getCachedRun(cwd, cacheKey2) {
 }
 function getCacheStats(cwd) {
   const dir = cacheDir(cwd);
-  if (!fs96.existsSync(dir)) return { entries: 0, sizeBytes: 0 };
+  if (!fs97.existsSync(dir)) return { entries: 0, sizeBytes: 0 };
   let sizeBytes = 0;
   let entries = 0;
   const indexPath = path75.join(dir, "index.json");
-  if (fs96.existsSync(indexPath)) {
+  if (fs97.existsSync(indexPath)) {
     try {
-      const index = JSON.parse(fs96.readFileSync(indexPath, "utf-8"));
+      const index = JSON.parse(fs97.readFileSync(indexPath, "utf-8"));
       entries = Object.keys(index).length;
       for (const entryPath of Object.values(index)) {
         try {
-          const stat2 = fs96.statSync(entryPath);
+          const stat2 = fs97.statSync(entryPath);
           sizeBytes += stat2.size;
         } catch {
         }
@@ -63911,15 +64253,15 @@ var init_run_cache = __esm({
 });
 
 // src/state/stores/run-graph.ts
-import * as fs97 from "node:fs";
+import * as fs98 from "node:fs";
 import * as path76 from "node:path";
 function loadRunGraph(cwd, runId) {
   assertSafePathId("runId", runId);
   const crewRoot = projectCrewRoot(cwd);
   const graphPath = path76.join(crewRoot, "graphs", `${runId}.json`);
-  if (!fs97.existsSync(graphPath)) return null;
+  if (!fs98.existsSync(graphPath)) return null;
   try {
-    return JSON.parse(fs97.readFileSync(graphPath, "utf-8"));
+    return JSON.parse(fs98.readFileSync(graphPath, "utf-8"));
   } catch {
     return null;
   }
@@ -63927,8 +64269,8 @@ function loadRunGraph(cwd, runId) {
 function listRunGraphs(cwd) {
   const crewRoot = projectCrewRoot(cwd);
   const graphsDir = path76.join(crewRoot, "graphs");
-  if (!fs97.existsSync(graphsDir)) return [];
-  return fs97.readdirSync(graphsDir).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""));
+  if (!fs98.existsSync(graphsDir)) return [];
+  return fs98.readdirSync(graphsDir).filter((f) => f.endsWith(".json")).map((f) => f.replace(/\.json$/, ""));
 }
 var init_run_graph = __esm({
   "src/state/stores/run-graph.ts"() {
@@ -64133,7 +64475,6 @@ function piTeamsHelp() {
     "- /team-manager \u2014 interactive menu (alias: /team-cleanup-menu)",
     "",
     "Maintenance:",
-    "- /team-cleanup <runId> [--force]  (or scope=project/user for uninstall cleanup)",
     "- /team-forget <runId> --confirm [--force]",
     "- /team-prune --keep=20 --confirm",
     "",
@@ -64143,7 +64484,6 @@ function piTeamsHelp() {
     "- /team-imports",
     "",
     "Diagnostics:",
-    "- /team-health",
     "- /team-doctor",
     "- /team-init [--copy-builtins] [--overwrite]",
     "- /team-config [key=value] [--unset=key.path] [--project]",
@@ -64175,17 +64515,17 @@ var init_help = __esm({
 });
 
 // src/extension/team-onboard.ts
-import * as fs98 from "node:fs";
+import * as fs99 from "node:fs";
 import * as path77 from "node:path";
 function loadRunSummaries(cwd, options = {}) {
   const crewRoot = projectCrewRoot(cwd);
   const runsRoot = path77.join(crewRoot, "state", "runs");
-  if (!fs98.existsSync(runsRoot)) return [];
+  if (!fs99.existsSync(runsRoot)) return [];
   const limit = options.limit ?? 5;
   const teamFilter = options.team;
-  const entries = fs98.readdirSync(runsRoot).filter((e) => {
+  const entries = fs99.readdirSync(runsRoot).filter((e) => {
     try {
-      return fs98.statSync(path77.join(runsRoot, e)).isDirectory();
+      return fs99.statSync(path77.join(runsRoot, e)).isDirectory();
     } catch {
       return false;
     }
@@ -64194,9 +64534,9 @@ function loadRunSummaries(cwd, options = {}) {
   for (const runId of entries) {
     if (summaries.length >= limit) break;
     const manifestPath = path77.join(runsRoot, runId, "manifest.json");
-    if (!fs98.existsSync(manifestPath)) continue;
+    if (!fs99.existsSync(manifestPath)) continue;
     try {
-      const raw = JSON.parse(fs98.readFileSync(manifestPath, "utf-8"));
+      const raw = JSON.parse(fs99.readFileSync(manifestPath, "utf-8"));
       if (teamFilter && raw.team !== teamFilter) continue;
       summaries.push({
         runId,
@@ -64262,8 +64602,8 @@ function buildTeamOnboarding(team, cwd, options = {}) {
       const goalPreview = run.goal ? run.goal.slice(0, 40) : "N/A";
       const goalSuffix = run.goal && run.goal.length > 40 ? "..." : "";
       const status = run.status ?? "unknown";
-      const statusIcon4 = status === "completed" ? "\u2705" : status === "failed" ? "\u274C" : status === "cancelled" ? "\u23F9\uFE0F" : "\u26A0\uFE0F";
-      lines.push(`| \`${run.runId.slice(-8)}\` | ${goalPreview}${goalSuffix} | ${duration} | ${statusIcon4} ${status} |`);
+      const statusIcon5 = status === "completed" ? "\u2705" : status === "failed" ? "\u274C" : status === "cancelled" ? "\u23F9\uFE0F" : "\u26A0\uFE0F";
+      lines.push(`| \`${run.runId.slice(-8)}\` | ${goalPreview}${goalSuffix} | ${duration} | ${statusIcon5} ${status} |`);
     }
     lines.push("");
   }
@@ -64322,7 +64662,7 @@ function makeSubtask(text) {
   return { subject, description: text.trim(), role: recommendRole(text) };
 }
 function decomposeGoal(goal) {
-  const lines = goal.split("\n").map((line4) => line4.trim()).filter(Boolean);
+  const lines = goal.split("\n").map((line3) => line3.trim()).filter(Boolean);
   const fileRefs = goal.match(FILE_REF_RE)?.length ?? 0;
   const codeSymbols = goal.match(CODE_SYMBOL_RE)?.length ?? 0;
   const hasParallelKeyword = /\b(?:parallel|concurrently|simultaneously|independently)\b/i.test(goal);
@@ -64330,14 +64670,14 @@ function decomposeGoal(goal) {
     const subtask2 = makeSubtask(goal);
     return { strategy: "atomic", subtasks: [subtask2], fanout: 1 };
   }
-  const numberedLines = lines.map((line4) => line4.match(NUMBERED_LINE_RE)?.[1]).filter((line4) => line4 !== void 0);
+  const numberedLines = lines.map((line3) => line3.match(NUMBERED_LINE_RE)?.[1]).filter((line3) => line3 !== void 0);
   if (numberedLines.length >= 2 && numberedLines.length >= lines.length - 1) {
-    const subtasks = numberedLines.map((line4) => makeSubtask(line4));
+    const subtasks = numberedLines.map((line3) => makeSubtask(line3));
     return { strategy: "numbered", subtasks, fanout: subtasks.length };
   }
-  const bulletedLines = lines.map((line4) => line4.match(BULLETED_LINE_RE)?.[1]).filter((line4) => line4 !== void 0);
+  const bulletedLines = lines.map((line3) => line3.match(BULLETED_LINE_RE)?.[1]).filter((line3) => line3 !== void 0);
   if (bulletedLines.length >= 2 && bulletedLines.length >= lines.length - 1) {
-    const subtasks = bulletedLines.map((line4) => makeSubtask(line4));
+    const subtasks = bulletedLines.map((line3) => makeSubtask(line3));
     return { strategy: "bulleted", subtasks, fanout: subtasks.length };
   }
   if (lines.length === 1) {
@@ -64529,7 +64869,7 @@ var init_team_recommendation = __esm({
 });
 
 // src/extension/team-tool/explain.ts
-import * as fs99 from "node:fs";
+import * as fs100 from "node:fs";
 import * as path78 from "node:path";
 function result3(text, details, isError) {
   return { isError, text };
@@ -64580,13 +64920,13 @@ function buildTaskExplainContext(manifest, tasks, taskId) {
   }
   const artifactsPath = manifest.artifactsRoot;
   const filesTouched = [];
-  if (fs99.existsSync(artifactsPath)) {
+  if (fs100.existsSync(artifactsPath)) {
     try {
-      const entries = fs99.readdirSync(artifactsPath);
+      const entries = fs100.readdirSync(artifactsPath);
       for (const entry of entries) {
         const fullPath = path78.join(artifactsPath, entry);
         try {
-          if (fs99.statSync(fullPath).isFile()) {
+          if (fs100.statSync(fullPath).isFile()) {
             filesTouched.push(entry);
           }
         } catch {
@@ -64727,8 +65067,8 @@ function handleExplain(params, cwd) {
       write: "documentation"
     };
     const layer = layerMap[task.adaptive?.phase ?? ""] ?? "unknown";
-    const statusIcon4 = task.status === "completed" ? "\u2705" : task.status === "failed" ? "\u274C" : "\u23F3";
-    lines.push(`| \`${task.id}\` | ${task.role} | ${statusIcon4} ${task.status} | ${layer} |`);
+    const statusIcon5 = task.status === "completed" ? "\u2705" : task.status === "failed" ? "\u274C" : "\u23F3";
+    lines.push(`| \`${task.id}\` | ${task.role} | ${statusIcon5} ${task.status} | ${layer} |`);
   }
   lines.push("");
   lines.push("---");
@@ -64745,7 +65085,7 @@ var init_explain = __esm({
 });
 
 // src/extension/team-tool/health-monitor.ts
-import * as fs100 from "node:fs";
+import * as fs101 from "node:fs";
 import * as os18 from "node:os";
 import * as path79 from "node:path";
 function readRunTasks(stateRoot) {
@@ -64782,22 +65122,22 @@ function detectStuckTasks(run, now) {
   return stuck;
 }
 function scanZombieTempWorkspaces(tmpDir, now) {
-  if (!tmpDir || !fs100.existsSync(tmpDir)) return [];
+  if (!tmpDir || !fs101.existsSync(tmpDir)) return [];
   const zombies = [];
   try {
-    const entries = fs100.readdirSync(tmpDir, { withFileTypes: true });
+    const entries = fs101.readdirSync(tmpDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
       const workspaceDir = path79.join(tmpDir, entry.name);
       const stateRunsDir = path79.join(workspaceDir, ".crew", "state", "runs");
-      if (!fs100.existsSync(stateRunsDir)) continue;
+      if (!fs101.existsSync(stateRunsDir)) continue;
       let runCount = 0;
       try {
-        for (const runDir of fs100.readdirSync(stateRunsDir)) {
+        for (const runDir of fs101.readdirSync(stateRunsDir)) {
           const manifestPath = path79.join(stateRunsDir, runDir, "manifest.json");
-          if (fs100.existsSync(manifestPath)) {
+          if (fs101.existsSync(manifestPath)) {
             try {
-              const manifest = JSON.parse(fs100.readFileSync(manifestPath, "utf-8"));
+              const manifest = JSON.parse(fs101.readFileSync(manifestPath, "utf-8"));
               if (manifest.runId) runCount++;
             } catch {
             }
@@ -64814,21 +65154,21 @@ function scanZombieTempWorkspaces(tmpDir, now) {
   return zombies;
 }
 function collectTempWorkspaceRuns(primaryRuns, tmpDir) {
-  if (!tmpDir || !fs100.existsSync(tmpDir)) return [];
+  if (!tmpDir || !fs101.existsSync(tmpDir)) return [];
   const primaryIds = new Set(primaryRuns.map((r) => r.runId));
   const runs = [];
   try {
-    const entries = fs100.readdirSync(tmpDir, { withFileTypes: true });
+    const entries = fs101.readdirSync(tmpDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
       const stateRunsDir = path79.join(tmpDir, entry.name, ".crew", "state", "runs");
-      if (!fs100.existsSync(stateRunsDir)) continue;
+      if (!fs101.existsSync(stateRunsDir)) continue;
       try {
-        for (const runDir of fs100.readdirSync(stateRunsDir)) {
+        for (const runDir of fs101.readdirSync(stateRunsDir)) {
           const manifestPath = path79.join(stateRunsDir, runDir, "manifest.json");
-          if (!fs100.existsSync(manifestPath)) continue;
+          if (!fs101.existsSync(manifestPath)) continue;
           try {
-            const manifest = JSON.parse(fs100.readFileSync(manifestPath, "utf-8"));
+            const manifest = JSON.parse(fs101.readFileSync(manifestPath, "utf-8"));
             if (!manifest.runId || primaryIds.has(manifest.runId)) continue;
             if (manifest.status && manifest.cwd && manifest.stateRoot && manifest.artifactsRoot && manifest.updatedAt) {
               runs.push({
@@ -64905,7 +65245,7 @@ function buildHealthReport(ctx, _params, options = {}) {
   const corrupted = [];
   const allStuck = [];
   for (const run of allRuns) {
-    if (isActiveRunStatus(run.status) && run.cwd && !fs100.existsSync(run.cwd)) {
+    if (isActiveRunStatus(run.status) && run.cwd && !fs101.existsSync(run.cwd)) {
       ghost.push({
         runId: run.runId,
         reason: "dead-cwd",
@@ -64913,7 +65253,7 @@ function buildHealthReport(ctx, _params, options = {}) {
       });
       continue;
     }
-    if (!fs100.existsSync(run.stateRoot) || !fs100.existsSync(run.artifactsRoot)) {
+    if (!fs101.existsSync(run.stateRoot) || !fs101.existsSync(run.artifactsRoot)) {
       corrupted.push({
         runId: run.runId,
         reason: "missing-state-or-artifacts"
@@ -66107,7 +66447,7 @@ var init_task_health = __esm({
 });
 
 // src/state/stores/health-store.ts
-import * as fs101 from "node:fs";
+import * as fs102 from "node:fs";
 import * as path81 from "node:path";
 var HEALTH_DIR, HealthStore;
 var init_health_store = __esm({
@@ -66134,14 +66474,14 @@ var init_health_store = __esm({
           penalties: health.penalties
         };
         const dir = this.healthDir();
-        fs101.mkdirSync(dir, { recursive: true });
+        fs102.mkdirSync(dir, { recursive: true });
         const file = path81.join(dir, `${manifest.runId}.json`);
         atomicWriteFile(file, JSON.stringify(snapshot, null, 2) + "\n");
         return snapshot;
       }
       loadLatestSnapshot() {
         const dir = this.healthDir();
-        if (!fs101.existsSync(dir)) return null;
+        if (!fs102.existsSync(dir)) return null;
         const snapshots = this.loadAllSnapshots();
         if (snapshots.length === 0) return null;
         snapshots.sort((a, b) => b.timestamp - a.timestamp);
@@ -66149,10 +66489,10 @@ var init_health_store = __esm({
       }
       loadAllSnapshots() {
         const dir = this.healthDir();
-        if (!fs101.existsSync(dir)) return [];
-        const snapshots = fs101.readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => {
+        if (!fs102.existsSync(dir)) return [];
+        const snapshots = fs102.readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => {
           try {
-            return JSON.parse(fs101.readFileSync(path81.join(dir, f), "utf8"));
+            return JSON.parse(fs102.readFileSync(path81.join(dir, f), "utf8"));
           } catch {
             return null;
           }
@@ -66186,7 +66526,7 @@ function checkBranchFreshness(cwd, mainRef = "main") {
     const branch = git3(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
     const behind = count(cwd, `${branch}..${mainRef}`);
     const ahead = count(cwd, `${mainRef}..${branch}`);
-    const missingFixes = behind > 0 ? git3(cwd, ["log", "--format=%s", `${branch}..${mainRef}`]).split("\n").map((line4) => line4.trim()).filter(Boolean) : [];
+    const missingFixes = behind > 0 ? git3(cwd, ["log", "--format=%s", `${branch}..${mainRef}`]).split("\n").map((line3) => line3.trim()).filter(Boolean) : [];
     if (behind === 0)
       return {
         status: "fresh",
@@ -66405,7 +66745,7 @@ var init_policy_engine = __esm({
 });
 
 // src/runtime/finalize-run.ts
-import * as fs102 from "node:fs";
+import * as fs103 from "node:fs";
 import * as path82 from "node:path";
 function formatTaskProgress(task) {
   return `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.taskPacket ? ` scope=${task.taskPacket.scope}` : ""}${task.verification ? ` green=${task.verification.observedGreenLevel}/${task.verification.requiredGreenLevel}` : ""}${task.error ? ` - ${task.error}` : ""}`;
@@ -66584,7 +66924,7 @@ async function finalizeRun(ctx) {
   if (ctx.pendingUnits.size === 0 && tasks.some((task) => task.status === "running" || task.status === "waiting")) {
     try {
       flushPendingAtomicWrites();
-      const diskTasks = JSON.parse(fs102.readFileSync(manifest.tasksPath, "utf8"));
+      const diskTasks = JSON.parse(fs103.readFileSync(manifest.tasksPath, "utf8"));
       const diskById = new Map(diskTasks.map((task) => [task.id, task]));
       const healed = [];
       tasks = tasks.map((task) => {
@@ -66618,7 +66958,7 @@ async function finalizeRun(ctx) {
     for (const step of input.workflow.steps) {
       if (step.output && typeof step.output === "string") {
         const outputPath = path82.join(manifest.artifactsRoot, step.output);
-        if (!fs102.existsSync(outputPath)) {
+        if (!fs103.existsSync(outputPath)) {
           missingOutputs.push(step.output);
         }
       }
@@ -67157,7 +67497,7 @@ var init_plan_templates = __esm({
 
 // src/runtime/goal-workflow/adaptive-plan.ts
 import { randomUUID as randomUUID11 } from "node:crypto";
-import * as fs103 from "node:fs";
+import * as fs104 from "node:fs";
 function slug(value) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "task";
 }
@@ -67465,7 +67805,7 @@ async function injectAdaptivePlanIfReady(input) {
   const resultPath = completedAssess.resultArtifact.path;
   let text = "";
   try {
-    text = fs103.readFileSync(resultPath, "utf-8");
+    text = fs104.readFileSync(resultPath, "utf-8");
   } catch {
     appendEventFireAndForget(input.manifest.eventsPath, {
       type: "adaptive.plan_missing",
@@ -67542,7 +67882,7 @@ async function injectAdaptivePlanIfReady(input) {
       const itemId = `adaptive-p${phaseIndex + 1}-t${taskIndex + 1}`;
       const stepId = `adaptive-${phaseIndex + 1}-${taskIndex + 1}-${slug(planned.role)}`;
       const taskId = `adaptive-${String(counter).padStart(2, "0")}-${slug(planned.role)}`;
-      const firstLine = planned.task.split("\n").map((line4) => line4.trim()).filter(Boolean).find((line4) => !line4.startsWith("#")) ?? "";
+      const firstLine = planned.task.split("\n").map((line3) => line3.trim()).filter(Boolean).find((line3) => !line3.startsWith("#")) ?? "";
       const title = (planned.title ?? firstLine ?? stepId).slice(0, 120);
       phaseItemIds.push(itemId);
       planItems.push({
@@ -67927,7 +68267,7 @@ __export(team_runner_exports, {
   shouldUseRetry: () => shouldUseRetry
 });
 import { spawn as spawn7 } from "node:child_process";
-import * as fs104 from "node:fs";
+import * as fs105 from "node:fs";
 import * as path83 from "node:path";
 import { fileURLToPath as fileURLToPath5 } from "node:url";
 function startTeamRunHeartbeat(stateRoot, runId) {
@@ -67959,7 +68299,7 @@ function perfScriptPath(scriptName) {
       fileURLToPath5(new URL(`../../scripts/${scriptName}`, import.meta.url)),
       fileURLToPath5(new URL(`../scripts/${scriptName}`, import.meta.url))
     ];
-    return candidates.find((p) => fs104.existsSync(p));
+    return candidates.find((p) => fs105.existsSync(p));
   } catch {
     return void 0;
   }
@@ -67967,7 +68307,7 @@ function perfScriptPath(scriptName) {
 function startPerfSampler(manifest, team, signal) {
   const marker = (msg) => {
     try {
-      fs104.appendFileSync(path83.join(manifest.artifactsRoot, "perf-obs.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
+      fs105.appendFileSync(path83.join(manifest.artifactsRoot, "perf-obs.log"), `[${(/* @__PURE__ */ new Date()).toISOString()}] ${msg}
 `);
     } catch {
     }
@@ -68005,7 +68345,7 @@ function startPerfSampler(manifest, team, signal) {
     );
     child.stderr?.on("data", (d) => {
       try {
-        fs104.appendFileSync(logPath, String(d));
+        fs105.appendFileSync(logPath, String(d));
       } catch {
       }
     });
@@ -68018,7 +68358,7 @@ function schedulePerfAnalyze(manifest, team, signal) {
   if (team.observability !== true) return;
   const analyzePath = perfScriptPath("analyze-run.mjs");
   const resourcesPath = path83.join(manifest.artifactsRoot, "resources.jsonl");
-  if (!analyzePath || !fs104.existsSync(resourcesPath)) return;
+  if (!analyzePath || !fs105.existsSync(resourcesPath)) return;
   const crewRoot = path83.dirname(path83.dirname(path83.dirname(manifest.stateRoot)));
   const timer = setTimeout(() => {
     try {
@@ -68920,25 +69260,25 @@ var gitignore_manager_exports = {};
 __export(gitignore_manager_exports, {
   updateGitignore: () => updateGitignore
 });
-import * as fs105 from "node:fs";
+import * as fs106 from "node:fs";
 import * as path84 from "node:path";
 function resolveEntries(gitignorePath) {
   const repoRoot = path84.dirname(gitignorePath);
   try {
-    if (fs105.existsSync(path84.join(repoRoot, ".crew"))) return CREW_GITIGNORE_ENTRIES;
-    if (fs105.existsSync(path84.join(repoRoot, ".pi"))) return PI_TEAMS_GITIGNORE_ENTRIES;
+    if (fs106.existsSync(path84.join(repoRoot, ".crew"))) return CREW_GITIGNORE_ENTRIES;
+    if (fs106.existsSync(path84.join(repoRoot, ".pi"))) return PI_TEAMS_GITIGNORE_ENTRIES;
   } catch {
   }
   return CREW_GITIGNORE_ENTRIES;
 }
 async function updateGitignore(gitignorePath) {
   const entries = resolveEntries(gitignorePath);
-  if (!fs105.existsSync(gitignorePath)) {
+  if (!fs106.existsSync(gitignorePath)) {
     atomicWriteFile(gitignorePath, entries.join("\n") + "\n");
     return;
   }
-  const current = fs105.readFileSync(gitignorePath, "utf-8");
-  const existingLines = new Set(current.split("\n").map((line4) => line4.trim()));
+  const current = fs106.readFileSync(gitignorePath, "utf-8");
+  const existingLines = new Set(current.split("\n").map((line3) => line3.trim()));
   let appended = "";
   for (const entry of entries) {
     if (!existingLines.has(entry)) {
@@ -68982,7 +69322,7 @@ __export(crew_init_exports, {
   ensureCrewDirectory: () => ensureCrewDirectory,
   updateGitignore: () => updateGitignore
 });
-import * as fs106 from "node:fs";
+import * as fs107 from "node:fs";
 import * as path85 from "node:path";
 function buildCrewReadme() {
   return `# .crew \u2014 pi-crew Runtime Directory
@@ -69064,24 +69404,24 @@ function findProjectRoot(start, pathDep) {
   let current = safeResolve(start, pathDep);
   while (current !== root) {
     for (const marker of dirMarkers) {
-      if (fs106.existsSync(safeJoin(current, marker))) return current;
+      if (fs107.existsSync(safeJoin(current, marker))) return current;
     }
     for (const marker of fileMarkers) {
-      if (fs106.existsSync(safeJoin(current, marker))) return current;
+      if (fs107.existsSync(safeJoin(current, marker))) return current;
     }
     const parent = safeDirname(current);
     if (parent === current) break;
     current = parent;
   }
-  if (dirMarkers.some((m) => fs106.existsSync(safeJoin(root, m)))) return root;
+  if (dirMarkers.some((m) => fs107.existsSync(safeJoin(root, m)))) return root;
   return void 0;
 }
 function computeCrewRoot(cwd) {
   const repoRoot = findProjectRoot(cwd) ?? cwd;
   const crewDir = safeJoin(repoRoot, ".crew");
-  if (fs106.existsSync(crewDir)) return crewDir;
+  if (fs107.existsSync(crewDir)) return crewDir;
   const piDir = safeJoin(repoRoot, ".pi");
-  return fs106.existsSync(piDir) ? safeJoin(piDir, "teams") : crewDir;
+  return fs107.existsSync(piDir) ? safeJoin(piDir, "teams") : crewDir;
 }
 async function ensureCrewDirectory(cwd) {
   const crewRoot = computeCrewRoot(cwd);
@@ -69095,7 +69435,7 @@ async function ensureCrewDirectory(cwd) {
     safeJoin(crewRoot, "audit")
   ];
   for (const dir of dirs) {
-    fs106.mkdirSync(dir, { recursive: true });
+    fs107.mkdirSync(dir, { recursive: true });
   }
   const placeholders = [
     safeJoin(crewRoot, "artifacts", ".gitkeep"),
@@ -69104,7 +69444,7 @@ async function ensureCrewDirectory(cwd) {
     safeJoin(crewRoot, "audit", ".gitkeep")
   ];
   for (const placeholder of placeholders) {
-    if (!fs106.existsSync(placeholder)) {
+    if (!fs107.existsSync(placeholder)) {
       atomicWriteFile(placeholder, "");
     }
   }
@@ -69139,12 +69479,12 @@ __export(parallel_research_exports, {
   expandParallelResearchWorkflow: () => expandParallelResearchWorkflow,
   sourcePiProjects: () => sourcePiProjects
 });
-import * as fs107 from "node:fs";
+import * as fs108 from "node:fs";
 import * as path86 from "node:path";
 function sourcePiProjects(cwd) {
   const sourceDir = path86.join(cwd, "Source");
   try {
-    return fs107.readdirSync(sourceDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name.startsWith("pi-")).map((entry) => `Source/${entry.name}`).sort();
+    return fs108.readdirSync(sourceDir, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name.startsWith("pi-")).map((entry) => `Source/${entry.name}`).sort();
   } catch {
     return [];
   }
@@ -69249,7 +69589,7 @@ var init_model_budget_summary = __esm({
 });
 
 // src/extension/team-tool/run-intent.ts
-import * as fs108 from "node:fs";
+import * as fs109 from "node:fs";
 function specStrictRejectReason(workflow, cwd) {
   const strict = workflow.specStrict === true || workflow.steps.some((s) => s.specStrict === true);
   if (!strict) return void 0;
@@ -69293,20 +69633,20 @@ function resolveAnalysisText(params, cwd) {
         source: "none"
       };
     }
-    if (!fs108.existsSync(resolved)) {
+    if (!fs109.existsSync(resolved)) {
       return {
         error: `Analysis file not found: ${resolved}`,
         source: "none"
       };
     }
-    const { size } = fs108.statSync(resolved);
+    const { size } = fs109.statSync(resolved);
     if (size > MAX_ANALYSIS_BYTES) {
       return {
         error: `Analysis file too large: ${size} bytes (max ${MAX_ANALYSIS_BYTES}). Trim the analysis or pass a summary inline.`,
         source: "none"
       };
     }
-    const raw = fs108.readFileSync(resolved, "utf-8");
+    const raw = fs109.readFileSync(resolved, "utf-8");
     const sanitized2 = sanitizeTaskText(raw);
     if (!sanitized2) return { source: "none" };
     return { text: sanitized2, source: "path" };
@@ -70862,7 +71202,7 @@ var init_deterministic_ast = __esm({
 });
 
 // src/runtime/dwf-state-store.ts
-import { existsSync as existsSync75, mkdirSync as mkdirSync42, readFileSync as readFileSync79, unlinkSync as unlinkSync13 } from "node:fs";
+import { existsSync as existsSync76, mkdirSync as mkdirSync42, readFileSync as readFileSync80, unlinkSync as unlinkSync13 } from "node:fs";
 import { dirname as dirname43 } from "node:path";
 var DwfStore;
 var init_dwf_state_store = __esm({
@@ -70882,8 +71222,8 @@ var init_dwf_state_store = __esm({
       load() {
         const path103 = this.path;
         try {
-          if (!existsSync75(path103)) return void 0;
-          const raw = readFileSync79(path103, "utf-8");
+          if (!existsSync76(path103)) return void 0;
+          const raw = readFileSync80(path103, "utf-8");
           const parsed = JSON.parse(raw);
           if (!parsed || typeof parsed !== "object" || typeof parsed.runId !== "string") return void 0;
           return parsed;
@@ -70907,7 +71247,7 @@ var init_dwf_state_store = __esm({
       delete() {
         const path103 = this.path;
         try {
-          if (!existsSync75(path103)) return;
+          if (!existsSync76(path103)) return;
           unlinkSync13(path103);
         } catch (error) {
           logInternalError("dwf-state-store.delete", error);
@@ -71669,8 +72009,8 @@ function extractTextFallback(stdout) {
       for (const v of Object.values(value)) collect2(v);
     }
   };
-  for (const line4 of trimmed.split("\n")) {
-    const lineTrim = line4.trim();
+  for (const line3 of trimmed.split("\n")) {
+    const lineTrim = line3.trim();
     if (!lineTrim.startsWith("{")) continue;
     try {
       const obj = JSON.parse(lineTrim);
@@ -71679,8 +72019,8 @@ function extractTextFallback(stdout) {
     }
   }
   if (candidates.length === 0) {
-    for (const line4 of trimmed.split("\n")) {
-      const l = line4.trim();
+    for (const line3 of trimmed.split("\n")) {
+      const l = line3.trim();
       if (l.length >= 3 && !l.startsWith("{") && !l.startsWith("[") && !l.startsWith("=")) candidates.push(l);
     }
   }
@@ -71712,7 +72052,7 @@ var dynamic_workflow_runner_exports = {};
 __export(dynamic_workflow_runner_exports, {
   runDynamicWorkflow: () => runDynamicWorkflow
 });
-import { readFileSync as readFileSync80 } from "node:fs";
+import { readFileSync as readFileSync81 } from "node:fs";
 import { join as join83 } from "node:path";
 import { transformSync } from "esbuild";
 function assertStructuredCloneable(value, name) {
@@ -71738,7 +72078,7 @@ function resolveScriptPath(workflow, cwd) {
   );
 }
 async function loadWorkflowModule(scriptPath) {
-  const scriptSource = readFileSync80(scriptPath, "utf-8");
+  const scriptSource = readFileSync81(scriptPath, "utf-8");
   if (isDeterminismCheckEnabled()) {
     const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
     assertDeterministicScript(js);
@@ -71875,7 +72215,7 @@ async function runDynamicWorkflow(input) {
 }
 function readFinalArtifact(artifactPath) {
   try {
-    return readFileSync80(artifactPath, "utf-8");
+    return readFileSync81(artifactPath, "utf-8");
   } catch (error) {
     logInternalError("dynamic-workflow-runner.readFinal", error, `artifactPath=${artifactPath}`);
     return `(failed to read final artifact ${artifactPath})`;
@@ -71902,7 +72242,7 @@ var run_exports = {};
 __export(run_exports, {
   handleRun: () => handleRun2
 });
-import * as fs109 from "node:fs";
+import * as fs110 from "node:fs";
 import * as path87 from "node:path";
 async function executeTeamRun2(...args) {
   const mod = await Promise.resolve().then(() => (init_team_runner(), team_runner_exports));
@@ -71911,15 +72251,15 @@ async function executeTeamRun2(...args) {
 function tailFile(filePath, maxBytes = 4096) {
   try {
     const safeMaxBytes = Math.min(maxBytes, 512 * 1024);
-    const stat2 = fs109.statSync(filePath);
+    const stat2 = fs110.statSync(filePath);
     const start = Math.max(0, stat2.size - safeMaxBytes);
-    const fd = fs109.openSync(filePath, "r");
+    const fd = fs110.openSync(filePath, "r");
     try {
       const buffer = Buffer.alloc(stat2.size - start);
-      fs109.readSync(fd, buffer, 0, buffer.length, start);
+      fs110.readSync(fd, buffer, 0, buffer.length, start);
       return buffer.toString("utf-8").trim();
     } finally {
-      fs109.closeSync(fd);
+      fs110.closeSync(fd);
     }
   } catch {
     return void 0;
@@ -71980,7 +72320,7 @@ function formatRunResult(manifest, options) {
       "",
       runtimeLine,
       runtimeExplanation
-    ].filter((line4) => line4 !== "").join("\n");
+    ].filter((line3) => line3 !== "").join("\n");
     const isError = manifest.status === "failed";
     return result(
       text,
@@ -72011,7 +72351,7 @@ function formatRunResult(manifest, options) {
     if (summaryArtifact) {
       try {
         const sumPath = path87.join(manifest.artifactsRoot, summaryArtifact.path);
-        summaryContent = fs109.readFileSync(sumPath, "utf-8").trim().slice(0, 4e3);
+        summaryContent = fs110.readFileSync(sumPath, "utf-8").trim().slice(0, 4e3);
       } catch {
       }
     }
@@ -72023,7 +72363,7 @@ function formatRunResult(manifest, options) {
       if (task.resultArtifact?.path) {
         try {
           const resPath = resolveRealContainedPath(manifest.artifactsRoot, task.resultArtifact.path);
-          resultExcerpt = fs109.readFileSync(resPath, "utf-8").trim().slice(0, 2e3);
+          resultExcerpt = fs110.readFileSync(resPath, "utf-8").trim().slice(0, 2e3);
         } catch {
           resultExcerpt = "(result unavailable)";
         }
@@ -72647,7 +72987,7 @@ __export(team_tool_exports, {
   registerCrewGlobalRegistry: () => registerCrewGlobalRegistry,
   uninstallCrewGlobalRegistry: () => uninstallCrewGlobalRegistry
 });
-import * as fs110 from "node:fs";
+import * as fs111 from "node:fs";
 import * as path88 from "node:path";
 async function executeTeamRun3(...args) {
   const mod = await Promise.resolve().then(() => (init_team_runner(), team_runner_exports));
@@ -72731,7 +73071,7 @@ function handleGet(params, ctx) {
       agent.skills?.length ? `Skills: ${agent.skills.join(", ")}` : void 0,
       "",
       agent.systemPrompt || "(empty system prompt)"
-    ].filter((line4) => line4 !== void 0);
+    ].filter((line3) => line3 !== void 0);
     return result(lines.join("\n"), { action: "get", status: "ok" });
   }
   return result("Specify team, workflow, or agent for get.", { action: "get", status: "error" }, true);
@@ -72790,8 +73130,8 @@ async function recoverCheckpointedTasks(manifest, tasks) {
     if (task.checkpoint.phase === "child-stdout-final") {
       const transcriptsDir = path88.join(manifest.artifactsRoot, "transcripts");
       let transcriptPath;
-      if (fs110.existsSync(transcriptsDir)) {
-        const files = fs110.readdirSync(transcriptsDir).filter((f) => f.startsWith(`${task.id}.attempt-`) && f.endsWith(".jsonl"));
+      if (fs111.existsSync(transcriptsDir)) {
+        const files = fs111.readdirSync(transcriptsDir).filter((f) => f.startsWith(`${task.id}.attempt-`) && f.endsWith(".jsonl"));
         if (files.length > 0) {
           files.sort((a, b) => {
             const idxA = parseInt(a.match(/\.attempt-(\d+)\./)?.[1] ?? "0", 10);
@@ -72802,7 +73142,7 @@ async function recoverCheckpointedTasks(manifest, tasks) {
         }
       }
       if (!transcriptPath) return task;
-      const transcript = fs110.readFileSync(transcriptPath, "utf-8");
+      const transcript = fs111.readFileSync(transcriptPath, "utf-8");
       const parsed = parsePiJsonOutput(transcript);
       if (!parsed.finalText && !parsed.usage) return task;
       const resultArtifact = writeArtifact(manifest.artifactsRoot, {
@@ -73066,9 +73406,9 @@ function handleSteer(params, ctx) {
   saveRunTasks(loaded.manifest, loaded.tasks);
   try {
     const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
-    fs110.mkdirSync(steeringDir, { recursive: true });
+    fs111.mkdirSync(steeringDir, { recursive: true });
     const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
-    fs110.appendFileSync(safeSteeringPath, JSON.stringify({ type: "steer", message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n");
+    fs111.appendFileSync(safeSteeringPath, JSON.stringify({ type: "steer", message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n");
   } catch {
   }
   void appendEventAsync(loaded.manifest.eventsPath, {
@@ -73117,7 +73457,7 @@ function locateRunCwdUncached(runId, baseCwd) {
     return baseCwd;
   }
   try {
-    const entries = fs110.readdirSync(baseCwd, { withFileTypes: true });
+    const entries = fs111.readdirSync(baseCwd, { withFileTypes: true });
     const boundedEntries = entries.length > MAX_SCAN_ENTRIES ? entries.slice(0, MAX_SCAN_ENTRIES) : entries;
     for (const entry of boundedEntries) {
       if (!entry.isDirectory()) continue;
@@ -73461,10 +73801,10 @@ function renderHealthPane(snapshot, opts = {}) {
   if (summary.worstStaleMs > 0) lines.push(`Worst stale: ${seconds(summary.worstStaleMs)} ago`);
   const hints = [];
   const foreground = opts.isForeground !== false;
-  if ((summary.dead > 0 || summary.missing > 0) && foreground) hints.push("R recovery");
-  if ((summary.dead > 0 || summary.stale > 0) && foreground) hints.push("K kill stale");
-  hints.push("D diagnostic export");
-  lines.push(`Actions: ${hints.join(" \xB7 ")}`);
+  if ((summary.dead > 0 || summary.missing > 0) && foreground) hints.push(["R", "recovery"]);
+  if ((summary.dead > 0 || summary.stale > 0) && foreground) hints.push(["K", "kill stale"]);
+  hints.push(["D", "diagnostic export"]);
+  lines.push(`Actions: ${formatHint(hints)}`);
   if (!foreground && (summary.dead > 0 || summary.missing > 0 || summary.stale > 0))
     lines.push("Async run: R/K disabled \u2014 inspect process manually or use /team-api.");
   return lines;
@@ -73473,6 +73813,7 @@ var init_health_pane = __esm({
   "src/ui/dashboard-panes/health-pane.ts"() {
     "use strict";
     init_heartbeat_aggregator();
+    init_rail();
   }
 });
 
@@ -73481,9 +73822,10 @@ function renderMailboxPane(snapshot) {
   if (!snapshot) return ["Mailbox pane: snapshot unavailable"];
   const mailbox = snapshot.mailbox;
   const approx = mailbox.approximate ? " \xB7 approximate (tail)" : "";
-  const lines = [
-    `Mailbox pane: inbox unread=${mailbox.inboxUnread} \xB7 outbox pending=${mailbox.outboxPending} \xB7 attention=${mailbox.needsAttention}${approx}`
-  ];
+  const unread = mailbox.inboxUnread ?? 0;
+  const outgoing = mailbox.outboxPending ?? 0;
+  const attention = mailbox.needsAttention ?? 0;
+  const lines = [`Mailbox pane: inbox unread=${unread} \xB7 outbox pending=${outgoing} \xB7 attention=${attention}${approx}`];
   const kindParts = [];
   const steer = mailbox.steerUnread ?? 0;
   const followUp = mailbox.followUpUnread ?? 0;
@@ -73502,23 +73844,42 @@ function renderMailboxPane(snapshot) {
       lines.push(`  \u{1F4CB} ${followUp} follow-up(s) pending review.`);
     }
   }
-  if (mailbox.needsAttention > 0) {
-    lines.push("Needs attention: press Enter for detail \xB7 A ack \xB7 N nudge \xB7 C compose \xB7 X ack all.");
+  if (attention > 0) {
+    lines.push(
+      `Needs attention: press ${formatHint([
+        ["Enter", "for detail"],
+        ["A", "ack"],
+        ["N", "nudge"],
+        ["C", "compose"],
+        ["X", "ack all"]
+      ])}.`
+    );
   } else {
-    lines.push("No mailbox items need attention. Press Enter for detail or C compose.");
+    lines.push(
+      `No mailbox items need attention. Press ${formatHint([
+        ["Enter", "for detail"],
+        ["C", "compose"]
+      ])}.`
+    );
   }
   return lines;
 }
 var init_mailbox_pane = __esm({
   "src/ui/dashboard-panes/mailbox-pane.ts"() {
     "use strict";
+    init_rail();
   }
 });
 
 // src/ui/dashboard-panes/metrics-pane.ts
+function labelValue(value) {
+  if (value === void 0 || value === null) return "?";
+  if (typeof value === "number" && !Number.isFinite(value)) return "?";
+  return `${value}`;
+}
 function labelsText(labels) {
-  const entries = Object.entries(labels);
-  return entries.length ? `{${entries.map(([key, value]) => `${key}=${value}`).join(",")}}` : "";
+  const entries = Object.entries(labels ?? {});
+  return entries.length ? `{${entries.map(([key, value]) => `${key}=${labelValue(value)}`).join(",")}}` : "";
 }
 function isHistogramPoint(point) {
   return "quantiles" in point;
@@ -73531,14 +73892,14 @@ function renderMetricsPane(_snapshot, opts = {}) {
   for (const snapshot of snapshots.slice(0, opts.maxCounters ?? 10)) {
     const first = snapshot.values[0];
     if (!first) {
-      lines.push(`${snapshot.name}: empty`);
+      lines.push(`${snapshot.name ?? "?"}: empty`);
       continue;
     }
     if (isHistogramPoint(first))
       lines.push(
-        `${snapshot.name}${labelsText(first.labels)} count=${first.count} p95=${Number.isFinite(first.quantiles.p95) ? Math.round(first.quantiles.p95) : "n/a"}`
+        `${snapshot.name ?? "?"}${labelsText(first.labels)} count=${first.count ?? 0} p95=${Number.isFinite(first.quantiles?.p95) ? Math.round(first.quantiles.p95) : "n/a"}`
       );
-    else lines.push(`${snapshot.name}${labelsText(first.labels)} ${first.value}`);
+    else lines.push(`${snapshot.name ?? "?"}${labelsText(first.labels)} ${labelValue(first.value)}`);
   }
   return lines;
 }
@@ -73552,8 +73913,8 @@ var init_metrics_pane = __esm({
 function taskLine(task, indent) {
   const glyph = TASK_GLYPH[task.status] ?? "?";
   const depth = typeof task.depth === "number" && task.depth > 1 ? ` d${task.depth}` : "";
-  const role = task.displayName ?? task.role;
-  return `${indent}${glyph} ${task.id}${depth} ${role} [${task.status}]`;
+  const role = task.displayName ?? task.role ?? "?";
+  return `${indent}${glyph} ${task.id ?? "?"}${depth} ${role} [${task.status}]`;
 }
 function planRevisionDiff(snapshot) {
   const records = snapshot.plans ?? [];
@@ -73564,23 +73925,23 @@ function planRevisionDiff(snapshot) {
   if (!previous) {
     return [`Plan diff: v${current.version} has no prior revision`];
   }
-  const prevItems = new Map(previous.items.map((i) => [i.id, i]));
+  const prevItems = new Map((previous.items ?? []).map((i) => [i.id, i]));
   const lines = [`Plan diff: v${previous.version} \u2192 v${current.version}`];
-  for (const item of current.items) {
+  for (const item of current.items ?? []) {
     const before = prevItems.get(item.id);
     if (!before) {
-      lines.push(`  + ${item.id} ${item.title} [${item.status}]`);
+      lines.push(`  + ${item.id} ${item.title ?? "?"} [${item.status}]`);
       continue;
     }
-    if (before.status !== item.status || before.taskIds.length !== item.taskIds.length) {
-      lines.push(
-        `  ~ ${item.id} ${item.title} [${before.status}\u2192${item.status} \xB7 ${before.taskIds.length}\u2192${item.taskIds.length} tasks]`
-      );
+    const beforeTasks = before.taskIds?.length ?? 0;
+    const currentTasks = item.taskIds?.length ?? 0;
+    if (before.status !== item.status || beforeTasks !== currentTasks) {
+      lines.push(`  ~ ${item.id} ${item.title ?? "?"} [${before.status}\u2192${item.status} \xB7 ${beforeTasks}\u2192${currentTasks} tasks]`);
     }
     prevItems.delete(item.id);
   }
   for (const dropped of prevItems.values()) {
-    lines.push(`  - ${dropped.id} ${dropped.title} (dropped in v${current.version})`);
+    lines.push(`  - ${dropped.id} ${dropped.title ?? "?"} (dropped in v${current.version})`);
   }
   return lines;
 }
@@ -73594,59 +73955,70 @@ function renderPlanPane(snapshot, options = {}) {
   if (!current) return ["Plan pane: no plan records"];
   const progress = deriveItemProgress(current, snapshot.tasks);
   const tasksById = new Map(snapshot.tasks.map((t2) => [t2.id, t2]));
-  const itemById = new Map(current.items.map((i) => [i.id, i]));
+  const phases = current.phases ?? [];
+  const items = current.items ?? [];
+  const itemById = new Map(items.map((i) => [i.id, i]));
   const pending2 = isPlanApprovalPending2(snapshot.manifest);
-  const header = `Plan pane: ${current.title} @v${current.version} (${current.phases.length} phases \xB7 ${current.items.length} items)`;
-  const approval = pending2 ? ["\u26A0 plan approval pending \u2014 A approve \xB7 n deny"] : [];
+  const header = `Plan pane: ${current.title ?? "?"} @v${current.version} (${phases.length} phases \xB7 ${items.length} items)`;
+  const approval = pending2 ? [`\u26A0 plan approval pending \u2014 ${PLAN_APPROVAL_HINT}`] : [];
   const lines = [header, ...approval];
-  for (const phase of current.phases) {
+  for (const phase of phases) {
     const glyph = ITEM_GLYPH[phase.status] ?? "?";
-    lines.push(`${glyph} ${phase.title}`);
-    for (const itemId of phase.itemIds) {
+    lines.push(`${glyph} ${phase.title ?? "?"}`);
+    for (const itemId of phase.itemIds ?? []) {
       const item = itemById.get(itemId);
       if (!item) continue;
       const p = progress.get(itemId);
       const counts = p ? ` ${p.done}/${p.total}${p.failed ? ` \u2717${p.failed}` : ""}${p.running ? ` \u25B8${p.running}` : ""}` : "";
       const droppedTag = item.status === "dropped" ? " \u2717 dropped" : "";
-      lines.push(`  ${ITEM_GLYPH[item.status] ?? "?"} ${item.title}${counts}${droppedTag}`);
-      for (const taskId of item.taskIds) {
+      lines.push(`  ${ITEM_GLYPH[item.status] ?? "?"} ${item.title ?? "?"}${counts}${droppedTag}`);
+      for (const taskId of item.taskIds ?? []) {
         const task = tasksById.get(taskId);
         if (task) lines.push(taskLine(task, "    "));
       }
     }
   }
-  const phased = new Set(current.phases.flatMap((p) => p.itemIds));
-  const orphans = current.items.filter((i) => !phased.has(i.id));
+  const phased = new Set(phases.flatMap((p) => p.itemIds ?? []));
+  const orphans = items.filter((i) => !phased.has(i.id));
   if (orphans.length) {
     lines.push("(unphased)");
     for (const item of orphans) {
       const p = progress.get(item.id);
       const droppedTag = item.status === "dropped" ? " \u2717 dropped" : "";
-      lines.push(`  ${ITEM_GLYPH[item.status] ?? "?"} ${item.title}${p ? ` ${p.done}/${p.total}` : ""}${droppedTag}`);
+      lines.push(`  ${ITEM_GLYPH[item.status] ?? "?"} ${item.title ?? "?"}${p ? ` ${p.done}/${p.total}` : ""}${droppedTag}`);
     }
   }
-  lines.push("X revision diff");
+  lines.push(formatHint([["X", "revision diff"]]));
   return lines;
 }
-var ITEM_GLYPH, TASK_GLYPH;
+var PLAN_APPROVAL_HINT, ITEM_GLYPH, TASK_GLYPH;
 var init_plan_pane = __esm({
   "src/ui/dashboard-panes/plan-pane.ts"() {
     "use strict";
     init_plan_approval();
     init_plan_store();
+    init_rail();
+    init_pane_theme();
+    PLAN_APPROVAL_HINT = formatHint(
+      [
+        ["A", "approve"],
+        ["n", "deny"]
+      ],
+      { exactKeys: true }
+    );
     ITEM_GLYPH = {
-      pending: "\u25CB",
-      active: "\u25B8",
-      done: "\u2713",
-      dropped: "\u2717"
+      pending: statusIcon2("queued", PANE_THEME),
+      active: ACTIVE,
+      done: statusIcon2("completed", PANE_THEME),
+      dropped: statusIcon2("failed", PANE_THEME)
     };
     TASK_GLYPH = {
-      queued: "\u25CB",
-      running: "\u25B8",
+      queued: statusIcon2("queued", PANE_THEME),
+      running: ACTIVE,
       waiting: "\u25F7",
       needs_attention: "\u26A0",
-      completed: "\u2713",
-      failed: "\u2717",
+      completed: statusIcon2("completed", PANE_THEME),
+      failed: statusIcon2("failed", PANE_THEME),
       cancelled: "\u2298",
       skipped: "\xB7"
     };
@@ -73654,12 +74026,7 @@ var init_plan_pane = __esm({
 });
 
 // src/ui/dwf-phase-display.ts
-function markerFor(status, ascii) {
-  if (ascii) {
-    if (status === "running") return MARKER_RUNNING_ASCII;
-    if (status === "completed") return MARKER_COMPLETED_ASCII;
-    return MARKER_PENDING_ASCII;
-  }
+function markerFor(status) {
   if (status === "running") return MARKER_RUNNING;
   if (status === "completed") return MARKER_COMPLETED;
   return MARKER_PENDING;
@@ -73703,25 +74070,21 @@ function extractDwfPhaseState(events) {
   });
   return { phases, currentPhase };
 }
-function renderDwfPhaseLines(state2, options) {
-  const ascii = options?.ascii === true;
+function renderDwfPhaseLines(state2) {
   const lines = [];
   if (state2.phases.length > 1) lines.push(DWF_PHASE_HEADER);
   for (const entry of state2.phases) {
-    lines.push(`  ${markerFor(entry.status, ascii)} Phase: ${entry.name}`);
+    lines.push(`  ${markerFor(entry.status)} Phase: ${entry.name}`);
   }
   return lines;
 }
-var MARKER_RUNNING, MARKER_COMPLETED, MARKER_PENDING, MARKER_RUNNING_ASCII, MARKER_COMPLETED_ASCII, MARKER_PENDING_ASCII, DWF_PHASE_HEADER;
+var MARKER_RUNNING, MARKER_COMPLETED, MARKER_PENDING, DWF_PHASE_HEADER;
 var init_dwf_phase_display = __esm({
   "src/ui/dwf-phase-display.ts"() {
     "use strict";
     MARKER_RUNNING = "\u25B6";
     MARKER_COMPLETED = "\u2713";
     MARKER_PENDING = "\u23F8";
-    MARKER_RUNNING_ASCII = "[>]";
-    MARKER_COMPLETED_ASCII = "[v]";
-    MARKER_PENDING_ASCII = "[ ]";
     DWF_PHASE_HEADER = "  \u2500\u2500 DWF Phases \u2500\u2500";
   }
 });
@@ -73737,11 +74100,11 @@ function renderProgressPane(snapshot) {
   const phaseLines = runProgress.phases.length > 0 ? runProgress.phases.map((p) => {
     const done = p.completed + p.failed;
     const status = p.running > 0 ? "running" : p.queued > 0 ? "queued" : done >= p.total ? "done" : "waiting";
-    return `  Phase ${p.index + 1} ${p.phase}: ${p.percentage}% (${done}/${p.total}) [${status}]`;
+    return `  Phase ${p.index + 1} ${p.phase ?? "?"}: ${p.percentage}% (${done}/${p.total}) [${status}]`;
   }) : [];
   const phaseHeader = phaseLines.length > 0 ? [formatPhaseProgressLine(runProgress), ...phaseLines] : [];
   const dwfPhaseLines = snapshot.dwfPhaseState ? renderDwfPhaseLines(snapshot.dwfPhaseState) : [];
-  const planBanner = isPlanApprovalPending2(snapshot.manifest) ? ["\u26A0 plan approval pending \u2014 A approve / n deny"] : [];
+  const planBanner = isPlanApprovalPending2(snapshot.manifest) ? [`\u26A0 plan approval pending \u2014 ${PLAN_APPROVAL_HINT}`] : [];
   return [
     `Progress pane: ${progress.completed}/${progress.total} completed \xB7 running=${progress.running} queued=${progress.queued} failed=${progress.failed}`,
     ...planBanner,
@@ -73762,6 +74125,7 @@ var init_progress_pane = __esm({
     init_phase_progress();
     init_plan_approval();
     init_dwf_phase_display();
+    init_plan_pane();
   }
 });
 
@@ -73772,81 +74136,39 @@ function modelAttemptLines(snapshot) {
   const lines = ["model attempts (newest first):"];
   for (const task of withAttempts) {
     const attempts = (task.modelAttempts ?? []).map(
-      (attempt) => `${attempt.model} ${attempt.success ? "\u2713" : `\u2717${attempt.exitCode !== void 0 ? `(${attempt.exitCode})` : ""}`}`
+      (attempt) => `${attempt.model ?? "?"} ${attempt.success ? "\u2713" : `\u2717${attempt.exitCode !== void 0 ? `(${attempt.exitCode})` : ""}`}`
     ).join(" \u2192 ");
     const resolved = task.modelRouting?.resolved ? ` \xB7 resolved ${task.modelRouting.resolved}` : "";
-    lines.push(`  ${task.id} (${task.role})${resolved}: ${attempts}`);
+    lines.push(`  ${task.id ?? "?"} (${task.role ?? "?"})${resolved}: ${attempts}`);
   }
   return lines;
 }
 function renderTranscriptPane(snapshot) {
   if (!snapshot) return ["Output pane: snapshot unavailable"];
+  const lines = snapshot.recentOutputLines ?? [];
   return [
-    `Output pane: ${snapshot.recentOutputLines.length} recent lines \xB7 press v for transcript viewer \xB7 o for raw output`,
+    // Hint format owned by rail.ts (`formatHint`): keys `label` joined by ` · `.
+    `Output pane: ${lines.length} recent lines \xB7 press ${formatHint([
+      ["v", "for transcript viewer"],
+      ["o", "for raw output"]
+    ])}`,
     ...modelAttemptLines(snapshot),
-    ...snapshot.recentOutputLines.slice(-12).map((line4) => `\u23BF ${line4}`),
-    ...snapshot.recentOutputLines.length ? [] : ["No recent output"]
+    ...lines.slice(-12).map((line3) => `\u23BF ${line3}`),
+    ...lines.length ? [] : ["No recent output"]
   ];
 }
 var ATTEMPT_SUMMARY_TASKS;
 var init_transcript_pane = __esm({
   "src/ui/dashboard-panes/transcript-pane.ts"() {
     "use strict";
+    init_rail();
     ATTEMPT_SUMMARY_TASKS = 3;
   }
 });
 
-// src/ui/dynamic-border.ts
-var DynamicCrewBorder;
-var init_dynamic_border = __esm({
-  "src/ui/dynamic-border.ts"() {
-    "use strict";
-    DynamicCrewBorder = class {
-      theme;
-      color;
-      char;
-      cachedWidth = -1;
-      cachedLine = "";
-      constructor(theme, options = {}) {
-        this.theme = theme;
-        this.color = options.color;
-        this.char = options.char && options.char.length > 0 ? options.char : "\u2500";
-      }
-      render(width) {
-        const w = Math.max(0, width);
-        if (w !== this.cachedWidth) {
-          const line4 = this.char.repeat(w);
-          this.cachedLine = this.color ? this.color(line4) : this.theme.fg("border", line4);
-          this.cachedWidth = w;
-        }
-        return [this.cachedLine];
-      }
-      invalidate() {
-        this.cachedWidth = -1;
-        this.cachedLine = "";
-      }
-    };
-  }
-});
-
 // src/ui/overlays/help-overlay.ts
-function keyToken(key) {
-  switch (key) {
-    case "\x1B":
-      return "Esc";
-    case "\x1B[A":
-      return "\u2191";
-    case "\x1B[B":
-      return "\u2193";
-    case "\r":
-    case "\n":
-      return "Enter";
-    default:
-      return key;
-  }
-}
 function keyList(keys) {
-  return [...keys].map(keyToken).join("/");
+  return [...new Set(keys.map((key) => keyToken(key)))].join("/");
 }
 function buildHelpGroups() {
   const paneEntries = Object.entries(DASHBOARD_KEYS.pane).map(([name, keys]) => ({
@@ -73856,6 +74178,14 @@ function buildHelpGroups() {
   const rootEntries = Object.entries(DASHBOARD_KEYS.root).map(([name, keys]) => ({
     keys: keyList(keys),
     label: ROOT_LABELS[name] ?? name
+  }));
+  const scheduleEntries = Object.entries(DASHBOARD_KEYS.schedules).map(([name, keys]) => ({
+    keys: keyList(keys),
+    label: SCHEDULES_LABELS[name] ?? name
+  }));
+  const planEntries = Object.entries(DASHBOARD_KEYS.plan).map(([name, keys]) => ({
+    keys: keyList(keys),
+    label: PLAN_LABELS[name] ?? name
   }));
   const mailboxEntries = Object.entries(DASHBOARD_KEYS.mailbox).filter(([name]) => name !== "openDetail").map(([name, keys]) => ({
     keys: keyList(keys),
@@ -73884,12 +74214,18 @@ function buildHelpGroups() {
       title: "Navigation",
       entries: [
         {
-          keys: `${keyList(DASHBOARD_KEYS.navigation.up)}/${keyList(DASHBOARD_KEYS.navigation.down)}`,
+          // Union of the up/down aliases, deduped through the shared
+          // `keyToken` (`k`/`up` and `j`/`down` collapse to one `↑/↓`).
+          keys: [
+            ...new Set([...DASHBOARD_KEYS.navigation.up, ...DASHBOARD_KEYS.navigation.down].map((key) => keyToken(key)))
+          ].join("/"),
           label: "move selection"
         }
       ]
     },
     { title: "Panes", entries: paneEntries },
+    { title: "Schedules (pane 8)", entries: scheduleEntries },
+    { title: "Plan (pane 7)", entries: planEntries },
     { title: "Run actions", entries: rootEntries },
     { title: "Mailbox (pane 3)", entries: mailboxEntries },
     {
@@ -73904,13 +74240,17 @@ function buildHelpGroups() {
     }
   ];
 }
-var ROOT_LABELS, MAILBOX_LABELS, HEALTH_LABELS, HelpOverlay;
+function keyColumnWidth(groups) {
+  const widths = groups.flatMap((group) => group.entries.map((entry) => visibleWidth(entry.keys)));
+  return Math.min(20, Math.max(1, ...widths));
+}
+var ROOT_LABELS, SCHEDULES_LABELS, PLAN_LABELS, MAILBOX_LABELS, HEALTH_LABELS, HelpOverlay;
 var init_help_overlay = __esm({
   "src/ui/overlays/help-overlay.ts"() {
     "use strict";
     init_visual();
     init_keybinding_map();
-    init_layout_primitives();
+    init_rail();
     init_theme_adapter();
     ROOT_LABELS = {
       summary: "summary",
@@ -73922,8 +74262,23 @@ var init_help_overlay = __esm({
       output: "output",
       transcript: "transcript",
       liveConversation: "live conv",
-      reload: "reload",
-      progressToggle: "progress"
+      reload: "reload"
+      // NOTE: `progressToggle` deliberately has no label here — the `p` binding
+      // had no visible effect (P1-5, phantom key) and is being removed from
+      // keybinding-map.ts. Entries derive from Object.entries(DASHBOARD_KEYS.root),
+      // so the row disappears entirely once that key is gone.
+    };
+    SCHEDULES_LABELS = {
+      toggle: "toggle",
+      runNow: "run now",
+      details: "details",
+      delete: "delete",
+      refresh: "refresh"
+    };
+    PLAN_LABELS = {
+      approve: "approve",
+      deny: "deny",
+      diff: "diff"
     };
     MAILBOX_LABELS = {
       ack: "ack",
@@ -73945,27 +74300,36 @@ var init_help_overlay = __esm({
       invalidate() {
       }
       render(width) {
-        const innerWidth = Math.max(20, width - 4);
-        const fg = (color, text) => this.theme.fg(color, text);
-        const row = (text) => `\u2502 ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}\u2502`;
-        const bar = "\u2500".repeat(innerWidth);
-        const top = fg("border", `\u256D${bar}\u256E`);
-        const mid = fg("border", `\u251C${bar}\u2524`);
-        const bot = fg("border", `\u2570${bar}\u256F`);
-        const keyCol = 9;
-        const lines = [top, row(`${fg("accent", "pi-crew dashboard")} ${fg("dim", "\u2014 key reference (press ? to close)")}`), mid];
-        for (const group of buildHelpGroups()) {
-          lines.push(row(fg("accent", group.title)));
+        if (width < 6) return [];
+        const theme = this.theme;
+        const budget = width - 2;
+        const groups = buildHelpGroups();
+        const keyCol = keyColumnWidth(groups);
+        const lines = [canopyLine({ word: "HELP", subject: "dashboard", theme, budget })];
+        for (const group of groups) {
+          lines.push(sectionLine({ name: group.title, theme, budget }));
           for (let i = 0; i < group.entries.length; i += 2) {
             const pair = group.entries.slice(i, i + 2);
-            const cell = (entry) => `${this.theme.bold(pad(entry.keys, keyCol))}${fg("dim", truncate(entry.label, 16))}`;
-            lines.push(row(pair.map(cell).join("   ")));
+            const cell = (entry) => `${theme.bold(pad(truncate(entry.keys, keyCol), keyCol))} ${theme.fg("dim", truncate(entry.label, 16))}`;
+            lines.push(railLine(RAIL.body, "border", truncate(pair.map(cell).join("   "), budget), theme, budget));
           }
         }
-        lines.push(bot);
-        const box = new Box(0, 0);
-        for (const line4 of lines) box.addChild(new Text2(line4));
-        return box.render(width);
+        lines.push(
+          railLine(
+            RAIL.close,
+            "border",
+            theme.fg(
+              "dim",
+              formatHint([
+                ["?", "toggle"],
+                ["escape", "dismiss"]
+              ])
+            ),
+            theme,
+            budget
+          )
+        );
+        return lines;
       }
     };
   }
@@ -73977,7 +74341,7 @@ __export(run_dashboard_exports, {
   RunDashboard: () => RunDashboard,
   scheduleDashboardActionToSubAction: () => scheduleDashboardActionToSubAction
 });
-import * as fs111 from "node:fs";
+import * as fs112 from "node:fs";
 function safeRenderPane(name, fn) {
   try {
     return fn();
@@ -74000,10 +74364,6 @@ function scheduleDashboardActionToSubAction(action) {
     default:
       return void 0;
   }
-}
-function padVis(value, width) {
-  const current = visibleWidth(value);
-  return current >= width ? value : `${" ".repeat(width - current)}${value}`;
 }
 function runListWindow(scrollOffset, count2) {
   const hasTop = scrollOffset > 0;
@@ -74031,8 +74391,8 @@ function readProgressPreview(run, maxLines = 5, snapshotCache, resolve26) {
   if (!progress) return ["Progress: (none)"];
   try {
     const progressPath = resolveRealContainedPath(run.artifactsRoot, progress.path);
-    if (!fs111.existsSync(progressPath)) return ["Progress: (none)"];
-    return ["Progress:", ...fs111.readFileSync(progressPath, "utf-8").split(/\r?\n/).filter(Boolean).slice(0, maxLines)];
+    if (!fs112.existsSync(progressPath)) return ["Progress: (none)"];
+    return ["Progress:", ...fs112.readFileSync(progressPath, "utf-8").split(/\r?\n/).filter(Boolean).slice(0, maxLines)];
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return [`Progress: failed to read (${message})`];
@@ -74062,8 +74422,8 @@ function readRunTasks2(run, snapshotCache, resolve26) {
   if (snapshot) return snapshot.tasks;
   if (snapshotCache) return [];
   const parse4 = () => {
-    if (!fs111.existsSync(run.tasksPath)) return [];
-    const parsed = JSON.parse(fs111.readFileSync(run.tasksPath, "utf-8"));
+    if (!fs112.existsSync(run.tasksPath)) return [];
+    const parsed = JSON.parse(fs112.readFileSync(run.tasksPath, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
@@ -74092,7 +74452,7 @@ function agentPreviewLine(agent, task, options) {
     options.showModel !== false && modelForAgent(agent, task) ? `model=${modelForAgent(agent, task)}` : void 0,
     options.showTokens !== false ? formatTokens3(usageForAgent(agent, task)) ?? (agent.progress?.tokens !== void 0 ? `tok=${agent.progress.tokens}` : void 0) : void 0,
     options.showTools !== false && agent.progress?.currentTool ? `tool=${agent.progress.currentTool}` : void 0,
-    options.showTools !== false && agent.toolUses !== void 0 ? `${agent.toolUses} tools` : void 0,
+    options.showTools !== false && agent.toolUses !== void 0 ? formatCount(agent.toolUses, "tool") : void 0,
     agent.progress?.turns !== void 0 ? `${agent.progress.turns} turns` : void 0,
     agent.progress?.failedTool ? `failedTool=${agent.progress.failedTool}` : void 0,
     agent.startedAt ? `age=${formatAge2(agent.completedAt ?? agent.startedAt)}` : void 0
@@ -74102,7 +74462,7 @@ function agentPreviewLine(agent, task, options) {
     runningGlyph: spinnerFrame(agent.taskId)
   });
   return sanitizeLine(
-    `Agent: ${icon} ${agent.taskId} ${agent.role}->${agent.agent}${stats.length ? ` \xB7 ${stats.join(" \xB7 ")}` : ""}${recent ? ` \u23BF ${recent}` : ""}`
+    `Agent: ${icon} ${agent.taskId ?? "?"} ${agent.role ?? "?"}${ACTIVE}${agent.agent ?? "?"}${stats.length ? ` \xB7 ${stats.join(" \xB7 ")}` : ""}${recent ? ` \u23BF ${recent}` : ""}`
   );
 }
 function readAgentPreview(run, maxLines = 5, options = {}, resolve26) {
@@ -74150,23 +74510,24 @@ function runLabel(run, selected, snapshotCache, maxW, resolve26) {
   const queued = agents.find((agent) => agent.status === "queued");
   const step = stale ? "orphaned queued run" : running ? `step ${running.taskId}` : queued ? `queued ${queued.taskId}` : `agents ${agents.length}`;
   const status = stale ? "stale" : run.status;
-  const marker = selected ? "\u203A" : " ";
+  const marker = selected ? CURSOR : " ";
   const icon = iconForStatus(status, {
     runningGlyph: spinnerFrame(run.runId)
   });
   const head = `${marker} ${icon} ${run.runId.slice(-8)} ${status}`;
-  const meta = `${run.team}/${run.workflow ?? "none"} \xB7 ${step}`;
+  const meta = `${teamWorkflowLabel(run.team, run.workflow)} \xB7 ${step}`;
   const goal = sanitizeLine(run.goal ?? "");
   if (maxW === void 0) return sanitizeLine(`${head} \xB7 ${meta} \xB7 ${goal}`);
   const sepW = 3;
   if (visibleWidth(head) + sepW + visibleWidth(meta) + sepW + visibleWidth(goal) <= maxW) {
     return sanitizeLine(`${head} \xB7 ${meta} \xB7 ${goal}`);
   }
-  const goalFits = visibleWidth(head) + sepW + visibleWidth(goal) <= maxW;
-  const goalRender = goalFits ? goal : truncate(goal, Math.max(8, maxW - visibleWidth(head) - sepW));
-  const prefixBudget = Math.max(0, maxW - visibleWidth(goalRender) - sepW);
-  const prefixRender = truncate(`${head} \xB7 ${meta}`, prefixBudget);
-  return sanitizeLine(`${prefixRender} \xB7 ${goalRender}`);
+  const headW = visibleWidth(head);
+  if (headW + sepW + 8 <= maxW) {
+    const goalBudget = Math.max(8, maxW - headW - sepW);
+    return sanitizeLine(`${head} \xB7 ${truncate(goal, goalBudget)}`);
+  }
+  return sanitizeLine(truncate(head, maxW));
 }
 function resolveRuns(runs, snapshotCache, resolve26) {
   const map3 = /* @__PURE__ */ new Map();
@@ -74218,9 +74579,10 @@ var init_run_dashboard = __esm({
     init_progress_pane();
     init_schedules_pane();
     init_transcript_pane();
-    init_dynamic_border();
+    init_format_helpers();
     init_keybinding_map();
     init_help_overlay();
+    init_rail();
     init_shared_overlay_scheduler();
     init_spinner();
     init_status_colors();
@@ -74236,7 +74598,6 @@ var init_run_dashboard = __esm({
     RunDashboard = class {
       selected = 0;
       runScrollOffset = 0;
-      showFullProgress = false;
       showHelp = false;
       activePane = lastActivePane;
       /** WP-7 (R7): pane-scoped revision-diff toggle (X). */
@@ -74373,7 +74734,7 @@ var init_run_dashboard = __esm({
         }).join("|");
         const metricsSig = this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
         const schedulesSig = this.activePane === "schedules" ? `:sched=${this.schedulesSignatureFragment()}` : "";
-        const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}${schedulesSig}`;
+        const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}${schedulesSig}`;
         this.cachedSignature = sig;
         this.cachedSignatureAt = now;
         return sig;
@@ -74470,28 +74831,41 @@ var init_run_dashboard = __esm({
         this.refreshRuns(snapshotOnce);
         const signature = this.buildSignature(snapshotOnce);
         if (signature !== this.cachedVersion || this.cachedWidth !== width) {
-          const innerWidth = Math.max(20, width - 4);
-          const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
+          const budget = Math.max(0, width - 2);
           const fg = (color, text) => this.theme.fg(color, text);
-          const crewBorder = new DynamicCrewBorder(this.theme);
-          const borderFill = (count2) => crewBorder.render(count2)[0];
-          const border2 = (left, right) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
-          const row = (text) => `\u2502 ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}\u2502`;
-          const sep10 = () => border2("\u251C", "\u2524");
+          const row = (text) => railLine(RAIL.body, "border", text, this.theme, budget);
+          const section2 = (name, subject) => sectionLine({ name, subject, theme: this.theme, budget });
           const lines = [];
           if (this.showHelp) {
             lines.push(...new HelpOverlay(this.theme).render(width));
           } else {
             lines.push(
-              border2("\u256D", "\u256E"),
-              row(
-                `${fg("accent", "\u2590")} ${this.theme.bold("pi-crew")} \xB7 ${this.runs.length} runs  ${fg("dim", "1-8 pane \xB7 \u2191\u2193 \xB7 Enter \xB7 ? help \xB7 Esc")}`
-              ),
-              sep10()
+              canopyLine({
+                word: "DASHBOARD",
+                subject: formatCount(this.runs.length, "run"),
+                right: formatHint([
+                  ["1-8", "pane"],
+                  [["up", "down"], "move"],
+                  ["enter", "select"],
+                  ["?", "help"]
+                ]),
+                theme: this.theme,
+                budget
+              })
             );
             if (this.runs.length === 0) {
               lines.push(row(fg("dim", "No runs yet.")));
-              lines.push(row(fg("dim", "Start one: team action='run' \xB7 r reload \xB7 Esc close")));
+              lines.push(
+                row(
+                  fg(
+                    "dim",
+                    `Start one: team action='run' \xB7 ${formatHint([
+                      ["r", "reload"],
+                      ["esc", "close"]
+                    ])}`
+                  )
+                )
+              );
             } else {
               const allGrouped = groupedRuns(this.runs, this.options.snapshotCache, snapshotOnce);
               const selectable = allGrouped.filter((rowItem) => rowItem.run);
@@ -74499,9 +74873,11 @@ var init_run_dashboard = __esm({
               if (this.selected > selectableCount - 1) this.selected = Math.max(0, selectableCount - 1);
               this.ensureRunListWindow(selectableCount);
               if (selectableCount <= RUN_LIST_MAX) {
-                for (const rowItem of allGrouped) {
+                for (const [gi, rowItem] of allGrouped.entries()) {
                   if (!rowItem.run) {
-                    lines.push(row(fg("dim", `\u2500\u2500 ${rowItem.label} \u2500\u2500`)));
+                    let groupCount = 0;
+                    for (let j = gi + 1; j < allGrouped.length && allGrouped[j]?.run; j++) groupCount++;
+                    lines.push(section2(rowItem.label, `${groupCount}`));
                     continue;
                   }
                   const idx = selectable.findIndex((c) => c.run?.runId === rowItem.run?.runId);
@@ -74509,12 +74885,12 @@ var init_run_dashboard = __esm({
                   const run = snap?.manifest ?? rowItem.run;
                   const agents = snap?.agents ?? agentsFor2(rowItem.run, this.options.snapshotCache, snapshotOnce);
                   const status = isLikelyOrphanedActiveRun(run, agents) ? "stale" : run.status;
-                  const label = runLabel(run, idx === this.selected, this.options.snapshotCache, innerWidth - 2, snapshotOnce);
+                  const label = runLabel(run, idx === this.selected, this.options.snapshotCache, budget, snapshotOnce);
                   lines.push(row(applyStatusColor(this.theme, status, label)));
                 }
               } else {
                 const win = runListWindow(this.runScrollOffset, selectableCount);
-                if (win.hasTop) lines.push(row(fg("dim", `\u2191 ${this.runScrollOffset} more above`)));
+                if (win.hasTop) lines.push(row(overflowHint(this.runScrollOffset, 0, this.theme)));
                 for (let gi = this.runScrollOffset; gi < Math.min(this.runScrollOffset + win.slots, selectableCount); gi++) {
                   const rowItem = selectable[gi];
                   if (!rowItem?.run) continue;
@@ -74522,11 +74898,11 @@ var init_run_dashboard = __esm({
                   const run = snap?.manifest ?? rowItem.run;
                   const agents = snap?.agents ?? agentsFor2(rowItem.run, this.options.snapshotCache, snapshotOnce);
                   const status = isLikelyOrphanedActiveRun(run, agents) ? "stale" : run.status;
-                  const label = runLabel(run, gi === this.selected, this.options.snapshotCache, innerWidth - 2, snapshotOnce);
+                  const label = runLabel(run, gi === this.selected, this.options.snapshotCache, budget, snapshotOnce);
                   lines.push(row(applyStatusColor(this.theme, status, label)));
                 }
                 if (win.hasBottom)
-                  lines.push(row(fg("dim", `\u2193 ${selectableCount - (this.runScrollOffset + win.slots)} more below`)));
+                  lines.push(row(overflowHint(0, selectableCount - (this.runScrollOffset + win.slots), this.theme)));
               }
               const selectedRun = selectable[Math.min(this.selected, selectable.length - 1)]?.run;
               if (selectedRun && this.activePane !== "schedules") {
@@ -74535,8 +74911,8 @@ var init_run_dashboard = __esm({
                 const agents = snap?.agents ?? agentsFor2(selectedRun, this.options.snapshotCache, snapshotOnce);
                 const statusStr = isLikelyOrphanedActiveRun(r, agents) ? "stale" : r.status;
                 const selectedTasks = snap?.tasks ?? readRunTasks2(r, this.options.snapshotCache, snapshotOnce);
-                lines.push(sep10());
-                lines.push(row(`${fg("accent", "\u25B8")} ${truncate(sanitizeLine(r.goal), innerWidth - 6)}`));
+                lines.push(section2("run"));
+                lines.push(row(`${fg("accent", "\u25B8")} ${truncate(sanitizeLine(r.goal), budget - 4)}`));
                 const isTerminal = statusStr === "failed" || statusStr === "cancelled" || statusStr === "stopped";
                 const reason = isTerminal ? summarizeTerminalReason(r, selectedTasks, snap?.cancellationReason) : void 0;
                 const reasonSuffix = reason ? ` \xB7 ${truncate(sanitizeLine(reason), 40)}` : "";
@@ -74545,7 +74921,7 @@ var init_run_dashboard = __esm({
                     fg(
                       "dim",
                       sanitizeLine(
-                        `  ${r.team}/${r.workflow ?? "default"} \xB7 ${statusStr} \xB7 ${r.runId.slice(-10)}${reasonSuffix}`
+                        `  ${teamWorkflowLabel(r.team, r.workflow)} \xB7 ${statusStr} \xB7 ${r.runId.slice(-8)}${reasonSuffix}`
                       )
                     )
                   )
@@ -74566,9 +74942,9 @@ var init_run_dashboard = __esm({
                 ];
                 const filteredPane = paneLines.filter((l) => l && !l.includes("(none)") && l.trim() !== "");
                 if (filteredPane.length > 0) {
-                  lines.push(row(fg("dim", `\u2500\u2500 ${this.activePane} \u2500\u2500`)));
-                  for (const line4 of filteredPane.slice(0, 8)) {
-                    lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line4), innerWidth - 2)), this.theme));
+                  lines.push(section2(this.activePane));
+                  for (const line3 of filteredPane.slice(0, 8)) {
+                    lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line3), budget)), this.theme));
                   }
                 }
                 const isActiveRun = statusStr === "running" || statusStr === "queued" || statusStr === "waiting";
@@ -74594,18 +74970,19 @@ var init_run_dashboard = __esm({
                     }
                   }
                 }
-                const ctxStr = ctxPct != null ? `${Math.round(ctxPct)}% ctx` : "";
                 const footerFields = [];
-                if (tokStr) footerFields.push(padVis(tokStr, 10));
-                if (ctxStr) footerFields.push(padVis(ctxStr, 9));
-                if (footerFields.length) lines.push(row(fg("dim", footerFields.join(" \xB7 "))));
+                if (tokStr) footerFields.push(fg("dim", tokStr));
+                if (ctxPct != null && Number.isFinite(ctxPct)) {
+                  const ratio = Math.max(0, Math.min(1, ctxPct / 100));
+                  footerFields.push(`${gaugeBar(ratio, 10, this.theme)} ${fg("muted", `${Math.round(ctxPct)}% ctx`)}`);
+                }
+                if (footerFields.length) lines.push(row(footerFields.join(fg("dim", " \xB7 "))));
               }
             }
             if (this.activePane === "schedules") {
               const jobs = this.scheduleJobs();
               const now = this.scheduleNow();
-              lines.push(sep10());
-              lines.push(row(fg("dim", "\u2500\u2500 schedules \u2500\u2500")));
+              lines.push(section2("schedules", `${jobs.length}`));
               const paneLines = safeRenderPane(
                 "schedules",
                 () => this.scheduleDetails && jobs.length > 0 ? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now) : renderSchedulesPane(jobs, now, {
@@ -74613,8 +74990,8 @@ var init_run_dashboard = __esm({
                   hiddenCount: this.scheduleHiddenCount()
                 })
               );
-              for (const line4 of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
-                lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line4), innerWidth - 2)), this.theme));
+              for (const line3 of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
+                lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line3), budget)), this.theme));
               }
               if (this.scheduleDeleteArmed) {
                 const victim = jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
@@ -74622,15 +74999,24 @@ var init_run_dashboard = __esm({
                 lines.push(row(fg("warning", `\u26A0 X again to DELETE '${name}' \xB7 any other key cancels`)));
               }
             }
-            lines.push(border2("\u2570", "\u256F"));
+            lines.push(
+              railLine(
+                RAIL.close,
+                "border",
+                formatHint([
+                  ["r", "reload"],
+                  ["esc", "close"]
+                ]),
+                this.theme,
+                budget
+              )
+            );
           }
           const target = this.targetHeight();
           if (lines.length < target) {
-            const innerWidth2 = Math.max(20, width - 4);
-            const fg2 = (color, text) => this.theme.fg(color, text);
-            const blankRow = `\u2502 ${pad("", innerWidth2 - 1)}\u2502`;
+            const blankRow = railLine(RAIL.body, "border", "", this.theme, budget);
             const bottom = lines.pop();
-            while (lines.length < target - 1) lines.push(fg2("border", blankRow));
+            while (lines.length < target - 1) lines.push(blankRow);
             if (bottom) lines.push(bottom);
           } else if (lines.length > target) {
             const bottom = lines[lines.length - 1];
@@ -74638,7 +75024,7 @@ var init_run_dashboard = __esm({
             lines.push(bottom);
           }
           this.cachedLines = renderLines(
-            lines.map((line4) => truncate(line4, width)),
+            lines.map((line3) => truncate(line3, width)),
             width
           );
           this.cachedVersion = signature;
@@ -74719,11 +75105,6 @@ var init_run_dashboard = __esm({
           this.done(selectedRunId ? { runId: selectedRunId, action: "browser-open" } : { runId: "", action: "browser-open" });
           return;
         }
-        if (action === "progressToggle") {
-          this.showFullProgress = !this.showFullProgress;
-          this.invalidate();
-          return;
-        }
         if (action === "pane-agents") this.activePane = "agents";
         else if (action === "pane-progress") this.activePane = "progress";
         else if (action === "pane-mailbox") this.activePane = "mailbox";
@@ -74794,8 +75175,8 @@ var init_confirm_overlay = __esm({
   "src/ui/overlays/confirm-overlay.ts"() {
     "use strict";
     init_visual();
-    init_key_utils();
-    init_layout_primitives();
+    init_keybinding_map();
+    init_rail();
     init_theme_adapter();
     ConfirmOverlay = class {
       opts;
@@ -74809,36 +75190,39 @@ var init_confirm_overlay = __esm({
       invalidate() {
       }
       render(width) {
-        const innerWidth = Math.max(24, Math.min(width - 4, 72));
-        const color = this.opts.dangerLevel === "high" ? "error" : this.opts.dangerLevel === "medium" ? "warning" : "accent";
-        const title = this.theme.bold(this.theme.fg(color, this.opts.title));
-        const hint = this.opts.defaultAction === "confirm" ? "Enter/Y confirm \xB7 N/ESC cancel" : "Y confirm \xB7 Enter/N/ESC cancel";
+        if (width < 6) return [];
+        const theme = this.theme;
+        const budget = width - 2;
+        const slot = this.opts.dangerLevel === "high" ? "error" : this.opts.dangerLevel === "medium" ? "warning" : "border";
+        const hint = this.opts.defaultAction === "confirm" ? formatHint([
+          [["enter", "y"], "confirm"],
+          [["n", "escape"], "cancel"]
+        ]) : formatHint([
+          ["y", "confirm"],
+          [["enter", "n", "escape"], "cancel"]
+        ]);
         const bodyLines = (this.opts.body ?? "").split(/\r?\n/).filter(Boolean);
-        const lines = [
-          `\u256D${"\u2500".repeat(innerWidth)}\u256E`,
-          `\u2502 ${pad(truncate(title, innerWidth - 1), innerWidth - 1)}\u2502`,
-          `\u251C${"\u2500".repeat(innerWidth)}\u2524`,
-          ...(bodyLines.length ? bodyLines : ["Are you sure?"]).map(
-            (line4) => `\u2502 ${pad(truncate(line4, innerWidth - 1), innerWidth - 1)}\u2502`
-          ),
-          `\u251C${"\u2500".repeat(innerWidth)}\u2524`,
-          `\u2502 ${pad(truncate(this.theme.fg("dim", hint), innerWidth - 1), innerWidth - 1)}\u2502`,
-          `\u2570${"\u2500".repeat(innerWidth)}\u256F`
-        ];
-        const box = new Box(0, 0);
-        for (const line4 of lines) box.addChild(new Text2(line4));
-        return box.render(width);
+        const lines = [canopyLine({ word: "CONFIRM", subject: this.opts.title ?? "?", theme, budget, slot })];
+        for (const line3 of bodyLines.length ? bodyLines : ["Are you sure?"]) {
+          lines.push(railLine(RAIL.body, slot, truncate(line3, budget), theme, budget));
+        }
+        lines.push(railLine(RAIL.close, slot, theme.fg("dim", hint), theme, budget));
+        return lines;
       }
       handleInput(data) {
-        if (data === "y" || data === "Y") {
-          this.done(true);
-          return;
+        switch (overlayActionForKey("confirm", data)) {
+          case "confirm":
+            this.done(true);
+            return;
+          // Enter is dual-role: it confirms when the overlay defaults to confirm
+          // and cancels otherwise (byte-identical to the pre-M2-1 chain).
+          case "submit":
+            this.done(this.opts.defaultAction === "confirm");
+            return;
+          case "cancel":
+            this.done(false);
+            return;
         }
-        if (matchesKey4(data, "return") && this.opts.defaultAction === "confirm") {
-          this.done(true);
-          return;
-        }
-        if (data === "n" || data === "N" || matchesKey4(data, "escape") || data === "q" || matchesKey4(data, "return")) this.done(false);
       }
     };
   }
@@ -74849,15 +75233,17 @@ var mailbox_detail_overlay_exports = {};
 __export(mailbox_detail_overlay_exports, {
   MailboxDetailOverlay: () => MailboxDetailOverlay
 });
-var MailboxDetailOverlay;
+var MAX_ROWS, MailboxDetailOverlay;
 var init_mailbox_detail_overlay = __esm({
   "src/ui/overlays/mailbox-detail-overlay.ts"() {
     "use strict";
     init_mailbox();
     init_state_store();
     init_visual();
-    init_key_utils();
+    init_keybinding_map();
+    init_rail();
     init_theme_adapter();
+    MAX_ROWS = 12;
     MailboxDetailOverlay = class {
       runId;
       cwd;
@@ -74915,71 +75301,115 @@ var init_mailbox_detail_overlay = __esm({
           this.refresh();
           this.needsRefresh = false;
         }
-        const inner = Math.max(40, width - 4);
-        const col = Math.max(18, Math.floor((inner - 3) / 2));
-        const lines = [
-          this.theme.bold(`Mailbox detail \xB7 ${this.runId}`),
-          "Tab side \xB7 \u2191/\u2193 select \xB7 Enter expand \xB7 A ack \xB7 N nudge \xB7 C compose \xB7 X ack all \xB7 ESC close",
-          `${pad(this.theme.bold("Inbox"), col)} \u2502 ${pad(this.theme.bold("Outbox"), col)}`
-        ];
-        const max = Math.max(this.inbox.length, this.outbox.length, 1);
-        for (let index = 0; index < Math.min(max, 12); index += 1) {
-          lines.push(`${this.row(this.inbox[index], "inbox", index, col)} \u2502 ${this.row(this.outbox[index], "outbox", index, col)}`);
+        if (width < 10) return [];
+        const theme = this.theme;
+        const budget = width - 2;
+        const lines = [canopyLine({ word: "MAILBOX", subject: shortId(this.runId), theme, budget })];
+        const col = Math.max(10, Math.floor((budget - 3) / 2));
+        const rightCol = Math.max(1, budget - col - 3);
+        const twoCol = (left, right) => `${pad(truncate(left, col), col)} ${theme.fg("dim", "\u2502")} ${truncate(right, rightCol)}`;
+        lines.push(railLine(RAIL.body, "border", twoCol(theme.bold("Inbox"), theme.bold("Outbox")), theme, budget));
+        const total = Math.max(this.inbox.length, this.outbox.length);
+        const shown = Math.min(total, MAX_ROWS);
+        for (let index = 0; index < shown; index += 1) {
+          lines.push(
+            railLine(
+              RAIL.body,
+              "border",
+              twoCol(this.row(this.inbox[index], "inbox", index, col), this.row(this.outbox[index], "outbox", index, col)),
+              theme,
+              budget
+            )
+          );
+        }
+        if (total > shown) {
+          lines.push(railLine(RAIL.body, "border", overflowHint(0, total - shown, theme), theme, budget));
         }
         const selected = this.selectedMessage();
         if (this.expanded && selected) {
-          lines.push("\u2500".repeat(Math.min(inner, 72)));
-          lines.push(`${selected.from} \u2192 ${selected.to}${selected.taskId ? ` (${selected.taskId})` : ""} \xB7 ${selected.status}`);
-          lines.push(...selected.body.split(/\r?\n/).map((line4) => truncate(line4, inner)));
+          const from = selected.from ?? "?";
+          const to = selected.to ?? "?";
+          lines.push(sectionLine({ name: "Message", theme, budget }));
+          lines.push(
+            railLine(
+              RAIL.body,
+              "border",
+              truncate(
+                `${from} ${ACTIVE} ${to}${selected.taskId ? ` (${selected.taskId})` : ""} \xB7 ${selected.status ?? "?"}`,
+                budget
+              ),
+              theme,
+              budget
+            )
+          );
+          for (const line3 of (selected.body ?? "").split(/\r?\n/)) {
+            lines.push(railLine(RAIL.body, "border", truncate(line3, budget), theme, budget));
+          }
         }
-        if (!this.inbox.length && !this.outbox.length) lines.push("Mailbox is empty.");
-        return lines.map((line4) => truncate(line4, inner));
+        if (!this.inbox.length && !this.outbox.length) {
+          lines.push(railLine(RAIL.body, "border", theme.fg("dim", "Mailbox is empty."), theme, budget));
+        }
+        const actions = formatHint([
+          ["tab", "side"],
+          [["up", "down"], "select"],
+          ["enter", "expand"],
+          ["A", "ack"],
+          ["N", "nudge"],
+          ["C", "compose"],
+          ["X", "ack all"]
+        ]);
+        const close = formatHint([["escape", "close"]]);
+        lines.push(
+          railLine(RAIL.close, "border", railLeaders(theme.fg("dim", actions), theme.fg("dim", close), budget, theme), theme, budget)
+        );
+        return lines;
       }
       row(message, side, index, width) {
-        if (!message) return pad("", width);
-        const marker = this.side === side && this.selected === index ? "\u203A" : " ";
-        const status = message.status === "acknowledged" ? "\u2713" : "!";
-        return pad(truncate(`${marker}${status} ${message.from}->${message.to}: ${message.body.replace(/\s+/g, " ")}`, width), width);
+        if (!message) return "";
+        const marker = this.side === side && this.selected === index ? CURSOR : " ";
+        const acknowledged = message.status === "acknowledged";
+        const status = this.theme.fg(acknowledged ? "success" : "warning", acknowledged ? "\u2713" : "!");
+        const from = message.from ?? "?";
+        const to = message.to ?? "?";
+        const body = (message.body ?? "").replace(/\s+/g, " ");
+        return truncate(`${marker}${status} ${from} ${ACTIVE} ${to}: ${body}`, width);
       }
       handleInput(data) {
-        if (matchesKey4(data, "escape") || data === "q") {
-          this.done({ type: "close" });
-          return;
+        switch (overlayActionForKey("mailbox-detail", data)) {
+          case "close":
+            this.done({ type: "close" });
+            return;
+          case "toggleSide":
+            this.side = this.side === "inbox" ? "outbox" : "inbox";
+            this.selected = Math.min(this.selected, Math.max(0, this.current().length - 1));
+            return;
+          case "up":
+            this.selected = Math.max(0, this.selected - 1);
+            return;
+          case "down":
+            this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
+            return;
+          case "toggleDetail":
+            this.expanded = !this.expanded;
+            return;
+          case "ack": {
+            const message = this.selectedMessage();
+            if (message) this.done({ type: "ack", messageId: message.id });
+            return;
+          }
+          case "nudge":
+            this.done({
+              type: "nudge",
+              agentId: this.selectedMessage()?.taskId
+            });
+            return;
+          case "compose":
+            this.done({ type: "compose" });
+            return;
+          case "ackAll":
+            this.done({ type: "ackAll" });
+            return;
         }
-        if (data === "	") {
-          this.side = this.side === "inbox" ? "outbox" : "inbox";
-          this.selected = Math.min(this.selected, Math.max(0, this.current().length - 1));
-          return;
-        }
-        if (data === "k" || keyOf(data) === "up") {
-          this.selected = Math.max(0, this.selected - 1);
-          return;
-        }
-        if (data === "j" || keyOf(data) === "down") {
-          this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
-          return;
-        }
-        if (matchesKey4(data, "return")) {
-          this.expanded = !this.expanded;
-          return;
-        }
-        if (data === "A") {
-          const message = this.selectedMessage();
-          if (message) this.done({ type: "ack", messageId: message.id });
-          return;
-        }
-        if (data === "N") {
-          this.done({
-            type: "nudge",
-            agentId: this.selectedMessage()?.taskId
-          });
-          return;
-        }
-        if (data === "C") {
-          this.done({ type: "compose" });
-          return;
-        }
-        if (data === "X") this.done({ type: "ackAll" });
       }
     };
   }
@@ -74994,8 +75424,8 @@ function tokenizeMarkdown(body) {
   const lines = body.split(/\r?\n/);
   let inCode = false;
   let codeLines = [];
-  for (const line4 of lines) {
-    if (line4.trim().startsWith("```")) {
+  for (const line3 of lines) {
+    if (line3.trim().startsWith("```")) {
       if (inCode) {
         tokens.push({ type: "code-block", text: codeLines.join("\n") });
         codeLines = [];
@@ -75004,10 +75434,10 @@ function tokenizeMarkdown(body) {
       continue;
     }
     if (inCode) {
-      codeLines.push(line4);
+      codeLines.push(line3);
       continue;
     }
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line4);
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line3);
     if (heading) {
       tokens.push({
         type: "heading",
@@ -75016,7 +75446,7 @@ function tokenizeMarkdown(body) {
       });
       continue;
     }
-    const list = /^\s*(?:[-*]|\d+\.)\s+(.+)$/.exec(line4);
+    const list = /^\s*(?:[-*]|\d+\.)\s+(.+)$/.exec(line3);
     if (list) {
       tokens.push({
         type: "list-item",
@@ -75024,10 +75454,10 @@ function tokenizeMarkdown(body) {
       });
       continue;
     }
-    if (line4.trim())
+    if (line3.trim())
       tokens.push({
         type: "paragraph",
-        text: stripInlineMarkdown(line4.trim())
+        text: stripInlineMarkdown(line3.trim())
       });
   }
   if (inCode && codeLines.length) tokens.push({ type: "code-block", text: codeLines.join("\n") });
@@ -75037,7 +75467,7 @@ function renderToken(token, width, theme) {
   const safeWidth = Math.max(10, width);
   if (token.type === "heading") return [truncate(theme.bold(`${"#".repeat(token.level ?? 1)} ${token.text}`), safeWidth)];
   if (token.type === "list-item") return [truncate(`\u2022 ${token.text}`, safeWidth)];
-  if (token.type === "code-block") return ["```", ...token.text.split(/\r?\n/).map((line4) => truncate(`  ${line4}`, safeWidth)), "```"];
+  if (token.type === "code-block") return ["```", ...token.text.split(/\r?\n/).map((line3) => truncate(`  ${line3}`, safeWidth)), "```"];
   return [truncate(token.text, safeWidth)];
 }
 function renderComposePreview(body, width, themeLike = {}) {
@@ -75064,7 +75494,8 @@ var init_mailbox_compose_overlay = __esm({
   "src/ui/overlays/mailbox-compose-overlay.ts"() {
     "use strict";
     init_visual();
-    init_key_utils();
+    init_keybinding_map();
+    init_rail();
     init_theme_adapter();
     init_confirm_overlay();
     init_mailbox_compose_preview();
@@ -75091,33 +75522,45 @@ var init_mailbox_compose_overlay = __esm({
       }
       render(width) {
         if (this.confirm) return this.confirm.render(width);
-        const inner = Math.max(24, width - 4);
-        const formWidth = this.preview ? Math.max(24, Math.floor(inner * 0.6)) : inner;
-        const lines = [
-          this.theme.bold("Compose mailbox message"),
-          this.preview ? "P close preview \xB7 Tab cycle \xB7 Enter submit \xB7 ESC discard" : "P preview \xB7 Tab cycle \xB7 Enter submit \xB7 ESC discard",
-          ...this.error ? [this.theme.fg("error", this.error)] : [],
-          this.fieldLine("from", formWidth),
-          this.fieldLine("to", formWidth),
-          this.fieldLine("body", formWidth),
-          this.fieldLine("taskId", formWidth),
-          `${this.activeField === 4 ? "\u203A" : " "} [${this.fields.direction === "outbox" ? "x" : " "}] Send to outbox`
+        if (width < 10) return [];
+        const theme = this.theme;
+        const budget = width - 2;
+        const hint = formatHint([
+          ["P", this.preview ? "close preview" : "preview"],
+          ["tab", "cycle"],
+          ["enter", "submit"],
+          ["escape", "discard"]
+        ]);
+        const lines = [canopyLine({ word: "COMPOSE", subject: "mailbox", theme, budget })];
+        if (this.error) lines.push(railLine(RAIL.body, "error", truncate(this.error, budget), theme, budget));
+        const formBudget = this.preview ? Math.max(10, Math.floor(budget * 0.6)) : budget;
+        const previewBudget = Math.max(8, budget - formBudget - 3);
+        const formRows = [
+          this.fieldLine("from", formBudget),
+          this.fieldLine("to", formBudget),
+          this.fieldLine("body", formBudget),
+          this.fieldLine("taskId", formBudget),
+          `${this.activeField === 4 ? CURSOR : " "} [${this.fields.direction === "outbox" ? "x" : " "}] Send to outbox`
         ];
-        if (!this.preview) return lines.map((line4) => pad(truncate(line4, inner), inner));
-        const previewLines = renderComposePreview(this.fields.body, Math.max(20, inner - formWidth - 3), this.theme);
-        const max = Math.max(lines.length, previewLines.length);
-        const split = [];
-        for (let index = 0; index < max; index += 1) {
-          split.push(
-            `${pad(truncate(lines[index] ?? "", formWidth), formWidth)} \u2502 ${truncate(previewLines[index] ?? "", inner - formWidth - 3)}`
-          );
+        if (!this.preview) {
+          for (const row of formRows) lines.push(railLine(RAIL.body, "border", truncate(row, budget), theme, budget));
+        } else {
+          const previewLines = renderComposePreview(this.fields.body, previewBudget, theme);
+          const max = Math.max(formRows.length, previewLines.length);
+          for (let index = 0; index < max; index += 1) {
+            const left = pad(truncate(formRows[index] ?? "", formBudget), formBudget);
+            const right = truncate(previewLines[index] ?? "", previewBudget);
+            lines.push(railRaw(RAIL.body, "border", right ? `${left} ${theme.fg("dim", "\u2502")} ${right}` : left, theme));
+          }
         }
-        return split;
+        lines.push(railLine(RAIL.close, "border", theme.fg("dim", hint), theme, budget));
+        return lines;
       }
       fieldLine(field, width) {
         const active = FIELD_ORDER[this.activeField] === field;
         const label = field === "taskId" ? "taskId" : field;
-        return `${active ? "\u203A" : " "} ${label}: ${truncate(this.fields[field] ?? "", Math.max(8, width - label.length - 5))}`;
+        const value = sanitizeLine(this.fields[field] ?? "");
+        return `${active ? CURSOR : " "} ${label}: ${truncate(value, Math.max(8, width - label.length - 5))}`;
       }
       activeName() {
         return FIELD_ORDER[this.activeField] ?? "body";
@@ -75184,31 +75627,27 @@ var init_mailbox_compose_overlay = __esm({
           this.confirm.handleInput(data);
           return;
         }
-        if (matchesKey4(data, "escape")) {
-          this.cancel();
-          return;
-        }
-        if (data === "P") {
-          this.preview = !this.preview;
-          return;
-        }
-        if (data === "	") {
-          this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
-          return;
-        }
-        if (data === " ") {
-          if (this.activeName() === "direction") this.fields.direction = this.fields.direction === "inbox" ? "outbox" : "inbox";
-          else this.appendText(data);
-          return;
-        }
-        if (matchesKey4(data, "backspace")) {
-          this.backspace();
-          return;
-        }
-        if (matchesKey4(data, "return")) {
-          if (this.activeName() === "body" || this.fields.body.trim()) this.submit();
-          else this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
-          return;
+        switch (overlayActionForKey("mailbox-compose", data)) {
+          case "cancel":
+            this.cancel();
+            return;
+          case "preview":
+            this.preview = !this.preview;
+            return;
+          case "nextField":
+            this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
+            return;
+          case "space":
+            if (this.activeName() === "direction") this.fields.direction = this.fields.direction === "inbox" ? "outbox" : "inbox";
+            else this.appendText(data);
+            return;
+          case "backspace":
+            this.backspace();
+            return;
+          case "submit":
+            if (this.activeName() === "body" || this.fields.body.trim()) this.submit();
+            else this.activeField = (this.activeField + 1) % FIELD_ORDER.length;
+            return;
         }
         if (data.length === 1 && data >= " ") this.appendText(data);
       }
@@ -75228,49 +75667,80 @@ var init_agent_picker_overlay = __esm({
     init_crew_agent_records();
     init_state_store();
     init_visual();
-    init_key_utils();
+    init_keybinding_map();
+    init_rail();
     init_theme_adapter();
     AgentPickerOverlay = class {
       agents;
       done;
       theme;
+      runId;
       selected = 0;
       constructor(opts) {
         const loaded = loadRunManifestById(opts.cwd, opts.runId);
         this.agents = loaded ? readCrewAgents(loaded.manifest) : [];
         this.done = opts.done;
         this.theme = asCrewTheme(opts.theme ?? {});
+        this.runId = opts.runId;
       }
       invalidate() {
       }
       render(width) {
-        const inner = Math.max(24, width - 4);
+        if (width < 6) return [];
+        const theme = this.theme;
+        const budget = width - 2;
         const lines = [
-          this.theme.bold("Select agent"),
-          "\u2191/\u2193 move \xB7 Enter select \xB7 ESC cancel",
+          canopyLine({ word: "AGENTS", subject: shortId(this.runId), theme, budget }),
           ...this.agents.map(
-            (agent, index) => `${index === this.selected ? "\u203A" : " "} ${agent.taskId} \xB7 ${agent.status} \xB7 ${agent.role}->${agent.agent}`
+            (agent, index) => railLine(
+              RAIL.body,
+              "border",
+              truncate(
+                `${index === this.selected ? CURSOR : " "} ${agent.taskId ?? "?"} \xB7 ${agent.status ?? "?"} \xB7 ${agent.role ?? "?"} ${ACTIVE} ${agent.agent ?? "?"}`,
+                budget
+              ),
+              theme,
+              budget
+            )
           )
         ];
-        if (!this.agents.length) lines.push("No agents found.");
-        return lines.map((line4) => pad(truncate(line4, inner), inner));
+        if (!this.agents.length) {
+          lines.push(railLine(RAIL.body, "border", theme.fg("dim", "No agents found."), theme, budget));
+        }
+        lines.push(
+          railLine(
+            RAIL.close,
+            "border",
+            theme.fg(
+              "dim",
+              formatHint([
+                [["up", "down"], "move"],
+                ["enter", "select"],
+                ["escape", "cancel"]
+              ])
+            ),
+            theme,
+            budget
+          )
+        );
+        return lines;
       }
       handleInput(data) {
-        if (matchesKey4(data, "escape") || data === "q") {
-          this.done(void 0);
-          return;
-        }
-        if (data === "k" || keyOf(data) === "up") {
-          this.selected = Math.max(0, this.selected - 1);
-          return;
-        }
-        if (data === "j" || keyOf(data) === "down") {
-          this.selected = Math.min(Math.max(0, this.agents.length - 1), this.selected + 1);
-          return;
-        }
-        if (matchesKey4(data, "return")) {
-          const agent = this.agents[this.selected];
-          this.done(agent ? { agentId: agent.taskId } : void 0);
+        switch (overlayActionForKey("agent-picker", data)) {
+          case "close":
+            this.done(void 0);
+            return;
+          case "up":
+            this.selected = Math.max(0, this.selected - 1);
+            return;
+          case "down":
+            this.selected = Math.min(Math.max(0, this.agents.length - 1), this.selected + 1);
+            return;
+          case "select": {
+            const agent = this.agents[this.selected];
+            this.done(agent ? { agentId: agent.taskId } : void 0);
+            return;
+          }
         }
       }
     };
@@ -75282,7 +75752,7 @@ var mascot_exports = {};
 __export(mascot_exports, {
   AnimatedMascot: () => AnimatedMascot
 });
-import { matchesKey as matchesKey6 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey7 } from "@earendil-works/pi-tui";
 function getArminPixel(x, y) {
   if (y >= ARMIN_HEIGHT) return false;
   const byteIndex = y * ARMIN_BYTES_PER_ROW + Math.floor(x / 8);
@@ -75300,9 +75770,9 @@ function getArminChar(x, row) {
 function buildArminGrid() {
   const grid = [];
   for (let row = 0; row < ARMIN_DISPLAY_HEIGHT; row++) {
-    const line4 = [];
-    for (let x = 0; x < ARMIN_WIDTH; x++) line4.push(getArminChar(x, row));
-    grid.push(line4);
+    const line3 = [];
+    for (let x = 0; x < ARMIN_WIDTH; x++) line3.push(getArminChar(x, row));
+    grid.push(line3);
   }
   return grid;
 }
@@ -75313,8 +75783,7 @@ var BS, CAT_FRAMES, ARMIN_WIDTH, ARMIN_HEIGHT, ARMIN_BITS, ARMIN_BYTES_PER_ROW, 
 var init_mascot = __esm({
   "src/ui/mascot.ts"() {
     "use strict";
-    init_visual();
-    init_dynamic_border();
+    init_rail();
     init_theme_adapter();
     BS = String.fromCharCode(92);
     CAT_FRAMES = [
@@ -75730,10 +76199,8 @@ var init_mascot = __esm({
         if (this.timeout) clearTimeout(this.timeout);
         this.onDone();
       }
-      formatLine(line4, width, color = "accent") {
-        const contentWidth = Math.max(0, width - 4);
-        const themed = this.theme.fg(color, line4);
-        return `\u2502 ${pad(themed, contentWidth)} \u2502`;
+      formatLine(line3, budget, color = "accent") {
+        return railLine(RAIL.body, "border", this.theme.fg(color, line3), this.theme, budget);
       }
       currentCatFrame() {
         return CAT_FRAMES[this.frame];
@@ -75763,24 +76230,42 @@ var init_mascot = __esm({
           return this.cachedLines;
         }
         const safeWidth = Math.max(20, width);
-        const horizontal = new DynamicCrewBorder(this.theme).render(Math.max(0, safeWidth - 2))[0];
+        const budget = Math.max(4, safeWidth - 2);
         const result4 = [
-          `${this.theme.fg("border", "\u256D")}${horizontal}${this.theme.fg("border", "\u256E")}`,
-          this.formatLine(this.theme.bold(" ARMIN SAYS HI "), safeWidth),
-          this.formatLine("", safeWidth)
+          canopyLine({ word: "MASCOT", subject: this.style, theme: this.theme, budget }),
+          this.formatLine(this.theme.bold("ARMIN SAYS HI"), budget),
+          this.formatLine("", budget)
         ];
         if (this.style === "armin") {
           for (const row of this.currentArminGrid) {
             const text = row.join("");
-            result4.push(this.formatLine(text, safeWidth));
+            result4.push(this.formatLine(text, budget));
           }
         } else {
           const frameLines = this.applyCatEffect(this.currentCatFrame());
-          for (const line4 of frameLines) result4.push(this.formatLine(line4, safeWidth));
+          for (const line3 of frameLines) result4.push(this.formatLine(line3, budget));
         }
-        const hint = this.style === "armin" ? `Press q or Esc to close \xB7 effect: ${this.effect}` : "Press q or Esc to close \xB7 animated preview";
-        result4.push(this.formatLine(hint, safeWidth, "muted"));
-        result4.push(`${this.theme.fg("border", "\u2570")}${horizontal}${this.theme.fg("border", "\u256F")}`);
+        const state2 = this.style === "armin" ? `effect: ${this.effect}` : "animated preview";
+        result4.push(
+          railLine(
+            RAIL.close,
+            "border",
+            railLeaders(
+              this.theme.fg(
+                "dim",
+                formatHint([
+                  ["esc", "close"],
+                  ["q", "close"]
+                ])
+              ),
+              this.theme.fg("dim", state2),
+              budget,
+              this.theme
+            ),
+            this.theme,
+            budget
+          )
+        );
         this.cachedWidth = safeWidth;
         this.cachedVersion = this.gridVersion;
         this.cachedFrame = this.frame;
@@ -75788,7 +76273,7 @@ var init_mascot = __esm({
         return result4;
       }
       handleInput(data) {
-        if (matchesKey6(data, "q") || matchesKey6(data, "escape") || data === "") {
+        if (matchesKey7(data, "q") || matchesKey7(data, "escape") || data === "") {
           this.close();
         }
       }
@@ -75851,8 +76336,8 @@ var init_settings_overlay = __esm({
   "src/ui/settings-overlay.ts"() {
     "use strict";
     init_visual();
-    init_dynamic_border();
     init_key_utils();
+    init_rail();
     init_theme_discovery();
     TABS = [
       { id: "runtime", label: "Runtime", icon: "\u2699" },
@@ -76245,19 +76730,28 @@ var init_settings_overlay = __esm({
         const end = Math.min(start + this.maxVisible, this.items.length);
         const needsScroll = this.items.length > this.maxVisible;
         if (needsScroll && start > 0) {
-          lines.push(this.theme.fg("dim", `  \u25B2 ${start} more above`));
+          lines.push(`  ${overflowHint(start, 0, this.theme)}`);
         }
         for (let i = start; i < end; i++) {
           const isSelected = i === this.selectedIndex;
-          const prefix = isSelected ? " \u2192 " : "   ";
-          const line4 = `${prefix}${this.items[i]}`;
-          lines.push(isSelected ? this.theme.inverse?.(line4) ?? line4 : line4);
+          const prefix = isSelected ? ` ${CURSOR} ` : "   ";
+          const line3 = `${prefix}${this.items[i]}`;
+          lines.push(isSelected ? this.theme.inverse?.(line3) ?? line3 : line3);
         }
         if (needsScroll && end < this.items.length) {
-          lines.push(this.theme.fg("dim", `  \u25BC ${this.items.length - end} more below`));
+          lines.push(`  ${overflowHint(0, this.items.length - end, this.theme)}`);
         }
         lines.push("");
-        lines.push(this.theme.fg("dim", "\u2191\u2193 navigate \xB7 Enter to select \xB7 Esc to go back"));
+        lines.push(
+          this.theme.fg(
+            "dim",
+            formatHint([
+              [["up", "down"], "navigate"],
+              ["enter", "to select"],
+              ["esc", "to go back"]
+            ])
+          )
+        );
         return lines;
       }
       handleInput(data) {
@@ -76309,7 +76803,16 @@ var init_settings_overlay = __esm({
         lines.push("");
         lines.push(`  ${this.buffer}\u2588`);
         lines.push("");
-        lines.push(this.theme.fg("dim", "Enter to save \xB7 Esc to cancel \xB7 Clear to unset"));
+        lines.push(
+          this.theme.fg(
+            "dim",
+            formatHint([
+              ["enter", "to save"],
+              ["esc", "to cancel"],
+              ["clear", "to unset"]
+            ])
+          )
+        );
         return lines;
       }
       handleInput(data) {
@@ -76322,7 +76825,7 @@ var init_settings_overlay = __esm({
           this.onCancel();
           return;
         }
-        if (matchesKey4(data, "backspace") || k === "backspace") {
+        if (matchesKey5(data, "backspace") || k === "backspace") {
           this.buffer = this.buffer.slice(0, -1);
           return;
         }
@@ -76378,25 +76881,43 @@ var init_settings_overlay = __esm({
           const thinkingPart = thinking ? `thinking=${thinking}` : "";
           const valueParts = [modelPart, thinkingPart].filter(Boolean).join(", ");
           const valueText = valueParts || this.theme.fg("dim", "(default)");
-          const prefix = isSelected ? " \u2192 " : "   ";
-          const line4 = `${prefix}${label} ${valueText}`;
+          const prefix = isSelected ? ` ${CURSOR} ` : "   ";
+          const line3 = `${prefix}${label} ${valueText}`;
           lines.push(
-            isSelected ? this.theme.inverse?.(truncateToWidth(line4, width - 2)) ?? truncateToWidth(line4, width - 2) : truncateToWidth(line4, width - 2)
+            isSelected ? this.theme.inverse?.(truncateToWidth(line3, width - 2)) ?? truncateToWidth(line3, width - 2) : truncateToWidth(line3, width - 2)
           );
         }
         lines.push("");
-        lines.push(this.theme.fg("dim", "Enter to edit model \xB7 e to edit thinking \xB7 Esc to go back"));
+        lines.push(
+          this.theme.fg(
+            "dim",
+            formatHint([
+              ["enter", "to edit model"],
+              ["e", "to edit thinking"],
+              ["esc", "to go back"]
+            ])
+          )
+        );
         return lines;
       }
       renderEdit(width) {
-        const agent = this.agents[this.selectedIndex];
+        const agent = this.agents[this.selectedIndex] ?? "?";
         const field = this.editField === "model" ? "model" : "thinking";
         const lines = [];
         lines.push(this.theme.bold(this.theme.fg("accent", `Edit ${agent} ${field}`)));
         lines.push("");
         lines.push(`  ${this.editBuffer}\u2588`);
         lines.push("");
-        lines.push(this.theme.fg("dim", "Enter to save \xB7 Esc to cancel \xB7 Clear to unset"));
+        lines.push(
+          this.theme.fg(
+            "dim",
+            formatHint([
+              ["enter", "to save"],
+              ["clear", "to unset"],
+              ["esc", "to cancel"]
+            ])
+          )
+        );
         return lines;
       }
       handleInput(data) {
@@ -76450,7 +76971,7 @@ var init_settings_overlay = __esm({
           this.editField = null;
           return;
         }
-        if (matchesKey4(data, "backspace") || k === "backspace") {
+        if (matchesKey5(data, "backspace") || k === "backspace") {
           this.editBuffer = this.editBuffer.slice(0, -1);
           return;
         }
@@ -76482,23 +77003,17 @@ var init_settings_overlay = __esm({
         this.submenu?.invalidate();
       }
       render(width) {
-        const innerWidth = Math.max(30, width - 4);
-        const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
-        const fg = (color, text) => this.theme.fg(color, text);
-        const borderFill = (count2) => new DynamicCrewBorder(this.theme).render(Math.max(0, count2))[0];
-        const border2 = (left, right) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
-        const row = (text) => `\u2502 ${padToWidth(truncateToWidth(text, innerWidth - 1), innerWidth - 1)}\u2502`;
+        const budget = Math.max(0, width - 2);
+        const row = (text) => railLine(RAIL.body, "border", text, this.theme, budget);
         const lines = [];
-        lines.push(border2("\u256D", "\u256E"));
-        lines.push(row(`${fg("accent", "\u2590")} ${this.theme.bold("pi-crew Settings")}`));
-        const tabLine = this.renderTabBarContent(innerWidth - 2);
-        lines.push(row(tabLine));
-        lines.push(border2("\u251C", "\u2524"));
-        const content = this.submenu ? this.renderSubmenuContent(innerWidth - 4) : this.renderSettingsContent(innerWidth - 4);
-        for (const line4 of content) {
-          lines.push(row(` ${truncateToWidth(line4, innerWidth - 2)}`));
+        lines.push(canopyLine({ word: "SETTINGS", subject: "pi-crew", theme: this.theme, budget }));
+        lines.push(row(this.renderTabBarContent(budget)));
+        const bodyBudget = Math.max(0, budget - 2);
+        const content = this.submenu ? this.renderSubmenuContent(bodyBudget) : this.renderSettingsContent(bodyBudget);
+        for (const line3 of content) {
+          lines.push(row(` ${truncateToWidth(line3, Math.max(0, budget - 1))}`));
         }
-        lines.push(border2("\u2570", "\u256F"));
+        lines.push(railLine(RAIL.close, "border", formatHint([["esc", "close"]]), this.theme, budget));
         return lines;
       }
       renderTabBarContent(innerWidth) {
@@ -76508,7 +77023,7 @@ var init_settings_overlay = __esm({
           const text = `${tab.icon} ${tab.label}`;
           parts.push(isActive ? this.theme.bold(this.theme.fg("accent", text)) : this.theme.fg("dim", text));
         }
-        return parts.join("  " + this.theme.fg("border", "\u2502") + "  ");
+        return truncateToWidth(parts.join(`  ${this.theme.fg("dim", "\xB7")}  `), innerWidth);
       }
       renderSettingsContent(innerWidth) {
         const tabId = TABS[this.currentTabIndex]?.id ?? "runtime";
@@ -76525,25 +77040,22 @@ var init_settings_overlay = __esm({
           const isDefault = !this.changedValues.has(def.id) && !isExplicitlySet(this.config, def.id) && def.id !== "__piTheme__";
           const valueStr = formatValue2(effective, def.id);
           const suffix = isDefault && (effective !== void 0 || EFFECTIVE_DEFAULTS2[def.id] !== void 0) ? " (default)" : "";
-          const prefix = isSelected ? " \u2192 " : "   ";
+          const prefix = isSelected ? ` ${CURSOR} ` : "   ";
           const labelPad = padToWidth(def.label, maxLabelWidth);
           const valueMax = innerWidth - maxLabelWidth - 6 - prefix.length - suffix.length;
           const valueText = truncateToWidth(valueStr, Math.max(10, valueMax));
-          const line4 = `${prefix}${labelPad}  ${this.theme.fg(isSelected ? "accent" : "muted", valueText)}${suffix ? this.theme.fg("dim", suffix) : ""}`;
+          const line3 = `${prefix}${labelPad}  ${this.theme.fg(isSelected ? "accent" : "muted", valueText)}${suffix ? this.theme.fg("dim", suffix) : ""}`;
           if (isSelected) {
-            lines.push(this.theme.inverse?.(truncateToWidth(line4, innerWidth)) ?? truncateToWidth(line4, innerWidth));
+            lines.push(this.theme.inverse?.(truncateToWidth(line3, innerWidth)) ?? truncateToWidth(line3, innerWidth));
           } else {
-            lines.push(truncateToWidth(line4, innerWidth));
+            lines.push(truncateToWidth(line3, innerWidth));
           }
         }
         if (startIdx > 0 || endIdx < settings.length) {
           const remaining = settings.length - endIdx;
-          const count2 = startIdx > 0 ? `\u2191${startIdx}` : "";
-          const below = remaining > 0 ? `\u2193${remaining}` : "";
-          const parts = [count2, below].filter(Boolean);
-          if (parts.length > 0) {
-            lines.push(this.theme.fg("dim", `   (${this.selectedIndex + 1}/${settings.length}) ${parts.join(" ")}`));
-          }
+          lines.push(
+            `${this.theme.fg("dim", `   (${this.selectedIndex + 1}/${settings.length})`)} ${overflowHint(startIdx, remaining, this.theme)}`
+          );
         }
         const selectedDef = settings[this.selectedIndex];
         if (selectedDef?.description) {
@@ -76551,7 +77063,16 @@ var init_settings_overlay = __esm({
           lines.push(this.theme.fg("muted", `  ${selectedDef.description}`));
         }
         lines.push("");
-        lines.push(this.theme.fg("dim", "  \u2191\u2193 Navigate \xB7 Enter/Space change \xB7 Tab switch \xB7 Esc close"));
+        lines.push(
+          this.theme.fg(
+            "dim",
+            `  ${formatHint([
+              [["up", "down"], "Navigate"],
+              [["enter", "space"], "Change"],
+              ["tab", "switch"]
+            ])}`
+          )
+        );
         return lines;
       }
       renderSubmenuContent(innerWidth) {
@@ -77054,7 +77575,6 @@ async function openTeamDashboard(ctx) {
     const { RunDashboard: RunDashboard2 } = await ui();
     const selection2 = await cmdCtx.ui.custom(
       (tui, theme, _keybindings, done) => new RunDashboard2(runs, done, theme, {
-        placement: rightPanel ? "right" : "center",
         showModel: uiConfig?.showModel,
         showTokens: uiConfig?.showTokens,
         showTools: uiConfig?.showTools,
@@ -77826,7 +78346,7 @@ var init_team_manager_command = __esm({
 });
 
 // src/extension/registration/commands/manage.ts
-import * as fs112 from "node:fs";
+import * as fs113 from "node:fs";
 import * as path90 from "node:path";
 function registerManageCommands(pi, deps) {
   pi.registerCommand("team-prune", {
@@ -78048,7 +78568,7 @@ function registerManageCommands(pi, deps) {
       const skillDir = path90.join(skillsDir, template.id);
       const skillPath = path90.join(skillDir, "SKILL.md");
       try {
-        fs112.mkdirSync(skillDir, { recursive: true });
+        fs113.mkdirSync(skillDir, { recursive: true });
         atomicWriteFile(skillPath, instantiated.content);
         await notifyCommandResult(
           ctx,
@@ -78063,20 +78583,20 @@ ${instantiated.content.slice(0, 200)}...`
     }
   });
   pi.registerCommand("crew-brief", {
-    description: "Toggle brief tool output mode: on | off | status",
+    description: "Toggle brief mode for crew `team`/`agent` tool output (native read/bash/edit/write/find/grep/ls output is unaffected): on | off | status",
     handler: async (args, ctx) => {
-      const { isBrief: isBrief2, setBrief: setBrief2, BRIEF_ENTRY_TYPE: BRIEF_ENTRY_TYPE2, makeBriefEntry: makeBriefEntry2 } = await Promise.resolve().then(() => (init_brief_mode(), brief_mode_exports));
+      const { isBrief: isBrief2, setBrief: setBrief2, BRIEF_ENTRY_TYPE: BRIEF_ENTRY_TYPE2 } = await Promise.resolve().then(() => (init_brief_mode(), brief_mode_exports));
       const trimmed = args.trim();
       if (trimmed === "on") {
         setBrief2(true);
         pi.appendEntry(BRIEF_ENTRY_TYPE2, { enabled: true });
-        ctx.ui.notify("Brief mode: on \u2014 tool output will show compact summaries", "info");
+        ctx.ui.notify("Brief mode: on \u2014 crew team/agent tool output will show compact summaries", "info");
         return;
       }
       if (trimmed === "off") {
         setBrief2(false);
         pi.appendEntry(BRIEF_ENTRY_TYPE2, { enabled: false });
-        ctx.ui.notify("Brief mode: off \u2014 full tool output restored", "info");
+        ctx.ui.notify("Brief mode: off \u2014 full crew team/agent tool output restored", "info");
         return;
       }
       ctx.ui.notify(`Brief mode: ${isBrief2() ? "on" : "off"}`, "info");
@@ -78408,7 +78928,7 @@ var init_commands2 = __esm({
 
 // src/runtime/subagent-manager.ts
 import { randomUUID as randomUUID12 } from "node:crypto";
-import * as fs116 from "node:fs";
+import * as fs117 from "node:fs";
 import * as path93 from "node:path";
 function isValidSubagentId(id) {
   return /^[a-z0-9_]+$/i.test(id) && id.length <= 128;
@@ -78424,7 +78944,7 @@ function serializableRecord(record) {
 function savePersistedSubagentRecord(cwd, record) {
   try {
     const filePath = persistedSubagentPath(cwd, record.id);
-    fs116.mkdirSync(path93.dirname(filePath), { recursive: true });
+    fs117.mkdirSync(path93.dirname(filePath), { recursive: true });
     atomicWriteFile(filePath, `${JSON.stringify(redactSecrets(serializableRecord(record)), null, 2)}
 `);
   } catch (error) {
@@ -78434,7 +78954,7 @@ function savePersistedSubagentRecord(cwd, record) {
 function removePersistedSubagentRecord(cwd, id) {
   try {
     const filePath = persistedSubagentPath(cwd, id);
-    fs116.unlinkSync(filePath);
+    fs117.unlinkSync(filePath);
     return true;
   } catch (error) {
     const code = error?.code;
@@ -78467,7 +78987,7 @@ function sanitizePersistedRecord(raw) {
 }
 function readPersistedSubagentRecord(cwd, id) {
   try {
-    const raw = JSON.parse(fs116.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
+    const raw = JSON.parse(fs117.readFileSync(persistedSubagentPath(cwd, id), "utf-8"));
     return sanitizePersistedRecord(raw);
   } catch (error) {
     if (error.code !== "ENOENT") {
@@ -78849,7 +79369,7 @@ __export(subagent_helpers_exports, {
   sendFollowUp: () => sendFollowUp,
   subagentToolResult: () => subagentToolResult
 });
-import * as fs117 from "node:fs";
+import * as fs118 from "node:fs";
 function sendFollowUp(pi, content) {
   const api = pi;
   if (typeof api.sendMessage !== "function") return;
@@ -78913,7 +79433,7 @@ function formatSubagentRecord(record) {
     record.model ? `Model: ${record.model}` : void 0,
     `Duration: ${duration}`,
     record.error ? `Error: ${record.error}` : void 0
-  ].filter((line4) => Boolean(line4)).join("\n");
+  ].filter((line3) => Boolean(line3)).join("\n");
 }
 function readSubagentRunResult(ctx, record) {
   if (!record.runId) return record.result;
@@ -78923,7 +79443,7 @@ function readSubagentRunResult(ctx, record) {
   if (!artifactPath || !loaded) return void 0;
   try {
     const safePath = resolveRealContainedPath(loaded.manifest.artifactsRoot, artifactPath);
-    return fs117.readFileSync(safePath, "utf-8").trim();
+    return fs118.readFileSync(safePath, "utf-8").trim();
   } catch {
     return void 0;
   }
@@ -78964,16 +79484,10 @@ var live_run_sidebar_exports = {};
 __export(live_run_sidebar_exports, {
   LiveRunSidebar: () => LiveRunSidebar
 });
-import * as fs118 from "node:fs";
-function line3(text, width) {
-  return `\u2502 ${pad(truncate(text, width - 4), width - 4)} \u2502`;
-}
-function border(left, fill, right, width) {
-  return `${left}${fill.repeat(Math.max(0, width - 2))}${right}`;
-}
+import * as fs119 from "node:fs";
 function readTasks2(path103) {
   const parse4 = () => {
-    const parsed = JSON.parse(fs118.readFileSync(path103, "utf-8"));
+    const parsed = JSON.parse(fs119.readFileSync(path103, "utf-8"));
     return Array.isArray(parsed) ? parsed : [];
   };
   try {
@@ -78984,9 +79498,17 @@ function readTasks2(path103) {
 }
 function shortUsage(tasks) {
   const usage = aggregateUsage(tasks);
-  return usage ? formatUsage(usage) : "usage=(none)";
+  return usage ? compactUsage2(usage) : "usage=(none)";
 }
-var TASK_READ_TTL_MS3, LiveRunSidebar;
+function compactUsage2(usage) {
+  if (!usage) return "usage=(none)";
+  const parts = [];
+  if (usage.input !== void 0) parts.push(`\u2191${formatTokens(usage.input)}`);
+  if (usage.output !== void 0) parts.push(`\u2193${formatTokens(usage.output)}`);
+  if (usage.cost !== void 0 && Number.isFinite(usage.cost) && usage.cost > 0) parts.push(`$${usage.cost.toFixed(3)}`);
+  return parts.length > 0 ? parts.join(" ") : "usage=(none)";
+}
+var TASK_READ_TTL_MS3, SIDEBAR_HINT, LiveRunSidebar;
 var init_live_run_sidebar = __esm({
   "src/ui/live-run-sidebar.ts"() {
     "use strict";
@@ -78997,12 +79519,19 @@ var init_live_run_sidebar = __esm({
     init_usage();
     init_file_coalescer();
     init_visual();
+    init_format_helpers();
+    init_keybinding_map();
+    init_rail();
     init_shared_overlay_scheduler();
     init_spinner();
     init_status_colors();
     init_theme_adapter();
     init_widget_renderer();
     TASK_READ_TTL_MS3 = 200;
+    SIDEBAR_HINT = [
+      ["/team-dashboard", "details"],
+      [DASHBOARD_KEYS.close[0] ?? "q", "close"]
+    ];
     LiveRunSidebar = class {
       cwd;
       runId;
@@ -79050,8 +79579,8 @@ var init_live_run_sidebar = __esm({
         ).join("|");
         return `${manifestStatus}|${agents.length}|${waitingCount}|${taskSig}|${agentSig}${animation}`;
       }
-      colorLine(line4) {
-        return colorizeStatusGlyphs(line4, this.theme);
+      colorLine(line3) {
+        return colorizeStatusGlyphs(line3, this.theme);
       }
       invalidate() {
         this.cachedLines = [];
@@ -79067,6 +79596,7 @@ var init_live_run_sidebar = __esm({
       }
       render(width) {
         const w = Math.max(36, width);
+        const budget = w - 2;
         let run;
         let tasks;
         let rawAgents;
@@ -79078,7 +79608,14 @@ var init_live_run_sidebar = __esm({
             snapshot = void 0;
           }
           if (!snapshot) {
-            return ["(loading\u2026)"];
+            return this.renderFrame(
+              [
+                canopyLine({ word: "LIVE", subject: shortId(this.runId), theme: this.theme, budget }),
+                railLine(RAIL.body, "border", this.theme.fg("dim", "loading\u2026"), this.theme, budget)
+              ],
+              budget,
+              "border"
+            );
           }
           run = snapshot.manifest;
           tasks = snapshot.tasks;
@@ -79086,14 +79623,13 @@ var init_live_run_sidebar = __esm({
         } else {
           const loaded = loadRunManifestById(this.cwd, this.runId);
           if (!loaded) {
-            return renderLines(
+            return this.renderFrame(
               [
-                border("\u256D", "\u2500", "\u256E", w),
-                line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-                line3("run not found", w),
-                border("\u2570", "\u2500", "\u256F", w)
+                canopyLine({ word: "LIVE", subject: shortId(this.runId), theme: this.theme, budget }),
+                railLine(RAIL.body, "border", this.theme.fg("muted", "run not found"), this.theme, budget)
               ],
-              w
+              budget,
+              "border"
             );
           }
           run = loaded.manifest;
@@ -79107,56 +79643,91 @@ var init_live_run_sidebar = __esm({
         const waiting = tasks.filter((task) => task.status === "queued");
         const signature = this.buildSignature(run.updatedAt, tasks, agents, waiting.length, snapshot);
         if (signature !== this.cachedSignature || w !== this.cachedWidth) {
+          const slot = statusSlot(run.status);
           const TERMINAL_WITH_REASON = ["failed", "cancelled", "stopped"];
           const reasonSuffix = TERMINAL_WITH_REASON.includes(run.status) && snapshot?.cancellationReason ? ` \xB7 ${truncate(snapshot.cancellationReason, 40)}` : "";
           const lines = [
-            border("\u256D", "\u2500", "\u256E", w),
-            line3(`${this.theme.fg("accent", "\u2590")} ${this.theme.bold("pi-crew live sidebar")}`, w),
-            line3(`${run.runId.slice(-12)} \xB7 ${run.status}${reasonSuffix} \xB7 right default`, w),
-            line3(`${run.team}/${run.workflow ?? "none"} \xB7 ${shortUsage(tasks)}`, w),
-            border("\u251C", "\u2500", "\u2524", w),
-            line3(`Active agents (${active.length})`, w)
+            canopyLine({ word: "LIVE", subject: shortId(run.runId), theme: this.theme, budget, slot }),
+            railLine(
+              RAIL.body,
+              "border",
+              this.theme.fg(
+                "muted",
+                `${shortId(run.runId)} \xB7 ${run.status ?? "?"}${reasonSuffix} \xB7 ${run.workspaceMode ?? "single"}`
+              ),
+              this.theme,
+              budget
+            ),
+            railLine(
+              RAIL.body,
+              "border",
+              this.theme.fg("muted", `${teamWorkflowLabel(run.team, run.workflow)} \xB7 ${shortUsage(tasks)}`),
+              this.theme,
+              budget
+            ),
+            sectionLine({ name: "active", subject: formatCount(active.length, "agent"), theme: this.theme, budget, slot })
           ];
           for (const agent of active.slice(0, 8)) {
             const status = iconForStatus(agent.status, {
               runningGlyph: spinnerFrame(agent.taskId)
             });
-            const usage = agent.usage ? formatUsage(agent.usage) : agent.progress?.tokens ? `tokens=${agent.progress.tokens}` : "usage=pending";
-            lines.push(line3(`${status} ${agent.taskId} ${agent.role}->${agent.agent}`, w));
+            const usage = agent.usage ? compactUsage2(agent.usage) : agent.progress?.tokens ? `tokens=${agent.progress.tokens}` : "usage=pending";
             lines.push(
-              line3(
-                `  ${agent.routing ? `model ${agent.routing.requested ? `${agent.routing.requested} \u2192 ` : ""}${agent.routing.resolved}` : agent.model ? `model ${agent.model}` : "model pending"}`,
-                w
+              railLine(
+                RAIL.body,
+                "border",
+                `${status} ${agent.taskId ?? "?"} ${agent.role ?? "?"} ${ACTIVE} ${agent.agent ?? "?"}`,
+                this.theme,
+                budget
               )
             );
             lines.push(
-              line3(
-                `  ${agent.progress?.currentTool ? `tool ${agent.progress.currentTool} \xB7 ` : ""}${agent.toolUses ?? 0} tools \xB7 ${usage}`,
-                w
+              railLine(
+                RAIL.body,
+                "border",
+                this.theme.fg(
+                  "muted",
+                  `  ${agent.routing ? `model ${agent.routing.requested ? `${agent.routing.requested} \u2192 ` : ""}${agent.routing.resolved ?? "pending"}` : agent.model ? `model ${agent.model}` : "model pending"}`
+                ),
+                this.theme,
+                budget
+              )
+            );
+            lines.push(
+              railLine(
+                RAIL.body,
+                "border",
+                this.theme.fg(
+                  "muted",
+                  `  ${agent.progress?.currentTool ? `tool ${agent.progress.currentTool} \xB7 ` : ""}${formatCount(agent.toolUses ?? 0, "tool")} \xB7 ${usage}`
+                ),
+                this.theme,
+                budget
               )
             );
           }
-          if (!active.length) lines.push(line3("- none", w));
-          lines.push(border("\u251C", "\u2500", "\u2524", w), line3(`Waiting tasks (${waiting.length})`, w));
+          if (!active.length) lines.push(this.bodyRow(this.theme.fg("dim", "none"), budget));
+          lines.push(sectionLine({ name: "waiting", subject: formatCount(waiting.length, "task"), theme: this.theme, budget, slot }));
           for (const task of waiting.slice(0, 8)) {
             const status = iconForStatus("queued");
-            lines.push(line3(`${status} ${task.id} ${waitingReason(task, tasks) ?? "waiting"}`, w));
+            lines.push(this.bodyRow(`${status} ${task.id ?? "?"} ${waitingReason(task, tasks) ?? "waiting"}`, budget));
           }
-          if (waiting.length === 0) lines.push(line3("- none", w));
-          lines.push(border("\u251C", "\u2500", "\u2524", w), line3(`Completed agents (${completed.length})`, w));
+          if (waiting.length === 0) lines.push(this.bodyRow(this.theme.fg("dim", "none"), budget));
+          lines.push(sectionLine({ name: "done", subject: formatCount(completed.length, "agent"), theme: this.theme, budget, slot }));
           for (const agent of completed) {
             const status = iconForStatus(agent.status === "running" ? "stopped" : agent.status);
             lines.push(
-              line3(
-                `${status} ${agent.taskId} ${agent.model ? `\xB7 ${agent.model}` : ""}${agent.usage ? ` \xB7 ${formatUsage(agent.usage)}` : ""}`,
-                w
+              this.bodyRow(
+                `${status} ${agent.taskId ?? "?"} ${agent.model ? `\xB7 ${agent.model}` : ""}${agent.usage ? ` \xB7 ${compactUsage2(agent.usage)}` : ""}`,
+                budget
               )
             );
           }
-          if (completed.length === 0) lines.push(line3("- none", w));
-          lines.push(border("\u251C", "\u2500", "\u2524", w));
-          for (const entry of formatTaskGraphLines(tasks).slice(0, 6)) lines.push(line3(entry, w));
-          lines.push(line3("q close \xB7 /team-dashboard details", w));
+          if (completed.length === 0) lines.push(this.bodyRow(this.theme.fg("dim", "none"), budget));
+          lines.push(sectionLine({ name: "tasks", subject: formatCount(tasks.length, "task"), theme: this.theme, budget, slot }));
+          for (const entry of formatTaskGraphLines(tasks).slice(0, 6)) {
+            lines.push(this.bodyRow(this.theme.fg("muted", entry.replace(/->/g, ACTIVE)), budget));
+          }
           const isTerminal = ["completed", "failed", "cancelled", "blocked"].includes(run.status);
           const hasActiveAgents = agents.some((a) => a.status === "running");
           if (isTerminal && !hasActiveAgents && !this.hasAutoClosed) {
@@ -79168,21 +79739,27 @@ var init_live_run_sidebar = __esm({
                 this.done(void 0);
               }, autoCloseMs);
               this.autoCloseTimeout?.unref();
-              lines.push(line3(`auto-close in ${Math.round(autoCloseMs / 1e3)}s\u2026`, w));
+              lines.push(this.bodyRow(this.theme.fg("dim", `auto-close in ${Math.round(autoCloseMs / 1e3)}s\u2026`), budget));
             }
           } else if (this.autoCloseTimeout) {
             clearTimeout(this.autoCloseTimeout);
             this.autoCloseTimeout = void 0;
           }
-          lines.push(border("\u2570", "\u2500", "\u256F", w));
-          this.cachedLines = renderLines(
-            lines.map((entry) => this.colorLine(entry)),
-            w
-          );
+          this.cachedLines = renderLines(this.renderFrame(lines, budget, slot), w);
           this.cachedSignature = signature;
           this.cachedWidth = w;
         }
         return this.cachedLines;
+      }
+      /** One `┃` body row (glyph + colour owned by the rail helper). */
+      bodyRow(content, budget) {
+        return railLine(RAIL.body, "border", content, this.theme, budget);
+      }
+      /** Append the `┗ <hint>` cap and colorize the glyphs (F-1 / V-3). */
+      renderFrame(lines, budget, slot) {
+        const hint = this.theme.fg("dim", formatHint(SIDEBAR_HINT));
+        const framed = [...lines, railLine(RAIL.close, slot, hint, this.theme, budget)];
+        return framed.map((entry) => this.colorLine(entry));
       }
       handleInput(data) {
         if (data === "q" || data === "\x1B") this.done(void 0);
@@ -79711,16 +80288,16 @@ __export(notification_sink_exports, {
   __test__: () => __test__,
   createJsonlSink: () => createJsonlSink
 });
-import * as fs120 from "node:fs";
+import * as fs121 from "node:fs";
 import * as path95 from "node:path";
 function rotateOldFiles(dir, retentionDays, now = Date.now()) {
-  if (!fs120.existsSync(dir)) return;
+  if (!fs121.existsSync(dir)) return;
   const cutoff = now - retentionDays * 24 * 60 * 60 * 1e3;
-  for (const entry of fs120.readdirSync(dir, { withFileTypes: true })) {
+  for (const entry of fs121.readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
     const filePath = path95.join(dir, entry.name);
     try {
-      if (fs120.statSync(filePath).mtimeMs < cutoff) fs120.unlinkSync(filePath);
+      if (fs121.statSync(filePath).mtimeMs < cutoff) fs121.unlinkSync(filePath);
     } catch (error) {
       logInternalError("notification-sink.rotate", error, filePath);
     }
@@ -79738,12 +80315,12 @@ function createJsonlSink(crewRoot, retentionDays = 7) {
           rotateOldFiles(dir, retentionDays, timestamp);
           lastRotateDate = date;
         }
-        fs120.mkdirSync(dir, { recursive: true });
+        fs121.mkdirSync(dir, { recursive: true });
         const payload = redactSecrets({
           ...notification,
           timestamp
         });
-        fs120.appendFileSync(path95.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
+        fs121.appendFileSync(path95.join(dir, `${date}.jsonl`), `${JSON.stringify(payload)}
 `, "utf-8");
       } catch (error) {
         logInternalError("notification-sink.write", error);
@@ -80191,7 +80768,7 @@ async function configureNotifications(ctx, state2, deps) {
         deps.widgetState.notificationCount = (deps.widgetState.notificationCount ?? 0) + 1;
         sendFollowUp2(
           deps.pi,
-          [notification.title, notification.body, notification.runId ? `Run: ${notification.runId}` : void 0].filter((line4) => Boolean(line4)).join("\n")
+          [notification.title, notification.body, notification.runId ? `Run: ${notification.runId}` : void 0].filter((line3) => Boolean(line3)).join("\n")
         );
       }
       const currentCtx = deps.getCurrentCtx();
@@ -80235,7 +80812,7 @@ async function configureDeliveryCoordinator(state2, deps) {
       deps.pi.events?.emit?.(event, data);
     },
     sendFollowUp: (title, body) => {
-      deps.sendFollowUp(deps.pi, [title, body].filter((line4) => Boolean(line4)).join("\n"));
+      deps.sendFollowUp(deps.pi, [title, body].filter((line3) => Boolean(line3)).join("\n"));
     },
     sendWakeUp: (message) => {
       deps.sendAgentWakeUp(deps.pi, message);
@@ -81024,16 +81601,16 @@ var metric_sink_exports = {};
 __export(metric_sink_exports, {
   createMetricFileSink: () => createMetricFileSink
 });
-import * as fs121 from "node:fs";
+import * as fs122 from "node:fs";
 import * as path96 from "node:path";
 function rotateOldFiles2(dir, retentionDays, now = Date.now()) {
-  if (!fs121.existsSync(dir)) return;
+  if (!fs122.existsSync(dir)) return;
   const maxAge = retentionDays * 24 * 60 * 60 * 1e3;
-  for (const file of fs121.readdirSync(dir)) {
+  for (const file of fs122.readdirSync(dir)) {
     if (!file.endsWith(".jsonl")) continue;
     const fullPath = path96.join(dir, file);
     try {
-      if (now - fs121.statSync(fullPath).mtimeMs > maxAge) fs121.unlinkSync(fullPath);
+      if (now - fs122.statSync(fullPath).mtimeMs > maxAge) fs122.unlinkSync(fullPath);
     } catch (error) {
       logInternalError("metric-sink.rotate", error, fullPath);
     }
@@ -81048,14 +81625,14 @@ function createMetricFileSink(opts) {
     if (fd !== void 0 && fdDate === date) return fd;
     if (fd !== void 0) {
       try {
-        fs121.closeSync(fd);
+        fs122.closeSync(fd);
       } catch (error) {
         logInternalError("metric-sink.closeFd", error);
       }
     }
-    fs121.mkdirSync(dir, { recursive: true });
+    fs122.mkdirSync(dir, { recursive: true });
     rotateOldFiles2(dir, retentionDays);
-    fd = fs121.openSync(path96.join(dir, `${date}.jsonl`), "a");
+    fd = fs122.openSync(path96.join(dir, `${date}.jsonl`), "a");
     fdDate = date;
     return fd;
   };
@@ -81069,10 +81646,10 @@ function createMetricFileSink(opts) {
         return Promise.resolve();
       }
       const target = ensureFd(date);
-      const line4 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
+      const line3 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
       return new Promise((resolve26) => {
-        fs121.write(target, line4, (err2) => {
+        fs122.write(target, line3, (err2) => {
           if (err2) logInternalError("metric-sink.asyncWrite", err2);
           resolve26();
         });
@@ -81090,7 +81667,7 @@ function createMetricFileSink(opts) {
       clearInterval(timer);
       if (fd !== void 0) {
         try {
-          fs121.closeSync(fd);
+          fs122.closeSync(fd);
         } catch (error) {
           logInternalError("metric-sink.dispose", error);
         }
@@ -81113,7 +81690,7 @@ var heartbeat_watcher_exports = {};
 __export(heartbeat_watcher_exports, {
   HeartbeatWatcher: () => HeartbeatWatcher
 });
-import * as fs122 from "node:fs";
+import * as fs123 from "node:fs";
 import * as path97 from "node:path";
 var HeartbeatWatcher;
 var init_heartbeat_watcher = __esm({
@@ -81163,7 +81740,7 @@ var init_heartbeat_watcher = __esm({
         const activeKeys = /* @__PURE__ */ new Set();
         for (const run of this.opts.manifestCache.list(50)) {
           if (run.status !== "running") continue;
-          if (!fs122.existsSync(run.stateRoot)) continue;
+          if (!fs123.existsSync(run.stateRoot)) continue;
           const loaded = loadRunManifestById(this.opts.cwd, run.runId);
           if (!loaded) continue;
           if (loaded.manifest.status !== "running") continue;
@@ -81198,7 +81775,7 @@ var init_heartbeat_watcher = __esm({
             if (level === "dead" && !isProcessAlive && loaded.manifest.artifactsRoot) {
               const resultsDir = path97.resolve(loaded.manifest.artifactsRoot, "results");
               const candidate = path97.resolve(resultsDir, `${task.id}.txt`);
-              if (candidate.startsWith(resultsDir + path97.sep) && fs122.existsSync(candidate)) {
+              if (candidate.startsWith(resultsDir + path97.sep) && fs123.existsSync(candidate)) {
                 level = "stale";
               }
             }
@@ -81835,10 +82412,10 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!filePath || typeof oldStr !== "string" || typeof newStr !== "string") {
       throw new Error("old_string not found (and resilient retry skipped: missing path/old/new)");
     }
-    const fs129 = await import("node:fs/promises");
+    const fs130 = await import("node:fs/promises");
     let content;
     try {
-      content = await fs129.readFile(filePath, "utf8");
+      content = await fs130.readFile(filePath, "utf8");
     } catch (readErr) {
       throw new Error(`resilient edit: could not read ${filePath}: ${readErr instanceof Error ? readErr.message : String(readErr)}`);
     }
@@ -81848,7 +82425,7 @@ function wrapEditWithResilientReplace(pi, tools) {
     if (!result4.changed) {
       throw new Error(`old_string not found (resilient cascade exhausted, strategy=${result4.strategy})`);
     }
-    await fs129.writeFile(filePath, result4.content, "utf8");
+    await fs130.writeFile(filePath, result4.content, "utf8");
     return {
       content: [
         {
@@ -82372,7 +82949,7 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync78, mkdirSync as mkdirSync45, readFileSync as readFileSync84, writeFileSync as writeFileSync11 } from "node:fs";
+import { existsSync as existsSync79, mkdirSync as mkdirSync45, readFileSync as readFileSync85, writeFileSync as writeFileSync12 } from "node:fs";
 import { dirname as dirname45, join as join88 } from "node:path";
 var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
@@ -82435,8 +83012,8 @@ function normalizeConfig(raw) {
 function loadConfig2() {
   try {
     const path103 = configPath2();
-    if (!existsSync78(path103)) return normalizeConfig(void 0);
-    return normalizeConfig(JSON.parse(readFileSync84(path103, "utf8")));
+    if (!existsSync79(path103)) return normalizeConfig(void 0);
+    return normalizeConfig(JSON.parse(readFileSync85(path103, "utf8")));
   } catch {
     return normalizeConfig(void 0);
   }
@@ -82444,12 +83021,12 @@ function loadConfig2() {
 function saveConfig(config) {
   const path103 = configPath2();
   mkdirSync45(dirname45(path103), { recursive: true });
-  writeFileSync11(path103, `${JSON.stringify(normalizeConfig(config), null, 2)}
+  writeFileSync12(path103, `${JSON.stringify(normalizeConfig(config), null, 2)}
 `);
 }
 
 // src/extension/crew-vibes/provider-usage.ts
-import { readFileSync as readFileSync85 } from "node:fs";
+import { readFileSync as readFileSync86 } from "node:fs";
 import { homedir as homedir13 } from "node:os";
 import { join as join89 } from "node:path";
 function withTimeout(ms, fn) {
@@ -82464,7 +83041,7 @@ function loadAnthropicToken() {
   const envToken = process.env.ANTHROPIC_OAUTH_TOKEN?.trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
     const token = data.anthropic?.access;
     return typeof token === "string" && token.length > 0 ? token : void 0;
   } catch {
@@ -82475,7 +83052,7 @@ function loadZaiToken() {
   const envKey = process.env.ZAI_API_KEY?.trim() || process.env.Z_AI_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
     const key = data["z-ai"]?.access || data["z-ai"]?.key || data.zai?.access || data.zai?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -82486,7 +83063,7 @@ function loadMinimaxToken() {
   const envKey = process.env.MINIMAX_API_KEY?.trim();
   if (envKey) return envKey;
   try {
-    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
     const key = data.minimax?.key;
     return typeof key === "string" && key.length > 0 ? key : void 0;
   } catch {
@@ -82507,7 +83084,7 @@ function loadLegacyCopilotToken() {
   const candidates = [join89(configHome, "github-copilot", "hosts.json"), join89(homedir13(), ".github-copilot", "hosts.json")];
   for (const hostsPath of candidates) {
     try {
-      const data = JSON.parse(readFileSync85(hostsPath, "utf8"));
+      const data = JSON.parse(readFileSync86(hostsPath, "utf8"));
       if (!data || typeof data !== "object") continue;
       const normalized = {};
       for (const [host, entry] of Object.entries(data)) {
@@ -82528,7 +83105,7 @@ function loadCopilotToken() {
   const envToken = (process.env.COPILOT_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "").trim();
   if (envToken) return envToken;
   try {
-    const data = JSON.parse(readFileSync85(piAuthPath(), "utf8"));
+    const data = JSON.parse(readFileSync86(piAuthPath(), "utf8"));
     const piToken = data["github-copilot"]?.refresh || data["github-copilot"]?.access;
     if (typeof piToken === "string" && piToken.length > 0) return piToken;
   } catch {
@@ -82870,7 +83447,7 @@ function registerCrewVibes(pi) {
 init_knowledge_injection();
 
 // src/extension/message-renderers.ts
-import { Text as Text4 } from "@earendil-works/pi-tui";
+import { Text as Text5 } from "@earendil-works/pi-tui";
 function extractText3(message) {
   if (typeof message.content === "string") return message.content;
   return (message.content ?? []).map((c) => c.text ?? "").join("");
@@ -82888,7 +83465,7 @@ function statusLevel(status) {
       return "muted";
   }
 }
-function statusIcon3(status) {
+function statusIcon4(status) {
   switch (status) {
     case "completed":
       return "\u2705";
@@ -82913,21 +83490,21 @@ function renderRunStarted(message, _options, theme) {
   const team = details.team ?? details.agent ?? "direct";
   const workflow = details.workflow ?? "default";
   const text = `\u{1F680} crew run ${details.runId ?? ""} started \u2014 ${team}/${workflow}${goal ? ` \u2014 ${goal}` : ""}`;
-  return new Text4(theme.fg("accent", theme.bold("crew ")) + theme.fg("text", text), 0, 0);
+  return new Text5(theme.fg("accent", theme.bold("crew ")) + theme.fg("text", text), 0, 0);
 }
 function renderRunCompleted(message, _options, theme) {
   const details = message.details ?? {};
   const status = details.status;
   const level = statusLevel(status);
-  const icon = statusIcon3(status);
+  const icon = statusIcon4(status);
   const goal = details.goal ? truncate2(details.goal, 60) : "";
   const tasks = details.taskCount !== void 0 ? ` \xB7 ${details.taskCount} tasks` : "";
   const text = `${icon} crew run ${details.runId ?? ""} ${status ?? "finished"}${tasks}${goal ? ` \u2014 ${goal}` : ""}`;
-  return new Text4(theme.fg(level, theme.bold("crew ")) + theme.fg(level, text), 0, 0);
+  return new Text5(theme.fg(level, theme.bold("crew ")) + theme.fg(level, text), 0, 0);
 }
 function renderResumeDirective(message, _options, theme) {
   const text = extractText3(message) || "Context compacted \u2014 resuming in-flight crew work.";
-  return new Text4(theme.fg("muted", theme.bold("crew ") + text), 0, 0);
+  return new Text5(theme.fg("muted", theme.bold("crew ") + text), 0, 0);
 }
 function registerCrewMessageRenderers(pi) {
   pi.registerMessageRenderer?.("crew:run-started", renderRunStarted);
@@ -82970,7 +83547,7 @@ init_schedules_pane();
 init_safe_paths();
 init_handle_schedule();
 init_command_utils();
-import * as fs113 from "node:fs";
+import * as fs114 from "node:fs";
 var SCHEDULES_LOG_TAIL_BYTES = 32e3;
 function parseSchedulesArgs(args) {
   const trimmed = args.trim();
@@ -83030,7 +83607,7 @@ function pickMostRecentOutputArtifact(manifest, tasks) {
   for (const rel of relPaths) {
     try {
       const resolved = resolveRealContainedPath(manifest.artifactsRoot, rel);
-      const mtimeMs = fs113.statSync(resolved).mtimeMs;
+      const mtimeMs = fs114.statSync(resolved).mtimeMs;
       if (!best || mtimeMs > best.mtimeMs) best = { path: resolved, mtimeMs };
     } catch {
     }
@@ -83133,7 +83710,7 @@ init_active_run_registry();
 init_fs_watch();
 init_paths();
 init_safe_paths();
-import * as fs114 from "node:fs";
+import * as fs115 from "node:fs";
 import * as path91 from "node:path";
 var DEFAULT_TTL_MS = 500;
 var DEFAULT_STAT_TTL_MS = 250;
@@ -83147,7 +83724,7 @@ function manifestPathForRun(root, runId) {
 }
 function parseManifest(filePath) {
   try {
-    return JSON.parse(fs114.readFileSync(filePath, "utf-8"));
+    return JSON.parse(fs115.readFileSync(filePath, "utf-8"));
   } catch {
     return void 0;
   }
@@ -83155,7 +83732,7 @@ function parseManifest(filePath) {
 function sameFilesystemPath(left, right) {
   if (path91.resolve(left) === path91.resolve(right)) return true;
   try {
-    return fs114.realpathSync.native(left) === fs114.realpathSync.native(right);
+    return fs115.realpathSync.native(left) === fs115.realpathSync.native(right);
   } catch {
     return false;
   }
@@ -83168,8 +83745,8 @@ function validateManifestForRoot(root, runId, manifest) {
     const artifactsRoot = resolveContainedRelativePath(path91.join(crewRoot, DEFAULT_PATHS.state.artifactsSubdir), runId, "runId");
     if (manifest.runId !== runId || !sameFilesystemPath(manifest.stateRoot, stateRoot) || !sameFilesystemPath(manifest.tasksPath, path91.join(stateRoot, DEFAULT_PATHS.state.tasksFile)) || !sameFilesystemPath(manifest.eventsPath, path91.join(stateRoot, DEFAULT_PATHS.state.eventsFile)) || !sameFilesystemPath(manifest.artifactsRoot, artifactsRoot))
       return false;
-    if (fs114.existsSync(artifactsRoot)) {
-      if (fs114.lstatSync(artifactsRoot).isSymbolicLink()) return false;
+    if (fs115.existsSync(artifactsRoot)) {
+      if (fs115.lstatSync(artifactsRoot).isSymbolicLink()) return false;
       resolveRealContainedPath(path91.dirname(artifactsRoot), path91.basename(artifactsRoot));
     }
     return true;
@@ -83183,7 +83760,7 @@ function parseManifestIfChanged(root, runId, filePath, previous, forceStat = fal
   }
   let stat2;
   try {
-    stat2 = fs114.statSync(filePath);
+    stat2 = fs115.statSync(filePath);
   } catch {
     return void 0;
   }
@@ -83216,7 +83793,7 @@ var dirListCache = /* @__PURE__ */ new Map();
 function collectRoots(root) {
   let mtimeMs;
   try {
-    mtimeMs = fs114.statSync(root).mtimeMs;
+    mtimeMs = fs115.statSync(root).mtimeMs;
   } catch {
     return [];
   }
@@ -83226,7 +83803,7 @@ function collectRoots(root) {
   }
   let entries;
   try {
-    entries = fs114.readdirSync(root);
+    entries = fs115.readdirSync(root);
   } catch {
     return [];
   }
@@ -83541,7 +84118,7 @@ init_state_store();
 init_dwf_phase_display();
 init_run_event_bus();
 import { createHash as createHash13 } from "node:crypto";
-import * as fs115 from "node:fs";
+import * as fs116 from "node:fs";
 import * as path92 from "node:path";
 function isPlanUiEnabled() {
   return getCrewEnv("PI_CREW_PLAN_UI") === "1";
@@ -83558,7 +84135,7 @@ function zeroStamp() {
 function stampFile(filePath) {
   if (!filePath) return zeroStamp();
   try {
-    const stat2 = fs115.statSync(filePath);
+    const stat2 = fs116.statSync(filePath);
     return { mtimeMs: stat2.mtimeMs, size: stat2.size };
   } catch {
     return zeroStamp();
@@ -83567,7 +84144,7 @@ function stampFile(filePath) {
 async function stampFileAsync(filePath) {
   if (!filePath) return zeroStamp();
   try {
-    const stat2 = await fs115.promises.stat(filePath);
+    const stat2 = await fs116.promises.stat(filePath);
     return { mtimeMs: stat2.mtimeMs, size: stat2.size };
   } catch {
     return zeroStamp();
@@ -83575,7 +84152,7 @@ async function stampFileAsync(filePath) {
 }
 function eventsStamp(eventsPath) {
   try {
-    const raw = fs115.readFileSync(sequencePath(eventsPath), "utf-8");
+    const raw = fs116.readFileSync(sequencePath(eventsPath), "utf-8");
     const seq = Number.parseInt(raw.trim(), 10);
     if (Number.isFinite(seq) && seq >= 0) return { mtimeMs: 0, size: seq + 1 };
   } catch {
@@ -83584,7 +84161,7 @@ function eventsStamp(eventsPath) {
 }
 async function eventsStampAsync(eventsPath) {
   try {
-    const raw = await fs115.promises.readFile(sequencePath(eventsPath), "utf-8");
+    const raw = await fs116.promises.readFile(sequencePath(eventsPath), "utf-8");
     const seq = Number.parseInt(raw.trim(), 10);
     if (Number.isFinite(seq) && seq >= 0) return { mtimeMs: 0, size: seq + 1 };
   } catch {
@@ -83636,18 +84213,18 @@ function sameStamps(a, b) {
 }
 function readTailContent(filePath) {
   try {
-    const stat2 = fs115.statSync(filePath);
+    const stat2 = fs116.statSync(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const fd = fs115.openSync(filePath, "r");
+    const fd = fs116.openSync(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
-      fs115.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+      fs116.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
       return {
         lines: buffer.toString("utf-8").split(/\r?\n/).filter(Boolean),
         approximate: stat2.size > MAX_TAIL_BYTES
       };
     } finally {
-      fs115.closeSync(fd);
+      fs116.closeSync(fd);
     }
   } catch {
     return { lines: [], approximate: false };
@@ -83655,8 +84232,8 @@ function readTailContent(filePath) {
 }
 function parseTailLines(lines, limit, parse4) {
   if (limit <= 0) return [];
-  return lines.flatMap((line4) => {
-    const item = parse4(line4);
+  return lines.flatMap((line3) => {
+    const item = parse4(line3);
     return item ? [item] : [];
   }).slice(-limit);
 }
@@ -83667,15 +84244,15 @@ function tailJsonlLines(filePath, limit, parse4) {
 async function tailJsonlLinesAsync(filePath, limit, parse4) {
   if (limit <= 0) return [];
   try {
-    const stat2 = await fs115.promises.stat(filePath);
+    const stat2 = await fs116.promises.stat(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const handle = await fs115.promises.open(filePath, "r");
+    const handle = await fs116.promises.open(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
       await handle.read(buffer, 0, bytesToRead, stat2.size - bytesToRead);
       const lines = buffer.toString("utf-8").split(/\r?\n/).filter(Boolean);
-      return lines.flatMap((line4) => {
-        const item = parse4(line4);
+      return lines.flatMap((line3) => {
+        const item = parse4(line3);
         return item ? [item] : [];
       }).slice(-limit);
     } finally {
@@ -83686,9 +84263,9 @@ async function tailJsonlLinesAsync(filePath, limit, parse4) {
   }
 }
 function safeRecentEvents(eventsPath, limit) {
-  return tailJsonlLines(eventsPath, limit, (line4) => {
+  return tailJsonlLines(eventsPath, limit, (line3) => {
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
     } catch {
       return void 0;
@@ -83696,9 +84273,9 @@ function safeRecentEvents(eventsPath, limit) {
   });
 }
 async function safeRecentEventsAsync(eventsPath, limit) {
-  return tailJsonlLinesAsync(eventsPath, limit, (line4) => {
+  return tailJsonlLinesAsync(eventsPath, limit, (line3) => {
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
     } catch {
       return void 0;
@@ -83708,15 +84285,15 @@ async function safeRecentEventsAsync(eventsPath, limit) {
 function tailLines(filePath, limit) {
   if (limit <= 0) return [];
   try {
-    const stat2 = fs115.statSync(filePath);
+    const stat2 = fs116.statSync(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const fd = fs115.openSync(filePath, "r");
+    const fd = fs116.openSync(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
-      fs115.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+      fs116.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
       return buffer.toString("utf-8").split(/\r?\n/).filter(Boolean).slice(-limit);
     } finally {
-      fs115.closeSync(fd);
+      fs116.closeSync(fd);
     }
   } catch {
     return [];
@@ -83725,9 +84302,9 @@ function tailLines(filePath, limit) {
 async function tailLinesAsync(filePath, limit) {
   if (limit <= 0) return [];
   try {
-    const stat2 = await fs115.promises.stat(filePath);
+    const stat2 = await fs116.promises.stat(filePath);
     const bytesToRead = Math.min(stat2.size, MAX_TAIL_BYTES);
-    const handle = await fs115.promises.open(filePath, "r");
+    const handle = await fs116.promises.open(filePath, "r");
     try {
       const buffer = Buffer.alloc(bytesToRead);
       await handle.read(buffer, 0, bytesToRead, stat2.size - bytesToRead);
@@ -83745,7 +84322,7 @@ function recentOutputLines(manifest, agents, limit) {
     const outputPath = safeAgentOutputPath(manifest, agent);
     return outputPath ? tailLines(outputPath, limit) : [];
   });
-  return [...fromProgress, ...fromFiles].map((line4) => line4.replace(/\s+/g, " ").trim()).filter(Boolean).slice(-limit);
+  return [...fromProgress, ...fromFiles].map((line3) => line3.replace(/\s+/g, " ").trim()).filter(Boolean).slice(-limit);
 }
 async function recentOutputLinesAsync(manifest, agents, limit) {
   const fromProgress = agents.flatMap((agent) => agent.progress?.recentOutput ?? []);
@@ -83756,7 +84333,7 @@ async function recentOutputLinesAsync(manifest, agents, limit) {
     })
   );
   const fromFiles = fromFilesArrays.flat();
-  return [...fromProgress, ...fromFiles].map((line4) => line4.replace(/\s+/g, " ").trim()).filter(Boolean).slice(-limit);
+  return [...fromProgress, ...fromFiles].map((line3) => line3.replace(/\s+/g, " ").trim()).filter(Boolean).slice(-limit);
 }
 function progressFromTasks(tasks) {
   const progress = {
@@ -83808,7 +84385,7 @@ function isMailboxStatus(value) {
 }
 function readDeliveryMessages(filePath) {
   try {
-    const parsed = JSON.parse(fs115.readFileSync(filePath, "utf-8"));
+    const parsed = JSON.parse(fs116.readFileSync(filePath, "utf-8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const messages = parsed.messages;
     if (!messages || typeof messages !== "object" || Array.isArray(messages)) return {};
@@ -83821,7 +84398,7 @@ function readDeliveryMessages(filePath) {
 }
 async function readDeliveryMessagesAsync(filePath) {
   try {
-    const content = await fs115.promises.readFile(filePath, "utf-8");
+    const content = await fs116.promises.readFile(filePath, "utf-8");
     const parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const messages = parsed.messages;
@@ -83834,9 +84411,9 @@ async function readDeliveryMessagesAsync(filePath) {
   }
 }
 function parseGroupJoinLines(lines, delivery) {
-  return parseTailLines(lines, MAX_TAIL_LINES, (line4) => {
+  return parseTailLines(lines, MAX_TAIL_LINES, (line3) => {
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
       const message = parsed;
       const data = message.data && typeof message.data === "object" && !Array.isArray(message.data) ? message.data : void 0;
@@ -83853,9 +84430,9 @@ function parseGroupJoinLines(lines, delivery) {
   });
 }
 async function readGroupJoinMailboxAsync(filePath, delivery) {
-  return tailJsonlLinesAsync(filePath, MAX_TAIL_LINES, (line4) => {
+  return tailJsonlLinesAsync(filePath, MAX_TAIL_LINES, (line3) => {
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return void 0;
       const message = parsed;
       const data = message.data && typeof message.data === "object" && !Array.isArray(message.data) ? message.data : void 0;
@@ -83873,7 +84450,7 @@ async function readGroupJoinMailboxAsync(filePath, delivery) {
 }
 async function tailApproximateAsync(filePath) {
   try {
-    return (await fs115.promises.stat(filePath)).size > MAX_TAIL_BYTES;
+    return (await fs116.promises.stat(filePath)).size > MAX_TAIL_BYTES;
   } catch {
     return false;
   }
@@ -83883,9 +84460,9 @@ function readMailboxCounts(filePath, delivery) {
 }
 function mailboxCountsFrom(tail, delivery) {
   const kindCounts = { steer: 0, followUp: 0, response: 0, message: 0 };
-  const items = parseTailLines(tail.lines, MAX_TAIL_LINES, (line4) => {
+  const items = parseTailLines(tail.lines, MAX_TAIL_LINES, (line3) => {
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return 0;
       const msg = parsed;
       if (typeof msg.id !== "string" || !isMailboxStatus(msg.status)) return 0;
@@ -83914,9 +84491,9 @@ function mailboxCountsFrom(tail, delivery) {
 }
 async function readMailboxCountsAsync(filePath, delivery) {
   const kindCounts = { steer: 0, followUp: 0, response: 0, message: 0 };
-  const items = await tailJsonlLinesAsync(filePath, MAX_TAIL_LINES, (line4) => {
+  const items = await tailJsonlLinesAsync(filePath, MAX_TAIL_LINES, (line3) => {
     try {
-      const parsed = JSON.parse(line4);
+      const parsed = JSON.parse(line3);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return 0;
       const msg = parsed;
       if (typeof msg.id !== "string" || !isMailboxStatus(msg.status)) return 0;
@@ -83967,7 +84544,7 @@ function mailboxFrom(manifest, agents, delivery, outboxTail) {
   let outbox = mailboxCountsFrom(outboxTail, delivery);
   const tasksRoot = path92.join(root, "tasks");
   try {
-    for (const entry of fs115.readdirSync(tasksRoot, {
+    for (const entry of fs116.readdirSync(tasksRoot, {
       withFileTypes: true
     })) {
       if (!entry.isDirectory()) continue;
@@ -83997,7 +84574,7 @@ async function mailboxFromAsync(manifest, agents) {
   let outbox = await readMailboxCountsAsync(path92.join(root, "outbox.jsonl"), delivery);
   const tasksRoot = path92.join(root, "tasks");
   try {
-    const taskDirs = (await fs115.promises.readdir(tasksRoot, {
+    const taskDirs = (await fs116.promises.readdir(tasksRoot, {
       withFileTypes: true
     })).filter((entry) => entry.isDirectory());
     const [taskInboxes, taskOutboxes] = await Promise.all([
@@ -84492,7 +85069,7 @@ function buildRegistrationContext(pi) {
       ctx.lifecycleState.notificationRouter?.enqueue(notification);
     } catch (error) {
       logInternalError("register.notification", error);
-      void sendFollowUp(pi, [notification.title, notification.body].filter((line4) => Boolean(line4)).join("\n"));
+      void sendFollowUp(pi, [notification.title, notification.body].filter((line3) => Boolean(line3)).join("\n"));
     }
   };
   ctx.getManifestCache = (cwd) => {
@@ -84687,11 +85264,11 @@ function startForegroundRunImpl(pi, ctx, extensionCtx, runner, runId) {
 
 // src/extension/registration/hook-registration.ts
 init_config();
-import * as fs119 from "node:fs";
+import * as fs120 from "node:fs";
 import * as path94 from "node:path";
 
 // src/runtime/per-write-validator.ts
-import { readFileSync as readFileSync91 } from "node:fs";
+import { readFileSync as readFileSync92 } from "node:fs";
 import { extname as pathExtname } from "node:path";
 function validateJson(content, _filePath) {
   if (content.trim() === "") return { ok: true };
@@ -84735,7 +85312,7 @@ function validateWrittenFile(filePath) {
   if (!validator) return null;
   let content;
   try {
-    content = readFileSync91(filePath, "utf-8");
+    content = readFileSync92(filePath, "utf-8");
   } catch {
     return null;
   }
@@ -84953,8 +85530,8 @@ function installResourcesDiscoverHook(pi, ctx) {
       const skillDir = path94.resolve(sessionCwd, "skills");
       const extSkillDir = path94.join(packageRoot(), "skills");
       const paths = [];
-      if (fs119.existsSync(extSkillDir)) paths.push(extSkillDir);
-      if (skillDir !== extSkillDir && fs119.existsSync(skillDir)) {
+      if (fs120.existsSync(extSkillDir)) paths.push(extSkillDir);
+      if (skillDir !== extSkillDir && fs120.existsSync(skillDir)) {
         try {
           resolveRealContainedPath(sessionCwd, "skills");
           paths.push(skillDir);
@@ -85073,7 +85650,7 @@ init_defaults();
 init_env_vars();
 init_run_maintenance();
 init_broker_issuer();
-import * as fs127 from "node:fs";
+import * as fs128 from "node:fs";
 import * as path102 from "node:path";
 
 // src/runtime/broker/crew-broker.ts
@@ -85190,7 +85767,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
 
 // src/runtime/delegate-spawn.ts
 init_child_pi();
-import * as fs123 from "node:fs";
+import * as fs124 from "node:fs";
 import * as path99 from "node:path";
 function agentForRole(role) {
   return {
@@ -85220,7 +85797,7 @@ function usageTokensFromEvent(event) {
 }
 async function spawnDelegateGrandchild(input) {
   const artifactsRoot = path99.join(input.cwd, ".crew", "artifacts", input.runId, input.parentTaskId, "nested", input.subId);
-  fs123.mkdirSync(artifactsRoot, { recursive: true });
+  fs124.mkdirSync(artifactsRoot, { recursive: true });
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), input.timeoutSec * 1e3);
   timer.unref?.();
@@ -85674,7 +86251,7 @@ async function pushWaitingToForegroundWaiter(params) {
 
 // src/runtime/broker/wait-status-cache.ts
 init_state_store();
-import * as fs124 from "node:fs";
+import * as fs125 from "node:fs";
 var WAIT_STATUS_CACHE_MAX = 128;
 function statStamp(manifestPath, tasksPath) {
   let manifestMtimeMs = 0;
@@ -85682,13 +86259,13 @@ function statStamp(manifestPath, tasksPath) {
   let tasksMtimeMs = 0;
   let tasksSize = 0;
   try {
-    const st = fs124.statSync(manifestPath);
+    const st = fs125.statSync(manifestPath);
     manifestMtimeMs = st.mtimeMs;
     manifestSize = st.size;
   } catch {
   }
   try {
-    const st = fs124.statSync(tasksPath);
+    const st = fs125.statSync(tasksPath);
     tasksMtimeMs = st.mtimeMs;
     tasksSize = st.size;
   } catch {
@@ -86682,14 +87259,14 @@ var CrewBroker = class {
       try {
         const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
         const steeringPath = resolveRealContainedPath(loaded.manifest.artifactsRoot, `steering/${targetTaskId}.jsonl`);
-        const line4 = JSON.stringify({
+        const line3 = JSON.stringify({
           type: "steer",
           message: body,
           id: messageId,
           ts: (/* @__PURE__ */ new Date()).toISOString()
         }) + "\n";
         await fsp3.mkdir(steeringDir, { recursive: true });
-        await fsp3.appendFile(steeringPath, line4, "utf-8");
+        await fsp3.appendFile(steeringPath, line3, "utf-8");
       } catch (fileErr) {
         const safeMessage = fileErr instanceof Error ? redactSecretString(fileErr.message) : "";
         logInternalError("crew-broker.steer-file-write-failed", new Error(safeMessage), `taskId=${targetTaskId}`);
@@ -87418,7 +87995,7 @@ init_pi_ui_compat();
 
 // src/ui/inline-panel/agent-transcript.ts
 init_crew_agent_records();
-import * as fs125 from "node:fs";
+import * as fs126 from "node:fs";
 import * as path100 from "node:path";
 var MAX_TRANSCRIPT_ITEMS = 500;
 function normalizeUsage(raw) {
@@ -87441,7 +88018,7 @@ var promptSeeded = /* @__PURE__ */ new Set();
 function readWorkerPrompt(manifest, taskId) {
   try {
     const file = path100.join(manifest.artifactsRoot, "prompts", `${taskId}.md`);
-    const text = fs125.readFileSync(file, "utf-8").trim();
+    const text = fs126.readFileSync(file, "utf-8").trim();
     return text || void 0;
   } catch {
     return void 0;
@@ -87601,7 +88178,7 @@ function resetAllAgentTranscriptCursors() {
 
 // src/ui/inline-panel/agent-view-overlay.ts
 init_theme_adapter();
-import { matchesKey as matchesKey7, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey8, truncateToWidth as truncateToWidth3 } from "@earendil-works/pi-tui";
 
 // src/ui/inline-panel/agent-pane.ts
 init_state_store();
@@ -87779,7 +88356,7 @@ var CrewAgentPane = class {
   buildBody(items, width) {
     const body = [];
     for (const item of items) {
-      for (const line4 of this.renderItem(item, width)) body.push(line4);
+      for (const line3 of this.renderItem(item, width)) body.push(line3);
       if (item.type === "assistant" && item.usage) {
         const footer = usageFooterLine(item.usage);
         if (footer) body.push(this.theme.fg("dim", footer));
@@ -87806,8 +88383,8 @@ var CrewAgentPane = class {
     else if (status === "cancelled") stateText = t2.fg("warning", "\u25A0 cancelled");
     else if (status === "running") stateText = t2.fg("success", "\u25CF running");
     else if (status) stateText = t2.fg("dim", status);
-    const line4 = truncateToWidth2(`${parts.join(" ")}${stateText ? `   ${stateText}` : ""}`, width, "\u2026");
-    const lines = [line4];
+    const line3 = truncateToWidth2(`${parts.join(" ")}${stateText ? `   ${stateText}` : ""}`, width, "\u2026");
+    const lines = [line3];
     if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
       lines.push(t2.fg("dim", truncateToWidth2(`\xB7 finished \u2014 full log: /team-dashboard or artifacts/${manifest.runId}`, width, "\u2026")));
     }
@@ -87847,14 +88424,14 @@ var CrewAgentPane = class {
     const end = body.length - this.scrollBack;
     const visible = body.slice(Math.max(0, end - visibleCount), end);
     const lines = [];
-    for (const line4 of header) lines.push(line4);
+    for (const line3 of header) lines.push(line3);
     lines.push(...new DynamicBorder((str) => this.theme.fg("border", str)).render(width));
     if (end - visibleCount > 0) {
       lines.push(this.theme.fg("dim", ` \u2191 ${Math.max(0, end - visibleCount)} more line(s) (pageUp)`));
     } else {
       lines.push("");
     }
-    for (const line4 of visible) lines.push(line4);
+    for (const line3 of visible) lines.push(line3);
     if (this.scrollBack > 0) {
       lines.push(this.theme.fg("dim", ` \u2193 ${this.scrollBack} more line(s) (pageDown)`));
     }
@@ -87954,12 +88531,12 @@ var CrewAgentOverlay = class {
   handleInput(data) {
     if (this.disposed || this.closed) return;
     if (this.inputMode) {
-      if (matchesKey7(data, "escape")) {
+      if (matchesKey8(data, "escape")) {
         this.inputMode = false;
         this.inputText = "";
-      } else if (matchesKey7(data, "return")) {
+      } else if (matchesKey8(data, "return")) {
         this.sendSteer();
-      } else if (matchesKey7(data, "backspace")) {
+      } else if (matchesKey8(data, "backspace")) {
         this.inputText = this.inputText.slice(0, -1);
       } else if (data === "") {
         this.inputMode = false;
@@ -87970,7 +88547,7 @@ var CrewAgentOverlay = class {
       this.tui.requestRender();
       return;
     }
-    if (matchesKey7(data, "escape") || data === "") {
+    if (matchesKey8(data, "escape") || data === "") {
       this.requestClose();
       return;
     }
@@ -87978,35 +88555,35 @@ var CrewAgentOverlay = class {
       this.requestClose();
       return;
     }
-    if (matchesKey7(data, "pageUp")) {
+    if (matchesKey8(data, "pageUp")) {
       this.pane.scrollBy(10);
       return;
     }
-    if (matchesKey7(data, "pageDown")) {
+    if (matchesKey8(data, "pageDown")) {
       this.pane.scrollBy(-10);
       return;
     }
-    if (matchesKey7(data, "up") || data === "k") {
+    if (matchesKey8(data, "up") || data === "k") {
       this.pane.scrollBy(1);
       return;
     }
-    if (matchesKey7(data, "down") || data === "j") {
+    if (matchesKey8(data, "down") || data === "j") {
       this.pane.scrollBy(-1);
       return;
     }
-    if (data === "g" || matchesKey7(data, "home")) {
+    if (data === "g" || matchesKey8(data, "home")) {
       this.pane.scrollHome();
       return;
     }
-    if (data === "G" || matchesKey7(data, "end")) {
+    if (data === "G" || matchesKey8(data, "end")) {
       this.pane.scrollEnd();
       return;
     }
-    if (matchesKey7(data, "tab")) {
+    if (matchesKey8(data, "tab")) {
       this.cycleAgent(1);
       return;
     }
-    if (matchesKey7(data, "shift+tab")) {
+    if (matchesKey8(data, "shift+tab")) {
       this.cycleAgent(-1);
       return;
     }
@@ -88038,11 +88615,15 @@ var CrewAgentOverlay = class {
 };
 
 // src/ui/inline-panel/crew-editor.ts
+init_rail();
 init_panel_selection();
 init_panel_store();
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { matchesKey as matchesKey8, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
+import { matchesKey as matchesKey9, truncateToWidth as truncateToWidth4, visibleWidth as visibleWidth4 } from "@earendil-works/pi-tui";
 var AGENT_LABEL_MAX = 24;
+function agentBorderLabel(name) {
+  return truncateToWidth4(name.replace(/->/g, ACTIVE).replace(/\s+/g, " ").trim(), AGENT_LABEL_MAX);
+}
 var CrewInlineEditor = class extends CustomEditor {
   options;
   constructor(tui, theme, keybindings, options) {
@@ -88051,11 +88632,11 @@ var CrewInlineEditor = class extends CustomEditor {
   }
   panelKeys(data) {
     return {
-      up: matchesKey8(data, "up"),
-      down: matchesKey8(data, "down"),
-      enter: matchesKey8(data, "return"),
-      escape: matchesKey8(data, "escape"),
-      act: matchesKey8(data, "x")
+      up: matchesKey9(data, "up"),
+      down: matchesKey9(data, "down"),
+      enter: matchesKey9(data, "return"),
+      escape: matchesKey9(data, "escape"),
+      act: matchesKey9(data, "x")
     };
   }
   /**
@@ -88100,23 +88681,23 @@ var CrewInlineEditor = class extends CustomEditor {
         this.applyDispatch(data, rows, this.panelKeys(data), true);
         return;
       }
-      if (matchesKey8(data, "down") && this.getText() === "" && rows.length > 0) {
+      if (matchesKey9(data, "down") && this.getText() === "" && rows.length > 0) {
         setPanelSelection("main");
         return;
       }
-      if (matchesKey8(data, "escape")) {
+      if (matchesKey9(data, "escape")) {
         this.options.onClosePane();
         return;
       }
-      if (matchesKey8(data, "pageUp")) {
+      if (matchesKey9(data, "pageUp")) {
         this.options.onScrollPane(10);
         return;
       }
-      if (matchesKey8(data, "pageDown")) {
+      if (matchesKey9(data, "pageDown")) {
         this.options.onScrollPane(-10);
         return;
       }
-      if (matchesKey8(data, "return")) {
+      if (matchesKey9(data, "return")) {
         const text = (this.getExpandedText?.() ?? this.getText()).trim();
         if (!text) {
           super.handleInput(data);
@@ -88134,7 +88715,7 @@ var CrewInlineEditor = class extends CustomEditor {
       return;
     }
     if (getPanelSelection() === null) {
-      if (matchesKey8(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
+      if (matchesKey9(data, "down") && this.getText() === "" && (rows.length > 0 || this.options.onOpenBrowser)) {
         const result4 = dispatchPanelKey(this.panelKeys(data), [], null);
         setPanelSelection(result4.selection);
         return;
@@ -88154,9 +88735,9 @@ var CrewInlineEditor = class extends CustomEditor {
     if (!viewed2) return lines;
     const rows = panelRows();
     const row = rows.find((r) => r.runId === viewed2.runId && r.taskId === viewed2.taskId);
-    const name = row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX);
+    const name = agentBorderLabel(row?.name ?? viewed2.taskId.slice(-AGENT_LABEL_MAX));
     if (name && lines.length > 0) {
-      const label = ` @${truncateToWidth4(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
+      const label = ` @${name} `;
       const labelWidth = visibleWidth4(label);
       if (visibleWidth4(lines[0]) >= labelWidth + 4) {
         lines[0] = truncateToWidth4(lines[0], width - labelWidth - 2, "") + label + "\u2500\u2500";
@@ -88185,6 +88766,22 @@ function stopPaneTicker() {
     paneTickTimer = void 0;
   }
   livePane = void 0;
+}
+function teardownLiveView() {
+  const overlay = liveOverlay;
+  if (overlay) {
+    try {
+      overlay.requestClose();
+    } catch (error) {
+      logInternalError("view.teardownOverlay", error);
+    }
+    try {
+      overlay.dispose();
+    } catch {
+    }
+  }
+  liveOverlay = void 0;
+  stopPaneTicker();
 }
 async function runTeamTool(params, ctx) {
   const { handleTeamTool: handleTeamTool8 } = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
@@ -88333,7 +88930,7 @@ function installInlinePanel(pi, ctx, uiConfig) {
     });
     pi.on("session_start", () => {
       editorInstalled = false;
-      stopPaneTicker();
+      teardownLiveView();
     });
   }
 }
@@ -88538,13 +89135,13 @@ init_defaults();
 init_artifact_store();
 init_internal_error();
 init_paths();
-import * as fs126 from "node:fs";
+import * as fs127 from "node:fs";
 import * as path101 from "node:path";
 function collectArtifactDescriptors(runsDir) {
   const descriptors = [];
   let dirs;
   try {
-    dirs = fs126.readdirSync(runsDir, { withFileTypes: true });
+    dirs = fs127.readdirSync(runsDir, { withFileTypes: true });
   } catch {
     return descriptors;
   }
@@ -88552,7 +89149,7 @@ function collectArtifactDescriptors(runsDir) {
     if (!dir.isDirectory()) continue;
     const manifestPath = path101.join(runsDir, dir.name, DEFAULT_PATHS.state.manifestFile);
     try {
-      const manifest = JSON.parse(fs126.readFileSync(manifestPath, "utf-8"));
+      const manifest = JSON.parse(fs127.readFileSync(manifestPath, "utf-8"));
       if (Array.isArray(manifest.artifacts)) {
         descriptors.push(...manifest.artifacts);
       }
@@ -89219,7 +89816,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.crewRunWatchers?.closeAll();
     ctx.crewRunWatchers = void 0;
     const crewRunsDir = path102.join(projectCrewRoot(extensionCtx.cwd), "state", "runs");
-    if (fs127.existsSync(crewRunsDir)) {
+    if (fs128.existsSync(crewRunsDir)) {
       ctx.crewRunWatchers = new RunWatcherRegistry();
       ctx.crewRunWatchers.setRootWatcher(crewRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -89230,7 +89827,7 @@ function setupRenderLoop(pi, ctx, extensionCtx, loadedConfig) {
     ctx.userCrewWatchers?.closeAll();
     ctx.userCrewWatchers = void 0;
     const userRunsDir = path102.join(userCrewRoot(), "state", "runs");
-    if (fs127.existsSync(userRunsDir)) {
+    if (fs128.existsSync(userRunsDir)) {
       ctx.userCrewWatchers = new RunWatcherRegistry();
       ctx.userCrewWatchers.setRootWatcher(userRunsDir, crewRunWatcherOnChange, crewRunWatcherOnError);
     }
@@ -89741,6 +90338,236 @@ Subagent may need manual intervention.`
   pi.events?.emit?.(event, payload);
 }
 
+// src/extension/registration/terminal-status-wiring.ts
+init_live_agent_manager();
+init_run_event_bus();
+
+// src/ui/terminal-status.ts
+init_live_agent_manager();
+import { writeFileSync as writeFileSync13 } from "node:fs";
+var GHOSTTY_PROGRESS = {
+  CLEAR: 0,
+  // remove the progress indicator
+  SET: 1,
+  // set explicit progress (0-100)
+  ERROR: 2,
+  // error state
+  INDETERMINATE: 3
+  // pulsing/working animation
+};
+var TITLE_PREFIX = "\u03C0-crew";
+var SEP = " \xB7 ";
+var MAX_TITLE_ROLES = 3;
+var IDLE_REASSERT_START_MS = 200;
+var IDLE_REASSERT_MAX_MS = 5e3;
+var COMPLETE_FLASH_MS = 1500;
+var ghosttyWriter;
+function defaultGhosttyWriter(seq) {
+  try {
+    writeFileSync13("/dev/tty", seq);
+  } catch {
+  }
+}
+function writeGhostty(seq) {
+  (ghosttyWriter ?? defaultGhosttyWriter)(seq);
+}
+function setGhosttyProgress(state2, value) {
+  const args = value !== void 0 ? `${state2};${value}` : `${state2}`;
+  writeGhostty(`\x1B]9;4;${args}\x07`);
+}
+function ghosttyWorking() {
+  setGhosttyProgress(GHOSTTY_PROGRESS.INDETERMINATE);
+}
+function ghosttyComplete() {
+  setGhosttyProgress(GHOSTTY_PROGRESS.SET, 100);
+}
+function ghosttyClear() {
+  setGhosttyProgress(GHOSTTY_PROGRESS.CLEAR);
+}
+function buildCrewTitleSegment(cwd) {
+  const live = listLiveAgents();
+  if (live.length === 0) return "";
+  const roles = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const handle of live) {
+    const role = handle.role || handle.agent || "agent";
+    if (!seen.has(role)) {
+      seen.add(role);
+      roles.push(role);
+    }
+  }
+  const shown = roles.slice(0, MAX_TITLE_ROLES);
+  const more = roles.length > shown.length ? ` +${roles.length - shown.length}` : "";
+  return `${TITLE_PREFIX}${SEP}${live.length} active${SEP}${shown.join(", ")}${more}`;
+}
+function buildIdleTitle() {
+  return TITLE_PREFIX;
+}
+function setTerminalTitle(ctx, title) {
+  if (!ctx.hasUI) return;
+  try {
+    ctx.ui.setTitle(title);
+  } catch {
+  }
+}
+function createTerminalStatusController(ctx) {
+  const state2 = {
+    idleTimer: void 0,
+    showingActive: false,
+    flashTimer: void 0,
+    destroyed: false
+  };
+  const clearIdleTimer = () => {
+    if (state2.idleTimer) {
+      clearTimeout(state2.idleTimer);
+      state2.idleTimer = void 0;
+    }
+  };
+  const clearFlashTimer = () => {
+    if (state2.flashTimer) {
+      clearTimeout(state2.flashTimer);
+      state2.flashTimer = void 0;
+    }
+  };
+  const scheduleIdleReassert = (delay) => {
+    if (state2.destroyed || state2.showingActive) return;
+    clearIdleTimer();
+    state2.idleTimer = setTimeout(() => {
+      if (state2.destroyed || state2.showingActive) return;
+      setTerminalTitle(ctx, buildIdleTitle());
+      scheduleIdleReassert(Math.min(delay * 2, IDLE_REASSERT_MAX_MS));
+    }, delay);
+    state2.idleTimer.unref?.();
+  };
+  return {
+    onRunsActive() {
+      if (state2.destroyed) return;
+      clearIdleTimer();
+      clearFlashTimer();
+      state2.showingActive = true;
+      const segment = buildCrewTitleSegment();
+      if (segment) setTerminalTitle(ctx, segment);
+      ghosttyWorking();
+    },
+    onRunCompleted() {
+      if (state2.destroyed) return;
+      clearFlashTimer();
+      ghosttyComplete();
+      state2.flashTimer = setTimeout(() => {
+        if (state2.destroyed) return;
+        state2.flashTimer = void 0;
+        if (listLiveAgents().length > 0) {
+          ghosttyWorking();
+        } else {
+          ghosttyClear();
+        }
+      }, COMPLETE_FLASH_MS);
+      state2.flashTimer.unref?.();
+    },
+    onIdle() {
+      if (state2.destroyed) return;
+      state2.showingActive = false;
+      clearFlashTimer();
+      ghosttyClear();
+      setTerminalTitle(ctx, buildIdleTitle());
+      scheduleIdleReassert(IDLE_REASSERT_START_MS);
+    },
+    dispose() {
+      state2.destroyed = true;
+      clearIdleTimer();
+      clearFlashTimer();
+      try {
+        ghosttyClear();
+      } catch {
+      }
+    }
+  };
+}
+
+// src/extension/registration/terminal-status-wiring.ts
+init_crew_cleanup();
+var EVAL_DEBOUNCE_MS = 250;
+var liveAgentProbe = () => listLiveAgents().length;
+var currentUnsubscribe;
+var currentDispose;
+function installTerminalStatus(pi, deps) {
+  currentUnsubscribe?.();
+  const adapter = {
+    get hasUI() {
+      return deps.currentCtx?.hasUI ?? false;
+    },
+    ui: {
+      setTitle(title) {
+        deps.currentCtx?.ui.setTitle(title);
+      }
+    }
+  };
+  let evalTimer;
+  let idleTimer;
+  let lastSegment = "";
+  const clearTimers = () => {
+    if (evalTimer) {
+      clearTimeout(evalTimer);
+      evalTimer = void 0;
+    }
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = void 0;
+    }
+  };
+  const evaluate = () => {
+    evalTimer = void 0;
+    if (!adapter.hasUI) return;
+    if (!deps.terminalStatus) deps.terminalStatus = createTerminalStatusController(adapter);
+    const controller = deps.terminalStatus;
+    if (liveAgentProbe() > 0) {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = void 0;
+      }
+      if (!deps.terminalStatusActive) {
+        deps.terminalStatusActive = true;
+        controller.onRunsActive();
+        lastSegment = buildCrewTitleSegment();
+        return;
+      }
+      const segment = buildCrewTitleSegment();
+      if (segment && segment !== lastSegment) {
+        lastSegment = segment;
+        setTerminalTitle(adapter, segment);
+      }
+      return;
+    }
+    if (deps.terminalStatusActive) {
+      deps.terminalStatusActive = false;
+      lastSegment = "";
+      controller.onRunCompleted();
+      idleTimer = setTimeout(() => {
+        idleTimer = void 0;
+        controller.onIdle();
+      }, COMPLETE_FLASH_MS);
+      idleTimer.unref?.();
+    }
+  };
+  const unsubscribe = runEventBus.onAny(() => {
+    if (evalTimer) return;
+    evalTimer = setTimeout(evaluate, EVAL_DEBOUNCE_MS);
+    evalTimer.unref?.();
+  });
+  currentUnsubscribe = unsubscribe;
+  const dispose = () => {
+    unsubscribe();
+    currentUnsubscribe = void 0;
+    currentDispose = void 0;
+    clearTimers();
+    deps.terminalStatus?.dispose();
+    deps.terminalStatus = void 0;
+    deps.terminalStatusActive = false;
+  };
+  currentDispose = dispose;
+  registerCleanupHandler(pi, { disposeTerminalStatus: dispose });
+}
+
 // src/extension/registration/subagent-tools.ts
 init_esm();
 init_context();
@@ -89757,8 +90584,8 @@ init_tool_renderers();
 init_internal_error();
 init_safe_paths();
 init_subagent_helpers();
-import * as fs128 from "node:fs";
-import { Text as Text5 } from "@earendil-works/pi-tui";
+import * as fs129 from "node:fs";
+import { Text as Text6 } from "@earendil-works/pi-tui";
 async function handleTeamTool6(params, ctx) {
   const mod = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
   return mod.handleTeamTool(params, ctx);
@@ -89940,7 +90767,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
               }),
               t("agent.retrieveHint")
             ].join("\n"),
-            { agentId: record.id, status: record.status }
+            { agentId: record.id, agentName: record.type, status: record.status }
           ),
           terminate: true
         };
@@ -89970,6 +90797,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
         ].join("\n"),
         {
           agentId: record.id,
+          agentName: record.type,
           runId: record.runId,
           status: record.status
         },
@@ -89994,7 +90822,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
           context
         );
       } catch (e) {
-        return new Text5("agent-err: " + (e instanceof Error ? e.message : "unknown"), 0, 0);
+        return new Text6("agent-err: " + (e instanceof Error ? e.message : "unknown"), 0, 0);
       }
     }
   };
@@ -90086,11 +90914,12 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
       const text = [
         p.verbose ? formatSubagentRecord(current) : void 0,
         output ? `${p.verbose ? "\n" : ""}${output}` : current.status === "running" || current.status === "queued" ? t("result.stillRunning") : current.error ?? t("agent.noOutput")
-      ].filter((line4) => Boolean(line4)).join("\n");
+      ].filter((line3) => Boolean(line3)).join("\n");
       return subagentToolResult(
         text,
         {
           agentId: current.id,
+          agentName: current.type,
           runId: current.runId,
           status: current.status
         },
@@ -90127,7 +90956,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
       }
       if (!taskId || !artifactsRoot) {
         return subagentToolResult(
-          [t("steer.unavailable"), record.runId ? t("steer.cancelHint", { runId: record.runId }) : void 0].filter((line4) => Boolean(line4)).join("\n"),
+          [t("steer.unavailable"), record.runId ? t("steer.cancelHint", { runId: record.runId }) : void 0].filter((line3) => Boolean(line3)).join("\n"),
           {
             agentId: record.id,
             runId: record.runId,
@@ -90140,37 +90969,37 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
       if (!manifestTask) {
         return subagentToolResult(
           `Task '${taskId}' not found in the owning run; cannot steer.`,
-          { agentId: record.id, runId: record.runId, taskId, status: record.status },
+          { agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
           true
         );
       }
       if (TEAM_TERMINAL_TASK_STATUSES.has(manifestTask.status)) {
         return subagentToolResult(
           `Task '${taskId}' is ${manifestTask.status}; cannot steer.`,
-          { agentId: record.id, runId: record.runId, taskId, status: record.status },
+          { agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
           true
         );
       }
       try {
         const steeringDir = `${artifactsRoot}/steering`;
-        fs128.mkdirSync(steeringDir, { recursive: true });
+        fs129.mkdirSync(steeringDir, { recursive: true });
         const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
         const MAX_STEERING_BYTES = 256 * 1024;
         let existingBytes = 0;
         try {
-          existingBytes = fs128.statSync(safeSteeringPath).size;
+          existingBytes = fs129.statSync(safeSteeringPath).size;
         } catch (error) {
           if (error.code !== "ENOENT") throw error;
         }
-        const line4 = JSON.stringify({ type: "steer", message: p.message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
-        if (existingBytes + Buffer.byteLength(line4) > MAX_STEERING_BYTES) {
+        const line3 = JSON.stringify({ type: "steer", message: p.message, ts: (/* @__PURE__ */ new Date()).toISOString() }) + "\n";
+        if (existingBytes + Buffer.byteLength(line3) > MAX_STEERING_BYTES) {
           return subagentToolResult(
             `Steering file for task '${taskId}' has reached its size cap (${(MAX_STEERING_BYTES / 1024).toFixed(0)}KiB); steer refused.`,
-            { agentId: record.id, runId: record.runId, taskId, status: record.status },
+            { agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
             true
           );
         }
-        fs128.appendFileSync(safeSteeringPath, line4);
+        fs129.appendFileSync(safeSteeringPath, line3);
       } catch (err2) {
         logInternalError(
           "subagent-tools.steer-write-failed",
@@ -90180,7 +91009,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
         );
         return subagentToolResult(
           `Steer write failed for task '${taskId}': ${err2 instanceof Error ? err2.message : String(err2)} (see pi-crew error log)`,
-          { agentId: record.id, runId: record.runId, taskId, status: record.status },
+          { agentId: record.id, agentName: record.type, runId: record.runId, taskId, status: record.status },
           true
         );
       }
@@ -90191,6 +91020,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
         ].join("\n"),
         {
           agentId: record.id,
+          agentName: record.type,
           runId: record.runId,
           taskId,
           status: record.status
@@ -90263,7 +91093,10 @@ function startAgentToolProgress(cwd, agentRecordId, onUpdate, manager) {
         agents,
         error: record.error
       });
-      onUpdate({ content: [{ type: "text", text }] });
+      onUpdate({
+        content: [{ type: "text", text }],
+        details: { agentId: record.id, agentName: record.type, runId: record.runId, status: record.status }
+      });
     } catch (error) {
       logInternalError("subagent-tools.progress", error, `agentId=${agentRecordId}`);
     }
@@ -90729,7 +91562,7 @@ async function registerPiTeams(pi) {
   installPiHooks(pi, ctx);
   installSessionLifecycleHandlers(pi, ctx);
   ctx.brokerController = installCrewBrokerLifecycleController(pi, ctx);
-  registerCleanupHandler(pi, { disposeTerminalStatus: () => ctx.terminalStatus?.dispose?.() });
+  installTerminalStatus(pi, ctx);
   registerCompactionGuard(pi, {
     foregroundControllers: ctx.foregroundControllers,
     foregroundTeamRunControllers: ctx.foregroundTeamRunControllers

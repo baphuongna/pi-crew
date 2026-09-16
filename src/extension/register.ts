@@ -15,6 +15,7 @@
  *   • command-registration      — registerTeamCommands
  *   • crash-recovery-cache      — lazy importCrashRecovery
  *   • wire-cross-extension      — RPC handle + global registry install
+ *   • terminal-status-wiring — tab title + Ghostty progress (runEventBus)
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../config/config.ts";
@@ -43,6 +44,7 @@ import { installCrewBrokerLifecycleController, installSessionLifecycleHandlers }
 import { installRuntimeCleanup } from "./registration/runtime-cleanup.ts";
 import { __test__subagentSpawnParams } from "./registration/subagent-helpers.ts";
 import { installSubagentManager } from "./registration/subagent-manager-setup.ts";
+import { installTerminalStatus } from "./registration/terminal-status-wiring.ts";
 import { registerPiTools } from "./registration/tool-registration.ts";
 import { installCrossExtensionWiring } from "./registration/wire-cross-extension.ts";
 
@@ -101,7 +103,11 @@ export async function registerPiTeams(pi: ExtensionAPI): Promise<void> {
 	// subagents or when the flag is off, it returns a no-op controller.
 	ctx.brokerController = installCrewBrokerLifecycleController(pi, ctx);
 
-	registerCleanupHandler(pi, { disposeTerminalStatus: () => ctx.terminalStatus?.dispose?.() });
+	// M3-1 (UI-AUDIT P0-2/P1-1): wire the tab-title + Ghostty progress
+	// controller to runEventBus. Before this the controller was never
+	// constructed (dead since v0.8.3). Registers the dispose hook that the
+	// SIGTERM/SIGHUP handler calls (crew-cleanup.ts).
+	installTerminalStatus(pi, ctx);
 	registerCompactionGuard(pi, {
 		foregroundControllers: ctx.foregroundControllers,
 		foregroundTeamRunControllers: ctx.foregroundTeamRunControllers,

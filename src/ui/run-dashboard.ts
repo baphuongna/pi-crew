@@ -17,7 +17,7 @@ import { aggregateUsage } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
-import { pad, sanitizeLine, truncate, visibleWidth } from "../utils/visual.ts";
+import { sanitizeLine, truncate, visibleWidth } from "../utils/visual.ts";
 import type { InteractiveComponent } from "./component.ts";
 import { renderAgentsPane } from "./dashboard-panes/agents-pane.ts";
 import { summarizeTerminalReason } from "./dashboard-panes/cancellation-pane.ts";
@@ -28,9 +28,10 @@ import { renderPlanPane } from "./dashboard-panes/plan-pane.ts";
 import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
 import { renderScheduleDetails, renderSchedulesPane } from "./dashboard-panes/schedules-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
-import { DynamicCrewBorder } from "./dynamic-border.ts";
+import { formatCount, teamWorkflowLabel } from "./format-helpers.ts";
 import { type DashboardKeyAction, dashboardActionForKey } from "./keybinding-map.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
+import { ACTIVE, CURSOR, canopyLine, formatHint, gaugeBar, overflowHint, RAIL, railLine, sectionLine } from "./rail.ts";
 import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "./shared-overlay-scheduler.ts";
 import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
@@ -56,7 +57,6 @@ function safeRenderPane(name: string, fn: () => string[]): string[] {
 interface DashboardComponent extends InteractiveComponent {}
 
 export interface RunDashboardOptions {
-	placement?: "center" | "right";
 	showModel?: boolean;
 	showTokens?: boolean;
 	showTools?: boolean;
@@ -186,12 +186,6 @@ const SIGNATURE_CACHE_TTL_MS = 100;
  * (the cache silently returned the previous entry).
  */
 const STALE_SNAPSHOT_MS = 15_000;
-
-/** Left-pad `value` to a fixed VISIBLE width (ANSI-aware). Used by V-1. */
-function padVis(value: string, width: number): string {
-	const current = visibleWidth(value);
-	return current >= width ? value : `${" ".repeat(width - current)}${value}`;
-}
 
 /**
  * L-1 — compute the run-list window (visible slots + which scroll indicators
@@ -323,7 +317,7 @@ function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefine
 				(agent.progress?.tokens !== undefined ? `tok=${agent.progress.tokens}` : undefined))
 			: undefined,
 		options.showTools !== false && agent.progress?.currentTool ? `tool=${agent.progress.currentTool}` : undefined,
-		options.showTools !== false && agent.toolUses !== undefined ? `${agent.toolUses} tools` : undefined,
+		options.showTools !== false && agent.toolUses !== undefined ? formatCount(agent.toolUses, "tool") : undefined,
 		agent.progress?.turns !== undefined ? `${agent.progress.turns} turns` : undefined,
 		agent.progress?.failedTool ? `failedTool=${agent.progress.failedTool}` : undefined,
 		agent.startedAt ? `age=${formatAge(agent.completedAt ?? agent.startedAt)}` : undefined,
@@ -332,8 +326,11 @@ function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefine
 	const icon = iconForStatus(agent.status, {
 		runningGlyph: spinnerFrame(agent.taskId),
 	});
+	// GUARD (M4, §4): agents.json records are NOT schema-validated at read time,
+	// so every interpolated field needs a fallback — `${agent.role}${ACTIVE}${agent.agent}`
+	// printed `undefined->undefined` for a partially-written record.
 	return sanitizeLine(
-		`Agent: ${icon} ${agent.taskId} ${agent.role}->${agent.agent}${stats.length ? ` · ${stats.join(" · ")}` : ""}${recent ? ` ⎿ ${recent}` : ""}`,
+		`Agent: ${icon} ${agent.taskId ?? "?"} ${agent.role ?? "?"}${ACTIVE}${agent.agent ?? "?"}${stats.length ? ` · ${stats.join(" · ")}` : ""}${recent ? ` ⎿ ${recent}` : ""}`,
 	);
 }
 
@@ -409,7 +406,7 @@ function runLabel(
 				? `queued ${queued.taskId}`
 				: `agents ${agents.length}`;
 	const status: RunStatus = stale ? "stale" : (run.status as RunStatus);
-	const marker = selected ? "›" : " ";
+	const marker = selected ? CURSOR : " ";
 	const icon = iconForStatus(status, {
 		runningGlyph: spinnerFrame(run.runId),
 	});
@@ -420,20 +417,25 @@ function runLabel(
 	// enables the goal-aware truncation; legacy 3-arg callers (dev patch
 	// scripts) get the untruncated full label.
 	const head = `${marker} ${icon} ${run.runId.slice(-8)} ${status}`;
-	const meta = `${run.team}/${run.workflow ?? "none"} · ${step}`;
+	const meta = `${teamWorkflowLabel(run.team, run.workflow)} · ${step}`;
 	const goal = sanitizeLine(run.goal ?? "");
 	if (maxW === undefined) return sanitizeLine(`${head} · ${meta} · ${goal}`);
 	const sepW = 3; // " · "
 	if (visibleWidth(head) + sepW + visibleWidth(meta) + sepW + visibleWidth(goal) <= maxW) {
 		return sanitizeLine(`${head} · ${meta} · ${goal}`);
 	}
-	// Not enough room: keep head + goal; clip the goal only if head+goal alone
-	// cannot fit, then shrink the prefix (meta clips first) to match.
-	const goalFits = visibleWidth(head) + sepW + visibleWidth(goal) <= maxW;
-	const goalRender = goalFits ? goal : truncate(goal, Math.max(8, maxW - visibleWidth(head) - sepW));
-	const prefixBudget = Math.max(0, maxW - visibleWidth(goalRender) - sepW);
-	const prefixRender = truncate(`${head} · ${meta}`, prefixBudget);
-	return sanitizeLine(`${prefixRender} · ${goalRender}`);
+	// Not enough room. The STATUS token is the one that must survive — the run
+	// list is how a failed/cancelled run gets spotted — so meta clips FIRST,
+	// then the goal; the head itself is only clipped if it cannot fit alone.
+	// (Live bug 2026-09-16: the old fallback truncated `head · meta` as ONE
+	// string, so a 118-column render painted `› ✓ 122ab0dd complete…` — the
+	// status cut in half while the meta it should have sacrificed stayed put.)
+	const headW = visibleWidth(head);
+	if (headW + sepW + 8 <= maxW) {
+		const goalBudget = Math.max(8, maxW - headW - sepW);
+		return sanitizeLine(`${head} · ${truncate(goal, goalBudget)}`);
+	}
+	return sanitizeLine(truncate(head, maxW));
 }
 
 interface ResolvedRun {
@@ -482,17 +484,9 @@ function selectedRunFromGrouped(
 	return groupedRuns(runs, snapshotCache, resolve).filter((row) => row.run)[selected]?.run;
 }
 
-function countByStatus(runs: TeamRunManifest[], snapshotCache?: RunSnapshotCache): string {
-	const resolved = resolveRuns(runs, snapshotCache);
-	const counts = new Map<RunStatus, number>();
-	for (const r of resolved.values()) counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
-	return [...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none";
-}
-
 export class RunDashboard implements DashboardComponent {
 	private selected = 0;
 	private runScrollOffset = 0;
-	private showFullProgress = false;
 	private showHelp = false;
 	private activePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" | "schedules" = lastActivePane;
 	/** WP-7 (R7): pane-scoped revision-diff toggle (X). */
@@ -683,7 +677,7 @@ export class RunDashboard implements DashboardComponent {
 		const metricsSig =
 			this.activePane === "metrics" ? `:metrics=${this.options.registry?.snapshot().length ?? 0}:${spinnerBucket()}` : "";
 		const schedulesSig = this.activePane === "schedules" ? `:sched=${this.schedulesSignatureFragment()}` : "";
-		const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.showFullProgress ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}${schedulesSig}`;
+		const sig = `${this.selected}:${this.showHelp ? 1 : 0}:${this.activePane}:${statuses}${hasRunning ? `:spin=${spinnerBucket()}` : ""}${metricsSig}${schedulesSig}`;
 		this.cachedSignature = sig;
 		this.cachedSignatureAt = now;
 		return sig;
@@ -801,17 +795,15 @@ export class RunDashboard implements DashboardComponent {
 		this.refreshRuns(snapshotOnce);
 		const signature = this.buildSignature(snapshotOnce);
 		if (signature !== this.cachedVersion || this.cachedWidth !== width) {
-			const innerWidth = Math.max(20, width - 4);
-			const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
+			// RAIL frame (M4, 2026-09-16) — the rounded box is retired. The frame
+			// owner prefixes EVERY body row with `┃` (railLine owns the glyph + space
+			// and pads/truncates to `budget`, so no row can spill past the terminal),
+			// sections open with `┣` (sectionLine), the header hint rides the
+			// canopy's right segment (dot-led) and the surface caps with `┗ <hint>`.
+			const budget = Math.max(0, width - 2);
 			const fg = (color: Parameters<CrewTheme["fg"]>[0], text: string) => this.theme.fg(color, text);
-			// PERF (2026-08-24): DynamicCrewBorder caches the rendered fill per
-			// instance — a new instance per line defeated it. One per render
-			// pass; every border()/sep() call below reuses the cached line.
-			const crewBorder = new DynamicCrewBorder(this.theme);
-			const borderFill = (count: number) => crewBorder.render(count)[0];
-			const border = (left: string, right: string) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
-			const row = (text: string) => `│ ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}│`;
-			const sep = () => border("├", "┤");
+			const row = (text: string) => railLine(RAIL.body, "border", text, this.theme, budget);
+			const section = (name: string, subject?: string) => sectionLine({ name, subject, theme: this.theme, budget });
 
 			const lines: string[] = [];
 			if (this.showHelp) {
@@ -819,17 +811,34 @@ export class RunDashboard implements DashboardComponent {
 				lines.push(...new HelpOverlay(this.theme).render(width));
 			} else {
 				lines.push(
-					border("╭", "╮"),
-					row(
-						`${fg("accent", "▐")} ${this.theme.bold("pi-crew")} · ${this.runs.length} runs  ${fg("dim", "1-8 pane · ↑↓ · Enter · ? help · Esc")}`,
-					),
-					sep(),
+					canopyLine({
+						word: "DASHBOARD",
+						subject: formatCount(this.runs.length, "run"),
+						right: formatHint([
+							["1-8", "pane"],
+							[["up", "down"], "move"],
+							["enter", "select"],
+							["?", "help"],
+						]),
+						theme: this.theme,
+						budget,
+					}),
 				);
 
 				if (this.runs.length === 0) {
 					// F-7: actionable empty state instead of a bare "No runs.".
 					lines.push(row(fg("dim", "No runs yet.")));
-					lines.push(row(fg("dim", "Start one: team action='run' · r reload · Esc close")));
+					lines.push(
+						row(
+							fg(
+								"dim",
+								`Start one: team action='run' · ${formatHint([
+									["r", "reload"],
+									["esc", "close"],
+								])}`,
+							),
+						),
+					);
 				} else {
 					// L-1: windowed run list so the selection can never scroll off-screen.
 					const allGrouped = groupedRuns(this.runs, this.options.snapshotCache, snapshotOnce);
@@ -839,9 +848,12 @@ export class RunDashboard implements DashboardComponent {
 					this.ensureRunListWindow(selectableCount);
 					if (selectableCount <= RUN_LIST_MAX) {
 						// Common case (≤8 runs): keep the Active/Recent group headers.
-						for (const rowItem of allGrouped) {
+						for (const [gi, rowItem] of allGrouped.entries()) {
 							if (!rowItem.run) {
-								lines.push(row(fg("dim", `── ${rowItem.label} ──`)));
+								// `┣ ACTIVE ▸ 2` — the group label IS its run count.
+								let groupCount = 0;
+								for (let j = gi + 1; j < allGrouped.length && allGrouped[j]?.run; j++) groupCount++;
+								lines.push(section(rowItem.label, `${groupCount}`));
 								continue;
 							}
 							const idx = selectable.findIndex((c) => c.run?.runId === rowItem.run?.runId);
@@ -849,13 +861,13 @@ export class RunDashboard implements DashboardComponent {
 							const run = snap?.manifest ?? rowItem.run;
 							const agents = snap?.agents ?? agentsFor(rowItem.run, this.options.snapshotCache, snapshotOnce);
 							const status: RunStatus = isLikelyOrphanedActiveRun(run, agents) ? "stale" : (run.status as RunStatus);
-							const label = runLabel(run, idx === this.selected, this.options.snapshotCache, innerWidth - 2, snapshotOnce);
+							const label = runLabel(run, idx === this.selected, this.options.snapshotCache, budget, snapshotOnce);
 							lines.push(row(applyStatusColor(this.theme, status, label)));
 						}
 					} else {
 						// >8 runs: windowed list (group headers omitted to maximise run rows).
 						const win = runListWindow(this.runScrollOffset, selectableCount);
-						if (win.hasTop) lines.push(row(fg("dim", `↑ ${this.runScrollOffset} more above`)));
+						if (win.hasTop) lines.push(row(overflowHint(this.runScrollOffset, 0, this.theme)));
 						for (let gi = this.runScrollOffset; gi < Math.min(this.runScrollOffset + win.slots, selectableCount); gi++) {
 							const rowItem = selectable[gi];
 							if (!rowItem?.run) continue;
@@ -863,11 +875,11 @@ export class RunDashboard implements DashboardComponent {
 							const run = snap?.manifest ?? rowItem.run;
 							const agents = snap?.agents ?? agentsFor(rowItem.run, this.options.snapshotCache, snapshotOnce);
 							const status: RunStatus = isLikelyOrphanedActiveRun(run, agents) ? "stale" : (run.status as RunStatus);
-							const label = runLabel(run, gi === this.selected, this.options.snapshotCache, innerWidth - 2, snapshotOnce);
+							const label = runLabel(run, gi === this.selected, this.options.snapshotCache, budget, snapshotOnce);
 							lines.push(row(applyStatusColor(this.theme, status, label)));
 						}
 						if (win.hasBottom)
-							lines.push(row(fg("dim", `↓ ${selectableCount - (this.runScrollOffset + win.slots)} more below`)));
+							lines.push(row(overflowHint(0, selectableCount - (this.runScrollOffset + win.slots), this.theme)));
 					}
 
 					// Selected run detail — compact. PERF (2026-08-24): reuse the
@@ -883,8 +895,8 @@ export class RunDashboard implements DashboardComponent {
 						const agents = snap?.agents ?? agentsFor(selectedRun, this.options.snapshotCache, snapshotOnce);
 						const statusStr: RunStatus = isLikelyOrphanedActiveRun(r, agents) ? "stale" : (r.status as RunStatus);
 						const selectedTasks = snap?.tasks ?? readRunTasks(r, this.options.snapshotCache, snapshotOnce);
-						lines.push(sep());
-						lines.push(row(`${fg("accent", "▸")} ${truncate(sanitizeLine(r.goal), innerWidth - 6)}`));
+						lines.push(section("run"));
+						lines.push(row(`${fg("accent", "▸")} ${truncate(sanitizeLine(r.goal), budget - 4)}`));
 						// L-2: surface the failure/cancellation reason inline for terminal runs.
 						const isTerminal = statusStr === "failed" || statusStr === "cancelled" || statusStr === "stopped";
 						const reason = isTerminal ? summarizeTerminalReason(r, selectedTasks, snap?.cancellationReason) : undefined;
@@ -894,7 +906,7 @@ export class RunDashboard implements DashboardComponent {
 								fg(
 									"dim",
 									sanitizeLine(
-										`  ${r.team}/${r.workflow ?? "default"} · ${statusStr} · ${r.runId.slice(-10)}${reasonSuffix}`,
+										`  ${teamWorkflowLabel(r.team, r.workflow)} · ${statusStr} · ${r.runId.slice(-8)}${reasonSuffix}`,
 									),
 								),
 							),
@@ -929,9 +941,9 @@ export class RunDashboard implements DashboardComponent {
 								];
 						const filteredPane = paneLines.filter((l) => l && !l.includes("(none)") && l.trim() !== "");
 						if (filteredPane.length > 0) {
-							lines.push(row(fg("dim", `── ${this.activePane} ──`)));
+							lines.push(section(this.activePane));
 							for (const line of filteredPane.slice(0, 8)) {
-								lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line), innerWidth - 2)), this.theme));
+								lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line), budget)), this.theme));
 							}
 						}
 
@@ -961,11 +973,16 @@ export class RunDashboard implements DashboardComponent {
 								}
 							}
 						}
-						const ctxStr = ctxPct != null ? `${Math.round(ctxPct)}% ctx` : "";
+						// Footer: tokens + a RAIL gauge for the context window. The number
+						// stays next to the bar — the bar reads the trend, the number is
+						// what the user quotes.
 						const footerFields: string[] = [];
-						if (tokStr) footerFields.push(padVis(tokStr, 10));
-						if (ctxStr) footerFields.push(padVis(ctxStr, 9));
-						if (footerFields.length) lines.push(row(fg("dim", footerFields.join(" · "))));
+						if (tokStr) footerFields.push(fg("dim", tokStr));
+						if (ctxPct != null && Number.isFinite(ctxPct)) {
+							const ratio = Math.max(0, Math.min(1, ctxPct / 100));
+							footerFields.push(`${gaugeBar(ratio, 10, this.theme)} ${fg("muted", `${Math.round(ctxPct)}% ctx`)}`);
+						}
+						if (footerFields.length) lines.push(row(footerFields.join(fg("dim", " · "))));
 					}
 				}
 
@@ -976,8 +993,7 @@ export class RunDashboard implements DashboardComponent {
 				if (this.activePane === "schedules") {
 					const jobs = this.scheduleJobs();
 					const now = this.scheduleNow();
-					lines.push(sep());
-					lines.push(row(fg("dim", "── schedules ──")));
+					lines.push(section("schedules", `${jobs.length}`));
 					const paneLines = safeRenderPane("schedules", () =>
 						this.scheduleDetails && jobs.length > 0
 							? renderScheduleDetails(jobs[Math.min(this.scheduleSelected, jobs.length - 1)], now)
@@ -987,7 +1003,7 @@ export class RunDashboard implements DashboardComponent {
 								}),
 					);
 					for (const line of paneLines.filter((l) => l && l.trim() !== "").slice(0, SCHEDULES_PANE_MAX_LINES)) {
-						lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line), innerWidth - 2)), this.theme));
+						lines.push(colorizeStatusGlyphs(row(truncate(sanitizeLine(line), budget)), this.theme));
 					}
 					if (this.scheduleDeleteArmed) {
 						const victim = jobs[Math.min(this.scheduleSelected, jobs.length - 1)];
@@ -995,16 +1011,26 @@ export class RunDashboard implements DashboardComponent {
 						lines.push(row(fg("warning", `⚠ X again to DELETE '${name}' · any other key cancels`)));
 					}
 				}
-				lines.push(border("╰", "╯"));
+				// Cap: the end of the surface + the close action (LAST, RAIL hint rule).
+				lines.push(
+					railLine(
+						RAIL.close,
+						"border",
+						formatHint([
+							["r", "reload"],
+							["esc", "close"],
+						]),
+						this.theme,
+						budget,
+					),
+				);
 			}
 
 			const target = this.targetHeight();
 			if (lines.length < target) {
-				const innerWidth = Math.max(20, width - 4);
-				const fg = (color: Parameters<CrewTheme["fg"]>[0], text: string) => this.theme.fg(color, text);
-				const blankRow = `│ ${pad("", innerWidth - 1)}│`;
+				const blankRow = railLine(RAIL.body, "border", "", this.theme, budget);
 				const bottom = lines.pop();
-				while (lines.length < target - 1) lines.push(fg("border", blankRow));
+				while (lines.length < target - 1) lines.push(blankRow);
 				if (bottom) lines.push(bottom);
 			} else if (lines.length > target) {
 				const bottom = lines[lines.length - 1];
@@ -1139,11 +1165,6 @@ export class RunDashboard implements DashboardComponent {
 			this.done(selectedRunId ? { runId: selectedRunId, action: "browser-open" } : { runId: "", action: "browser-open" });
 			return;
 		}
-		if (action === "progressToggle") {
-			this.showFullProgress = !this.showFullProgress;
-			this.invalidate();
-			return;
-		}
 		if (action === "pane-agents") this.activePane = "agents";
 		else if (action === "pane-progress") this.activePane = "progress";
 		else if (action === "pane-mailbox") this.activePane = "mailbox";
@@ -1173,7 +1194,7 @@ export class RunDashboard implements DashboardComponent {
 	 *  actions + jobId for the extension layer to route through
 	 *  handle-schedule.ts subActions — the UI layer never mutates jobs itself. */
 	private handleSchedulePaneAction(action: DashboardKeyAction): void {
-		// Pane-local state toggles follow the progressToggle/plan-diff precedent:
+		// Pane-local state toggles follow the plan-diff precedent:
 		// invalidate() so the next render (sync in tests, host-tick in the TUI)
 		// recomputes immediately.
 		if (action === "schedule-details") {

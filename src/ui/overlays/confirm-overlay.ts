@@ -1,6 +1,23 @@
-import { pad, truncate } from "../../utils/visual.ts";
-import { matchesKey } from "../key-utils.ts";
-import { Box, Text } from "../layout-primitives.ts";
+/**
+ * Confirm dialog overlay — RAIL design language (M4/E1, 2026-09-16).
+ *
+ *   ┏ CONFIRM ▸ Delete?
+ *   ┃ Danger
+ *   ┗ Y confirm · N/Esc cancel
+ *
+ * The rounded `╭─╮├─┤│╰─╯` box (and its inline `├───┤` rules) is retired; the
+ * surface is now canopy / `┃` body / `┗` close cap. The rail colour carries the
+ * danger level (high → error, medium → warning, else neutral border) instead of
+ * colouring only the title, and the hint is built by `formatHint` (cancel LAST,
+ * keys through `keyToken` → `Esc`, never `ESC`).
+ *
+ * Keys/behaviour are unchanged: same `overlay:*` keyspace dispatch, Enter stays
+ * dual-role exactly as before.
+ */
+
+import { truncate } from "../../utils/visual.ts";
+import { overlayActionForKey } from "../keybinding-map.ts";
+import { canopyLine, formatHint, RAIL, type RailSlot, railLine } from "../rail.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
 export interface ConfirmOptions {
@@ -26,36 +43,45 @@ export class ConfirmOverlay {
 	}
 
 	render(width: number): string[] {
-		const innerWidth = Math.max(24, Math.min(width - 4, 72));
-		const color = this.opts.dangerLevel === "high" ? "error" : this.opts.dangerLevel === "medium" ? "warning" : "accent";
-		const title = this.theme.bold(this.theme.fg(color, this.opts.title));
-		const hint = this.opts.defaultAction === "confirm" ? "Enter/Y confirm · N/ESC cancel" : "Y confirm · Enter/N/ESC cancel";
+		if (width < 6) return [];
+		const theme = this.theme;
+		const budget = width - 2;
+		// Rail colour = state (§1): the danger level is the state of a confirm.
+		const slot: RailSlot = this.opts.dangerLevel === "high" ? "error" : this.opts.dangerLevel === "medium" ? "warning" : "border";
+		const hint =
+			this.opts.defaultAction === "confirm"
+				? formatHint([
+						[["enter", "y"], "confirm"],
+						[["n", "escape"], "cancel"],
+					])
+				: formatHint([
+						["y", "confirm"],
+						[["enter", "n", "escape"], "cancel"],
+					]);
 		const bodyLines = (this.opts.body ?? "").split(/\r?\n/).filter(Boolean);
-		const lines = [
-			`╭${"─".repeat(innerWidth)}╮`,
-			`│ ${pad(truncate(title, innerWidth - 1), innerWidth - 1)}│`,
-			`├${"─".repeat(innerWidth)}┤`,
-			...(bodyLines.length ? bodyLines : ["Are you sure?"]).map(
-				(line) => `│ ${pad(truncate(line, innerWidth - 1), innerWidth - 1)}│`,
-			),
-			`├${"─".repeat(innerWidth)}┤`,
-			`│ ${pad(truncate(this.theme.fg("dim", hint), innerWidth - 1), innerWidth - 1)}│`,
-			`╰${"─".repeat(innerWidth)}╯`,
-		];
-		const box = new Box(0, 0);
-		for (const line of lines) box.addChild(new Text(line));
-		return box.render(width);
+		const lines: string[] = [canopyLine({ word: "CONFIRM", subject: this.opts.title ?? "?", theme, budget, slot })];
+		for (const line of bodyLines.length ? bodyLines : ["Are you sure?"]) {
+			lines.push(railLine(RAIL.body, slot, truncate(line, budget), theme, budget));
+		}
+		lines.push(railLine(RAIL.close, slot, theme.fg("dim", hint), theme, budget));
+		return lines;
 	}
 
 	handleInput(data: string): void {
-		if (data === "y" || data === "Y") {
-			this.done(true);
-			return;
+		// M2-1: keys come from the central `overlay:*` keyspace (remappable via
+		// `.crew/config.json` → keybindings["overlay:confirm:<action>"]).
+		switch (overlayActionForKey("confirm", data)) {
+			case "confirm":
+				this.done(true);
+				return;
+			// Enter is dual-role: it confirms when the overlay defaults to confirm
+			// and cancels otherwise (byte-identical to the pre-M2-1 chain).
+			case "submit":
+				this.done(this.opts.defaultAction === "confirm");
+				return;
+			case "cancel":
+				this.done(false);
+				return;
 		}
-		if (matchesKey(data, "return") && this.opts.defaultAction === "confirm") {
-			this.done(true);
-			return;
-		}
-		if (data === "n" || data === "N" || matchesKey(data, "escape") || data === "q" || matchesKey(data, "return")) this.done(false);
 	}
 }

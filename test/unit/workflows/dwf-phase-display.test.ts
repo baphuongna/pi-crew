@@ -113,21 +113,6 @@ test("renderDwfPhaseLines: emits correct Unicode markers per status", () => {
 	assert.ok(lines.some((line) => line.includes("⏸ Phase: Review")));
 });
 
-test("renderDwfPhaseLines: emits ASCII fallback markers when requested", () => {
-	const state = {
-		phases: [
-			{ name: "Scan", status: "completed" as const },
-			{ name: "Plan", status: "running" as const },
-			{ name: "Review", status: "pending" as const },
-		],
-		currentPhase: "Plan",
-	};
-	const lines = renderDwfPhaseLines(state, { ascii: true });
-	assert.ok(lines.some((line) => line.includes("[v] Phase: Scan")));
-	assert.ok(lines.some((line) => line.includes("[>] Phase: Plan")));
-	assert.ok(lines.some((line) => line.includes("[ ] Phase: Review")));
-});
-
 test("renderDwfPhaseLines: emits grouping header only for multiple phases", () => {
 	const multi = renderDwfPhaseLines({
 		phases: [

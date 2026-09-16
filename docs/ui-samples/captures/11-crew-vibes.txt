@@ -1,0 +1,5 @@
+### /team-vibes on — footer native của Pi (quota provider)
+anthropic 5h ━━━━┄┄┄┄ 45% 2h29m Wk ━━┄┄┄┄┄┄ 23% 47h59m
+
+### Trạng thái các provider (nhiều dòng nếu nhiều provider)
+openai ━━━━━┄┄┄ 60% 1h40m · Wk ━━┄┄┄┄┄┄ 25%

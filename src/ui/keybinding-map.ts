@@ -18,6 +18,12 @@
  * for zero benefit. The input-guard half of L2 is therefore intentionally
  * skipped; only the DRY/data-driven dispatch refactor landed.
  *
+ * M2-1 (P1-9) adds the sibling `overlay:*` keyspace below. The migrated
+ * overlays dispatch through `overlayActionForKey("<name>", data)` — the same
+ * data-driven + override pipeline as the dashboard, but a SEPARATE namespace:
+ * an overlay never consults `dashboardActionForKey`, so the no-leak argument
+ * above is unchanged.
+ *
  * Origin pattern: deer-flow `frontend/src/components/workspace/command-palette.tsx:39-50`
  * drives shortcuts from a single data array consumed by one loop in
  * `use-global-shortcuts.ts:38-61`.
@@ -44,7 +50,6 @@ export const DASHBOARD_KEYS = {
 		transcript: ["v"],
 		liveConversation: ["V"],
 		reload: ["r"],
-		progressToggle: ["p"],
 		browser: ["b"],
 	},
 	pane: {
@@ -106,7 +111,6 @@ export type DashboardKeyAction =
 	| "transcript"
 	| "live-conversation"
 	| "reload"
-	| "progressToggle"
 	| "browser"
 	| "pane-agents"
 	| "pane-progress"
@@ -152,11 +156,13 @@ export type DashboardKeyAction =
  *
  * NOTE: mailbox action keys A/N/C/P/X (ack/nudge/compose/preview/ackAll) are
  * intentionally NOT dispatched for the mailbox pane by this table. They live
- * in `DASHBOARD_KEYS.mailbox` for reservation but are handled by the mailbox
- * overlay's own `handleInput`, not by the dashboard dispatch. The `plan`
- * group reuses uppercase "A" (approve) pane-scoped to "progress" — it never
- * fires while the mailbox pane (or the mailbox-detail overlay) owns input,
- * so `mailbox.ack` behavior is unchanged.
+ * in `DASHBOARD_KEYS.mailbox` for reservation and are resolved by the mailbox
+ * overlays' own input handling — since M2-1 through the sibling `overlay:*`
+ * keyspace (`OVERLAY_KEYS["mailbox-detail"]` / `OVERLAY_KEYS["mailbox-compose"]`),
+ * never by `dashboardActionForKey`. The `plan` group reuses uppercase "A"
+ * (approve) pane-scoped to "progress" — it never fires while the mailbox pane
+ * (or the mailbox-detail overlay) owns input, so `mailbox.ack` behavior is
+ * unchanged.
  */
 const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{ keys: DASHBOARD_KEYS.close, action: "close" },
@@ -245,7 +251,6 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	{ keys: DASHBOARD_KEYS.root.transcript, action: "transcript" },
 	{ keys: DASHBOARD_KEYS.root.liveConversation, action: "live-conversation" },
 	{ keys: DASHBOARD_KEYS.root.reload, action: "reload" },
-	{ keys: DASHBOARD_KEYS.root.progressToggle, action: "progressToggle" },
 	// Agents & Jobs browser (one-keypress overlay, mirrors live-conversation).
 	// Collision analysis: "b" is unbound everywhere else — root-unscoped is
 	// safe; inside the browser overlay itself "p" is free because overlays
@@ -289,6 +294,103 @@ const KEY_RESERVED = new Set<string>([
 
 export { KEY_RESERVED };
 
+// ─── Overlay keybindings (P1-9 / M2-1) ─────────────────────────────────────
+//
+// Overlays used to hardcode their own key chains — the SAME
+// "↑/↓/Enter/Esc" concept re-implemented in every overlay file, none of them
+// remappable. M2-1 centralises them into an `overlay:<name>:<action>`
+// keyspace that rides the SAME override pipeline as the dashboard table
+// above: `.crew/config.json` → `keybindings` and `PI_CREW_KEYBINDINGS` both
+// accept `"overlay:<name>:<action>": ["<key>", …]`, a colliding override is
+// reverted to its default, and the revert is reported by
+// `getKeybindingOverrideWarnings()`.
+//
+// Overlay bindings are validated INDEPENDENTLY of dashboard bindings: the two
+// namespaces are never live at the same time (the host hands input to exactly
+// one component — an open overlay or the dashboard), so a shared key such as
+// `q`/`escape`/`A` is not a real ambiguity. Within one overlay a shared key IS
+// ambiguous and is treated as a collision.
+
+export const OVERLAY_KEYS = {
+	"agent-picker": {
+		close: ["escape", "q"],
+		up: ["k", "up"],
+		down: ["j", "down"],
+		select: ["return"],
+	},
+	confirm: {
+		confirm: ["y", "Y"],
+		/** Enter is dual-role: the overlay resolves it with `defaultAction`. */
+		submit: ["return"],
+		cancel: ["n", "N", "escape", "q"],
+	},
+	"mailbox-detail": {
+		close: ["escape", "q"],
+		toggleSide: ["tab", "\t"],
+		up: ["k", "up"],
+		down: ["j", "down"],
+		toggleDetail: ["return"],
+		ack: ["A"],
+		nudge: ["N"],
+		compose: ["C"],
+		ackAll: ["X"],
+	},
+	"mailbox-compose": {
+		cancel: ["escape"],
+		preview: ["P"],
+		nextField: ["tab", "\t"],
+		space: [" "],
+		backspace: ["backspace"],
+		submit: ["return"],
+	},
+} as const;
+
+type OverlayDefs = typeof OVERLAY_KEYS;
+
+/** Overlay namespaces that opt into the central keybinding map. */
+export type OverlayName = keyof OverlayDefs;
+
+/** Every action across every overlay (union). */
+export type OverlayAction = { [N in OverlayName]: keyof OverlayDefs[N] & string }[OverlayName];
+
+/** Actions of ONE overlay — the precise return type of `overlayActionForKey`. */
+export type OverlayActionOf<N extends OverlayName> = keyof OverlayDefs[N] & string;
+
+/** Override key as written in config/env: `overlay:<name>:<action>`. */
+export type OverlayBindingKey = { [N in OverlayName]: `overlay:${N & string}:${keyof OverlayDefs[N] & string}` }[OverlayName];
+
+/** A resolved overlay binding (one action of one overlay). */
+export interface OverlayBinding {
+	readonly overlay: OverlayName;
+	readonly action: OverlayAction;
+	readonly keys: readonly string[];
+}
+
+/** Compose the config/env override key for one overlay action. */
+function overlayBindingKey(overlay: OverlayName, action: OverlayAction): OverlayBindingKey {
+	return `overlay:${overlay}:${action}` as OverlayBindingKey;
+}
+
+// `Object.entries` widens the const-typed tables; this cast restores the exact
+// shape (no `any`; the `OverlayBinding` annotation below still checks it).
+type OverlayTableEntry = readonly [OverlayName, Readonly<Record<string, readonly string[]>>];
+
+const OVERLAY_TABLE = Object.entries(OVERLAY_KEYS) as readonly OverlayTableEntry[];
+
+/** Every valid `overlay:<name>:<action>` override key. */
+const OVERLAY_BINDING_KEYS: ReadonlySet<string> = new Set(
+	OVERLAY_TABLE.flatMap(([overlay, actions]) =>
+		Object.keys(actions).map((action) => overlayBindingKey(overlay, action as OverlayAction)),
+	),
+);
+
+const DEFAULT_OVERLAY_BINDINGS: ReadonlyMap<OverlayName, readonly OverlayBinding[]> = new Map<OverlayName, readonly OverlayBinding[]>(
+	OVERLAY_TABLE.map(([overlay, actions]) => [
+		overlay,
+		Object.entries(actions).map(([action, keys]): OverlayBinding => ({ overlay, action: action as OverlayAction, keys })),
+	]),
+);
+
 // ─── Keybinding overrides (UI-2) ───────────────────────────────────────────
 //
 // The hardcoded DEFAULT_BINDINGS above can be overridden per-action via two
@@ -309,13 +411,14 @@ export { KEY_RESERVED };
 // first-match-wins dispatch unambiguous — a shadowed override never silently
 // changes behaviour.
 
-/** Override map: action → replacement keys. `Partial` ⇒ only listed actions. */
-export type KeybindingOverride = Partial<Record<DashboardKeyAction, readonly string[]>>;
+/** Override map: action → replacement keys. `Partial` ⇒ only listed actions.
+ *  Keys are dashboard actions plus `overlay:<name>:<action>` binding keys. */
+export type KeybindingOverride = Partial<Record<DashboardKeyAction | OverlayBindingKey, readonly string[]>>;
 
 const KEYBINDINGS_ENV = "PI_CREW_KEYBINDINGS";
 
-/** Every dispatched action is a valid override target. */
-const VALID_OVERRIDE_ACTIONS: ReadonlySet<string> = new Set(DEFAULT_BINDINGS.map((b) => b.action));
+/** Every dispatched action + every `overlay:*` binding is a valid override target. */
+const VALID_OVERRIDE_ACTIONS: ReadonlySet<string> = new Set<string>([...DEFAULT_BINDINGS.map((b) => b.action), ...OVERLAY_BINDING_KEYS]);
 
 /** Coerce an unknown parsed value into a safe {@link KeybindingOverride}. */
 function parseKeybindingOverride(raw: unknown): KeybindingOverride {
@@ -355,42 +458,87 @@ function paneScopesCompatible(a: PaneScope | undefined, b: PaneScope | undefined
 
 interface EffectiveBindingsResult {
 	readonly bindings: readonly KeyBinding[];
-	/** Actions whose override was rejected due to a collision. */
-	readonly reverted: readonly DashboardKeyAction[];
+	/** Resolved bindings per overlay (defaults + non-colliding overrides). */
+	readonly overlayBindings: ReadonlyMap<OverlayName, readonly OverlayBinding[]>;
+	/** Override targets whose override was rejected due to a collision. */
+	readonly reverted: readonly string[];
 }
 
 /**
- * Apply `overrides` onto {@link DEFAULT_BINDINGS} (replace keys per action,
- * preserving each action's pane scope) and detect collisions. A colliding
- * override is reverted to its default so the dispatch stays unambiguous.
+ * Does `candidate` share a key with any `other` binding that could be live at
+ * the same time? Shared by the dashboard and the overlay namespaces so the
+ * collision rule (and its revert semantics) has ONE implementation.
+ */
+function collidesWithOthers<B extends { readonly keys: readonly string[]; readonly action: string }>(
+	candidate: B,
+	others: readonly B[],
+	compatible: (a: B, b: B) => boolean,
+): boolean {
+	for (const other of others) {
+		if (other.action === candidate.action) continue;
+		if (!compatible(candidate, other)) continue;
+		if (candidate.keys.some((k) => other.keys.includes(k))) return true;
+	}
+	return false;
+}
+
+/**
+ * Apply `overrides` onto {@link DEFAULT_BINDINGS} + {@link DEFAULT_OVERLAY_BINDINGS}
+ * (replace keys per target, preserving each binding's pane scope / overlay) and
+ * detect collisions. A colliding override is reverted to its default so the
+ * dispatch stays unambiguous. Dashboard and overlay namespaces are validated
+ * separately (they are never live simultaneously).
  */
 function computeEffectiveBindings(overrides: KeybindingOverride): EffectiveBindingsResult {
+	// ── dashboard namespace (semantics unchanged since UI-2) ──
 	const applied = new Map<DashboardKeyAction, KeyBinding>();
 	for (const def of DEFAULT_BINDINGS) {
 		const ov = overrides[def.action];
 		applied.set(def.action, ov && ov.length > 0 ? { keys: [...ov], action: def.action, pane: def.pane } : def);
 	}
 	const effective = [...applied.values()];
-	const reverted = new Set<DashboardKeyAction>();
+	const reverted = new Set<string>();
 	for (const def of DEFAULT_BINDINGS) {
 		const ov = overrides[def.action];
 		if (!ov || ov.length === 0) continue; // not overridden
 		const ob = applied.get(def.action);
 		if (!ob) continue;
-		for (const other of effective) {
-			if (other.action === def.action) continue;
-			if (!paneScopesCompatible(ob.pane, other.pane)) continue;
-			if (ob.keys.some((k) => other.keys.includes(k))) {
-				reverted.add(def.action);
-				break;
-			}
-		}
+		if (collidesWithOthers(ob, effective, (a, b) => paneScopesCompatible(a.pane, b.pane))) reverted.add(def.action);
 	}
 	const bindings =
 		reverted.size > 0
 			? effective.map((b) => (reverted.has(b.action) ? (DEFAULT_BINDINGS.find((d) => d.action === b.action) ?? b) : b))
 			: effective;
-	return { bindings, reverted: [...reverted] };
+
+	// ── overlay namespace (M2-1) ──
+	const overlayBindings = new Map<OverlayName, readonly OverlayBinding[]>();
+	for (const [overlay, defaults] of DEFAULT_OVERLAY_BINDINGS) {
+		const perOverlay: OverlayBinding[] = defaults.map((def) => {
+			const ov = overrides[overlayBindingKey(overlay, def.action)];
+			return ov && ov.length > 0 ? { overlay, action: def.action, keys: [...ov] } : def;
+		});
+		for (const def of defaults) {
+			const key = overlayBindingKey(overlay, def.action);
+			const ov = overrides[key];
+			if (!ov || ov.length === 0) continue; // not overridden
+			const ob = perOverlay.find((b) => b.action === def.action);
+			if (!ob) continue;
+			// Same overlay ⇒ same input lineage ⇒ any shared key is ambiguous.
+			if (collidesWithOthers(ob, perOverlay, () => true)) reverted.add(key);
+		}
+		if (reverted.size === 0) {
+			overlayBindings.set(overlay, perOverlay);
+			continue;
+		}
+		overlayBindings.set(
+			overlay,
+			perOverlay.map((b) =>
+				reverted.has(overlayBindingKey(overlay, b.action)) ? (defaults.find((d) => d.action === b.action) ?? b) : b,
+			),
+		);
+	}
+
+	return { bindings, overlayBindings, reverted: [...reverted] };
 }
 
 /** Read the `keybindings` section from `<cwd>/.crew/config.json`. */
@@ -428,15 +576,17 @@ interface EffectiveCache {
 	readonly configMtime: number | undefined;
 	readonly cwd: string;
 	readonly bindings: readonly KeyBinding[];
+	readonly overlayBindings: ReadonlyMap<OverlayName, readonly OverlayBinding[]>;
 }
 
 let _effectiveCache: EffectiveCache | null = null;
 let _overrideWarnings: readonly string[] = [];
 
 /**
- * Resolve the effective dispatch table: {@link DEFAULT_BINDINGS} with config +
- * env overrides applied (env wins per action). Memoised on (env value, config
- * mtime, cwd); a single `statSync` per call detects on-disk config changes.
+ * Resolve the effective dispatch tables: {@link DEFAULT_BINDINGS} and
+ * {@link DEFAULT_OVERLAY_BINDINGS} with config + env overrides applied (env
+ * wins per target). Memoised on (env value, config mtime, cwd); a single
+ * `statSync` per call detects on-disk config changes.
  */
 function getEffectiveBindings(cwd: string = process.cwd()): readonly KeyBinding[] {
 	const envRaw = getCrewEnv(KEYBINDINGS_ENV);
@@ -445,10 +595,16 @@ function getEffectiveBindings(cwd: string = process.cwd()): readonly KeyBinding[
 		return _effectiveCache.bindings;
 	}
 	const merged: KeybindingOverride = { ...readConfigKeybindings(cwd), ...readEnvKeybindings() };
-	const { bindings, reverted } = computeEffectiveBindings(merged);
+	const { bindings, overlayBindings, reverted } = computeEffectiveBindings(merged);
 	_overrideWarnings = reverted.map((a) => `keybinding override for '${a}' collides with another binding — reverting to default`);
-	_effectiveCache = { env: envRaw, configMtime, cwd, bindings };
+	_effectiveCache = { env: envRaw, configMtime, cwd, bindings, overlayBindings };
 	return bindings;
+}
+
+/** Resolved overlay bindings for one overlay (defaults + non-colliding overrides). */
+function getEffectiveOverlayBindings(overlay: OverlayName): readonly OverlayBinding[] {
+	getEffectiveBindings(); // ensures the memo is warm + warnings are populated
+	return _effectiveCache?.overlayBindings.get(overlay) ?? DEFAULT_OVERLAY_BINDINGS.get(overlay) ?? [];
 }
 
 /** Warnings from the most recent override resolution (e.g. collisions). */
@@ -510,6 +666,48 @@ export function dashboardActionForKey(data: string, activePane?: ActivePane): Da
 		for (const candidate of binding.keys) {
 			if (key === candidate) return binding.action;
 			if (matchesKey(data, candidate as KeyId)) return binding.action;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Resolve a raw input `data` string to an OVERLAY action (M2-1 / P1-9).
+ *
+ * Mirror image of {@link dashboardActionForKey} over the overlay keyspace:
+ * same two-pass dispatch (case-sensitive exact match first, then the
+ * terminal-aware `matchesKey` normalization), same override pipeline
+ * (`.crew/config.json` → `keybindings["overlay:<name>:<action>"]`, then the
+ * `PI_CREW_KEYBINDINGS` env var, collision → revert to default).
+ *
+ * With no override configured the result is identical to the key chains the
+ * overlays used to hardcode (asserted by
+ * `test/unit/ui/overlay-keybindings.test.ts`).
+ *
+ * @param overlay Overlay namespace, e.g. `"confirm"`.
+ * @param data Raw key input (single char or escape sequence).
+ */
+export function overlayActionForKey<N extends OverlayName>(overlay: N, data: string): OverlayActionOf<N> | undefined {
+	const bindings = getEffectiveOverlayBindings(overlay);
+	// Pass 1 — exact, case-sensitive match (keeps "y"/"Y" and "A"/"a" distinct).
+	for (const binding of bindings) {
+		if (binding.keys.includes(data)) return binding.action as OverlayActionOf<N>;
+	}
+	// Pass 2 — escape-sequence / canonical KeyId normalisation.
+	//
+	// Single-character candidates are deliberately EXCLUDED here: pi-tui's
+	// `matchesKey()` is case-INSENSITIVE for plain ASCII
+	// (`matchesKey("a", "A") === true`), which would collapse the deliberate
+	// case distinctions this keyspace relies on ("A"=ack vs lowercase "a"=free
+	// text in mailbox-compose; "y"/"Y" in confirm). Pass 1 already matched
+	// single chars exactly and case-sensitively, mirroring the pre-M2-1 chains
+	// (`data === "A"`, `data === "P"`, …).
+	const key = keyOf(data);
+	for (const binding of bindings) {
+		for (const candidate of binding.keys) {
+			if (candidate.length === 1) continue;
+			if (key === candidate) return binding.action as OverlayActionOf<N>;
+			if (matchesKey(data, candidate as KeyId)) return binding.action as OverlayActionOf<N>;
 		}
 	}
 	return undefined;

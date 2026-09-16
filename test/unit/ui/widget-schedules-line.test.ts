@@ -166,7 +166,7 @@ test("schedulesWidgetLine: the injected hidden reader flows into the live line",
 test("schedulesWidgetLine: hidden-only line at zero visible jobs keeps the empty-runs widget mounted", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ enabled: false })]);
 	setWidgetHiddenJobsReader(() => 1);
-	assert.deepEqual(buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 }), ["⏰ 0 sched · 1 hidden — ↓·enter"]);
+	assert.deepEqual(buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 }), ["┃ CREW ▸ idle · ⏰ 0 sched · 1 hidden ···· ↓·enter"]);
 });
 
 test("default hidden reader is hermetic: NO registered scheduler → 0 (paint path never reads settings)", () => {
@@ -195,14 +195,15 @@ test("default hidden reader: registered scheduler WITHOUT a stash → 0 segment 
 
 // ── buildWidgetLines integration ───────────────────────────────────────
 
-test("buildWidgetLines (detailed): SINGLE LINE — counts + schedules + ↓·enter hint, nothing else", () => {
+test("buildWidgetLines (detailed): SINGLE LINE — canopy + counts + schedules + `···· ↓·enter`, nothing else", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
 	assert.equal(lines.length, 1, `exactly ONE row, got ${JSON.stringify(lines)}`);
 	const header = lines[0] ?? "";
-	assert.ok(header.includes("Crew agents"), `the one row is the header, got '${header}'`);
+	assert.ok(header.startsWith("┃ "), `rides the dock rail (never ┏/┗), got '${header}'`);
+	assert.ok(header.includes("CREW ▸ default"), `identity canopy on the one row, got '${header}'`);
 	assert.ok(header.includes("⏰ 1 sched · next 84m"), `merged schedules segment, got '${header}'`);
-	assert.ok(header.endsWith("↓·enter"), `trailing ↓·enter interaction hint, got '${header}'`);
+	assert.ok(header.endsWith("···· ↓·enter"), `trailing leaders + ↓·enter hint, got '${header}'`);
 });
 
 test("buildWidgetLines (detailed): NO schedules segment → single count row, no ⏰", () => {
@@ -213,18 +214,18 @@ test("buildWidgetLines (detailed): NO schedules segment → single count row, no
 	assert.ok(lines[0].endsWith("↓·enter"), "interaction hint survives");
 });
 
-test("buildWidgetLines (compact): same SINGLE row as detailed — counts + schedules merged", () => {
+test("buildWidgetLines (compact): same SINGLE row as detailed — canopy + schedules merged", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 30 * 60_000).toISOString() })]);
-	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", now: T0 });
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
 	assert.equal(lines.length, 1);
-	assert.ok(lines[0].includes("Crew agents"), `count header, got '${lines[0]}'`);
+	assert.ok(/^┃ \S+ CREW ▸ default /.test(lines[0]), `canopy (spinner rides the rail), got '${lines[0]}'`);
 	assert.ok(lines[0].includes("⏰ 1 sched · next 30m"), `merged schedules, got '${lines[0]}'`);
-	assert.ok(lines[0].endsWith("↓·enter"), `interaction hint, got '${lines[0]}'`);
+	assert.ok(lines[0].endsWith("···· ↓·enter"), `interaction hint, got '${lines[0]}'`);
 });
 
 test("buildWidgetLines (compact): focused prefixes the ❯ cursor marker on the SAME single row", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
-	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", focused: true, now: T0 });
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { focused: true, now: T0 });
 	assert.equal(lines.length, 1);
 	assert.ok(lines[0].startsWith("❯ "), `focused marker on the row itself, got '${lines[0]}'`);
 	assert.ok(lines[0].includes("⏰ 1 sched · next 84m"), `schedules still merged, got '${lines[0]}'`);
@@ -233,7 +234,7 @@ test("buildWidgetLines (compact): focused prefixes the ❯ cursor marker on the 
 test("buildWidgetLines (compact): count row carries the `· N hidden` segment (P2-1)", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
 	setWidgetHiddenJobsReader(() => 2);
-	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", now: T0 });
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
 	assert.equal(lines.length, 1);
 	assert.ok(lines[0].includes("⏰ 1 sched · next 84m · 2 hidden"), `hidden segment merged, got '${lines[0]}'`);
 });
@@ -241,7 +242,7 @@ test("buildWidgetLines (compact): count row carries the `· N hidden` segment (P
 test("buildWidgetLines (compact): hidden-only sched content still merges into the count row (invisible-gate fix)", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ enabled: false })]);
 	setWidgetHiddenJobsReader(() => 1);
-	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { rowStyle: "compact", now: T0 });
+	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 100, { now: T0 });
 	assert.equal(lines.length, 1);
 	assert.ok(lines[0].includes("⏰ 0 sched · 1 hidden"), `hidden-only segment merged, got '${lines[0]}'`);
 });
@@ -269,10 +270,10 @@ test("buildWidgetLines: injected clock drives the relative bucket (no hidden Dat
 	assert.ok(atT0Plus30m[0].includes("⏰ 1 sched · next 54m"), `merged header bucket at T0+30m, got '${atT0Plus30m[0]}'`);
 });
 
-test("buildWidgetLines: empty runs + enabled jobs → widget shows ONLY the schedules line", () => {
+test("buildWidgetLines: empty runs + enabled jobs → widget shows ONLY the idle schedules row", () => {
 	setWidgetScheduledJobsReader(() => [makeJob({ nextRun: new Date(T0.getTime() + 84 * 60_000).toISOString() })]);
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [], 0, 100, { now: T0 });
-	assert.deepEqual(lines, ["⏰ 1 sched · next 84m — ↓·enter"]);
+	assert.deepEqual(lines, ["┃ CREW ▸ idle · ⏰ 1 sched · next 84m ···· ↓·enter"]);
 });
 
 test("buildWidgetLines: empty runs + no enabled jobs → still [] (legacy behavior preserved)", () => {
@@ -288,7 +289,7 @@ test("buildWidgetLines: merged status rows are truncated to the render width (bo
 		assert.ok(line.length <= 10, `detailed line ${i} expected width<=10, got '${line}' (${line.length})`);
 	}
 	// Compact idle: the merged count row (line 0) must clip.
-	const compact = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 12, { rowStyle: "compact", now: T0 });
+	const compact = buildWidgetLines(FAKE_CWD, 0, 8, [makeFakeRun()], 0, 12, { now: T0 });
 	for (const [i, line] of compact.entries()) {
 		assert.ok(line.length <= 12, `compact line ${i} expected width<=12, got '${line}' (${line.length})`);
 	}

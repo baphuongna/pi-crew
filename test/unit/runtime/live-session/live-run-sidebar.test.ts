@@ -70,12 +70,21 @@ test("LiveRunSidebar renders active, waiting, model, and usage sections", () => 
 			done: () => undefined,
 		});
 		const text = sidebar.render(80).join("\n");
-		assert.match(text, /pi-crew live sidebar/);
-		assert.match(text, /Active agents/);
-		assert.match(text, /Waiting tasks/);
+		// RAIL §2.E: `┏ LIVE ▸ <run8>` canopy + `┣ SECTION` headers + `┗ <hint>`
+		// cap. The rounded `╭─╮│╰─╯` box is retired.
+		assert.match(text, /^┏ LIVE ▸ \w{8}/);
+		assert.ok(!/[╭╮╰╯│]/.test(text), `rounded box glyphs retired, got '${text}'`);
+		assert.match(text, /┣ ACTIVE ▸ 1 agent/);
+		assert.match(text, /┣ WAITING ▸ \d+ tasks?/);
 		assert.match(text, /model openai-codex\/gpt-5\.5/);
-		assert.match(text, /input=10/);
+		// M4 polish (2026-09-16): the sidebar prints the TUI usage form
+		// (`↑10 ↓5`), not the `key=value` form used by CLI/status output — the
+		// raw form buried the numbers under `cacheRead=…, cacheWrite=0,
+		// cost=0.000000, turns=0` on a 118-column row.
+		assert.match(text, /↑10 ↓5/, `compact usage form expected, got ${text}`);
 		assert.match(text, /02_analyze waiting for 01_explore/);
+		assert.ok(text.trimEnd().split("\n").at(-1)?.startsWith("┗ "), "closes with the `┗ <hint>` cap");
+		assert.ok(!text.includes("->"), "the legacy `role->agent` separator is retired");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}

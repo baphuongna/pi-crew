@@ -1,6 +1,9 @@
 import { humanizeSchedule, type ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
 import { formatRelativeTime } from "../../utils/relative-time.ts";
 import { sanitizeLine, truncate } from "../../utils/visual.ts";
+import { formatCount } from "../format-helpers.ts";
+import { ACTIVE, CURSOR, formatHint, statusIcon } from "../rail.ts";
+import { PANE_THEME } from "./pane-theme.ts";
 
 /**
  * Schedules pane (tier A foundation) — pure string[] renderer following
@@ -32,6 +35,16 @@ export interface SchedulesPaneOptions {
 
 export const SCHEDULES_EMPTY_STATE = "No scheduled jobs — create via team tool action='schedule'";
 
+/** Pane-8 actions in the ONE rail hint format (`formatHint`: keys `label`
+ *  pairs joined by ` · `). Order preserved from the pre-migration hint. */
+const ACTION_HINTS: ReadonlyArray<readonly [string, string]> = [
+	["T", "toggle"],
+	["N", "run now"],
+	["V", "details"],
+	["X", "delete"],
+	["R", "refresh"],
+];
+
 /** P2-1 hint line (single source of truth — pane table, empty state, and the
  *  headless /schedules text block all render THIS text). Empty string when
  *  there is nothing to hint (callers render no line). Pure: no clock, no I/O;
@@ -61,7 +74,7 @@ export function renderSchedulesPane(jobs: ScheduledJob[], now: Date, opts: Sched
 	}
 	if (hint) lines.push(hint);
 	if (opts.foreground !== false) {
-		lines.push("Actions: T toggle · N run now · V details · X delete · R refresh");
+		lines.push(`Actions: ${formatHint(ACTION_HINTS)}`);
 	}
 	return lines;
 }
@@ -82,26 +95,32 @@ export function renderSchedulesTextBlock(jobs: ScheduledJob[], now: Date, opts: 
 
 function renderJobLines(job: ScheduledJob, now: Date, opts: SchedulesPaneOptions, selected: boolean): string[] {
 	const glyph = job.enabled ? "●" : "○";
-	const name = truncate(sanitizeLine(job.name), opts.nameWidth ?? 28);
+	const name = truncate(sanitizeLine(job.name ?? "?"), opts.nameWidth ?? 28);
 	// The humanized schedule embeds the RAW job.schedule ("cron …"/"once at …")
 	// — same untrusted persisted field the details view sanitizes, so the
 	// main line gets the identical treatment (headless /schedules notify path
 	// applies NO downstream sanitization — security review F-1).
-	const schedule = sanitizeLine(humanizeSchedule({ kind: job.scheduleType, spec: job.schedule }));
+	const schedule = sanitizeLine(humanizeSchedule({ kind: job.scheduleType ?? "once", spec: job.schedule ?? "?" }));
 	const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "—";
-	// Cursor marker (dashboard pane 8): `›` on the selected job, two spaces on
-	// the others — mirroring runLabel's `›`/space marker. Callers that pass NO
-	// selectedIndex (headless text block, foundation tests) get the marker-free
-	// legacy layout byte-for-byte.
-	const marker = opts.selectedIndex === undefined ? "" : selected ? "› " : "  ";
-	const main = `${marker}${glyph} ${name}  ${schedule} · ${next} · ${statusGlyph(job.lastStatus)} · ${job.runCount} runs`;
+	// Cursor marker (dashboard pane 8): the RAIL `CURSOR` glyph on the selected
+	// job, two spaces on the others — mirroring runLabel's marker. Callers that
+	// pass NO selectedIndex (headless text block, foundation tests) get the
+	// marker-free legacy layout byte-for-byte.
+	const marker = opts.selectedIndex === undefined ? "" : selected ? `${CURSOR} ` : "  ";
+	const main = `${marker}${glyph} ${name}  ${schedule} · ${next} · ${statusGlyph(job.lastStatus)} · ${formatCount(job.runCount ?? 0, "run")}`;
 	return [main, renderSubLine(job, now, opts)];
 }
 
+/**
+ * Last-run glyph from the shared RAIL vocabulary. `lastStatus` spells
+ * success/error while `statusSlot`/`statusIcon` key off completed/failed, so
+ * the two are translated instead of forked; "never ran" keeps the pane's own
+ * `·` (rail has no such slot and would render `○`, the disabled/none glyph).
+ */
 function statusGlyph(status: ScheduledJob["lastStatus"]): string {
-	if (status === "success") return "✓";
-	if (status === "error") return "✗";
-	if (status === "running") return "⟳";
+	if (status === "success") return statusIcon("completed", PANE_THEME);
+	if (status === "error") return statusIcon("failed", PANE_THEME);
+	if (status === "running") return statusIcon("running", PANE_THEME);
 	return "·";
 }
 
@@ -110,12 +129,13 @@ function renderSubLine(job: ScheduledJob, now: Date, opts: SchedulesPaneOptions)
 	// the dashboard emit pipeline sanitizes whole lines, but the headless
 	// /schedules text block goes to ui.notify verbatim, and subagentType/id
 	// from a crafted settings entry must not inject line breaks there.
-	const parts = [sanitizeLine(job.subagentType)];
+	// Persisted jobs are NOT schema-validated at read time, hence the `?? "?"`.
+	const parts = [sanitizeLine(job.subagentType ?? "?")];
 	parts.push(job.lastRun ? `last: ${formatRelativeTime(now, new Date(job.lastRun))}` : "last: never");
 	// Duration: rendered only when the job model carries one ("duration if
 	// available" in the approved design). ScheduledJob has no duration field
 	// today, so nothing is invented here — a future field slots in below.
-	if (opts.includeIds) parts.push(`id: ${sanitizeLine(job.id)}`);
+	if (opts.includeIds) parts.push(`id: ${sanitizeLine(job.id ?? "?")}`);
 	return `  ◦ ${parts.join(" · ")}`;
 }
 
@@ -124,14 +144,14 @@ function renderSubLine(job: ScheduledJob, now: Date, opts: SchedulesPaneOptions)
  *  carry free text — fall back to description, then name. */
 function scheduleGoalOf(job: ScheduledJob): string {
 	try {
-		const parsed = JSON.parse(job.prompt) as { goal?: unknown };
+		const parsed = JSON.parse(job.prompt ?? "") as { goal?: unknown };
 		if (parsed && typeof parsed === "object" && typeof parsed.goal === "string" && parsed.goal.length > 0) {
 			return parsed.goal;
 		}
 	} catch {
 		/* prompt is not JSON — fall through */
 	}
-	return job.description || job.name;
+	return job.description || job.name || "?";
 }
 
 /**
@@ -141,14 +161,17 @@ function scheduleGoalOf(job: ScheduledJob): string {
  * dashboard emit pipeline truncates/sanitizes per line.
  */
 export function renderScheduleDetails(job: ScheduledJob, now: Date): string[] {
-	const schedule = humanizeSchedule({ kind: job.scheduleType, spec: job.schedule });
+	// Persisted jobs are NOT schema-validated at read time (design system §2.G:
+	// "guard every optional field") — sanitize AFTER the `?? "?"` fallback so a
+	// missing field renders `?`, never `undefined`.
+	const schedule = humanizeSchedule({ kind: job.scheduleType ?? "once", spec: job.schedule ?? "?" });
 	const next = job.nextRun ? formatRelativeTime(now, new Date(job.nextRun)) : "—";
 	const last = job.lastRun ? formatRelativeTime(now, new Date(job.lastRun)) : "never";
 	return [
-		`▸ ${sanitizeLine(job.name)} — id ${sanitizeLine(job.id)}`,
+		`${ACTIVE} ${sanitizeLine(job.name ?? "?")} — id ${sanitizeLine(job.id ?? "?")}`,
 		`  goal: ${sanitizeLine(scheduleGoalOf(job))}`,
-		`  schedule: ${sanitizeLine(job.schedule)} (${sanitizeLine(job.scheduleType)}) · humanized: ${sanitizeLine(schedule)} · next: ${next}`,
-		`  agent: ${sanitizeLine(job.subagentType)} · runs: ${job.runCount} · last: ${last} · status: ${statusGlyph(job.lastStatus)}`,
-		`  spawned runs: ${job.spawnedRunIds?.length ? job.spawnedRunIds.map(sanitizeLine).join(", ") : "none"}`,
+		`  schedule: ${sanitizeLine(job.schedule ?? "?")} (${sanitizeLine(job.scheduleType ?? "?")}) · humanized: ${sanitizeLine(schedule)} · next: ${next}`,
+		`  agent: ${sanitizeLine(job.subagentType ?? "?")} · runs: ${job.runCount ?? 0} · last: ${last} · status: ${statusGlyph(job.lastStatus)}`,
+		`  spawned runs: ${job.spawnedRunIds?.length ? job.spawnedRunIds.map((runId) => sanitizeLine(String(runId ?? "?"))).join(", ") : "none"}`,
 	];
 }

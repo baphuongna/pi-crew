@@ -90,10 +90,16 @@ export async function openLiveConversation(
 					return overlay.render(width);
 				},
 				handleInput(data: string) {
+					// Close keys stay exactly as they were: close the overlay and
+					// resolve the custom() promise.
 					if (matchesKey(data, "escape") || matchesKey(data, "q")) {
 						overlay.close();
 						done(undefined);
+						return;
 					}
+					// Everything else scrolls the live transcript (P1-3):
+					// j/k, ↓/↑, g/G, PgUp/PgDn and the `a` auto-scroll toggle.
+					overlay.handleInput(data);
 				},
 				invalidate() {
 					/* overlay polls */

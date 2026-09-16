@@ -1,61 +1,12 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CrewTheme } from "../../ui/theme-adapter.ts";
-import { type CapacityConfig, type CrewVibesConfig, capacityIcons, PROVIDER_STATUS_ID, type TokenDisplay } from "./config.ts";
-import { capacityIndex, isDangerStage } from "./figures.ts";
-
-export type CapacityUsage = {
-	tokens: number | null;
-	percent: number | null;
-};
-
-export function formatCount(value: number): string {
-	if (value < 1000) return value.toString();
-	if (value < 10_000) return `${(value / 1000).toFixed(1)}k`;
-	if (value < 1_000_000) return `${Math.round(value / 1000)}k`;
-	if (value < 10_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-	return `${Math.round(value / 1_000_000)}M`;
-}
+import { type CrewVibesConfig, PROVIDER_STATUS_ID } from "./config.ts";
 
 function asCrewTheme(theme: unknown): CrewTheme | undefined {
 	if (theme && typeof theme === "object" && typeof (theme as CrewTheme).fg === "function") {
 		return theme as CrewTheme;
 	}
 	return undefined;
-}
-
-export function getCapacityUsage(ctx: ExtensionContext): CapacityUsage {
-	const fn = (ctx as { getContextUsage?: () => { tokens?: number; percent?: number } | null }).getContextUsage;
-	const usage = typeof fn === "function" ? fn.call(ctx) : null;
-	return {
-		tokens: typeof usage?.tokens === "number" && Number.isFinite(usage.tokens) ? usage.tokens : null,
-		percent: typeof usage?.percent === "number" && Number.isFinite(usage.percent) ? usage.percent : null,
-	};
-}
-
-function formatCapacityPrefix(config: CapacityConfig, usage: CapacityUsage): string {
-	const display: TokenDisplay = config.tokenDisplay;
-	if (display === "off") return "";
-	if (display === "percentage") {
-		return `${usage.percent === null ? "?" : Math.round(Math.max(0, Math.min(999, usage.percent)))}% `;
-	}
-	return `${usage.tokens === null ? "?" : formatCount(usage.tokens)} `;
-}
-
-function colorStage(theme: CrewTheme | undefined, index: number, levels: number, text: string): string {
-	if (!theme || text.length === 0) return text;
-	return theme.fg(isDangerStage(index, levels) ? "error" : "success", text);
-}
-
-export function renderCapacity(theme: CrewTheme | undefined, config: CapacityConfig, usage: CapacityUsage): string {
-	const icons = capacityIcons();
-	const levels = icons.length;
-	const index = capacityIndex(usage.percent, levels);
-	const icon = icons[index] ?? icons[0];
-	const label = config.labels[index] ?? config.labels[0];
-	const prefix = theme ? theme.fg("muted", formatCapacityPrefix(config, usage)) : formatCapacityPrefix(config, usage);
-	const coloredIcon = colorStage(theme, index, levels, icon);
-	const afterIcon = config.showLabel ? `  ${colorStage(theme, index, levels, label)}` : " ";
-	return `${prefix}${coloredIcon}${afterIcon}`;
 }
 
 export function clearVibesStatus(ctx: ExtensionContext): void {

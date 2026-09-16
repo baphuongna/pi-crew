@@ -19,8 +19,6 @@ import { type CrewVibesConfig, loadConfig, saveConfig } from "./config.ts";
 import { clearProviderUsageCache, fetchProviderUsage, type ProviderUsage } from "./provider-usage.ts";
 import { asCrewTheme, clearVibesStatus, renderProviderUsage, setProviderStatus } from "./render.ts";
 
-export const CREW_VIBES_STATUS_KEY = "pi-crew-vibes";
-
 /**
  * crew-vibes — provider rate-limit quota publisher.
  *

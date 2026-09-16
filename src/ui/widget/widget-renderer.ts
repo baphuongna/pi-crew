@@ -6,30 +6,20 @@
 
 import { getCrewScheduler, getScheduledJobs, getScheduledJobsHiddenCountView } from "../../extension/team-tool/handle-schedule.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
-import type { listLiveAgents } from "../../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
 import type { ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
-import type { TeamRunManifest } from "../../state/types.ts";
 import { formatRelativeTime } from "../../utils/relative-time.ts";
-import { truncate } from "../../utils/visual.ts";
+import { truncate, visibleWidth } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
+import { ACTIVE, RAIL, type RailSlot, railLeaders, railRaw, shortId, statusSlot } from "../rail.ts";
 import { spinnerFrame } from "../spinner.ts";
 import { colorizeStatusGlyphs } from "../status-colors.ts";
-import type { CrewTheme } from "../theme-adapter.ts";
-import {
-	agentActivity,
-	budgetedRow,
-	dockElapsed,
-	dockStatusIcon,
-	dockStatusLabel,
-	dockUsageText,
-	notificationBadge,
-} from "./widget-formatters.ts";
+import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
+import { notificationBadge } from "./widget-formatters.ts";
 import { activeWidgetRuns, shortRunLabel } from "./widget-model.ts";
 import type { WidgetRun } from "./widget-types.ts";
 
-export const MAX_AGENTS_DISPLAY = 3;
 const FINISHED_LINGER_MAX_AGE = 1;
 /** Default terminal width when caller doesn't pass one explicitly. Keep <= 116
  * (the same default used elsewhere in pi-crew tool renderers) so we never paint
@@ -41,32 +31,158 @@ export const TASK_DESC_MAX = 60;
 const ERROR_LINGER_MAX_AGE = 2;
 const ERROR_STATUSES = new Set(["failed", "cancelled", "stopped", "needs_attention"]);
 
+// ── RAIL dock composition (design system §2.B) ─────────────────────────
+//
+// The dock is the ONE surface that must never grow a second row: it speaks the
+// rail grammar with the BODY glyph (`┃`) only — never `┏`/`┗`, which imply a
+// multi-line card. The builders below return PLAIN text (that is the exported
+// contract: `buildWidgetLines` is the raw row, `colorWidgetLine` the paint
+// pass), but they COMPOSE through the shared rail helpers with a no-op theme
+// so the glyph/leader vocabulary lives in `rail.ts` alone.
+const PLAIN_THEME = asCrewTheme(undefined);
+
+/** Identity word of the dock + status bar. */
+const DOCK_WORD = "CREW";
+
+/** The dock's tail: four leaders + the one-key entry hint. */
+const DOCK_HINT_RIGHT = "↓·enter";
+const DOCK_HINT = `···· ${DOCK_HINT_RIGHT}`;
+
+/** The dock's FOCUS marker (RAIL §2.B: "focused row keeps the `❯ ` prefix").
+ *  It is deliberately not `rail.ts`'s `CURSOR` (`›`) — that glyph marks the
+ *  selected row of a LIST; the dock is a single line, and `❯` is the marker
+ *  the prompt area has always acknowledged the ↓ keystroke with. */
+const FOCUS_MARKER = "❯";
+
+/**
+ * `···· ↓·enter` appended to a dock row. Composed through `railLeaders` with a
+ * budget that pins the leader run at exactly four dots — the dock is a
+ * left-aligned single row, so the leaders must NOT stretch to the terminal
+ * width the way a card's metrics→elapsed leaders do.
+ */
+function dockTail(left: string, theme: CrewTheme, maxWidth?: number): string {
+	const pinned = visibleWidth(left) + visibleWidth(DOCK_HINT_RIGHT) + 6;
+	// The pin gives a fixed four-dot leader on a wide terminal. On a NARROW one
+	// the budget shrinks instead, so `railLeaders` trims the LEFT segment (with
+	// `…`) and the actionable `↓·enter` hint never gets clipped away — the live
+	// row used to end in `↓…` at 50 columns.
+	const budget = maxWidth === undefined ? pinned : Math.min(pinned, maxWidth - 2);
+	return railLeaders(left, DOCK_HINT_RIGHT, budget, theme);
+}
+
+/** `CREW ▸ <subject>` — the dock identity (colour is applied on the paint pass). */
+function dockIdentity(subject: string): string {
+	return subject ? `${DOCK_WORD} ${ACTIVE} ${subject}` : DOCK_WORD;
+}
+
+/** `┃ <content>` — the dock rail, unpadded (`truncate` stays the single clip). */
+function dockLine(content: string, theme: CrewTheme, slot: RailSlot): string {
+	return railRaw(RAIL.body, slot, content, theme);
+}
+
+/**
+ * Aggregate run status → the dock's rail colour (§2.B: rail colour = state).
+ * A failure outranks live work; live work outranks idle. Zero runs is idle.
+ */
+export function widgetRailSlot(runs: readonly WidgetRun[]): RailSlot {
+	if (runs.length === 0) return "border";
+	const slots = runs.map((entry) => statusSlot(entry.run.status));
+	if (slots.includes("error")) return "error";
+	if (slots.includes("borderAccent")) return "borderAccent";
+	return slots[0] ?? "border";
+}
+
+/** `<team>` (or `team/workflow` when they differ); several live runs collapse
+ *  to `<n> runs` — the counts on the row stay aggregate. */
+function dockSubject(runs: WidgetRun[]): string {
+	if (runs.length > 1) return `${runs.length} runs`;
+	const first = runs[0];
+	return first ? shortRunLabel(first.run) : "idle";
+}
+
+/**
+ * The zero-run dock row: `┃ CREW ▸ idle · ⏰ 1 sched ···· ↓·enter`.
+ *
+ * Returns `undefined` when nothing schedules-related paints. The keep-alive
+ * path MUST then render NOTHING (`[]`) — a bare hint, and above all the
+ * literal `undefined — ↓·enter`, is the live regression this guards against.
+ */
+export function idleWidgetLine(schedLine: string | undefined, focused = false, maxWidth?: number): string | undefined {
+	if (!schedLine) return undefined;
+	const left = `${dockIdentity("idle")} · ${schedLine}`;
+	const line = dockLine(dockTail(left, PLAIN_THEME, maxWidth), PLAIN_THEME, "border");
+	return focused ? `${FOCUS_MARKER} ${line}` : line;
+}
+
+/**
+ * The dock's leading activity glyph: a braille spinner ONLY while something is
+ * actually running, otherwise the outcome glyph of the aggregate state.
+ *
+ * Live-run bug (2026-09-16): the dock spun forever because `buildWidgetLines`
+ * always passed `spinnerFrame("widget-header")` — a finished run painted
+ * `┃ ⠹ CREW ▸ fast-fix · 0 running · 3/3 done`, i.e. a spinner with nothing to
+ * spin for. `✓`/`✗` are used (not `●`/`✖`) because they are in
+ * `STATUS_GLYPH_CHARS`, so the shared colorizer paints them.
+ */
+export function widgetActivityGlyph(runs: readonly WidgetRun[]): string {
+	const anyAgentRunning = runs.some((entry) => entry.agents.some((agent) => agent.status === "running"));
+	const anyRunRunning = runs.some((entry) => entry.run.status === "running");
+	if (anyAgentRunning || anyRunRunning) return spinnerFrame("widget-header");
+	const slot = widgetRailSlot(runs);
+	if (slot === "error") return "✗";
+	if (slot === "success") return "✓";
+	return "";
+}
+
 // ── Header ────────────────────────────────────────────────────────────
 
-export function widgetHeader(runs: WidgetRun[], runningGlyph: string, maxLines = 20, notificationCount = 0, schedSegment?: string): string {
+/**
+ * The dock's ONE row (RAIL §2.B):
+ *
+ *   `┃ ⠧ CREW ▸ fast-fix · 2 running · 3/5 done · ⏰ 1 sched ···· ↓·enter`
+ *
+ * Zero runs paint `┃ CREW ▸ idle · …` (see `idleWidgetLine`) instead. Returns
+ * PLAIN text — the component colorizes index 0 with `colorWidgetLine`.
+ */
+export function widgetHeader(
+	runs: WidgetRun[],
+	runningGlyph: string,
+	maxLines = 20,
+	notificationCount = 0,
+	schedSegment?: string,
+	maxWidth?: number,
+): string {
 	const agents = runs.flatMap((item) => item.agents);
-	const runningAgents = agents.filter((a) => a.status === "running").length;
-	const queuedAgents = agents.filter((a) => a.status === "queued").length;
-	const waitingAgents = agents.filter((a) => a.status === "waiting").length;
-	const completedAgents = agents.filter((a) => a.status === "completed").length;
-	const parts = [`${runningAgents} running`];
-	if (queuedAgents) parts.push(`${queuedAgents} queued`);
-	if (waitingAgents) parts.push(`${waitingAgents} waiting`);
-	if (completedAgents) parts.push(`${completedAgents}/${agents.length} done`);
-	// WP-3 on the single line (2026-09-14 round 2): a run parked awaiting plan
-	// approval surfaces as a `⚠ plan:<run8>` segment — the row-level badge is
-	// gone with the run tree, so the count row carries the signal.
-	const planPending = runs.find((item) => isPlanApprovalStatePending(item.run.planApproval));
-	if (planPending) parts.push(`⚠ plan:${planPending.run.runId.slice(-8)}`);
-	// Tier C (merged 2026-09-14): the header is the widget's ONE compact status
-	// row in detailed mode — agent stats + the schedules segment on a single
-	// line, with the `/team-dashboard` hint still trailing so it stays
-	// reachable. `schedSegment` is the ALREADY-BUILT `⏰ …` string (jobs, hidden
-	// count, and clock are all injected upstream — buildWidgetLines); undefined
-	// means nothing schedules-related paints and the header stays
-	// byte-identical to the pre-merge format.
-	const sched = schedSegment ? ` · ${schedSegment}` : "";
-	return `${runningGlyph} Crew agents${notificationBadge(notificationCount)} · ${parts.join(" · ")}${sched} — ↓·enter`;
+	const segments: string[] = [];
+	if (runs.length > 0) {
+		const runningAgents = agents.filter((a) => a.status === "running").length;
+		const queuedAgents = agents.filter((a) => a.status === "queued").length;
+		const waitingAgents = agents.filter((a) => a.status === "waiting").length;
+		const completedAgents = agents.filter((a) => a.status === "completed").length;
+		// Zero counts are noise on a one-line dock: a finished run reads
+		// `3/3 done`, not `0 running · 3/3 done`.
+		if (runningAgents) segments.push(`${runningAgents} running`);
+		if (queuedAgents) segments.push(`${queuedAgents} queued`);
+		if (waitingAgents) segments.push(`${waitingAgents} waiting`);
+		if (completedAgents) segments.push(`${completedAgents}/${agents.length} done`);
+		// WP-3 on the single line (2026-09-14 round 2): a run parked awaiting plan
+		// approval surfaces as a `⚠ plan:<run8>` segment — the row-level badge is
+		// gone with the run tree, so the count row carries the signal.
+		const planPending = runs.find((item) => isPlanApprovalStatePending(item.run.planApproval));
+		if (planPending) segments.push(`⚠ plan:${shortId(planPending.run.runId)}`);
+	}
+	// Tier C: `schedSegment` is the ALREADY-BUILT `⏰ …` string (jobs, hidden
+	// count and clock are all injected upstream — buildWidgetLines); undefined
+	// means nothing schedules-related paints.
+	if (schedSegment) segments.push(schedSegment);
+	// Bug 021: the alerts badge is one more segment (no 🔔, capped at 99+).
+	const badge = notificationBadge(notificationCount)
+		.replace(/^\s*·\s*/, "")
+		.trim();
+	if (badge) segments.push(badge);
+	const head = runningGlyph ? `${runningGlyph} ${dockIdentity(dockSubject(runs))}` : dockIdentity(dockSubject(runs));
+	const left = segments.length > 0 ? `${head} · ${segments.join(" · ")}` : head;
+	return dockLine(dockTail(left, PLAIN_THEME, maxWidth), PLAIN_THEME, "border");
 }
 
 // ── Agent ordering (shared with the inline panel) ──────────────────────
@@ -123,15 +239,14 @@ export function orderWidgetAgents(entry: WidgetRun, now = Date.now()): { active:
 export type WidgetRowStyle = "compact" | "detailed";
 
 export interface WidgetRenderOptions {
-	rowStyle?: WidgetRowStyle;
 	/** Task id under the inline panel cursor, if any. */
 	selectedTaskId?: string;
 	/** Task id whose transcript pane is open, if any. */
 	viewedTaskId?: string;
 	/**
-	 * True while the inline panel holds the cursor. Every agent is then listed
-	 * (no MAX_AGENTS_DISPLAY cap) so keyboard navigation can reach all of them;
-	 * the idle widget stays capped to keep the prompt area small.
+	 * True while the inline panel holds the cursor. The inline panel then
+	 * gets a visible cursor acknowledgement; the idle widget stays compact
+	 * to keep the prompt area small.
 	 */
 	focused?: boolean;
 	/**
@@ -140,58 +255,6 @@ export interface WidgetRenderOptions {
 	 * schedules builder never reads the clock itself.
 	 */
 	now?: Date;
-}
-
-/** Short display form of a model id: `zai/glm-5.3` → `glm-5.3`. */
-function shortModelLabel(agent: CrewAgentRecord, run: TeamRunManifest): string | undefined {
-	const model = agent.model ?? run.modelContext?.parentModel ?? run.modelContext?.override;
-	if (typeof model !== "string" || !model) return undefined;
-	return model.split("/").at(-1) ?? model;
-}
-
-/** One flat dock row (pi-subtask style) for an agent — active or finished. */
-function compactAgentRow(
-	run: TeamRunManifest,
-	agent: CrewAgentRecord,
-	finished: boolean,
-	runs: readonly WidgetRun[],
-	options: WidgetRenderOptions,
-	width: number,
-	liveHandle: ReturnType<typeof listLiveAgents>[number] | undefined,
-	nowMs: number,
-): string {
-	const marker = options.selectedTaskId === agent.taskId ? "❯" : " ";
-	const dockGlyph = options.viewedTaskId === agent.taskId ? "⏺" : dockStatusIcon(agent.status);
-	const name = liveHandle?.agent ?? agent.agent;
-	const label = liveHandle?.description ?? agent.role ?? "";
-	// Task-first: the agent exists to run its task, so the row names the task
-	// right after the agent. With multiple runs, prefix each row with its run
-	// label so the flat dock still says which run an agent belongs to.
-	const runTag = runs.length > 1 ? `${shortRunLabel(run)} · ` : "";
-	const taskTag = agent.taskId ? ` · ${agent.taskId}` : "";
-	const roleTag = label && label !== agent.taskId && label !== name ? ` · ${label}` : "";
-	const nameText = runTag + name + taskTag + roleTag;
-	// pi-subtask activity: the worker's latest line while running, otherwise
-	// the status word.
-	const liveLine = liveHandle?.activity?.responseText
-		?.split("\n")
-		.find((line) => line.trim())
-		?.trim();
-	const activity =
-		!finished && liveHandle?.status === "running" && liveLine
-			? liveLine.length > 60
-				? `${liveLine.slice(0, 60)}…`
-				: liveLine
-			: finished
-				? dockStatusLabel(agent.status)
-				: agentActivity(agent, liveHandle);
-	const usage = dockUsageText(agent, liveHandle, { viewed: options.viewedTaskId === agent.taskId, nowMs });
-	const ageText = dockElapsed(agent.completedAt ?? agent.startedAt);
-	const model = shortModelLabel(agent, run);
-	// Stats tail: `· glm-5.3 · ↑1.2k ↓350 · 41s` — the model the worker is
-	// actually on first, then usage, then elapsed.
-	const suffix = `${model ? ` · ${model}` : ""}${usage ? ` · ${usage}` : ""}${ageText ? ` · ${ageText}` : ""}`;
-	return budgetedRow({ lead: `${marker} ${dockGlyph} `, name: nameText, activity, suffix }, width);
 }
 
 // ── Schedules line (Tier C) ───────────────────────────────────────────
@@ -294,48 +357,67 @@ export function buildWidgetLines(
 	width = DEFAULT_WIDGET_WIDTH,
 	options: WidgetRenderOptions = {},
 ): string[] {
-	// SINGLE-LINE WIDGET (maintainer design 2026-09-14, round 2): the dock
-	// paints EXACTLY ONE row — counts only (running/queued/waiting/done
-	// agents + the schedules segment + the ↓·enter interaction hint). No
-	// per-agent rows, no run tree, no visible "main" row, no scroll window —
-	// ALL browsing lives in the Agents & Jobs browser, opened by ↓·enter from
-	// THIS line (crew-editor: idle enter at the line target = browser).
+	// SINGLE-LINE DOCK (design system §2.B, maintainer design 2026-09-14): the
+	// dock paints EXACTLY ONE row — `┃ <identity> · counts · schedules ····
+	// ↓·enter`. No per-agent rows, no run tree, no scroll window; ALL browsing
+	// lives in the Agents & Jobs browser, opened by ↓·enter from THIS line
+	// (crew-editor: idle enter at the line target = browser). The rail glyph is
+	// always `┃` — `┏`/`┗` would imply a multi-line card.
 	//
 	// Focused (the ↓ cursor sits ON this line): prefix a ❯ marker so the
-	// keystroke is visibly acknowledged — the line itself is the cursor
-	// target; there is no second row to land on. maxLines/frame remain in the
-	// signature for call-site compatibility; a single line is always within
-	// budget.
+	// keystroke is visibly acknowledged — the line itself is the cursor target;
+	// there is no second row to land on. maxLines/frame remain in the signature
+	// for call-site compatibility; a single line is always within budget.
 	const schedLine = schedulesWidgetLine(cwd, options.now ?? new Date());
 	const runs = providedRuns ?? activeWidgetRuns(cwd);
+	const focused = options.focused === true;
 	if (!runs.length) {
 		// Zero runs keep-alive (Tier C): jobs are exactly what run while no
-		// interactive run is active. The ⏰ segment stands alone as the row.
-		const zero = schedLine ?? null;
-		if (!zero) return [];
-		const base = `${zero} — ↓·enter`;
-		return [truncate(options.focused ? `❯ ${base}` : base, width)];
+		// interactive run is active. The ⏰ segment stands alone as the row; with
+		// no schedules either there is NOTHING to paint — `[]`, never a bare
+		// hint and never the literal `undefined — ↓·enter` (live bug 2026-09-16).
+		const idle = idleWidgetLine(schedLine, focused);
+		return idle ? [truncate(idle, width)] : [];
 	}
-	const runningGlyph = spinnerFrame("widget-header");
-	const base = widgetHeader(runs, runningGlyph, maxLines, notificationCount, schedLine);
-	return [truncate(options.focused ? `❯ ${base}` : base, width)];
+	const base = widgetHeader(runs, widgetActivityGlyph(runs), maxLines, notificationCount, schedLine, width);
+	return [truncate(focused ? `${FOCUS_MARKER} ${base}` : base, width)];
 }
 
 // ── Colorization ──────────────────────────────────────────────────────
 
-export function colorWidgetLine(line: string, index: number, theme: CrewTheme): string {
+/**
+ * Paint pass for a PLAIN dock/plan line (`index 0` = the identity row).
+ *
+ * The builders above return plain text, so this adds the identity/rail/chrome
+ * colours: the leading `┃` (or plan `┏`) takes the rail slot — `statusSlot` of
+ * the aggregate run status, injected by the component — the identity word goes
+ * accent+bold, and the tail hint is dimmed. Lines that were ALREADY built with
+ * a real theme (the task-list variant builds through `rail.ts` directly) carry
+ * escapes and are passed through untouched, apart from the shared glyph
+ * colorizer below.
+ */
+export function colorWidgetLine(line: string, index: number, theme: CrewTheme, slot: RailSlot = "border"): string {
 	let result = line;
-	if (index === 0) {
-		result = result.replace("Crew agents", theme.bold(theme.fg("accent", "Crew agents")));
+	if (index === 0 && !result.includes("\u001b")) {
+		// `┏|┃ <WORD> ▸ <subject>`: rail glyph takes the state slot, the identity
+		// word accent+bold, the subject toolTitle+bold. The subject is bounded by
+		// the first ` ·` so a count segment can never be swallowed.
+		result = result.replace(
+			/^([❯] )?([┃┏]) (?:(\S+) )?((?:CREW|PLAN)(?: ▸ [^·]+?)?)(?= ·|$)/,
+			(_match, cursor: string | undefined, glyph: string, spinner: string | undefined, identity: string) => {
+				const [word = "", subject] = identity.split(" ▸ ");
+				const tail = subject ? ` ${theme.fg("dim", ACTIVE)} ${theme.fg("toolTitle", theme.bold(subject))}` : "";
+				// The spinner is re-emitted raw: the shared glyph colorizer below
+				// paints the braille range accent.
+				return `${cursor ?? ""}${theme.fg(slot, glyph)} ${spinner ? `${spinner} ` : ""}${theme.fg("accent", theme.bold(word))}${tail}`;
+			},
+		);
+		result = result.replace(DOCK_HINT, theme.fg("dim", DOCK_HINT));
 	}
 	// Shared glyph colorizer covers ALL status glyphs — including ⏳ (waiting),
 	// ⚠ (needs_attention), and the braille spinner range ⠁-⣿ (running) — which the
 	// previous local statusGlyphColor map + regex omitted (F-1, V-3).
-	result = colorizeStatusGlyphs(result, theme);
-	if (index === 0) {
-		result = theme.fg("accent", result);
-	}
-	return result;
+	return colorizeStatusGlyphs(result, theme);
 }
 
 export function renderLines(lines: string[], width: number): string[] {

@@ -32,7 +32,6 @@ import { HelpOverlay } from "../../src/ui/overlays/help-overlay.ts";
 import { RunDashboard } from "../../src/ui/run-dashboard.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "../../src/ui/status-colors.ts";
 import type { CrewTheme } from "../../src/ui/theme-adapter.ts";
-import { agentStats } from "../../src/ui/widget/widget-formatters.ts";
 import { pad, truncate, visibleWidth } from "../../src/utils/visual.ts";
 
 // ── Test helpers ──────────────────────────────────────────────────────
@@ -121,7 +120,7 @@ function makeManifest(i: number, overrides: Partial<TeamRunManifest> = {}): Team
 	};
 }
 
-/** Minimal CrewAgentRecord (only fields agentStats / widget-formatters read). */
+/** Minimal CrewAgentRecord (only fields the UI tests read). */
 function makeAgent(overrides: Partial<CrewAgentRecord> = {}): CrewAgentRecord {
 	return {
 		runId: "run-001",
@@ -141,7 +140,7 @@ function makeAgent(overrides: Partial<CrewAgentRecord> = {}): CrewAgentRecord {
 	} as CrewAgentRecord;
 }
 
-/** Minimal LiveAgentHandle (only fields LiveConversationOverlay + agentStats read). */
+/** Minimal LiveAgentHandle (only fields LiveConversationOverlay reads). */
 function makeHandle(overrides: Partial<LiveAgentHandle> = {}): LiveAgentHandle {
 	return {
 		taskId: "task-001",
@@ -296,88 +295,6 @@ describe("E2E: F-1/F-2/V-3 — shared glyph colorizer covers the previously-unco
 		assert.equal(iconForStatus("needs_attention"), "⚠");
 		assert.equal(iconForStatus("failed"), "✗");
 		assert.equal(iconForStatus("completed"), "✓");
-	});
-});
-
-// ── 4. V-1: tabular agentStats — column positions are stable ─────────
-
-describe("E2E: V-1 — agentStats keeps numeric columns aligned across tick transitions", () => {
-	const handle = makeHandle();
-
-	it("duration column width is stable across transitions", () => {
-		// Both use the same shape from computeLiveDurationMs + alignMetric.
-		const a = agentStats(
-			makeAgent({
-				progress: {
-					tokens: 950,
-					recentTools: [],
-					recentOutput: [],
-					toolCount: 0,
-				},
-			}),
-			handle,
-		);
-		const b = agentStats(
-			makeAgent({
-				progress: {
-					tokens: 1_234,
-					recentTools: [],
-					recentOutput: [],
-					toolCount: 0,
-				},
-			}),
-			handle,
-		);
-		const w = (s: string) => visibleWidth(s.match(/(\d+\.\d+s)/)?.[0] ?? "");
-		assert.equal(w(a), w(b), "duration width must not jitter between same-format values");
-	});
-
-	it("formatTokensCompact output is padded by agentStats to a fixed visible width", () => {
-		// Use the non-liveHandle path so tokens come from agent.progress.tokens
-		// (avoids getTaskUsage dependency which needs a registered task).
-		const a = makeAgent({
-			toolUses: 7,
-			progress: {
-				tokens: 1_234,
-				recentTools: [],
-				recentOutput: [],
-				toolCount: 7,
-			},
-		});
-		const out = agentStats(a);
-		const parts = out.split(" · ");
-		const tokensPart = parts.find((p) => /\s+tok$/.test(p));
-		assert.ok(tokensPart, `expected a " · … tok" segment in: ${out}`);
-		assert.ok(
-			visibleWidth(tokensPart!) >= "1.2k tok".length,
-			`tokens segment must be padded to ≥ "1.2k tok" width; got "${tokensPart}" (visibleWidth=${visibleWidth(tokensPart!)})`,
-		);
-	});
-
-	it("agentStats tools field is right-aligned to a fixed visible width (liveHandle branch)", () => {
-		// In the liveHandle branch, "N tools" is wrapped in alignMetric(TOOLS_METRIC_WIDTH=8).
-		const out = agentStats(makeAgent({ toolUses: 3 }), handle);
-		const toolsPart = out.split(" · ").find((p) => /\stools$/.test(p));
-		assert.ok(toolsPart, `expected a " · … tools" segment in: ${out}`);
-		assert.equal(
-			visibleWidth(toolsPart!),
-			8,
-			`tools segment must be padded to width 8; got "${toolsPart}" (visibleWidth=${visibleWidth(toolsPart!)})`,
-		);
-	});
-
-	it("agentStats produces a non-empty string even for zero-everything agent", () => {
-		const a = makeAgent({
-			toolUses: 0,
-			progress: {
-				tokens: 0,
-				recentTools: [],
-				recentOutput: [],
-				toolCount: 0,
-			},
-		});
-		const out = agentStats(a);
-		assert.ok(typeof out === "string" && out.length > 0, "agentStats must always emit something");
 	});
 });
 
@@ -567,7 +484,7 @@ describe("E2E: F-5 — isDisplayActiveRun gives errors a 10-min grace, completed
 // now precedes the bottom border lines.push) actually shows up in the
 // real render output.
 
-describe("E2E: F-6 — LiveRunSidebar renders the auto-close countdown INSIDE its bordered box", () => {
+describe("E2E: F-6 — LiveRunSidebar renders the auto-close countdown INSIDE its rail frame", () => {
 	let tmpDir: string;
 	let snapshotCalls = 0;
 
@@ -603,7 +520,7 @@ describe("E2E: F-6 — LiveRunSidebar renders the auto-close countdown INSIDE it
 		}
 	});
 
-	it("auto-close countdown line appears BEFORE the bottom border line", () => {
+	it("auto-close countdown line appears BEFORE the closing rail line", () => {
 		const runId = "run-f6";
 		const sidebar = new LiveRunSidebar({
 			cwd: tmpDir,
@@ -629,22 +546,24 @@ describe("E2E: F-6 — LiveRunSidebar renders the auto-close countdown INSIDE it
 		});
 
 		const lines = sidebar.render(80);
-		// Find the auto-close line and the bottom border line.
+		// M4/RAIL (2026-09-16): the rounded box was retired — the frame now ends
+		// on the `┗` rail glyph. Same invariant, new vocabulary: the countdown
+		// must be pushed BEFORE the closing line (regression guard for F-6).
 		const autoCloseIdx = lines.findIndex((l) => l.includes("auto-close in"));
-		const bottomBorderIdx = lines.findIndex((l) => /╰/.test(l));
+		const bottomBorderIdx = lines.findIndex((l) => l.includes("┗"));
 		// We only assert the invariant if BOTH lines exist (auto-close may
 		// not trigger without a fully-wired terminal-state path; the
 		// structural fix is documented in the commit message).
 		if (autoCloseIdx >= 0 && bottomBorderIdx >= 0) {
 			assert.ok(
 				autoCloseIdx < bottomBorderIdx,
-				`auto-close countdown (line ${autoCloseIdx}) must render BEFORE the bottom border (line ${bottomBorderIdx}). Lines: ${JSON.stringify(lines)}`,
+				`auto-close countdown (line ${autoCloseIdx}) must render BEFORE the closing rail line (line ${bottomBorderIdx}). Lines: ${JSON.stringify(lines)}`,
 			);
 		} else {
 			// If the snapshot mock didn't trigger the auto-close branch,
 			// at least verify the sidebar rendered without throwing and the
-			// structure is sane (border + content).
-			assert.ok(bottomBorderIdx >= 0, "sidebar must render with a bottom border");
+			// structure is sane (rail frame + content).
+			assert.ok(bottomBorderIdx >= 0, "sidebar must render with a closing rail line");
 		}
 	});
 });
@@ -652,26 +571,29 @@ describe("E2E: F-6 — LiveRunSidebar renders the auto-close countdown INSIDE it
 // ── 9. LiveConversationOverlay (F-3) — render with ANSI + CJK handle ─
 //
 // E2E: instantiate the REAL overlay with a CJK-named handle whose session
-// emits an ANSI-colored response, render, and assert the right border is
-// at the expected column and no escape leak.
+// emits an ANSI-colored response, render, and assert every rail row fills the
+// render width exactly (no escape leak / no border drift).
+// E1/M4 (2026-09-16): the rounded frame was retired for the RAIL grammar, so
+// the property is asserted on `┏ ┃ ┗` rows and on the visible WIDTH rather than
+// on a trailing `│`.
 
 describe("E2E: F-3 — LiveConversationOverlay renders ANSI+CJK without border drift", () => {
-	it("render at width=60 with a CJK agent + ANSI response produces aligned borders", () => {
+	it("render at width=60 with a CJK agent + ANSI response produces aligned rail rows", () => {
 		const handle = makeHandle({
 			agent: "実行エージェント",
 			description: "日本語タスク",
 		});
 		const overlay = new LiveConversationOverlay(handle, flatTheme(), 80, 12);
+		// The ANSI+CJK transcript row the F-3 fix was about.
+		overlay.cachedLines.push("\u001b[36m実行中\u001b[0m エージェント · 日本語タスク");
 		const lines = overlay.render(60);
-		// Every non-empty line that starts a bordered row must end with the
-		// right border "│" (verifying no mid-escape split leaks past the border).
-		const bordered = lines.filter((l) => l.startsWith("│"));
-		assert.ok(bordered.length > 0, "overlay must render bordered rows");
-		for (const row of bordered) {
-			// Must end with the right border; the local `pad` bug would
-			// have produced zero-width padding and shifted the border left
-			// (or leaked an ANSI escape past it).
-			assert.ok(row.endsWith("│"), `bordered row must end with │; row: ${JSON.stringify(row)}`);
+		// Every row is a rail row (`┏ ┃ ┗`) that must fill EXACTLY the render
+		// width: a `pad` that counted ANSI bytes (or a CJK mis-measure) would
+		// produce a short row and tear the rail.
+		const rail = lines.filter((l) => /^[┏┃┗] /.test(l));
+		assert.ok(rail.length > 0, "overlay must render rail rows");
+		for (const row of rail) {
+			assert.equal(visibleWidth(row), 60, `rail row must fill the render width; row: ${JSON.stringify(row)}`);
 		}
 		overlay.dispose();
 	});

@@ -4,6 +4,8 @@
  */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
 import { handleSettings } from "../../../../src/extension/team-tool/handle-settings.ts";
@@ -281,5 +283,90 @@ describe("handleSettings unknown subcommand", () => {
 		} finally {
 			removeTrackedTempDir(tmp);
 		}
+	});
+});
+
+// ─── M1-9 (P1-8): ui.* config keys ───────────────────────────────────────────
+//
+// UI-AUDIT-2026-09-15 §3 P1-8: `ui.autoCloseDashboardMs` was honoured by the
+// config layer but missing from KNOWN_KEYS, and the `get` path (unlike `set`)
+// had no `ui.*` exemption — so `team-settings get ui.widgetRowStyle` answered
+// "(unknown key — may not take effect)" for keys the schema actually accepts.
+// Every test below is sandboxed: HOME + USERPROFILE + PI_CREW_HOME + cwd point
+// into mkdtemp dirs so nothing can read or write the real ~/.pi config.
+
+describe("handleSettings ui.* keys (M1-9)", () => {
+	const UI_KEYS = ["ui.widgetRowStyle", "ui.inlinePanel", "ui.autoCloseDashboardMs"] as const;
+
+	function withSandboxedHome(fn: (home: string, cwd: string) => void): void {
+		const savedHome = process.env.HOME;
+		const savedProfile = process.env.USERPROFILE;
+		const savedCrewHome = process.env.PI_CREW_HOME;
+		const home = createTrackedTempDir("settings-ui-home-");
+		const cwd = createTrackedTempDir("settings-ui-cwd-");
+		process.env.HOME = home;
+		process.env.USERPROFILE = home;
+		// scripts/test-runner.mjs injects PI_CREW_SKIP_HOME_CHECK=1, so this is honoured.
+		process.env.PI_CREW_HOME = home;
+		try {
+			fn(home, cwd);
+		} finally {
+			if (savedHome === undefined) delete process.env.HOME;
+			else process.env.HOME = savedHome;
+			if (savedProfile === undefined) delete process.env.USERPROFILE;
+			else process.env.USERPROFILE = savedProfile;
+			if (savedCrewHome === undefined) delete process.env.PI_CREW_HOME;
+			else process.env.PI_CREW_HOME = savedCrewHome;
+			removeTrackedTempDir(home);
+			removeTrackedTempDir(cwd);
+		}
+	}
+
+	it("get <ui key> prints no 'unknown key' note", () => {
+		withSandboxedHome((_home, cwd) => {
+			for (const key of UI_KEYS) {
+				const text = textFromToolResult(handleSettings(makeConfig(`get ${key}`), makeCtx(cwd)));
+				assert.ok(text.includes(`${key} =`), `expected a value line for ${key}, got: ${text}`);
+				assert.ok(
+					!text.includes("unknown key") && !text.includes("did you mean"),
+					`${key} is a supported ui key — no unknown-key note allowed, got: ${text}`,
+				);
+			}
+		});
+	});
+
+	it("control: the unknown-key note still fires for a non-ui key", () => {
+		withSandboxedHome((_home, cwd) => {
+			const text = textFromToolResult(handleSettings(makeConfig("get runtime.bogusThing"), makeCtx(cwd)));
+			assert.ok(
+				text.includes("unknown key") || text.includes("did you mean"),
+				`the note machinery must still work (otherwise the assertion above is vacuous), got: ${text}`,
+			);
+		});
+	});
+
+	it("schema lists the three ui keys", () => {
+		withSandboxedHome((_home, cwd) => {
+			const text = textFromToolResult(handleSettings(makeConfig("schema"), makeCtx(cwd)));
+			for (const key of UI_KEYS) {
+				assert.ok(text.includes(key), `team-settings schema must list ${key}, got: ${text.slice(0, 400)}`);
+			}
+		});
+	});
+
+	it("set ui.widgetRowStyle persists into the sandboxed user config and reads back", () => {
+		withSandboxedHome((home, cwd) => {
+			const res = handleSettings(makeConfig("set ui.widgetRowStyle detailed"), makeCtx(cwd));
+			const text = textFromToolResult(res);
+			assert.ok(text.includes("Set ui.widgetRowStyle"), `expected a set result, got: ${text}`);
+			assert.ok(!text.includes("unknown key"), `ui.* is exempt from the unknown-key warning, got: ${text}`);
+
+			const written = path.join(home, ".pi", "agent", "pi-crew.json");
+			assert.ok(fs.existsSync(written), `expected the user config inside the sandbox at ${written}`);
+			assert.equal(JSON.parse(fs.readFileSync(written, "utf8")).ui?.widgetRowStyle, "detailed");
+
+			const readBack = textFromToolResult(handleSettings(makeConfig("get ui.widgetRowStyle"), makeCtx(cwd)));
+			assert.ok(readBack.includes("detailed"), `the set value must round-trip through get, got: ${readBack}`);
+		});
 	});
 });

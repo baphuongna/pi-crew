@@ -151,10 +151,6 @@ export function pad(value: string, width: number): string {
 	return `${value}${" ".repeat(width - current)}`;
 }
 
-export function boxLine(text: string, innerWidth: number): string {
-	return `│ ${truncate(text, innerWidth - 4)} │`;
-}
-
 function readAnsiCode(input: string, index: number): string | undefined {
 	const ansiLength = consumeAnsi(input, index);
 	if (ansiLength > 0) return input.slice(index, index + ansiLength);

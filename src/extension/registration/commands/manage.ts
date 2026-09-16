@@ -278,22 +278,23 @@ export function registerManageCommands(pi: ExtensionAPI, deps: RegisterTeamComma
 	});
 
 	pi.registerCommand("crew-brief", {
-		description: "Toggle brief tool output mode: on | off | status",
+		description:
+			"Toggle brief mode for crew `team`/`agent` tool output (native read/bash/edit/write/find/grep/ls output is unaffected): on | off | status",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			// LAZY: defer dynamic import of ../../ui/tool-renderers/brief-mode.ts to its call site. Multi-line form breaks scripts/check-lazy-imports.mjs (which does `lines[lineNum - 2]`), so keep destructuring + await import on one line and place this LAZY marker directly above.
-			const { isBrief, setBrief, BRIEF_ENTRY_TYPE, makeBriefEntry } = await import("../../../ui/tool-renderers/brief-mode.ts");
+			const { isBrief, setBrief, BRIEF_ENTRY_TYPE } = await import("../../../ui/tool-renderers/brief-mode.ts");
 			const trimmed = args.trim();
 
 			if (trimmed === "on") {
 				setBrief(true);
 				pi.appendEntry(BRIEF_ENTRY_TYPE, { enabled: true });
-				ctx.ui.notify("Brief mode: on — tool output will show compact summaries", "info");
+				ctx.ui.notify("Brief mode: on — crew team/agent tool output will show compact summaries", "info");
 				return;
 			}
 			if (trimmed === "off") {
 				setBrief(false);
 				pi.appendEntry(BRIEF_ENTRY_TYPE, { enabled: false });
-				ctx.ui.notify("Brief mode: off — full tool output restored", "info");
+				ctx.ui.notify("Brief mode: off — full crew team/agent tool output restored", "info");
 				return;
 			}
 			// status (default)

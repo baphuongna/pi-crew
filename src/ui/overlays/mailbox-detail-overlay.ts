@@ -1,7 +1,32 @@
+/**
+ * Mailbox detail overlay — RAIL design language (M4/E1, 2026-09-16).
+ *
+ *   ┏ MAILBOX ▸ 1a2b3c4d
+ *   ┃ Inbox                 │ Outbox
+ *   ┃ ›✓ lead ▸ one: ping    │  !
+ *   ┃ ▼ 3 below
+ *   ┣ MESSAGE
+ *   ┃ lead ▸ one (one) · pending
+ *   ┗ Tab side · ↑/↓ select · Enter expand · … ···· Esc close
+ *
+ * The `│` in the body is a genuine inner COLUMN separator of the two-column
+ * mailbox table (§2.D) — it is not a frame edge. The frame is canopy + `┃`
+ * body + `┗` close cap; the legacy title/hint header rows, the `───` inline
+ * rule before the expanded message and the hand-typed hint string are gone.
+ *
+ * Hints: built by `formatHint` (close LAST) and laid out with `railLeaders` so
+ * the `Esc close` segment stays visible on a narrow overlay instead of being
+ * truncated away with the long action list.
+ *
+ * Every disk-sourced field is guarded (`?? "?"`): mailbox JSON is not
+ * schema-validated at read time.
+ */
+
 import { type MailboxMessage, readDeliveryState, readMailbox } from "../../state/coordination/mailbox.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { pad, truncate } from "../../utils/visual.ts";
-import { keyOf, matchesKey } from "../key-utils.ts";
+import { overlayActionForKey } from "../keybinding-map.ts";
+import { ACTIVE, CURSOR, canopyLine, formatHint, overflowHint, RAIL, railLeaders, railLine, sectionLine, shortId } from "../rail.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
 export type MailboxAction =
@@ -10,6 +35,9 @@ export type MailboxAction =
 	| { type: "compose" }
 	| { type: "ackAll" }
 	| { type: "close" };
+
+/** Rows shown per column before the overflow hint takes over. */
+const MAX_ROWS = 12;
 
 export class MailboxDetailOverlay {
 	private readonly runId: string;
@@ -84,72 +112,124 @@ export class MailboxDetailOverlay {
 			this.refresh();
 			this.needsRefresh = false;
 		}
-		const inner = Math.max(40, width - 4);
-		const col = Math.max(18, Math.floor((inner - 3) / 2));
-		const lines = [
-			this.theme.bold(`Mailbox detail · ${this.runId}`),
-			"Tab side · ↑/↓ select · Enter expand · A ack · N nudge · C compose · X ack all · ESC close",
-			`${pad(this.theme.bold("Inbox"), col)} │ ${pad(this.theme.bold("Outbox"), col)}`,
-		];
-		const max = Math.max(this.inbox.length, this.outbox.length, 1);
-		for (let index = 0; index < Math.min(max, 12); index += 1) {
-			lines.push(`${this.row(this.inbox[index], "inbox", index, col)} │ ${this.row(this.outbox[index], "outbox", index, col)}`);
+		if (width < 10) return [];
+		const theme = this.theme;
+		const budget = width - 2;
+		const lines: string[] = [canopyLine({ word: "MAILBOX", subject: shortId(this.runId), theme, budget })];
+
+		// Two-column body (inbox ↔ outbox): `│` is the inner column separator.
+		const col = Math.max(10, Math.floor((budget - 3) / 2));
+		const rightCol = Math.max(1, budget - col - 3);
+		const twoCol = (left: string, right: string) =>
+			`${pad(truncate(left, col), col)} ${theme.fg("dim", "│")} ${truncate(right, rightCol)}`;
+		lines.push(railLine(RAIL.body, "border", twoCol(theme.bold("Inbox"), theme.bold("Outbox")), theme, budget));
+		const total = Math.max(this.inbox.length, this.outbox.length);
+		const shown = Math.min(total, MAX_ROWS);
+		for (let index = 0; index < shown; index += 1) {
+			lines.push(
+				railLine(
+					RAIL.body,
+					"border",
+					twoCol(this.row(this.inbox[index], "inbox", index, col), this.row(this.outbox[index], "outbox", index, col)),
+					theme,
+					budget,
+				),
+			);
 		}
+		if (total > shown) {
+			lines.push(railLine(RAIL.body, "border", overflowHint(0, total - shown, theme), theme, budget));
+		}
+
 		const selected = this.selectedMessage();
 		if (this.expanded && selected) {
-			lines.push("─".repeat(Math.min(inner, 72)));
-			lines.push(`${selected.from} → ${selected.to}${selected.taskId ? ` (${selected.taskId})` : ""} · ${selected.status}`);
-			lines.push(...selected.body.split(/\r?\n/).map((line) => truncate(line, inner)));
+			const from = selected.from ?? "?";
+			const to = selected.to ?? "?";
+			lines.push(sectionLine({ name: "Message", theme, budget }));
+			lines.push(
+				railLine(
+					RAIL.body,
+					"border",
+					truncate(
+						`${from} ${ACTIVE} ${to}${selected.taskId ? ` (${selected.taskId})` : ""} · ${selected.status ?? "?"}`,
+						budget,
+					),
+					theme,
+					budget,
+				),
+			);
+			for (const line of (selected.body ?? "").split(/\r?\n/)) {
+				lines.push(railLine(RAIL.body, "border", truncate(line, budget), theme, budget));
+			}
 		}
-		if (!this.inbox.length && !this.outbox.length) lines.push("Mailbox is empty.");
-		return lines.map((line) => truncate(line, inner));
+
+		if (!this.inbox.length && !this.outbox.length) {
+			lines.push(railLine(RAIL.body, "border", theme.fg("dim", "Mailbox is empty."), theme, budget));
+		}
+
+		const actions = formatHint([
+			["tab", "side"],
+			[["up", "down"], "select"],
+			["enter", "expand"],
+			["A", "ack"],
+			["N", "nudge"],
+			["C", "compose"],
+			["X", "ack all"],
+		]);
+		const close = formatHint([["escape", "close"]]);
+		lines.push(
+			railLine(RAIL.close, "border", railLeaders(theme.fg("dim", actions), theme.fg("dim", close), budget, theme), theme, budget),
+		);
+		return lines;
 	}
 
 	private row(message: MailboxMessage | undefined, side: "inbox" | "outbox", index: number, width: number): string {
-		if (!message) return pad("", width);
-		const marker = this.side === side && this.selected === index ? "›" : " ";
-		const status = message.status === "acknowledged" ? "✓" : "!";
-		return pad(truncate(`${marker}${status} ${message.from}->${message.to}: ${message.body.replace(/\s+/g, " ")}`, width), width);
+		if (!message) return "";
+		const marker = this.side === side && this.selected === index ? CURSOR : " ";
+		const acknowledged = message.status === "acknowledged";
+		const status = this.theme.fg(acknowledged ? "success" : "warning", acknowledged ? "✓" : "!");
+		const from = message.from ?? "?";
+		const to = message.to ?? "?";
+		const body = (message.body ?? "").replace(/\s+/g, " ");
+		return truncate(`${marker}${status} ${from} ${ACTIVE} ${to}: ${body}`, width);
 	}
 
 	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || data === "q") {
-			this.done({ type: "close" });
-			return;
+		// M2-1: keys come from the central `overlay:*` keyspace (remappable via
+		// `.crew/config.json` → keybindings["overlay:mailbox-detail:<action>"]).
+		switch (overlayActionForKey("mailbox-detail", data)) {
+			case "close":
+				this.done({ type: "close" });
+				return;
+			case "toggleSide":
+				this.side = this.side === "inbox" ? "outbox" : "inbox";
+				this.selected = Math.min(this.selected, Math.max(0, this.current().length - 1));
+				return;
+			case "up":
+				this.selected = Math.max(0, this.selected - 1);
+				return;
+			case "down":
+				this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
+				return;
+			case "toggleDetail":
+				this.expanded = !this.expanded;
+				return;
+			case "ack": {
+				const message = this.selectedMessage();
+				if (message) this.done({ type: "ack", messageId: message.id });
+				return;
+			}
+			case "nudge":
+				this.done({
+					type: "nudge",
+					agentId: this.selectedMessage()?.taskId,
+				});
+				return;
+			case "compose":
+				this.done({ type: "compose" });
+				return;
+			case "ackAll":
+				this.done({ type: "ackAll" });
+				return;
 		}
-		if (data === "\t") {
-			this.side = this.side === "inbox" ? "outbox" : "inbox";
-			this.selected = Math.min(this.selected, Math.max(0, this.current().length - 1));
-			return;
-		}
-		if (data === "k" || keyOf(data) === "up") {
-			this.selected = Math.max(0, this.selected - 1);
-			return;
-		}
-		if (data === "j" || keyOf(data) === "down") {
-			this.selected = Math.min(Math.max(0, this.current().length - 1), this.selected + 1);
-			return;
-		}
-		if (matchesKey(data, "return")) {
-			this.expanded = !this.expanded;
-			return;
-		}
-		if (data === "A") {
-			const message = this.selectedMessage();
-			if (message) this.done({ type: "ack", messageId: message.id });
-			return;
-		}
-		if (data === "N") {
-			this.done({
-				type: "nudge",
-				agentId: this.selectedMessage()?.taskId,
-			});
-			return;
-		}
-		if (data === "C") {
-			this.done({ type: "compose" });
-			return;
-		}
-		if (data === "X") this.done({ type: "ackAll" });
 	}
 }

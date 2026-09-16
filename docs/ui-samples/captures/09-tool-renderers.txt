@@ -1,0 +1,45 @@
+### team — renderCall (canopy CREW ▸ team + goal)
+────────────────────────────────────────────────────────────────
+┏ CREW ▸ implementation
+┃ Audit UI pi-crew: quét src/ui, findings + fix
+
+### team — streaming (spinner + gauge ▕█▏ + tally + agent đang chạy)
+────────────────────────────────────────────────────────────────
+┃ ⠸ 1/5 · 20% ▕██████▍░░░░░░░░░░░░░░░░░░░░░░░░░▏ ········· 6m13s
+┃   ⠧ explorer
+
+### team — result COLLAPSED (end cap ┗ + leaders + ⌘E)
+────────────────────────────────────────────────────────────────
+┗ ● 1/5 · implementation · 24m3s · 103k tok · $0.204 ···· ctrl+o
+
+### team — result EXPANDED
+────────────────────────────────────────────────────────────────
+┃ ▕███████▎░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏ 1/5 · 20%
+┃ ⟳ explorer (gpt-5) 0 tools · 5m
+┃   ↑12k ↓4.1k $0.031
+┃ ⟳ planner (claude-sonnet-4.5) 0 tools · 5m
+┃   ↑12k ↓4.1k $0.031
+┃ ○ executor (gemini-2.5-pro) 0 tools · 5m
+┃   ↑12k ↓4.1k $0.031
+┃ ○ executor (claude-sonnet-4.5) 0 tools · 5m
+┃   ↑12k ↓4.1k $0.031
+┃ ✓ reviewer (claude-sonnet-4.5) 0 tools · 4m
+┃   ↑30k ↓9.0k $0.080
+┗ implementation · 24m3s · 103k tok · $0.204 ············ ctrl+o
+
+### team — brief mode ON (/crew-brief on)
+────────────────────────────────────────────────────────────────
+┗ ● done · _ui_demo
+
+### agent — renderCall
+────────────────────────────────────────────────────────────────
+┏ AGENT ▸ explorer
+┃ Đọc docs/UI-AUDIT và liệt kê finding P0
+
+### agent — running (name + tok/s + tool)
+────────────────────────────────────────────────────────────────
+┃ ⠹ explorer ·························· 1m36s · 168 tok/s · read
+
+### agent — done (≤5 dòng output)
+────────────────────────────────────────────────────────────────
+┗ ● ag_t1 P0-1: theme discovery hỏng ESM (bare require)  ctrl+o

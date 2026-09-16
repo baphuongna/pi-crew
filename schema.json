@@ -344,6 +344,20 @@
           "minimum": 1,
           "maximum": 50
         },
+        "widgetRowStyle": {
+          "type": "string",
+          "enum": [
+            "compact",
+            "detailed"
+          ],
+          "default": "compact",
+          "description": "Dock widget row style. 'compact' keeps the single-line dock; 'detailed' also suppresses the leading spinner-glyph swap."
+        },
+        "inlinePanel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the inline agent panel above the editor (editor-wrapper agent rows)."
+        },
         "powerbar": {
           "type": "boolean"
         },
@@ -376,6 +390,11 @@
         "autoOpenDashboardForForegroundRuns": {
           "type": "boolean",
           "default": true
+        },
+        "autoCloseDashboardMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Auto-close delay for the run dashboard once the run reaches a terminal state (ms)."
         },
         "showModel": {
           "type": "boolean",

@@ -1,0 +1,13 @@
+### 16. Transcript viewer — /team-transcript <runId> [taskId] hoặc phím v · REAL render: DurableTranscriptViewer.render(100)
+### Fixture: transcript.jsonl thật ghi tại agentOutputPath(run, t1); viewer đọc lại qua readRunTranscript
+
+┏ TRANSCRIPT ▸ pi-crew transcript ······ team_20260916163258_9845cbbd85444a25:t1 · full 0KB · f full
+┃ J/K scroll · PgUp/PgDn page · G/G top/bottom · A auto · F full/tail · Q/Esc close                 
+┃ [User]:                                                                                           
+┃ Khảo sát 70 file trong src/ui và liệt kê finding P0                                               
+┃ [Assistant]:                                                                                      
+┃ Đã quét xong 70/70 file.                                                                          
+┃ const lines = railLine(RAIL.body, "border", content, theme, budget);                              
+┃ P0-1: theme discovery hỏng ESM (bare require trong bundle).                                       
+┃ P1-7: truncVisual overflow CJK trong tool-renderers:337.                                          
+┗ 7 lines · 100% · auto-scroll on                                                                   

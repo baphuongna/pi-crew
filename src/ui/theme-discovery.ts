@@ -7,7 +7,19 @@
  *  - setPiTheme() to persist a choice in ~/.pi/agent/settings.json
  *
  * Wired into the `team-settings themes` / `theme` subcommands.
+ *
+ * P0-1 (2026-09-15): this module used bare `require("node:fs")` in three
+ * places. It is an ESM module, so `require` is undefined there and every
+ * filesystem probe threw a ReferenceError that the surrounding try/catch
+ * swallowed: `discoverPiThemes()` collapsed to the 2 builtins, and
+ * `getActivePiTheme()` always returned undefined (so no crew theme was
+ * selectable and the active theme was misreported). The fs access is now a
+ * static top-level import. `node:fs` is a builtin and this module is already
+ * eagerly reachable from handle-settings.ts / settings-overlay.ts, so this
+ * does not change lazy-load behaviour (check:lazy-imports only polices
+ * `await import(` without a `// LAZY:` marker).
  */
+import * as fs from "node:fs";
 
 export interface PiThemeInfo {
 	/** Theme name (filename stem or builtin id). */
@@ -72,8 +84,6 @@ export function discoverPiThemes(): PiThemeInfo[] {
 	// Custom themes from ~/.pi/agent/themes/
 	const dir = customThemesDir();
 	try {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const fs = require("node:fs");
 		if (dir && fs.existsSync(dir)) {
 			for (const file of fs.readdirSync(dir) as string[]) {
 				if (!file.endsWith(".json")) continue;
@@ -109,8 +119,6 @@ export function discoverPiThemes(): PiThemeInfo[] {
 /** Read the currently active Pi theme from ~/.pi/agent/settings.json. */
 export function getActivePiTheme(): string | undefined {
 	try {
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const fs = require("node:fs");
 		const p = settingsPath();
 		if (!p || !fs.existsSync(p)) return undefined;
 		const json = JSON.parse(fs.readFileSync(p, "utf8"));
@@ -122,8 +130,6 @@ export function getActivePiTheme(): string | undefined {
 
 /** Persist a Pi theme choice in ~/.pi/agent/settings.json. Returns the path or throws. */
 export function setPiTheme(name: string): string {
-	// eslint-disable-next-line @typescript-eslint/no-require-imports
-	const fs = require("node:fs");
 	const p = settingsPath();
 	if (!p) throw new Error("Could not determine settings path (no HOME).");
 	let settings: Record<string, unknown> = {};

@@ -1,0 +1,21 @@
+### 15. Inline panel (ui.inlinePanel) — REAL: dock row + panel rows + agentBorderLabel; KHÔNG có phần composed.
+### crew-editor.ts là CustomEditor của Pi → cần TUI thật: khung editor không capture được, các mục dưới là hàm thật.
+
+### REAL — dòng dock widget (buildWidgetLines, width 100): đích mà ↓ dừng trên (↓·enter mở browser)
+### (segment ⏰ lấy từ schedule reader fixture 2 job của mục 1 — cùng process, deterministic)
+┃ ⠧ CREW ▸ 2 runs · 1 running · 2/3 done · ⏰ 2 sched ···· ↓·enter
+
+### REAL — dòng dock khi cursor đang ở TRÊN nó (options.focused)
+❯ ┃ ⠧ CREW ▸ 2 runs · 1 running · 2/3 done · ⏰ 2 sched ···· ↓·enter
+
+### REAL — panel rows mà cursor đi qua (panelRowsFromRuns, đúng thứ tự widget paint)
+  1. planner · t2 · active
+  2. explorer · t1 · finished (trong linger window)
+
+### REAL — editor border label (agentBorderLabel: '->' → '▸', gộp whitespace, cắt 24 cột)
+  "explorer->t1-explorer" → "explorer▸t1-explorer"
+  "planner  ->   t2" → "planner ▸ t2"
+  "verifier->adaptive-01-verifier-with-a-very-long-name" → "verifier▸adaptive-01-^[[0m...^[[0m"
+
+### Ghi chú: editor thật ghép label này vào border trên (` @<label> ` + '──') khi đang xem một agent;
+### phần ghép đó cần CustomEditor.render() trong pi nên không capture được ở đây.

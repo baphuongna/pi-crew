@@ -1,12 +1,14 @@
+import { formatHint } from "../rail.ts";
 import type { RunUiSnapshot } from "../snapshot-types.ts";
 
 export function renderMailboxPane(snapshot: RunUiSnapshot | undefined): string[] {
 	if (!snapshot) return ["Mailbox pane: snapshot unavailable"];
 	const mailbox = snapshot.mailbox;
 	const approx = mailbox.approximate ? " · approximate (tail)" : "";
-	const lines: string[] = [
-		`Mailbox pane: inbox unread=${mailbox.inboxUnread} · outbox pending=${mailbox.outboxPending} · attention=${mailbox.needsAttention}${approx}`,
-	];
+	const unread = mailbox.inboxUnread ?? 0;
+	const outgoing = mailbox.outboxPending ?? 0;
+	const attention = mailbox.needsAttention ?? 0;
+	const lines: string[] = [`Mailbox pane: inbox unread=${unread} · outbox pending=${outgoing} · attention=${attention}${approx}`];
 	// Kind-separated breakdown
 	const kindParts: string[] = [];
 	const steer = mailbox.steerUnread ?? 0;
@@ -26,10 +28,24 @@ export function renderMailboxPane(snapshot: RunUiSnapshot | undefined): string[]
 			lines.push(`  📋 ${followUp} follow-up(s) pending review.`);
 		}
 	}
-	if (mailbox.needsAttention > 0) {
-		lines.push("Needs attention: press Enter for detail · A ack · N nudge · C compose · X ack all.");
+	if (attention > 0) {
+		// One hint format (rail.ts `formatHint`): keys `label` joined by ` · `.
+		lines.push(
+			`Needs attention: press ${formatHint([
+				["Enter", "for detail"],
+				["A", "ack"],
+				["N", "nudge"],
+				["C", "compose"],
+				["X", "ack all"],
+			])}.`,
+		);
 	} else {
-		lines.push("No mailbox items need attention. Press Enter for detail or C compose.");
+		lines.push(
+			`No mailbox items need attention. Press ${formatHint([
+				["Enter", "for detail"],
+				["C", "compose"],
+			])}.`,
+		);
 	}
 	return lines;
 }

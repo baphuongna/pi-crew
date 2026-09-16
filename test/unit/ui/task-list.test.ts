@@ -1,9 +1,10 @@
 /**
  * Unit tests for the aboveEditor task list (task-list.ts) — the run's plan
- * painted pi-tasks / Claude Code style: a `● N tasks (…)` header, one row
- * per task in plan order with task numbers (#1, #2, …), strikethrough for
- * completed rows, spinner + elapsed + tokens for the running row, and
- * `› blocked by #n` for queued tasks waiting on dependencies.
+ * painted in the RAIL card grammar: a `┏ PLAN ▸ <team/workflow>` canopy with
+ * the progress gauge, one `┃` row per task in plan order with task numbers
+ * (#1, #2, …), strikethrough for completed rows, spinner + elapsed + tokens
+ * for the running row, `› blocked by #n` for queued tasks waiting on
+ * dependencies, and a `┗ <counts>` cap.
  */
 
 import assert from "node:assert/strict";
@@ -34,12 +35,14 @@ function runWith(tasks: TeamTaskState[], extra?: Partial<WidgetRun["run"]>): Wid
 	];
 }
 
-test("header counts tasks pi-tasks style", () => {
+test("canopy identifies the plan; the counts cap carries the tally (formatCount)", () => {
 	const lines = buildTaskListLines(
 		runWith([task("01", "completed"), task("02", "completed"), task("03", "running"), task("04", "queued"), task("05", "failed")]),
 		120,
 	);
-	assert.match(lines[0] ?? "", /● 5 tasks \(2 done, 1 failed, 1 in progress, 1 open\)/);
+	// RAIL §2.A: identity lives in the canopy, the tally in the close cap.
+	assert.match(lines[0] ?? "", /^┏ PLAN ▸ default\/build/);
+	assert.match(lines.at(-1) ?? "", /┗ 2 done · 1 failed · 1 in progress · 1 open/);
 });
 
 test("rows stay in plan order, numbered #1..#n behind status glyphs", () => {
@@ -125,10 +128,11 @@ test("plan rows never mention roles or agents", () => {
 	assert.ok(!joined.includes("Sweep src/ui"), "no description lines — one row per task, pi-tasks style");
 });
 
-test("overflow collapses behind … and N more", () => {
+test("overflow collapses behind the canonical `▼ N below` hint", () => {
 	const lines = buildTaskListLines(runWith(Array.from({ length: 15 }, (_, i) => task(`t${i + 1}`, "queued"))), 120);
 	const joined = lines.join("\n");
-	assert.ok(joined.includes("… and 5 more"), "overflow count");
+	// RAIL §1: `▼ n below` is the ONLY overflow dialect (`… and N more` retired).
+	assert.ok(joined.includes("▼ 5 below"), "canonical overflow count");
 	assert.ok((lines[1] ?? "").includes("#1"), "first rows kept");
 	assert.ok(!joined.includes("#11 "), "rows past the cap hidden");
 });
@@ -139,7 +143,7 @@ test("unfinished work survives the row cap", () => {
 	const lines = buildTaskListLines(runWith(tasks), 120);
 	const joined = lines.join("\n");
 	assert.ok(joined.includes("#13 Final verification"), "active task stays visible past the cap");
-	assert.ok(joined.includes("… and 3 more"), "finished rows gave way instead");
+	assert.ok(joined.includes("▼ 3 below"), "finished rows gave way instead");
 });
 
 test("empty when no run carries a tasks slice", () => {

@@ -18,7 +18,6 @@ describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 	it("isFocusable accepts a RunDashboard instance now that we declare `focused`", () => {
 		const runs: never[] = [];
 		const dashboard = new RunDashboard(runs, () => undefined, {} as never, {
-			placement: "center",
 			showModel: false,
 			showTokens: false,
 			showTools: false,
@@ -32,7 +31,6 @@ describe("pi-tui 0.81.1 input dispatch (direct probe)", () => {
 		const runs: never[] = [];
 		const events: string[] = [];
 		const dashboard = new RunDashboard(runs, (sel) => events.push(`done:${JSON.stringify(sel)}`), {} as never, {
-			placement: "center",
 			showModel: false,
 			showTokens: false,
 			showTools: false,

@@ -1,0 +1,5 @@
+### Progress pane khi run là dynamic-workflow (DWF)
+  ── DWF Phases ──
+  ✓ Phase: research
+  ⏸ Phase: synthesize
+  ▶ Phase: write

@@ -1,0 +1,28 @@
+### 18. Settings overlay — /team-settings (alt+s) · REAL render: createSettingsOverlay().overlay.render(100)
+### Fixture: config rỗng (mọi setting = default) · key "\t" chuyển tab qua handleInput thật
+
+### Tab 1 — Runtime
+┏ SETTINGS ▸ pi-crew                                                                                
+┃ ⚙ Runtime  ·  📐 Limits  ·  🤖 Agents  ·  🖥 UI  ·  🎨 Themes  ·  🚀 Auto  ·  🔧 Advanced          
+┃   › Runtime Mode      auto (default)                                                              
+┃     Max Turns         10000 (default)                                                             
+┃     Grace Turns       5 (default)                                                                 
+┃     Inherit Context   true (default)                                                              
+┃     Prompt Mode       replace (default)                                                           
+┃     Mutation Guard    warn (default)                                                              
+┃     Isolation Policy  <not set>                                                                   
+┃                                                                                                   
+┃    How workers execute. 'auto' picks best available. 'scaffold' = dry-run.                        
+┃                                                                                                   
+┃    ↑/↓ Navigate · Enter/Space Change · Tab switch                                                 
+┗ Esc close                                                                                         
+
+### Tab 5 — Themes (sau 4 lần Tab)
+┏ SETTINGS ▸ pi-crew                                                                                
+┃ ⚙ Runtime  ·  📐 Limits  ·  🤖 Agents  ·  🖥 UI  ·  🎨 Themes  ·  🚀 Auto  ·  🔧 Advanced          
+┃   › Pi UI Theme  crew-gruvbox-dark                                                                
+┃                                                                                                   
+┃    Overall terminal theme. Switches live (no restart). Currently: crew-gruvbox-dark               
+┃                                                                                                   
+┃    ↑/↓ Navigate · Enter/Space Change · Tab switch                                                 
+┗ Esc close                                                                                         

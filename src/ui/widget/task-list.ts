@@ -1,18 +1,20 @@
 /**
- * task-list.ts — the run's plan, painted above the editor (pi-tasks /
- * Claude Code style): a `● N tasks (…)` header, then one row per task in
- * PLAN ORDER with task numbers (#1, #2, …) instead of technical ids.
+ * task-list.ts — the run's plan, painted above the editor, in the RAIL card
+ * grammar (design system §2.A): a `┏ PLAN ▸ <team/workflow>` canopy carrying
+ * the progress gauge, one `┃` row per task in PLAN ORDER with task numbers
+ * (#1, #2, …), and a `┗ <counts>` cap.
  * Completed rows are dimmed and struck through; the task actively executing
  * carries a spinner frame with elapsed time and token counts; queued rows
  * name the dependencies they wait on.
  *
  * Example:
  * ```
- * ● 4 tasks (1 done, 1 in progress, 2 open)
- *   ✔ #1 Design the flux capacitor
- *   ⠙ #2 Wire the overlay scroll (2m 49s · ↑ 4.1k ↓ 1.2k)
- *   ◻ #3 Run the suite › blocked by #2
- *   ◻ #4 Report the result
+ * ┏ PLAN ▸ default/build ···················· ▕████▎░░░░░▏ 2/5
+ * ┃ ✔ #1 Design the flux capacitor
+ * ┃ ⠙ #2 Wire the overlay scroll (2m 49s · ↑ 4.1k ↓ 1.2k)
+ * ┃ ◻ #3 Run the suite › blocked by #2
+ * ┃ ◻ #4 Report the result
+ * ┗ 2 done · 2 in progress
  * ```
  *
  * Pure plan surface: which worker/agent/model runs a task is the dock's
@@ -24,10 +26,20 @@
  */
 
 import type { TeamTaskState } from "../../state/types.ts";
-import { truncate } from "../../utils/visual.ts";
+import { visibleWidth } from "../../utils/visual.ts";
+import { formatCount } from "../format-helpers.ts";
+import { canopyLine, gaugeBar, overflowHint, RAIL, railLine, statusSlot } from "../rail.ts";
 import { spinnerFrame } from "../spinner.ts";
+import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { shortRunLabel } from "./widget-model.ts";
 import type { WidgetRun } from "./widget-types.ts";
+
+/** Plain (uncoloured) default — the widget component passes the real theme. */
+const PLAIN_THEME = asCrewTheme(undefined);
+
+/** Gauge width on the canopy line (eighth-block precision, so it stays
+ *  truthful even at 10 cells). */
+const GAUGE_WIDTH = 12;
 
 /** Task rows painted before the "… and N more" overflow line (pi-tasks
  *  defaults its `maxVisible` to 10). */
@@ -125,21 +137,16 @@ function blockedSuffix(task: TeamTaskState, tasks: readonly TeamTaskState[], num
 }
 
 /** One line per task: `#n title` behind its status glyph — pi-tasks style.
- *  Completed titles are dimmed and struck through. */
-function taskRow(
-	task: TeamTaskState,
-	taskNumber: number,
-	tasks: readonly TeamTaskState[],
-	numberById: Map<string, number>,
-	width: number,
-): string {
+ *  Completed titles are dimmed and struck through. Returns the ROW CONTENT:
+ *  the rail glyph (`┃ `) is owned by `railLine`. */
+function taskRow(task: TeamTaskState, taskNumber: number, tasks: readonly TeamTaskState[], numberById: Map<string, number>): string {
 	const title = taskTitle(task);
 	const suffix = task.status === "running" ? runningSuffix(task) : blockedSuffix(task, tasks, numberById);
 	if (task.status === "completed") {
 		const struck = `${STRIKE_ON}${DIM_ON}#${taskNumber} ${title}${DIM_OFF}${STRIKE_OFF}`;
-		return truncate(`  ✔ ${struck}`.trimEnd(), width);
+		return `${taskStatusIcon(task)} ${struck}`;
 	}
-	return truncate(`  ${taskStatusIcon(task)} #${taskNumber} ${title}${suffix}`.trimEnd(), width);
+	return `${taskStatusIcon(task)} #${taskNumber} ${title}${suffix}`.trimEnd();
 }
 
 /** The run whose plan is shown: the first with unfinished work, else the first. */
@@ -163,15 +170,17 @@ function visibleTasks(tasks: readonly TeamTaskState[]): TeamTaskState[] {
 }
 
 /**
- * Build the task-list lines for the current runs. Empty when no run carries a
- * tasks slice (nothing to say — the dock alone stays).
+ * Build the plan card for the current runs: canopy (identity + gauge), one
+ * `┃` row per task, the overflow hint, and the `┗` counts cap. Empty when no
+ * run carries a tasks slice (nothing to say — the dock alone stays).
  */
-export function buildTaskListLines(runs: readonly WidgetRun[], width: number): string[] {
+export function buildTaskListLines(runs: readonly WidgetRun[], width: number, theme: CrewTheme = PLAIN_THEME): string[] {
 	const entry = primaryRun(runs);
 	if (!entry) return [];
 	const tasks = entry.snapshot?.tasks ?? [];
 	if (tasks.length === 0) return [];
 
+	const budget = Math.max(8, width - 2);
 	const numberById = new Map(tasks.map((task, index) => [task.id, index + 1]));
 	const done = tasks.filter((task) => task.status === "completed").length;
 	const dead = tasks.filter((task) => isDoneStatus(task.status) && task.status !== "completed").length;
@@ -179,20 +188,43 @@ export function buildTaskListLines(runs: readonly WidgetRun[], width: number): s
 		(task) => task.status === "running" || task.status === "waiting" || task.status === "needs_attention",
 	).length;
 	const open = tasks.filter((task) => task.status === "queued").length;
+	const slot = statusSlot(entry.run.status);
 
-	const counts = [`${done} done`];
-	if (dead) counts.push(`${dead} failed`);
-	counts.push(`${inProgress} in progress`, `${open} open`);
-	const headerParts = [`● ${tasks.length} tasks (${counts.join(", ")})`];
-	if (runs.length > 1) headerParts.push(shortRunLabel(entry.run));
-	const lines = [truncate(headerParts.join(" · "), width)];
+	// Canopy: `┏ PLAN ▸ <title>` + the progress gauge on the right, where a bar
+	// fits (a 12-cell bar plus its tally needs ~6 columns of clearance).
+	const title = shortRunLabel(entry.run);
+	const ratio = done / tasks.length;
+	const tally = `${done}/${tasks.length}`;
+	const gauge = `${gaugeBar(ratio, GAUGE_WIDTH, theme, dead > 0 ? "error" : "success")} ${tally}`;
+	const labelWidth = visibleWidth(`PLAN ${title}`) + 5; // word + ` ▸ `
+	const right = budget - labelWidth - 6 >= GAUGE_WIDTH + tally.length ? gauge : undefined;
+	const lines = [
+		canopyLine({
+			word: "PLAN",
+			subject: title,
+			theme,
+			budget,
+			slot,
+			right,
+		}),
+	];
 
 	const visible = visibleTasks(tasks);
 	for (const task of visible) {
-		lines.push(taskRow(task, numberById.get(task.id) ?? 0, tasks, numberById, width));
+		lines.push(railLine(RAIL.body, "border", taskRow(task, numberById.get(task.id) ?? 0, tasks, numberById), theme, budget));
 	}
-	if (tasks.length > visible.length) {
-		lines.push(truncate(`  … and ${tasks.length - visible.length} more`, width));
+	const hidden = tasks.length - visible.length;
+	if (hidden > 0) {
+		// Canonical overflow dialect (RAIL §1) — the legacy `… and N more` is
+		// retired with the other three overflow spellings.
+		lines.push(railLine(RAIL.body, "border", overflowHint(0, hidden, theme), theme, budget));
 	}
+
+	// Close cap: the counts (formatCount → singular/plural; the participle
+	// labels pass an explicit plural so nothing renders as `2 dones`).
+	const counts = [formatCount(done, "done", "done")];
+	if (dead) counts.push(formatCount(dead, "failed", "failed"));
+	counts.push(formatCount(inProgress, "in progress", "in progress"), formatCount(open, "open", "open"));
+	lines.push(railLine(RAIL.close, slot, counts.join(" · "), theme, budget));
 	return lines;
 }

@@ -1,52 +1,51 @@
 /**
- * K-1 — dashboard keybinding cheatsheet overlay.
+ * K-1 — dashboard keybinding cheatsheet overlay (RAIL design language, M4/E1).
  *
  * Toggled by `?` (bound in keybinding-map.ts). Renders the dashboard's
- * keybindings grouped by scope (general / navigation / panes / run actions /
- * mailbox / health) directly from `DASHBOARD_KEYS`, so adding a key in one
- * place is reflected here automatically.
+ * keybindings grouped by scope (general / navigation / panes / schedules /
+ * plan / run actions / mailbox / health) directly from `DASHBOARD_KEYS`, so
+ * adding a key in one place is reflected here automatically.
  *
- * Uses the same `innerWidth = max(20, width - 4)` formula as `run-dashboard.ts`
- * so the overlay's border column aligns with the dashboard's stable-height
- * blank-padding rows (preserves the "stable overlay height" strength — the
- * blank rows injected by the dashboard's pad/trim must land in the same
- * column as this overlay's `│` borders).
+ * Grammar (docs/UI-DESIGN-SYSTEM.md §2.E):
  *
- * Template origin: `confirm-overlay.ts`.
+ *   ┏ HELP ▸ dashboard
+ *   ┣ GENERAL
+ *   ┃ Q/Esc   close dashboard    Enter/S/Tab/Space   open run status
+ *   ┗ ? toggle · Esc dismiss
+ *
+ * The legacy rounded box (`╭─╮│╰─╯├─┤`) is retired: the overlay is a canopy +
+ * `┣ SECTION` group headers + `┃` rows. Each group title is a RAIL section
+ * (replacing the old accent-only row), and the always-visible column key/token
+ * pair now goes through the SHARED `keyToken()` from `src/ui/rail.ts`.
+ *
+ * Why that mattered: the old file-local `keyToken` had no `case "\t"` branch, so
+ * `DASHBOARD_KEYS.select`'s raw tab byte was rendered verbatim into the table
+ * and knocked the row's alignment out by one column (audit §4). The shared
+ * tokenizer maps it to `Tab` (and `Esc`/`↑/↓`/`PgUp`/`Space` consistently).
+ *
+ * Width contract: `render(width)` — every line is built through `railLine`,
+ * which owns the `glyph + space` separator and never emits a line wider than
+ * the render width. Nothing is baked at build time.
  */
 
-import { pad, truncate } from "../../utils/visual.ts";
+import { pad, truncate, visibleWidth } from "../../utils/visual.ts";
 import { DASHBOARD_KEYS } from "../keybinding-map.ts";
-import { Box, Text } from "../layout-primitives.ts";
+import { canopyLine, formatHint, keyToken, RAIL, railLine, sectionLine } from "../rail.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 
-/** Translate a raw key sequence into a readable token for the cheatsheet. */
-function keyToken(key: string): string {
-	switch (key) {
-		case "\u001b":
-			return "Esc";
-		case "\u001b[A":
-			return "↑";
-		case "\u001b[B":
-			return "↓";
-		case "\r":
-		case "\n":
-			return "Enter";
-		default:
-			return key;
-	}
-}
-
+/** Translate a raw key sequence into a readable token for the cheatsheet.
+ *  Delegates to the SHARED `keyToken` (rail.ts) so the cheatsheet, the footer
+ *  hints and the tool cards can never drift apart. */
 function keyList(keys: readonly string[]): string {
-	return [...keys].map(keyToken).join("/");
+	return [...new Set(keys.map((key) => keyToken(key)))].join("/");
 }
 
-interface HelpEntry {
+export interface HelpEntry {
 	readonly keys: string;
 	readonly label: string;
 }
 
-interface HelpGroup {
+export interface HelpGroup {
 	readonly title: string;
 	readonly entries: readonly HelpEntry[];
 }
@@ -62,7 +61,24 @@ const ROOT_LABELS: Record<string, string> = {
 	transcript: "transcript",
 	liveConversation: "live conv",
 	reload: "reload",
-	progressToggle: "progress",
+	// NOTE: `progressToggle` deliberately has no label here — the `p` binding
+	// had no visible effect (P1-5, phantom key) and is being removed from
+	// keybinding-map.ts. Entries derive from Object.entries(DASHBOARD_KEYS.root),
+	// so the row disappears entirely once that key is gone.
+};
+
+const SCHEDULES_LABELS: Record<string, string> = {
+	toggle: "toggle",
+	runNow: "run now",
+	details: "details",
+	delete: "delete",
+	refresh: "refresh",
+};
+
+const PLAN_LABELS: Record<string, string> = {
+	approve: "approve",
+	deny: "deny",
+	diff: "diff",
 };
 
 const MAILBOX_LABELS: Record<string, string> = {
@@ -87,6 +103,16 @@ function buildHelpGroups(): HelpGroup[] {
 	const rootEntries: HelpEntry[] = Object.entries(DASHBOARD_KEYS.root).map(([name, keys]) => ({
 		keys: keyList(keys),
 		label: ROOT_LABELS[name] ?? name,
+	}));
+	// P1-14: pane 8 (schedules) and pane 7 (plan) have pane-scoped action keys
+	// that were missing from this cheatsheet entirely.
+	const scheduleEntries: HelpEntry[] = Object.entries(DASHBOARD_KEYS.schedules).map(([name, keys]) => ({
+		keys: keyList(keys),
+		label: SCHEDULES_LABELS[name] ?? name,
+	}));
+	const planEntries: HelpEntry[] = Object.entries(DASHBOARD_KEYS.plan).map(([name, keys]) => ({
+		keys: keyList(keys),
+		label: PLAN_LABELS[name] ?? name,
 	}));
 	const mailboxEntries: HelpEntry[] = Object.entries(DASHBOARD_KEYS.mailbox)
 		.filter(([name]) => name !== "openDetail")
@@ -117,12 +143,18 @@ function buildHelpGroups(): HelpGroup[] {
 			title: "Navigation",
 			entries: [
 				{
-					keys: `${keyList(DASHBOARD_KEYS.navigation.up)}/${keyList(DASHBOARD_KEYS.navigation.down)}`,
+					// Union of the up/down aliases, deduped through the shared
+					// `keyToken` (`k`/`up` and `j`/`down` collapse to one `↑/↓`).
+					keys: [
+						...new Set([...DASHBOARD_KEYS.navigation.up, ...DASHBOARD_KEYS.navigation.down].map((key) => keyToken(key))),
+					].join("/"),
 					label: "move selection",
 				},
 			],
 		},
 		{ title: "Panes", entries: paneEntries },
+		{ title: "Schedules (pane 8)", entries: scheduleEntries },
+		{ title: "Plan (pane 7)", entries: planEntries },
 		{ title: "Run actions", entries: rootEntries },
 		{ title: "Mailbox (pane 3)", entries: mailboxEntries },
 		{
@@ -138,6 +170,21 @@ function buildHelpGroups(): HelpGroup[] {
 	];
 }
 
+/** Test seam (mirrors `__test__openPane` / `__resetInlinePanelForTest`): the
+ *  generated groups, so tests can assert keys/labels without parsing the
+ *  rendered surface. The overlay itself renders through `buildHelpGroups()`. */
+export function __test__buildHelpGroups(): HelpGroup[] {
+	return buildHelpGroups();
+}
+
+/** Width of the key column: the widest rendered token list, capped at 20 so a
+ *  future key set cannot push the labels off the row. Derived from the data —
+ *  never a hand-tuned constant that silently misaligns when a key is added. */
+function keyColumnWidth(groups: readonly HelpGroup[]): number {
+	const widths = groups.flatMap((group) => group.entries.map((entry) => visibleWidth(entry.keys)));
+	return Math.min(20, Math.max(1, ...widths));
+}
+
 export class HelpOverlay {
 	private readonly theme: CrewTheme;
 
@@ -150,28 +197,36 @@ export class HelpOverlay {
 	}
 
 	render(width: number): string[] {
-		// MUST mirror run-dashboard.ts's innerWidth so the dashboard's
-		// stable-height blank-padding rows align with this overlay's borders.
-		const innerWidth = Math.max(20, width - 4);
-		const fg = (color: Parameters<CrewTheme["fg"]>[0], text: string) => this.theme.fg(color, text);
-		const row = (text: string) => `│ ${pad(truncate(text, innerWidth - 1), innerWidth - 1)}│`;
-		const bar = "─".repeat(innerWidth);
-		const top = fg("border", `╭${bar}╮`);
-		const mid = fg("border", `├${bar}┤`);
-		const bot = fg("border", `╰${bar}╯`);
-		const keyCol = 9;
-		const lines: string[] = [top, row(`${fg("accent", "pi-crew dashboard")} ${fg("dim", "— key reference (press ? to close)")}`), mid];
-		for (const group of buildHelpGroups()) {
-			lines.push(row(fg("accent", group.title)));
+		if (width < 6) return [];
+		const theme = this.theme;
+		const budget = width - 2;
+		const groups = buildHelpGroups();
+		const keyCol = keyColumnWidth(groups);
+		const lines: string[] = [canopyLine({ word: "HELP", subject: "dashboard", theme, budget })];
+		for (const group of groups) {
+			lines.push(sectionLine({ name: group.title, theme, budget }));
 			for (let i = 0; i < group.entries.length; i += 2) {
 				const pair = group.entries.slice(i, i + 2);
-				const cell = (entry: HelpEntry) => `${this.theme.bold(pad(entry.keys, keyCol))}${fg("dim", truncate(entry.label, 16))}`;
-				lines.push(row(pair.map(cell).join("   ")));
+				const cell = (entry: HelpEntry) =>
+					`${theme.bold(pad(truncate(entry.keys, keyCol), keyCol))} ${theme.fg("dim", truncate(entry.label, 16))}`;
+				lines.push(railLine(RAIL.body, "border", truncate(pair.map(cell).join("   "), budget), theme, budget));
 			}
 		}
-		lines.push(bot);
-		const box = new Box(0, 0);
-		for (const line of lines) box.addChild(new Text(line));
-		return box.render(width);
+		lines.push(
+			railLine(
+				RAIL.close,
+				"border",
+				theme.fg(
+					"dim",
+					formatHint([
+						["?", "toggle"],
+						["escape", "dismiss"],
+					]),
+				),
+				theme,
+				budget,
+			),
+		);
+		return lines;
 	}
 }

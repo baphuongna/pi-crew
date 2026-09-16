@@ -5,8 +5,8 @@
  */
 
 import { truncateToWidth, visibleWidth } from "../utils/visual.ts";
-import { DynamicCrewBorder } from "./dynamic-border.ts";
 import { keyOf, matchesKey } from "./key-utils.ts";
+import { CURSOR, canopyLine, formatHint, overflowHint, RAIL, railLine } from "./rail.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { discoverPiThemes, getActivePiTheme } from "./theme-discovery.ts";
 
@@ -509,19 +509,29 @@ class SelectSubmenu {
 		const end = Math.min(start + this.maxVisible, this.items.length);
 		const needsScroll = this.items.length > this.maxVisible;
 		if (needsScroll && start > 0) {
-			lines.push(this.theme.fg("dim", `  ▲ ${start} more above`));
+			lines.push(`  ${overflowHint(start, 0, this.theme)}`);
 		}
 		for (let i = start; i < end; i++) {
 			const isSelected = i === this.selectedIndex;
-			const prefix = isSelected ? " → " : "   ";
+			// `›` is the ONLY selection marker (RAIL): `→`-as-cursor is retired.
+			const prefix = isSelected ? ` ${CURSOR} ` : "   ";
 			const line = `${prefix}${this.items[i]}`;
 			lines.push(isSelected ? (this.theme.inverse?.(line) ?? line) : line);
 		}
 		if (needsScroll && end < this.items.length) {
-			lines.push(this.theme.fg("dim", `  ▼ ${this.items.length - end} more below`));
+			lines.push(`  ${overflowHint(0, this.items.length - end, this.theme)}`);
 		}
 		lines.push("");
-		lines.push(this.theme.fg("dim", "↑↓ navigate · Enter to select · Esc to go back"));
+		lines.push(
+			this.theme.fg(
+				"dim",
+				formatHint([
+					[["up", "down"], "navigate"],
+					["enter", "to select"],
+					["esc", "to go back"],
+				]),
+			),
+		);
 		return lines;
 	}
 
@@ -593,7 +603,16 @@ class TextinputSubmenu {
 		lines.push("");
 		lines.push(`  ${this.buffer}█`);
 		lines.push("");
-		lines.push(this.theme.fg("dim", "Enter to save · Esc to cancel · Clear to unset"));
+		lines.push(
+			this.theme.fg(
+				"dim",
+				formatHint([
+					["enter", "to save"],
+					["esc", "to cancel"],
+					["clear", "to unset"],
+				]),
+			),
+		);
 		return lines;
 	}
 
@@ -682,7 +701,7 @@ class AgentOverridesSubmenu {
 			const thinkingPart = thinking ? `thinking=${thinking}` : "";
 			const valueParts = [modelPart, thinkingPart].filter(Boolean).join(", ");
 			const valueText = valueParts || this.theme.fg("dim", "(default)");
-			const prefix = isSelected ? " → " : "   ";
+			const prefix = isSelected ? ` ${CURSOR} ` : "   ";
 			const line = `${prefix}${label} ${valueText}`;
 			lines.push(
 				isSelected
@@ -691,19 +710,38 @@ class AgentOverridesSubmenu {
 			);
 		}
 		lines.push("");
-		lines.push(this.theme.fg("dim", "Enter to edit model · e to edit thinking · Esc to go back"));
+		lines.push(
+			this.theme.fg(
+				"dim",
+				formatHint([
+					["enter", "to edit model"],
+					["e", "to edit thinking"],
+					["esc", "to go back"],
+				]),
+			),
+		);
 		return lines;
 	}
 
 	private renderEdit(width: number): string[] {
-		const agent = this.agents[this.selectedIndex];
+		// GUARD (M4 §4): an out-of-range cursor used to print `Edit undefined model`.
+		const agent = this.agents[this.selectedIndex] ?? "?";
 		const field = this.editField === "model" ? "model" : "thinking";
 		const lines: string[] = [];
 		lines.push(this.theme.bold(this.theme.fg("accent", `Edit ${agent} ${field}`)));
 		lines.push("");
 		lines.push(`  ${this.editBuffer}█`);
 		lines.push("");
-		lines.push(this.theme.fg("dim", "Enter to save · Esc to cancel · Clear to unset"));
+		lines.push(
+			this.theme.fg(
+				"dim",
+				formatHint([
+					["enter", "to save"],
+					["clear", "to unset"],
+					["esc", "to cancel"],
+				]),
+			),
+		);
 		return lines;
 	}
 
@@ -801,33 +839,30 @@ class SettingsOverlay {
 	}
 
 	render(width: number): string[] {
-		// Border wrapper — same style as RunDashboard
-		const innerWidth = Math.max(30, width - 4);
-		const borderWidth = Math.min(innerWidth, Math.max(0, width - 2));
-		const fg = (color: Parameters<CrewTheme["fg"]>[0], text: string) => this.theme.fg(color, text);
-		const borderFill = (count: number) => new DynamicCrewBorder(this.theme).render(Math.max(0, count))[0];
-		const border = (left: string, right: string) => `${fg("border", left)}${borderFill(borderWidth)}${fg("border", right)}`;
-		const row = (text: string) => `│ ${padToWidth(truncateToWidth(text, innerWidth - 1), innerWidth - 1)}│`;
+		// RAIL frame (M4, 2026-09-16) — the rounded box, the `├ ┤` rule and the
+		// `│` tab separator are retired: canopy `┏ SETTINGS ▸ pi-crew`, `┃` body
+		// rows (tab bar + content) and a `┗ <hint>` cap. railLine owns the glyph +
+		// space and the pad/truncate to `budget`, so no line can exceed `width`.
+		const budget = Math.max(0, width - 2);
+		const row = (text: string) => railLine(RAIL.body, "border", text, this.theme, budget);
 
 		const lines: string[] = [];
 
-		// ── Title bar ──
-		lines.push(border("╭", "╮"));
-		lines.push(row(`${fg("accent", "▐")} ${this.theme.bold("pi-crew Settings")}`));
+		// ── Title bar (canopy) ──
+		lines.push(canopyLine({ word: "SETTINGS", subject: "pi-crew", theme: this.theme, budget }));
 
-		// ── Tab bar ──
-		const tabLine = this.renderTabBarContent(innerWidth - 2);
-		lines.push(row(tabLine));
-		lines.push(border("├", "┤"));
+		// ── Tab bar (a rail body row; tabs joined by ` · `, never `│`) ──
+		lines.push(row(this.renderTabBarContent(budget)));
 
 		// ── Content ──
-		const content = this.submenu ? this.renderSubmenuContent(innerWidth - 4) : this.renderSettingsContent(innerWidth - 4);
+		const bodyBudget = Math.max(0, budget - 2);
+		const content = this.submenu ? this.renderSubmenuContent(bodyBudget) : this.renderSettingsContent(bodyBudget);
 		for (const line of content) {
-			lines.push(row(` ${truncateToWidth(line, innerWidth - 2)}`));
+			lines.push(row(` ${truncateToWidth(line, Math.max(0, budget - 1))}`));
 		}
 
-		// ── Bottom border ──
-		lines.push(border("╰", "╯"));
+		// ── Cap (close action LAST) ──
+		lines.push(railLine(RAIL.close, "border", formatHint([["esc", "close"]]), this.theme, budget));
 
 		return lines;
 	}
@@ -839,7 +874,7 @@ class SettingsOverlay {
 			const text = `${tab.icon} ${tab.label}`;
 			parts.push(isActive ? this.theme.bold(this.theme.fg("accent", text)) : this.theme.fg("dim", text));
 		}
-		return parts.join("  " + this.theme.fg("border", "│") + "  ");
+		return truncateToWidth(parts.join(`  ${this.theme.fg("dim", "·")}  `), innerWidth);
 	}
 
 	private renderSettingsContent(innerWidth: number): string[] {
@@ -864,7 +899,8 @@ class SettingsOverlay {
 			const valueStr = formatValue(effective, def.id);
 			const suffix = isDefault && (effective !== undefined || EFFECTIVE_DEFAULTS[def.id] !== undefined) ? " (default)" : "";
 
-			const prefix = isSelected ? " → " : "   ";
+			// Cursor: `›` is the ONLY selection marker (RAIL).
+			const prefix = isSelected ? ` ${CURSOR} ` : "   ";
 			const labelPad = padToWidth(def.label, maxLabelWidth);
 			const valueMax = innerWidth - maxLabelWidth - 6 - prefix.length - suffix.length;
 			const valueText = truncateToWidth(valueStr, Math.max(10, valueMax));
@@ -877,15 +913,12 @@ class SettingsOverlay {
 			}
 		}
 
-		// Scroll indicator
+		// Scroll indicator — RAIL overflow dialect (`▲ n above · ▼ m below`).
 		if (startIdx > 0 || endIdx < settings.length) {
 			const remaining = settings.length - endIdx;
-			const count = startIdx > 0 ? `↑${startIdx}` : "";
-			const below = remaining > 0 ? `↓${remaining}` : "";
-			const parts = [count, below].filter(Boolean);
-			if (parts.length > 0) {
-				lines.push(this.theme.fg("dim", `   (${this.selectedIndex + 1}/${settings.length}) ${parts.join(" ")}`));
-			}
+			lines.push(
+				`${this.theme.fg("dim", `   (${this.selectedIndex + 1}/${settings.length})`)} ${overflowHint(startIdx, remaining, this.theme)}`,
+			);
 		}
 
 		// Description
@@ -895,9 +928,18 @@ class SettingsOverlay {
 			lines.push(this.theme.fg("muted", `  ${selectedDef.description}`));
 		}
 
-		// Hints
+		// Hints — one format (`formatHint`); the close action lives in the cap.
 		lines.push("");
-		lines.push(this.theme.fg("dim", "  ↑↓ Navigate · Enter/Space change · Tab switch · Esc close"));
+		lines.push(
+			this.theme.fg(
+				"dim",
+				`  ${formatHint([
+					[["up", "down"], "Navigate"],
+					[["enter", "space"], "Change"],
+					["tab", "switch"],
+				])}`,
+			),
+		);
 
 		return lines;
 	}

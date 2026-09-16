@@ -1,0 +1,11 @@
+### 17. Live conversation overlay — phím V · REAL render: LiveConversationOverlay.render() @100x24
+### Fixture: LiveAgentHandle với session.subscribe replay 4 event thật → đúng đường pushLine/refreshSummary của overlay
+
+┏ LIVE ▸ planner                                                                                    
+┃ ⠧ Lập plan fix 15 finding · turn 12/30 · 18 tools · 292.3s · anthropic/claude-sonnet-4.5          
+┃ [parent] steer: thử grep ở thư mục con                                                            
+┃ ⠋ đang chạy bash grep -rn "powerbar" src/ui                                                       
+┃ ✔ 12 match · powerbar-publisher.ts 4 hit                                                          
+┃ [parent] ok, tổng hợp lại                                                                         
+┃ ​[12 turns · 18 tools · 292.3s]                                                                    
+┗ ↑/↓/PgUp/PgDn/G scroll · A pause · Esc/Q close ······································· auto-scroll

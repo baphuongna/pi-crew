@@ -48,7 +48,7 @@ test("render draws the title, tab bar, the first runtime setting, and the hint",
 		() => undefined,
 	);
 	const out = rendered(overlay);
-	assert.ok(out.includes("pi-crew Settings"));
+	assert.match(out, /┏ SETTINGS ▸ pi-crew/); // RAIL canopy (M4) replaced `pi-crew Settings`
 	assert.ok(out.includes("Runtime")); // tab label
 	assert.ok(out.includes("Runtime Mode")); // first setting label on runtime tab
 	assert.ok(out.includes("Navigate")); // keybind hint

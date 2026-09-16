@@ -1,0 +1,7 @@
+### Ghostty OSC 9;4 progress + tab title — mới WIRE lại ở M3-1 (flash 1500ms)
+Chuỗi escape mà controller ghi ra terminal (hiển thị dạng cat -v):
+  ACTIVE (indeterminate)     → ^[]9;4;3^G
+  COMPLETED 100% (flash xanh) → ^[]9;4;1;100^G
+  CLEAR (idle)               → ^[]9;4;0^G
+Tab title khi active:  ^[]0;π-crew · 3 agents^G   (setTitle qua ctx.ui)
+Tab title khi idle:    ^[]0;π-crew^G   (restore sau 1500ms flash)

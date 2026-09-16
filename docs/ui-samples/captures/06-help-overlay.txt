@@ -1,0 +1,33 @@
+┏ HELP ▸ dashboard                                                          
+┣ GENERAL                                                                   
+┃ Q/Esc             close dashboard   Enter/S/Tab/Space open run status     
+┃ ?                 toggle this help                                        
+┣ NAVIGATION                                                                
+┃ K/↑/↓/J           move selection                                          
+┣ PANES                                                                     
+┃ 1                 agents   2                 progress                     
+┃ 3                 mailbox   4                 output                      
+┃ 5                 health   6                 metrics                      
+┃ 7                 plan   8                 schedules                      
+┣ SCHEDULES (PANE 8)                                                        
+┃ T                 toggle   N                 run now                      
+┃ V                 details   X                 delete                      
+┃ R                 refresh                                                 
+┣ PLAN (PANE 7)                                                             
+┃ A                 approve   N                 deny                        
+┃ X                 diff                                                    
+┣ RUN ACTIONS                                                               
+┃ U                 summary   A                 artifacts                   
+┃ I                 api   D                 agents                          
+┃ M                 mailbox   E                 events                      
+┃ O                 output   V                 transcript                   
+┃ V                 live conv   R                 reload                    
+┃ B                 browser                                                 
+┣ MAILBOX (PANE 3)                                                          
+┃ A                 ack   N                 nudge                           
+┃ C                 compose   P                 preview                     
+┃ X                 ack all                                                 
+┣ HEALTH & NOTIFICATIONS                                                    
+┃ R                 recover   K                 kill stale                  
+┃ D                 diag export   H                 dismiss notifs          
+┗ ? toggle · Esc dismiss                                                    

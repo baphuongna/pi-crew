@@ -24,12 +24,22 @@
 import type { KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { type EditorTheme, matchesKey, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-
+import { ACTIVE } from "../rail.ts";
 import type { PanelKeys, PanelTarget } from "./panel-selection.ts";
 import { dispatchPanelKey } from "./panel-selection.ts";
 import { getPanelSelection, getViewedAgent, panelRows, setPanelSelection } from "./panel-store.ts";
 
 export const AGENT_LABEL_MAX = 24;
+
+/**
+ * `name` as it paints in the editor border: whitespace collapsed to one line
+ * (the label is spliced INTO the editor's top border, so a newline would tear
+ * the frame) and the legacy `role->agent` separator normalized to the RAIL
+ * active marker (§4 consistency fix). The mechanism itself is untouched.
+ */
+export function agentBorderLabel(name: string): string {
+	return truncateToWidth(name.replace(/->/g, ACTIVE).replace(/\s+/g, " ").trim(), AGENT_LABEL_MAX);
+}
 
 export interface CrewEditorOptions {
 	/** Open the transcript pane on the given agent. */
@@ -192,9 +202,9 @@ export class CrewInlineEditor extends CustomEditor {
 		if (!viewed) return lines;
 		const rows = panelRows();
 		const row = rows.find((r) => r.runId === viewed.runId && r.taskId === viewed.taskId);
-		const name = row?.name ?? viewed.taskId.slice(-AGENT_LABEL_MAX);
+		const name = agentBorderLabel(row?.name ?? viewed.taskId.slice(-AGENT_LABEL_MAX));
 		if (name && lines.length > 0) {
-			const label = ` @${truncateToWidth(name.replace(/\s+/g, " "), AGENT_LABEL_MAX)} `;
+			const label = ` @${name} `;
 			const labelWidth = visibleWidth(label);
 			if (visibleWidth(lines[0]) >= labelWidth + 4) {
 				lines[0] = truncateToWidth(lines[0], width - labelWidth - 2, "") + label + "──";

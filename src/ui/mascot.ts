@@ -1,6 +1,5 @@
 import { matchesKey } from "@earendil-works/pi-tui";
-import { pad } from "../utils/visual.ts";
-import { DynamicCrewBorder } from "./dynamic-border.ts";
+import { canopyLine, formatHint, RAIL, railLeaders, railLine } from "./rail.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme } from "./theme-adapter.ts";
 
@@ -356,10 +355,8 @@ export class AnimatedMascot {
 		this.onDone();
 	}
 
-	private formatLine(line: string, width: number, color: Parameters<CrewTheme["fg"]>[0] = "accent"): string {
-		const contentWidth = Math.max(0, width - 4);
-		const themed = this.theme.fg(color, line);
-		return `│ ${pad(themed, contentWidth)} │`;
+	private formatLine(line: string, budget: number, color: Parameters<CrewTheme["fg"]>[0] = "accent"): string {
+		return railLine(RAIL.body, "border", this.theme.fg(color, line), this.theme, budget);
 	}
 
 	private currentCatFrame(): readonly string[] {
@@ -397,25 +394,44 @@ export class AnimatedMascot {
 			return this.cachedLines;
 		}
 		const safeWidth = Math.max(20, width);
-		const horizontal = new DynamicCrewBorder(this.theme).render(Math.max(0, safeWidth - 2))[0];
+		// M4/RAIL (2026-09-16): the rounded box + DynamicCrewBorder were retired;
+		// this surface paints the same rail frame as every other pi-crew surface.
+		const budget = Math.max(4, safeWidth - 2);
 		const result: string[] = [
-			`${this.theme.fg("border", "╭")}${horizontal}${this.theme.fg("border", "╮")}`,
-			this.formatLine(this.theme.bold(" ARMIN SAYS HI "), safeWidth),
-			this.formatLine("", safeWidth),
+			canopyLine({ word: "MASCOT", subject: this.style, theme: this.theme, budget }),
+			this.formatLine(this.theme.bold("ARMIN SAYS HI"), budget),
+			this.formatLine("", budget),
 		];
 		if (this.style === "armin") {
 			for (const row of this.currentArminGrid) {
 				const text = row.join("");
-				result.push(this.formatLine(text, safeWidth));
+				result.push(this.formatLine(text, budget));
 			}
 		} else {
 			const frameLines = this.applyCatEffect(this.currentCatFrame());
-			for (const line of frameLines) result.push(this.formatLine(line, safeWidth));
+			for (const line of frameLines) result.push(this.formatLine(line, budget));
 		}
-		const hint =
-			this.style === "armin" ? `Press q or Esc to close · effect: ${this.effect}` : "Press q or Esc to close · animated preview";
-		result.push(this.formatLine(hint, safeWidth, "muted"));
-		result.push(`${this.theme.fg("border", "╰")}${horizontal}${this.theme.fg("border", "╯")}`);
+		const state = this.style === "armin" ? `effect: ${this.effect}` : "animated preview";
+		result.push(
+			railLine(
+				RAIL.close,
+				"border",
+				railLeaders(
+					this.theme.fg(
+						"dim",
+						formatHint([
+							["esc", "close"],
+							["q", "close"],
+						]),
+					),
+					this.theme.fg("dim", state),
+					budget,
+					this.theme,
+				),
+				this.theme,
+				budget,
+			),
+		);
 		this.cachedWidth = safeWidth;
 		this.cachedVersion = this.gridVersion;
 		this.cachedFrame = this.frame;

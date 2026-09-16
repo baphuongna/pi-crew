@@ -298,6 +298,17 @@ export const PiTeamsUiConfigSchema = Type.Object(
 	{
 		widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor"), Type.Literal("bottom")])),
 		widgetMaxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+		/** Dock row style. M1-9/P1-8: already parsed (config-validation.ts
+		 *  parseUiConfig), already read (src/ui/widget/index.ts) and already
+		 *  defaulted (defaults.ts DEFAULT_UI.widgetRowStyle = "compact"), but
+		 *  absent from this schema — so validateConfig() warned "unknown key" for
+		 *  a supported setting. The literals mirror `WidgetRowStyle`
+		 *  (src/ui/widget/widget-renderer.ts:123). */
+		widgetRowStyle: Type.Optional(Type.Union([Type.Literal("compact"), Type.Literal("detailed")])),
+		/** Inline panel (editor-wrapper agent rows). M1-9/P1-8: parsed + read
+		 *  (src/ui/inline-panel/index.ts) + defaulted (true), but absent from this
+		 *  schema → same unknown-key warning. */
+		inlinePanel: Type.Optional(Type.Boolean()),
 		powerbar: Type.Optional(Type.Boolean()),
 		dashboardPlacement: Type.Optional(Type.Union([Type.Literal("center"), Type.Literal("right")])),
 		dashboardWidth: Type.Optional(Type.Integer({ minimum: 32, maximum: 120 })),

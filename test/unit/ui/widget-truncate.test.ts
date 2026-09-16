@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { TeamRunManifest } from "../../../src/state/types.ts";
-import { DEFAULT_WIDGET_WIDTH, getRenderWidth } from "../../../src/ui/widget/index.ts";
 import { buildWidgetLines } from "../../../src/ui/widget/widget-renderer.ts";
 import type { WidgetRun } from "../../../src/ui/widget/widget-types.ts";
 
@@ -73,7 +72,7 @@ test("buildWidgetLines: every rendered line is <= width (no TUI overflow)", () =
 
 test("buildWidgetLines: 200-char task description does NOT overflow width", () => {
 	// Reproduces the actual crash: pi-audit task with `| S7: ... | ⬜ pending | |`
-	// style description that escaped the 60-char agentActivity cap.
+	// style description that escaped the 60-char activity cap.
 	const longDesc = "| S7: pi-audit security test | ⬜ pending | | " + "A".repeat(180);
 	const runs: WidgetRun[] = [
 		makeFakeRun({
@@ -136,29 +135,6 @@ test("WP-3 (single line): non-pending run keeps the ⚠ plan segment OFF the cou
 	const lines = buildWidgetLines(FAKE_CWD, 0, 20, runs, 0, 100);
 	assert.equal(lines.length, 1);
 	assert.ok(!lines[0].includes("⚠ plan:"), "no plan badge without pending approval");
-});
-
-test("getRenderWidth: explicit positive width wins over everything", () => {
-	assert.equal(getRenderWidth(80), 80);
-	assert.equal(getRenderWidth(159), 159);
-	assert.equal(getRenderWidth(80.7), 80, "floors fractional values");
-});
-
-test("getRenderWidth: undefined width falls back to process.stdout.columns", () => {
-	const cols = (globalThis as { process?: { stdout?: { columns?: number } } }).process?.stdout?.columns;
-	if (typeof cols === "number" && cols > 0) {
-		assert.equal(getRenderWidth(), Math.floor(cols));
-	} else {
-		// No real stdout (test runner pipes) → falls through to DEFAULT_WIDGET_WIDTH.
-		assert.equal(getRenderWidth(), DEFAULT_WIDGET_WIDTH);
-	}
-});
-
-test("getRenderWidth: invalid (NaN/0/negative) input falls back to DEFAULT_WIDGET_WIDTH", () => {
-	assert.equal(getRenderWidth(NaN), DEFAULT_WIDGET_WIDTH);
-	assert.equal(getRenderWidth(0), DEFAULT_WIDGET_WIDTH);
-	assert.equal(getRenderWidth(-5), DEFAULT_WIDGET_WIDTH);
-	assert.equal(getRenderWidth(undefined), getRenderWidth(), "undefined is also invalid → same fallback");
 });
 
 // Cheap ANSI stripper for visible-width assertion. Sufficient for the

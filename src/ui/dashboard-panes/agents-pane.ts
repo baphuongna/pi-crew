@@ -2,11 +2,14 @@ import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { type LiveAgentHandle, listLiveAgents, listLiveAgentsByWorkspace } from "../../runtime/live-session/live-agent-manager.ts";
 import { formatCost } from "../../state/usage.ts";
 import { visibleWidth } from "../../utils/visual.ts";
+import { formatCount, formatDuration } from "../format-helpers.ts";
 import { computeLiveDurationMs } from "../live-duration.ts";
+import { overflowHint, statusIcon } from "../rail.ts";
 import type { RunDashboardOptions } from "../run-dashboard.ts";
 import type { RunUiSnapshot } from "../snapshot-types.ts";
 import { spinnerFrame } from "../spinner.ts";
 import { iconForStatus } from "../status-colors.ts";
+import { PANE_THEME } from "./pane-theme.ts";
 
 /**
  * Fixed visible widths for the per-agent numeric metrics (finding V-1).
@@ -16,7 +19,7 @@ import { iconForStatus } from "../status-colors.ts";
  */
 const TOKENS_METRIC_WIDTH = 5; // `1.2k`, `12.3k`, `123`
 const COST_METRIC_WIDTH = 7; // `$0.0500`, `$1.50`
-const DURATION_METRIC_WIDTH = 6; // `3.0s`, `59.9s`, `120.0s`
+const DURATION_METRIC_WIDTH = 6; // `3.0s`, `59.9s`, `5m14s` (formatDuration)
 
 /**
  * Width-aware right-align (padStart) for a numeric metric so its column stays
@@ -27,6 +30,30 @@ const DURATION_METRIC_WIDTH = 6; // `3.0s`, `59.9s`, `120.0s`
 function alignMetric(value: string, width: number): string {
 	const gap = width - visibleWidth(value);
 	return gap > 0 ? " ".repeat(gap) + value : value;
+}
+
+/**
+ * Agent status glyph, from the shared RAIL vocabulary (`statusIcon`). Two
+ * deliberate exceptions, both kept because rail.ts cannot express them:
+ *  - `running` → the animated braille spinner (a live activity frame, not a
+ *    static status icon);
+ *  - `waiting`/`needs_attention`/`blocked` → ⏳/⚠/⏸: `statusIcon` has only
+ *    four outputs (✓ ✗ ⟳ ○) and would collapse all three into `○`, losing
+ *    the signal; the shared `status-colors` vocabulary is used for exactly
+ *    these.
+ * `queued` now renders rail's `○` instead of the legacy `◦`.
+ */
+function agentGlyph(status: string | undefined, taskId: string | undefined): string {
+	switch (status) {
+		case "running":
+			return spinnerFrame(taskId ?? "");
+		case "waiting":
+		case "needs_attention":
+		case "blocked":
+			return iconForStatus(status);
+		default:
+			return statusIcon(status ?? "unknown", PANE_THEME);
+	}
 }
 
 /**
@@ -99,17 +126,18 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 	const lineCount = Math.min(realAgents.length, 12);
 	const label =
 		realAgents.length !== snapshot.agents.length
-			? `${realAgents.length} real agents (${snapshot.agents.length} total)`
-			: `${realAgents.length} agents`;
+			? `${formatCount(realAgents.length, "real agent")} (${formatCount(snapshot.agents.length, "agent")} total)`
+			: formatCount(realAgents.length, "agent");
 
+	// `3/3 tasks · 3 agents` — the label arrives pre-pluralised by the caller
+	// ("N agents"); the task tally keeps the slash form on purpose (it reads as
+	// progress, not as a count).
 	lines.push(`${completed}/${total} tasks · ${label}`);
 
 	for (const agent of realAgents.slice(0, 12)) {
 		const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
-		const icon = iconForStatus(agent.status, {
-			runningGlyph: spinnerFrame(agent.taskId),
-		});
-		const role = `${agent.role}`;
+		const icon = agentGlyph(agent.status, agent.taskId);
+		const role = `${agent.role ?? "?"}`;
 
 		// Compact activity line
 		const activity = liveHandle
@@ -145,23 +173,27 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 			// fired for EVERY running live agent in the dashboard. Use the shared,
 			// validated computeLiveDurationMs (mirrors widget-formatters.ts).
 			const ms = computeLiveDurationMs(liveHandle.activity, nowMs);
-			stats.push(alignMetric(`${(ms / 1000).toFixed(1)}s`, DURATION_METRIC_WIDTH));
+			stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
 			if (options.showModel !== false && liveHandle.modelName && liveHandle.modelName !== "default") {
 				stats.push(liveHandle.modelName);
 			}
 		} else if (agent.startedAt) {
 			const ms = nowMs - new Date(agent.startedAt).getTime();
-			if (Number.isFinite(ms)) stats.push(alignMetric(`${(ms / 1000).toFixed(1)}s`, DURATION_METRIC_WIDTH));
+			if (Number.isFinite(ms)) stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
 		}
 
 		const statsStr = stats.length ? ` · ${stats.join(" ")}` : "";
-		lines.push(`  ${icon} ${agent.taskId} ${role}${statsStr}`);
+		lines.push(`  ${icon} ${agent.taskId ?? "?"} ${role}${statsStr}`);
 		lines.push(`    ${activity}`);
 	}
 
-	if (snapshot.agents.length > 12) {
-		lines.push(`  … +${snapshot.agents.length - 12} more`);
-	}
+	// Overflow in the ONE rail dialect (`▲ n above` / `▼ m below`), replacing
+	// the legacy `… +N more`. The count is derived from the SAME list the cap
+	// slices (`realAgents`), not from `snapshot.agents` — the pre-migration
+	// line could report rows that were never hidden (scaffold agents filtered
+	// out above).
+	const hiddenBelow = realAgents.length - 12;
+	if (hiddenBelow > 0) lines.push(`  ${overflowHint(0, hiddenBelow, PANE_THEME)}`);
 
 	return lines;
 }
