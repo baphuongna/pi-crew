@@ -14949,577 +14949,47 @@ var init_run_index = __esm({
   }
 });
 
-// src/runtime/model/pi-args.ts
+// src/utils/file-coalescer.ts
 import * as fs17 from "node:fs";
-import * as os7 from "node:os";
-import * as path17 from "node:path";
-function getPiTempBase() {
-  return path17.join(userPiRoot(), "tmp");
+function evictOldestCacheEntry() {
+  if (readCache.size < readCacheSizeLimit) return;
+  const oldestKey = readCache.keys().next().value;
+  if (oldestKey !== void 0) readCache.delete(oldestKey);
 }
-function isValidThinkingLevel(value) {
-  return value !== void 0 && THINKING_LEVELS.includes(value);
-}
-function applyThinkingSuffix(model, thinking) {
-  if (!model || !thinking || thinking === "off") return model;
-  const colonIdx = model.lastIndexOf(":");
-  if (colonIdx !== -1 && isValidThinkingLevel(model.substring(colonIdx + 1))) return model;
-  if (!isValidThinkingLevel(thinking)) return model;
-  return `${model}:${thinking}`;
-}
-function currentCrewDepth(env = process.env) {
-  const raw = env.PI_CREW_DEPTH ?? env.PI_TEAMS_DEPTH ?? "0";
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
-}
-function resolveCrewMaxDepth(inputMaxDepth, env = process.env) {
-  const raw = env.PI_CREW_MAX_DEPTH ?? env.PI_TEAMS_MAX_DEPTH;
-  const envDepth = raw !== void 0 ? Number(raw) : NaN;
-  if (Number.isInteger(envDepth) && envDepth >= 1 && envDepth <= 10) return envDepth;
-  if (Number.isInteger(envDepth) && envDepth > 10) {
-    console.warn(`PI_CREW_MAX_DEPTH=${envDepth} exceeds cap of 10, clamping to 10. Set 10 or lower to avoid this warning.`);
-    return 10;
-  }
-  if (Number.isInteger(inputMaxDepth) && inputMaxDepth !== void 0 && inputMaxDepth >= 1 && inputMaxDepth <= 10) return inputMaxDepth;
-  if (Number.isInteger(inputMaxDepth) && inputMaxDepth !== void 0 && inputMaxDepth > 10) {
-    console.warn(`maxDepth=${inputMaxDepth} exceeds cap of 10, clamping to 10. Set 10 or lower to avoid this warning.`);
-    return 10;
-  }
-  return DEFAULT_MAX_CREW_DEPTH;
-}
-function checkCrewDepth(inputMaxDepth, env = process.env) {
-  const depth = currentCrewDepth(env);
-  const maxDepth = resolveCrewMaxDepth(inputMaxDepth, env);
-  return { depth, maxDepth, blocked: depth >= maxDepth };
-}
-function createSafeTempDir(base, prefix) {
-  const absoluteBase = path17.resolve(base);
-  const parts = absoluteBase.split(path17.sep);
-  let accumulated = "";
-  if (parts[0] === "") accumulated = "/";
-  for (let i = 1; i < parts.length; i++) {
-    if (parts[i] === "") continue;
-    accumulated = path17.join(accumulated, parts[i]);
+function readJsonFileCoalesced(filePath, ttlMs, read) {
+  const now = Date.now();
+  const stat2 = (() => {
     try {
-      const stat2 = fs17.lstatSync(accumulated);
-      if (stat2.isSymbolicLink()) {
-        const knownDarwinSymlinks = ["/var", "/tmp", "/etc", "/private/var", "/private/tmp", "/private/etc"];
-        if (process.platform === "darwin" && knownDarwinSymlinks.includes(accumulated)) continue;
-        throw new Error("Refusing to create temp dir: ancestor is a symlink: " + accumulated);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message.includes("symlink")) throw e;
-      break;
-    }
-  }
-  try {
-    const baseStat = fs17.lstatSync(base);
-    if (baseStat.isSymbolicLink()) throw new Error("Refusing to create temp dir in symlinked base: " + base);
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("symlink")) throw e;
-  }
-  if (!fs17.existsSync(base)) fs17.mkdirSync(base, { recursive: true });
-  for (let i = 1; i < parts.length; i++) {
-    if (parts[i] === "") continue;
-    accumulated = path17.join(accumulated, parts[i]);
-    try {
-      const stat2 = fs17.lstatSync(accumulated);
-      if (stat2.isSymbolicLink()) {
-        const knownDarwinSymlinks = ["/var", "/tmp", "/etc", "/private/var", "/private/tmp", "/private/etc"];
-        if (process.platform === "darwin" && knownDarwinSymlinks.includes(accumulated)) continue;
-        throw new Error("Refusing to create temp dir: ancestor is a symlink (post-mkdir): " + accumulated);
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message.includes("symlink")) throw e;
-      break;
-    }
-  }
-  let resolvedBase;
-  let retries = 3;
-  while (true) {
-    try {
-      resolvedBase = fs17.realpathSync(base);
-      break;
-    } catch (e) {
-      if (--retries <= 0) throw e;
-      const code = e instanceof Object && "code" in e ? e.code : void 0;
-      if (code !== "ENOENT") throw e;
-    }
-    const revalidateParts = absoluteBase.split(path17.sep);
-    let revalidateAccumulated = "";
-    if (revalidateParts[0] === "") revalidateAccumulated = "/";
-    for (let i = 1; i < revalidateParts.length; i++) {
-      if (revalidateParts[i] === "") continue;
-      revalidateAccumulated = path17.join(revalidateAccumulated, revalidateParts[i]);
-      try {
-        const stat2 = fs17.lstatSync(revalidateAccumulated);
-        if (stat2.isSymbolicLink()) {
-          const knownDarwinSymlinks = ["/var", "/tmp", "/etc", "/private/var", "/private/tmp", "/private/etc"];
-          if (process.platform === "darwin" && knownDarwinSymlinks.includes(revalidateAccumulated)) continue;
-          throw new Error("Refusing to create temp dir: ancestor is a symlink (post-mkdir): " + revalidateAccumulated);
-        }
-      } catch (e) {
-        if (e instanceof Error && e.message.includes("symlink")) throw e;
-        break;
-      }
-    }
-  }
-  let resolvedBaseStat;
-  try {
-    resolvedBaseStat = fs17.lstatSync(resolvedBase);
-    if (resolvedBaseStat.isSymbolicLink()) throw new Error("Refusing to create temp dir: resolved base is a symlink: " + resolvedBase);
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("symlink")) throw e;
-  }
-  const resolvedParts = resolvedBase.split(path17.sep);
-  let resolvedAccumulated = "";
-  if (resolvedParts[0] === "") resolvedAccumulated = "/";
-  for (let i = 1; i < resolvedParts.length; i++) {
-    if (resolvedParts[i] === "") continue;
-    resolvedAccumulated = path17.join(resolvedAccumulated, resolvedParts[i]);
-    try {
-      const stat2 = fs17.lstatSync(resolvedAccumulated);
-      if (stat2.isSymbolicLink())
-        throw new Error("Refusing to create temp dir: resolved path contains symlink ancestor: " + resolvedAccumulated);
-    } catch (e) {
-      if (e instanceof Error && e.message.includes("symlink")) throw e;
-      break;
-    }
-  }
-  const rawTempDir = fs17.mkdtempSync(path17.join(resolvedBase, prefix));
-  try {
-    const stat2 = fs17.lstatSync(rawTempDir);
-    if (stat2.isSymbolicLink()) throw new Error("temp dir is a symlink");
-  } catch (e) {
-    if (e instanceof Error && e.message.includes("symlink")) {
-      fs17.rmSync(rawTempDir, { recursive: true, force: true });
-      throw new Error("Refusing to use symlinked temp directory.");
-    }
-    throw e;
-  }
-  const resolved = fs17.realpathSync(rawTempDir);
-  createdTempDirs.add(resolved);
-  return resolved;
-}
-function buildPiWorkerArgs(input) {
-  const args = ["--mode", "json", "-p"];
-  if (input.sessionEnabled === false) args.push("--no-session");
-  const resolvedModel = input.model ?? input.agent.model;
-  const effectiveThinking = input.thinkingOverride ?? input.agent.thinking;
-  if (resolvedModel) {
-    const modelWithThinking = applyThinkingSuffix(resolvedModel, effectiveThinking);
-    if (modelWithThinking) args.push("--model", modelWithThinking);
-  }
-  if (!resolvedModel && effectiveThinking && effectiveThinking !== "off" && isValidThinkingLevel(effectiveThinking)) {
-    args.push("--thinking", effectiveThinking);
-  }
-  const CONTROL_TOOLS = ["ask", "delegate", "message"];
-  if (input.agent.disableTools === true) {
-    args.push("--no-tools");
-  } else {
-    const rawTools = input.agent.tools;
-    const declared = typeof rawTools === "string" ? rawTools.split(",").map((t2) => t2.trim()).filter(Boolean) : Array.isArray(rawTools) ? rawTools.map((t2) => String(t2).trim()).filter(Boolean) : [];
-    if (declared.length > 0) {
-      const allow = /* @__PURE__ */ new Set([...declared, ...CONTROL_TOOLS]);
-      args.push("--tools", [...allow].join(","));
-    }
-    const disallowed = (input.agent.disallowedTools ?? []).map((t2) => t2.trim()).filter(Boolean);
-    if (disallowed.length > 0) args.push("--exclude-tools", [...new Set(disallowed)].join(","));
-  }
-  args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
-  const extEnv = input.env ?? process.env;
-  const untrustedSource = input.agent.source === "project" || input.agent.source === "project-pi" || input.agent.source === "dynamic";
-  let declaredExtensions = input.agent.extensions ?? [];
-  if (untrustedSource && extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1") {
-    declaredExtensions = [];
-  }
-  const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path17.basename(name).toLowerCase()));
-  declaredExtensions = declaredExtensions.filter((ext) => !excluded.has(path17.basename(ext).toLowerCase()));
-  for (const ext of declaredExtensions) args.push("--extension", ext);
-  if (input.agent.inheritSkills === false) args.push("--no-skills");
-  for (const skillPath of input.skillPaths ?? []) args.push("--skill", skillPath);
-  let tempDir;
-  if (input.agent.systemPrompt) {
-    const tmpBase = getPiTempBase();
-    tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
-    const promptPath = path17.join(tempDir, `${input.agent.name.replace(/[^\w.-]/g, "_")}.md`);
-    atomicWriteFile(promptPath, input.agent.systemPrompt, { mode: 384 });
-    args.push(input.agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt", promptPath);
-  }
-  if (input.task.length > TASK_ARG_LIMIT) {
-    if (!tempDir) {
-      const tmpBase = getPiTempBase();
-      tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
-    }
-    const taskPath = path17.join(tempDir, "task.md");
-    atomicWriteFile(taskPath, input.task, { mode: 384 });
-    args.push(`@${taskPath}`);
-  } else {
-    args.push(`Task: ${input.task}`);
-  }
-  const env = input.env ?? process.env;
-  const parentDepth = currentCrewDepth(env);
-  const maxDepth = resolveCrewMaxDepth(input.maxDepth, env);
-  return {
-    args,
-    env: {
-      // PI_CREW_KIND is the authoritative machine-readable sub-agent marker. It is always
-      // present on a child-pi process and NEVER present on a user's interactive main session.
-      // doctor --zombies uses it to safely list orphaned sub-agents without ever matching a
-      // main session (the lesson from an accidental `kill` of a live main session).
-      PI_CREW_KIND: "subagent",
-      PI_CREW_INHERIT_PROJECT_CONTEXT: input.agent.inheritProjectContext ? "1" : "0",
-      // B1 (fix round 1): match the argv `=== false` semantics — undefined
-      // inheritSkills means INHERIT (D5 default), not "0".
-      PI_CREW_INHERIT_SKILLS: input.agent.inheritSkills === false ? "0" : "1",
-      PI_CREW_DEPTH: String(parentDepth + 1),
-      PI_CREW_MAX_DEPTH: String(maxDepth),
-      PI_CREW_ROLE: input.agent.name,
-      PI_TEAMS_INHERIT_PROJECT_CONTEXT: input.agent.inheritProjectContext ? "1" : "0",
-      PI_TEAMS_INHERIT_SKILLS: input.agent.inheritSkills === false ? "0" : "1",
-      PI_TEAMS_DEPTH: String(parentDepth + 1),
-      PI_TEAMS_MAX_DEPTH: String(maxDepth),
-      PI_TEAMS_ROLE: input.agent.name,
-      // maxTokens cap for background workers — prompt-runtime reads this to cap API output
-      ...input.agent.maxTokens ? { PI_CREW_MAX_OUTPUT: String(input.agent.maxTokens) } : {}
-    },
-    tempDir
-  };
-}
-function cleanupTempDir(tempDir) {
-  if (!tempDir) return;
-  try {
-    let lstat2;
-    try {
-      lstat2 = fs17.lstatSync(tempDir);
+      const fileStat = fs17.statSync(filePath);
+      return { mtimeMs: fileStat.mtimeMs, size: fileStat.size };
     } catch {
-      createdTempDirs.delete(tempDir);
-      return;
+      return void 0;
     }
-    if (lstat2.isSymbolicLink()) {
-      createdTempDirs.delete(tempDir);
-      return;
-    }
-    fs17.rmSync(tempDir, { recursive: true, force: true });
-    createdTempDirs.delete(tempDir);
-  } catch {
+  })();
+  const cached2 = readCache.get(filePath);
+  if (cached2 && stat2 && cached2.expiresAt > now && cached2.mtimeMs === stat2.mtimeMs && cached2.size === stat2.size) {
+    readCache.delete(filePath);
+    readCache.set(filePath, cached2);
+    return cached2.value;
   }
-}
-function cleanupAllTrackedTempDirs() {
-  let cleaned = 0;
-  let failed = 0;
-  for (const dir of [...createdTempDirs]) {
-    try {
-      let lstat2;
-      try {
-        lstat2 = fs17.lstatSync(dir);
-      } catch {
-        createdTempDirs.delete(dir);
-        failed++;
-        continue;
-      }
-      if (lstat2.isSymbolicLink()) {
-        createdTempDirs.delete(dir);
-        continue;
-      }
-      fs17.rmSync(dir, { recursive: true, force: true });
-      createdTempDirs.delete(dir);
-      cleaned++;
-    } catch {
-      failed++;
-    }
+  const value = read();
+  if (stat2 !== void 0) {
+    readCache.set(filePath, {
+      value,
+      mtimeMs: stat2.mtimeMs,
+      size: stat2.size,
+      expiresAt: now + ttlMs
+    });
+    evictOldestCacheEntry();
   }
-  return { cleaned, failed };
+  return value;
 }
-function purgeStaleTrackedTempDirs() {
-  let removed = 0;
-  for (const dir of [...createdTempDirs]) {
-    if (!fs17.existsSync(dir)) {
-      createdTempDirs.delete(dir);
-      removed++;
-    }
-  }
-  return { removed, remaining: createdTempDirs.size };
-}
-function cleanupOrphanTempDirs(now = Date.now(), baseDir = path17.join(userPiRoot(), "tmp")) {
-  let scanned = 0;
-  let cleaned = 0;
-  let failed = 0;
-  try {
-    if (!fs17.existsSync(baseDir)) return { scanned: 0, cleaned: 0, failed: 0 };
-    const entries = fs17.readdirSync(baseDir, { withFileTypes: true });
-    const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-")).sort((a, b) => a.name.localeCompare(b.name)).slice(0, ORPHAN_TEMP_CLEAN_BATCH_SIZE);
-    for (const entry of candidates) {
-      scanned++;
-      const dir = path17.join(baseDir, entry.name);
-      let lstat2;
-      try {
-        lstat2 = fs17.lstatSync(dir);
-      } catch {
-        failed++;
-        continue;
-      }
-      if (lstat2.isSymbolicLink()) continue;
-      if (createdTempDirs.has(dir)) continue;
-      try {
-        let preRmlstat;
-        try {
-          preRmlstat = fs17.lstatSync(dir);
-        } catch {
-          failed++;
-          continue;
-        }
-        if (!preRmlstat || preRmlstat.isSymbolicLink()) continue;
-        if (now - preRmlstat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
-          fs17.rmSync(dir, { recursive: true, force: true });
-          createdTempDirs.delete(dir);
-          cleaned++;
-        }
-      } catch {
-        failed++;
-      }
-    }
-  } catch {
-  }
-  return { scanned, cleaned, failed };
-}
-function cleanupLegacyOrphanTempDirs(now = Date.now(), tmpDirOverride = os7.tmpdir()) {
-  const tmpDir = tmpDirOverride;
-  let scanned = 0;
-  let cleaned = 0;
-  let failed = 0;
-  try {
-    if (!fs17.existsSync(tmpDir)) return { scanned: 0, cleaned: 0, failed: 0 };
-    const entries = fs17.readdirSync(tmpDir, { withFileTypes: true });
-    const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-")).sort((a, b) => a.name.localeCompare(b.name)).slice(0, ORPHAN_TEMP_CLEAN_BATCH_SIZE);
-    for (const entry of candidates) {
-      scanned++;
-      const dir = path17.join(tmpDir, entry.name);
-      let lstat2;
-      try {
-        lstat2 = fs17.lstatSync(dir);
-      } catch {
-        failed++;
-        continue;
-      }
-      if (lstat2.isSymbolicLink()) continue;
-      const crewDir = path17.join(dir, ".crew");
-      let crewDirLstat;
-      try {
-        crewDirLstat = fs17.lstatSync(crewDir);
-      } catch {
-      }
-      if (crewDirLstat && !crewDirLstat.isSymbolicLink()) continue;
-      if (createdTempDirs.has(dir)) continue;
-      try {
-        let preRmlstat;
-        try {
-          preRmlstat = fs17.lstatSync(dir);
-        } catch {
-          failed++;
-          continue;
-        }
-        if (preRmlstat.isSymbolicLink()) continue;
-        if (now - preRmlstat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
-          fs17.rmSync(dir, { recursive: true, force: true });
-          cleaned++;
-        }
-      } catch {
-        failed++;
-      }
-    }
-  } catch {
-  }
-  return { scanned, cleaned, failed };
-}
-var THINKING_LEVELS, PROMPT_RUNTIME_EXTENSION_PATH, TASK_ARG_LIMIT, DEFAULT_MAX_CREW_DEPTH, createdTempDirs, ORPHAN_TEMP_MAX_AGE_MS, ORPHAN_TEMP_CLEAN_BATCH_SIZE;
-var init_pi_args = __esm({
-  "src/runtime/model/pi-args.ts"() {
+var readCache, readCacheSizeLimit;
+var init_file_coalescer = __esm({
+  "src/utils/file-coalescer.ts"() {
     "use strict";
-    init_atomic_write();
-    init_paths();
-    THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
-    PROMPT_RUNTIME_EXTENSION_PATH = path17.join(packageRoot(), "src", "prompt", "prompt-runtime.ts");
-    TASK_ARG_LIMIT = 8e3;
-    DEFAULT_MAX_CREW_DEPTH = 4;
-    createdTempDirs = /* @__PURE__ */ new Set();
-    purgeStaleTrackedTempDirs();
-    ORPHAN_TEMP_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
-    ORPHAN_TEMP_CLEAN_BATCH_SIZE = 50;
-  }
-});
-
-// src/ui/inline-panel/view-session-store.ts
-function markSessionSwitchInFlight() {
-  sessionSwitchInFlight = true;
-}
-function clearSessionSwitchInFlight() {
-  sessionSwitchInFlight = false;
-}
-function isSessionSwitchInFlight() {
-  return sessionSwitchInFlight;
-}
-var sessionSwitchInFlight;
-var init_view_session_store = __esm({
-  "src/ui/inline-panel/view-session-store.ts"() {
-    "use strict";
-    sessionSwitchInFlight = false;
-  }
-});
-
-// src/errors.ts
-var ErrorCode, DEFAULT_HELP, CrewError, errors;
-var init_errors3 = __esm({
-  "src/errors.ts"() {
-    "use strict";
-    ErrorCode = {
-      FileReadError: "E001",
-      // Cannot read a file
-      FileWriteError: "E002",
-      // Cannot write a file
-      TaskNotFound: "E003",
-      // Referenced task ID does not exist
-      InvalidStatusTransition: "E004",
-      // Run/task status cannot legally transition
-      ConfigError: "E005",
-      // Malformed config or missing required field
-      ResourceNotFound: "E006",
-      // Agent/team/workflow not found in discovery paths
-      // E1 (Round 15): runtime failure categories that previously threw raw Error
-      // with no code, no help hint, and no context. Surfaces actionable guidance.
-      ChildTimeout: "E007",
-      // Child Pi worker became unresponsive and was killed
-      ModelExhausted: "E008",
-      // All model candidates in the fallback chain failed
-      PreStepFailed: "E009",
-      // A pre-step hook script returned a non-zero exit
-      EventLogLockTimeout: "E010",
-      // Could not acquire the event-log file lock
-      DepthLimitExceeded: "E011",
-      // Pipeline/chain recursion depth limit hit (circular dep)
-      RunStale: "E012",
-      // Run reconciled as stale/zombie (heartbeat expired)
-      ModelOutOfScope: "E013"
-      // Caller-supplied model is not in pi's enabledModels allowlist (F7 scope gate)
-    };
-    DEFAULT_HELP = {
-      [ErrorCode.FileReadError]: "Check that the file exists and that the process has read permission.",
-      [ErrorCode.FileWriteError]: "Check that the disk is not full and that the process has write permission.",
-      [ErrorCode.TaskNotFound]: "The task may have been removed or the run may be in an inconsistent state. Use `team status` to verify.",
-      [ErrorCode.InvalidStatusTransition]: "Verify the run status using `team status` before retrying.",
-      [ErrorCode.ConfigError]: "Check the configuration file for syntax errors or missing required fields.",
-      [ErrorCode.ResourceNotFound]: "Use `team list` to see available agents, teams, and workflows.",
-      // E1 (Round 15): help hints for the new runtime categories.
-      [ErrorCode.ChildTimeout]: "The child Pi worker produced no output for too long and was terminated. Re-run the team; if it recurs, raise the response timeout in config or reduce the task scope.",
-      [ErrorCode.ModelExhausted]: "Every model in the fallback chain failed. Check your API key/quota and the per-attempt errors, then retry or swap the model in config.",
-      [ErrorCode.PreStepFailed]: "The pre-step hook script exited non-zero. Inspect its stderr, or mark it optional in the workflow step (preStepOptional).",
-      [ErrorCode.EventLogLockTimeout]: "Another process holds the event-log lock. Check for orphaned `.mkdirlock` directories or stale pi-crew processes, then retry.",
-      [ErrorCode.DepthLimitExceeded]: "A pipeline/chain exceeded the recursion depth limit, which usually indicates a circular stage dependency. Review step `dependsOn` chains.",
-      [ErrorCode.RunStale]: "The worker stopped heartbeating and was treated as a zombie. Re-run the team (resume or fresh); if it recurs, check `runtime.executeWorkers` / system load.",
-      [ErrorCode.ModelOutOfScope]: "The requested model is not in your pi `enabledModels` allowlist. Either pick a model listed in `enabledModels` (settings.json) or extend the allowlist. The scope gate is opt-in \u2014 disable `reliability.scopeModels` to allow any model."
-    };
-    CrewError = class extends Error {
-      code;
-      help;
-      _context;
-      constructor(code, message, help) {
-        super(message);
-        this.name = "CrewError";
-        this.code = code;
-        this.help = help ?? DEFAULT_HELP[code];
-        Object.defineProperty(this, "message", { enumerable: true });
-        Object.defineProperty(this, "code", { enumerable: true });
-      }
-      withContext(context) {
-        this._context = context;
-        return this;
-      }
-      withHelp(help) {
-        this.help = help;
-        return this;
-      }
-      toString() {
-        let out = `error[${this.code}]: ${this.message}`;
-        if (this._context) out += `
-  context: ${this._context}`;
-        if (this.help) out += `
-  help: ${this.help}`;
-        return out;
-      }
-    };
-    errors = {
-      fileRead(path103, source) {
-        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path103}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
-          "file system read operation"
-        );
-      },
-      fileWrite(path103, source) {
-        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path103}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
-          "file system write operation"
-        );
-      },
-      taskNotFound(taskId, runId) {
-        const msg = runId ? `Task '${taskId}' not found in run '${runId}'` : `Task '${taskId}' not found`;
-        return new CrewError(ErrorCode.TaskNotFound, msg);
-      },
-      invalidStatusTransition(from, to) {
-        return new CrewError(ErrorCode.InvalidStatusTransition, `Invalid run status transition: ${from} -> ${to}`);
-      },
-      config(message) {
-        return new CrewError(ErrorCode.ConfigError, message).withContext("configuration loading");
-      },
-      resourceNotFound(type, name) {
-        return new CrewError(ErrorCode.ResourceNotFound, `${type} '${name}' not found in any discovery path`);
-      },
-      // E1 (Round 15): runtime failure constructors. These wrap the raw-throw
-      // sites identified in the Round 15 error-experience audit so failures carry
-      // a machine-readable code, a help hint, and structured context.
-      childTimeout(detail) {
-        const tail = detail.stderr ? ` Stderr tail: ${detail.stderr.slice(-400)}` : "";
-        const dur = detail.timeoutMs ? ` after ${detail.timeoutMs}ms of no output` : "";
-        return new CrewError(ErrorCode.ChildTimeout, `Child Pi worker became unresponsive${dur} and was terminated.${tail}`).withContext(
-          `worker execution${detail.taskId ? ` (task ${detail.taskId})` : ""}`
-        );
-      },
-      modelExhausted(chain, lastFailure) {
-        const tried = chain.join(" \u2192 ");
-        const last = lastFailure ? ` Last failure: ${lastFailure}` : "";
-        return new CrewError(
-          ErrorCode.ModelExhausted,
-          `All ${chain.length} model candidates exhausted (tried: ${tried}).${last}`
-        ).withContext("model fallback chain");
-      },
-      preStepFailed(script, exitCode, stderr) {
-        const tail = stderr ? ` Stderr: ${stderr.slice(-400)}` : "";
-        return new CrewError(ErrorCode.PreStepFailed, `preStepScript '${script}' exited ${exitCode ?? "non-zero"}.${tail}`).withContext(
-          "pre-step hook execution"
-        );
-      },
-      eventLogLockTimeout(eventsPath, timeoutMs) {
-        return new CrewError(
-          ErrorCode.EventLogLockTimeout,
-          `Event log lock timeout for ${eventsPath}: could not acquire lock within ${timeoutMs}ms`
-        ).withContext("event-log append");
-      },
-      depthLimitExceeded(depth, kind = "pipeline") {
-        return new CrewError(
-          ErrorCode.DepthLimitExceeded,
-          `${kind[0].toUpperCase() + kind.slice(1)} recursion depth limit exceeded (${depth}). Possible circular dependency.`
-        ).withContext(`${kind} execution`);
-      },
-      runStale(reason, heartbeatAgeSeconds) {
-        const age = heartbeatAgeSeconds !== void 0 ? ` Last heartbeat was ${heartbeatAgeSeconds}s ago.` : "";
-        return new CrewError(
-          ErrorCode.RunStale,
-          `Stale run reconciled (reason=${reason}).${age} The worker stopped heartbeating and was treated as dead/zombie.`
-        ).withContext("stale-run reconciliation");
-      },
-      modelOutOfScope(model, patterns) {
-        return new CrewError(
-          ErrorCode.ModelOutOfScope,
-          `Requested model "${model}" is not in enabledModels scope (allowlist: [${patterns.join(", ")}])`
-        ).withContext("F7 model scope gate \u2014 caller override rejected");
-      }
-    };
+    readCache = /* @__PURE__ */ new Map();
+    readCacheSizeLimit = 128;
   }
 });
 
@@ -15777,1653 +15247,893 @@ var init_redaction = __esm({
   }
 });
 
-// src/state/event-log/event-log-rotation.ts
+// src/runtime/crew-agent-runtime.ts
+function taskStatusToAgentStatus(status) {
+  if (status === "completed") return "completed";
+  if (status === "failed") return "failed";
+  if (status === "cancelled" || status === "skipped") return "cancelled";
+  if (status === "running") return "running";
+  if (status === "waiting") return "waiting";
+  if (status === "needs_attention") return "needs_attention";
+  return "queued";
+}
+var init_crew_agent_runtime = __esm({
+  "src/runtime/crew-agent-runtime.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/crew-agent-records.ts
+import { randomUUID as randomUUID4 } from "node:crypto";
 import * as fs18 from "node:fs";
-import * as path18 from "node:path";
-function forEachLineSync(filePath, onLine) {
-  const fd = fs18.openSync(filePath, "r");
-  try {
-    const chunkSize = 8192;
-    const buf = Buffer.alloc(chunkSize);
-    let leftover = "";
-    let offset = 0;
-    let bytesRead;
-    while ((bytesRead = fs18.readSync(fd, buf, 0, chunkSize, offset)) > 0) {
-      offset += bytesRead;
-      leftover += buf.subarray(0, bytesRead).toString("utf-8");
-      let nl;
-      while ((nl = leftover.indexOf("\n")) >= 0) {
-        const line3 = leftover.slice(0, nl);
-        leftover = leftover.slice(nl + 1);
-        if (line3.length > 0) onLine(line3);
-      }
-    }
-    if (leftover.length > 0) {
-      onLine(leftover);
-    }
-  } finally {
-    fs18.closeSync(fd);
+import * as path17 from "node:path";
+function agentsPath(manifest) {
+  return path17.join(manifest.stateRoot, "agents.json");
+}
+function agentsRoot(manifest) {
+  return path17.join(manifest.stateRoot, "agents");
+}
+function safeAgentTaskId(taskId) {
+  return assertSafePathId("taskId", taskId.includes(":") ? taskId.split(":").pop() : taskId);
+}
+function agentStateDir(manifest, taskId) {
+  return path17.join(agentsRoot(manifest), safeAgentTaskId(taskId));
+}
+function bumpAgentPathCache() {
+  if (ensuredAgentDirs.size > AGENT_PATH_CACHE_MAX) {
+    const oldest = ensuredAgentDirs.keys().next().value;
+    if (oldest !== void 0) ensuredAgentDirs.delete(oldest);
+  }
+  if (resolvedAgentFiles.size > AGENT_PATH_CACHE_MAX) {
+    const oldest = resolvedAgentFiles.keys().next().value;
+    if (oldest !== void 0) resolvedAgentFiles.delete(oldest);
   }
 }
-function readLastEvents(filePath, maxKeep) {
-  if (maxKeep <= 0) {
-    let totalCount2 = 0;
-    forEachLineSync(filePath, (line3) => {
+function ensureAgentStateDir(manifest, taskId) {
+  const root = agentsRoot(manifest);
+  const dir = agentStateDir(manifest, taskId);
+  const cachedDir = ensuredAgentDirs.get(dir);
+  if (cachedDir !== void 0) return cachedDir;
+  fs18.mkdirSync(root, { recursive: true });
+  if (fs18.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid agents root: ${root}`);
+  fs18.mkdirSync(dir, { recursive: true });
+  if (fs18.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid agent state directory: ${dir}`);
+  resolveRealContainedPath(root, path17.basename(dir));
+  ensuredAgentDirs.set(dir, dir);
+  bumpAgentPathCache();
+  return dir;
+}
+function safeExistingAgentFile(manifest, taskId, fileName) {
+  const filePath = path17.join(agentStateDir(manifest, taskId), fileName);
+  if (!fs18.existsSync(filePath)) return filePath;
+  if (fs18.lstatSync(filePath).isSymbolicLink()) throw new Error(`Invalid agent state file: ${filePath}`);
+  return resolveRealContainedPath(agentsRoot(manifest), path17.join(safeAgentTaskId(taskId), fileName));
+}
+function agentStateFile(manifest, taskId, fileName) {
+  const dir = agentStateDir(manifest, taskId);
+  const cacheKey2 = `${dir}\0${fileName}`;
+  const cached2 = resolvedAgentFiles.get(cacheKey2);
+  if (cached2 !== void 0) return cached2;
+  ensureAgentStateDir(manifest, taskId);
+  const resolved = safeExistingAgentFile(manifest, taskId, fileName);
+  resolvedAgentFiles.set(cacheKey2, resolved);
+  bumpAgentPathCache();
+  return resolved;
+}
+function agentStatusPath(manifest, taskId) {
+  return path17.join(agentStateDir(manifest, taskId), "status.json");
+}
+function agentEventsPath(manifest, taskId) {
+  return agentEventsPathForStateRoot(manifest.stateRoot, taskId);
+}
+function agentEventsPathForStateRoot(stateRoot, taskId) {
+  return path17.join(stateRoot, "agents", safeAgentTaskId(taskId), "events.jsonl");
+}
+function agentOutputPath(manifest, taskId) {
+  return path17.join(agentStateDir(manifest, taskId), "output.log");
+}
+function agentsLockPath(manifest) {
+  return `${agentsPath(manifest)}.lock`;
+}
+function removeStaleAgentsLock(lockPath2, staleMs) {
+  try {
+    const stat2 = fs18.statSync(lockPath2);
+    if (stat2.size > 1024) return false;
+    const raw = fs18.readFileSync(lockPath2, "utf-8");
+    const parsed = JSON.parse(raw);
+    const createdAt = typeof parsed.createdAt === "string" ? Date.parse(parsed.createdAt) : NaN;
+    if (Number.isFinite(createdAt) && Date.now() - createdAt <= staleMs) return false;
+    const pid = typeof parsed.pid === "number" ? parsed.pid : void 0;
+    if (pid && pid !== process.pid) {
       try {
-        JSON.parse(line3);
-        totalCount2++;
+        process.kill(pid, 0);
+        return false;
       } catch {
       }
-    });
-    return { events: [], totalCount: totalCount2 };
-  }
-  const ring = new Array(maxKeep);
-  let ringFilled = 0;
-  let writeIdx = 0;
-  let totalCount = 0;
-  forEachLineSync(filePath, (line3) => {
-    let event;
-    try {
-      event = JSON.parse(line3);
-    } catch {
-      return;
     }
-    ring[writeIdx] = event;
-    writeIdx = (writeIdx + 1) % maxKeep;
-    if (ringFilled < maxKeep) ringFilled++;
-    totalCount++;
-  });
-  const events = [];
-  if (ringFilled < maxKeep) {
-    for (let i = 0; i < ringFilled; i++) events.push(ring[i]);
-  } else {
-    for (let i = 0; i < maxKeep; i++) events.push(ring[(writeIdx + i) % maxKeep]);
-  }
-  return { events, totalCount };
-}
-function countEventsAndSeqs(filePath) {
-  const seqs = /* @__PURE__ */ new Set();
-  let count2 = 0;
-  forEachLineSync(filePath, (line3) => {
-    try {
-      const event = JSON.parse(line3);
-      count2++;
-      const seq = event.metadata?.seq;
-      if (typeof seq === "number") seqs.add(seq);
-    } catch {
-    }
-  });
-  return { count: count2, seqs };
-}
-function resolveConfig(config) {
-  return { ...DEFAULT_ROTATION_CONFIG, ...config };
-}
-function needsRotation(eventsPath, config) {
-  if (!fs18.existsSync(eventsPath)) return false;
-  const cfg = resolveConfig(config);
-  try {
-    const stat2 = fs18.statSync(eventsPath);
-    if (stat2.size > cfg.maxFileSizeBytes) return true;
-    const estimatedCount = Math.floor(stat2.size / AVG_BYTES_PER_EVENT);
-    return estimatedCount > cfg.maxEventCount;
-  } catch {
-    return false;
-  }
-}
-function prepareCompaction(eventsPath, config) {
-  if (!fs18.existsSync(eventsPath)) return void 0;
-  const cfg = resolveConfig(config);
-  let originalSize;
-  try {
-    originalSize = fs18.statSync(eventsPath).size;
-  } catch {
-    return void 0;
-  }
-  const { events: kept, totalCount: originalCount } = readLastEvents(eventsPath, cfg.compactToCount);
-  if (originalCount <= cfg.compactToCount) return void 0;
-  const lines = kept.map((e) => JSON.stringify(e)).join("\n") + "\n";
-  return { lines, originalSize, originalCount, kept };
-}
-function applyCompactionUnlocked(eventsPath, prepared) {
-  const { lines, originalSize, originalCount, kept } = prepared;
-  try {
-    atomicWriteFile(eventsPath, lines);
-  } catch (err2) {
-    logInternalError("event-log-rotation.compact", err2, `eventsPath=${eventsPath}`);
-    return void 0;
-  }
-  try {
-    const { count: afterWriteCount, seqs: afterSeqs } = countEventsAndSeqs(eventsPath);
-    if (afterWriteCount >= kept.length) {
-      return {
-        originalSize,
-        compactedSize: fs18.statSync(eventsPath).size,
-        eventsRemoved: originalCount - kept.length,
-        eventsKept: kept.length + Math.max(0, afterWriteCount - kept.length)
-      };
-    }
-    const missingEvents = kept.filter((e) => e.metadata?.seq === void 0 || !afterSeqs.has(e.metadata.seq));
-    let recoveredCount = 0;
-    let recoveryFailed = false;
-    if (missingEvents.length > 0) {
-      const recoveryLines = missingEvents.map((e) => JSON.stringify(e) + "\n").join("");
-      try {
-        fs18.appendFileSync(eventsPath, recoveryLines);
-        recoveredCount = missingEvents.length;
-      } catch (err2) {
-        recoveryFailed = true;
-        logInternalError("event-log-rotation.recovery", err2, `eventsPath=${eventsPath} lostEvents=${missingEvents.length}`);
-      }
-    }
-    return {
-      originalSize,
-      compactedSize: fs18.statSync(eventsPath).size,
-      eventsRemoved: originalCount - kept.length,
-      eventsKept: kept.length + recoveredCount,
-      recoveryFailed
-    };
-  } catch {
-    return {
-      originalSize,
-      compactedSize: fs18.statSync(eventsPath).size,
-      eventsRemoved: originalCount - kept.length,
-      eventsKept: kept.length
-    };
-  }
-}
-function generationPath(eventsPath) {
-  return `${eventsPath}.gen`;
-}
-function currentGeneration(eventsPath) {
-  try {
-    const raw = fs18.readFileSync(generationPath(eventsPath), "utf-8");
-    const value = Number.parseInt(raw.trim(), 10);
-    return Number.isInteger(value) && value >= 0 ? value : 0;
-  } catch {
-    return 0;
-  }
-}
-function bumpGenerationUnlocked(eventsPath) {
-  const next = currentGeneration(eventsPath) + 1;
-  try {
-    atomicWriteFile(generationPath(eventsPath), String(next));
-  } catch (error) {
-    logInternalError("event-log.bump-generation", error, `eventsPath=${eventsPath}`);
-  }
-  return next;
-}
-function sweepOldArchives(eventsPath, now = Date.now()) {
-  const dir = path18.dirname(eventsPath);
-  const base = path18.basename(eventsPath);
-  let entries;
-  try {
-    entries = fs18.readdirSync(dir);
-  } catch {
-    return;
-  }
-  const cutoff = now - ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1e3;
-  for (const name of entries) {
-    if (!name.startsWith(`${base}.`) || !name.endsWith(".archive.jsonl")) continue;
-    const archivePath = path18.join(dir, name);
-    try {
-      if (fs18.statSync(archivePath).mtimeMs < cutoff) fs18.unlinkSync(archivePath);
-    } catch (error) {
-      logInternalError("event-log.archive-sweep", error, `archivePath=${archivePath}`, "debug");
-    }
-  }
-}
-function rotateEventLogUnlocked(eventsPath) {
-  if (!fs18.existsSync(eventsPath)) return false;
-  try {
-    const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-    let archivePath = `${eventsPath}.${ts}.archive.jsonl`;
-    let collision = 1;
-    while (fs18.existsSync(archivePath)) {
-      archivePath = `${eventsPath}.${ts}.${collision}.archive.jsonl`;
-      collision++;
-    }
-    fs18.renameSync(eventsPath, archivePath);
-    try {
-      const fd = fs18.openSync(eventsPath, "wx", 384);
-      fs18.closeSync(fd);
-    } catch (err2) {
-      if (err2.code !== "EEXIST") throw err2;
-    }
-    bumpGenerationUnlocked(eventsPath);
-    sweepOldArchives(eventsPath);
+    fs18.rmSync(lockPath2, { force: true });
     return true;
   } catch (error) {
-    logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`, "error");
+    logInternalError("crew-agents.remove-stale-lock", error, `lockPath=${lockPath2}`, "warn");
     return false;
   }
 }
-var DEFAULT_ROTATION_CONFIG, AVG_BYTES_PER_EVENT, ARCHIVE_RETENTION_DAYS;
-var init_event_log_rotation = __esm({
-  "src/state/event-log/event-log-rotation.ts"() {
-    "use strict";
-    init_internal_error();
-    init_atomic_write();
-    init_event_log();
-    DEFAULT_ROTATION_CONFIG = {
-      // 2.3: lowered from 5 MB to 4 MB so the file stays small enough that
-      // `tail -c MAX_TAIL_BYTES` reads in run-snapshot-cache (default 32 KB)
-      // always cover a useful slice and rotations happen earlier.
-      maxFileSizeBytes: 4 * 1024 * 1024,
-      maxEventCount: 5e4,
-      compactToCount: 1e3
-    };
-    AVG_BYTES_PER_EVENT = 80;
-    ARCHIVE_RETENTION_DAYS = 7;
+function releaseAgentsLock(filePath, token) {
+  try {
+    const stat2 = fs18.lstatSync(filePath);
+    if (stat2.isSymbolicLink()) return;
+  } catch {
   }
-});
-
-// src/state/event-log/sequence-cache.ts
-import * as fs19 from "node:fs";
-import * as path19 from "node:path";
-function evictOldestSequenceCacheEntries() {
-  const toEvict = Math.ceil(MAX_SEQUENCE_CACHE_ENTRIES / 2);
-  const entries = [...sequenceCache.entries()].sort((a, b) => a[1].lastAccessMs - b[1].lastAccessMs);
-  for (let i = 0; i < toEvict && i < entries.length; i++) {
-    sequenceCache.delete(entries[i][0]);
+  let stored;
+  try {
+    const raw = fs18.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    stored = typeof parsed.token === "string" ? parsed.token : void 0;
+  } catch {
   }
-}
-function __test__sequenceCacheSize() {
-  return sequenceCache.size;
-}
-function __test__seedSequenceCache(eventsPath, lastAccessMs) {
-  sequenceCache.set(eventsPath, {
-    size: 1,
-    mtimeMs: 0,
-    seq: 0,
-    lastAccessMs
-  });
-}
-function __test__evictOldestSequenceCacheEntries() {
-  evictOldestSequenceCacheEntries();
-}
-function __test__clearSequenceCache() {
-  sequenceCache.clear();
-}
-function __test__clearSeqCounters() {
-  seqCounters.clear();
-}
-function __test__nextSequence(eventsPath) {
-  return nextSequence(eventsPath);
-}
-function sequencePath(eventsPath) {
-  return `${eventsPath}.seq`;
-}
-function parseSequence(raw) {
-  const value = Number.parseInt(raw.trim(), 10);
-  return Number.isInteger(value) && value >= 0 ? value : void 0;
-}
-function scanSequence(eventsPath) {
-  if (!fs19.existsSync(eventsPath)) return 0;
-  let max = 0;
-  let skipped = 0;
-  for (const line3 of fs19.readFileSync(eventsPath, "utf-8").split("\n")) {
-    if (!line3.trim()) continue;
+  if (stored === void 0 || stored === token) {
     try {
-      const event = JSON.parse(line3);
-      max = Math.max(max, event.metadata?.seq ?? 0);
-    } catch {
-      skipped++;
-    }
-  }
-  if (skipped > 0) {
-    logInternalError("event-log.scanSequence.corrupt_lines", void 0, `${eventsPath}: skipped ${skipped} corrupt line(s)`);
-  }
-  return max;
-}
-function readStoredSequence(eventsPath) {
-  try {
-    return parseSequence(fs19.readFileSync(sequencePath(eventsPath), "utf-8"));
-  } catch {
-    return void 0;
-  }
-}
-function nextSequence(eventsPath) {
-  if (!fs19.existsSync(eventsPath)) return 1;
-  const stat2 = fs19.statSync(eventsPath);
-  const cached2 = sequenceCache.get(eventsPath);
-  if (cached2 && cached2.size === stat2.size && cached2.mtimeMs === stat2.mtimeMs) {
-    return cached2.seq + 1;
-  }
-  const stored = readStoredSequence(eventsPath);
-  const fileShrunk = cached2 && stat2.size < cached2.size;
-  if (stored !== void 0 && !fileShrunk) {
-    const fileMax = scanSequence(eventsPath);
-    const safeSeq = Math.max(stored, fileMax);
-    sequenceCache.set(eventsPath, {
-      size: stat2.size,
-      mtimeMs: stat2.mtimeMs,
-      seq: safeSeq,
-      lastAccessMs: Date.now()
-    });
-    return safeSeq + 1;
-  }
-  const current = scanSequence(eventsPath);
-  sequenceCache.set(eventsPath, {
-    size: stat2.size,
-    mtimeMs: stat2.mtimeMs,
-    seq: current,
-    lastAccessMs: Date.now()
-  });
-  persistSequence(eventsPath, current);
-  return current + 1;
-}
-function persistSequence(eventsPath, seq) {
-  try {
-    atomicWriteFile(sequencePath(eventsPath), String(seq), { durability: "best-effort" });
-  } catch (error) {
-    logInternalError("event-log.persist-sequence-file", error, `eventsPath=${eventsPath}`);
-  }
-}
-function seqLockPath(eventsPath) {
-  return `${eventsPath}.seqlock`;
-}
-function reserveSequenceLocked(eventsPath, count2) {
-  let stored = readStoredSequence(eventsPath);
-  if (stored === void 0) {
-    stored = scanSequence(eventsPath);
-  }
-  const inProcess = seqCounters.get(eventsPath) ?? 0;
-  const last = Math.max(stored, inProcess);
-  const start = last + 1;
-  seqCounters.set(eventsPath, start + count2 - 1);
-  enforceSeqCountersCap();
-  persistSequence(eventsPath, start + count2 - 1);
-  return start;
-}
-function withSeqLock(eventsPath, fn) {
-  const lockDir = seqLockPath(eventsPath);
-  const pidFile = path19.join(lockDir, "pid");
-  const start = Date.now();
-  let acquired = false;
-  while (!acquired) {
-    try {
-      fs19.mkdirSync(lockDir);
-      try {
-        const fd = fs19.openSync(pidFile, "wx");
-        try {
-          fs19.writeSync(fd, String(process.pid));
-        } finally {
-          fs19.closeSync(fd);
-        }
-      } catch {
-      }
-      acquired = true;
-    } catch {
-      try {
-        if (Date.now() - fs19.statSync(lockDir).mtimeMs > SEQ_LOCK_STALE_MS) {
-          fs19.rmSync(lockDir, { recursive: true, force: true });
-          continue;
-        }
-      } catch {
-      }
-      if (Date.now() - start > SEQ_LOCK_TIMEOUT_MS) {
-        throw errors.eventLogLockTimeout(eventsPath, SEQ_LOCK_TIMEOUT_MS);
-      }
-      sleepSync(SEQ_LOCK_RETRY_MS);
-    }
-  }
-  try {
-    return fn();
-  } finally {
-    try {
-      if (fs19.readFileSync(pidFile, "utf-8").trim() === String(process.pid)) {
-        fs19.rmSync(lockDir, { recursive: true, force: true });
-      }
-    } catch {
-    }
-  }
-}
-async function withSeqLockAsync(eventsPath, fn) {
-  return withSeqLock(eventsPath, fn);
-}
-function persistSequenceMonotonic(eventsPath, seq) {
-  withSeqLock(eventsPath, () => {
-    const stored = readStoredSequence(eventsPath) ?? 0;
-    const inProcess = seqCounters.get(eventsPath) ?? 0;
-    const value = Math.max(stored, inProcess, seq);
-    if (value !== stored) persistSequence(eventsPath, value);
-  });
-}
-function reservedSequenceEnd(eventsPath) {
-  return seqCounters.get(eventsPath) ?? 0;
-}
-function reserveSequence(eventsPath, count2 = 1) {
-  return reserveSequenceUnderLock(eventsPath, count2);
-}
-function advanceSequenceCounter(eventsPath, seq) {
-  const last = seqCounters.get(eventsPath);
-  if (last === void 0 || seq > last) {
-    seqCounters.set(eventsPath, seq);
-    enforceSeqCountersCap();
-  }
-}
-function enforceSeqCountersCap() {
-  if (seqCounters.size > SEQ_COUNTERS_MAX_ENTRIES) {
-    const oldest = seqCounters.keys().next().value;
-    if (oldest !== void 0) seqCounters.delete(oldest);
-  }
-}
-function reserveSequenceUnderLock(eventsPath, count2 = 1) {
-  return withSeqLock(eventsPath, () => reserveSequenceLocked(eventsPath, count2));
-}
-async function reserveSequenceUnderLockAsync(eventsPath, count2 = 1) {
-  return withSeqLockAsync(eventsPath, () => reserveSequenceLocked(eventsPath, count2));
-}
-var sequenceCache, MAX_SEQUENCE_CACHE_ENTRIES, MAX_SEQUENCE_CACHE_ENTRIES_VALUE, SEQ_LOCK_TIMEOUT_MS, SEQ_LOCK_STALE_MS, SEQ_LOCK_RETRY_MS, seqCounters, SEQ_COUNTERS_MAX_ENTRIES;
-var init_sequence_cache = __esm({
-  "src/state/event-log/sequence-cache.ts"() {
-    "use strict";
-    init_errors3();
-    init_internal_error();
-    init_sleep();
-    init_atomic_write();
-    sequenceCache = /* @__PURE__ */ new Map();
-    MAX_SEQUENCE_CACHE_ENTRIES = 256;
-    MAX_SEQUENCE_CACHE_ENTRIES_VALUE = MAX_SEQUENCE_CACHE_ENTRIES;
-    SEQ_LOCK_TIMEOUT_MS = 2e3;
-    SEQ_LOCK_STALE_MS = 1e3;
-    SEQ_LOCK_RETRY_MS = 5;
-    seqCounters = /* @__PURE__ */ new Map();
-    SEQ_COUNTERS_MAX_ENTRIES = 256;
-  }
-});
-
-// src/utils/incremental-reader.ts
-import * as fs20 from "node:fs";
-function readJsonlTail(filePath, tailBytes) {
-  const limit = Math.max(0, Math.floor(tailBytes));
-  let stat2;
-  try {
-    stat2 = fs20.statSync(filePath);
-  } catch {
-    return { items: [], fileSize: 0, bytesRead: 0, truncated: false };
-  }
-  const fileSize = stat2.size;
-  if (fileSize === 0 || limit === 0) {
-    return { items: [], fileSize, bytesRead: 0, truncated: false };
-  }
-  const startOffset = Math.max(0, fileSize - limit);
-  const bytesToRead = fileSize - startOffset;
-  const truncated = startOffset > 0;
-  let fd;
-  try {
-    fd = fs20.openSync(filePath, fs20.constants.O_RDONLY | fs20.constants.O_NOFOLLOW);
-  } catch {
-    return { items: [], fileSize, bytesRead: 0, truncated: false };
-  }
-  try {
-    const buf = Buffer.alloc(bytesToRead);
-    let totalRead = 0;
-    while (totalRead < bytesToRead) {
-      const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
-      const bytesRead = fs20.readSync(fd, buf, totalRead, chunkSize, startOffset + totalRead);
-      if (bytesRead === 0) break;
-      totalRead += bytesRead;
-    }
-    const content = buf.toString("utf-8", 0, totalRead);
-    let body = content;
-    if (truncated) {
-      const firstNewline = body.indexOf("\n");
-      if (firstNewline < 0) {
-        return { items: [], fileSize, bytesRead: totalRead, truncated: true };
-      }
-      body = body.slice(firstNewline + 1);
-    }
-    const items = [];
-    for (const line3 of body.split("\n")) {
-      const trimmed = line3.trim();
-      if (!trimmed) continue;
-      try {
-        items.push(JSON.parse(trimmed));
-      } catch {
-      }
-    }
-    return { items, fileSize, bytesRead: totalRead, truncated };
-  } finally {
-    if (fd !== void 0) {
-      try {
-        fs20.closeSync(fd);
-      } catch {
+      fs18.rmSync(filePath, { force: true });
+    } catch (error) {
+      const code = error.code;
+      if (code !== "ENOENT") {
+        logInternalError("crew-agents.release-lock", error, `lockPath=${filePath}`, "warn");
       }
     }
   }
 }
-function readLinesSince(filePath, state2) {
-  let fd;
-  try {
-    fd = fs20.openSync(filePath, "r");
-  } catch {
-    return {
-      lines: [],
-      state: { byteOffset: state2.byteOffset, lineCount: state2.lineCount },
-      eof: true
-    };
-  }
-  try {
-    const stat2 = fs20.fstatSync(fd);
-    const fileSize = stat2.size;
-    if (fileSize <= state2.byteOffset) {
-      return {
-        lines: [],
-        state: { byteOffset: fileSize, lineCount: state2.lineCount },
-        eof: true
-      };
-    }
-    const bytesToRead = fileSize - state2.byteOffset;
-    const buf = Buffer.alloc(bytesToRead);
-    let totalRead = 0;
-    while (totalRead < bytesToRead) {
-      const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
-      const bytesRead = fs20.readSync(fd, buf, totalRead, chunkSize, state2.byteOffset + totalRead);
-      if (bytesRead === 0) break;
-      totalRead += bytesRead;
-    }
-    const content = buf.toString("utf-8", 0, totalRead);
-    const lines = [];
-    let lineCount = state2.lineCount;
-    let committedOffset = state2.byteOffset;
-    let searchFrom = 0;
-    let newlineIdx;
-    while ((newlineIdx = content.indexOf("\n", searchFrom)) !== -1) {
-      const lineText = content.slice(searchFrom, newlineIdx);
-      committedOffset = state2.byteOffset + newlineIdx + 1;
-      searchFrom = newlineIdx + 1;
-      if (lineText.length > 0) {
-        lines.push(lineText);
-        lineCount++;
-      }
-    }
-    const eof = committedOffset >= fileSize;
-    return {
-      lines,
-      state: { byteOffset: committedOffset, lineCount },
-      eof
-    };
-  } finally {
-    if (fd !== void 0) {
-      try {
-        fs20.closeSync(fd);
-      } catch {
-      }
-    }
-  }
-}
-function readJsonlSince(filePath, state2) {
-  const result4 = readLinesSince(filePath, state2);
-  const items = [];
-  for (const line3 of result4.lines) {
-    try {
-      items.push(JSON.parse(line3));
-    } catch {
-    }
-  }
-  return {
-    items,
-    state: result4.state,
-    eof: result4.eof
-  };
-}
-var CHUNK_SIZE;
-var init_incremental_reader = __esm({
-  "src/utils/incremental-reader.ts"() {
-    "use strict";
-    CHUNK_SIZE = 64 * 1024;
-  }
-});
-
-// src/state/event-log/cursor.ts
-import * as fs21 from "node:fs";
-import * as path20 from "node:path";
-function listEventArchivePaths(eventsPath) {
-  const dir = path20.dirname(eventsPath);
-  const base = path20.basename(eventsPath);
-  try {
-    return fs21.readdirSync(dir).filter((entry) => entry.startsWith(`${base}.`) && entry.endsWith(".archive.jsonl")).sort().map((entry) => path20.join(dir, entry));
-  } catch {
-    return [];
-  }
-}
-function parseJsonlEvents(filePath) {
-  let raw;
-  try {
-    raw = fs21.readFileSync(filePath, "utf-8");
-  } catch {
-    return [];
-  }
-  const events = [];
-  for (const line3 of raw.split("\n")) {
-    const trimmed = line3.trim();
-    if (!trimmed) continue;
-    try {
-      events.push(JSON.parse(trimmed));
-    } catch {
-    }
-  }
-  return events;
-}
-function readArchiveTailEvents(eventsPath, sinceSeq) {
-  const archives = listEventArchivePaths(eventsPath);
-  if (archives.length === 0) return [];
-  const bySeq = /* @__PURE__ */ new Map();
-  for (const archivePath of archives) {
-    const tail = readJsonlTail(archivePath, ARCHIVE_TAIL_BYTES);
-    for (const event of tail.items) {
-      const seq = event.metadata?.seq;
-      if (typeof seq !== "number" || seq <= sinceSeq) continue;
-      if (!bySeq.has(seq)) bySeq.set(seq, event);
-    }
-  }
-  return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
-}
-function mergeArchiveTailEvents(archiveEvents, liveEvents) {
-  if (archiveEvents.length === 0) return liveEvents;
-  const bySeq = /* @__PURE__ */ new Map();
-  for (const event of archiveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
-  for (const event of liveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
-  return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
-}
-function readEvents(eventsPath) {
-  const archives = listEventArchivePaths(eventsPath);
-  const events = [];
-  const seenSeqs = /* @__PURE__ */ new Set();
-  const push = (event) => {
-    const seq = event.metadata?.seq;
-    if (typeof seq === "number" && seq > 0) {
-      if (seenSeqs.has(seq)) return;
-      seenSeqs.add(seq);
-    }
-    events.push(event);
-  };
-  for (const archivePath of archives) {
-    for (const event of parseJsonlEvents(archivePath)) push(event);
-  }
-  if (fs21.existsSync(eventsPath)) {
-    for (const event of parseJsonlEvents(eventsPath)) push(event);
-  }
-  return events.sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
-}
-function positiveInteger(value) {
-  return value !== void 0 && Number.isInteger(value) && value >= 0 ? value : void 0;
-}
-function sameInode(stat2, entry) {
-  return stat2.ino === entry.ino && stat2.dev === entry.dev;
-}
-function evictCursorRing(ring, bound) {
-  return ring.length > bound ? ring.slice(ring.length - bound) : ring;
-}
-function scanEventLines(buf, baseOffset, minSeq) {
-  const lines = [];
-  let ok = true;
-  let lastSeq = minSeq;
-  let pos = 0;
-  for (; ; ) {
-    const newline = buf.indexOf(10, pos);
-    if (newline < 0) break;
-    const text = buf.toString("utf-8", pos, newline).trim();
-    if (text) {
-      try {
-        const event = JSON.parse(text);
-        const seq = event.metadata?.seq;
-        if (typeof seq !== "number" || !Number.isFinite(seq) || lastSeq !== void 0 && seq < lastSeq) {
-          ok = false;
-        } else {
-          lastSeq = seq;
-        }
-        lines.push({ event, startOffset: baseOffset + pos });
-      } catch {
-      }
-    }
-    pos = newline + 1;
-  }
-  return { lines, verifiedBytes: pos, ok };
-}
-function readCursorByteRange(fd, start, end) {
-  if (end <= start) return Buffer.alloc(0);
-  const length = end - start;
-  const buf = Buffer.alloc(length);
-  let totalRead = 0;
-  while (totalRead < length) {
-    const chunk = Math.min(CURSOR_READ_CHUNK_BYTES, length - totalRead);
-    const n = fs21.readSync(fd, buf, totalRead, chunk, start + totalRead);
-    if (n <= 0) return null;
-    totalRead += n;
-  }
-  return buf;
-}
-function rebuildCursorTailCache(eventsPath, bound) {
-  let fd;
-  try {
-    fd = fs21.openSync(eventsPath, fs21.constants.O_RDONLY | fs21.constants.O_NOFOLLOW);
-  } catch {
-    return void 0;
-  }
-  try {
-    const stat2 = fs21.fstatSync(fd);
-    const buf = readCursorByteRange(fd, 0, stat2.size);
-    if (buf === null) return void 0;
-    const scan = scanEventLines(buf, 0, void 0);
-    const lastLine = scan.lines.at(-1)?.event.metadata?.seq;
-    const entry = {
-      size: stat2.size,
-      mtimeMs: stat2.mtimeMs,
-      ino: stat2.ino,
-      dev: stat2.dev,
-      verifiedOffset: scan.verifiedBytes,
-      lastSeq: typeof lastLine === "number" ? lastLine : 0,
-      verified: scan.ok,
-      ring: evictCursorRing(scan.lines, bound)
-    };
-    return { entry, lines: scan.lines };
-  } finally {
-    try {
-      fs21.closeSync(fd);
-    } catch {
-    }
-  }
-}
-function cursorResultFromEvents(all, eventsPath, sinceSeq, limit) {
-  let capped = all;
-  if (capped.length > TAIL_EVENT_CAP) {
-    logInternalError(
-      "event-log.cursor-full-read",
-      new Error(`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`),
-      `eventsPath=${eventsPath}`
-    );
-    capped = capped.slice(-TAIL_EVENT_CAP);
-  }
-  const filtered = capped.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
-  const merged = mergeArchiveTailEvents(readArchiveTailEvents(eventsPath, sinceSeq), filtered);
-  const events = limit !== void 0 ? merged.slice(0, limit) : merged;
-  const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
-  return { events, nextSeq: returnedMaxSeq, total: merged.length };
-}
-function cursorRingProvable(entry, ring, sinceSeq) {
-  if (ring.length === 0) {
-    return entry.verifiedOffset === 0 || entry.verified && entry.lastSeq <= sinceSeq;
-  }
-  const start = ring[0];
-  return start.startOffset === 0 || entry.verified && (start.event.metadata?.seq ?? 0) <= sinceSeq;
-}
-function readEventsCursorTailCached(eventsPath, sinceSeq, limit) {
-  let stat2;
-  try {
-    stat2 = fs21.statSync(eventsPath);
-  } catch {
-    return void 0;
-  }
-  const previous = cursorTailCache.get(eventsPath);
-  const bound = Math.max(TAIL_EVENT_CAP, limit) * 2;
-  if (previous && stat2.size === previous.size && stat2.mtimeMs === previous.mtimeMs && sameInode(stat2, previous)) {
-    const ring = evictCursorRing(previous.ring, bound);
-    if (cursorRingProvable(previous, ring, sinceSeq)) {
-      if (ring !== previous.ring) cursorTailCache.set(eventsPath, { ...previous, ring });
-      return cursorResultFromEvents(
-        ring.map((line3) => line3.event),
-        eventsPath,
-        sinceSeq,
-        limit
-      );
-    }
-  } else if (previous && stat2.size > previous.size && stat2.mtimeMs >= previous.mtimeMs && sameInode(stat2, previous) && previous.verifiedOffset < stat2.size) {
-    const preRing = evictCursorRing(previous.ring, bound);
-    if (cursorRingProvable(previous, preRing, sinceSeq)) {
-      let delta = null;
-      let deltaFd;
-      try {
-        deltaFd = fs21.openSync(eventsPath, fs21.constants.O_RDONLY | fs21.constants.O_NOFOLLOW);
-        const fdStat = fs21.fstatSync(deltaFd);
-        if (fdStat.ino === stat2.ino && fdStat.dev === stat2.dev) {
-          delta = readCursorByteRange(deltaFd, previous.verifiedOffset, stat2.size);
-        }
-      } catch {
-        delta = null;
-      } finally {
-        if (deltaFd !== void 0) {
-          try {
-            fs21.closeSync(deltaFd);
-          } catch {
-          }
-        }
-      }
-      if (delta !== null) {
-        const scan = scanEventLines(delta, previous.verifiedOffset, previous.lastSeq);
-        if (scan.ok) {
-          const ring = evictCursorRing([...preRing, ...scan.lines], bound);
-          const lastLineSeq = scan.lines.at(-1)?.event.metadata?.seq;
-          const entry = {
-            size: stat2.size,
-            mtimeMs: stat2.mtimeMs,
-            ino: stat2.ino,
-            dev: stat2.dev,
-            verifiedOffset: previous.verifiedOffset + scan.verifiedBytes,
-            lastSeq: typeof lastLineSeq === "number" ? lastLineSeq : previous.lastSeq,
-            // The delta verified against the watermark, but a
-            // violation earlier in the file keeps the lineage
-            // unverified (it can only answer from offset 0).
-            verified: previous.verified,
-            ring
-          };
-          cursorTailCache.set(eventsPath, entry);
-          if (cursorRingProvable(entry, ring, sinceSeq)) {
-            return cursorResultFromEvents(
-              ring.map((line3) => line3.event),
-              eventsPath,
-              sinceSeq,
-              limit
-            );
-          }
-        }
-      }
-    }
-  }
-  const rebuilt = rebuildCursorTailCache(eventsPath, bound);
-  if (rebuilt === void 0) return void 0;
-  cursorTailCache.set(eventsPath, rebuilt.entry);
-  if (cursorTailCache.size > CURSOR_TAIL_CACHE_MAX_ENTRIES) {
-    const oldestKey = cursorTailCache.keys().next().value;
-    if (oldestKey !== void 0) cursorTailCache.delete(oldestKey);
-  }
-  return cursorResultFromEvents(
-    rebuilt.lines.map((line3) => line3.event),
-    eventsPath,
-    sinceSeq,
-    limit
-  );
-}
-function clearEventsCursorTailCache(eventsPath) {
-  if (!eventsPath) {
-    cursorTailCache.clear();
-    return;
-  }
-  cursorTailCache.delete(eventsPath);
-}
-function readEventsCursor(eventsPath, options = {}) {
-  if (options.fromByteOffset !== void 0) {
-    const liveGen = currentGeneration(eventsPath);
-    const staleCursor = options.generation !== void 0 && options.generation !== liveGen;
-    const sinceSeq2 = positiveInteger(options.sinceSeq) ?? 0;
-    const archiveEvents = staleCursor ? readArchiveTailEvents(eventsPath, sinceSeq2) : [];
-    const byteOffset = staleCursor ? 0 : positiveInteger(options.fromByteOffset) ?? 0;
-    const initialState = { byteOffset, lineCount: 0 };
-    const { items, state: newState, eof } = readJsonlSince(eventsPath, initialState);
-    const filtered = items.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq2);
-    const merged = mergeArchiveTailEvents(archiveEvents, filtered);
-    const limit2 = positiveInteger(options.limit);
-    const events = limit2 !== void 0 ? merged.slice(0, limit2) : merged;
-    const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq2);
-    return {
-      events,
-      nextSeq: returnedMaxSeq,
-      total: merged.length,
-      nextByteOffset: newState.byteOffset,
-      generation: liveGen
-    };
-  }
-  const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
-  const limit = positiveInteger(options.limit);
-  if (limit !== void 0 && sinceSeq > 0) {
-    const cached2 = readEventsCursorTailCached(eventsPath, sinceSeq, limit);
-    if (cached2 !== void 0) return cached2;
-  }
-  cursorTailCache.delete(eventsPath);
-  const tail = readJsonlTail(eventsPath, TAIL_BYTES);
-  if (tail.truncated) {
-    logInternalError("event-log.cursor-tail-truncated", {
-      eventsPath,
-      returned: tail.items.length,
-      tailBytes: TAIL_BYTES
-    });
-  }
-  return cursorResultFromEvents(tail.items, eventsPath, sinceSeq, limit);
-}
-var ARCHIVE_TAIL_BYTES, TAIL_BYTES, TAIL_EVENT_CAP, CURSOR_READ_CHUNK_BYTES, CURSOR_TAIL_CACHE_MAX_ENTRIES, cursorTailCache;
-var init_cursor = __esm({
-  "src/state/event-log/cursor.ts"() {
-    "use strict";
-    init_incremental_reader();
-    init_internal_error();
-    init_event_log_rotation();
-    ARCHIVE_TAIL_BYTES = 4 * 1024 * 1024;
-    TAIL_BYTES = 4 * 1024 * 1024;
-    TAIL_EVENT_CAP = 5e3;
-    CURSOR_READ_CHUNK_BYTES = 64 * 1024;
-    CURSOR_TAIL_CACHE_MAX_ENTRIES = 100;
-    cursorTailCache = /* @__PURE__ */ new Map();
-  }
-});
-
-// src/state/event-log/event-log.ts
-var event_log_exports = {};
-__export(event_log_exports, {
-  MAX_SEQUENCE_CACHE_ENTRIES: () => MAX_SEQUENCE_CACHE_ENTRIES,
-  MAX_SEQUENCE_CACHE_ENTRIES_VALUE: () => MAX_SEQUENCE_CACHE_ENTRIES_VALUE,
-  __test__appendBatchForUnitTest: () => __test__appendBatchForUnitTest,
-  __test__clearSeqCounters: () => __test__clearSeqCounters,
-  __test__clearSequenceCache: () => __test__clearSequenceCache,
-  __test__evictOldestSequenceCacheEntries: () => __test__evictOldestSequenceCacheEntries,
-  __test__nextSequence: () => __test__nextSequence,
-  __test__seedSequenceCache: () => __test__seedSequenceCache,
-  __test__sequenceCacheSize: () => __test__sequenceCacheSize,
-  advanceSequenceCounter: () => advanceSequenceCounter,
-  appendEvent: () => appendEvent,
-  appendEventAsync: () => appendEventAsync,
-  appendEventBuffered: () => appendEventBuffered,
-  appendEventFireAndForget: () => appendEventFireAndForget,
-  clearEventsCursorTailCache: () => clearEventsCursorTailCache,
-  computeEventFingerprint: () => computeEventFingerprint,
-  dedupeTerminalEvents: () => dedupeTerminalEvents,
-  evictOldestSequenceCacheEntries: () => evictOldestSequenceCacheEntries,
-  flushBufferedQueuesSync: () => flushBufferedQueuesSync,
-  flushEventLogBuffer: () => flushEventLogBuffer,
-  persistSequenceMonotonic: () => persistSequenceMonotonic,
-  readEvents: () => readEvents,
-  readEventsCursor: () => readEventsCursor,
-  reserveSequence: () => reserveSequence,
-  reserveSequenceUnderLockAsync: () => reserveSequenceUnderLockAsync,
-  reservedSequenceEnd: () => reservedSequenceEnd,
-  scanSequence: () => scanSequence,
-  seqCounters: () => seqCounters,
-  sequenceCache: () => sequenceCache,
-  sequencePath: () => sequencePath,
-  tickAppendCounter: () => tickAppendCounter,
-  withEventLogLockSync: () => withEventLogLockSync
-});
-import { createHash as createHash2 } from "node:crypto";
-import * as fs22 from "node:fs";
-import * as path21 from "node:path";
-function tickAppendCounter(eventsPath, inc = 1) {
-  const prev = appendCounters.get(eventsPath) ?? 0;
-  const next = prev + inc;
-  appendCounters.set(eventsPath, next);
-  if (appendCounters.size > APPEND_COUNTER_MAX_ENTRIES) {
-    const oldest = appendCounters.keys().next().value;
-    if (oldest !== void 0) appendCounters.delete(oldest);
-  }
-  return Math.floor(next / 100) > Math.floor(prev / 100);
-}
-function withEventLogLockSync(eventsPath, fn, options) {
-  fs22.mkdirSync(path21.dirname(eventsPath), { recursive: true });
-  const lockDir = `${eventsPath}.mkdirlock`;
-  const pidFile = path21.join(lockDir, "pid");
-  const start = Date.now();
-  const timeout = options?.timeoutMs ?? 5e3;
-  const staleMs = options?.staleMs ?? 1e4;
-  let acquired = false;
+function withAgentsLock(manifest, fn) {
+  const filePath = agentsLockPath(manifest);
+  fs18.mkdirSync(path17.dirname(filePath), { recursive: true });
+  const token = randomUUID4();
+  let attempt = 0;
+  const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
   while (true) {
     try {
-      fs22.mkdirSync(lockDir);
+      const fd = fs18.openSync(filePath, fs18.constants.O_WRONLY | fs18.constants.O_CREAT | fs18.constants.O_EXCL, 384);
       try {
-        const pidFd = fs22.openSync(pidFile, "wx");
-        try {
-          fs22.writeSync(pidFd, String(process.pid));
-        } finally {
-          fs22.closeSync(pidFd);
-        }
-      } catch {
+        fs18.writeSync(
+          fd,
+          JSON.stringify({
+            pid: process.pid,
+            createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+            token
+          })
+        );
+      } finally {
+        fs18.closeSync(fd);
       }
-      acquired = true;
       break;
-    } catch {
-      if (Date.now() - start > timeout) {
-        throw errors.eventLogLockTimeout(eventsPath, timeout);
-      }
-      try {
-        const dirStat = fs22.statSync(lockDir);
-        if (Date.now() - dirStat.mtimeMs > staleMs) {
-          fs22.rmSync(lockDir, { recursive: true, force: true });
-          continue;
+    } catch (error) {
+      const code = error.code;
+      if (code !== "EEXIST" && code !== "EISDIR") throw error;
+      if (code === "EISDIR") {
+        try {
+          fs18.rmSync(filePath, { recursive: true, force: true });
+        } catch {
         }
-      } catch {
+        continue;
       }
-      try {
-        const raw = fs22.readFileSync(pidFile, "utf-8").trim();
-        const ownerPid = Number.parseInt(raw, 10);
-        if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
-          let alive = false;
-          try {
-            process.kill(ownerPid, 0);
-            alive = true;
-          } catch {
-          }
-          void alive;
-        }
-      } catch {
-      }
-      sleepSync(50);
+      if (!removeStaleAgentsLock(filePath, AGENTS_LOCK_STALE_MS) && Date.now() > deadline)
+        throw new Error(`Crew agents file is locked by another operation: ${agentsPath(manifest)}`);
+      sleepSync(Math.min(250, 25 * 2 ** attempt));
+      attempt += 1;
     }
   }
   try {
     return fn();
   } finally {
-    if (acquired) {
-      try {
-        const currentPid = fs22.readFileSync(pidFile, "utf-8").trim();
-        if (currentPid === String(process.pid)) {
-          fs22.rmSync(lockDir, { recursive: true, force: true });
-        }
-      } catch {
-      }
-    }
+    releaseAgentsLock(filePath, token);
   }
 }
-function computeEventFingerprint(event) {
-  return createHash2("sha256").update(
-    JSON.stringify({
-      type: event.type,
-      runId: event.runId,
-      taskId: event.taskId,
-      data: event.data ?? null
-    })
-  ).digest("hex").slice(0, 16);
+function setAsyncAgentReaderCache(filePath, entry) {
+  const now = Date.now();
+  for (const [key, cached2] of asyncAgentReaderCache) {
+    if (cached2.expiresAt <= now && !cached2.inFlight) asyncAgentReaderCache.delete(key);
+  }
+  if (asyncAgentReaderCache.has(filePath)) asyncAgentReaderCache.delete(filePath);
+  asyncAgentReaderCache.set(filePath, entry);
+  while (asyncAgentReaderCache.size > ASYNC_AGENT_READER_CACHE_MAX_ENTRIES) {
+    const oldest = asyncAgentReaderCache.keys().next().value;
+    if (!oldest) break;
+    asyncAgentReaderCache.delete(oldest);
+  }
 }
-function appendEvent(eventsPath, event) {
-  return withEventLogLockSync(eventsPath, () => appendEventInsideLock(eventsPath, event));
-}
-async function drainAsyncQueues() {
-  const promises11 = [...asyncQueues.values()];
-  if (promises11.length === 0) return;
-  await Promise.allSettled(promises11);
-}
-async function withEventLogLockAsync(eventsPath, fn, options) {
-  const queueKey = eventsPath;
-  const prev = (asyncLocks.get(queueKey) ?? Promise.resolve()).then(
-    () => void 0,
-    () => void 0
-  );
-  const next = prev.then(async () => {
-    await fs22.promises.mkdir(path21.dirname(eventsPath), { recursive: true });
-    const lockDir = `${eventsPath}.alock`;
-    const pidFile = path21.join(lockDir, "pid");
-    const timeout = options?.timeoutMs ?? 5e3;
-    const staleMs = options?.staleMs ?? 1e4;
-    const start = Date.now();
-    let acquired = false;
-    while (true) {
-      try {
-        await fs22.promises.mkdir(lockDir);
-        try {
-          const fh = await fs22.promises.open(pidFile, "wx");
-          try {
-            await fh.write(String(process.pid));
-          } finally {
-            await fh.close();
-          }
-        } catch {
-        }
-        acquired = true;
-        break;
-      } catch {
-        if (Date.now() - start > timeout) {
-          throw errors.eventLogLockTimeout(eventsPath, timeout);
-        }
-        try {
-          const dirStat = await fs22.promises.stat(lockDir);
-          if (Date.now() - dirStat.mtimeMs > staleMs) {
-            await fs22.promises.rm(lockDir, { recursive: true, force: true });
-            continue;
-          }
-        } catch {
-        }
-        try {
-          const raw = await fs22.promises.readFile(pidFile, "utf-8").catch(() => "");
-          const ownerPid = Number.parseInt(raw.trim(), 10);
-          if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
-            try {
-              process.kill(ownerPid, 0);
-            } catch {
-            }
-          }
-        } catch {
-        }
-        await sleep(50);
-      }
-    }
-    try {
-      return await fn();
-    } finally {
-      if (acquired) {
-        try {
-          const currentPid = await fs22.promises.readFile(pidFile, "utf-8").catch(() => "");
-          if (currentPid.trim() === String(process.pid)) {
-            await fs22.promises.rm(lockDir, { recursive: true, force: true });
-          }
-        } catch {
-        }
-      }
-    }
-  });
-  asyncLocks.set(queueKey, next);
+function readCrewAgents(manifest) {
+  flushPendingAtomicWrites(agentsPath(manifest));
   try {
-    return await next;
-  } finally {
-    if (asyncLocks.get(queueKey) === next) {
-      asyncLocks.delete(queueKey);
-    }
-  }
-}
-async function appendEventAsync(eventsPath, event) {
-  const queueKey = eventsPath;
-  const doAppendUnderLock = async () => {
-    const baseMetadata = event.metadata;
-    let seq;
-    if (baseMetadata?.seq !== void 0) {
-      seq = baseMetadata.seq;
-      advanceSequenceCounter(eventsPath, seq);
-    } else {
-      seq = await reserveSequenceUnderLockAsync(eventsPath);
-    }
-    let metadata = {
-      seq,
-      provenance: baseMetadata?.provenance ?? "team_runner",
-      ...baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {},
-      ...baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {},
-      ...baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {},
-      ...baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {},
-      ...baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {},
-      ...baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {},
-      ...baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {},
-      ...baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {},
-      ...baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}
-    };
-    const fullEvent = {
-      time: (/* @__PURE__ */ new Date()).toISOString(),
-      ...event,
-      metadata
-    };
-    if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
-      metadata = {
-        ...metadata,
-        fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent)
-      };
-      fullEvent.metadata = metadata;
-    }
-    const isTerminal = TERMINAL_EVENT_TYPES.has(fullEvent.type);
-    let skippedDueToSize = false;
-    let fileStat;
-    try {
-      fileStat = await fs22.promises.stat(eventsPath).catch(() => void 0);
-    } catch {
-    }
-    let overflowHandled = false;
-    if (!isTerminal && fileStat) {
-      const stat2 = fileStat;
-      if (stat2.size > MAX_EVENTS_BYTES) {
-        overflowHandled = true;
-        try {
-          const prepared = prepareCompaction(eventsPath);
-          if (prepared) applyCompactionUnlocked(eventsPath, prepared);
-        } catch (error) {
-          logInternalError("event-log.immediate-compact", error, `eventsPath=${eventsPath}`);
-        }
-        let afterCompactStat;
-        try {
-          afterCompactStat = await fs22.promises.stat(eventsPath).catch(() => void 0);
-        } catch {
-        }
-        if (afterCompactStat) {
-          if (afterCompactStat.size > MAX_EVENTS_BYTES) {
-            if (!rotateEventLogUnlocked(eventsPath)) {
-              logInternalError(
-                "event-log.rotate-failed",
-                new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
-                `eventsPath=${eventsPath}`,
-                "error"
-              );
-            }
-          }
-        }
-      }
-    }
-    let sizeCheckStat;
-    if (overflowHandled) {
-      try {
-        sizeCheckStat = await fs22.promises.stat(eventsPath).catch(() => void 0);
-      } catch {
-      }
-    } else {
-      sizeCheckStat = fileStat;
-    }
-    try {
-      if (sizeCheckStat && sizeCheckStat.size > MAX_EVENTS_BYTES) {
-        logInternalError(
-          "event-log.size-limit",
-          new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
-          `eventsPath=${eventsPath}`,
-          // R17-S1 (Phase 3.8, Round 18 escalation to HIGH): this was default
-          // severity "debug" (PI_TEAMS_DEBUG-gated) → fully silent drop in
-          // production. "error" always emits.
-          "error"
-        );
-        skippedDueToSize = true;
-        metadata.skippedDueToSize = true;
-      }
-    } catch (error) {
-      logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
-    }
-    if (!skippedDueToSize) {
-      const line3 = JSON.stringify(redactSecrets(fullEvent)) + "\n";
-      if (isWorkerAtomicWriterEnabled()) {
-        await appendFileViaWorker(eventsPath, line3);
-        if (isTerminal) {
-          const fd = await fs22.promises.open(eventsPath, "r+");
-          try {
-            await fd.sync();
-          } finally {
-            await fd.close();
-          }
-        }
-      } else {
-        const fd = await fs22.promises.open(eventsPath, "a");
-        try {
-          await fd.appendFile(line3, "utf-8");
-          if (isTerminal) await fd.sync();
-        } finally {
-          await fd.close();
-        }
-      }
-      if (baseMetadata?.seq !== void 0) persistSequenceMonotonic(eventsPath, seq);
-    }
-    if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
-      try {
-        const prepared = prepareCompaction(eventsPath);
-        if (prepared) applyCompactionUnlocked(eventsPath, prepared);
-      } catch (error) {
-        logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
-      }
-    }
-    if (!skippedDueToSize) {
-      try {
-        emitFromTeamEvent(fullEvent);
-      } catch (error) {
-        logInternalError("event-log.emit", error);
-      }
-    }
-    return fullEvent;
-  };
-  const prev = asyncQueues.get(queueKey) ?? Promise.resolve();
-  const next = prev.then(async () => {
-    await fs22.promises.mkdir(path21.dirname(eventsPath), { recursive: true });
-    return withEventLogLockAsync(eventsPath, doAppendUnderLock);
-  });
-  const tail = next.then(
-    () => {
-      if (asyncQueues.get(queueKey) === tail) {
-        asyncQueues.delete(queueKey);
-      }
-    },
-    (error) => {
-      try {
-        logInternalError("event-log.async-queue", error, eventsPath);
-      } catch {
-      }
-      while (asyncQueues.size >= MAX_ASYNC_QUEUES) {
-        const oldestKey = asyncQueues.keys().next().value;
-        if (oldestKey === void 0) break;
-        asyncQueues.delete(oldestKey);
-      }
-      asyncQueues.set(queueKey, Promise.resolve());
-    }
-  );
-  asyncQueues.set(queueKey, tail);
-  return next;
-}
-async function appendEventBatchInsideLock(eventsPath, queue) {
-  if (queue.length === 0) return;
-  tickAppendCounter(eventsPath, queue.length);
-  fs22.mkdirSync(path21.dirname(eventsPath), { recursive: true });
-  let preStat;
-  try {
-    preStat = fs22.statSync(eventsPath);
-  } catch {
-  }
-  try {
-    if (preStat) {
-      if (preStat.size > MAX_EVENTS_BYTES) {
-        try {
-          const prepared = prepareCompaction(eventsPath);
-          if (prepared) applyCompactionUnlocked(eventsPath, prepared);
-        } catch (error) {
-          logInternalError("event-log.batch-immediate-compact", error, `eventsPath=${eventsPath}`);
-        }
-        if (fs22.existsSync(eventsPath) && fs22.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
-          if (!rotateEventLogUnlocked(eventsPath)) {
-            logInternalError(
-              "event-log.rotate-failed",
-              new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
-              `eventsPath=${eventsPath}`,
-              "error"
-            );
-          }
-        }
-      }
-    }
-  } catch (error) {
-    logInternalError("event-log.batch-size-check", error, `eventsPath=${eventsPath}`);
-  }
-  const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath, queue.length);
-  let nextSeq = startingSeq;
-  const finalized = [];
-  let lastSeq = 0;
-  for (const item of queue) {
-    const baseMetadata = item.event.metadata;
-    const seq = baseMetadata?.seq ?? nextSeq++;
-    let metadata = {
-      seq,
-      provenance: baseMetadata?.provenance ?? "team_runner",
-      ...baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {},
-      ...baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {},
-      ...baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {},
-      ...baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {},
-      ...baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {},
-      ...baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {},
-      ...baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {},
-      ...baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {},
-      ...baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}
-    };
-    const fullEvent = {
-      time: (/* @__PURE__ */ new Date()).toISOString(),
-      ...item.event,
-      metadata
-    };
-    if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
-      metadata = {
-        ...metadata,
-        fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent)
-      };
-      fullEvent.metadata = metadata;
-    }
-    finalized.push({ item, line: `${JSON.stringify(redactSecrets(fullEvent))}
-`, fullEvent });
-    lastSeq = seq;
-  }
-  const reservedEnd = reservedSequenceEnd(eventsPath);
-  advanceSequenceCounter(eventsPath, lastSeq);
-  try {
-    if (fs22.existsSync(eventsPath) && fs22.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
-      logInternalError(
-        "event-log.size-limit",
-        new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
-        `eventsPath=${eventsPath}`
-      );
-      for (const { item } of finalized) item.reject(new Error("event log size limit exceeded"));
-      return;
-    }
-  } catch (error) {
-    logInternalError("event-log.batch-size-check-post", error, `eventsPath=${eventsPath}`);
-  }
-  fs22.appendFileSync(eventsPath, finalized.map((f) => f.line).join(""), "utf-8");
-  const hasTerminal = finalized.some((f) => TERMINAL_EVENT_TYPES.has(f.fullEvent.type));
-  if (hasTerminal) {
-    const fd = fs22.openSync(eventsPath, "r+");
-    try {
-      fs22.fsyncSync(fd);
-    } catch {
-    } finally {
-      fs22.closeSync(fd);
-    }
-  }
-  if (lastSeq > reservedEnd) {
-    persistSequenceMonotonic(eventsPath, lastSeq);
-  }
-  for (const { item, fullEvent } of finalized) item.resolve(fullEvent);
-}
-function appendEventInsideLock(eventsPath, event) {
-  fs22.mkdirSync(path21.dirname(eventsPath), { recursive: true });
-  let preStat;
-  try {
-    preStat = fs22.statSync(eventsPath);
-  } catch {
-  }
-  const baseMetadata = event.metadata;
-  const explicitSeq = baseMetadata?.seq;
-  const seq = explicitSeq ?? reserveSequence(eventsPath);
-  if (explicitSeq !== void 0) advanceSequenceCounter(eventsPath, seq);
-  let metadata = {
-    seq,
-    provenance: baseMetadata?.provenance ?? "team_runner",
-    ...baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {},
-    ...baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {},
-    ...baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {},
-    ...baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {},
-    ...baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {},
-    ...baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {},
-    ...baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {},
-    ...baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {},
-    ...baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}
-  };
-  const fullEvent = {
-    time: (/* @__PURE__ */ new Date()).toISOString(),
-    ...event,
-    metadata
-  };
-  if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
-    metadata = {
-      ...metadata,
-      fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent)
-    };
-    fullEvent.metadata = metadata;
-  }
-  const isTerminal = TERMINAL_EVENT_TYPES.has(fullEvent.type);
-  let skippedDueToSize = false;
-  if (!isTerminal && preStat) {
-    if (preStat.size > MAX_EVENTS_BYTES) {
-      try {
-        const prepared = prepareCompaction(eventsPath);
-        if (prepared) applyCompactionUnlocked(eventsPath, prepared);
-      } catch (error) {
-        logInternalError("event-log.immediate-compact", error, `eventsPath=${eventsPath}`);
-      }
-      if (fs22.existsSync(eventsPath)) {
-        const afterCompact = fs22.statSync(eventsPath);
-        if (afterCompact.size > MAX_EVENTS_BYTES) {
-          if (!rotateEventLogUnlocked(eventsPath)) {
-            logInternalError(
-              "event-log.rotate-failed",
-              new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
-              `eventsPath=${eventsPath}`,
-              "error"
-            );
-          }
-        }
-      }
-    }
-  }
-  try {
-    if (fs22.existsSync(eventsPath) && fs22.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
-      logInternalError(
-        "event-log.size-limit",
-        new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
-        `eventsPath=${eventsPath}`,
-        // R17-S1 (Phase 3.8, Round 18 escalation to HIGH): was default "debug"
-        // (PI_TEAMS_DEBUG-gated) → fully silent drop in production. "error"
-        // always emits.
-        "error"
-      );
-      skippedDueToSize = true;
-      metadata.skippedDueToSize = true;
-    }
-  } catch (error) {
-    logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
-  }
-  if (!skippedDueToSize) {
-    fs22.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}
-`, "utf-8");
-    if (isTerminal) {
-      const fd = fs22.openSync(eventsPath, "r+");
-      try {
-        fs22.fsyncSync(fd);
-      } catch {
-      } finally {
-        fs22.closeSync(fd);
-      }
-    }
-    if (explicitSeq !== void 0) persistSequenceMonotonic(eventsPath, seq);
-  }
-  if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
-    try {
-      const prepared = prepareCompaction(eventsPath);
-      if (prepared) applyCompactionUnlocked(eventsPath, prepared);
-    } catch (error) {
-      logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
-    }
-  }
-  if (!skippedDueToSize) {
-    try {
-      emitFromTeamEvent(fullEvent);
-    } catch (error) {
-      logInternalError("event-log.emit", error);
-    }
-  }
-  return fullEvent;
-}
-function appendEventBuffered(eventsPath, event, bufferMs = DEFAULT_BUFFER_MS) {
-  if (TERMINAL_EVENT_TYPES.has(event.type)) {
-    const flushPromise = bufferedQueues.has(eventsPath) ? flushOneEventLogBuffer(eventsPath).catch(() => void 0) : Promise.resolve();
-    return flushPromise.then(() => appendEvent(eventsPath, event));
-  }
-  return new Promise((resolve26, reject) => {
-    const queue = bufferedQueues.get(eventsPath) ?? [];
-    queue.push({ event, resolve: resolve26, reject });
-    bufferedQueues.set(eventsPath, queue);
-    if (!bufferedTimers.has(eventsPath)) {
-      const timer = setTimeout(() => {
-        flushOneEventLogBuffer(eventsPath).catch((error) => {
-          logInternalError("event-log.buffered-flush", error, `eventsPath=${eventsPath}`);
-        });
-      }, bufferMs);
-      bufferedTimers.set(eventsPath, timer);
-      timer.unref();
-    }
-  });
-}
-async function flushOneEventLogBuffer(eventsPath) {
-  const queue = bufferedQueues.get(eventsPath);
-  bufferedQueues.delete(eventsPath);
-  const timer = bufferedTimers.get(eventsPath);
-  try {
-    if (!queue || queue.length === 0) return;
-    if (queue.length > 1e3) {
-      const dropped = queue.splice(0, queue.length - 500);
-      overflowCounter++;
-      const firstDroppedMeta = dropped[0]?.event.metadata;
-      const lastDroppedMeta = dropped[dropped.length - 1]?.event.metadata;
-      logInternalError(
-        "event-log.buffer-overflow",
-        new Error(
-          `Buffer overflow #${overflowCounter}: Dropped ${dropped.length} events: first seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}, last seq=${lastDroppedMeta?.seq} type=${dropped[dropped.length - 1]?.event.type}`
-        ),
-        `${eventsPath}: ${queue.length + dropped.length} entries > 1000 cap`
-      );
-      for (const item of dropped) {
-        item.reject(
-          new Error(
-            `Event log buffer overflow: ${queue.length + dropped.length} entries > 1000 cap; oldest ${dropped.length} dropped to keep memory bounded; first dropped seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}`
-          )
-        );
-      }
-    }
-    await withEventLogLockAsync(eventsPath, async () => {
-      await appendEventBatchInsideLock(eventsPath, queue);
+    const records = readJsonFileCoalesced(
+      agentsPath(manifest),
+      AGENT_READER_TTL_MS,
+      () => readJsonFile(agentsPath(manifest)) ?? []
+    );
+    const seen = /* @__PURE__ */ new Set();
+    const deduped = records.filter((r) => {
+      if (!r || typeof r.id !== "string" || typeof r.taskId !== "string") return false;
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
     });
-  } catch (error) {
-    if (queue) for (const item of queue) item.reject(error);
-  } finally {
-    bufferedTimers.delete(eventsPath);
+    const changed = deduped.length !== records.length || records.some((record, index) => record !== deduped[index]);
+    if (changed) {
+      saveCrewAgents(manifest, deduped);
+    }
+    return deduped;
+  } catch {
+    return [];
   }
 }
-async function flushEventLogBuffer() {
-  for (const eventsPath of [...bufferedQueues.keys()]) await flushOneEventLogBuffer(eventsPath);
-}
-function flushBufferedQueuesSync() {
-  for (const eventsPath of [...bufferedQueues.keys()]) {
-    const queue = bufferedQueues.get(eventsPath);
-    bufferedQueues.delete(eventsPath);
-    if (!queue || queue.length === 0) continue;
+async function readCrewAgentsAsync(manifest) {
+  const filePath = agentsPath(manifest);
+  const now = Date.now();
+  const cached2 = asyncAgentReaderCache.get(filePath);
+  if (cached2 && cached2.expiresAt > now) return cached2.records;
+  if (cached2?.inFlight) return cached2.inFlight;
+  const inFlight = (async () => {
     try {
-      withEventLogLockSync(eventsPath, () => {
-        void appendEventBatchInsideLock(eventsPath, queue);
+      const parsed = JSON.parse(await fs18.promises.readFile(filePath, "utf-8"));
+      const raw = Array.isArray(parsed) ? redactSecrets(parsed) : [];
+      const seen = /* @__PURE__ */ new Set();
+      const deduped = raw.filter((r) => {
+        if (!r || typeof r.id !== "string" || typeof r.taskId !== "string") return false;
+        if (seen.has(r.id)) return false;
+        seen.add(r.id);
+        return true;
       });
+      const changed = deduped.length !== raw.length || raw.some((record, index) => record !== deduped[index]);
+      if (changed) {
+        try {
+          saveCrewAgents(manifest, deduped);
+        } catch {
+        }
+      }
+      setAsyncAgentReaderCache(filePath, {
+        expiresAt: Date.now() + AGENT_READER_TTL_MS,
+        records: deduped
+      });
+      return deduped;
+    } catch {
+      setAsyncAgentReaderCache(filePath, {
+        expiresAt: Date.now() + AGENT_READER_TTL_MS,
+        records: []
+      });
+      return [];
+    }
+  })();
+  setAsyncAgentReaderCache(filePath, {
+    expiresAt: now + AGENT_READER_TTL_MS,
+    records: cached2?.records ?? [],
+    inFlight
+  });
+  return inFlight;
+}
+function saveCrewAgents(manifest, records) {
+  flushPendingAgentWrites(manifest, records);
+  withAgentsLock(manifest, () => {
+    fs18.mkdirSync(manifest.stateRoot, { recursive: true });
+    const filePath = agentsPath(manifest);
+    atomicWriteJson(filePath, redactSecrets(records));
+    asyncAgentReaderCache.delete(filePath);
+    for (const record of records) {
+      if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
+        writeCrewAgentStatus(manifest, record);
+      } else {
+        writeCrewAgentStatusCoalesced(manifest, record);
+      }
+    }
+  });
+}
+function shouldDeleteCrewAgentOnTerminalStatus(record) {
+  const s = record.status;
+  return s === "cancelled" || s === "stopped";
+}
+function removeCrewAgent(manifest, taskId) {
+  let removedIndex = false;
+  let removedStatus = false;
+  try {
+    const existing = readCrewAgents(manifest);
+    const filtered = existing.filter((r) => r.taskId !== taskId);
+    if (filtered.length !== existing.length) {
+      saveCrewAgents(manifest, filtered);
+      removedIndex = true;
+    }
+  } catch {
+  }
+  try {
+    const statusPath = agentStatusPath(manifest, taskId);
+    if (fs18.existsSync(statusPath)) {
+      fs18.unlinkSync(statusPath);
+      removedStatus = true;
+    }
+  } catch {
+  }
+  return { removedIndex, removedStatus };
+}
+function upsertCrewAgent(manifest, record) {
+  try {
+    fs18.statSync(manifest.stateRoot);
+  } catch {
+    return;
+  }
+  if (shouldDeleteCrewAgentOnTerminalStatus(record)) {
+    removeCrewAgent(manifest, record.taskId);
+    asyncAgentReaderCache.delete(agentsPath(manifest));
+    return;
+  }
+  const existing = readCrewAgents(manifest);
+  const idIndex = new Map(existing.map((item, i) => [item.id, i]));
+  const merged = existing.map((item) => item.id === record.id ? record : item);
+  if (!idIndex.has(record.id)) merged.push(record);
+  if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
+    saveCrewAgents(manifest, merged);
+    writeCrewAgentStatus(manifest, record);
+  } else {
+    saveCrewAgentsCoalesced(manifest, merged);
+    writeCrewAgentStatusCoalesced(manifest, record);
+  }
+}
+function writeCrewAgentStatus(manifest, record) {
+  ensureAgentStateDir(manifest, record.taskId);
+  atomicWriteJson(agentStatusPath(manifest, record.taskId), redactSecrets(record), { durability: "full" });
+}
+function saveCrewAgentsCoalesced(manifest, records) {
+  const filePath = agentsPath(manifest);
+  fs18.mkdirSync(manifest.stateRoot, { recursive: true });
+  atomicWriteJsonCoalesced(filePath, redactSecrets(records), AGENT_COALESCE_MS, { durability: "best-effort" });
+  asyncAgentReaderCache.delete(filePath);
+  for (const record of records) writeCrewAgentStatusCoalesced(manifest, record);
+}
+function writeCrewAgentStatusCoalesced(manifest, record) {
+  ensureAgentStateDir(manifest, record.taskId);
+  atomicWriteJsonCoalesced(agentStatusPath(manifest, record.taskId), redactSecrets(record), AGENT_COALESCE_MS, {
+    durability: "best-effort"
+  });
+}
+function flushPendingAgentWrites(manifest, records) {
+  flushPendingAtomicWrites(agentsPath(manifest));
+  for (const record of records) flushPendingAtomicWrites(agentStatusPath(manifest, record.taskId));
+}
+function readCrewAgentStatus(manifest, taskOrAgentId) {
+  try {
+    return readJsonFile(safeExistingAgentFile(manifest, taskOrAgentId, "status.json"));
+  } catch {
+    return void 0;
+  }
+}
+function setAgentEventSeqCache(filePath, entry) {
+  if (agentEventSeqCache.has(filePath)) agentEventSeqCache.delete(filePath);
+  agentEventSeqCache.set(filePath, entry);
+  while (agentEventSeqCache.size > AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES) {
+    const oldest = agentEventSeqCache.keys().next().value;
+    if (oldest === void 0) break;
+    agentEventSeqCache.delete(oldest);
+  }
+}
+function readSeqFromSidecar(filePath) {
+  try {
+    const raw = fs18.readFileSync(`${filePath}.${AGENT_EVENT_SEQ_SIDECAR}`, "utf-8");
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function writeSeqToSidecar(filePath, seq) {
+  try {
+    fs18.writeFileSync(`${filePath}.${AGENT_EVENT_SEQ_SIDECAR}`, String(seq));
+  } catch (error) {
+    logInternalError("crew-agent-records.seq-sidecar", error, `filePath=${filePath}`);
+  }
+}
+function nextAgentEventSeq(filePath) {
+  if (!fs18.existsSync(filePath)) {
+    try {
+      fs18.unlinkSync(`${filePath}.${AGENT_EVENT_SEQ_SIDECAR}`);
     } catch (error) {
-      logInternalError("event-log.sync-flush", error, eventsPath);
+      logInternalError("crew-agent-records.unlink-sidecar", error, `filePath=${filePath}`, "debug");
+    }
+    return 1;
+  }
+  const stat2 = fs18.statSync(filePath);
+  const cached2 = agentEventSeqCache.get(filePath);
+  if (cached2 && cached2.size === stat2.size && cached2.mtimeMs === stat2.mtimeMs) return cached2.seq + 1;
+  const sidecarSeq = readSeqFromSidecar(filePath);
+  if (sidecarSeq !== void 0) {
+    setAgentEventSeqCache(filePath, {
+      size: stat2.size,
+      mtimeMs: stat2.mtimeMs,
+      seq: sidecarSeq
+    });
+    return sidecarSeq + 1;
+  }
+  let max = 0;
+  for (const line3 of fs18.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
+    if (!line3.trim()) continue;
+    try {
+      const parsed = JSON.parse(line3);
+      if (typeof parsed.seq === "number" && Number.isFinite(parsed.seq)) max = Math.max(max, parsed.seq);
+      else max += 1;
+    } catch {
+      max += 1;
     }
   }
-  for (const eventsPath of [...bufferedTimers.keys()]) bufferedTimers.delete(eventsPath);
+  setAgentEventSeqCache(filePath, {
+    size: stat2.size,
+    mtimeMs: stat2.mtimeMs,
+    seq: max
+  });
+  writeSeqToSidecar(filePath, max);
+  return max + 1;
 }
-function __test__appendBatchForUnitTest(eventsPath, queue) {
-  return appendEventBatchInsideLock(eventsPath, queue);
-}
-function appendEventFireAndForget(eventsPath, event) {
-  appendEventAsync(eventsPath, event).catch((error) => logInternalError("event-log.fire-and-forget", error, eventsPath));
-}
-function dedupeTerminalEvents(events) {
-  const seen = /* @__PURE__ */ new Set();
-  const output = [];
-  for (const event of events) {
-    const fingerprint2 = event.metadata?.fingerprint;
-    if (fingerprint2 && TERMINAL_EVENT_TYPES.has(event.type)) {
-      if (seen.has(fingerprint2)) continue;
-      seen.add(fingerprint2);
-    }
-    output.push(event);
+function appendCrewAgentEvent(manifest, taskId, event) {
+  flushCrewAgentRecordBuffer(manifest, taskId);
+  ensureAgentStateDir(manifest, taskId);
+  const filePath = agentStateFile(manifest, taskId, "events.jsonl");
+  const seq = nextAgentEventSeq(filePath);
+  fs18.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ seq, time: (/* @__PURE__ */ new Date()).toISOString(), event }))}
+`, "utf-8");
+  try {
+    const stat2 = fs18.statSync(filePath);
+    setAgentEventSeqCache(filePath, {
+      size: stat2.size,
+      mtimeMs: stat2.mtimeMs,
+      seq
+    });
+    writeSeqToSidecar(filePath, seq);
+  } catch (error) {
+    logInternalError("crew-agent-records.stat", error, `filePath=${filePath}`);
   }
-  return output;
 }
-var TERMINAL_EVENT_TYPES, MAX_EVENTS_BYTES, appendCounters, APPEND_COUNTER_MAX_ENTRIES, overflowCounter, MAX_ASYNC_QUEUES, asyncQueues, asyncLocks, bufferedQueues, bufferedTimers, DEFAULT_BUFFER_MS;
-var init_event_log = __esm({
-  "src/state/event-log/event-log.ts"() {
+function readCrewAgentEventsCursor(manifest, taskId, options = {}) {
+  let filePath;
+  try {
+    filePath = agentEventsPath(manifest, taskId);
+  } catch {
+    return {
+      path: "",
+      events: [],
+      nextSeq: options.sinceSeq ?? 0,
+      total: 0
+    };
+  }
+  if (!fs18.existsSync(filePath))
+    return {
+      path: filePath,
+      events: [],
+      nextSeq: options.sinceSeq ?? 0,
+      total: 0
+    };
+  try {
+    filePath = safeExistingAgentFile(manifest, taskId, "events.jsonl");
+  } catch {
+    return {
+      path: "",
+      events: [],
+      nextSeq: options.sinceSeq ?? 0,
+      total: 0
+    };
+  }
+  const sinceSeq = typeof options.sinceSeq === "number" && Number.isInteger(options.sinceSeq) && options.sinceSeq >= 0 ? options.sinceSeq : 0;
+  const limit = typeof options.limit === "number" && Number.isInteger(options.limit) && options.limit >= 0 ? options.limit : void 0;
+  const parsed = fs18.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean).map((line3, index) => {
+    try {
+      const event = JSON.parse(line3);
+      if (typeof event.seq !== "number") event.seq = index + 1;
+      return event;
+    } catch {
+      return { seq: index + 1, raw: line3 };
+    }
+  });
+  const filtered = parsed.filter((event) => typeof event.seq === "number" && event.seq > sinceSeq);
+  const events = limit !== void 0 ? filtered.slice(0, limit) : filtered;
+  const returnedMaxSeq = events.reduce((max, event) => typeof event.seq === "number" ? Math.max(max, event.seq) : max, sinceSeq);
+  return {
+    path: filePath,
+    events,
+    nextSeq: returnedMaxSeq,
+    total: filtered.length
+  };
+}
+function appendCrewAgentOutput(manifest, taskId, text) {
+  if (!text.trim()) return;
+  flushCrewAgentRecordBuffer(manifest, taskId);
+  ensureAgentStateDir(manifest, taskId);
+  fs18.appendFileSync(agentStateFile(manifest, taskId, "output.log"), `${redactSecretString(text)}
+`, "utf-8");
+}
+function agentRecordBufferKey(manifest, taskId) {
+  return `${manifest.stateRoot}\0${safeAgentTaskId(taskId)}`;
+}
+function flushAgentRecordBuffer(buffer) {
+  const { manifest, taskId } = buffer;
+  if (buffer.timer) {
+    clearTimeout(buffer.timer);
+    buffer.timer = void 0;
+  }
+  if (buffer.events.length > 0) {
+    const filePath = agentStateFile(manifest, taskId, "events.jsonl");
+    try {
+      fs18.appendFileSync(filePath, buffer.events.join(""), "utf-8");
+      const stat2 = fs18.statSync(filePath);
+      setAgentEventSeqCache(filePath, {
+        size: stat2.size,
+        mtimeMs: stat2.mtimeMs,
+        seq: buffer.lastReservedSeq
+      });
+      writeSeqToSidecar(filePath, buffer.lastReservedSeq);
+    } catch (error) {
+      logInternalError("crew-agent-records.buffered-events-flush", error, `filePath=${filePath}`);
+    }
+  }
+  if (buffer.output.length > 0) {
+    try {
+      fs18.appendFileSync(agentStateFile(manifest, taskId, "output.log"), buffer.output.join(""), "utf-8");
+    } catch (error) {
+      logInternalError("crew-agent-records.buffered-output-flush", error, `taskId=${taskId}`);
+    }
+  }
+  buffer.events.length = 0;
+  buffer.output.length = 0;
+  buffer.lastReservedSeq = 0;
+  agentRecordBuffers.delete(agentRecordBufferKey(manifest, taskId));
+}
+function flushCrewAgentRecordBuffer(manifest, taskId) {
+  const buffer = agentRecordBuffers.get(agentRecordBufferKey(manifest, taskId));
+  if (buffer) flushAgentRecordBuffer(buffer);
+}
+function flushAllCrewAgentRecordBuffers() {
+  for (const buffer of [...agentRecordBuffers.values()]) flushAgentRecordBuffer(buffer);
+}
+function appendCrewAgentEventBuffered(manifest, taskId, event) {
+  const filePath = agentStateFile(manifest, taskId, "events.jsonl");
+  const key = agentRecordBufferKey(manifest, taskId);
+  let buffer = agentRecordBuffers.get(key);
+  if (!buffer) {
+    buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
+    agentRecordBuffers.set(key, buffer);
+  }
+  if (buffer.lastReservedSeq === 0) {
+    buffer.lastReservedSeq = nextAgentEventSeq(filePath) - 1;
+  }
+  const seq = ++buffer.lastReservedSeq;
+  buffer.events.push(`${JSON.stringify(redactSecrets({ seq, time: (/* @__PURE__ */ new Date()).toISOString(), event }))}
+`);
+  scheduleAgentRecordBufferFlush(buffer);
+}
+function appendCrewAgentOutputBuffered(manifest, taskId, text) {
+  if (!text.trim()) return;
+  ensureAgentStateDir(manifest, taskId);
+  const key = agentRecordBufferKey(manifest, taskId);
+  let buffer = agentRecordBuffers.get(key);
+  if (!buffer) {
+    buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
+    agentRecordBuffers.set(key, buffer);
+  }
+  buffer.output.push(`${redactSecretString(text)}
+`);
+  scheduleAgentRecordBufferFlush(buffer);
+}
+function scheduleAgentRecordBufferFlush(buffer) {
+  if (buffer.events.length >= AGENT_RECORD_BUFFER_MAX_EVENTS || buffer.output.length >= AGENT_RECORD_BUFFER_MAX_EVENTS) {
+    flushAgentRecordBuffer(buffer);
+    return;
+  }
+  if (!buffer.timer) {
+    buffer.timer = setTimeout(() => {
+      buffer.timer = void 0;
+      flushAgentRecordBuffer(buffer);
+    }, AGENT_RECORD_BUFFER_WINDOW_MS);
+    buffer.timer.unref();
+  }
+}
+function emptyCrewAgentProgress() {
+  return { recentTools: [], recentOutput: [], toolCount: 0 };
+}
+function modelFromTask(task) {
+  const attempts = task.modelAttempts;
+  if (!attempts?.length) return void 0;
+  return attempts.find((attempt) => attempt.success)?.model ?? attempts.at(-1)?.model;
+}
+function recordFromTask(manifest, task, runtime) {
+  return {
+    id: `${manifest.runId}:${task.id}`,
+    runId: manifest.runId,
+    taskId: task.id,
+    agent: task.agent,
+    role: task.role,
+    runtime,
+    status: taskStatusToAgentStatus(task.status),
+    startedAt: task.startedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+    completedAt: task.finishedAt,
+    resultArtifactPath: task.resultArtifact?.path,
+    transcriptPath: task.transcriptArtifact?.path ?? task.logArtifact?.path,
+    statusPath: agentStatusPath(manifest, task.id),
+    eventsPath: agentEventsPath(manifest, task.id),
+    outputPath: agentOutputPath(manifest, task.id),
+    toolUses: task.agentProgress?.toolCount,
+    jsonEvents: task.jsonEvents,
+    model: modelFromTask(task),
+    routing: task.modelRouting,
+    usage: task.usage,
+    progress: task.agentProgress,
+    error: task.error
+  };
+}
+var ensuredAgentDirs, resolvedAgentFiles, AGENT_PATH_CACHE_MAX, AGENT_READER_TTL_MS, ASYNC_AGENT_READER_CACHE_MAX_ENTRIES, AGENTS_LOCK_STALE_MS, asyncAgentReaderCache, TERMINAL_AGENT_STATUSES, AGENT_COALESCE_MS, agentEventSeqCache, AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES, AGENT_EVENT_SEQ_SIDECAR, AGENT_RECORD_BUFFER_MAX_EVENTS, AGENT_RECORD_BUFFER_WINDOW_MS, agentRecordBuffers;
+var init_crew_agent_records = __esm({
+  "src/runtime/crew-agent-records.ts"() {
     "use strict";
-    init_defaults();
-    init_errors3();
-    init_run_event_bus();
+    init_atomic_write();
+    init_file_coalescer();
     init_internal_error();
     init_redaction();
+    init_safe_paths();
     init_sleep();
-    init_event_log_rotation();
-    init_sequence_cache();
-    init_worker_atomic_writer();
-    init_cursor();
-    init_sequence_cache();
-    TERMINAL_EVENT_TYPES = new Set(DEFAULT_EVENT_LOG.terminalEventTypes);
-    MAX_EVENTS_BYTES = 50 * 1024 * 1024;
-    appendCounters = /* @__PURE__ */ new Map();
-    APPEND_COUNTER_MAX_ENTRIES = 256;
-    overflowCounter = 0;
-    MAX_ASYNC_QUEUES = 256;
-    asyncQueues = /* @__PURE__ */ new Map();
-    asyncLocks = /* @__PURE__ */ new Map();
-    bufferedQueues = /* @__PURE__ */ new Map();
-    bufferedTimers = /* @__PURE__ */ new Map();
-    DEFAULT_BUFFER_MS = 20;
-    process.on("exit", () => {
-      flushBufferedQueuesSync();
-      asyncQueues.clear();
-    });
-    process.on("beforeExit", async () => {
-      if (bufferedQueues.size > 0) {
-        try {
-          await flushEventLogBuffer();
-        } catch {
-        }
+    init_crew_agent_runtime();
+    ensuredAgentDirs = /* @__PURE__ */ new Map();
+    resolvedAgentFiles = /* @__PURE__ */ new Map();
+    AGENT_PATH_CACHE_MAX = 512;
+    AGENT_READER_TTL_MS = 200;
+    ASYNC_AGENT_READER_CACHE_MAX_ENTRIES = 128;
+    AGENTS_LOCK_STALE_MS = 3e4;
+    asyncAgentReaderCache = /* @__PURE__ */ new Map();
+    TERMINAL_AGENT_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "cancelled", "blocked"]);
+    AGENT_COALESCE_MS = 250;
+    agentEventSeqCache = /* @__PURE__ */ new Map();
+    AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES = 1e3;
+    AGENT_EVENT_SEQ_SIDECAR = ".seq";
+    AGENT_RECORD_BUFFER_MAX_EVENTS = 32;
+    AGENT_RECORD_BUFFER_WINDOW_MS = 250;
+    agentRecordBuffers = /* @__PURE__ */ new Map();
+    process.on("exit", () => flushAllCrewAgentRecordBuffers());
+    process.on("SIGTERM", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
+    process.on("SIGINT", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
+  }
+});
+
+// src/errors.ts
+var ErrorCode, DEFAULT_HELP, CrewError, errors;
+var init_errors3 = __esm({
+  "src/errors.ts"() {
+    "use strict";
+    ErrorCode = {
+      FileReadError: "E001",
+      // Cannot read a file
+      FileWriteError: "E002",
+      // Cannot write a file
+      TaskNotFound: "E003",
+      // Referenced task ID does not exist
+      InvalidStatusTransition: "E004",
+      // Run/task status cannot legally transition
+      ConfigError: "E005",
+      // Malformed config or missing required field
+      ResourceNotFound: "E006",
+      // Agent/team/workflow not found in discovery paths
+      // E1 (Round 15): runtime failure categories that previously threw raw Error
+      // with no code, no help hint, and no context. Surfaces actionable guidance.
+      ChildTimeout: "E007",
+      // Child Pi worker became unresponsive and was killed
+      ModelExhausted: "E008",
+      // All model candidates in the fallback chain failed
+      PreStepFailed: "E009",
+      // A pre-step hook script returned a non-zero exit
+      EventLogLockTimeout: "E010",
+      // Could not acquire the event-log file lock
+      DepthLimitExceeded: "E011",
+      // Pipeline/chain recursion depth limit hit (circular dep)
+      RunStale: "E012",
+      // Run reconciled as stale/zombie (heartbeat expired)
+      ModelOutOfScope: "E013"
+      // Caller-supplied model is not in pi's enabledModels allowlist (F7 scope gate)
+    };
+    DEFAULT_HELP = {
+      [ErrorCode.FileReadError]: "Check that the file exists and that the process has read permission.",
+      [ErrorCode.FileWriteError]: "Check that the disk is not full and that the process has write permission.",
+      [ErrorCode.TaskNotFound]: "The task may have been removed or the run may be in an inconsistent state. Use `team status` to verify.",
+      [ErrorCode.InvalidStatusTransition]: "Verify the run status using `team status` before retrying.",
+      [ErrorCode.ConfigError]: "Check the configuration file for syntax errors or missing required fields.",
+      [ErrorCode.ResourceNotFound]: "Use `team list` to see available agents, teams, and workflows.",
+      // E1 (Round 15): help hints for the new runtime categories.
+      [ErrorCode.ChildTimeout]: "The child Pi worker produced no output for too long and was terminated. Re-run the team; if it recurs, raise the response timeout in config or reduce the task scope.",
+      [ErrorCode.ModelExhausted]: "Every model in the fallback chain failed. Check your API key/quota and the per-attempt errors, then retry or swap the model in config.",
+      [ErrorCode.PreStepFailed]: "The pre-step hook script exited non-zero. Inspect its stderr, or mark it optional in the workflow step (preStepOptional).",
+      [ErrorCode.EventLogLockTimeout]: "Another process holds the event-log lock. Check for orphaned `.mkdirlock` directories or stale pi-crew processes, then retry.",
+      [ErrorCode.DepthLimitExceeded]: "A pipeline/chain exceeded the recursion depth limit, which usually indicates a circular stage dependency. Review step `dependsOn` chains.",
+      [ErrorCode.RunStale]: "The worker stopped heartbeating and was treated as a zombie. Re-run the team (resume or fresh); if it recurs, check `runtime.executeWorkers` / system load.",
+      [ErrorCode.ModelOutOfScope]: "The requested model is not in your pi `enabledModels` allowlist. Either pick a model listed in `enabledModels` (settings.json) or extend the allowlist. The scope gate is opt-in \u2014 disable `reliability.scopeModels` to allow any model."
+    };
+    CrewError = class extends Error {
+      code;
+      help;
+      _context;
+      constructor(code, message, help) {
+        super(message);
+        this.name = "CrewError";
+        this.code = code;
+        this.help = help ?? DEFAULT_HELP[code];
+        Object.defineProperty(this, "message", { enumerable: true });
+        Object.defineProperty(this, "code", { enumerable: true });
       }
-      if (asyncQueues.size > 0) {
-        try {
-          await drainAsyncQueues();
-        } catch {
-        }
+      withContext(context) {
+        this._context = context;
+        return this;
       }
-    });
-    process.on("SIGTERM", () => setImmediate(() => flushBufferedQueuesSync()));
-    process.on("SIGINT", () => setImmediate(() => flushBufferedQueuesSync()));
-    process.on("uncaughtException", (error) => {
-      flushBufferedQueuesSync();
-      asyncQueues.clear();
-      throw error;
-    });
+      withHelp(help) {
+        this.help = help;
+        return this;
+      }
+      toString() {
+        let out = `error[${this.code}]: ${this.message}`;
+        if (this._context) out += `
+  context: ${this._context}`;
+        if (this.help) out += `
+  help: ${this.help}`;
+        return out;
+      }
+    };
+    errors = {
+      fileRead(path103, source) {
+        return new CrewError(ErrorCode.FileReadError, `Failed to read ${path103}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+          "file system read operation"
+        );
+      },
+      fileWrite(path103, source) {
+        return new CrewError(ErrorCode.FileWriteError, `Failed to write ${path103}: ${source.code?.toLowerCase() ?? "unknown"}`).withContext(
+          "file system write operation"
+        );
+      },
+      taskNotFound(taskId, runId) {
+        const msg = runId ? `Task '${taskId}' not found in run '${runId}'` : `Task '${taskId}' not found`;
+        return new CrewError(ErrorCode.TaskNotFound, msg);
+      },
+      invalidStatusTransition(from, to) {
+        return new CrewError(ErrorCode.InvalidStatusTransition, `Invalid run status transition: ${from} -> ${to}`);
+      },
+      config(message) {
+        return new CrewError(ErrorCode.ConfigError, message).withContext("configuration loading");
+      },
+      resourceNotFound(type, name) {
+        return new CrewError(ErrorCode.ResourceNotFound, `${type} '${name}' not found in any discovery path`);
+      },
+      // E1 (Round 15): runtime failure constructors. These wrap the raw-throw
+      // sites identified in the Round 15 error-experience audit so failures carry
+      // a machine-readable code, a help hint, and structured context.
+      childTimeout(detail) {
+        const tail = detail.stderr ? ` Stderr tail: ${detail.stderr.slice(-400)}` : "";
+        const dur = detail.timeoutMs ? ` after ${detail.timeoutMs}ms of no output` : "";
+        return new CrewError(ErrorCode.ChildTimeout, `Child Pi worker became unresponsive${dur} and was terminated.${tail}`).withContext(
+          `worker execution${detail.taskId ? ` (task ${detail.taskId})` : ""}`
+        );
+      },
+      modelExhausted(chain, lastFailure) {
+        const tried = chain.join(" \u2192 ");
+        const last = lastFailure ? ` Last failure: ${lastFailure}` : "";
+        return new CrewError(
+          ErrorCode.ModelExhausted,
+          `All ${chain.length} model candidates exhausted (tried: ${tried}).${last}`
+        ).withContext("model fallback chain");
+      },
+      preStepFailed(script, exitCode, stderr) {
+        const tail = stderr ? ` Stderr: ${stderr.slice(-400)}` : "";
+        return new CrewError(ErrorCode.PreStepFailed, `preStepScript '${script}' exited ${exitCode ?? "non-zero"}.${tail}`).withContext(
+          "pre-step hook execution"
+        );
+      },
+      eventLogLockTimeout(eventsPath, timeoutMs) {
+        return new CrewError(
+          ErrorCode.EventLogLockTimeout,
+          `Event log lock timeout for ${eventsPath}: could not acquire lock within ${timeoutMs}ms`
+        ).withContext("event-log append");
+      },
+      depthLimitExceeded(depth, kind = "pipeline") {
+        return new CrewError(
+          ErrorCode.DepthLimitExceeded,
+          `${kind[0].toUpperCase() + kind.slice(1)} recursion depth limit exceeded (${depth}). Possible circular dependency.`
+        ).withContext(`${kind} execution`);
+      },
+      runStale(reason, heartbeatAgeSeconds) {
+        const age = heartbeatAgeSeconds !== void 0 ? ` Last heartbeat was ${heartbeatAgeSeconds}s ago.` : "";
+        return new CrewError(
+          ErrorCode.RunStale,
+          `Stale run reconciled (reason=${reason}).${age} The worker stopped heartbeating and was treated as dead/zombie.`
+        ).withContext("stale-run reconciliation");
+      },
+      modelOutOfScope(model, patterns) {
+        return new CrewError(
+          ErrorCode.ModelOutOfScope,
+          `Requested model "${model}" is not in enabledModels scope (allowlist: [${patterns.join(", ")}])`
+        ).withContext("F7 model scope gate \u2014 caller override rejected");
+      }
+    };
+  }
+});
+
+// src/utils/task-name-generator.ts
+var init_task_name_generator = __esm({
+  "src/utils/task-name-generator.ts"() {
+    "use strict";
+  }
+});
+
+// src/utils/ids.ts
+import { randomBytes } from "node:crypto";
+function createRunId(prefix = "team") {
+  const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+  const suffix = randomBytes(8).toString("hex");
+  return `${prefix}_${stamp}_${suffix}`;
+}
+function createTaskId(stepId, index) {
+  const normalized = stepId.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
+  return `${String(index + 1).padStart(2, "0")}_${normalized}`;
+}
+var init_ids = __esm({
+  "src/utils/ids.ts"() {
+    "use strict";
+    init_task_name_generator();
+  }
+});
+
+// src/state/contracts.ts
+function isTeamRunStatus(value) {
+  return typeof value === "string" && TEAM_RUN_STATUSES.includes(value);
+}
+function isTeamTaskStatus(value) {
+  return typeof value === "string" && TEAM_TASK_STATUSES.includes(value);
+}
+function isTerminalRunStatus(status) {
+  return TEAM_TERMINAL_RUN_STATUSES.has(status);
+}
+function isTerminalTaskStatus(status) {
+  return TEAM_TERMINAL_TASK_STATUSES.has(status);
+}
+function canTransitionRunStatus(from, to) {
+  return from === to || (TEAM_RUN_STATUS_TRANSITIONS[from]?.includes(to) ?? false);
+}
+function canTransitionTaskStatus(from, to) {
+  return from === to || (TEAM_TASK_STATUS_TRANSITIONS[from]?.includes(to) ?? false);
+}
+var TEAM_RUN_STATUSES, TEAM_TASK_STATUSES, TEAM_TERMINAL_RUN_STATUSES, TEAM_TERMINAL_TASK_STATUSES, TEAM_RUN_STATUS_TRANSITIONS, TEAM_TASK_STATUS_TRANSITIONS;
+var init_contracts = __esm({
+  "src/state/contracts.ts"() {
+    "use strict";
+    TEAM_RUN_STATUSES = ["queued", "planning", "running", "blocked", "completed", "failed", "cancelled"];
+    TEAM_TASK_STATUSES = [
+      "queued",
+      "running",
+      "waiting",
+      "completed",
+      "failed",
+      "cancelled",
+      "skipped",
+      "needs_attention"
+    ];
+    TEAM_TERMINAL_RUN_STATUSES = /* @__PURE__ */ new Set(["blocked", "completed", "failed", "cancelled"]);
+    TEAM_TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set([
+      "completed",
+      "failed",
+      "cancelled",
+      "skipped",
+      "needs_attention"
+    ]);
+    TEAM_RUN_STATUS_TRANSITIONS = {
+      queued: ["planning", "running", "cancelled", "failed"],
+      planning: ["running", "blocked", "cancelled", "failed"],
+      running: ["blocked", "completed", "failed", "cancelled"],
+      blocked: ["running", "cancelled", "failed"],
+      completed: ["running", "cancelled"],
+      failed: ["running", "cancelled"],
+      cancelled: ["running"]
+    };
+    TEAM_TASK_STATUS_TRANSITIONS = {
+      queued: ["running", "cancelled", "skipped", "failed"],
+      running: ["completed", "failed", "cancelled", "queued", "waiting"],
+      waiting: ["running", "queued", "completed", "failed", "cancelled"],
+      completed: ["queued"],
+      failed: ["queued", "cancelled"],
+      cancelled: ["queued"],
+      skipped: ["queued", "cancelled"],
+      needs_attention: ["queued", "running"]
+    };
   }
 });
 
@@ -17710,5395 +16420,1653 @@ var init_run_event_bus = __esm({
   }
 });
 
-// src/runtime/broker/broker-issuer.ts
-var broker_issuer_exports = {};
-__export(broker_issuer_exports, {
-  getActiveBrokerIssuer: () => getActiveBrokerIssuer,
-  getActiveBrokerRevoker: () => getActiveBrokerRevoker,
-  setActiveBrokerIssuer: () => setActiveBrokerIssuer,
-  setActiveBrokerRevoker: () => setActiveBrokerRevoker
-});
-function setActiveBrokerIssuer(issuer) {
-  activeIssuer = issuer;
-}
-function getActiveBrokerIssuer() {
-  return activeIssuer;
-}
-function setActiveBrokerRevoker(revoker) {
-  activeRevoker = revoker;
-}
-function getActiveBrokerRevoker() {
-  return activeRevoker;
-}
-var activeIssuer, activeRevoker;
-var init_broker_issuer = __esm({
-  "src/runtime/broker/broker-issuer.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/compaction/compact-stages/bounded-tail.ts
-function defaultMarker(maxBytes) {
-  return `[pi-crew captured output truncated to last ${Math.round(maxBytes / 1024)} KiB]`;
-}
-var DEFAULT_MAX_BYTES, BoundedTail;
-var init_bounded_tail = __esm({
-  "src/runtime/compaction/compact-stages/bounded-tail.ts"() {
-    "use strict";
-    init_defaults();
-    DEFAULT_MAX_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
-    BoundedTail = class {
-      #maxBytes;
-      #marker;
-      #segs = [];
-      #bytes = 0;
-      #dropped = false;
-      #cached;
-      #dirty = false;
-      constructor(maxBytes = DEFAULT_MAX_BYTES, marker) {
-        if (!(maxBytes > 0)) throw new Error(`BoundedTail: maxBytes must be > 0, got ${maxBytes}`);
-        this.#maxBytes = maxBytes;
-        this.#marker = marker ?? defaultMarker(maxBytes);
-      }
-      /** Append a chunk. O(chunk) amortized; never scans the full buffer. */
-      push(chunk) {
-        if (!chunk) return this;
-        this.#segs.push(chunk);
-        this.#bytes += Buffer.byteLength(chunk, "utf-8");
-        while (this.#bytes > this.#maxBytes && this.#segs.length > 1) {
-          const dropped = this.#segs.shift();
-          this.#bytes -= Buffer.byteLength(dropped, "utf-8");
-          this.#dropped = true;
-        }
-        this.#dirty = true;
-        return this;
-      }
-      /** Materialize the bounded string. Computed at most once per push; cached otherwise. */
-      value() {
-        if (!this.#dirty && this.#cached !== void 0) return this.#cached;
-        const body = this.#segs.join("");
-        const result4 = this.#bound(body);
-        this.#cached = result4;
-        this.#dirty = false;
-        return result4;
-      }
-      /** Byte-exact bound with marker parity vs the old TailCaptureStage path. */
-      #bound(body) {
-        if (Buffer.byteLength(body, "utf-8") <= this.#maxBytes) {
-          return this.#dropped ? `${this.#marker}
-${body}` : body;
-        }
-        const buf = Buffer.from(body, "utf-8");
-        let start = Math.max(0, buf.length - this.#maxBytes);
-        while (start < buf.length && (buf[start] & 192) === 128) start++;
-        return `${this.#marker}
-${buf.subarray(start).toString("utf-8")}`;
-      }
-    };
-  }
-});
-
-// src/utils/fs-watch.ts
-import * as fs23 from "node:fs";
-function closeWatcher(watcher) {
-  if (!watcher) {
-    return;
-  }
+// src/state/event-log/event-log-rotation.ts
+import * as fs19 from "node:fs";
+import * as path18 from "node:path";
+function forEachLineSync(filePath, onLine) {
+  const fd = fs19.openSync(filePath, "r");
   try {
-    watcher.close();
-  } catch {
+    const chunkSize = 8192;
+    const buf = Buffer.alloc(chunkSize);
+    let leftover = "";
+    let offset = 0;
+    let bytesRead;
+    while ((bytesRead = fs19.readSync(fd, buf, 0, chunkSize, offset)) > 0) {
+      offset += bytesRead;
+      leftover += buf.subarray(0, bytesRead).toString("utf-8");
+      let nl;
+      while ((nl = leftover.indexOf("\n")) >= 0) {
+        const line3 = leftover.slice(0, nl);
+        leftover = leftover.slice(nl + 1);
+        if (line3.length > 0) onLine(line3);
+      }
+    }
+    if (leftover.length > 0) {
+      onLine(leftover);
+    }
+  } finally {
+    fs19.closeSync(fd);
   }
 }
-function watchWithErrorHandler(path103, listener, onError) {
-  try {
-    const watcher = fs23.watch(path103, listener);
-    watcher.on("error", onError);
-    return watcher;
-  } catch (error) {
-    onError(error);
-    return null;
+function readLastEvents(filePath, maxKeep) {
+  if (maxKeep <= 0) {
+    let totalCount2 = 0;
+    forEachLineSync(filePath, (line3) => {
+      try {
+        JSON.parse(line3);
+        totalCount2++;
+      } catch {
+      }
+    });
+    return { events: [], totalCount: totalCount2 };
   }
-}
-var init_fs_watch = __esm({
-  "src/utils/fs-watch.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/output/pi-json-output.ts
-function asRecord2(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-function numberField(obj, keys) {
-  for (const key of keys) {
-    const value = obj[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return void 0;
-}
-function mergeUsage(target, source) {
-  return {
-    input: source.input ?? target.input,
-    output: source.output ?? target.output,
-    cacheRead: source.cacheRead ?? target.cacheRead,
-    cacheWrite: source.cacheWrite ?? target.cacheWrite,
-    cost: source.cost ?? target.cost,
-    turns: source.turns ?? target.turns
-  };
-}
-function extractUsage(value) {
-  const obj = asRecord2(value);
-  if (!obj) return void 0;
-  const direct = {
-    input: numberField(obj, ["input", "inputTokens", "input_tokens"]),
-    output: numberField(obj, ["output", "outputTokens", "output_tokens"]),
-    cacheRead: numberField(obj, ["cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens"]),
-    cacheWrite: numberField(obj, ["cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens"]),
-    cost: numberField(obj, ["cost", "costUsd", "cost_usd"]),
-    turns: numberField(obj, ["turns", "turnCount", "turn_count"])
-  };
-  if (Object.values(direct).some((entry) => entry !== void 0)) return direct;
-  for (const key of ["usage", "message", "tokenUsage", "tokens", "stats"]) {
-    const nested = extractUsage(obj[key]);
-    if (nested) return nested;
-  }
-  return void 0;
-}
-function textFromContent(content) {
-  if (typeof content === "string") return [content];
-  if (!Array.isArray(content)) return [];
-  const text = [];
-  for (const part of content) {
-    const obj = asRecord2(part);
-    if (!obj) continue;
-    if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
-    else if (typeof obj.content === "string") text.push(obj.content);
-  }
-  return text;
-}
-function extractText(value) {
-  const obj = asRecord2(value);
-  if (!obj) return [];
-  const message = asRecord2(obj.message);
-  if (message?.role !== void 0 && message.role !== "assistant") return [];
-  const text = [];
-  if (typeof obj.text === "string") text.push(obj.text);
-  if (typeof obj.output === "string") text.push(obj.output);
-  if (typeof obj.finalOutput === "string") text.push(obj.finalOutput);
-  if (typeof obj.final_output === "string") text.push(obj.final_output);
-  if (!message) text.push(...textFromContent(obj.content));
-  if (message) text.push(...textFromContent(message.content));
-  return text.filter((entry) => entry.trim().length > 0);
-}
-function parsePiJsonOutput(stdout) {
-  let jsonEvents = 0;
-  const textEvents = [];
-  const patches = [];
-  const errorMessages = [];
-  let usage;
-  for (const line3 of stdout.split("\n")) {
-    const trimmed = line3.trim();
-    if (!trimmed) continue;
+  const ring = new Array(maxKeep);
+  let ringFilled = 0;
+  let writeIdx = 0;
+  let totalCount = 0;
+  forEachLineSync(filePath, (line3) => {
     let event;
     try {
-      event = JSON.parse(trimmed);
+      event = JSON.parse(line3);
     } catch {
-      continue;
+      return;
     }
-    jsonEvents++;
-    textEvents.push(...extractText(event));
-    extractPatch(event, patches);
-    const errMsg = extractErrorMessage(event);
-    if (errMsg) errorMessages.push(errMsg);
-    const eventUsage2 = extractUsage(event);
-    if (eventUsage2) usage = mergeUsage(usage ?? {}, eventUsage2);
-  }
-  return {
-    jsonEvents,
-    textEvents,
-    finalText: textEvents.length > 0 ? textEvents[textEvents.length - 1] : void 0,
-    usage,
-    patches: patches.length > 0 ? patches : void 0,
-    errorMessages: errorMessages.length > 0 ? errorMessages : void 0
-  };
-}
-function extractErrorMessage(event) {
-  const obj = asRecord2(event);
-  if (!obj) return void 0;
-  const message = asRecord2(obj.message) ?? obj;
-  const errorMessage2 = message.errorMessage;
-  return typeof errorMessage2 === "string" && errorMessage2.trim() ? errorMessage2.trim() : void 0;
-}
-function extractPatch(event, patches) {
-  const obj = asRecord2(event);
-  if (obj?.type !== "tool_result") return;
-  const content = obj.content;
-  if (!Array.isArray(content)) return;
-  for (const item of content) {
-    const part = asRecord2(item);
-    if (part?.type !== "text") continue;
-    const text = typeof part.text === "string" ? part.text : "";
-    if (text.includes("--- a/") || text.includes("diff ---")) {
-      patches.push(text);
-    }
-  }
-}
-var init_pi_json_output = __esm({
-  "src/runtime/output/pi-json-output.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/child-pi/child-pi-constants.ts
-var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_THINKING_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS;
-var init_child_pi_constants = __esm({
-  "src/runtime/child-pi/child-pi-constants.ts"() {
-    "use strict";
-    init_defaults();
-    POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
-    FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
-    HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
-    RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
-    MAX_LINE_BUFFER_BYTES = 1024 * 1024;
-    MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
-    MAX_THINKING_CHARS = 8 * 1024;
-    MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
-    MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
-    MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
-  }
-});
-
-// src/runtime/compaction/compact-pipeline.ts
-function applyCompactPipeline(text, stages) {
-  let current = text;
-  const applied = [];
-  for (const stage of stages) {
-    if (!stage || typeof stage.apply !== "function") continue;
-    const next = stage.apply(current);
-    if (typeof next !== "string") continue;
-    if (next.length <= current.length) {
-      current = next;
-      applied.push(stage.id);
-    }
-  }
-  return { text: current, applied };
-}
-var init_compact_pipeline = __esm({
-  "src/runtime/compaction/compact-pipeline.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/compaction/important-line-classifier.ts
-function isImportantLine(line3) {
-  if (!line3) return false;
-  for (const pattern of IMPORTANT_LINE_PATTERNS) {
-    if (pattern.test(line3)) return true;
-  }
-  return false;
-}
-function extractImportantLines(text, maxLines = 30) {
-  if (!text || maxLines <= 0) return [];
-  const out = [];
-  for (const line3 of text.split(/\r?\n/)) {
-    if (out.length >= maxLines) break;
-    if (isImportantLine(line3)) out.push(line3);
-  }
-  return out;
-}
-function splitWithImportantLines(value, maxChars, opts = {}) {
-  if (value.length <= maxChars) {
-    return { head: value, tail: "", importantLines: [], baseDropped: 0 };
-  }
-  const headLen = Math.floor(maxChars * 0.75);
-  const tailLen = maxChars - headLen;
-  const head = value.slice(0, headLen);
-  const tail = value.slice(value.length - tailLen);
-  if (opts.preserveImportant === false) {
-    return {
-      head,
-      tail,
-      importantLines: [],
-      baseDropped: value.length - maxChars
-    };
-  }
-  const slackFactor = opts.slackFactor ?? 0.15;
-  const slackChars = Math.max(0, Math.floor(maxChars * slackFactor));
-  const maxCandidates = opts.maxImportantLines ?? 30;
-  const middle = value.slice(headLen, value.length - tailLen);
-  const candidates = extractImportantLines(middle, maxCandidates);
-  const chosen = [];
-  let used = 0;
-  for (const line3 of candidates) {
-    const addLen = (chosen.length > 0 ? 1 : 0) + line3.length;
-    if (used + addLen > slackChars) break;
-    chosen.push(line3);
-    used += addLen;
-  }
-  return {
-    head,
-    tail,
-    importantLines: chosen,
-    baseDropped: value.length - maxChars
-  };
-}
-var IMPORTANT_LINE_PATTERNS;
-var init_important_line_classifier = __esm({
-  "src/runtime/compaction/important-line-classifier.ts"() {
-    "use strict";
-    IMPORTANT_LINE_PATTERNS = [
-      // error keywords — NOTE: "warning" is intentionally excluded here; it has
-      // its own case-sensitive pattern below so that the common prose word
-      // "warning" does not over-match. (Hypa does the same split.)
-      /\b(error|failed|exception|fatal|panic)\b/i,
-      // file:line diagnostic — `child-pi.ts:383:`, `App.tsx:42:`
-      /\w+\.\w+:\d+:/,
-      // HTTP 4xx / 5xx — bounded so it does not match phone numbers etc.
-      /\b[45]\d{2}\b/,
-      // k8s / linter "Warning" event (case-sensitive so prose is not matched)
-      /\bWarning\b/,
-      // compiler / linter diagnostic id — `TS2304`, `CS0246`, `ES1234`
-      /\b[A-Z]{2,4}\d{3,5}\b/
-    ];
-  }
-});
-
-// src/runtime/compaction/compact-stages/truncation-stage.ts
-var DEFAULT_MARKER, TruncationStage;
-var init_truncation_stage = __esm({
-  "src/runtime/compaction/compact-stages/truncation-stage.ts"() {
-    "use strict";
-    init_important_line_classifier();
-    DEFAULT_MARKER = {
-      verb: "compacted",
-      unit: "chars",
-      headSeparator: "\n",
-      tailSeparator: "\n"
-    };
-    TruncationStage = class {
-      id = "truncation";
-      maxChars;
-      preserveImportant;
-      marker;
-      constructor(maxChars, opts = {}) {
-        if (!Number.isFinite(maxChars) || maxChars <= 0) {
-          throw new Error(`TruncationStage: maxChars must be a positive finite number, got ${maxChars}`);
-        }
-        this.maxChars = maxChars;
-        this.preserveImportant = opts.preserveImportant !== false;
-        this.marker = { ...DEFAULT_MARKER, ...opts.marker ?? {} };
-      }
-      apply(text) {
-        if (text.length <= this.maxChars) return text;
-        const { head, tail, importantLines, baseDropped } = splitWithImportantLines(text, this.maxChars, {
-          preserveImportant: this.preserveImportant
-        });
-        let result4;
-        if (importantLines.length === 0) {
-          result4 = `${head}${this.marker.headSeparator}...[pi-crew ${this.marker.verb} ${baseDropped} ${this.marker.unit}, head+tail preserved]...${this.marker.tailSeparator}${tail}`;
-        } else {
-          const joined = importantLines.join("\n");
-          const remaining = text.length - head.length - tail.length - joined.length;
-          result4 = `${head}${this.marker.headSeparator}...[pi-crew ${this.marker.verb} ${baseDropped} ${this.marker.unit}, head+tail + ${importantLines.length} important lines preserved, ${remaining} ${this.marker.unit} remaining dropped]...
-${joined}${this.marker.tailSeparator}${tail}`;
-        }
-        if (result4.length >= text.length) return text;
-        return result4;
-      }
-    };
-  }
-});
-
-// src/runtime/child-pi/child-pi-transcript.ts
-import * as fs24 from "node:fs";
-function appendTranscript(input, line3) {
-  if (!input.transcriptPath) return;
-  let safePath;
-  try {
-    const artifactsRoot = input.artifactsRoot ?? input.cwd;
-    safePath = resolveRealContainedPath(artifactsRoot, input.transcriptPath);
-  } catch (error) {
-    logInternalError("child-pi.transcript-path-rejected", error, `transcriptPath=${input.transcriptPath}`);
-    return;
-  }
-  trackTranscriptWrite(safePath, line3);
-}
-function scheduleTranscriptFlush() {
-  if (transcriptFlushTimer) return;
-  transcriptFlushTimer = setTimeout(() => {
-    transcriptFlushTimer = void 0;
-    void flushTranscriptBatches();
-  }, TRANSCRIPT_FLUSH_MS);
-  transcriptFlushTimer.unref?.();
-}
-async function flushTranscriptBatches() {
-  const entries = [...transcriptBatches.entries()];
-  transcriptBatches.clear();
-  await Promise.allSettled(
-    entries.map(async ([safePath, lines]) => {
-      if (lines.length === 0) return;
-      const content = lines.join("");
-      try {
-        const fd = await fs24.promises.open(
-          safePath,
-          fs24.constants.O_WRONLY | fs24.constants.O_NOFOLLOW | fs24.constants.O_CREAT | fs24.constants.O_APPEND,
-          384
-        );
-        try {
-          await fd.write(content, void 0, "utf-8");
-        } finally {
-          await fd.close();
-        }
-      } catch (error) {
-        logInternalError("child-pi.transcript-write-failed", error, `path=${safePath}`);
-      }
-    })
-  );
-}
-function trackTranscriptWrite(safePath, line3) {
-  const content = `${redactJsonLine(line3)}
-`;
-  let batch = transcriptBatches.get(safePath);
-  if (!batch) {
-    batch = [];
-    transcriptBatches.set(safePath, batch);
-  }
-  batch.push(content);
-  scheduleTranscriptFlush();
-}
-async function flushPendingTranscriptWrites() {
-  if (transcriptFlushTimer) {
-    clearTimeout(transcriptFlushTimer);
-    transcriptFlushTimer = void 0;
-  }
-  while (transcriptBatches.size > 0) {
-    await flushTranscriptBatches();
-  }
-}
-function resetTranscriptBatchState() {
-  if (transcriptFlushTimer) {
-    clearTimeout(transcriptFlushTimer);
-    transcriptFlushTimer = void 0;
-  }
-  transcriptBatches.clear();
-}
-function compactString(value, maxChars = DEFAULT_CHILD_PI.maxCompactContentChars, opts = {}) {
-  if (value.length <= maxChars) return value;
-  const result4 = applyCompactPipeline(value, [
-    new TruncationStage(maxChars, {
-      preserveImportant: opts.preserveImportant
-    })
-  ]);
-  return result4.text;
-}
-function compactValue(value) {
-  if (typeof value === "string") return compactString(value);
-  if (Array.isArray(value)) {
-    if (value.length > 20) {
-      return [...value.slice(0, 20).map(compactValue), `[pi-crew truncated ${value.length - 20} entries]`];
-    }
-    return value.map(compactValue);
-  }
-  const record = asRecord3(value);
-  if (!record) return value;
-  const entries = Object.entries(record);
-  const compacted = {};
-  for (const [key, entry] of entries.slice(0, 20)) compacted[key] = compactValue(entry);
-  if (entries.length > 20) compacted["[truncated]"] = `${entries.length - 20} entries`;
-  return compacted;
-}
-function asRecord3(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  return value;
-}
-var transcriptBatches, transcriptFlushTimer, TRANSCRIPT_FLUSH_MS;
-var init_child_pi_transcript = __esm({
-  "src/runtime/child-pi/child-pi-transcript.ts"() {
-    "use strict";
-    init_defaults();
-    init_internal_error();
-    init_redaction();
-    init_safe_paths();
-    init_compact_pipeline();
-    init_truncation_stage();
-    transcriptBatches = /* @__PURE__ */ new Map();
-    TRANSCRIPT_FLUSH_MS = 50;
-  }
-});
-
-// src/runtime/child-pi/child-pi-streams.ts
-function asRecord4(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
-  return value;
-}
-function compactContentPart(part) {
-  const record = asRecord4(part);
-  if (!record) return void 0;
-  if (record.type === "text")
-    return {
-      type: "text",
-      text: typeof record.text === "string" ? compactString(record.text, MAX_ASSISTANT_TEXT_CHARS, {
-        preserveImportant: false
-      }) : ""
-    };
-  if (record.type === "toolCall")
-    return {
-      type: "toolCall",
-      name: record.name,
-      input: compactValue(typeof record.input === "string" ? compactString(record.input, MAX_TOOL_INPUT_CHARS) : record.input)
-    };
-  if (record.type === "thinking")
-    return {
-      type: "thinking",
-      thinking: typeof record.thinking === "string" ? compactString(record.thinking, MAX_THINKING_CHARS, {
-        preserveImportant: false
-      }) : ""
-    };
-  if (record.type === "toolResult")
-    return {
-      type: "toolResult",
-      name: record.name,
-      content: compactValue(
-        typeof record.content === "string" ? compactString(record.content, MAX_TOOL_RESULT_CHARS) : record.content
-      )
-    };
-  return void 0;
-}
-function compactChildPiEvent(event) {
-  const record = asRecord4(event);
-  if (!record) return void 0;
-  if (record.type === "message_update") return void 0;
-  if (record.type === "tool_execution_start" || record.type === "tool_execution_end") {
-    return {
-      type: record.type,
-      toolName: record.toolName,
-      args: record.args
-    };
-  }
-  if (record.type === "tool_result_end" || record.type === "message_end" || record.type === "message") {
-    const message = asRecord4(record.message);
-    if (message?.role === "user" || message?.role === "system") return void 0;
-    const content = Array.isArray(message?.content) ? message.content.map(compactContentPart).filter((part) => part !== void 0) : void 0;
-    return {
-      type: record.type,
-      ...typeof record.text === "string" ? { text: record.text } : {},
-      ...message ? {
-        message: {
-          role: message.role,
-          ...content ? { content } : {},
-          usage: message.usage,
-          model: message.model,
-          errorMessage: message.errorMessage,
-          stopReason: message.stopReason
-        }
-      } : {},
-      usage: record.usage,
-      model: record.model,
-      provider: record.provider,
-      stopReason: record.stopReason
-    };
-  }
-  if (record.type === "supervisor_contact" || record.type === "crew_supervisor_contact") {
-    return {
-      type: record.type,
-      taskId: record.taskId,
-      reason: record.reason,
-      message: record.message,
-      data: record.data
-    };
-  }
-  return record.type ? { type: record.type } : void 0;
-}
-function displayTextFromCompactEvent(event) {
-  const record = asRecord4(event);
-  if (!record) return void 0;
-  if (record.type === "tool_execution_start") {
-    return typeof record.toolName === "string" ? `tool: ${record.toolName}` : "tool started";
-  }
-  if (record.type !== "message" && record.type !== "message_end") return void 0;
-  const message = asRecord4(record.message);
-  if (message?.role !== void 0 && message.role !== "assistant") return void 0;
-  const content = Array.isArray(message?.content) ? message.content : [];
-  const text = content.flatMap((part) => {
-    const item = asRecord4(part);
-    return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
-  }).join("\n").trim();
-  return text || (typeof record.text === "string" ? record.text : void 0);
-}
-function nonJsonLineResult(line3) {
-  return { json: false, persistedLine: line3, displayLine: line3 };
-}
-function compactChildPiLine(line3, preParsed) {
-  let parsed;
-  if (preParsed !== void 0) {
-    parsed = preParsed;
-  } else {
-    try {
-      parsed = JSON.parse(line3);
-    } catch {
-      return nonJsonLineResult(line3);
-    }
-  }
-  const compact = compactChildPiEvent(parsed);
-  return {
-    json: true,
-    event: compact,
-    persistedLine: compact ? JSON.stringify(compact) : "",
-    displayLine: displayTextFromCompactEvent(compact)
-  };
-}
-var ChildPiLineObserver;
-var init_child_pi_streams = __esm({
-  "src/runtime/child-pi/child-pi-streams.ts"() {
-    "use strict";
-    init_internal_error();
-    init_pi_json_output();
-    init_child_pi_constants();
-    init_child_pi_transcript();
-    ChildPiLineObserver = class _ChildPiLineObserver {
-      buffer = "";
-      input;
-      /** F9: bounded ring buffer for RAW assistant-text fragments. Consumers
-       * (getRawFinalText) only read the last element, but the legacy implementation
-       * accumulated every fragment unconditionally, which let a verbose/long-running
-       * worker grow this array linearly with output. We retain the last 2 entries:
-       * the consumer needs the last; we keep the second-to-last only as a defensive
-       * fence against a race where a final event arrives just after the consumer
-       * read (the previous "last" is still the most-recent pre-final text in that
-       * window). 2 is well below any plausible consumer's "tail-only" need while
-       * bounding memory. */
-      static MAX_RAW_TEXT_EVENTS = 2;
-      rawTextEvents = [];
-      /** F9: bounded ring buffer for intermediate findings. The downstream digest
-       * (getIntermediateFindings) slices the last 20, but the array previously grew
-       * to 1000s of entries. We keep MAX_INTERMEDIATE_DIGEST_LINES + headroom so
-       * the public API behaviour is preserved (still returns "last 20 lines"). */
-      static MAX_INTERMEDIATE_FINDINGS = 32;
-      intermediateFindings = [];
-      constructor(input) {
-        this.input = input;
-      }
-      observe(text) {
-        this.buffer += text;
-        if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
-          logInternalError(
-            "child-pi.buffer-overflow",
-            new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
-            `bufferLen=${this.buffer.length}`
-          );
-          const overflowLines = this.buffer.split(/\r?\n/);
-          this.buffer = "";
-          for (const line3 of overflowLines) this.emitLine(line3);
-          return;
-        }
-        const lines = this.buffer.split(/\r?\n/);
-        this.buffer = lines.pop() ?? "";
-        for (const line3 of lines) this.emitLine(line3);
-      }
-      flush() {
-        if (this.buffer) {
-          const line3 = this.buffer;
-          this.buffer = "";
-          this.emitLine(line3);
-        }
-        return flushPendingTranscriptWrites();
-      }
-      /** Last non-empty RAW assistant text (mirrors {@link parsePiJsonOutput}'s
-       *  finalText semantics but uncapped). Undefined when no assistant text was
-       *  seen by this observer. {@link extractText} already drops empty fragments,
-       *  so the last entry is the final assistant utterance. */
-      getRawFinalText() {
-        return this.rawTextEvents.length > 0 ? this.rawTextEvents[this.rawTextEvents.length - 1] : void 0;
-      }
-      /** #7 hardening: returns a bounded digest of intermediate findings accumulated
-       *  during the run. This is NOT the final answer — it is a best-effort capture
-       *  of the last assistant text or tool-result display lines before budget
-       *  exhaustion. Only populated when getRawFinalText() would return undefined.
-       *  @param maxChars - maximum total characters to return (default 500). */
-      getIntermediateFindings(maxChars = 500) {
-        const MAX_INTERMEDIATE_DIGEST_LINES = 20;
-        if (this.intermediateFindings.length === 0) return "";
-        const lines = this.intermediateFindings.slice(-MAX_INTERMEDIATE_DIGEST_LINES);
-        const joined = lines.join("\n");
-        if (joined.length <= maxChars) return joined;
-        return joined.slice(-maxChars);
-      }
-      emitLine(line3) {
-        if (!line3.trim()) return;
-        let parsed;
-        try {
-          parsed = JSON.parse(line3);
-        } catch {
-          parsed = void 0;
-        }
-        if (parsed !== void 0) {
-          const rawTexts = extractText(parsed);
-          if (rawTexts.length > 0) {
-            this.rawTextEvents.push(...rawTexts);
-            const rawOverflow = this.rawTextEvents.length - _ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
-            if (rawOverflow > 0) this.rawTextEvents.splice(0, rawOverflow);
-            const last = rawTexts[rawTexts.length - 1];
-            if (last.trim().length > 0) {
-              this.intermediateFindings.push(last.trim());
-              const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
-              if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
-            }
-          }
-        }
-        const compact = parsed !== void 0 ? compactChildPiLine(line3, parsed) : nonJsonLineResult(line3);
-        if (compact.event !== void 0) {
-          try {
-            this.input.onJsonEvent?.(compact.event);
-          } catch (error) {
-            logInternalError("child-pi.on-json-event", error, `line=${compact.persistedLine ?? compact.displayLine ?? ""}`);
-          }
-        }
-        if (compact.persistedLine) appendTranscript(this.input, compact.persistedLine);
-        if (compact.displayLine?.trim()) {
-          try {
-            this.input.onStdoutLine?.(compact.displayLine);
-          } catch (error) {
-            logInternalError("child-pi.on-stdout-line", error, `line=${compact.displayLine}`);
-          }
-          this.intermediateFindings.push(compact.displayLine.trim());
-          const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
-          if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
-        }
-      }
-    };
-  }
-});
-
-// src/runtime/event-log-tail-source.ts
-import * as fs25 from "node:fs";
-import * as path22 from "node:path";
-var TAIL_BOOTSTRAP_POLL_MS, TAIL_BOOTSTRAP_POLL_MAX_MS, TAIL_STEADY_POLL_MS, EventLogTailSource;
-var init_event_log_tail_source = __esm({
-  "src/runtime/event-log-tail-source.ts"() {
-    "use strict";
-    init_fs_watch();
-    init_internal_error();
-    init_child_pi_streams();
-    TAIL_BOOTSTRAP_POLL_MS = 250;
-    TAIL_BOOTSTRAP_POLL_MAX_MS = 4 * TAIL_BOOTSTRAP_POLL_MS;
-    TAIL_STEADY_POLL_MS = 250;
-    EventLogTailSource = class {
-      sourceType = "event-log";
-      eventsPath;
-      deps;
-      callback;
-      watcher = null;
-      bootstrapTimer;
-      /** Poll dự phòng steady-state (song song watcher) — xem TAIL_STEADY_POLL_MS. */
-      steadyTimer;
-      /** Số lần bootstrap poll fail liên tiếp — cho backoff + log-once. */
-      bootstrapAttempts = 0;
-      closed = false;
-      /** Cờ chống drain-before-close đệ quy (consumer close() trong callback). */
-      draining = false;
-      /** Byte offset đã đọc tới — tự giữ qua các lần watcher báo đổi. */
-      offset = 0;
-      /** Nửa dòng chưa kết thúc `\n` — giữ tới lần đọc kế tiếp. */
-      partial = "";
-      constructor(input, deps = {}) {
-        this.eventsPath = input.eventsPath;
-        this.deps = deps;
-      }
-      onEvent(cb) {
-        this.callback = cb;
-        if (this.closed) return;
-        this.readFromOffset();
-        this.attachWatcher();
-      }
-      close() {
-        if (this.closed) return;
-        this.drainBeforeClose();
-        this.closed = true;
-        closeWatcher(this.watcher);
-        this.watcher = null;
-        if (this.bootstrapTimer !== void 0) {
-          const clear = this.deps.clearTimeoutFn ?? ((timer) => clearTimeout(timer));
-          clear(this.bootstrapTimer);
-          this.bootstrapTimer = void 0;
-        }
-        if (this.steadyTimer !== void 0) {
-          const clear = this.deps.clearTimeoutFn ?? ((timer) => clearTimeout(timer));
-          clear(this.steadyTimer);
-          this.steadyTimer = void 0;
-        }
-      }
-      /** Drain một lần, chống đệ quy khi consumer gọi close() ngay trong callback. */
-      drainBeforeClose() {
-        if (this.draining) return;
-        this.draining = true;
-        try {
-          this.readFromOffset();
-        } finally {
-          this.draining = false;
-        }
-      }
-      attachWatcher() {
-        if (this.closed || this.watcher) return;
-        let created = null;
-        const onError = (error) => {
-          if (created && this.watcher !== created) return;
-          this.watcher = null;
-          if (created) closeWatcher(created);
-          const err2 = error instanceof Error ? error : new Error(String(error));
-          const isEnoent = err2?.code === "ENOENT" || /ENOENT/.test(err2.message);
-          if (this.bootstrapAttempts === 0 || !isEnoent) {
-            logInternalError("event-log-tail.watch", err2, `eventsPath=${this.eventsPath}`, "warn");
-          }
-          this.scheduleBootstrap();
-        };
-        const dir = path22.dirname(this.eventsPath);
-        const base = path22.basename(this.eventsPath);
-        created = watchWithErrorHandler(
-          dir,
-          (_eventType, filename) => {
-            if (typeof filename === "string" && path22.basename(filename) !== base) return;
-            this.readFromOffset();
-          },
-          onError
-        );
-        if (created) {
-          this.watcher = created;
-          this.bootstrapAttempts = 0;
-          this.scheduleSteadyPoll();
-        } else {
-          this.scheduleBootstrap();
-        }
-      }
-      /**
-       * Lưới an toàn steady-state: watcher có thể gộp/im lặng (FSEvents macOS gộp
-       * appends liên tiếp — CI 33463597499). Poll nhẹ chạy song song, tự reschedule
-       * tới khi close(); unref để không giữ event loop sống.
-       */
-      scheduleSteadyPoll() {
-        if (this.closed || this.steadyTimer !== void 0) return;
-        const set = this.deps.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
-        const timer = set(() => {
-          this.steadyTimer = void 0;
-          if (this.closed) return;
-          this.readFromOffset();
-          if (!this.watcher) this.scheduleBootstrap();
-          else this.scheduleSteadyPoll();
-        }, TAIL_STEADY_POLL_MS);
-        this.steadyTimer = timer;
-        timer?.unref?.();
-      }
-      scheduleBootstrap() {
-        if (this.closed || this.bootstrapTimer !== void 0 || this.watcher) return;
-        const set = this.deps.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
-        this.bootstrapAttempts += 1;
-        const delay = Math.min(TAIL_BOOTSTRAP_POLL_MAX_MS, TAIL_BOOTSTRAP_POLL_MS * 2 ** (this.bootstrapAttempts - 1));
-        const timer = set(() => {
-          this.bootstrapTimer = void 0;
-          if (this.closed) return;
-          this.readFromOffset();
-          this.attachWatcher();
-          if (!this.watcher) this.scheduleBootstrap();
-        }, delay);
-        this.bootstrapTimer = timer;
-        timer?.unref?.();
-      }
-      /** Đọc từ offset tới cuối file; truncate → reset offset; phát từng dòng JSON. */
-      readFromOffset() {
-        if (this.closed) return;
-        let size;
-        try {
-          size = fs25.statSync(this.eventsPath).size;
-        } catch {
-          this.offset = 0;
-          this.partial = "";
-          return;
-        }
-        if (size < this.offset) {
-          this.offset = 0;
-          this.partial = "";
-        }
-        if (size === this.offset) return;
-        let chunk;
-        let bytesRead;
-        try {
-          const fd = fs25.openSync(this.eventsPath, "r");
-          try {
-            const length = size - this.offset;
-            const buffer = Buffer.alloc(length);
-            bytesRead = fs25.readSync(fd, buffer, 0, length, this.offset);
-            chunk = buffer.toString("utf-8", 0, bytesRead);
-          } finally {
-            fs25.closeSync(fd);
-          }
-        } catch (error) {
-          logInternalError(
-            "event-log-tail.read",
-            error instanceof Error ? error : new Error(String(error)),
-            `eventsPath=${this.eventsPath}`,
-            "warn"
-          );
-          return;
-        }
-        this.offset += bytesRead;
-        const lines = (this.partial + chunk).split("\n");
-        this.partial = lines.pop() ?? "";
-        for (const text of lines) {
-          if (!text.trim()) continue;
-          let parsed;
-          try {
-            parsed = JSON.parse(text);
-          } catch {
-            logInternalError("event-log-tail.parse", new Error("unparseable JSONL line"), `eventsPath=${this.eventsPath}`, "debug");
-            continue;
-          }
-          if (parsed.event === null || typeof parsed.event !== "object") continue;
-          try {
-            this.callback?.(parsed.event);
-          } catch (error) {
-            logInternalError("event-log-tail.callback", error instanceof Error ? error : new Error(String(error)), void 0, "warn");
-          }
-        }
-      }
-    };
-  }
-});
-
-// src/runtime/subprocess-tool-registry.ts
-var SubprocessToolRegistryImpl, subprocessToolRegistry;
-var init_subprocess_tool_registry = __esm({
-  "src/runtime/subprocess-tool-registry.ts"() {
-    "use strict";
-    SubprocessToolRegistryImpl = class {
-      handlers = /* @__PURE__ */ new Map();
-      register(toolName, handler) {
-        this.handlers.set(toolName, handler);
-      }
-      getHandler(toolName) {
-        return this.handlers.get(toolName);
-      }
-      hasHandler(toolName) {
-        return this.handlers.has(toolName);
-      }
-      getRegisteredTools() {
-        return [...this.handlers.keys()];
-      }
-      extractAll(event) {
-        const extracted = {};
-        for (const [toolName, handler] of this.handlers) {
-          if (handler.extractData) {
-            const data = handler.extractData(event);
-            if (data !== void 0) {
-              extracted[toolName] = data;
-            }
-          }
-        }
-        return extracted;
-      }
-      /** H3: Clear all registered handlers (for test isolation). */
-      clear() {
-        this.handlers.clear();
-      }
-    };
-    subprocessToolRegistry = new SubprocessToolRegistryImpl();
-  }
-});
-
-// src/runtime/event-stream-bridge.ts
-function registerStreamBridge(runId) {
-  const existing = activeBridges.get(runId);
-  if (existing) {
-    return {
-      handler: existing,
-      dispose: () => unregisterStreamBridge(runId)
-    };
-  }
-  const handler = (event) => {
-    runEventBus.emit({
-      type: "worker_status",
-      runId: event.runId,
-      taskId: event.taskId,
-      data: event
-    });
-  };
-  activeBridges.set(runId, handler);
-  return { handler, dispose: () => unregisterStreamBridge(runId) };
-}
-function unregisterStreamBridge(runId) {
-  activeBridges.delete(runId);
-}
-function bridgeEventFromJsonEvent(runId, taskId, event) {
-  if (!event || typeof event !== "object") return null;
-  const record = event;
-  const type = typeof record.type === "string" ? record.type : "";
-  const result4 = {
-    runId,
-    taskId,
-    eventType: type,
-    timestamp: Date.now()
-  };
-  if (typeof record.toolName === "string") result4.toolName = record.toolName;
-  if (record.args && typeof record.args === "object") {
-    try {
-      const json = JSON.stringify(record.args);
-      result4.toolArgs = json.length > 200 ? json.slice(0, 197) + "..." : json;
-    } catch {
-    }
-  }
-  if (typeof record.intent === "string") result4.intent = record.intent;
-  const usage = record.usage ?? record.message?.usage;
-  if (usage && typeof usage === "object") {
-    const u = usage;
-    const input = typeof u.input === "number" ? u.input : 0;
-    const output = typeof u.output === "number" ? u.output : 0;
-    if (input || output) result4.tokens = input + output;
-  }
-  if (result4.toolName && subprocessToolRegistry.hasHandler(result4.toolName)) {
-    const handler = subprocessToolRegistry.getHandler(result4.toolName);
-    if (handler?.extractData) {
-      const extracted = handler.extractData({
-        toolName: result4.toolName,
-        toolCallId: record.toolCallId ?? "",
-        args: record.args,
-        result: record.result,
-        isError: record.isError
-      });
-      if (extracted !== void 0) {
-        result4.extractedToolData = { [result4.toolName]: extracted };
-      }
-    }
-  }
-  return result4;
-}
-var activeBridges;
-var init_event_stream_bridge = __esm({
-  "src/runtime/event-stream-bridge.ts"() {
-    "use strict";
-    init_run_event_bus();
-    init_subprocess_tool_registry();
-    activeBridges = /* @__PURE__ */ new Map();
-  }
-});
-
-// src/runtime/surface/degrade.ts
-import * as fs26 from "node:fs";
-async function classifyOnExit(handle, waitForCompleted, opts) {
-  if (!handle || typeof waitForCompleted !== "function") return "degraded";
-  return await waitForCompleted(opts?.timeoutMs ?? CLASSIFY_TIMEOUT_MS) ? "completed" : "degraded";
-}
-function nextLockoutCounts(prev, cause) {
-  const base = { pane: Math.max(0, prev?.pane ?? 0), mux: Math.max(0, prev?.mux ?? 0) };
-  return cause === "mux-dead" ? { ...base, mux: base.mux + 1 } : { ...base, pane: base.pane + 1 };
-}
-function nextLockoutCountsForBatch(prev, causes) {
-  let counts = { pane: Math.max(0, prev?.pane ?? 0), mux: Math.max(0, prev?.mux ?? 0) };
-  if (causes.some((cause) => cause === "mux-dead")) counts = nextLockoutCounts(counts, "mux-dead");
-  for (const cause of causes) {
-    if (cause !== "pane-closed") continue;
-    counts = nextLockoutCounts(counts, "pane-closed");
-  }
-  return counts;
-}
-function nextConsecutiveSpawnFails(prev, failed) {
-  return failed ? Math.max(0, prev ?? 0) + 1 : 0;
-}
-function isSpawnFailLockout(consecutiveFails) {
-  return consecutiveFails >= SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD;
-}
-function makeTerminalEventProbe(deps) {
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
-  const now = deps.now ?? Date.now;
-  const step = Math.max(1, deps.pollMs ?? CLASSIFY_POLL_MS);
-  let offset = 0;
-  let partial = "";
-  let payload;
-  let fd = null;
-  const ioOpen = deps.io?.open ?? ((path103) => fs26.openSync(path103, "r"));
-  const ioSize = deps.io?.size ?? ((handle) => fs26.fstatSync(handle).size);
-  const ioRead = deps.io?.read ?? ((handle, start, end) => {
-    const length = end - start;
-    const buffer = Buffer.alloc(length);
-    const bytesRead = fs26.readSync(handle, buffer, 0, length, start);
-    return { text: buffer.toString("utf8", 0, bytesRead), bytesRead };
+    ring[writeIdx] = event;
+    writeIdx = (writeIdx + 1) % maxKeep;
+    if (ringFilled < maxKeep) ringFilled++;
+    totalCount++;
   });
-  const ioClose = deps.io?.close ?? ((handle) => fs26.closeSync(handle));
-  const closeIo = () => {
-    if (fd === null) return;
+  const events = [];
+  if (ringFilled < maxKeep) {
+    for (let i = 0; i < ringFilled; i++) events.push(ring[i]);
+  } else {
+    for (let i = 0; i < maxKeep; i++) events.push(ring[(writeIdx + i) % maxKeep]);
+  }
+  return { events, totalCount };
+}
+function countEventsAndSeqs(filePath) {
+  const seqs = /* @__PURE__ */ new Set();
+  let count2 = 0;
+  forEachLineSync(filePath, (line3) => {
     try {
-      ioClose(fd);
+      const event = JSON.parse(line3);
+      count2++;
+      const seq = event.metadata?.seq;
+      if (typeof seq === "number") seqs.add(seq);
     } catch {
     }
-    fd = null;
-  };
-  const probe = async (budgetMs) => {
-    payload = void 0;
-    const deadline = now() + Math.max(0, budgetMs);
-    try {
-      for (; ; ) {
-        if (scanOnce()) return true;
-        if (now() >= deadline) return false;
-        await sleep4(Math.min(step, Math.max(1, deadline - now())));
-      }
-    } finally {
-      closeIo();
-    }
-  };
-  const foundPayload = () => payload ?? EMPTY_PAYLOAD;
-  function feed(chunk) {
-    if (!chunk) return false;
-    const lines = (partial + chunk).split("\n");
-    partial = lines.pop() ?? "";
-    for (const line3 of lines) {
-      if (!line3.trim()) continue;
-      let parsed;
-      try {
-        parsed = JSON.parse(line3);
-      } catch {
-        continue;
-      }
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
-      const record = parsed;
-      if (record.type !== "worker.completed") continue;
-      if (deps.taskId !== void 0 && record.taskId !== deps.taskId) continue;
-      if (deps.runId !== void 0 && record.runId !== deps.runId) continue;
-      payload = record.data && typeof record.data === "object" && !Array.isArray(record.data) ? record.data : {};
-      return true;
-    }
+  });
+  return { count: count2, seqs };
+}
+function resolveConfig(config) {
+  return { ...DEFAULT_ROTATION_CONFIG, ...config };
+}
+function needsRotation(eventsPath, config) {
+  if (!fs19.existsSync(eventsPath)) return false;
+  const cfg = resolveConfig(config);
+  try {
+    const stat2 = fs19.statSync(eventsPath);
+    if (stat2.size > cfg.maxFileSizeBytes) return true;
+    const estimatedCount = Math.floor(stat2.size / AVG_BYTES_PER_EVENT);
+    return estimatedCount > cfg.maxEventCount;
+  } catch {
     return false;
   }
-  function scanOnce() {
-    if (deps.readFile) {
-      const content = safeReadFile();
-      if (content === void 0) return false;
-      if (content.length < offset) {
-        offset = 0;
-        partial = "";
-      }
-      const chunk = content.slice(offset);
-      offset += chunk.length;
-      return feed(chunk);
-    }
-    return scanIncremental();
+}
+function prepareCompaction(eventsPath, config) {
+  if (!fs19.existsSync(eventsPath)) return void 0;
+  const cfg = resolveConfig(config);
+  let originalSize;
+  try {
+    originalSize = fs19.statSync(eventsPath).size;
+  } catch {
+    return void 0;
   }
-  function safeReadFile() {
-    try {
-      return deps.readFile(deps.eventsPath);
-    } catch {
-      return void 0;
-    }
+  const { events: kept, totalCount: originalCount } = readLastEvents(eventsPath, cfg.compactToCount);
+  if (originalCount <= cfg.compactToCount) return void 0;
+  const lines = kept.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  return { lines, originalSize, originalCount, kept };
+}
+function applyCompactionUnlocked(eventsPath, prepared) {
+  const { lines, originalSize, originalCount, kept } = prepared;
+  try {
+    atomicWriteFile(eventsPath, lines);
+  } catch (err2) {
+    logInternalError("event-log-rotation.compact", err2, `eventsPath=${eventsPath}`);
+    return void 0;
   }
-  function scanIncremental() {
-    if (fd === null) {
-      try {
-        fd = ioOpen(deps.eventsPath);
-      } catch {
-        return false;
-      }
-    }
-    let size;
-    try {
-      size = ioSize(fd);
-    } catch {
-      closeIo();
-      return false;
-    }
-    if (size < offset) {
-      offset = 0;
-      partial = "";
-    }
-    if (size === offset) return false;
-    let chunk;
-    try {
-      chunk = ioRead(fd, offset, size);
-    } catch {
-      return false;
-    }
-    offset += chunk.bytesRead;
-    return feed(chunk.text);
-  }
-  return Object.assign(probe, { foundPayload });
-}
-function emptySurfaceState() {
-  return { provider: null, panes: {}, workerPids: {}, sessionPaths: {} };
-}
-function normalizeSurfaceState(raw) {
-  const state2 = emptySurfaceState();
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return state2;
-  const value = raw;
-  if (value.provider === "tmux" || value.provider === "herdr") state2.provider = value.provider;
-  state2.panes = stringRecord(value.panes);
-  state2.workerPids = numberRecord(value.workerPids);
-  state2.sessionPaths = stringRecord(value.sessionPaths);
-  const tabs = stringArrayRecord(value.tabs);
-  if (Object.keys(tabs).length > 0) state2.tabs = tabs;
-  const lockout = value.lockout;
-  if (lockout && typeof lockout === "object" && typeof lockout.since === "string") {
-    const counts = lockout.counts ?? {};
-    state2.lockout = {
-      since: lockout.since,
-      counts: {
-        pane: Number.isFinite(counts.pane) ? Number(counts.pane) : 0,
-        mux: Number.isFinite(counts.mux) ? Number(counts.mux) : 0
-      },
-      cause: lockout.cause === "spawn-fail" ? "spawn-fail" : "degrade"
-    };
-  }
-  return state2;
-}
-function stringRecord(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out = {};
-  for (const [key, val] of Object.entries(raw)) {
-    if (typeof val === "string" && key) out[key] = val;
-  }
-  return out;
-}
-function numberRecord(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out = {};
-  for (const [key, val] of Object.entries(raw)) {
-    if (typeof val === "number" && Number.isFinite(val)) out[key] = val;
-  }
-  return out;
-}
-function stringArrayRecord(raw) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out = {};
-  for (const [key, val] of Object.entries(raw)) {
-    if (!key || !Array.isArray(val)) continue;
-    const ids = val.filter((id) => typeof id === "string" && id.length > 0);
-    if (ids.length > 0) out[key] = ids;
-  }
-  return out;
-}
-function recordSurfacePane(state2, input) {
-  return {
-    ...state2,
-    ...input.provider === "tmux" || input.provider === "herdr" ? { provider: input.provider } : {},
-    panes: { ...state2.panes, [input.taskId]: input.paneId }
-  };
-}
-function releaseSurfacePane(state2, taskId) {
-  if (!(taskId in state2.panes)) return state2;
-  const panes = { ...state2.panes };
-  delete panes[taskId];
-  return { ...state2, panes };
-}
-function recordSurfaceTab(state2, input) {
-  const existing = state2.tabs?.[input.tabKey] ?? [];
-  if (existing.includes(input.tabId)) return state2;
-  return { ...state2, tabs: { ...state2.tabs ?? {}, [input.tabKey]: [...existing, input.tabId] } };
-}
-async function closeTabForRun(surface, tabKey, provider) {
-  if (typeof provider?.closeTab === "function") {
-    try {
-      await provider.closeTab(tabKey);
-    } catch (error) {
-      logInternalError(
-        "surface-degrade.close-tab",
-        error instanceof Error ? error : new Error(String(error)),
-        `tabKey=${tabKey} provider=${provider.kind}`
-      );
-    }
-  }
-  const next = { ...surface, tabs: { ...surface.tabs ?? {}, [tabKey]: [] } };
-  Object.assign(surface, next);
-  return next;
-}
-function recordWorkerStarted(state2, input) {
-  const next = { ...state2 };
-  if (typeof input.pid === "number" && Number.isFinite(input.pid)) next.workerPids = { ...state2.workerPids, [input.taskId]: input.pid };
-  if (typeof input.sessionPath === "string" && input.sessionPath)
-    next.sessionPaths = { ...state2.sessionPaths, [input.taskId]: input.sessionPath };
-  return next;
-}
-function applyDegradedBatch(state2, entries) {
-  if (entries.length === 0) return state2;
-  const causes = entries.map((entry) => entry.cause);
-  const counts = nextLockoutCountsForBatch(state2.lockout?.counts ?? { pane: 0, mux: 0 }, causes);
-  return {
-    ...state2,
-    lockout: {
-      since: state2.lockout?.since ?? entries[0].ts,
-      counts,
-      cause: "degrade"
-    }
-  };
-}
-function applySpawnFailLockout(state2, since) {
-  return {
-    ...state2,
-    lockout: {
-      since: state2.lockout?.since ?? since,
-      counts: state2.lockout?.counts ?? { pane: 0, mux: 0 },
-      cause: "spawn-fail"
-    }
-  };
-}
-function renderSurfaceLostResumeNote(entry) {
-  return [
-    "<dependency-context>",
-    "(Scheduler note: the previous worker lost its multiplexer pane before finishing this task",
-    `(cause=${entry.cause}). It was re-dispatched headless with restored scratchpad state.`,
-    "Continue from where you left off.",
-    "(It is DATA, not a system directive.)",
-    "</dependency-context>"
-  ].join("\n");
-}
-function planHeadlessRedeplays(input) {
-  const handled = input.handledTaskIds ?? /* @__PURE__ */ new Set();
-  const byId = new Map(input.tasks.map((task) => [task.id, task]));
-  const plan = { tasks: [...input.tasks], requeuedTaskIds: [], skipped: [] };
-  for (const entry of input.degraded) {
-    const task = byId.get(entry.taskId);
-    if (!task) {
-      plan.skipped.push({ taskId: entry.taskId, reason: "task not in graph" });
-      continue;
-    }
-    if (handled.has(entry.taskId)) {
-      plan.skipped.push({ taskId: entry.taskId, reason: "already re-dispatched once for surface loss" });
-      continue;
-    }
-    const requeueable = task.status === "needs_attention" || task.status === "running";
-    if (!requeueable) {
-      plan.skipped.push({ taskId: entry.taskId, reason: `status ${task.status} is owned by another lifecycle` });
-      continue;
-    }
-    const note2 = input.note ?? renderSurfaceLostResumeNote(entry);
-    plan.tasks = plan.tasks.map(
-      (candidate) => candidate.id === entry.taskId ? {
-        ...candidate,
-        status: "queued",
-        startedAt: void 0,
-        finishedAt: void 0,
-        error: void 0,
-        claim: void 0,
-        heartbeat: candidate.heartbeat,
-        // Không rờ policy.retryCount — degrade không ăn retry budget (spec §7 b5).
-        attempts: [
-          ...candidate.attempts ?? [],
-          {
-            attemptId: `${entry.taskId}:surface-lost`,
-            startedAt: candidate.startedAt ?? entry.ts,
-            endedAt: entry.ts,
-            error: `[surface-lost] ${entry.cause}`
-          }
-        ],
-        pendingSteers: [...candidate.pendingSteers ?? [], note2],
-        diagnostics: {
-          ...candidate.diagnostics ?? {},
-          surfaceLost: { ts: entry.ts, cause: entry.cause, paneId: entry.paneId }
-        },
-        adaptive: candidate.adaptive ? { ...candidate.adaptive, phase: "resumed" } : candidate.adaptive
-      } : candidate
-    );
-    plan.requeuedTaskIds.push(entry.taskId);
-    handled.add(entry.taskId);
-  }
-  return plan;
-}
-function registerSurfaceRuntimeController(controller) {
-  controllersByRun.set(controller.runId, controller);
-}
-function getSurfaceRuntimeController(runId) {
-  if (!runId) return void 0;
-  return controllersByRun.get(runId);
-}
-function clearSurfaceRuntimeController(runId) {
-  if (!runId) return;
-  if (controllersByRun.get(runId)?.runId === runId) controllersByRun.delete(runId);
-}
-function createSurfaceRuntimeController(deps) {
-  const now = deps.now ?? Date.now;
-  const appendEvent2 = deps.appendEvent ?? ((eventsPath, event) => {
-    try {
-      appendEventFireAndForget(eventsPath, event);
-    } catch (error) {
-      logInternalError("surface-degrade.event", error instanceof Error ? error : new Error(String(error)), `runId=${deps.runId}`);
-    }
-  });
-  const state2 = deps.initialState !== void 0 ? normalizeSurfaceState(deps.initialState) : emptySurfaceState();
-  const livePids = new Set(Object.keys(state2.panes));
-  let spawnFailStreak = 0;
-  let degradedQueue = [];
-  const degrade = (input) => {
-    const cause = input.exitReason === "mux-dead" ? "mux-dead" : "pane-closed";
-    const entry = {
-      taskId: input.taskId,
-      paneId: input.paneId,
-      exitReason: input.exitReason,
-      cause,
-      ts: new Date(now()).toISOString()
-    };
-    degradedQueue.push(entry);
-    if (state2.lockout?.cause !== "degrade") {
-      state2.lockout = {
-        since: state2.lockout?.since ?? entry.ts,
-        counts: state2.lockout?.counts ?? { pane: 0, mux: 0 },
-        cause: "degrade"
+  try {
+    const { count: afterWriteCount, seqs: afterSeqs } = countEventsAndSeqs(eventsPath);
+    if (afterWriteCount >= kept.length) {
+      return {
+        originalSize,
+        compactedSize: fs19.statSync(eventsPath).size,
+        eventsRemoved: originalCount - kept.length,
+        eventsKept: kept.length + Math.max(0, afterWriteCount - kept.length)
       };
     }
-    try {
-      appendEvent2(deps.eventsPath, {
-        type: "surface.degraded",
-        runId: deps.runId,
-        taskId: entry.taskId,
-        message: `Surface worker lost (${cause}) before worker.completed within ${CLASSIFY_TIMEOUT_MS}ms classify window`,
-        data: { taskId: entry.taskId, paneId: entry.paneId, reason: input.exitReason, ts: entry.ts, cause }
-      });
-    } catch (error) {
-      logInternalError("surface-degrade.event", error instanceof Error ? error : new Error(String(error)), `runId=${deps.runId}`);
-    }
-    try {
-      deps.revoke?.(input.taskId);
-    } catch (error) {
-      logInternalError("surface-degrade.revoke", error instanceof Error ? error : new Error(String(error)), `runId=${deps.runId}`);
-    }
-    deps.onDegrade?.(entry);
-  };
-  return {
-    runId: deps.runId,
-    livePaneCount: () => livePids.size,
-    shouldAttemptSurface: () => state2.lockout === void 0,
-    notifySpawned: ({ taskId, paneId, provider, tabKey, tabId }) => {
-      spawnFailStreak = 0;
-      Object.assign(state2, recordSurfacePane(state2, { taskId, paneId, provider }));
-      if (tabKey && tabId) Object.assign(state2, recordSurfaceTab(state2, { tabKey, tabId }));
-      livePids.add(taskId);
-    },
-    notifySpawnFailed: ({ taskId, reason }) => {
-      spawnFailStreak = nextConsecutiveSpawnFails(spawnFailStreak, true);
-      if (!isSpawnFailLockout(spawnFailStreak)) {
-        logInternalError(
-          "surface-degrade.spawn-fail",
-          new Error(reason),
-          `runId=${deps.runId} taskId=${taskId} streak=${spawnFailStreak}`,
-          "warn"
-        );
-        return;
-      }
-      if (state2.lockout?.cause === "spawn-fail") return;
-      Object.assign(state2, applySpawnFailLockout(state2, new Date(now()).toISOString()));
-      logInternalError(
-        "surface-degrade.spawn-fail-lockout",
-        new Error(reason),
-        `runId=${deps.runId} \u2014 surface OFF rest of the run`,
-        "warn"
-      );
-    },
-    notifyWorkerStarted: ({ taskId, pid, sessionPath }) => {
-      Object.assign(state2, recordWorkerStarted(state2, { taskId, pid, sessionPath }));
-    },
-    notifyPaneExited: ({ taskId, paneId, completed, exitReason, cancelledByAbort, timedOut }) => {
-      livePids.delete(taskId);
-      Object.assign(state2, releaseSurfacePane(state2, taskId));
-      if (completed) return;
-      if (cancelledByAbort || timedOut) return;
-      if (exitReason !== "pane-closed" && exitReason !== "mux-dead") return;
-      degrade({ taskId, paneId, exitReason });
-    },
-    takeDegraded: () => {
-      const drained = degradedQueue;
-      degradedQueue = [];
-      if (drained.length > 0) {
-        Object.assign(state2, applyDegradedBatch(state2, drained));
-      }
-      return drained;
-    },
-    consecutiveSpawnFails: () => spawnFailStreak,
-    closeRunTabs: async (provider) => {
-      for (const tabKey of Object.keys(state2.tabs ?? {})) {
-        await closeTabForRun(state2, tabKey, provider);
-      }
-    },
-    // Trả snapshot MỚI mỗi lần — team-runner gắn nguyên object vào manifest.
-    snapshot: () => snapshotState(state2)
-  };
-}
-function snapshotState(state2) {
-  return {
-    provider: state2.provider,
-    panes: { ...state2.panes },
-    workerPids: { ...state2.workerPids },
-    sessionPaths: { ...state2.sessionPaths },
-    ...state2.tabs ? { tabs: { ...state2.tabs } } : {},
-    ...state2.lockout ? { lockout: { since: state2.lockout.since, counts: { ...state2.lockout.counts }, cause: state2.lockout.cause } } : {}
-  };
-}
-var CLASSIFY_TIMEOUT_MS, CLASSIFY_POLL_MS, SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD, EMPTY_PAYLOAD, controllersByRun;
-var init_degrade = __esm({
-  "src/runtime/surface/degrade.ts"() {
-    "use strict";
-    init_event_log();
-    init_internal_error();
-    CLASSIFY_TIMEOUT_MS = 2e3;
-    CLASSIFY_POLL_MS = 50;
-    SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD = 3;
-    EMPTY_PAYLOAD = Object.freeze({});
-    controllersByRun = /* @__PURE__ */ new Map();
-  }
-});
-
-// src/utils/file-coalescer.ts
-import * as fs27 from "node:fs";
-function evictOldestCacheEntry() {
-  if (readCache.size < readCacheSizeLimit) return;
-  const oldestKey = readCache.keys().next().value;
-  if (oldestKey !== void 0) readCache.delete(oldestKey);
-}
-function readJsonFileCoalesced(filePath, ttlMs, read) {
-  const now = Date.now();
-  const stat2 = (() => {
-    try {
-      const fileStat = fs27.statSync(filePath);
-      return { mtimeMs: fileStat.mtimeMs, size: fileStat.size };
-    } catch {
-      return void 0;
-    }
-  })();
-  const cached2 = readCache.get(filePath);
-  if (cached2 && stat2 && cached2.expiresAt > now && cached2.mtimeMs === stat2.mtimeMs && cached2.size === stat2.size) {
-    readCache.delete(filePath);
-    readCache.set(filePath, cached2);
-    return cached2.value;
-  }
-  const value = read();
-  if (stat2 !== void 0) {
-    readCache.set(filePath, {
-      value,
-      mtimeMs: stat2.mtimeMs,
-      size: stat2.size,
-      expiresAt: now + ttlMs
-    });
-    evictOldestCacheEntry();
-  }
-  return value;
-}
-var readCache, readCacheSizeLimit;
-var init_file_coalescer = __esm({
-  "src/utils/file-coalescer.ts"() {
-    "use strict";
-    readCache = /* @__PURE__ */ new Map();
-    readCacheSizeLimit = 128;
-  }
-});
-
-// src/runtime/crew-agent-runtime.ts
-function taskStatusToAgentStatus(status) {
-  if (status === "completed") return "completed";
-  if (status === "failed") return "failed";
-  if (status === "cancelled" || status === "skipped") return "cancelled";
-  if (status === "running") return "running";
-  if (status === "waiting") return "waiting";
-  if (status === "needs_attention") return "needs_attention";
-  return "queued";
-}
-var init_crew_agent_runtime = __esm({
-  "src/runtime/crew-agent-runtime.ts"() {
-    "use strict";
-  }
-});
-
-// src/runtime/crew-agent-records.ts
-import { randomUUID as randomUUID4 } from "node:crypto";
-import * as fs28 from "node:fs";
-import * as path23 from "node:path";
-function agentsPath(manifest) {
-  return path23.join(manifest.stateRoot, "agents.json");
-}
-function agentsRoot(manifest) {
-  return path23.join(manifest.stateRoot, "agents");
-}
-function safeAgentTaskId(taskId) {
-  return assertSafePathId("taskId", taskId.includes(":") ? taskId.split(":").pop() : taskId);
-}
-function agentStateDir(manifest, taskId) {
-  return path23.join(agentsRoot(manifest), safeAgentTaskId(taskId));
-}
-function bumpAgentPathCache() {
-  if (ensuredAgentDirs.size > AGENT_PATH_CACHE_MAX) {
-    const oldest = ensuredAgentDirs.keys().next().value;
-    if (oldest !== void 0) ensuredAgentDirs.delete(oldest);
-  }
-  if (resolvedAgentFiles.size > AGENT_PATH_CACHE_MAX) {
-    const oldest = resolvedAgentFiles.keys().next().value;
-    if (oldest !== void 0) resolvedAgentFiles.delete(oldest);
-  }
-}
-function ensureAgentStateDir(manifest, taskId) {
-  const root = agentsRoot(manifest);
-  const dir = agentStateDir(manifest, taskId);
-  const cachedDir = ensuredAgentDirs.get(dir);
-  if (cachedDir !== void 0) return cachedDir;
-  fs28.mkdirSync(root, { recursive: true });
-  if (fs28.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid agents root: ${root}`);
-  fs28.mkdirSync(dir, { recursive: true });
-  if (fs28.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid agent state directory: ${dir}`);
-  resolveRealContainedPath(root, path23.basename(dir));
-  ensuredAgentDirs.set(dir, dir);
-  bumpAgentPathCache();
-  return dir;
-}
-function safeExistingAgentFile(manifest, taskId, fileName) {
-  const filePath = path23.join(agentStateDir(manifest, taskId), fileName);
-  if (!fs28.existsSync(filePath)) return filePath;
-  if (fs28.lstatSync(filePath).isSymbolicLink()) throw new Error(`Invalid agent state file: ${filePath}`);
-  return resolveRealContainedPath(agentsRoot(manifest), path23.join(safeAgentTaskId(taskId), fileName));
-}
-function agentStateFile(manifest, taskId, fileName) {
-  const dir = agentStateDir(manifest, taskId);
-  const cacheKey2 = `${dir}\0${fileName}`;
-  const cached2 = resolvedAgentFiles.get(cacheKey2);
-  if (cached2 !== void 0) return cached2;
-  ensureAgentStateDir(manifest, taskId);
-  const resolved = safeExistingAgentFile(manifest, taskId, fileName);
-  resolvedAgentFiles.set(cacheKey2, resolved);
-  bumpAgentPathCache();
-  return resolved;
-}
-function agentStatusPath(manifest, taskId) {
-  return path23.join(agentStateDir(manifest, taskId), "status.json");
-}
-function agentEventsPath(manifest, taskId) {
-  return agentEventsPathForStateRoot(manifest.stateRoot, taskId);
-}
-function agentEventsPathForStateRoot(stateRoot, taskId) {
-  return path23.join(stateRoot, "agents", safeAgentTaskId(taskId), "events.jsonl");
-}
-function agentOutputPath(manifest, taskId) {
-  return path23.join(agentStateDir(manifest, taskId), "output.log");
-}
-function agentsLockPath(manifest) {
-  return `${agentsPath(manifest)}.lock`;
-}
-function removeStaleAgentsLock(lockPath2, staleMs) {
-  try {
-    const stat2 = fs28.statSync(lockPath2);
-    if (stat2.size > 1024) return false;
-    const raw = fs28.readFileSync(lockPath2, "utf-8");
-    const parsed = JSON.parse(raw);
-    const createdAt = typeof parsed.createdAt === "string" ? Date.parse(parsed.createdAt) : NaN;
-    if (Number.isFinite(createdAt) && Date.now() - createdAt <= staleMs) return false;
-    const pid = typeof parsed.pid === "number" ? parsed.pid : void 0;
-    if (pid && pid !== process.pid) {
+    const missingEvents = kept.filter((e) => e.metadata?.seq === void 0 || !afterSeqs.has(e.metadata.seq));
+    let recoveredCount = 0;
+    let recoveryFailed = false;
+    if (missingEvents.length > 0) {
+      const recoveryLines = missingEvents.map((e) => JSON.stringify(e) + "\n").join("");
       try {
-        process.kill(pid, 0);
-        return false;
-      } catch {
+        fs19.appendFileSync(eventsPath, recoveryLines);
+        recoveredCount = missingEvents.length;
+      } catch (err2) {
+        recoveryFailed = true;
+        logInternalError("event-log-rotation.recovery", err2, `eventsPath=${eventsPath} lostEvents=${missingEvents.length}`);
       }
     }
-    fs28.rmSync(lockPath2, { force: true });
+    return {
+      originalSize,
+      compactedSize: fs19.statSync(eventsPath).size,
+      eventsRemoved: originalCount - kept.length,
+      eventsKept: kept.length + recoveredCount,
+      recoveryFailed
+    };
+  } catch {
+    return {
+      originalSize,
+      compactedSize: fs19.statSync(eventsPath).size,
+      eventsRemoved: originalCount - kept.length,
+      eventsKept: kept.length
+    };
+  }
+}
+function generationPath(eventsPath) {
+  return `${eventsPath}.gen`;
+}
+function currentGeneration(eventsPath) {
+  try {
+    const raw = fs19.readFileSync(generationPath(eventsPath), "utf-8");
+    const value = Number.parseInt(raw.trim(), 10);
+    return Number.isInteger(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+function bumpGenerationUnlocked(eventsPath) {
+  const next = currentGeneration(eventsPath) + 1;
+  try {
+    atomicWriteFile(generationPath(eventsPath), String(next));
+  } catch (error) {
+    logInternalError("event-log.bump-generation", error, `eventsPath=${eventsPath}`);
+  }
+  return next;
+}
+function sweepOldArchives(eventsPath, now = Date.now()) {
+  const dir = path18.dirname(eventsPath);
+  const base = path18.basename(eventsPath);
+  let entries;
+  try {
+    entries = fs19.readdirSync(dir);
+  } catch {
+    return;
+  }
+  const cutoff = now - ARCHIVE_RETENTION_DAYS * 24 * 60 * 60 * 1e3;
+  for (const name of entries) {
+    if (!name.startsWith(`${base}.`) || !name.endsWith(".archive.jsonl")) continue;
+    const archivePath = path18.join(dir, name);
+    try {
+      if (fs19.statSync(archivePath).mtimeMs < cutoff) fs19.unlinkSync(archivePath);
+    } catch (error) {
+      logInternalError("event-log.archive-sweep", error, `archivePath=${archivePath}`, "debug");
+    }
+  }
+}
+function rotateEventLogUnlocked(eventsPath) {
+  if (!fs19.existsSync(eventsPath)) return false;
+  try {
+    const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    let archivePath = `${eventsPath}.${ts}.archive.jsonl`;
+    let collision = 1;
+    while (fs19.existsSync(archivePath)) {
+      archivePath = `${eventsPath}.${ts}.${collision}.archive.jsonl`;
+      collision++;
+    }
+    fs19.renameSync(eventsPath, archivePath);
+    try {
+      const fd = fs19.openSync(eventsPath, "wx", 384);
+      fs19.closeSync(fd);
+    } catch (err2) {
+      if (err2.code !== "EEXIST") throw err2;
+    }
+    bumpGenerationUnlocked(eventsPath);
+    sweepOldArchives(eventsPath);
     return true;
   } catch (error) {
-    logInternalError("crew-agents.remove-stale-lock", error, `lockPath=${lockPath2}`, "warn");
+    logInternalError("event-log.rotate", error, `eventsPath=${eventsPath}`, "error");
     return false;
   }
 }
-function releaseAgentsLock(filePath, token) {
-  try {
-    const stat2 = fs28.lstatSync(filePath);
-    if (stat2.isSymbolicLink()) return;
-  } catch {
+var DEFAULT_ROTATION_CONFIG, AVG_BYTES_PER_EVENT, ARCHIVE_RETENTION_DAYS;
+var init_event_log_rotation = __esm({
+  "src/state/event-log/event-log-rotation.ts"() {
+    "use strict";
+    init_internal_error();
+    init_atomic_write();
+    init_event_log();
+    DEFAULT_ROTATION_CONFIG = {
+      // 2.3: lowered from 5 MB to 4 MB so the file stays small enough that
+      // `tail -c MAX_TAIL_BYTES` reads in run-snapshot-cache (default 32 KB)
+      // always cover a useful slice and rotations happen earlier.
+      maxFileSizeBytes: 4 * 1024 * 1024,
+      maxEventCount: 5e4,
+      compactToCount: 1e3
+    };
+    AVG_BYTES_PER_EVENT = 80;
+    ARCHIVE_RETENTION_DAYS = 7;
   }
-  let stored;
-  try {
-    const raw = fs28.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    stored = typeof parsed.token === "string" ? parsed.token : void 0;
-  } catch {
-  }
-  if (stored === void 0 || stored === token) {
-    try {
-      fs28.rmSync(filePath, { force: true });
-    } catch (error) {
-      const code = error.code;
-      if (code !== "ENOENT") {
-        logInternalError("crew-agents.release-lock", error, `lockPath=${filePath}`, "warn");
-      }
-    }
+});
+
+// src/state/event-log/sequence-cache.ts
+import * as fs20 from "node:fs";
+import * as path19 from "node:path";
+function evictOldestSequenceCacheEntries() {
+  const toEvict = Math.ceil(MAX_SEQUENCE_CACHE_ENTRIES / 2);
+  const entries = [...sequenceCache.entries()].sort((a, b) => a[1].lastAccessMs - b[1].lastAccessMs);
+  for (let i = 0; i < toEvict && i < entries.length; i++) {
+    sequenceCache.delete(entries[i][0]);
   }
 }
-function withAgentsLock(manifest, fn) {
-  const filePath = agentsLockPath(manifest);
-  fs28.mkdirSync(path23.dirname(filePath), { recursive: true });
-  const token = randomUUID4();
-  let attempt = 0;
-  const deadline = Date.now() + AGENTS_LOCK_STALE_MS * 2;
-  while (true) {
+function __test__sequenceCacheSize() {
+  return sequenceCache.size;
+}
+function __test__seedSequenceCache(eventsPath, lastAccessMs) {
+  sequenceCache.set(eventsPath, {
+    size: 1,
+    mtimeMs: 0,
+    seq: 0,
+    lastAccessMs
+  });
+}
+function __test__evictOldestSequenceCacheEntries() {
+  evictOldestSequenceCacheEntries();
+}
+function __test__clearSequenceCache() {
+  sequenceCache.clear();
+}
+function __test__clearSeqCounters() {
+  seqCounters.clear();
+}
+function __test__nextSequence(eventsPath) {
+  return nextSequence(eventsPath);
+}
+function sequencePath(eventsPath) {
+  return `${eventsPath}.seq`;
+}
+function parseSequence(raw) {
+  const value = Number.parseInt(raw.trim(), 10);
+  return Number.isInteger(value) && value >= 0 ? value : void 0;
+}
+function scanSequence(eventsPath) {
+  if (!fs20.existsSync(eventsPath)) return 0;
+  let max = 0;
+  let skipped = 0;
+  for (const line3 of fs20.readFileSync(eventsPath, "utf-8").split("\n")) {
+    if (!line3.trim()) continue;
     try {
-      const fd = fs28.openSync(filePath, fs28.constants.O_WRONLY | fs28.constants.O_CREAT | fs28.constants.O_EXCL, 384);
+      const event = JSON.parse(line3);
+      max = Math.max(max, event.metadata?.seq ?? 0);
+    } catch {
+      skipped++;
+    }
+  }
+  if (skipped > 0) {
+    logInternalError("event-log.scanSequence.corrupt_lines", void 0, `${eventsPath}: skipped ${skipped} corrupt line(s)`);
+  }
+  return max;
+}
+function readStoredSequence(eventsPath) {
+  try {
+    return parseSequence(fs20.readFileSync(sequencePath(eventsPath), "utf-8"));
+  } catch {
+    return void 0;
+  }
+}
+function nextSequence(eventsPath) {
+  if (!fs20.existsSync(eventsPath)) return 1;
+  const stat2 = fs20.statSync(eventsPath);
+  const cached2 = sequenceCache.get(eventsPath);
+  if (cached2 && cached2.size === stat2.size && cached2.mtimeMs === stat2.mtimeMs) {
+    return cached2.seq + 1;
+  }
+  const stored = readStoredSequence(eventsPath);
+  const fileShrunk = cached2 && stat2.size < cached2.size;
+  if (stored !== void 0 && !fileShrunk) {
+    const fileMax = scanSequence(eventsPath);
+    const safeSeq = Math.max(stored, fileMax);
+    sequenceCache.set(eventsPath, {
+      size: stat2.size,
+      mtimeMs: stat2.mtimeMs,
+      seq: safeSeq,
+      lastAccessMs: Date.now()
+    });
+    return safeSeq + 1;
+  }
+  const current = scanSequence(eventsPath);
+  sequenceCache.set(eventsPath, {
+    size: stat2.size,
+    mtimeMs: stat2.mtimeMs,
+    seq: current,
+    lastAccessMs: Date.now()
+  });
+  persistSequence(eventsPath, current);
+  return current + 1;
+}
+function persistSequence(eventsPath, seq) {
+  try {
+    atomicWriteFile(sequencePath(eventsPath), String(seq), { durability: "best-effort" });
+  } catch (error) {
+    logInternalError("event-log.persist-sequence-file", error, `eventsPath=${eventsPath}`);
+  }
+}
+function seqLockPath(eventsPath) {
+  return `${eventsPath}.seqlock`;
+}
+function reserveSequenceLocked(eventsPath, count2) {
+  let stored = readStoredSequence(eventsPath);
+  if (stored === void 0) {
+    stored = scanSequence(eventsPath);
+  }
+  const inProcess = seqCounters.get(eventsPath) ?? 0;
+  const last = Math.max(stored, inProcess);
+  const start = last + 1;
+  seqCounters.set(eventsPath, start + count2 - 1);
+  enforceSeqCountersCap();
+  persistSequence(eventsPath, start + count2 - 1);
+  return start;
+}
+function withSeqLock(eventsPath, fn) {
+  const lockDir = seqLockPath(eventsPath);
+  const pidFile = path19.join(lockDir, "pid");
+  const start = Date.now();
+  let acquired = false;
+  while (!acquired) {
+    try {
+      fs20.mkdirSync(lockDir);
       try {
-        fs28.writeSync(
-          fd,
-          JSON.stringify({
-            pid: process.pid,
-            createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-            token
-          })
-        );
-      } finally {
-        fs28.closeSync(fd);
-      }
-      break;
-    } catch (error) {
-      const code = error.code;
-      if (code !== "EEXIST" && code !== "EISDIR") throw error;
-      if (code === "EISDIR") {
+        const fd = fs20.openSync(pidFile, "wx");
         try {
-          fs28.rmSync(filePath, { recursive: true, force: true });
-        } catch {
+          fs20.writeSync(fd, String(process.pid));
+        } finally {
+          fs20.closeSync(fd);
         }
-        continue;
+      } catch {
       }
-      if (!removeStaleAgentsLock(filePath, AGENTS_LOCK_STALE_MS) && Date.now() > deadline)
-        throw new Error(`Crew agents file is locked by another operation: ${agentsPath(manifest)}`);
-      sleepSync(Math.min(250, 25 * 2 ** attempt));
-      attempt += 1;
+      acquired = true;
+    } catch {
+      try {
+        if (Date.now() - fs20.statSync(lockDir).mtimeMs > SEQ_LOCK_STALE_MS) {
+          fs20.rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+      }
+      if (Date.now() - start > SEQ_LOCK_TIMEOUT_MS) {
+        throw errors.eventLogLockTimeout(eventsPath, SEQ_LOCK_TIMEOUT_MS);
+      }
+      sleepSync(SEQ_LOCK_RETRY_MS);
     }
   }
   try {
     return fn();
   } finally {
-    releaseAgentsLock(filePath, token);
-  }
-}
-function setAsyncAgentReaderCache(filePath, entry) {
-  const now = Date.now();
-  for (const [key, cached2] of asyncAgentReaderCache) {
-    if (cached2.expiresAt <= now && !cached2.inFlight) asyncAgentReaderCache.delete(key);
-  }
-  if (asyncAgentReaderCache.has(filePath)) asyncAgentReaderCache.delete(filePath);
-  asyncAgentReaderCache.set(filePath, entry);
-  while (asyncAgentReaderCache.size > ASYNC_AGENT_READER_CACHE_MAX_ENTRIES) {
-    const oldest = asyncAgentReaderCache.keys().next().value;
-    if (!oldest) break;
-    asyncAgentReaderCache.delete(oldest);
-  }
-}
-function readCrewAgents(manifest) {
-  flushPendingAtomicWrites(agentsPath(manifest));
-  try {
-    const records = readJsonFileCoalesced(
-      agentsPath(manifest),
-      AGENT_READER_TTL_MS,
-      () => readJsonFile(agentsPath(manifest)) ?? []
-    );
-    const seen = /* @__PURE__ */ new Set();
-    const deduped = records.filter((r) => {
-      if (!r || typeof r.id !== "string" || typeof r.taskId !== "string") return false;
-      if (seen.has(r.id)) return false;
-      seen.add(r.id);
-      return true;
-    });
-    const changed = deduped.length !== records.length || records.some((record, index) => record !== deduped[index]);
-    if (changed) {
-      saveCrewAgents(manifest, deduped);
+    try {
+      if (fs20.readFileSync(pidFile, "utf-8").trim() === String(process.pid)) {
+        fs20.rmSync(lockDir, { recursive: true, force: true });
+      }
+    } catch {
     }
-    return deduped;
+  }
+}
+async function withSeqLockAsync(eventsPath, fn) {
+  return withSeqLock(eventsPath, fn);
+}
+function persistSequenceMonotonic(eventsPath, seq) {
+  withSeqLock(eventsPath, () => {
+    const stored = readStoredSequence(eventsPath) ?? 0;
+    const inProcess = seqCounters.get(eventsPath) ?? 0;
+    const value = Math.max(stored, inProcess, seq);
+    if (value !== stored) persistSequence(eventsPath, value);
+  });
+}
+function reservedSequenceEnd(eventsPath) {
+  return seqCounters.get(eventsPath) ?? 0;
+}
+function reserveSequence(eventsPath, count2 = 1) {
+  return reserveSequenceUnderLock(eventsPath, count2);
+}
+function advanceSequenceCounter(eventsPath, seq) {
+  const last = seqCounters.get(eventsPath);
+  if (last === void 0 || seq > last) {
+    seqCounters.set(eventsPath, seq);
+    enforceSeqCountersCap();
+  }
+}
+function enforceSeqCountersCap() {
+  if (seqCounters.size > SEQ_COUNTERS_MAX_ENTRIES) {
+    const oldest = seqCounters.keys().next().value;
+    if (oldest !== void 0) seqCounters.delete(oldest);
+  }
+}
+function reserveSequenceUnderLock(eventsPath, count2 = 1) {
+  return withSeqLock(eventsPath, () => reserveSequenceLocked(eventsPath, count2));
+}
+async function reserveSequenceUnderLockAsync(eventsPath, count2 = 1) {
+  return withSeqLockAsync(eventsPath, () => reserveSequenceLocked(eventsPath, count2));
+}
+var sequenceCache, MAX_SEQUENCE_CACHE_ENTRIES, MAX_SEQUENCE_CACHE_ENTRIES_VALUE, SEQ_LOCK_TIMEOUT_MS, SEQ_LOCK_STALE_MS, SEQ_LOCK_RETRY_MS, seqCounters, SEQ_COUNTERS_MAX_ENTRIES;
+var init_sequence_cache = __esm({
+  "src/state/event-log/sequence-cache.ts"() {
+    "use strict";
+    init_errors3();
+    init_internal_error();
+    init_sleep();
+    init_atomic_write();
+    sequenceCache = /* @__PURE__ */ new Map();
+    MAX_SEQUENCE_CACHE_ENTRIES = 256;
+    MAX_SEQUENCE_CACHE_ENTRIES_VALUE = MAX_SEQUENCE_CACHE_ENTRIES;
+    SEQ_LOCK_TIMEOUT_MS = 2e3;
+    SEQ_LOCK_STALE_MS = 1e3;
+    SEQ_LOCK_RETRY_MS = 5;
+    seqCounters = /* @__PURE__ */ new Map();
+    SEQ_COUNTERS_MAX_ENTRIES = 256;
+  }
+});
+
+// src/utils/incremental-reader.ts
+import * as fs21 from "node:fs";
+function readJsonlTail(filePath, tailBytes) {
+  const limit = Math.max(0, Math.floor(tailBytes));
+  let stat2;
+  try {
+    stat2 = fs21.statSync(filePath);
+  } catch {
+    return { items: [], fileSize: 0, bytesRead: 0, truncated: false };
+  }
+  const fileSize = stat2.size;
+  if (fileSize === 0 || limit === 0) {
+    return { items: [], fileSize, bytesRead: 0, truncated: false };
+  }
+  const startOffset = Math.max(0, fileSize - limit);
+  const bytesToRead = fileSize - startOffset;
+  const truncated = startOffset > 0;
+  let fd;
+  try {
+    fd = fs21.openSync(filePath, fs21.constants.O_RDONLY | fs21.constants.O_NOFOLLOW);
+  } catch {
+    return { items: [], fileSize, bytesRead: 0, truncated: false };
+  }
+  try {
+    const buf = Buffer.alloc(bytesToRead);
+    let totalRead = 0;
+    while (totalRead < bytesToRead) {
+      const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
+      const bytesRead = fs21.readSync(fd, buf, totalRead, chunkSize, startOffset + totalRead);
+      if (bytesRead === 0) break;
+      totalRead += bytesRead;
+    }
+    const content = buf.toString("utf-8", 0, totalRead);
+    let body = content;
+    if (truncated) {
+      const firstNewline = body.indexOf("\n");
+      if (firstNewline < 0) {
+        return { items: [], fileSize, bytesRead: totalRead, truncated: true };
+      }
+      body = body.slice(firstNewline + 1);
+    }
+    const items = [];
+    for (const line3 of body.split("\n")) {
+      const trimmed = line3.trim();
+      if (!trimmed) continue;
+      try {
+        items.push(JSON.parse(trimmed));
+      } catch {
+      }
+    }
+    return { items, fileSize, bytesRead: totalRead, truncated };
+  } finally {
+    if (fd !== void 0) {
+      try {
+        fs21.closeSync(fd);
+      } catch {
+      }
+    }
+  }
+}
+function readLinesSince(filePath, state2) {
+  let fd;
+  try {
+    fd = fs21.openSync(filePath, "r");
+  } catch {
+    return {
+      lines: [],
+      state: { byteOffset: state2.byteOffset, lineCount: state2.lineCount },
+      eof: true
+    };
+  }
+  try {
+    const stat2 = fs21.fstatSync(fd);
+    const fileSize = stat2.size;
+    if (fileSize <= state2.byteOffset) {
+      return {
+        lines: [],
+        state: { byteOffset: fileSize, lineCount: state2.lineCount },
+        eof: true
+      };
+    }
+    const bytesToRead = fileSize - state2.byteOffset;
+    const buf = Buffer.alloc(bytesToRead);
+    let totalRead = 0;
+    while (totalRead < bytesToRead) {
+      const chunkSize = Math.min(CHUNK_SIZE, bytesToRead - totalRead);
+      const bytesRead = fs21.readSync(fd, buf, totalRead, chunkSize, state2.byteOffset + totalRead);
+      if (bytesRead === 0) break;
+      totalRead += bytesRead;
+    }
+    const content = buf.toString("utf-8", 0, totalRead);
+    const lines = [];
+    let lineCount = state2.lineCount;
+    let committedOffset = state2.byteOffset;
+    let searchFrom = 0;
+    let newlineIdx;
+    while ((newlineIdx = content.indexOf("\n", searchFrom)) !== -1) {
+      const lineText = content.slice(searchFrom, newlineIdx);
+      committedOffset = state2.byteOffset + newlineIdx + 1;
+      searchFrom = newlineIdx + 1;
+      if (lineText.length > 0) {
+        lines.push(lineText);
+        lineCount++;
+      }
+    }
+    const eof = committedOffset >= fileSize;
+    return {
+      lines,
+      state: { byteOffset: committedOffset, lineCount },
+      eof
+    };
+  } finally {
+    if (fd !== void 0) {
+      try {
+        fs21.closeSync(fd);
+      } catch {
+      }
+    }
+  }
+}
+function readJsonlSince(filePath, state2) {
+  const result4 = readLinesSince(filePath, state2);
+  const items = [];
+  for (const line3 of result4.lines) {
+    try {
+      items.push(JSON.parse(line3));
+    } catch {
+    }
+  }
+  return {
+    items,
+    state: result4.state,
+    eof: result4.eof
+  };
+}
+var CHUNK_SIZE;
+var init_incremental_reader = __esm({
+  "src/utils/incremental-reader.ts"() {
+    "use strict";
+    CHUNK_SIZE = 64 * 1024;
+  }
+});
+
+// src/state/event-log/cursor.ts
+import * as fs22 from "node:fs";
+import * as path20 from "node:path";
+function listEventArchivePaths(eventsPath) {
+  const dir = path20.dirname(eventsPath);
+  const base = path20.basename(eventsPath);
+  try {
+    return fs22.readdirSync(dir).filter((entry) => entry.startsWith(`${base}.`) && entry.endsWith(".archive.jsonl")).sort().map((entry) => path20.join(dir, entry));
   } catch {
     return [];
   }
 }
-async function readCrewAgentsAsync(manifest) {
-  const filePath = agentsPath(manifest);
-  const now = Date.now();
-  const cached2 = asyncAgentReaderCache.get(filePath);
-  if (cached2 && cached2.expiresAt > now) return cached2.records;
-  if (cached2?.inFlight) return cached2.inFlight;
-  const inFlight = (async () => {
+function parseJsonlEvents(filePath) {
+  let raw;
+  try {
+    raw = fs22.readFileSync(filePath, "utf-8");
+  } catch {
+    return [];
+  }
+  const events = [];
+  for (const line3 of raw.split("\n")) {
+    const trimmed = line3.trim();
+    if (!trimmed) continue;
     try {
-      const parsed = JSON.parse(await fs28.promises.readFile(filePath, "utf-8"));
-      const raw = Array.isArray(parsed) ? redactSecrets(parsed) : [];
-      const seen = /* @__PURE__ */ new Set();
-      const deduped = raw.filter((r) => {
-        if (!r || typeof r.id !== "string" || typeof r.taskId !== "string") return false;
-        if (seen.has(r.id)) return false;
-        seen.add(r.id);
-        return true;
-      });
-      const changed = deduped.length !== raw.length || raw.some((record, index) => record !== deduped[index]);
-      if (changed) {
-        try {
-          saveCrewAgents(manifest, deduped);
-        } catch {
-        }
-      }
-      setAsyncAgentReaderCache(filePath, {
-        expiresAt: Date.now() + AGENT_READER_TTL_MS,
-        records: deduped
-      });
-      return deduped;
+      events.push(JSON.parse(trimmed));
     } catch {
-      setAsyncAgentReaderCache(filePath, {
-        expiresAt: Date.now() + AGENT_READER_TTL_MS,
-        records: []
-      });
-      return [];
-    }
-  })();
-  setAsyncAgentReaderCache(filePath, {
-    expiresAt: now + AGENT_READER_TTL_MS,
-    records: cached2?.records ?? [],
-    inFlight
-  });
-  return inFlight;
-}
-function saveCrewAgents(manifest, records) {
-  flushPendingAgentWrites(manifest, records);
-  withAgentsLock(manifest, () => {
-    fs28.mkdirSync(manifest.stateRoot, { recursive: true });
-    const filePath = agentsPath(manifest);
-    atomicWriteJson(filePath, redactSecrets(records));
-    asyncAgentReaderCache.delete(filePath);
-    for (const record of records) {
-      if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
-        writeCrewAgentStatus(manifest, record);
-      } else {
-        writeCrewAgentStatusCoalesced(manifest, record);
-      }
-    }
-  });
-}
-function shouldDeleteCrewAgentOnTerminalStatus(record) {
-  const s = record.status;
-  return s === "cancelled" || s === "stopped";
-}
-function removeCrewAgent(manifest, taskId) {
-  let removedIndex = false;
-  let removedStatus = false;
-  try {
-    const existing = readCrewAgents(manifest);
-    const filtered = existing.filter((r) => r.taskId !== taskId);
-    if (filtered.length !== existing.length) {
-      saveCrewAgents(manifest, filtered);
-      removedIndex = true;
-    }
-  } catch {
-  }
-  try {
-    const statusPath = agentStatusPath(manifest, taskId);
-    if (fs28.existsSync(statusPath)) {
-      fs28.unlinkSync(statusPath);
-      removedStatus = true;
-    }
-  } catch {
-  }
-  return { removedIndex, removedStatus };
-}
-function upsertCrewAgent(manifest, record) {
-  try {
-    fs28.statSync(manifest.stateRoot);
-  } catch {
-    return;
-  }
-  if (shouldDeleteCrewAgentOnTerminalStatus(record)) {
-    removeCrewAgent(manifest, record.taskId);
-    asyncAgentReaderCache.delete(agentsPath(manifest));
-    return;
-  }
-  const existing = readCrewAgents(manifest);
-  const idIndex = new Map(existing.map((item, i) => [item.id, i]));
-  const merged = existing.map((item) => item.id === record.id ? record : item);
-  if (!idIndex.has(record.id)) merged.push(record);
-  if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
-    saveCrewAgents(manifest, merged);
-    writeCrewAgentStatus(manifest, record);
-  } else {
-    saveCrewAgentsCoalesced(manifest, merged);
-    writeCrewAgentStatusCoalesced(manifest, record);
-  }
-}
-function writeCrewAgentStatus(manifest, record) {
-  ensureAgentStateDir(manifest, record.taskId);
-  atomicWriteJson(agentStatusPath(manifest, record.taskId), redactSecrets(record), { durability: "full" });
-}
-function saveCrewAgentsCoalesced(manifest, records) {
-  const filePath = agentsPath(manifest);
-  fs28.mkdirSync(manifest.stateRoot, { recursive: true });
-  atomicWriteJsonCoalesced(filePath, redactSecrets(records), AGENT_COALESCE_MS, { durability: "best-effort" });
-  asyncAgentReaderCache.delete(filePath);
-  for (const record of records) writeCrewAgentStatusCoalesced(manifest, record);
-}
-function writeCrewAgentStatusCoalesced(manifest, record) {
-  ensureAgentStateDir(manifest, record.taskId);
-  atomicWriteJsonCoalesced(agentStatusPath(manifest, record.taskId), redactSecrets(record), AGENT_COALESCE_MS, {
-    durability: "best-effort"
-  });
-}
-function flushPendingAgentWrites(manifest, records) {
-  flushPendingAtomicWrites(agentsPath(manifest));
-  for (const record of records) flushPendingAtomicWrites(agentStatusPath(manifest, record.taskId));
-}
-function readCrewAgentStatus(manifest, taskOrAgentId) {
-  try {
-    return readJsonFile(safeExistingAgentFile(manifest, taskOrAgentId, "status.json"));
-  } catch {
-    return void 0;
-  }
-}
-function setAgentEventSeqCache(filePath, entry) {
-  if (agentEventSeqCache.has(filePath)) agentEventSeqCache.delete(filePath);
-  agentEventSeqCache.set(filePath, entry);
-  while (agentEventSeqCache.size > AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES) {
-    const oldest = agentEventSeqCache.keys().next().value;
-    if (oldest === void 0) break;
-    agentEventSeqCache.delete(oldest);
-  }
-}
-function readSeqFromSidecar(filePath) {
-  try {
-    const raw = fs28.readFileSync(`${filePath}.${AGENT_EVENT_SEQ_SIDECAR}`, "utf-8");
-    const n = Number.parseInt(raw, 10);
-    return Number.isFinite(n) && n > 0 ? n : void 0;
-  } catch {
-    return void 0;
-  }
-}
-function writeSeqToSidecar(filePath, seq) {
-  try {
-    fs28.writeFileSync(`${filePath}.${AGENT_EVENT_SEQ_SIDECAR}`, String(seq));
-  } catch (error) {
-    logInternalError("crew-agent-records.seq-sidecar", error, `filePath=${filePath}`);
-  }
-}
-function nextAgentEventSeq(filePath) {
-  if (!fs28.existsSync(filePath)) {
-    try {
-      fs28.unlinkSync(`${filePath}.${AGENT_EVENT_SEQ_SIDECAR}`);
-    } catch (error) {
-      logInternalError("crew-agent-records.unlink-sidecar", error, `filePath=${filePath}`, "debug");
-    }
-    return 1;
-  }
-  const stat2 = fs28.statSync(filePath);
-  const cached2 = agentEventSeqCache.get(filePath);
-  if (cached2 && cached2.size === stat2.size && cached2.mtimeMs === stat2.mtimeMs) return cached2.seq + 1;
-  const sidecarSeq = readSeqFromSidecar(filePath);
-  if (sidecarSeq !== void 0) {
-    setAgentEventSeqCache(filePath, {
-      size: stat2.size,
-      mtimeMs: stat2.mtimeMs,
-      seq: sidecarSeq
-    });
-    return sidecarSeq + 1;
-  }
-  let max = 0;
-  for (const line3 of fs28.readFileSync(filePath, "utf-8").split(/\r?\n/)) {
-    if (!line3.trim()) continue;
-    try {
-      const parsed = JSON.parse(line3);
-      if (typeof parsed.seq === "number" && Number.isFinite(parsed.seq)) max = Math.max(max, parsed.seq);
-      else max += 1;
-    } catch {
-      max += 1;
     }
   }
-  setAgentEventSeqCache(filePath, {
-    size: stat2.size,
-    mtimeMs: stat2.mtimeMs,
-    seq: max
-  });
-  writeSeqToSidecar(filePath, max);
-  return max + 1;
+  return events;
 }
-function appendCrewAgentEvent(manifest, taskId, event) {
-  flushCrewAgentRecordBuffer(manifest, taskId);
-  ensureAgentStateDir(manifest, taskId);
-  const filePath = agentStateFile(manifest, taskId, "events.jsonl");
-  const seq = nextAgentEventSeq(filePath);
-  fs28.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ seq, time: (/* @__PURE__ */ new Date()).toISOString(), event }))}
-`, "utf-8");
-  try {
-    const stat2 = fs28.statSync(filePath);
-    setAgentEventSeqCache(filePath, {
-      size: stat2.size,
-      mtimeMs: stat2.mtimeMs,
-      seq
-    });
-    writeSeqToSidecar(filePath, seq);
-  } catch (error) {
-    logInternalError("crew-agent-records.stat", error, `filePath=${filePath}`);
-  }
-}
-function readCrewAgentEventsCursor(manifest, taskId, options = {}) {
-  let filePath;
-  try {
-    filePath = agentEventsPath(manifest, taskId);
-  } catch {
-    return {
-      path: "",
-      events: [],
-      nextSeq: options.sinceSeq ?? 0,
-      total: 0
-    };
-  }
-  if (!fs28.existsSync(filePath))
-    return {
-      path: filePath,
-      events: [],
-      nextSeq: options.sinceSeq ?? 0,
-      total: 0
-    };
-  try {
-    filePath = safeExistingAgentFile(manifest, taskId, "events.jsonl");
-  } catch {
-    return {
-      path: "",
-      events: [],
-      nextSeq: options.sinceSeq ?? 0,
-      total: 0
-    };
-  }
-  const sinceSeq = typeof options.sinceSeq === "number" && Number.isInteger(options.sinceSeq) && options.sinceSeq >= 0 ? options.sinceSeq : 0;
-  const limit = typeof options.limit === "number" && Number.isInteger(options.limit) && options.limit >= 0 ? options.limit : void 0;
-  const parsed = fs28.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean).map((line3, index) => {
-    try {
-      const event = JSON.parse(line3);
-      if (typeof event.seq !== "number") event.seq = index + 1;
-      return event;
-    } catch {
-      return { seq: index + 1, raw: line3 };
+function readArchiveTailEvents(eventsPath, sinceSeq) {
+  const archives = listEventArchivePaths(eventsPath);
+  if (archives.length === 0) return [];
+  const bySeq = /* @__PURE__ */ new Map();
+  for (const archivePath of archives) {
+    const tail = readJsonlTail(archivePath, ARCHIVE_TAIL_BYTES);
+    for (const event of tail.items) {
+      const seq = event.metadata?.seq;
+      if (typeof seq !== "number" || seq <= sinceSeq) continue;
+      if (!bySeq.has(seq)) bySeq.set(seq, event);
     }
-  });
-  const filtered = parsed.filter((event) => typeof event.seq === "number" && event.seq > sinceSeq);
-  const events = limit !== void 0 ? filtered.slice(0, limit) : filtered;
-  const returnedMaxSeq = events.reduce((max, event) => typeof event.seq === "number" ? Math.max(max, event.seq) : max, sinceSeq);
-  return {
-    path: filePath,
-    events,
-    nextSeq: returnedMaxSeq,
-    total: filtered.length
+  }
+  return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
+}
+function mergeArchiveTailEvents(archiveEvents, liveEvents) {
+  if (archiveEvents.length === 0) return liveEvents;
+  const bySeq = /* @__PURE__ */ new Map();
+  for (const event of archiveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
+  for (const event of liveEvents) bySeq.set(event.metadata?.seq ?? 0, event);
+  return [...bySeq.values()].sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
+}
+function readEvents(eventsPath) {
+  const archives = listEventArchivePaths(eventsPath);
+  const events = [];
+  const seenSeqs = /* @__PURE__ */ new Set();
+  const push = (event) => {
+    const seq = event.metadata?.seq;
+    if (typeof seq === "number" && seq > 0) {
+      if (seenSeqs.has(seq)) return;
+      seenSeqs.add(seq);
+    }
+    events.push(event);
   };
-}
-function appendCrewAgentOutput(manifest, taskId, text) {
-  if (!text.trim()) return;
-  flushCrewAgentRecordBuffer(manifest, taskId);
-  ensureAgentStateDir(manifest, taskId);
-  fs28.appendFileSync(agentStateFile(manifest, taskId, "output.log"), `${redactSecretString(text)}
-`, "utf-8");
-}
-function agentRecordBufferKey(manifest, taskId) {
-  return `${manifest.stateRoot}\0${safeAgentTaskId(taskId)}`;
-}
-function flushAgentRecordBuffer(buffer) {
-  const { manifest, taskId } = buffer;
-  if (buffer.timer) {
-    clearTimeout(buffer.timer);
-    buffer.timer = void 0;
+  for (const archivePath of archives) {
+    for (const event of parseJsonlEvents(archivePath)) push(event);
   }
-  if (buffer.events.length > 0) {
-    const filePath = agentStateFile(manifest, taskId, "events.jsonl");
-    try {
-      fs28.appendFileSync(filePath, buffer.events.join(""), "utf-8");
-      const stat2 = fs28.statSync(filePath);
-      setAgentEventSeqCache(filePath, {
-        size: stat2.size,
-        mtimeMs: stat2.mtimeMs,
-        seq: buffer.lastReservedSeq
-      });
-      writeSeqToSidecar(filePath, buffer.lastReservedSeq);
-    } catch (error) {
-      logInternalError("crew-agent-records.buffered-events-flush", error, `filePath=${filePath}`);
-    }
+  if (fs22.existsSync(eventsPath)) {
+    for (const event of parseJsonlEvents(eventsPath)) push(event);
   }
-  if (buffer.output.length > 0) {
-    try {
-      fs28.appendFileSync(agentStateFile(manifest, taskId, "output.log"), buffer.output.join(""), "utf-8");
-    } catch (error) {
-      logInternalError("crew-agent-records.buffered-output-flush", error, `taskId=${taskId}`);
-    }
-  }
-  buffer.events.length = 0;
-  buffer.output.length = 0;
-  buffer.lastReservedSeq = 0;
-  agentRecordBuffers.delete(agentRecordBufferKey(manifest, taskId));
+  return events.sort((a, b) => (a.metadata?.seq ?? 0) - (b.metadata?.seq ?? 0));
 }
-function flushCrewAgentRecordBuffer(manifest, taskId) {
-  const buffer = agentRecordBuffers.get(agentRecordBufferKey(manifest, taskId));
-  if (buffer) flushAgentRecordBuffer(buffer);
+function positiveInteger(value) {
+  return value !== void 0 && Number.isInteger(value) && value >= 0 ? value : void 0;
 }
-function flushAllCrewAgentRecordBuffers() {
-  for (const buffer of [...agentRecordBuffers.values()]) flushAgentRecordBuffer(buffer);
+function sameInode(stat2, entry) {
+  return stat2.ino === entry.ino && stat2.dev === entry.dev;
 }
-function appendCrewAgentEventBuffered(manifest, taskId, event) {
-  const filePath = agentStateFile(manifest, taskId, "events.jsonl");
-  const key = agentRecordBufferKey(manifest, taskId);
-  let buffer = agentRecordBuffers.get(key);
-  if (!buffer) {
-    buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
-    agentRecordBuffers.set(key, buffer);
-  }
-  if (buffer.lastReservedSeq === 0) {
-    buffer.lastReservedSeq = nextAgentEventSeq(filePath) - 1;
-  }
-  const seq = ++buffer.lastReservedSeq;
-  buffer.events.push(`${JSON.stringify(redactSecrets({ seq, time: (/* @__PURE__ */ new Date()).toISOString(), event }))}
-`);
-  scheduleAgentRecordBufferFlush(buffer);
+function evictCursorRing(ring, bound) {
+  return ring.length > bound ? ring.slice(ring.length - bound) : ring;
 }
-function appendCrewAgentOutputBuffered(manifest, taskId, text) {
-  if (!text.trim()) return;
-  ensureAgentStateDir(manifest, taskId);
-  const key = agentRecordBufferKey(manifest, taskId);
-  let buffer = agentRecordBuffers.get(key);
-  if (!buffer) {
-    buffer = { manifest, taskId, events: [], output: [], lastReservedSeq: 0 };
-    agentRecordBuffers.set(key, buffer);
-  }
-  buffer.output.push(`${redactSecretString(text)}
-`);
-  scheduleAgentRecordBufferFlush(buffer);
-}
-function scheduleAgentRecordBufferFlush(buffer) {
-  if (buffer.events.length >= AGENT_RECORD_BUFFER_MAX_EVENTS || buffer.output.length >= AGENT_RECORD_BUFFER_MAX_EVENTS) {
-    flushAgentRecordBuffer(buffer);
-    return;
-  }
-  if (!buffer.timer) {
-    buffer.timer = setTimeout(() => {
-      buffer.timer = void 0;
-      flushAgentRecordBuffer(buffer);
-    }, AGENT_RECORD_BUFFER_WINDOW_MS);
-    buffer.timer.unref();
-  }
-}
-function emptyCrewAgentProgress() {
-  return { recentTools: [], recentOutput: [], toolCount: 0 };
-}
-function modelFromTask(task) {
-  const attempts = task.modelAttempts;
-  if (!attempts?.length) return void 0;
-  return attempts.find((attempt) => attempt.success)?.model ?? attempts.at(-1)?.model;
-}
-function recordFromTask(manifest, task, runtime) {
-  return {
-    id: `${manifest.runId}:${task.id}`,
-    runId: manifest.runId,
-    taskId: task.id,
-    agent: task.agent,
-    role: task.role,
-    runtime,
-    status: taskStatusToAgentStatus(task.status),
-    startedAt: task.startedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
-    completedAt: task.finishedAt,
-    resultArtifactPath: task.resultArtifact?.path,
-    transcriptPath: task.transcriptArtifact?.path ?? task.logArtifact?.path,
-    statusPath: agentStatusPath(manifest, task.id),
-    eventsPath: agentEventsPath(manifest, task.id),
-    outputPath: agentOutputPath(manifest, task.id),
-    toolUses: task.agentProgress?.toolCount,
-    jsonEvents: task.jsonEvents,
-    model: modelFromTask(task),
-    routing: task.modelRouting,
-    usage: task.usage,
-    progress: task.agentProgress,
-    error: task.error
-  };
-}
-var ensuredAgentDirs, resolvedAgentFiles, AGENT_PATH_CACHE_MAX, AGENT_READER_TTL_MS, ASYNC_AGENT_READER_CACHE_MAX_ENTRIES, AGENTS_LOCK_STALE_MS, asyncAgentReaderCache, TERMINAL_AGENT_STATUSES, AGENT_COALESCE_MS, agentEventSeqCache, AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES, AGENT_EVENT_SEQ_SIDECAR, AGENT_RECORD_BUFFER_MAX_EVENTS, AGENT_RECORD_BUFFER_WINDOW_MS, agentRecordBuffers;
-var init_crew_agent_records = __esm({
-  "src/runtime/crew-agent-records.ts"() {
-    "use strict";
-    init_atomic_write();
-    init_file_coalescer();
-    init_internal_error();
-    init_redaction();
-    init_safe_paths();
-    init_sleep();
-    init_crew_agent_runtime();
-    ensuredAgentDirs = /* @__PURE__ */ new Map();
-    resolvedAgentFiles = /* @__PURE__ */ new Map();
-    AGENT_PATH_CACHE_MAX = 512;
-    AGENT_READER_TTL_MS = 200;
-    ASYNC_AGENT_READER_CACHE_MAX_ENTRIES = 128;
-    AGENTS_LOCK_STALE_MS = 3e4;
-    asyncAgentReaderCache = /* @__PURE__ */ new Map();
-    TERMINAL_AGENT_STATUSES = /* @__PURE__ */ new Set(["completed", "failed", "cancelled", "blocked"]);
-    AGENT_COALESCE_MS = 250;
-    agentEventSeqCache = /* @__PURE__ */ new Map();
-    AGENT_EVENT_SEQ_CACHE_MAX_ENTRIES = 1e3;
-    AGENT_EVENT_SEQ_SIDECAR = ".seq";
-    AGENT_RECORD_BUFFER_MAX_EVENTS = 32;
-    AGENT_RECORD_BUFFER_WINDOW_MS = 250;
-    agentRecordBuffers = /* @__PURE__ */ new Map();
-    process.on("exit", () => flushAllCrewAgentRecordBuffers());
-    process.on("SIGTERM", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
-    process.on("SIGINT", () => setImmediate(() => flushAllCrewAgentRecordBuffers()));
-  }
-});
-
-// src/runtime/process/proc-stat.ts
-function fieldsAfterComm(stat2) {
-  const lastParen = stat2.lastIndexOf(")");
-  if (lastParen === -1) return void 0;
-  return stat2.slice(lastParen + 1).trim().split(/\s+/);
-}
-function procStartTimeTicks(stat2) {
-  const fields = fieldsAfterComm(stat2);
-  if (!fields) return void 0;
-  const raw = fields[PROC_STAT_STARTTIME_INDEX];
-  return raw && Number.isFinite(Number(raw)) ? raw : void 0;
-}
-var PROC_STAT_STARTTIME_INDEX, PROC_STAT_PPID_INDEX;
-var init_proc_stat = __esm({
-  "src/runtime/process/proc-stat.ts"() {
-    "use strict";
-    PROC_STAT_STARTTIME_INDEX = 19;
-    PROC_STAT_PPID_INDEX = 1;
-  }
-});
-
-// src/runtime/surface/launch-script.ts
-import * as fs29 from "node:fs";
-import * as path24 from "node:path";
-function assertSafeTaskId(taskId) {
-  if (!taskId || taskId.includes("/") || taskId.includes("\\") || taskId.includes("\0") || taskId.includes("..")) {
-    throw new SurfaceTaskIdError(taskId);
-  }
-}
-function shellEscape(value) {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-function buildLaunchScript(input) {
-  assertSafeTaskId(input.taskId);
-  const depth = currentCrewDepth(input.callerEnv ?? input.env);
-  if (depth > 0) throw new SurfaceDepthGuardError(depth);
-  const scriptPath = path24.resolve(input.baseDir, `pi-crew-launch-${input.taskId}-${process.pid}.sh`);
-  const lines = ["#!/bin/bash"];
-  for (const [key, value] of Object.entries(input.env)) {
-    lines.push(`export ${key}=${shellEscape(value)}`);
-  }
-  lines.push(`cd ${shellEscape(input.cwd)}`);
-  lines.push('( rm -f -- "$0" ) &');
-  lines.push(input.command);
-  lines.push('rm -f -- "$0"');
-  atomicWriteFile(scriptPath, `${lines.join("\n")}
-`, { mode: 384 });
-  launchScriptRegistry.set(scriptPath, Date.now());
-  return scriptPath;
-}
-function sweepLaunchScripts(registry2, now) {
-  let swept = 0;
-  for (const [scriptPath, createdAt] of [...registry2.entries()]) {
-    if (now - createdAt <= LAUNCH_SCRIPT_TTL_MS) continue;
-    try {
-      fs29.rmSync(scriptPath, { force: true });
-    } catch {
-    }
-    registry2.delete(scriptPath);
-    swept++;
-  }
-  return swept;
-}
-function sweepOrphanLaunchScriptFiles(baseDir, now) {
-  let swept = 0;
-  let entries;
-  try {
-    entries = fs29.readdirSync(baseDir);
-  } catch {
-    return 0;
-  }
-  for (const name of entries) {
-    if (!/^pi-crew-launch-.*\.sh$/.test(name)) continue;
-    const scriptPath = path24.join(baseDir, name);
-    try {
-      const mtimeMs = fs29.statSync(scriptPath).mtimeMs;
-      if (now - mtimeMs <= LAUNCH_SCRIPT_TTL_MS) continue;
-      fs29.rmSync(scriptPath, { force: true });
-      swept++;
-    } catch {
-    }
-  }
-  return swept;
-}
-var SurfaceDepthGuardError, SurfaceTaskIdError, LAUNCH_SCRIPT_TTL_MS, launchScriptRegistry;
-var init_launch_script = __esm({
-  "src/runtime/surface/launch-script.ts"() {
-    "use strict";
-    init_atomic_write();
-    init_pi_args();
-    SurfaceDepthGuardError = class extends Error {
-      constructor(depth) {
-        super(`Refusing to build surface launch script at PI_CREW_DEPTH=${depth}: surface panes are tier-1 only`);
-        this.name = "SurfaceDepthGuardError";
-      }
-    };
-    SurfaceTaskIdError = class extends Error {
-      constructor(taskId) {
-        super(`Refusing to build surface launch script: unsafe taskId ${JSON.stringify(taskId)} \u2014 must not contain "/", "\\", NUL or ".."`);
-        this.name = "SurfaceTaskIdError";
-      }
-    };
-    LAUNCH_SCRIPT_TTL_MS = 6e4;
-    launchScriptRegistry = /* @__PURE__ */ new Map();
-  }
-});
-
-// src/runtime/surface/surface-provider.ts
-function splitDirectionFor(index) {
-  return index % 2 === 0 ? "down" : "right";
-}
-var MAX_PANES_PER_TAB;
-var init_surface_provider = __esm({
-  "src/runtime/surface/surface-provider.ts"() {
-    "use strict";
-    MAX_PANES_PER_TAB = 8;
-  }
-});
-
-// src/runtime/surface/herdr-provider.ts
-import * as fs30 from "node:fs";
-import * as net from "node:net";
-import * as os8 from "node:os";
-import * as path25 from "node:path";
-function herdrSocketPath(env) {
-  if (env.HERDR_SOCKET_PATH) return env.HERDR_SOCKET_PATH;
-  if (env.HERDR_SESSION) {
-    return path25.join(os8.homedir(), ".config", "herdr", "sessions", env.HERDR_SESSION, "herdr.sock");
-  }
-  return path25.join(os8.homedir(), ".config", "herdr", "herdr.sock");
-}
-function defaultConnect(socketPath) {
-  fs30.accessSync(socketPath);
-  const socket = net.createConnection({ path: socketPath });
-  let lineCb = null;
-  let buffer = "";
-  let ended = false;
-  socket.setEncoding("utf8");
-  socket.on("data", (chunk) => {
-    buffer += chunk;
-    let idx = buffer.indexOf("\n");
-    while (idx !== -1) {
-      const line3 = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 1);
-      if (line3.trim()) lineCb?.(line3);
-      idx = buffer.indexOf("\n");
-    }
-  });
-  const onEnd = () => {
-    if (ended) return;
-    ended = true;
-    lineCb?.("");
-    lineCb = null;
-  };
-  socket.on("close", onEnd);
-  socket.on("error", onEnd);
-  return {
-    write(line3) {
-      socket.write(`${line3}
-`);
-    },
-    onLine(cb) {
-      lineCb = cb;
-    },
-    close() {
-      socket.destroy();
-    }
-  };
-}
-function createHerdrProvider(deps = {}) {
-  const env = deps.env ?? process.env;
-  const connect = deps.connect ?? defaultConnect;
-  const watchers = /* @__PURE__ */ new Map();
-  let reqSeq = 0;
-  let subscription = null;
-  let subscriptionCb = null;
-  const tabMap = /* @__PURE__ */ new Map();
-  const tabInFlight = /* @__PURE__ */ new Map();
-  function activeWatchers() {
-    let active = 0;
-    for (const watcher of watchers.values()) if (!watcher.exited) active += 1;
-    return active;
-  }
-  function fire(paneId, reason) {
-    const watcher = watchers.get(paneId);
-    if (!watcher || watcher.exited) return;
-    watcher.exited = true;
-    watcher.reason = reason;
-    for (const cb of [...watcher.callbacks]) cb(reason);
-    maybeCloseSubscription();
-  }
-  function maybeCloseSubscription() {
-    if (!subscription || activeWatchers() > 0) return;
-    subscription.close();
-    subscription = null;
-    subscriptionCb = null;
-  }
-  function call(method, params) {
-    reqSeq += 1;
-    const id = `req-${reqSeq}`;
-    return new Promise((resolve26, reject) => {
-      let socket;
+function scanEventLines(buf, baseOffset, minSeq) {
+  const lines = [];
+  let ok = true;
+  let lastSeq = minSeq;
+  let pos = 0;
+  for (; ; ) {
+    const newline = buf.indexOf(10, pos);
+    if (newline < 0) break;
+    const text = buf.toString("utf-8", pos, newline).trim();
+    if (text) {
       try {
-        socket = connect(herdrSocketPath(env));
-      } catch (err2) {
-        reject(new Error(`herdr socket unavailable: ${err2.message}`));
-        return;
-      }
-      let settled = false;
-      socket.onLine((line3) => {
-        if (settled) return;
-        if (!line3) {
-          settled = true;
-          socket.close();
-          reject(new Error(`herdr socket closed before response to ${id} (${method})`));
-          return;
-        }
-        let msg;
-        try {
-          msg = JSON.parse(line3);
-        } catch {
-          return;
-        }
-        if (msg.id !== id) return;
-        settled = true;
-        socket.close();
-        if (msg.error) {
-          reject(new Error(`${msg.error.code ?? "herdr_error"}: ${msg.error.message ?? "unknown error"}`));
-          return;
-        }
-        resolve26(msg.result);
-      });
-      socket.write(JSON.stringify({ id, method, params }));
-    });
-  }
-  function onSubscriptionLine(line3) {
-    if (!line3) {
-      subscription = null;
-      subscriptionCb = null;
-      for (const paneId2 of [...watchers.keys()]) fire(paneId2, "mux-dead");
-      return;
-    }
-    let msg;
-    try {
-      msg = JSON.parse(line3);
-    } catch {
-      return;
-    }
-    if (msg.event !== "pane_closed" && msg.event !== "pane_exited") return;
-    const paneId = msg.data?.pane_id;
-    if (typeof paneId === "string" && watchers.has(paneId)) fire(paneId, "pane-closed");
-  }
-  function ensureSubscription() {
-    if (subscription) return;
-    reqSeq += 1;
-    const id = `req-${reqSeq}`;
-    let socket;
-    try {
-      socket = connect(herdrSocketPath(env));
-    } catch {
-      for (const paneId of [...watchers.keys()]) fire(paneId, "mux-dead");
-      return;
-    }
-    subscription = socket;
-    subscriptionCb = onSubscriptionLine;
-    socket.onLine((line3) => subscriptionCb?.(line3));
-    socket.write(
-      JSON.stringify({
-        id,
-        method: "events.subscribe",
-        params: { subscriptions: [{ type: "pane.closed" }, { type: "pane.exited" }] }
-      })
-    );
-  }
-  function makeHandle(paneId, tabId) {
-    return {
-      id: paneId,
-      kind: "herdr",
-      ...tabId ? { tabId } : {},
-      onExit(cb) {
-        let watcher = watchers.get(paneId);
-        if (!watcher) {
-          watcher = { callbacks: [], exited: false };
-          watchers.set(paneId, watcher);
-        }
-        watcher.callbacks.push(cb);
-        if (watcher.exited) {
-          cb(watcher.reason);
-          return;
-        }
-        ensureSubscription();
-      },
-      dispose() {
-        const watcher = watchers.get(paneId);
-        if (!watcher) return;
-        if (!watcher.exited) fire(paneId, "detached");
-        watchers.delete(paneId);
-        maybeCloseSubscription();
-      }
-    };
-  }
-  function assertHerdrHandle(handle) {
-    if (handle.kind !== "herdr") {
-      throw new Error(`Expected a herdr handle, got kind "${handle.kind}" (id ${handle.id})`);
-    }
-  }
-  async function splitAndBoot(opts, parentPaneId, direction, commitTabPane, tabId) {
-    const split = await call("pane.split", {
-      direction,
-      target_pane_id: parentPaneId,
-      cwd: opts.cwd,
-      focus: false
-    });
-    const paneId = split.pane?.pane_id;
-    if (!paneId) throw new Error("pane.split returned no pane_id");
-    commitTabPane?.();
-    if (opts.title) {
-      try {
-        await call("pane.rename", { pane_id: paneId, label: opts.title });
-      } catch {
-      }
-    }
-    if (opts.command !== void 0) {
-      await call("pane.send_text", { pane_id: paneId, text: `${opts.command}
-` });
-    }
-    return makeHandle(paneId, tabId);
-  }
-  async function doTabSpawn(opts, tabKey) {
-    const existing = tabMap.get(tabKey);
-    if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
-      const paneIndexInTab = existing.paneCount;
-      const currentTabId = existing.tabIds[existing.tabIds.length - 1];
-      return splitAndBoot(
-        opts,
-        existing.rootPaneId,
-        splitDirectionFor(paneIndexInTab),
-        () => {
-          existing.paneCount = paneIndexInTab + 1;
-        },
-        currentTabId
-      );
-    }
-    const created = await call("tab.create", {
-      label: opts.title ?? tabKey,
-      ...env.HERDR_WORKSPACE_ID ? { workspace_id: env.HERDR_WORKSPACE_ID } : {}
-    });
-    const tabId = created.tab?.tab_id;
-    const rootPaneId = created.root_pane?.pane_id;
-    if (!tabId || !rootPaneId) throw new Error("tab.create returned no tab_id/root_pane");
-    const priorTabIds = existing?.tabIds ?? [];
-    return splitAndBoot(
-      opts,
-      rootPaneId,
-      splitDirectionFor(0),
-      () => {
-        tabMap.set(tabKey, { tabIds: [...priorTabIds, tabId], rootPaneId, paneCount: 1 });
-      },
-      tabId
-    );
-  }
-  async function spawnFromCallerPane(opts) {
-    const envPaneId = env.HERDR_PANE_ID;
-    let parentPaneId;
-    if (envPaneId) parentPaneId = envPaneId;
-    else {
-      const current = await call("pane.current", {});
-      parentPaneId = current.pane?.pane_id;
-    }
-    if (!parentPaneId) {
-      throw new Error("no parent pane \u2014 HERDR_PANE_ID unset, no tabKey, and pane.current returned no pane_id");
-    }
-    return splitAndBoot(opts, parentPaneId, "right", null);
-  }
-  return {
-    kind: "herdr",
-    detect() {
-      try {
-        const socket = connect(herdrSocketPath(env));
-        socket.close();
-        return { ok: true, kind: "herdr" };
-      } catch (err2) {
-        return { ok: false, reason: `herdr socket unavailable: ${err2.message}` };
-      }
-    },
-    async createSurface(_name, opts) {
-      if (!opts.tabKey) {
-        return spawnFromCallerPane(opts);
-      }
-      const tabKey = opts.tabKey;
-      const prev = tabInFlight.get(tabKey) ?? Promise.resolve();
-      const run = prev.then(() => doTabSpawn(opts, tabKey));
-      tabInFlight.set(
-        tabKey,
-        // biome-ignore lint/suspicious/noEmptyBlockStatements: nuốt lỗi CÓ Ý ĐỊNH — chain cần promise không-bao-giờ-reject
-        run.catch(() => {
-        })
-      );
-      return await run;
-    },
-    async sendCommand(handle, text) {
-      assertHerdrHandle(handle);
-      await call("pane.send_text", { pane_id: handle.id, text: `${text}
-` });
-    },
-    attach(id) {
-      return makeHandle(id);
-    },
-    async readScreen(handle, lines = 50) {
-      assertHerdrHandle(handle);
-      const result4 = await call("pane.read", {
-        pane_id: handle.id,
-        source: "visible",
-        lines: Math.max(1, lines)
-      });
-      return result4.read?.text ?? "";
-    },
-    async closeSurface(handle, _opts) {
-      assertHerdrHandle(handle);
-      try {
-        await call("pane.close", { pane_id: handle.id });
-      } catch (err2) {
-        if (err2.message.includes("pane_not_found")) return;
-        throw err2;
-      }
-    },
-    /**
-     * Task 5 (spec tab-layout §5): run end → đóng MỌI tab của run theo map
-     * nội bộ (run dài >8 pane mở tab kế — cả hai đều phải chết). tab đã mất
-     * (pane exit tự nhiên làm server dọn tab) → tab_not_found → idempotent;
-     * lỗi khác vẫn ném về closeTabForRun (best-effort log ở caller). Dọn cả
-     * lock tabInFlight (minor deferred từ review Task 4) — run đã kết thúc
-     * thì không còn spawn nào cùng tabKey.
-     */
-    async closeTab(tabKey) {
-      const entry = tabMap.get(tabKey);
-      if (!entry) return;
-      tabMap.delete(tabKey);
-      tabInFlight.delete(tabKey);
-      let firstError = null;
-      for (const tabId of entry.tabIds) {
-        try {
-          await call("tab.close", { tab_id: tabId });
-        } catch (err2) {
-          if (err2.message.includes("tab_not_found")) continue;
-          if (firstError === null) firstError = err2;
-        }
-      }
-      if (firstError !== null) throw firstError;
-    },
-    /**
-     * Task 6 (doctor cleanup-by-id): đóng MỘT tab theo id đọc từ
-     * manifest.surface.tabs — doctor chạy ở process khác host đã spawn nên
-     * tabMap ở đó trống (closeTab no-op). Wire 0.8.2 không có lệnh đọc tab
-     * đã verify (tab.get chưa probe) nên liveness lấy từ CHÍNH tab.close:
-     * `tab_not_found` = server xác nhận tab đã mất → "gone", thành công →
-     * "closed" — idempotent như closeTab ở trên, lỗi thật vẫn ném về doctor.
-     */
-    async closeTabById(tabId) {
-      try {
-        await call("tab.close", { tab_id: tabId });
-        return "closed";
-      } catch (err2) {
-        if (err2.message.includes("tab_not_found")) return "gone";
-        throw err2;
-      }
-    }
-  };
-}
-var init_herdr_provider = __esm({
-  "src/runtime/surface/herdr-provider.ts"() {
-    "use strict";
-    init_surface_provider();
-  }
-});
-
-// src/runtime/surface/tmux-provider.ts
-import { execFileSync as execFileSync2 } from "node:child_process";
-function defaultHasCommand(bin) {
-  const cached2 = binaryAvailability.get(bin);
-  if (cached2 !== void 0) return cached2;
-  let available = false;
-  try {
-    execFileSync2("sh", ["-c", `command -v ${bin}`], { stdio: "ignore" });
-    available = true;
-  } catch {
-    available = false;
-  }
-  binaryAvailability.set(bin, available);
-  return available;
-}
-function defaultSchedule(fn, ms) {
-  const timer = setInterval(fn, ms);
-  timer.unref();
-  return { clear: () => clearInterval(timer) };
-}
-function parsePaneStatus(stdout) {
-  const status = /* @__PURE__ */ new Map();
-  for (const line3 of stdout.split("\n")) {
-    const match = line3.trim().match(/^(\d+)\s+(\S+)$/);
-    if (match) status.set(match[2], match[1] === "1");
-  }
-  return status;
-}
-function findPanePid(stdout, paneId) {
-  for (const line3 of stdout.split("\n")) {
-    const match = line3.trim().match(/^(\d+)\s+(\S+)$/);
-    if (match && match[2] === paneId) {
-      const pid = Number(match[1]);
-      return Number.isFinite(pid) ? pid : null;
-    }
-  }
-  return null;
-}
-function createTmuxProvider(deps = {}) {
-  const tmux = deps.tmux ?? ((args) => execFileSync2("tmux", args, { encoding: "utf8" }));
-  const env = deps.env ?? process.env;
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
-  const killTree = deps.killTree ?? ((pid) => process.kill(pid, "SIGTERM"));
-  const hasCommand = deps.hasCommand ?? defaultHasCommand;
-  const schedule = deps.schedule ?? defaultSchedule;
-  const watchers = /* @__PURE__ */ new Map();
-  let timer = null;
-  const tabWindows = /* @__PURE__ */ new Map();
-  function activeWatchers() {
-    let active = 0;
-    for (const watcher of watchers.values()) if (!watcher.exited) active += 1;
-    return active;
-  }
-  function ensureTimer() {
-    if (timer || activeWatchers() === 0) return;
-    timer = schedule(pollExits, EXIT_POLL_INTERVAL_MS);
-  }
-  function maybeStopTimer() {
-    if (!timer || activeWatchers() > 0) return;
-    timer.clear();
-    timer = null;
-  }
-  function fire(paneId, reason) {
-    const watcher = watchers.get(paneId);
-    if (!watcher || watcher.exited) return;
-    watcher.exited = true;
-    watcher.reason = reason;
-    for (const cb of [...watcher.callbacks]) cb(reason);
-    maybeStopTimer();
-  }
-  function pollExits() {
-    let stdout;
-    try {
-      stdout = tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]);
-    } catch {
-      for (const paneId of [...watchers.keys()]) fire(paneId, "mux-dead");
-      return;
-    }
-    const status = parsePaneStatus(stdout);
-    for (const [paneId, watcher] of [...watchers]) {
-      if (!watcher.exited && status.get(paneId) !== false) fire(paneId, "pane-closed");
-    }
-  }
-  function makeHandle(paneId, tabId) {
-    return {
-      id: paneId,
-      kind: "tmux",
-      ...tabId ? { tabId } : {},
-      onExit(cb) {
-        let watcher = watchers.get(paneId);
-        if (!watcher) {
-          watcher = { callbacks: [], exited: false };
-          watchers.set(paneId, watcher);
-        }
-        watcher.callbacks.push(cb);
-        if (watcher.exited) {
-          cb(watcher.reason);
-          return;
-        }
-        ensureTimer();
-      },
-      dispose() {
-        const watcher = watchers.get(paneId);
-        if (!watcher) return;
-        if (!watcher.exited) fire(paneId, "detached");
-        watchers.delete(paneId);
-        maybeStopTimer();
-      }
-    };
-  }
-  function assertTmuxHandle(handle) {
-    if (handle.kind !== "tmux") {
-      throw new Error(`Expected a tmux handle, got kind "${handle.kind}" (id ${handle.id})`);
-    }
-  }
-  function isPaneAlive(paneId) {
-    try {
-      return parsePaneStatus(tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"])).get(paneId) === false;
-    } catch {
-      return false;
-    }
-  }
-  function killPaneBestEffort(paneId) {
-    try {
-      tmux(["kill-pane", "-t", paneId]);
-    } catch {
-    }
-  }
-  return {
-    kind: "tmux",
-    detect() {
-      if (!env.TMUX) {
-        return { ok: false, reason: "TMUX env not set \u2014 pi is not running inside a tmux session" };
-      }
-      if (!hasCommand("tmux")) {
-        return { ok: false, reason: "tmux binary not found on PATH" };
-      }
-      return { ok: true, kind: "tmux" };
-    },
-    async createSurface(_name, opts) {
-      let targetWindow;
-      let directionFlag;
-      let tabId;
-      let commitTabPane = null;
-      if (opts.tabKey) {
-        const tabKey = opts.tabKey;
-        const existing = tabWindows.get(tabKey);
-        if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
-          const paneIndexInTab = existing.paneCount;
-          const currentWindowId = existing.windows[existing.windows.length - 1];
-          targetWindow = currentWindowId;
-          tabId = currentWindowId;
-          directionFlag = splitDirectionFor(paneIndexInTab) === "down" ? "-v" : "-h";
-          commitTabPane = () => {
-            existing.paneCount = paneIndexInTab + 1;
-          };
+        const event = JSON.parse(text);
+        const seq = event.metadata?.seq;
+        if (typeof seq !== "number" || !Number.isFinite(seq) || lastSeq !== void 0 && seq < lastSeq) {
+          ok = false;
         } else {
-          const windowId = tmux(["new-window", "-d", "-P", "-F", "#{window_id}"]).trim();
-          if (!/^@\d+$/.test(windowId)) {
-            throw new Error(`Unexpected tmux new-window output: ${JSON.stringify(windowId)}`);
-          }
-          const label = opts.title ?? tabKey;
+          lastSeq = seq;
+        }
+        lines.push({ event, startOffset: baseOffset + pos });
+      } catch {
+      }
+    }
+    pos = newline + 1;
+  }
+  return { lines, verifiedBytes: pos, ok };
+}
+function readCursorByteRange(fd, start, end) {
+  if (end <= start) return Buffer.alloc(0);
+  const length = end - start;
+  const buf = Buffer.alloc(length);
+  let totalRead = 0;
+  while (totalRead < length) {
+    const chunk = Math.min(CURSOR_READ_CHUNK_BYTES, length - totalRead);
+    const n = fs22.readSync(fd, buf, totalRead, chunk, start + totalRead);
+    if (n <= 0) return null;
+    totalRead += n;
+  }
+  return buf;
+}
+function rebuildCursorTailCache(eventsPath, bound) {
+  let fd;
+  try {
+    fd = fs22.openSync(eventsPath, fs22.constants.O_RDONLY | fs22.constants.O_NOFOLLOW);
+  } catch {
+    return void 0;
+  }
+  try {
+    const stat2 = fs22.fstatSync(fd);
+    const buf = readCursorByteRange(fd, 0, stat2.size);
+    if (buf === null) return void 0;
+    const scan = scanEventLines(buf, 0, void 0);
+    const lastLine = scan.lines.at(-1)?.event.metadata?.seq;
+    const entry = {
+      size: stat2.size,
+      mtimeMs: stat2.mtimeMs,
+      ino: stat2.ino,
+      dev: stat2.dev,
+      verifiedOffset: scan.verifiedBytes,
+      lastSeq: typeof lastLine === "number" ? lastLine : 0,
+      verified: scan.ok,
+      ring: evictCursorRing(scan.lines, bound)
+    };
+    return { entry, lines: scan.lines };
+  } finally {
+    try {
+      fs22.closeSync(fd);
+    } catch {
+    }
+  }
+}
+function cursorResultFromEvents(all, eventsPath, sinceSeq, limit) {
+  let capped = all;
+  if (capped.length > TAIL_EVENT_CAP) {
+    logInternalError(
+      "event-log.cursor-full-read",
+      new Error(`readEventsCursor tail read dropped events from a larger log; pass fromByteOffset for incremental reads`),
+      `eventsPath=${eventsPath}`
+    );
+    capped = capped.slice(-TAIL_EVENT_CAP);
+  }
+  const filtered = capped.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq);
+  const merged = mergeArchiveTailEvents(readArchiveTailEvents(eventsPath, sinceSeq), filtered);
+  const events = limit !== void 0 ? merged.slice(0, limit) : merged;
+  const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
+  return { events, nextSeq: returnedMaxSeq, total: merged.length };
+}
+function cursorRingProvable(entry, ring, sinceSeq) {
+  if (ring.length === 0) {
+    return entry.verifiedOffset === 0 || entry.verified && entry.lastSeq <= sinceSeq;
+  }
+  const start = ring[0];
+  return start.startOffset === 0 || entry.verified && (start.event.metadata?.seq ?? 0) <= sinceSeq;
+}
+function readEventsCursorTailCached(eventsPath, sinceSeq, limit) {
+  let stat2;
+  try {
+    stat2 = fs22.statSync(eventsPath);
+  } catch {
+    return void 0;
+  }
+  const previous = cursorTailCache.get(eventsPath);
+  const bound = Math.max(TAIL_EVENT_CAP, limit) * 2;
+  if (previous && stat2.size === previous.size && stat2.mtimeMs === previous.mtimeMs && sameInode(stat2, previous)) {
+    const ring = evictCursorRing(previous.ring, bound);
+    if (cursorRingProvable(previous, ring, sinceSeq)) {
+      if (ring !== previous.ring) cursorTailCache.set(eventsPath, { ...previous, ring });
+      return cursorResultFromEvents(
+        ring.map((line3) => line3.event),
+        eventsPath,
+        sinceSeq,
+        limit
+      );
+    }
+  } else if (previous && stat2.size > previous.size && stat2.mtimeMs >= previous.mtimeMs && sameInode(stat2, previous) && previous.verifiedOffset < stat2.size) {
+    const preRing = evictCursorRing(previous.ring, bound);
+    if (cursorRingProvable(previous, preRing, sinceSeq)) {
+      let delta = null;
+      let deltaFd;
+      try {
+        deltaFd = fs22.openSync(eventsPath, fs22.constants.O_RDONLY | fs22.constants.O_NOFOLLOW);
+        const fdStat = fs22.fstatSync(deltaFd);
+        if (fdStat.ino === stat2.ino && fdStat.dev === stat2.dev) {
+          delta = readCursorByteRange(deltaFd, previous.verifiedOffset, stat2.size);
+        }
+      } catch {
+        delta = null;
+      } finally {
+        if (deltaFd !== void 0) {
           try {
-            tmux(["rename-window", "-t", windowId, label]);
+            fs22.closeSync(deltaFd);
           } catch {
           }
-          targetWindow = windowId;
-          tabId = windowId;
-          directionFlag = splitDirectionFor(0) === "down" ? "-v" : "-h";
-          const priorWindows = existing?.windows ?? [];
-          commitTabPane = () => {
-            tabWindows.set(tabKey, { windows: [...priorWindows, windowId], paneCount: 1 });
+        }
+      }
+      if (delta !== null) {
+        const scan = scanEventLines(delta, previous.verifiedOffset, previous.lastSeq);
+        if (scan.ok) {
+          const ring = evictCursorRing([...preRing, ...scan.lines], bound);
+          const lastLineSeq = scan.lines.at(-1)?.event.metadata?.seq;
+          const entry = {
+            size: stat2.size,
+            mtimeMs: stat2.mtimeMs,
+            ino: stat2.ino,
+            dev: stat2.dev,
+            verifiedOffset: previous.verifiedOffset + scan.verifiedBytes,
+            lastSeq: typeof lastLineSeq === "number" ? lastLineSeq : previous.lastSeq,
+            // The delta verified against the watermark, but a
+            // violation earlier in the file keeps the lineage
+            // unverified (it can only answer from offset 0).
+            verified: previous.verified,
+            ring
           };
+          cursorTailCache.set(eventsPath, entry);
+          if (cursorRingProvable(entry, ring, sinceSeq)) {
+            return cursorResultFromEvents(
+              ring.map((line3) => line3.event),
+              eventsPath,
+              sinceSeq,
+              limit
+            );
+          }
+        }
+      }
+    }
+  }
+  const rebuilt = rebuildCursorTailCache(eventsPath, bound);
+  if (rebuilt === void 0) return void 0;
+  cursorTailCache.set(eventsPath, rebuilt.entry);
+  if (cursorTailCache.size > CURSOR_TAIL_CACHE_MAX_ENTRIES) {
+    const oldestKey = cursorTailCache.keys().next().value;
+    if (oldestKey !== void 0) cursorTailCache.delete(oldestKey);
+  }
+  return cursorResultFromEvents(
+    rebuilt.lines.map((line3) => line3.event),
+    eventsPath,
+    sinceSeq,
+    limit
+  );
+}
+function clearEventsCursorTailCache(eventsPath) {
+  if (!eventsPath) {
+    cursorTailCache.clear();
+    return;
+  }
+  cursorTailCache.delete(eventsPath);
+}
+function readEventsCursor(eventsPath, options = {}) {
+  if (options.fromByteOffset !== void 0) {
+    const liveGen = currentGeneration(eventsPath);
+    const staleCursor = options.generation !== void 0 && options.generation !== liveGen;
+    const sinceSeq2 = positiveInteger(options.sinceSeq) ?? 0;
+    const archiveEvents = staleCursor ? readArchiveTailEvents(eventsPath, sinceSeq2) : [];
+    const byteOffset = staleCursor ? 0 : positiveInteger(options.fromByteOffset) ?? 0;
+    const initialState = { byteOffset, lineCount: 0 };
+    const { items, state: newState, eof } = readJsonlSince(eventsPath, initialState);
+    const filtered = items.filter((event) => (event.metadata?.seq ?? 0) > sinceSeq2);
+    const merged = mergeArchiveTailEvents(archiveEvents, filtered);
+    const limit2 = positiveInteger(options.limit);
+    const events = limit2 !== void 0 ? merged.slice(0, limit2) : merged;
+    const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq2);
+    return {
+      events,
+      nextSeq: returnedMaxSeq,
+      total: merged.length,
+      nextByteOffset: newState.byteOffset,
+      generation: liveGen
+    };
+  }
+  const sinceSeq = positiveInteger(options.sinceSeq) ?? 0;
+  const limit = positiveInteger(options.limit);
+  if (limit !== void 0 && sinceSeq > 0) {
+    const cached2 = readEventsCursorTailCached(eventsPath, sinceSeq, limit);
+    if (cached2 !== void 0) return cached2;
+  }
+  cursorTailCache.delete(eventsPath);
+  const tail = readJsonlTail(eventsPath, TAIL_BYTES);
+  if (tail.truncated) {
+    logInternalError("event-log.cursor-tail-truncated", {
+      eventsPath,
+      returned: tail.items.length,
+      tailBytes: TAIL_BYTES
+    });
+  }
+  return cursorResultFromEvents(tail.items, eventsPath, sinceSeq, limit);
+}
+var ARCHIVE_TAIL_BYTES, TAIL_BYTES, TAIL_EVENT_CAP, CURSOR_READ_CHUNK_BYTES, CURSOR_TAIL_CACHE_MAX_ENTRIES, cursorTailCache;
+var init_cursor = __esm({
+  "src/state/event-log/cursor.ts"() {
+    "use strict";
+    init_incremental_reader();
+    init_internal_error();
+    init_event_log_rotation();
+    ARCHIVE_TAIL_BYTES = 4 * 1024 * 1024;
+    TAIL_BYTES = 4 * 1024 * 1024;
+    TAIL_EVENT_CAP = 5e3;
+    CURSOR_READ_CHUNK_BYTES = 64 * 1024;
+    CURSOR_TAIL_CACHE_MAX_ENTRIES = 100;
+    cursorTailCache = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/state/event-log/event-log.ts
+var event_log_exports = {};
+__export(event_log_exports, {
+  MAX_SEQUENCE_CACHE_ENTRIES: () => MAX_SEQUENCE_CACHE_ENTRIES,
+  MAX_SEQUENCE_CACHE_ENTRIES_VALUE: () => MAX_SEQUENCE_CACHE_ENTRIES_VALUE,
+  __test__appendBatchForUnitTest: () => __test__appendBatchForUnitTest,
+  __test__clearSeqCounters: () => __test__clearSeqCounters,
+  __test__clearSequenceCache: () => __test__clearSequenceCache,
+  __test__evictOldestSequenceCacheEntries: () => __test__evictOldestSequenceCacheEntries,
+  __test__nextSequence: () => __test__nextSequence,
+  __test__seedSequenceCache: () => __test__seedSequenceCache,
+  __test__sequenceCacheSize: () => __test__sequenceCacheSize,
+  advanceSequenceCounter: () => advanceSequenceCounter,
+  appendEvent: () => appendEvent,
+  appendEventAsync: () => appendEventAsync,
+  appendEventBuffered: () => appendEventBuffered,
+  appendEventFireAndForget: () => appendEventFireAndForget,
+  clearEventsCursorTailCache: () => clearEventsCursorTailCache,
+  computeEventFingerprint: () => computeEventFingerprint,
+  dedupeTerminalEvents: () => dedupeTerminalEvents,
+  evictOldestSequenceCacheEntries: () => evictOldestSequenceCacheEntries,
+  flushBufferedQueuesSync: () => flushBufferedQueuesSync,
+  flushEventLogBuffer: () => flushEventLogBuffer,
+  persistSequenceMonotonic: () => persistSequenceMonotonic,
+  readEvents: () => readEvents,
+  readEventsCursor: () => readEventsCursor,
+  reserveSequence: () => reserveSequence,
+  reserveSequenceUnderLockAsync: () => reserveSequenceUnderLockAsync,
+  reservedSequenceEnd: () => reservedSequenceEnd,
+  scanSequence: () => scanSequence,
+  seqCounters: () => seqCounters,
+  sequenceCache: () => sequenceCache,
+  sequencePath: () => sequencePath,
+  tickAppendCounter: () => tickAppendCounter,
+  withEventLogLockSync: () => withEventLogLockSync
+});
+import { createHash as createHash2 } from "node:crypto";
+import * as fs23 from "node:fs";
+import * as path21 from "node:path";
+function tickAppendCounter(eventsPath, inc = 1) {
+  const prev = appendCounters.get(eventsPath) ?? 0;
+  const next = prev + inc;
+  appendCounters.set(eventsPath, next);
+  if (appendCounters.size > APPEND_COUNTER_MAX_ENTRIES) {
+    const oldest = appendCounters.keys().next().value;
+    if (oldest !== void 0) appendCounters.delete(oldest);
+  }
+  return Math.floor(next / 100) > Math.floor(prev / 100);
+}
+function withEventLogLockSync(eventsPath, fn, options) {
+  fs23.mkdirSync(path21.dirname(eventsPath), { recursive: true });
+  const lockDir = `${eventsPath}.mkdirlock`;
+  const pidFile = path21.join(lockDir, "pid");
+  const start = Date.now();
+  const timeout = options?.timeoutMs ?? 5e3;
+  const staleMs = options?.staleMs ?? 1e4;
+  let acquired = false;
+  while (true) {
+    try {
+      fs23.mkdirSync(lockDir);
+      try {
+        const pidFd = fs23.openSync(pidFile, "wx");
+        try {
+          fs23.writeSync(pidFd, String(process.pid));
+        } finally {
+          fs23.closeSync(pidFd);
+        }
+      } catch {
+      }
+      acquired = true;
+      break;
+    } catch {
+      if (Date.now() - start > timeout) {
+        throw errors.eventLogLockTimeout(eventsPath, timeout);
+      }
+      try {
+        const dirStat = fs23.statSync(lockDir);
+        if (Date.now() - dirStat.mtimeMs > staleMs) {
+          fs23.rmSync(lockDir, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+      }
+      try {
+        const raw = fs23.readFileSync(pidFile, "utf-8").trim();
+        const ownerPid = Number.parseInt(raw, 10);
+        if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
+          let alive = false;
+          try {
+            process.kill(ownerPid, 0);
+            alive = true;
+          } catch {
+          }
+          void alive;
+        }
+      } catch {
+      }
+      sleepSync(50);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    if (acquired) {
+      try {
+        const currentPid = fs23.readFileSync(pidFile, "utf-8").trim();
+        if (currentPid === String(process.pid)) {
+          fs23.rmSync(lockDir, { recursive: true, force: true });
+        }
+      } catch {
+      }
+    }
+  }
+}
+function computeEventFingerprint(event) {
+  return createHash2("sha256").update(
+    JSON.stringify({
+      type: event.type,
+      runId: event.runId,
+      taskId: event.taskId,
+      data: event.data ?? null
+    })
+  ).digest("hex").slice(0, 16);
+}
+function appendEvent(eventsPath, event) {
+  return withEventLogLockSync(eventsPath, () => appendEventInsideLock(eventsPath, event));
+}
+async function drainAsyncQueues() {
+  const promises11 = [...asyncQueues.values()];
+  if (promises11.length === 0) return;
+  await Promise.allSettled(promises11);
+}
+async function withEventLogLockAsync(eventsPath, fn, options) {
+  const queueKey = eventsPath;
+  const prev = (asyncLocks.get(queueKey) ?? Promise.resolve()).then(
+    () => void 0,
+    () => void 0
+  );
+  const next = prev.then(async () => {
+    await fs23.promises.mkdir(path21.dirname(eventsPath), { recursive: true });
+    const lockDir = `${eventsPath}.alock`;
+    const pidFile = path21.join(lockDir, "pid");
+    const timeout = options?.timeoutMs ?? 5e3;
+    const staleMs = options?.staleMs ?? 1e4;
+    const start = Date.now();
+    let acquired = false;
+    while (true) {
+      try {
+        await fs23.promises.mkdir(lockDir);
+        try {
+          const fh = await fs23.promises.open(pidFile, "wx");
+          try {
+            await fh.write(String(process.pid));
+          } finally {
+            await fh.close();
+          }
+        } catch {
+        }
+        acquired = true;
+        break;
+      } catch {
+        if (Date.now() - start > timeout) {
+          throw errors.eventLogLockTimeout(eventsPath, timeout);
+        }
+        try {
+          const dirStat = await fs23.promises.stat(lockDir);
+          if (Date.now() - dirStat.mtimeMs > staleMs) {
+            await fs23.promises.rm(lockDir, { recursive: true, force: true });
+            continue;
+          }
+        } catch {
+        }
+        try {
+          const raw = await fs23.promises.readFile(pidFile, "utf-8").catch(() => "");
+          const ownerPid = Number.parseInt(raw.trim(), 10);
+          if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
+            try {
+              process.kill(ownerPid, 0);
+            } catch {
+            }
+          }
+        } catch {
+        }
+        await sleep(50);
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      if (acquired) {
+        try {
+          const currentPid = await fs23.promises.readFile(pidFile, "utf-8").catch(() => "");
+          if (currentPid.trim() === String(process.pid)) {
+            await fs23.promises.rm(lockDir, { recursive: true, force: true });
+          }
+        } catch {
+        }
+      }
+    }
+  });
+  asyncLocks.set(queueKey, next);
+  try {
+    return await next;
+  } finally {
+    if (asyncLocks.get(queueKey) === next) {
+      asyncLocks.delete(queueKey);
+    }
+  }
+}
+async function appendEventAsync(eventsPath, event) {
+  const queueKey = eventsPath;
+  const doAppendUnderLock = async () => {
+    const baseMetadata = event.metadata;
+    let seq;
+    if (baseMetadata?.seq !== void 0) {
+      seq = baseMetadata.seq;
+      advanceSequenceCounter(eventsPath, seq);
+    } else {
+      seq = await reserveSequenceUnderLockAsync(eventsPath);
+    }
+    let metadata = {
+      seq,
+      provenance: baseMetadata?.provenance ?? "team_runner",
+      ...baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {},
+      ...baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {},
+      ...baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {},
+      ...baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {},
+      ...baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {},
+      ...baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {},
+      ...baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {},
+      ...baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {},
+      ...baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}
+    };
+    const fullEvent = {
+      time: (/* @__PURE__ */ new Date()).toISOString(),
+      ...event,
+      metadata
+    };
+    if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
+      metadata = {
+        ...metadata,
+        fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent)
+      };
+      fullEvent.metadata = metadata;
+    }
+    const isTerminal = TERMINAL_EVENT_TYPES.has(fullEvent.type);
+    let skippedDueToSize = false;
+    let fileStat;
+    try {
+      fileStat = await fs23.promises.stat(eventsPath).catch(() => void 0);
+    } catch {
+    }
+    let overflowHandled = false;
+    if (!isTerminal && fileStat) {
+      const stat2 = fileStat;
+      if (stat2.size > MAX_EVENTS_BYTES) {
+        overflowHandled = true;
+        try {
+          const prepared = prepareCompaction(eventsPath);
+          if (prepared) applyCompactionUnlocked(eventsPath, prepared);
+        } catch (error) {
+          logInternalError("event-log.immediate-compact", error, `eventsPath=${eventsPath}`);
+        }
+        let afterCompactStat;
+        try {
+          afterCompactStat = await fs23.promises.stat(eventsPath).catch(() => void 0);
+        } catch {
+        }
+        if (afterCompactStat) {
+          if (afterCompactStat.size > MAX_EVENTS_BYTES) {
+            if (!rotateEventLogUnlocked(eventsPath)) {
+              logInternalError(
+                "event-log.rotate-failed",
+                new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+                `eventsPath=${eventsPath}`,
+                "error"
+              );
+            }
+          }
+        }
+      }
+    }
+    let sizeCheckStat;
+    if (overflowHandled) {
+      try {
+        sizeCheckStat = await fs23.promises.stat(eventsPath).catch(() => void 0);
+      } catch {
+      }
+    } else {
+      sizeCheckStat = fileStat;
+    }
+    try {
+      if (sizeCheckStat && sizeCheckStat.size > MAX_EVENTS_BYTES) {
+        logInternalError(
+          "event-log.size-limit",
+          new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
+          `eventsPath=${eventsPath}`,
+          // R17-S1 (Phase 3.8, Round 18 escalation to HIGH): this was default
+          // severity "debug" (PI_TEAMS_DEBUG-gated) → fully silent drop in
+          // production. "error" always emits.
+          "error"
+        );
+        skippedDueToSize = true;
+        metadata.skippedDueToSize = true;
+      }
+    } catch (error) {
+      logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
+    }
+    if (!skippedDueToSize) {
+      const line3 = JSON.stringify(redactSecrets(fullEvent)) + "\n";
+      if (isWorkerAtomicWriterEnabled()) {
+        await appendFileViaWorker(eventsPath, line3);
+        if (isTerminal) {
+          const fd = await fs23.promises.open(eventsPath, "r+");
+          try {
+            await fd.sync();
+          } finally {
+            await fd.close();
+          }
         }
       } else {
-        const parentPane = env.TMUX_PANE;
-        if (!parentPane) {
-          throw new Error("TMUX_PANE not set \u2014 tmux provider ch\u1EC9 ch\u1EA1y b\xEAn trong tmux session");
-        }
-        targetWindow = parentPane;
-        directionFlag = "-h";
-      }
-      const raw = tmux(["split-window", "-d", directionFlag, "-P", "-F", "#{pane_id}", "-t", targetWindow]);
-      const paneId = raw.trim();
-      if (!/^%\d+$/.test(paneId)) {
-        throw new Error(`Unexpected tmux split-window output: ${JSON.stringify(raw)}`);
-      }
-      commitTabPane?.();
-      if (opts.title) {
+        const fd = await fs23.promises.open(eventsPath, "a");
         try {
-          tmux(["select-pane", "-t", paneId, "-T", opts.title]);
-        } catch {
+          await fd.appendFile(line3, "utf-8");
+          if (isTerminal) await fd.sync();
+        } finally {
+          await fd.close();
         }
       }
-      if (opts.command !== void 0) {
-        tmux(["send-keys", "-t", paneId, "-l", opts.command]);
-        tmux(["send-keys", "-t", paneId, "Enter"]);
-      }
-      return makeHandle(paneId, tabId);
-    },
-    async sendCommand(handle, text) {
-      assertTmuxHandle(handle);
-      tmux(["send-keys", "-t", handle.id, "-l", text]);
-      tmux(["send-keys", "-t", handle.id, "Enter"]);
-    },
-    attach(id) {
-      let status;
+      if (baseMetadata?.seq !== void 0) persistSequenceMonotonic(eventsPath, seq);
+    }
+    if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
       try {
-        status = parsePaneStatus(tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]));
-      } catch {
-        return null;
-      }
-      if (status.get(id) !== false) return null;
-      return makeHandle(id);
-    },
-    async readScreen(handle, lines = 50) {
-      assertTmuxHandle(handle);
-      return tmux(["capture-pane", "-p", "-t", handle.id, "-S", `-${Math.max(1, lines)}`]);
-    },
-    async closeSurface(handle, opts) {
-      assertTmuxHandle(handle);
-      if (opts?.force) {
-        killPaneBestEffort(handle.id);
-        return;
-      }
-      if (!isPaneAlive(handle.id)) return;
-      const pid = findPanePid(tmux(["list-panes", "-a", "-F", "#{pane_pid} #{pane_id}"]), handle.id);
-      if (pid !== null && pid > 1) {
-        killTree(pid);
-        await sleep4(GRACEFUL_TERM_WAIT_MS);
-      }
-      if (isPaneAlive(handle.id)) killPaneBestEffort(handle.id);
-    },
-    /**
-     * Task 5 (spec tab-layout §5): run end → kill MỌI window của run theo
-     * map nội bộ (run dài >8 pane mở window kế — cả hai đều phải chết).
-     * Window đã tự đóng từ trước (pane cuối tự exit làm window biến mất)
-     * → kill-window throw → nuốt: idempotent.
-     */
-    async closeTab(tabKey) {
-      const entry = tabWindows.get(tabKey);
-      if (!entry) return;
-      tabWindows.delete(tabKey);
-      for (const windowId of entry.windows) {
-        try {
-          tmux(["kill-window", "-t", windowId]);
-        } catch {
-        }
-      }
-    },
-    /**
-     * Task 6 (doctor cleanup-by-id): đóng MỘT window theo id đọc từ
-     * manifest.surface.tabs — doctor chạy ở process khác host đã spawn nên
-     * tabWindows ở đó trống (closeTab no-op). Liveness check TRƯỚC khi
-     * đóng (pattern pane-orphan của doctor): list-windows toàn server, dễ
-     * thấy window → gone, không kill-window mù; window mất giữa lúc check
-     * và kill → throw được nuốt thành gone (idempotent).
-     */
-    async closeTabById(tabId) {
-      let windows;
-      try {
-        windows = tmux(["list-windows", "-a", "-F", "#{window_id}"]).trim().split("\n");
+        const prepared = prepareCompaction(eventsPath);
+        if (prepared) applyCompactionUnlocked(eventsPath, prepared);
       } catch (error) {
-        throw new Error(
-          `tmux list-windows failed before closing tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`
-        );
+        logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
       }
-      if (!windows.includes(tabId)) return "gone";
+    }
+    if (!skippedDueToSize) {
       try {
-        tmux(["kill-window", "-t", tabId]);
+        emitFromTeamEvent(fullEvent);
+      } catch (error) {
+        logInternalError("event-log.emit", error);
+      }
+    }
+    return fullEvent;
+  };
+  const prev = asyncQueues.get(queueKey) ?? Promise.resolve();
+  const next = prev.then(async () => {
+    await fs23.promises.mkdir(path21.dirname(eventsPath), { recursive: true });
+    return withEventLogLockAsync(eventsPath, doAppendUnderLock);
+  });
+  const tail = next.then(
+    () => {
+      if (asyncQueues.get(queueKey) === tail) {
+        asyncQueues.delete(queueKey);
+      }
+    },
+    (error) => {
+      try {
+        logInternalError("event-log.async-queue", error, eventsPath);
       } catch {
-        return "gone";
       }
-      return "closed";
-    }
-  };
-}
-var GRACEFUL_TERM_WAIT_MS, EXIT_POLL_INTERVAL_MS, binaryAvailability;
-var init_tmux_provider = __esm({
-  "src/runtime/surface/tmux-provider.ts"() {
-    "use strict";
-    init_surface_provider();
-    GRACEFUL_TERM_WAIT_MS = 3e3;
-    EXIT_POLL_INTERVAL_MS = 2e3;
-    binaryAvailability = /* @__PURE__ */ new Map();
-  }
-});
-
-// src/runtime/surface/resolve-surface.ts
-import { execFileSync as execFileSync3 } from "node:child_process";
-import { Worker as Worker2 } from "node:worker_threads";
-function hasBinary(bin) {
-  const cached2 = binaryAvailability2.get(bin);
-  if (cached2 !== void 0) return cached2;
-  let available = false;
-  try {
-    execFileSync3("sh", ["-c", `command -v ${bin}`], { stdio: "ignore" });
-    available = true;
-  } catch {
-    available = false;
-  }
-  binaryAvailability2.set(bin, available);
-  return available;
-}
-function pingSocketSync(socketPath, timeoutMs = HERDR_PING_TIMEOUT_MS) {
-  const sab = new SharedArrayBuffer(4);
-  const flag = new Int32Array(sab);
-  let worker2;
-  try {
-    worker2 = new Worker2(PING_WORKER_SRC, {
-      eval: true,
-      workerData: { socketPath, timeoutMs, sab }
-    });
-    worker2.unref();
-  } catch {
-    return false;
-  }
-  try {
-    Atomics.wait(flag, 0, 0, timeoutMs + 150);
-  } catch {
-    return false;
-  } finally {
-    void worker2.terminate().catch(() => {
-    });
-  }
-  return Atomics.load(flag, 0) === 1;
-}
-function surfaceGateEnvSnapshot(env) {
-  return {
-    tmux: !!env.TMUX,
-    herdrEnv: env.HERDR_ENV === "1",
-    asyncRun: env.PI_CREW_ASYNC_RUN === "1",
-    depth: currentCrewDepth(env)
-  };
-}
-function resolveSurfaceDetailed(env, config, role, livePaneCount, opts = {}) {
-  const surface = config.runtime?.surface;
-  const mode = surface?.mode ?? "auto";
-  const reject = (gate, reason) => ({
-    provider: null,
-    rejection: { gate, reason, env: surfaceGateEnvSnapshot(env) }
-  });
-  if (mode === "off") return reject("mode-off", 'runtime.surface.mode is "off"');
-  const hostDepth = currentCrewDepth(env);
-  if (hostDepth > 0) return reject("depth", `host PI_CREW_DEPTH=${hostDepth} > 0 \u2014 no pane-in-pane (tier-1 workers only)`);
-  if (livePaneCount >= MAX_SURFACE_WORKERS)
-    return reject("pane-cap", `livePaneCount ${livePaneCount} >= MAX_SURFACE_WORKERS ${MAX_SURFACE_WORKERS}`);
-  const visibleAgents = surface?.visibleAgents ?? [];
-  if (!visibleAgents.includes("*") && !visibleAgents.includes(role))
-    return reject("role-not-visible", `role "${role}" not in visibleAgents [${visibleAgents.join(", ")}]`);
-  const tmuxBin = opts.tmuxBin ?? "tmux";
-  const herdrBin = opts.herdrBin ?? "herdr";
-  const tmuxWhy = () => !hasBinary(tmuxBin) ? "tmux binary not found" : "TMUX unset";
-  const herdrWhy = () => !hasBinary(herdrBin) ? "herdr binary not found" : env.HERDR_ENV !== "1" ? "HERDR_ENV!=1" : "socket not live";
-  const tmuxCell = () => hasBinary(tmuxBin) && !!env.TMUX;
-  const herdrCell = () => hasBinary(herdrBin) && env.HERDR_ENV === "1" && (opts.pingSocket ?? pingSocketSync)(herdrSocketPath(env));
-  let kind;
-  if (mode === "tmux") {
-    kind = tmuxCell() ? "tmux" : null;
-  } else if (mode === "herdr") {
-    kind = herdrCell() ? "herdr" : null;
-  } else {
-    kind = tmuxCell() ? "tmux" : herdrCell() ? "herdr" : null;
-  }
-  if (kind === null) {
-    const detail = mode === "tmux" ? tmuxWhy() : mode === "herdr" ? herdrWhy() : `tmux: ${tmuxWhy()}; herdr: ${herdrWhy()}`;
-    return reject("no-mux", `mode "${mode}" found no live mux (${detail})`);
-  }
-  const injected = opts.providers?.[kind];
-  if (injected) return { provider: injected };
-  if (kind === "tmux") {
-    tmuxProviderSingleton ??= createTmuxProvider();
-    return { provider: tmuxProviderSingleton };
-  }
-  herdrProviderSingleton ??= createHerdrProvider();
-  return { provider: herdrProviderSingleton };
-}
-function surfaceProviderForCleanup(kind) {
-  try {
-    if (kind === "tmux") {
-      tmuxProviderSingleton ??= createTmuxProvider();
-      return tmuxProviderSingleton;
-    }
-    herdrProviderSingleton ??= createHerdrProvider();
-    return herdrProviderSingleton;
-  } catch {
-    return null;
-  }
-}
-var MAX_SURFACE_WORKERS, HERDR_PING_TIMEOUT_MS, binaryAvailability2, tmuxProviderSingleton, herdrProviderSingleton, PING_WORKER_SRC;
-var init_resolve_surface = __esm({
-  "src/runtime/surface/resolve-surface.ts"() {
-    "use strict";
-    init_pi_args();
-    init_herdr_provider();
-    init_tmux_provider();
-    MAX_SURFACE_WORKERS = 6;
-    HERDR_PING_TIMEOUT_MS = 500;
-    binaryAvailability2 = /* @__PURE__ */ new Map();
-    tmuxProviderSingleton = null;
-    herdrProviderSingleton = null;
-    PING_WORKER_SRC = `
-const { parentPort, workerData } = require("node:worker_threads");
-const net = require("node:net");
-const flag = new Int32Array(workerData.sab);
-const done = (ok) => {
-  if (Atomics.load(flag, 0) !== 0) return;
-  Atomics.store(flag, 0, ok ? 1 : 2);
-  Atomics.notify(flag, 0);
-};
-try {
-  const socket = net.connect({ path: workerData.socketPath });
-  const timer = setTimeout(() => { socket.destroy(); done(false); }, workerData.timeoutMs);
-  socket.on("connect", () => { clearTimeout(timer); socket.destroy(); done(true); });
-  socket.on("error", () => { clearTimeout(timer); done(false); });
-} catch {
-  done(false);
-}
-parentPort.unref();
-`;
-  }
-});
-
-// src/runtime/surface/surface-spawn.ts
-import * as fs31 from "node:fs";
-import * as path26 from "node:path";
-function surfaceAgentEventsPath(stateRoot, taskId) {
-  return stateRoot ? agentEventsPathForStateRoot(stateRoot, taskId) : null;
-}
-function stripHeadlessModeArgs(args) {
-  const idx = args.indexOf("--mode");
-  if (idx === -1 || args[idx + 1] !== "json") return [...args];
-  if (args[idx + 2] !== "-p") return [...args];
-  return [...args.slice(0, idx), ...args.slice(idx + 3)];
-}
-function readParentStartTime(pid, readStat) {
-  const reader = readStat ?? ((p) => {
-    try {
-      return fs31.readFileSync(`/proc/${p}/stat`, "utf8");
-    } catch {
-      return void 0;
-    }
-  });
-  const stat2 = reader(pid);
-  if (!stat2) return "";
-  return procStartTimeTicks(stat2) ?? "";
-}
-function joinCommandLine(spec) {
-  return [spec.command, ...spec.args].map(shellEscape).join(" ");
-}
-async function prepareSurfaceSpawn(input) {
-  const now = input.deps?.now ?? Date.now;
-  try {
-    sweepLaunchScripts(launchScriptRegistry, now());
-  } catch (error) {
-    logInternalError("surface-spawn.sweep", error instanceof Error ? error : new Error(String(error)));
-  }
-  const hardGated = currentCrewDepth(input.env) > 0 ? `host depth ${currentCrewDepth(input.env)} > 0` : null;
-  let resolution;
-  try {
-    if (hardGated && input.deps?.provider !== void 0) {
-      logInternalError(
-        "surface-spawn.hard-gate",
-        new Error(`pre-resolved surface provider ignored: ${hardGated}`),
-        "fail-closed \xA73",
-        "warn"
-      );
-      return {
-        mode: "headless",
-        reason: `surface gated by ${hardGated}`,
-        gateRejected: {
-          gate: "depth",
-          reason: `surface gated by ${hardGated}`,
-          env: surfaceGateEnvSnapshot(input.env)
-        }
-      };
-    }
-    resolution = input.deps?.provider !== void 0 ? { provider: input.deps.provider } : resolveSurfaceDetailed(input.env, input.config, input.role, input.livePaneCount, input.deps?.resolve);
-  } catch (error) {
-    logInternalError("surface-spawn.resolve", error instanceof Error ? error : new Error(String(error)), "resolveSurface threw");
-    return { mode: "headless", reason: `surface resolution threw: ${error instanceof Error ? error.message : String(error)}` };
-  }
-  if (!resolution.provider) {
-    const rejection = resolution.rejection;
-    return {
-      mode: "headless",
-      reason: rejection ? `surface gate "${rejection.gate}": ${rejection.reason}` : "surface resolution returned null (mode/depth/async/cap/role gate or no mux)",
-      gateRejected: rejection
-    };
-  }
-  const provider = resolution.provider;
-  const runId = input.stateRoot ? path26.basename(input.stateRoot) : void 0;
-  let handle;
-  try {
-    handle = await provider.createSurface(input.taskId, {
-      cwd: input.cwd,
-      title: input.taskId,
-      ...runId ? { tabKey: runId, splitIndex: input.livePaneCount } : {}
-    });
-  } catch (error) {
-    logInternalError(
-      "surface-spawn.create-surface",
-      error instanceof Error ? error : new Error(String(error)),
-      `taskId=${input.taskId}`
-    );
-    return {
-      mode: "headless",
-      reason: `createSurface failed: ${error instanceof Error ? error.message : String(error)}`,
-      attempted: true
-    };
-  }
-  try {
-    if (typeof provider.sendCommand !== "function") {
-      throw new Error("provider does not implement sendCommand \u2014 cannot boot a commandless pane");
-    }
-    const tuiArgs = stripHeadlessModeArgs(input.piArgs);
-    const spawnSpec = (input.deps?.resolveCommand ?? getPiSpawnCommand)(tuiArgs);
-    const eventsPath = surfaceAgentEventsPath(input.stateRoot, input.taskId);
-    const scriptEnv = {
-      ...input.workerEnv,
-      PI_CREW_SURFACE: provider.kind,
-      PI_CREW_SURFACE_PANE: handle.id,
-      PI_CREW_AUTO_EXIT: "1",
-      ...eventsPath ? { PI_CREW_AGENT_EVENTS_PATH: eventsPath } : {},
-      // Host đã set PI_CREW_PARENT_PID trong worker env (child-pi-spawn) —
-      // chỉ tự điền khi worker env chưa có để tránh ghi đè ý của caller.
-      ...input.workerEnv.PI_CREW_PARENT_PID ? {} : { PI_CREW_PARENT_PID: String(process.pid) }
-    };
-    if (!scriptEnv.PI_CREW_PARENT_START_TIME) {
-      scriptEnv.PI_CREW_PARENT_START_TIME = readParentStartTime(process.pid, input.deps?.readParentStat);
-    }
-    const scriptPath = buildLaunchScript({
-      taskId: input.taskId,
-      env: scriptEnv,
-      command: joinCommandLine(spawnSpec),
-      cwd: input.cwd,
-      baseDir: input.baseDir ?? getPiTempBase(),
-      callerEnv: input.env
-    });
-    await provider.sendCommand(handle, `bash ${shellEscape(scriptPath)}; exit`);
-    return {
-      mode: "surface",
-      kind: provider.kind,
-      paneId: handle.id,
-      handle,
-      provider,
-      scriptPath,
-      eventsPath,
-      // Task 5 (tab-layout): đưa tab identity lên cho caller ghi manifest —
-      // provider set handle.tabId trong tab-flow (tabKey có mặt).
-      ...runId && handle.tabId ? { tabKey: runId, tabId: handle.tabId } : {}
-    };
-  } catch (error) {
-    logInternalError(
-      "surface-spawn.boot",
-      error instanceof Error ? error : new Error(String(error)),
-      `taskId=${input.taskId} pane=${handle.id} \u2014 falling back to headless`
-    );
-    try {
-      await provider.closeSurface(handle, { force: true });
-    } catch (closeError) {
-      logInternalError(
-        "surface-spawn.orphan-close",
-        closeError instanceof Error ? closeError : new Error(String(closeError)),
-        `pane=${handle.id}`
-      );
-    }
-    return {
-      mode: "headless",
-      reason: `surface boot failed: ${error instanceof Error ? error.message : String(error)}`,
-      attempted: true
-    };
-  }
-}
-function sweepLaunchScriptsAtRunEnd(now = Date.now) {
-  try {
-    return sweepLaunchScripts(launchScriptRegistry, now());
-  } catch (error) {
-    logInternalError("surface-spawn.run-end-sweep", error instanceof Error ? error : new Error(String(error)));
-    return 0;
-  }
-}
-async function waitForSurfaceExit(outcome, hooks = {}) {
-  const forceClose = async () => {
-    try {
-      await outcome.provider.closeSurface(outcome.handle, { force: true });
-    } catch (error) {
-      logInternalError(
-        "surface-spawn.force-close",
-        error instanceof Error ? error : new Error(String(error)),
-        `pane=${outcome.paneId}`
-      );
-    }
-  };
-  return await new Promise((resolve26) => {
-    let cancelledByAbort = hooks.signal?.aborted === true;
-    let timedOut = false;
-    let settled = false;
-    let synthTimer = null;
-    const finish = (info2) => {
-      if (settled) return;
-      settled = true;
-      if (synthTimer) clearTimeout(synthTimer);
-      resolve26(info2);
-    };
-    const armSyntheticFallback = () => {
-      if (settled || synthTimer) return;
-      const graceMs = Math.max(1, hooks.graceAfterForceCloseMs ?? FORCE_CLOSE_EXIT_GRACE_MS);
-      synthTimer = setTimeout(() => {
-        logInternalError(
-          "surface-spawn.synthetic-exit",
-          new Error(`no onExit within ${graceMs}ms of force-close`),
-          `pane=${outcome.paneId} \u2014 resolving synthetic exit (pane may have died before its first onExit subscription)`
-        );
-        finish({ reason: "detached", cancelledByAbort, timedOut, synthetic: true });
-      }, graceMs);
-      synthTimer.unref();
-    };
-    if (cancelledByAbort) {
-      cancelledByAbort = true;
-      void forceClose();
-      armSyntheticFallback();
-    }
-    const onAbort = () => {
-      if (cancelledByAbort || timedOut || settled) return;
-      cancelledByAbort = true;
-      void forceClose();
-      armSyntheticFallback();
-    };
-    hooks.signal?.addEventListener("abort", onAbort, { once: true });
-    const timer = hooks.deadlineMs !== void 0 ? setTimeout(
-      () => {
-        if (cancelledByAbort || timedOut || settled) return;
-        timedOut = true;
-        void forceClose();
-        armSyntheticFallback();
-      },
-      Math.max(1, hooks.deadlineMs)
-    ) : null;
-    timer?.unref();
-    outcome.handle.onExit((reason) => finish({ reason, cancelledByAbort, timedOut }));
-    if (!hooks.signal && !timer && !synthTimer && !settled) {
-      armSyntheticFallback();
-    }
-  });
-}
-var FORCE_CLOSE_EXIT_GRACE_MS;
-var init_surface_spawn = __esm({
-  "src/runtime/surface/surface-spawn.ts"() {
-    "use strict";
-    init_internal_error();
-    init_crew_agent_records();
-    init_pi_args();
-    init_pi_spawn();
-    init_proc_stat();
-    init_launch_script();
-    init_resolve_surface();
-    FORCE_CLOSE_EXIT_GRACE_MS = 2e3;
-  }
-});
-
-// src/runtime/compaction/compact-stages/tail-capture-stage.ts
-var TailCaptureStage, TAIL_CAPTURE_STREAM_STAGE;
-var init_tail_capture_stage = __esm({
-  "src/runtime/compaction/compact-stages/tail-capture-stage.ts"() {
-    "use strict";
-    TailCaptureStage = class {
-      id;
-      maxChars;
-      maxBytes;
-      marker;
-      constructor(config) {
-        const hasChars = typeof config.maxChars === "number";
-        const hasBytes = typeof config.maxBytes === "number";
-        if (hasChars === hasBytes) {
-          throw new Error(
-            `TailCaptureStage requires exactly one of maxChars or maxBytes (got chars=${config.maxChars} bytes=${config.maxBytes})`
-          );
-        }
-        if (hasChars && config.maxChars <= 0) throw new Error(`TailCaptureStage: maxChars must be > 0, got ${config.maxChars}`);
-        if (hasBytes && config.maxBytes <= 0) throw new Error(`TailCaptureStage: maxBytes must be > 0, got ${config.maxBytes}`);
-        this.maxChars = config.maxChars;
-        this.maxBytes = config.maxBytes;
-        this.marker = config.marker ?? "";
-        this.id = config.id ?? (hasBytes ? "tail-capture" : "tail-capture");
+      while (asyncQueues.size >= MAX_ASYNC_QUEUES) {
+        const oldestKey = asyncQueues.keys().next().value;
+        if (oldestKey === void 0) break;
+        asyncQueues.delete(oldestKey);
       }
-      apply(text) {
-        if (this.maxBytes !== void 0) {
-          if (Buffer.byteLength(text, "utf-8") <= this.maxBytes) return text;
-          let tail2 = text.slice(Math.max(0, text.length - this.maxBytes));
-          while (Buffer.byteLength(tail2, "utf-8") > this.maxBytes) tail2 = tail2.slice(0, -1);
-          return this.marker ? `${this.marker}
-${tail2}` : tail2;
-        }
-        const max = this.maxChars;
-        if (text.length <= max) return text;
-        const tail = text.slice(text.length - max);
-        return this.marker ? `${this.marker}
-${tail}` : tail;
-      }
-    };
-    TAIL_CAPTURE_STREAM_STAGE = new TailCaptureStage({
-      maxChars: 16384,
-      id: "tail-capture-stream"
-    });
-  }
-});
-
-// src/runtime/child-pi/child-pi-kill.ts
-import { spawn } from "node:child_process";
-function registerActiveChild(pid, child) {
-  activeChildProcesses.set(pid, child);
+      asyncQueues.set(queueKey, Promise.resolve());
+    }
+  );
+  asyncQueues.set(queueKey, tail);
+  return next;
 }
-function unregisterActiveChild(pid) {
-  activeChildProcesses.delete(pid);
-}
-function clearHardKillTimer(pid) {
-  if (pid === void 0) return;
-  const timer = childHardKillTimers.get(pid);
-  if (timer) {
-    clearTimeout(timer);
-    childHardKillTimers.delete(pid);
-  }
-}
-function spawnTaskkillSafe(pid) {
+async function appendEventBatchInsideLock(eventsPath, queue) {
+  if (queue.length === 0) return;
+  tickAppendCounter(eventsPath, queue.length);
+  fs23.mkdirSync(path21.dirname(eventsPath), { recursive: true });
+  let preStat;
   try {
-    const taskkillChild = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
-      stdio: "ignore",
-      detached: false
-    });
-    taskkillChild.on("error", (err2) => {
-      logInternalError("child-pi.taskkill-spawn-error", err2 instanceof Error ? err2 : new Error(String(err2)), `pid=${pid}`);
-    });
-    taskkillChild.unref();
-  } catch (error) {
-    logInternalError("child-pi.taskkill-sync-error", error instanceof Error ? error : new Error(String(error)), `pid=${pid}`);
+    preStat = fs23.statSync(eventsPath);
+  } catch {
   }
-}
-function killProcessPid(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return;
   try {
-    if (process.platform === "win32") {
-      spawnTaskkillSafe(pid);
-      const verifyTimer = setTimeout(() => {
+    if (preStat) {
+      if (preStat.size > MAX_EVENTS_BYTES) {
         try {
-          process.kill(pid, 0);
-          logInternalError(
-            "child-pi.taskkill-stuck",
-            new Error(`process ${pid} still alive 2s after taskkill /T /F; retrying`),
-            `pid=${pid}`,
-            "error"
-          );
-          try {
-            spawnTaskkillSafe(pid);
-          } catch {
-          }
-        } catch {
+          const prepared = prepareCompaction(eventsPath);
+          if (prepared) applyCompactionUnlocked(eventsPath, prepared);
+        } catch (error) {
+          logInternalError("event-log.batch-immediate-compact", error, `eventsPath=${eventsPath}`);
         }
-      }, 2e3);
-      verifyTimer.unref();
+        if (fs23.existsSync(eventsPath) && fs23.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
+          if (!rotateEventLogUnlocked(eventsPath)) {
+            logInternalError(
+              "event-log.rotate-failed",
+              new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+              `eventsPath=${eventsPath}`,
+              "error"
+            );
+          }
+        }
+      }
+    }
+  } catch (error) {
+    logInternalError("event-log.batch-size-check", error, `eventsPath=${eventsPath}`);
+  }
+  const startingSeq = queue[0]?.event.metadata?.seq ?? reserveSequence(eventsPath, queue.length);
+  let nextSeq = startingSeq;
+  const finalized = [];
+  let lastSeq = 0;
+  for (const item of queue) {
+    const baseMetadata = item.event.metadata;
+    const seq = baseMetadata?.seq ?? nextSeq++;
+    let metadata = {
+      seq,
+      provenance: baseMetadata?.provenance ?? "team_runner",
+      ...baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {},
+      ...baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {},
+      ...baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {},
+      ...baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {},
+      ...baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {},
+      ...baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {},
+      ...baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {},
+      ...baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {},
+      ...baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}
+    };
+    const fullEvent = {
+      time: (/* @__PURE__ */ new Date()).toISOString(),
+      ...item.event,
+      metadata
+    };
+    if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
+      metadata = {
+        ...metadata,
+        fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent)
+      };
+      fullEvent.metadata = metadata;
+    }
+    finalized.push({ item, line: `${JSON.stringify(redactSecrets(fullEvent))}
+`, fullEvent });
+    lastSeq = seq;
+  }
+  const reservedEnd = reservedSequenceEnd(eventsPath);
+  advanceSequenceCounter(eventsPath, lastSeq);
+  try {
+    if (fs23.existsSync(eventsPath) && fs23.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
+      logInternalError(
+        "event-log.size-limit",
+        new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
+        `eventsPath=${eventsPath}`
+      );
+      for (const { item } of finalized) item.reject(new Error("event log size limit exceeded"));
       return;
     }
-    try {
-      process.kill(-pid, "SIGTERM");
-    } catch (error) {
-      logInternalError("child-pi.sigterm", error, `pid=${pid}`);
-      try {
-        process.kill(pid, "SIGTERM");
-      } catch (fallbackError) {
-        logInternalError("child-pi.sigterm-absolute", fallbackError, `pid=${pid}`);
-      }
-    }
-    clearHardKillTimer(pid);
-    const hardKillTimer = setTimeout(() => {
-      try {
-        process.kill(-pid, "SIGKILL");
-      } catch (error) {
-        logInternalError("child-pi.sigkill", error, `pid=${pid}`);
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch (fallbackError) {
-          logInternalError("child-pi.sigkill-absolute", fallbackError, `pid=${pid}`);
-        }
-      }
-      childHardKillTimers.delete(pid);
-    }, HARD_KILL_MS);
-    hardKillTimer.unref();
-    childHardKillTimers.set(pid, hardKillTimer);
   } catch (error) {
-    logInternalError("child-pi.kill-process-pid", error, `pid=${pid}`);
+    logInternalError("event-log.batch-size-check-post", error, `eventsPath=${eventsPath}`);
   }
-}
-function killProcessTree(pid, child) {
-  try {
-    const callerStack = new Error("killProcessTree caller").stack ?? "(no stack)";
-    logInternalError(
-      "child-pi.kill-process-tree-invoked",
-      new Error(`pid=${pid} called from:
-${callerStack.split("\n").slice(0, 8).join("\n")}`),
-      `pid=${pid}`
-    );
-  } catch {
-  }
-  if (!pid || !Number.isInteger(pid) || pid <= 0) return;
-  if (child && child.exitCode !== null) return;
-  killProcessPid(pid);
-  child?.once("exit", () => clearHardKillTimer(pid));
-}
-function terminateActiveChildPiProcesses() {
-  const entries = [...activeChildProcesses.entries()];
-  for (const [pid, child] of entries) killProcessTree(pid, child);
-  return entries.length;
-}
-var MAX_CAPTURE_BYTES, activeChildProcesses, childHardKillTimers;
-var init_child_pi_kill = __esm({
-  "src/runtime/child-pi/child-pi-kill.ts"() {
-    "use strict";
-    init_defaults();
-    init_internal_error();
-    init_tail_capture_stage();
-    init_child_pi_constants();
-    MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
-    activeChildProcesses = /* @__PURE__ */ new Map();
-    childHardKillTimers = /* @__PURE__ */ new Map();
-    setInterval(() => {
-      for (const [pid, child] of activeChildProcesses) {
-        try {
-          process.kill(pid, 0);
-        } catch {
-          activeChildProcesses.delete(pid);
-        }
-      }
-    }, 6e4).unref();
-  }
-});
-
-// src/utils/env-allowlist.ts
-var WINDOWS_ESSENTIAL_ENV_VARS;
-var init_env_allowlist = __esm({
-  "src/utils/env-allowlist.ts"() {
-    "use strict";
-    WINDOWS_ESSENTIAL_ENV_VARS = [
-      "APPDATA",
-      "LOCALAPPDATA",
-      "USERPROFILE",
-      "SystemRoot",
-      "ComSpec",
-      "TEMP",
-      "TMP"
-    ];
-  }
-});
-
-// src/utils/env-filter.ts
-function isKnownProviderKey(key) {
-  return KNOWN_PROVIDER_KEYS.has(key);
-}
-function providerEnvKeys(modelId) {
-  if (!modelId) return [];
-  const separatorIndex = modelId.indexOf("/");
-  if (separatorIndex <= 0) return [];
-  const provider = modelId.substring(0, separatorIndex).toLowerCase();
-  return PROVIDER_ENV_KEY_MAP[provider] ?? [];
-}
-function buildScopedAllowList(baseAllowList, models) {
-  const providerKeys = /* @__PURE__ */ new Set();
-  for (const model of models) {
-    for (const key of providerEnvKeys(model)) {
-      providerKeys.add(key);
-    }
-  }
-  return [...baseAllowList, ...providerKeys];
-}
-function isDangerousGlob(pattern) {
-  if (!pattern.endsWith("*")) return false;
-  const prefix = pattern.slice(0, -1);
-  if (prefix === "") return true;
-  if (prefix.startsWith("PI_CREW_") || prefix === "PI_CREW") return false;
-  for (const suffix of SECRET_SUFFIXES) {
-    if (isSecretKey(prefix + suffix)) {
-      return true;
-    }
-  }
-  return false;
-}
-function sanitizeEnvSecrets(env, options) {
-  const filtered = {};
-  if (options?.allowList && options.allowList.length > 0) {
-    for (const pattern of options.allowList) {
-      if (isDangerousGlob(pattern)) {
-        throw new Error(`Allowlist pattern "${pattern}" could match secret env vars. Use a more specific pattern.`);
-      }
-      if (!pattern.endsWith("*") && isSecretKey(pattern) && !(pattern in env) && !isKnownProviderKey(pattern)) {
-        throw new Error(`Allowlist entry "${pattern}" looks like a secret key. Use a more specific pattern.`);
-      }
-    }
-    const exact = /* @__PURE__ */ new Set();
-    const globPrefixes = [];
-    for (const p of options.allowList) {
-      if (p.endsWith("*")) {
-        globPrefixes.push(p.slice(0, -1));
-      } else {
-        exact.add(p);
-      }
-    }
-    for (const [key, value] of Object.entries(env)) {
-      if (value === void 0) continue;
-      if (exact.has(key)) {
-        filtered[key] = value;
-        continue;
-      }
-      if (globPrefixes.some((prefix) => key.startsWith(prefix) && key.length > prefix.length) && !isSecretKey(key)) {
-        filtered[key] = value;
-      }
-    }
-    return filtered;
-  }
-  for (const [key, value] of Object.entries(env)) {
-    if (value !== void 0 && !isSecretKey(key)) filtered[key] = value;
-  }
-  return filtered;
-}
-var KNOWN_PROVIDER_KEYS, PROVIDER_ENV_KEY_MAP, SECRET_SUFFIXES;
-var init_env_filter = __esm({
-  "src/utils/env-filter.ts"() {
-    "use strict";
-    init_redaction();
-    KNOWN_PROVIDER_KEYS = /* @__PURE__ */ new Set([
-      "MINIMAX_API_KEY",
-      "MINIMAX_GROUP_ID",
-      "OPENAI_API_KEY",
-      "OPENAI_ORG_ID",
-      "ANTHROPIC_API_KEY",
-      "GOOGLE_API_KEY",
-      "GOOGLE_GENERATIVE_LANGUAGE_API_KEY",
-      "AZURE_OPENAI_API_KEY",
-      "AZURE_OPENAI_ENDPOINT",
-      "AWS_ACCESS_KEY_ID",
-      "AWS_SECRET_ACCESS_KEY",
-      "AWS_REGION",
-      "ZEU_API_KEY",
-      "ZERODEV_API_KEY"
-    ]);
-    PROVIDER_ENV_KEY_MAP = {
-      minimax: ["MINIMAX_API_KEY", "MINIMAX_GROUP_ID"],
-      openai: ["OPENAI_API_KEY", "OPENAI_ORG_ID"],
-      anthropic: ["ANTHROPIC_API_KEY"],
-      google: ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_LANGUAGE_API_KEY"],
-      gemini: ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_LANGUAGE_API_KEY"],
-      azure: ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
-      "azure-openai": ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
-      aws: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
-      bedrock: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
-      zai: ["ZEU_API_KEY"],
-      zerodev: ["ZERODEV_API_KEY"]
-    };
-    SECRET_SUFFIXES = ["token", "api", "key", "password", "passwd", "secret", "credential", "authorization", "private"];
-  }
-});
-
-// src/runtime/scratchpad/snapshot-lookup.ts
-import { lstatSync as lstatSync6, readdirSync as readdirSync11 } from "node:fs";
-import { join as join25 } from "node:path";
-function findLatestScratchpadSnapshot(artifactsRoot, agentId) {
-  const scratchpadDir = join25(artifactsRoot, "scratchpad");
-  let dirStat;
-  try {
-    dirStat = lstatSync6(scratchpadDir);
-  } catch {
-    return null;
-  }
-  if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) return null;
-  let entries;
-  try {
-    entries = readdirSync11(scratchpadDir, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-  const prefix = `${agentId}.attempt-`;
-  let best = null;
-  for (const dirent of entries) {
-    if (dirent.isSymbolicLink() || !dirent.isFile()) continue;
-    const name = dirent.name;
-    if (!name.startsWith(prefix) || !name.endsWith(SNAPSHOT_SUFFIX)) continue;
-    const attemptPart = name.slice(prefix.length, name.length - SNAPSHOT_SUFFIX.length);
-    if (!/^\d+$/.test(attemptPart)) continue;
-    const attempt = Number.parseInt(attemptPart, 10);
-    let stat2;
+  fs23.appendFileSync(eventsPath, finalized.map((f) => f.line).join(""), "utf-8");
+  const hasTerminal = finalized.some((f) => TERMINAL_EVENT_TYPES.has(f.fullEvent.type));
+  if (hasTerminal) {
+    const fd = fs23.openSync(eventsPath, "r+");
     try {
-      stat2 = lstatSync6(join25(scratchpadDir, name));
+      fs23.fsyncSync(fd);
     } catch {
-      continue;
-    }
-    if (!stat2.isFile()) continue;
-    const hit = { path: join25(scratchpadDir, name), attempt, mtimeMs: stat2.mtimeMs };
-    if (best === null || hit.mtimeMs > best.mtimeMs || hit.mtimeMs === best.mtimeMs && hit.attempt < best.attempt) {
-      best = hit;
+    } finally {
+      fs23.closeSync(fd);
     }
   }
-  return best;
+  if (lastSeq > reservedEnd) {
+    persistSequenceMonotonic(eventsPath, lastSeq);
+  }
+  for (const { item, fullEvent } of finalized) item.resolve(fullEvent);
 }
-var SNAPSHOT_SUFFIX;
-var init_snapshot_lookup = __esm({
-  "src/runtime/scratchpad/snapshot-lookup.ts"() {
-    "use strict";
-    SNAPSHOT_SUFFIX = ".snapshot.json";
-  }
-});
-
-// src/runtime/child-pi/child-pi-spawn.ts
-import * as fs32 from "node:fs";
-import * as path27 from "node:path";
-function buildChildPiSpawnOptions(cwd, env, model) {
-  let validatedCwd;
+function appendEventInsideLock(eventsPath, event) {
+  fs23.mkdirSync(path21.dirname(eventsPath), { recursive: true });
+  let preStat;
   try {
-    validatedCwd = fs32.realpathSync(cwd);
-    const stats = fs32.statSync(validatedCwd);
-    if (!stats.isDirectory()) {
-      throw new Error(`cwd is not a directory: ${cwd}`);
-    }
-  } catch (error) {
-    if (error.code === "ENOENT" && error instanceof Error && error.message.includes("ENOENT")) {
-      validatedCwd = path27.resolve(cwd);
-    } else {
-      throw new Error(`Invalid cwd: ${cwd} \u2014 ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  const allowList = model ? buildScopedAllowList(BASE_ALLOWLIST, [model]) : BASE_ALLOWLIST;
-  const filteredEnv = sanitizeEnvSecrets(env, { allowList });
-  if (filteredEnv.NODE_PATH) {
-    const validPrefixes = ["/opt/", "/lib/", "/usr/local/", "/usr/", "/home/"];
-    const validPaths = filteredEnv.NODE_PATH.split(":").filter((p) => {
-      return validPrefixes.some((prefix) => p.startsWith(prefix));
-    });
-    if (validPaths.length > 0) {
-      filteredEnv.NODE_PATH = validPaths.join(":");
-    } else {
-      delete filteredEnv.NODE_PATH;
-    }
-  }
-  return {
-    cwd: validatedCwd,
-    env: {
-      ...filteredEnv,
-      // PI_CREW_PARENT_PID is set so child workers can run a parent-guard
-      // (parent-guard.ts). Consumers (NOT dead):
-      //   1. zombie-scanner.ts:185 — reads PI_CREW_PARENT_PID from
-      //      /proc/<pid>/environ (readProcEnviron) to detect orphaned/zombie
-      //      workers whose leader died.
-      //   2. background-runner.ts:615 — startParentGuard(parentPid)
-      //      self-terminates the orchestrator when its own parent dies.
-      //   3. scratchpad-lifecycle.ts:50,166 — propagates the leader pid into
-      //      scratchpad guest env for guest-zombie detection.
-      // The var is unused ONLY by the external `pi` binary
-      // (@earendil-works/pi-coding-agent): it does NOT read PI_CREW_PARENT_PID
-      // or call startParentGuard (grep of Pi dist = 0 matches), so child-pi
-      // workers cannot self-terminate on leader death — they rely on the
-      // reactive zombie scanner (see docs/decisions/2026-08-14-parent-guard-reactive-scanner.md).
-      // The deeper fix (wiring startParentGuard into the pi worker entry point)
-      // is DEFERRED because workers are an external binary pi-crew doesn't control.
-      //
-      // Orphan-mitigation for this gap relies on:
-      //   1. The RT-2 SIGINT fix in background-runner.ts (abort + exitCode pattern
-      //      lets the finally/runCleanup block terminate child-pi processes).
-      //   2. The reactive zombie-scanner.ts sweep (finds workers whose
-      //      PI_CREW_PARENT_PID points at a dead PID).
-      PI_CREW_PARENT_PID: String(process.pid)
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-    // stdin=ignore: child doesn't wait for input; task comes via CLI args
-    detached: process.platform !== "win32",
-    setsid: true,
-    // NOTE: setsid creates a new session; the child process becomes the session leader
-    // and its parent becomes that session leader (still the team-runner in the same
-    // process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner),
-    // but see the comment above — the pi worker binary does NOT actually consume it. The
-    // parent-guard model would check direct parent liveness via process.kill(pid, 0),
-    // but this is only implemented in background-runner.ts, not in the worker binary.
-    windowsHide: true
-  };
-}
-function assertOnlyControlEnvKeys(builtEnv) {
-  for (const key of Object.keys(builtEnv)) {
-    if (!key.startsWith("PI_CREW_") && !key.startsWith("PI_TEAMS_")) {
-      throw new Error(
-        `SECURITY: built.env contains unexpected key "${key}"; expected only PI_CREW_* or PI_TEAMS_* execution-control vars`
-      );
-    }
-  }
-}
-function buildFinalChildPiSpawnOptions(cwd, mergedEnv, builtEnv, model) {
-  assertOnlyControlEnvKeys(builtEnv);
-  const spawnOptions = buildChildPiSpawnOptions(cwd, mergedEnv, model);
-  spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
-  return spawnOptions;
-}
-function prepareSpawnContext(input, effectiveTask, depthEnv) {
-  const built = buildPiWorkerArgs({
-    task: effectiveTask,
-    agent: input.agent,
-    model: input.model,
-    sessionEnabled: true,
-    maxDepth: input.maxDepth,
-    skillPaths: input.skillPaths,
-    role: input.role,
-    thinkingOverride: input.thinkingOverride,
-    // ADR-5 §3: depthOverride is pre-encoded into depthEnv by runChildPi
-    // (parent's record depth as base-env PI_CREW_DEPTH); forward it so the
-    // child env gets parentDepth+1 = the true grandchild depth.
-    env: depthEnv
-  });
-  if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
-  if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
-  if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
-  built.env.PI_CREW_ASK_ENABLED = "1";
-  built.env.PI_CREW_MSG_ENABLED = "1";
-  built.env.PI_CREW_DELEGATE_ENABLED = "1";
-  if (input.eventsPath) built.env.PI_CREW_STATE_ROOT = path27.dirname(input.eventsPath);
-  if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
-    built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
-    built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
-  }
-  if (input.eventsPath) {
-    built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
-    if (input.agentId && !built.env.PI_CREW_TASK_ID) built.env.PI_CREW_TASK_ID = input.agentId;
-  }
-  if (input.agentId && isScratchpadEnabledForRole(input.role ?? input.agent.name, input.agent)) {
-    built.env.PI_CREW_SCRATCHPAD = "1";
-    built.env.PI_CREW_TASK_ID = input.agentId;
-    built.env.PI_CREW_ATTEMPT = String(input.attempt ?? 0);
-    if (input.artifactsRoot) {
-      built.env.PI_CREW_ARTIFACTS_ROOT = input.artifactsRoot;
-    }
-    const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
-    built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
-    const restoreHit = input.artifactsRoot ? findLatestScratchpadSnapshot(input.artifactsRoot, input.agentId) : null;
-    if (restoreHit) {
-      built.env.PI_CREW_SCRATCHPAD_RESTORE = restoreHit.path;
-      built.env.PI_CREW_SCRATCHPAD_RESTORE_MTIME = String(restoreHit.mtimeMs);
-    }
-  }
-  if (input.signal?.aborted) {
-    return {
-      kind: "aborted",
-      result: {
-        exitCode: null,
-        stdout: "",
-        stderr: "",
-        error: "Aborted before spawn (parent AbortSignal already aborted)",
-        aborted: true
-      }
-    };
-  }
-  const spawnSpec = getPiSpawnCommand(built.args);
-  return {
-    kind: "ready",
-    ctx: {
-      spawnSpec,
-      builtArgs: built.args,
-      mergedEnv: { ...process.env, ...built.env },
-      tempDir: built.tempDir,
-      builtEnv: built.env
-    }
-  };
-}
-var BASE_ALLOWLIST;
-var init_child_pi_spawn = __esm({
-  "src/runtime/child-pi/child-pi-spawn.ts"() {
-    "use strict";
-    init_role_tools();
-    init_env_allowlist();
-    init_env_filter();
-    init_internal_error();
-    init_safe_paths();
-    init_pi_args();
-    init_pi_spawn();
-    init_snapshot_lookup();
-    BASE_ALLOWLIST = [
-      "PATH",
-      "HOME",
-      "USER",
-      "SHELL",
-      "TERM",
-      "LANG",
-      "LC_ALL",
-      "LC_COLLATE",
-      "LC_CTYPE",
-      "LC_MESSAGES",
-      "LC_MONETARY",
-      "LC_NUMERIC",
-      "LC_TIME",
-      "XDG_CONFIG_HOME",
-      "XDG_DATA_HOME",
-      "XDG_CACHE_HOME",
-      "XDG_RUNTIME_DIR",
-      // Windows essentials — see WINDOWS_ESSENTIAL_ENV_VARS (src/utils/env-allowlist.ts).
-      ...WINDOWS_ESSENTIAL_ENV_VARS,
-      "NVM_BIN",
-      "NVM_DIR",
-      "NVM_INC",
-      "NODE_DISABLE_COLORS",
-      "NODE_EXTRA_CA_CERTS",
-      "NPM_CONFIG_REGISTRY",
-      "NPM_CONFIG_USERCONFIG",
-      "NPM_CONFIG_GLOBALCONFIG",
-      "PI_CREW_DEPTH"
-    ];
-  }
-});
-
-// src/runtime/child-pi/child-pi-steering.ts
-import * as fs33 from "node:fs";
-var ChildPiSteeringController;
-var init_child_pi_steering = __esm({
-  "src/runtime/child-pi/child-pi-steering.ts"() {
-    "use strict";
-    init_internal_error();
-    init_child_pi_kill();
-    ChildPiSteeringController = class {
-      turnCount = 0;
-      softLimitReached = false;
-      hardAbortInitiatedFlag = false;
-      maxTurns;
-      graceTurns;
-      constructor(maxTurns, graceTurns) {
-        this.maxTurns = maxTurns;
-        this.graceTurns = graceTurns !== void 0 && graceTurns > 1e3 ? 1e3 : graceTurns;
-      }
-      /** Called on each `turn_end` event. Returns the action to take (if any). */
-      onTurnEnd(pid, child, steeringFile) {
-        this.turnCount += 1;
-        if (this.maxTurns !== void 0 && !this.softLimitReached && this.turnCount >= this.maxTurns) {
-          this.softLimitReached = true;
-          if (steeringFile) {
-            try {
-              fs33.appendFileSync(
-                steeringFile,
-                JSON.stringify({
-                  type: "steer",
-                  message: "You have reached your turn limit. Wrap up immediately \u2014 provide your final answer now."
-                }) + "\n",
-                "utf-8"
-              );
-            } catch (err2) {
-              logInternalError("child-pi.steer-write-failed", err2 instanceof Error ? err2 : new Error(String(err2)), `pid=${pid}`);
-            }
-          }
-          return { kind: "steer" };
-        }
-        if (this.maxTurns !== void 0 && this.softLimitReached && this.turnCount >= this.maxTurns + (this.graceTurns ?? 5)) {
-          this.hardAbortInitiatedFlag = true;
-          if (pid !== void 0 && child) {
-            killProcessTree(pid, child);
-            return { kind: "hardAbort", pid, child };
-          }
-          return { kind: "none" };
-        }
-        return { kind: "none" };
-      }
-      /**
-       * Returns true once the hard-abort has been initiated. Callers (onJsonEvent,
-       * onStdoutLine, stdout/stderr data handlers) should skip restartNoResponseTimer
-       * when this returns true to avoid masking a SIGTERM-ignoring child.
-       */
-      isHardAbortInitiated() {
-        return this.hardAbortInitiatedFlag;
-      }
-      /**
-       * Returns true once the soft-limit steer has been delivered (the worker has
-       * been notified to wrap up). Used by runChildPi's settle path to distinguish
-       * a graceful-abort from a parent-abort.
-       */
-      isSoftLimitReached() {
-        return this.softLimitReached;
-      }
-      /** Current turn count (incremented on each `turn_end` event). */
-      getTurnCount() {
-        return this.turnCount;
-      }
-      /** Max turns configured (undefined = no limit). */
-      getMaxTurns() {
-        return this.maxTurns;
-      }
-      /** Grace turns configured (after soft limit before hard abort). */
-      getGraceTurns() {
-        return this.graceTurns;
-      }
-    };
-  }
-});
-
-// src/runtime/child-pi/child-pi-timers.ts
-function createChildPiTimers(deps) {
-  let finalDrainTimer;
-  let hardKillTimer;
-  let noResponseTimer;
-  let safetyTimer;
-  let cancelHardKillTimer;
-  let pollHandle;
-  const restartNoResponseTimer = () => {
-    if (deps.responseTimeoutMs <= 0) return;
-    if (noResponseTimer) clearTimeout(noResponseTimer);
-    noResponseTimer = setTimeout(() => {
-      deps.state.setResponseTimeoutHit(true);
-      const stderr = deps.stderrTail.value();
-      const timeoutStderr = deps.redactStderrExcerpt(stderr, 1024);
-      deps.input.onLifecycleEvent?.({
-        type: "response_timeout",
-        pid: deps.child.pid,
-        error: `No output for ${deps.responseTimeoutMs}ms`,
-        ts: (/* @__PURE__ */ new Date()).toISOString(),
-        stderr: timeoutStderr || void 0
-      });
-      killProcessTree(deps.child.pid, deps.child);
-      try {
-        deps.child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
-      } catch (error) {
-        logInternalError("child-pi.response-timeout-term", error, `pid=${deps.child.pid}`);
-      }
-      const SAFETY_SETTLE_MS = HARD_KILL_MS + 2e3;
-      safetyTimer = setTimeout(() => {
-        if (deps.state.getSettled() || deps.state.getChildExited()) return;
-        logInternalError(
-          "child-pi.settle-safety-fired",
-          new Error(`Child did not exit within ${SAFETY_SETTLE_MS}ms of kill; forcing settle`),
-          `pid=${deps.child.pid}, responseTimeoutMs=${deps.responseTimeoutMs}`
-        );
-        try {
-          process.kill(deps.child.pid, 0);
-          const timeoutErr = `Child Pi produced no new output for ${deps.responseTimeoutMs}ms; killed but did not exit within ${SAFETY_SETTLE_MS}ms (possible zombie).`;
-          void deps.getSettle()({
-            exitCode: null,
-            stdout: deps.stdoutTail.value(),
-            stderr: deps.stderrTail.value(),
-            error: timeoutErr,
-            exitStatus: {
-              exitCode: null,
-              cancelled: deps.state.getAbortRequested(),
-              timedOut: true,
-              killed: deps.state.getHardKilled(),
-              cleanupErrors: deps.cleanupErrors,
-              finalDrainMs: deps.finalDrainMs,
-              crashClass: "timeout"
-            }
-          });
-        } catch {
-        }
-      }, SAFETY_SETTLE_MS);
-      safetyTimer.unref();
-    }, deps.responseTimeoutMs);
-    noResponseTimer.unref();
-  };
-  const clearNoResponseTimer = () => {
-    if (noResponseTimer) clearTimeout(noResponseTimer);
-    noResponseTimer = void 0;
-  };
-  const clearFinalDrainTimers = () => {
-    if (finalDrainTimer) clearTimeout(finalDrainTimer);
-    if (hardKillTimer) clearTimeout(hardKillTimer);
-    finalDrainTimer = void 0;
-    hardKillTimer = void 0;
-  };
-  return {
-    restartNoResponseTimer,
-    clearNoResponseTimer,
-    clearFinalDrainTimers,
-    armFinalDrain() {
-      const quietMs = deps.input.finalDrainQuietMs ?? DEFAULT_CHILD_PI.finalDrainQuietMs;
-      if (quietMs < (deps.input.finalDrainMs ?? DEFAULT_CHILD_PI.finalDrainMs)) {
-        pollHandle = setInterval(() => {
-          if (deps.state.getSettled() || deps.state.getChildExited()) {
-            if (pollHandle) {
-              clearInterval(pollHandle);
-              pollHandle.unref();
-            }
-            pollHandle = void 0;
-            return;
-          }
-          const sinceLast = performance.now() - deps.state.getLastStdoutActivityMonotonicMs();
-          if (sinceLast >= quietMs) {
-            if (pollHandle) {
-              clearInterval(pollHandle);
-              pollHandle.unref();
-            }
-            pollHandle = void 0;
-            deps.state.setForcedFinalDrain(true);
-            deps.state.setFinalDrainFiredMonotonicMs(performance.now());
-            deps.input.onLifecycleEvent?.({
-              type: "final_drain",
-              pid: deps.child.pid,
-              ts: (/* @__PURE__ */ new Date()).toISOString(),
-              reason: "stdout-quiet"
-            });
-            try {
-              deps.child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
-            } catch (error) {
-              logInternalError("child-pi.quiet-drain-term", error, `pid=${deps.child.pid}`);
-            }
-            hardKillTimer = setTimeout(() => {
-              if (deps.state.getSettled() || deps.state.getChildExited()) return;
-              try {
-                deps.state.setHardKilled(true);
-                deps.input.onLifecycleEvent?.({
-                  type: "hard_kill",
-                  pid: deps.child.pid,
-                  ts: (/* @__PURE__ */ new Date()).toISOString()
-                });
-                deps.child.kill(process.platform === "win32" ? void 0 : "SIGKILL");
-              } catch (error) {
-                logInternalError("child-pi.quiet-drain-hard-kill", error, `pid=${deps.child.pid}`);
-              }
-            }, deps.hardKillMs);
-            hardKillTimer.unref();
-            if (finalDrainTimer) {
-              clearTimeout(finalDrainTimer);
-              finalDrainTimer = void 0;
-            }
-          }
-        }, 200);
-        pollHandle.unref();
-      }
-      finalDrainTimer = setTimeout(() => {
-        if (deps.state.getSettled() || deps.state.getChildExited()) return;
-        deps.state.setForcedFinalDrain(true);
-        deps.state.setFinalDrainFiredMonotonicMs(performance.now());
-        deps.input.onLifecycleEvent?.({
-          type: "final_drain",
-          pid: deps.child.pid,
-          ts: (/* @__PURE__ */ new Date()).toISOString()
-        });
-        try {
-          deps.child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
-        } catch (error) {
-          logInternalError("child-pi.final-drain-term", error, `pid=${deps.child.pid}`);
-        }
-        hardKillTimer = setTimeout(() => {
-          if (deps.state.getSettled() || deps.state.getChildExited()) return;
-          try {
-            deps.state.setHardKilled(true);
-            deps.input.onLifecycleEvent?.({
-              type: "hard_kill",
-              pid: deps.child.pid,
-              ts: (/* @__PURE__ */ new Date()).toISOString()
-            });
-            deps.child.kill(process.platform === "win32" ? void 0 : "SIGKILL");
-          } catch (error) {
-            logInternalError("child-pi.final-drain-kill", error, `pid=${deps.child.pid}`);
-          }
-        }, deps.hardKillMs);
-        hardKillTimer.unref();
-      }, deps.finalDrainMs);
-      finalDrainTimer.unref();
-    },
-    hasFinalDrainTimer() {
-      return finalDrainTimer !== void 0;
-    },
-    armCancelHardKill() {
-      cancelHardKillTimer = setTimeout(() => {
-        if (deps.state.getSettled() || deps.state.getChildExited()) return;
-        try {
-          deps.state.setHardKilled(true);
-          deps.child.kill(process.platform === "win32" ? void 0 : "SIGKILL");
-        } catch (error) {
-          logInternalError("child-pi.cancel-fast-kill", error, `pid=${deps.child.pid}`);
-        }
-      }, 200);
-      cancelHardKillTimer.unref();
-    },
-    clearAll() {
-      clearNoResponseTimer();
-      if (safetyTimer) clearTimeout(safetyTimer);
-      safetyTimer = void 0;
-      clearFinalDrainTimers();
-      if (cancelHardKillTimer) clearTimeout(cancelHardKillTimer);
-      cancelHardKillTimer = void 0;
-      if (pollHandle) {
-        clearInterval(pollHandle);
-        pollHandle.unref();
-      }
-      pollHandle = void 0;
-    }
-  };
-}
-var init_child_pi_timers = __esm({
-  "src/runtime/child-pi/child-pi-timers.ts"() {
-    "use strict";
-    init_defaults();
-    init_internal_error();
-    init_child_pi_constants();
-    init_child_pi_kill();
-  }
-});
-
-// src/runtime/child-pi/mock-fixtures.ts
-import * as fs34 from "node:fs";
-import * as os9 from "node:os";
-import * as path28 from "node:path";
-async function runMockChildPi(input, effectiveTask, observe) {
-  const mock = getCrewEnv("PI_TEAMS_MOCK_CHILD_PI");
-  if (!mock) return void 0;
-  const allowMock = getCrewEnv("PI_CREW_ALLOW_MOCK") === "1" || getCrewEnv("PI_CREW_ALLOW_MOCK") === "true";
-  if (!allowMock) {
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: "Mock mode requires PI_CREW_ALLOW_MOCK=1"
-    };
-  }
-  logInternalError("child-pi.mock", new Error(`Mock mode active: ${mock}`), "NOT running real agents");
-  if (mock === "success") {
-    const stdout = `[MOCK] Success for ${input.agent.name}
-`;
-    await observe(input, stdout);
-    return { exitCode: 0, stdout, stderr: "" };
-  }
-  if (mock === "json-slow-success") {
-    const windowMs = Number(getCrewEnv("PI_TEAMS_MOCK_STEER_WINDOW_MS") ?? "1500");
-    await new Promise((resolve26) => setTimeout(resolve26, Math.min(windowMs, 5e3)));
-    const text = `[MOCK] JSON success for ${input.agent.name}`;
-    const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
-${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
-`;
-    await observe(input, stdout);
-    return { exitCode: 0, stdout, stderr: "" };
-  }
-  if (mock === "json-success" || mock === "adaptive-plan") {
-    const text = mock === "adaptive-plan" && effectiveTask.includes("ADAPTIVE_PLAN_JSON_START") ? `[MOCK] Adaptive plan
-ADAPTIVE_PLAN_JSON_START
-${JSON.stringify({
-      phases: [
-        {
-          name: "research",
-          tasks: [
-            {
-              role: "explorer",
-              task: "Explore adaptive target"
-            },
-            {
-              role: "analyst",
-              task: "Analyze adaptive target"
-            },
-            {
-              role: "planner",
-              task: "Plan adaptive target"
-            }
-          ]
-        },
-        {
-          name: "build",
-          tasks: [
-            {
-              role: "executor",
-              task: "Implement adaptive target"
-            }
-          ]
-        },
-        {
-          name: "check",
-          tasks: [
-            {
-              role: "reviewer",
-              task: "Review adaptive target"
-            },
-            {
-              role: "test-engineer",
-              task: "Test adaptive target"
-            },
-            {
-              role: "writer",
-              task: "Summarize adaptive target"
-            }
-          ]
-        }
-      ]
-    })}
-ADAPTIVE_PLAN_JSON_END` : `[MOCK] JSON success for ${input.agent.name}`;
-    const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
-${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
-`;
-    await observe(input, stdout);
-    return { exitCode: 0, stdout, stderr: "" };
-  }
-  if (mock === "retryable-failure")
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: "[MOCK] rate limit: mock failure"
-    };
-  if (mock === "retryable-failure-then-success") {
-    const counterFile = path28.join(os9.tmpdir(), `pi-crew-mock-counter-${process.pid}-retryable-failure-then-success`);
-    let count2 = 0;
-    try {
-      const raw = fs34.readFileSync(counterFile, "utf-8");
-      const parsed = Number.parseInt(raw.trim(), 10);
-      if (Number.isFinite(parsed) && parsed >= 0) count2 = parsed;
-    } catch {
-    }
-    count2 += 1;
-    try {
-      atomicWriteFile(counterFile, String(count2));
-    } catch (error) {
-      logInternalError("child-pi.mock-counter-write", error, `file=${counterFile}`);
-    }
-    if (count2 === 1) {
-      const failureEvent = {
-        type: "message_end",
-        message: {
-          role: "assistant",
-          content: [],
-          errorMessage: "Provider error: api_error",
-          stopReason: "error"
-        }
-      };
-      const stdout2 = `${JSON.stringify(failureEvent)}
-`;
-      await observe(input, stdout2);
-      return { exitCode: 0, stdout: stdout2, stderr: "" };
-    }
-    const text = `[MOCK] JSON success for ${input.agent.name}`;
-    const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
-${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
-`;
-    await observe(input, stdout);
-    return { exitCode: 0, stdout, stderr: "" };
-  }
-  return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
-}
-var init_mock_fixtures = __esm({
-  "src/runtime/child-pi/mock-fixtures.ts"() {
-    "use strict";
-    init_env_vars();
-    init_atomic_write();
-    init_internal_error();
-  }
-});
-
-// src/runtime/process/post-exit-stdio-guard.ts
-function trySignalChild(child, signal) {
-  try {
-    return child.kill(signal);
+    preStat = fs23.statSync(eventsPath);
   } catch {
-    return false;
   }
-}
-function attachPostExitStdioGuard(child, options) {
-  const { idleMs, hardMs } = options;
-  let exited = false;
-  let stdoutEnded = false;
-  let stderrEnded = false;
-  let idleTimer;
-  let hardTimer;
-  const destroyUnendedStdio = () => {
-    if (!stdoutEnded) {
+  const baseMetadata = event.metadata;
+  const explicitSeq = baseMetadata?.seq;
+  const seq = explicitSeq ?? reserveSequence(eventsPath);
+  if (explicitSeq !== void 0) advanceSequenceCounter(eventsPath, seq);
+  let metadata = {
+    seq,
+    provenance: baseMetadata?.provenance ?? "team_runner",
+    ...baseMetadata?.parentEventId ? { parentEventId: baseMetadata.parentEventId } : {},
+    ...baseMetadata?.attemptId ? { attemptId: baseMetadata.attemptId } : {},
+    ...baseMetadata?.branchId ? { branchId: baseMetadata.branchId } : {},
+    ...baseMetadata?.causationId ? { causationId: baseMetadata.causationId } : {},
+    ...baseMetadata?.correlationId ? { correlationId: baseMetadata.correlationId } : {},
+    ...baseMetadata?.sessionIdentity ? { sessionIdentity: baseMetadata.sessionIdentity } : {},
+    ...baseMetadata?.ownership ? { ownership: baseMetadata.ownership } : {},
+    ...baseMetadata?.nudgeId ? { nudgeId: baseMetadata.nudgeId } : {},
+    ...baseMetadata?.confidence ? { confidence: baseMetadata.confidence } : {}
+  };
+  const fullEvent = {
+    time: (/* @__PURE__ */ new Date()).toISOString(),
+    ...event,
+    metadata
+  };
+  if (baseMetadata?.fingerprint || TERMINAL_EVENT_TYPES.has(fullEvent.type)) {
+    metadata = {
+      ...metadata,
+      fingerprint: baseMetadata?.fingerprint ?? computeEventFingerprint(fullEvent)
+    };
+    fullEvent.metadata = metadata;
+  }
+  const isTerminal = TERMINAL_EVENT_TYPES.has(fullEvent.type);
+  let skippedDueToSize = false;
+  if (!isTerminal && preStat) {
+    if (preStat.size > MAX_EVENTS_BYTES) {
       try {
-        child.stdout?.destroy();
+        const prepared = prepareCompaction(eventsPath);
+        if (prepared) applyCompactionUnlocked(eventsPath, prepared);
       } catch (error) {
-        logInternalError("post-exit-stdio-guard.stdout-destroy", error, void 0, "debug");
+        logInternalError("event-log.immediate-compact", error, `eventsPath=${eventsPath}`);
+      }
+      if (fs23.existsSync(eventsPath)) {
+        const afterCompact = fs23.statSync(eventsPath);
+        if (afterCompact.size > MAX_EVENTS_BYTES) {
+          if (!rotateEventLogUnlocked(eventsPath)) {
+            logInternalError(
+              "event-log.rotate-failed",
+              new Error(`event log rotation failed; file remains over ${MAX_EVENTS_BYTES} bytes`),
+              `eventsPath=${eventsPath}`,
+              "error"
+            );
+          }
+        }
       }
     }
-    if (!stderrEnded) {
-      try {
-        child.stderr?.destroy();
-      } catch (error) {
-        logInternalError("post-exit-stdio-guard.stderr-destroy", error, void 0, "debug");
-      }
-    }
-  };
-  const clearTimers = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = void 0;
-    }
-    if (hardTimer) {
-      clearTimeout(hardTimer);
-      hardTimer = void 0;
-    }
-  };
-  const armIdleTimer = () => {
-    if (!exited) return;
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(destroyUnendedStdio, idleMs);
-    idleTimer.unref();
-  };
-  child.stdout?.on("data", armIdleTimer);
-  child.stderr?.on("data", armIdleTimer);
-  child.stdout?.on("end", () => {
-    stdoutEnded = true;
-    if (stdoutEnded && stderrEnded) clearTimers();
-  });
-  child.stderr?.on("end", () => {
-    stderrEnded = true;
-    if (stdoutEnded && stderrEnded) clearTimers();
-  });
-  const armHardTimer = () => {
-    if (hardTimer) return;
-    hardTimer = setTimeout(destroyUnendedStdio, hardMs);
-    hardTimer.unref();
-  };
-  const onExit = () => {
-    exited = true;
-    armIdleTimer();
-    armHardTimer();
-  };
-  if (child.exitCode != null || child.signalCode != null) {
-    onExit();
   }
-  child.on("exit", onExit);
-  child.on("close", clearTimers);
-  child.on("error", clearTimers);
-  return clearTimers;
-}
-var init_post_exit_stdio_guard = __esm({
-  "src/runtime/process/post-exit-stdio-guard.ts"() {
-    "use strict";
-    init_internal_error();
-  }
-});
-
-// src/runtime/recovery/crash-classification.ts
-function detectNativePanic(stderrSnippet) {
-  if (!stderrSnippet) return null;
-  const lower = stderrSnippet.toLowerCase();
-  for (const sig of NATIVE_PANIC_SIGNATURES) {
-    if (lower.includes(sig.pattern)) return sig.label;
-  }
-  return null;
-}
-function normalizeSignal(signal) {
-  return signal ?? null;
-}
-function classifyProcessCrash(input) {
-  const exitCode = input.exitCode ?? null;
-  const signal = normalizeSignal(input.signal);
-  if (input.timedOut) {
-    return {
-      crashClass: "timeout",
-      reason: "process timed out (response timeout guard fired)"
-    };
-  }
-  if (input.cancelled) {
-    return {
-      crashClass: "cancelled",
-      reason: "process was cancelled (abort requested)"
-    };
-  }
-  if (input.spawnError !== void 0 && input.spawnError !== null) {
-    return {
-      crashClass: "spawn_error",
-      reason: `spawn error: ${stringifyError(input.spawnError)}`
-    };
-  }
-  const abnormalExit = signal !== null || exitCode !== null && exitCode !== 0;
-  if (abnormalExit) {
-    const panic = detectNativePanic(input.stderrSnippet);
-    if (panic !== null) {
-      return {
-        crashClass: "native_panic",
-        reason: `native panic detected: ${panic}`
-      };
-    }
-  }
-  if (signal !== null) {
-    return {
-      crashClass: "signal_exit",
-      reason: `process exited after signal ${signal}`
-    };
-  }
-  if (exitCode === 0) {
-    return { crashClass: "clean_exit", reason: "process exited cleanly" };
-  }
-  if (exitCode !== null) {
-    return {
-      crashClass: "non_zero_exit",
-      reason: `process exited with code ${exitCode}`
-    };
-  }
-  if (input.killed) {
-    return {
-      crashClass: "protocol_exit",
-      reason: "process was killed but no signal/exit code was captured"
-    };
-  }
-  return {
-    crashClass: "protocol_exit",
-    reason: "process exited before protocol completion (exit code unknown)"
-  };
-}
-function stringifyError(error) {
-  if (error instanceof Error) return error.message || error.name;
-  if (typeof error === "string") return error;
   try {
-    return String(error);
-  } catch {
-    return "(unstringifiable error)";
-  }
-}
-var NATIVE_PANIC_SIGNATURES;
-var init_crash_classification = __esm({
-  "src/runtime/recovery/crash-classification.ts"() {
-    "use strict";
-    NATIVE_PANIC_SIGNATURES = [
-      { pattern: "sigsegv", label: "segmentation fault" },
-      { pattern: "segfault", label: "segmentation fault" },
-      { pattern: "segmentation fault", label: "segmentation fault" },
-      { pattern: "sigabrt", label: "abort signal" },
-      { pattern: "abort(", label: "abort" },
-      { pattern: "fatal error", label: "V8/node fatal error" },
-      { pattern: "panic:", label: "rust/go panic" },
-      { pattern: "thread '", label: "rust panic (thread context)" },
-      { pattern: "illegal instruction", label: "illegal instruction" },
-      { pattern: "double free", label: "heap corruption (double free)" }
-    ];
-  }
-});
-
-// src/runtime/child-pi/child-pi.ts
-var child_pi_exports = {};
-__export(child_pi_exports, {
-  ChildPiLineObserver: () => ChildPiLineObserver,
-  __test__trySurfaceBranch: () => __test__trySurfaceBranch,
-  appendTranscript: () => appendTranscript,
-  buildChildPiSpawnOptions: () => buildChildPiSpawnOptions,
-  buildFinalChildPiSpawnOptions: () => buildFinalChildPiSpawnOptions,
-  compactString: () => compactString,
-  compactValue: () => compactValue,
-  flushPendingTranscriptWrites: () => flushPendingTranscriptWrites,
-  killProcessPid: () => killProcessPid,
-  redactStderrExcerpt: () => redactStderrExcerpt,
-  resetTranscriptBatchState: () => resetTranscriptBatchState,
-  runChildPi: () => runChildPi,
-  terminateActiveChildPiProcesses: () => terminateActiveChildPiProcesses
-});
-import { spawn as spawn2 } from "node:child_process";
-import * as fs35 from "node:fs";
-import * as path29 from "node:path";
-function redactStderrExcerpt(stderr, maxChars) {
-  return redactSecretString(stderr.slice(-maxChars));
-}
-async function observeStdoutChunk(input, text) {
-  const observer = new ChildPiLineObserver(input);
-  observer.observe(text);
-  await observer.flush();
-}
-function asRecord5(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
-}
-function isFinalAssistantEvent(event) {
-  const obj = asRecord5(event);
-  if (obj?.type !== "message_end") return false;
-  const message = asRecord5(obj.message);
-  const role = message?.role;
-  if (role !== void 0 && role !== "assistant") return false;
-  const stopReason = typeof message?.stopReason === "string" ? message.stopReason : typeof obj.stopReason === "string" ? obj.stopReason : void 0;
-  if (stopReason !== void 0 && stopReason !== "stop") return false;
-  const content = Array.isArray(message?.content) ? message.content : [];
-  return !content.some((part) => asRecord5(part)?.type === "toolCall");
-}
-function safeLoadSurfaceConfig(cwd) {
-  try {
-    return loadConfig(cwd).config;
-  } catch (error) {
-    logInternalError(
-      "child-pi.surface-config",
-      error instanceof Error ? error : new Error(String(error)),
-      "surface gate uses default (off)"
-    );
-    return {};
-  }
-}
-async function trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir) {
-  if (!input.agentId) return null;
-  const surfaceOpts = input.surface;
-  const preResolved = surfaceOpts?.providers?.tmux ?? surfaceOpts?.providers?.herdr;
-  const taskId = input.agentId;
-  const degradeController = getSurfaceRuntimeController(input.runId);
-  if (degradeController && !degradeController.shouldAttemptSurface()) return null;
-  const surfaceConfig = surfaceOpts?.config ?? safeLoadSurfaceConfig(input.cwd);
-  let outcome;
-  try {
-    outcome = await prepareSurfaceSpawn({
-      // Detection env must be the HOST's base env (depth 0 tier-1), NOT the
-      // child's built env whose PI_CREW_DEPTH is parentDepth+1 — layer-1
-      // guard would misfire on our own tier-1 workers.
-      env: depthEnv ?? process.env,
-      workerEnv: buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model).env,
-      config: surfaceConfig,
-      role: input.role ?? input.agent.name,
-      livePaneCount: degradeController ? degradeController.livePaneCount() : surfaceOpts?.livePaneCount ?? 0,
-      taskId,
-      cwd: input.cwd,
-      piArgs: builtArgs,
-      stateRoot: input.eventsPath ? path29.dirname(input.eventsPath) : "",
-      baseDir: surfaceOpts?.baseDir,
-      deps: preResolved ? { provider: preResolved } : {}
-    });
-  } catch (error) {
-    logInternalError("child-pi.surface-unexpected", error instanceof Error ? error : new Error(String(error)), `taskId=${taskId}`);
-    return null;
-  }
-  if (outcome.mode !== "surface") {
-    if (outcome.mode === "headless" && outcome.attempted) {
-      degradeController?.notifySpawnFailed({ taskId, reason: outcome.reason ?? "surface spawn failed" });
-      input.onLifecycleEvent?.({
-        type: "surface_spawn_failed",
-        surfaceKind: preResolved?.kind,
-        error: outcome.reason,
-        ts: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-    if (outcome.mode === "headless" && outcome.gateRejected) {
-      const visibleAgents = surfaceConfig.runtime?.surface?.visibleAgents ?? [];
-      if (visibleAgents.length > 0) {
-        input.onLifecycleEvent?.({
-          type: "surface_gate_blocked",
-          gate: outcome.gateRejected.gate,
-          error: outcome.gateRejected.reason,
-          env: outcome.gateRejected.env,
-          ts: (/* @__PURE__ */ new Date()).toISOString()
-        });
-      }
-    }
-    return null;
-  }
-  const surfaceMeta = {
-    kind: outcome.kind,
-    paneId: outcome.paneId,
-    scriptPath: outcome.scriptPath
-  };
-  degradeController?.notifySpawned({
-    taskId,
-    paneId: outcome.paneId,
-    provider: outcome.kind,
-    // Task 5 (tab-layout): tab của run lên controller → manifest surface.tabs
-    // — run end (closeRunTabs) đóng đúng tab, worker xong KHÔNG đóng.
-    ...outcome.tabKey && outcome.tabId ? { tabKey: outcome.tabKey, tabId: outcome.tabId } : {}
-  });
-  input.onLifecycleEvent?.({
-    type: "surface_spawned",
-    surfaceKind: outcome.kind,
-    paneId: outcome.paneId,
-    ts: (/* @__PURE__ */ new Date()).toISOString()
-  });
-  const eventSource = outcome.eventsPath ? new EventLogTailSource({ eventsPath: outcome.eventsPath }) : void 0;
-  if (eventSource && input.runId && input.agentId) {
-    const runId = input.runId;
-    const taskId2 = input.agentId;
-    const controllerForBridge = degradeController;
-    eventSource.onEvent((event) => {
-      if (event?.type === "worker.started") {
-        const started = event;
-        controllerForBridge?.notifyWorkerStarted({
-          taskId: taskId2,
-          pid: typeof started.pid === "number" ? started.pid : void 0,
-          sessionPath: typeof started.sessionPath === "string" ? started.sessionPath : void 0
-        });
-      }
-      const bridgeEvent = bridgeEventFromJsonEvent(runId, taskId2, event);
-      if (bridgeEvent) runEventBus.emit({ type: "worker_status", runId, taskId: taskId2, data: bridgeEvent });
-      input.onSurfaceActivity?.(event);
-    });
-  }
-  let exitInfo;
-  try {
-    exitInfo = await waitForSurfaceExit(outcome, {
-      signal: input.signal,
-      deadlineMs: input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS
-    });
-  } finally {
-    eventSource?.close();
-  }
-  let completedPayload;
-  if (!exitInfo.cancelledByAbort && !exitInfo.timedOut) {
-    const probe = makeTerminalEventProbe({ eventsPath: input.eventsPath ?? "", taskId, runId: input.runId ?? void 0 });
-    const verdict = await classifyOnExit(outcome.handle, probe);
-    const completed = verdict === "completed";
-    if (completed) {
-      const payload = probe.foundPayload();
-      completedPayload = payload && typeof payload.result === "string" && payload.result.trim().length > 0 ? payload : void 0;
-    } else {
-      surfaceMeta.degraded = {
-        cause: exitInfo.reason === "mux-dead" ? "mux-dead" : "pane-closed",
-        exitReason: exitInfo.reason,
-        classifiedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-    }
-    degradeController?.notifyPaneExited({
-      taskId,
-      paneId: outcome.paneId,
-      completed,
-      exitReason: exitInfo.reason
-    });
-  } else {
-    degradeController?.notifyPaneExited({
-      taskId,
-      paneId: outcome.paneId,
-      completed: false,
-      exitReason: exitInfo.reason,
-      cancelledByAbort: exitInfo.cancelledByAbort,
-      timedOut: exitInfo.timedOut
-    });
-  }
-  const surfaceResultText = typeof completedPayload?.result === "string" ? completedPayload.result : "";
-  input.onLifecycleEvent?.({
-    type: "surface_closed",
-    surfaceKind: outcome.kind,
-    paneId: outcome.paneId,
-    paneExitReason: exitInfo.reason,
-    ts: (/* @__PURE__ */ new Date()).toISOString()
-  });
-  cleanupTempDir(tempDir);
-  return {
-    exitCode: exitInfo.cancelledByAbort || exitInfo.timedOut ? null : 0,
-    stdout: "",
-    stderr: "",
-    ...exitInfo.cancelledByAbort ? { error: `Cancelled while running in ${outcome.kind} pane ${outcome.paneId} (${exitInfo.reason})` } : {},
-    ...exitInfo.timedOut ? {
-      error: `Surface worker in ${outcome.kind} pane ${outcome.paneId} produced no completion within ${input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS}ms response timeout; pane was force-closed.`
-    } : {},
-    rawFinalText: surfaceResultText,
-    intermediateFindings: "",
-    ...exitInfo.cancelledByAbort ? { aborted: true } : {},
-    surface: surfaceMeta,
-    exitStatus: {
-      exitCode: exitInfo.cancelledByAbort || exitInfo.timedOut ? null : 0,
-      cancelled: exitInfo.cancelledByAbort,
-      timedOut: exitInfo.timedOut,
-      killed: false,
-      cleanupErrors: [],
-      finalDrainMs: 0
-    }
-  };
-}
-async function runChildPi(input) {
-  const effectiveTask = input.inheritContext === true && input.parentContext ? `${input.parentContext}
-
----
-# Child Worker Task
-${input.task}` : input.task;
-  const depthEnv = input.depthOverride !== void 0 ? {
-    ...input.env ?? process.env,
-    PI_CREW_DEPTH: String(input.depthOverride - 1),
-    PI_TEAMS_DEPTH: String(input.depthOverride - 1)
-  } : void 0;
-  const depth = checkCrewDepth(input.maxDepth, depthEnv);
-  if (depth.blocked)
-    return {
-      exitCode: 1,
-      stdout: "",
-      stderr: `pi-crew depth guard blocked child worker: depth ${depth.depth} >= max ${depth.maxDepth}`
-    };
-  const mockResult = await runMockChildPi(input, effectiveTask, observeStdoutChunk);
-  if (mockResult) return mockResult;
-  let brokerSpawn = input.brokerSpawn;
-  const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
-  if (!brokerSpawn && brokerIssuer && input.runId) {
-    try {
-      brokerSpawn = await brokerIssuer(input.runId, input.agentId, input.depthOverride);
-    } catch (error) {
+    if (fs23.existsSync(eventsPath) && fs23.statSync(eventsPath).size > MAX_EVENTS_BYTES) {
       logInternalError(
-        "child-pi.broker-issuer-failed",
-        error instanceof Error ? error : new Error(String(error)),
-        `runId=${input.runId} agentId=${input.agentId ?? "?"} \u2014 child will spawn without broker credentials`
+        "event-log.size-limit",
+        new Error(`events file ${eventsPath} exceeds ${MAX_EVENTS_BYTES} bytes after compaction`),
+        `eventsPath=${eventsPath}`,
+        // R17-S1 (Phase 3.8, Round 18 escalation to HIGH): was default "debug"
+        // (PI_TEAMS_DEBUG-gated) → fully silent drop in production. "error"
+        // always emits.
+        "error"
       );
-      brokerSpawn = void 0;
+      skippedDueToSize = true;
+      metadata.skippedDueToSize = true;
+    }
+  } catch (error) {
+    logInternalError("event-log.size-check", error, `eventsPath=${eventsPath}`);
+  }
+  if (!skippedDueToSize) {
+    fs23.appendFileSync(eventsPath, `${JSON.stringify(redactSecrets(fullEvent))}
+`, "utf-8");
+    if (isTerminal) {
+      const fd = fs23.openSync(eventsPath, "r+");
+      try {
+        fs23.fsyncSync(fd);
+      } catch {
+      } finally {
+        fs23.closeSync(fd);
+      }
+    }
+    if (explicitSeq !== void 0) persistSequenceMonotonic(eventsPath, seq);
+  }
+  if (tickAppendCounter(eventsPath) && needsRotation(eventsPath)) {
+    try {
+      const prepared = prepareCompaction(eventsPath);
+      if (prepared) applyCompactionUnlocked(eventsPath, prepared);
+    } catch (error) {
+      logInternalError("event-log.rotation", error, `eventsPath=${eventsPath}`);
     }
   }
-  const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask, depthEnv);
-  if (spawnPrep.kind === "aborted") return spawnPrep.result;
-  const { spawnSpec, mergedEnv, tempDir, builtEnv, builtArgs } = spawnPrep.ctx;
-  const surfaceResult = await trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir);
-  if (surfaceResult) return surfaceResult;
-  try {
-    return await new Promise((resolve26) => {
-      const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
-      const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
-      if (child.pid) {
-        registerActiveChild(child.pid, child);
-        input.onSpawn?.(child.pid);
-        input.onLifecycleEvent?.({
-          type: "spawned",
-          pid: child.pid,
-          ts: (/* @__PURE__ */ new Date()).toISOString()
-        });
-        registerChildProcess(
-          child.pid,
-          input.runId ?? `untracked-run-${child.pid}`,
-          input.agentId ?? `untracked-agent-${child.pid}`
-        );
-      } else {
-        input.onLifecycleEvent?.({
-          type: "spawn_error",
-          error: "spawn returned no pid",
-          ts: (/* @__PURE__ */ new Date()).toISOString()
-        });
-      }
-      const stdoutTail = new BoundedTail();
-      const stderrTail = new BoundedTail();
-      let settled = false;
-      let childExited = false;
-      let postExitGuardCleanup;
-      const finalDrainMs = input.finalDrainMs ?? FINAL_DRAIN_MS;
-      const hardKillMs = input.hardKillMs ?? HARD_KILL_MS;
-      let finalDrainArmed = false;
-      let lastStdoutActivityMonotonicMs = performance.now();
-      let finalDrainFiredMonotonicMs;
-      const spawnMonotonicMs = performance.now();
-      let finalAssistantEventMonotonicMs;
-      const RESPONSE_TIMEOUT_MIN_MS = 1e3;
-      const RESPONSE_TIMEOUT_MAX_MS = 36e5;
-      const responseTimeoutEnv = Number.parseInt(getCrewEnv("PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS") ?? "", 10);
-      const envInRange = Number.isFinite(responseTimeoutEnv) && responseTimeoutEnv >= RESPONSE_TIMEOUT_MIN_MS && responseTimeoutEnv <= RESPONSE_TIMEOUT_MAX_MS;
-      const responseTimeoutMs = envInRange ? responseTimeoutEnv : input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS;
-      let responseTimeoutHit = false;
-      let forcedFinalDrain = false;
-      let abortRequested = input.signal?.aborted === true;
-      let hardKilled = false;
-      const cleanupErrors = [];
-      const steeringController = new ChildPiSteeringController(input.maxTurns, input.graceTurns);
-      let abortDueToParentSignal = false;
-      const onParentAbort = () => {
-        abortDueToParentSignal = true;
-      };
-      input.signal?.addEventListener("abort", onParentAbort, {
-        once: true
-      });
-      const {
-        restartNoResponseTimer,
-        clearNoResponseTimer,
-        clearFinalDrainTimers,
-        armFinalDrain,
-        hasFinalDrainTimer,
-        armCancelHardKill,
-        clearAll
-      } = createChildPiTimers({
-        child,
-        input,
-        responseTimeoutMs,
-        finalDrainMs,
-        hardKillMs,
-        stdoutTail,
-        stderrTail,
-        cleanupErrors,
-        getSettle: () => settle,
-        redactStderrExcerpt,
-        state: {
-          getSettled: () => settled,
-          getChildExited: () => childExited,
-          setResponseTimeoutHit: (value) => {
-            responseTimeoutHit = value;
-          },
-          getHardKilled: () => hardKilled,
-          setHardKilled: (value) => {
-            hardKilled = value;
-          },
-          setForcedFinalDrain: (value) => {
-            forcedFinalDrain = value;
-          },
-          getLastStdoutActivityMonotonicMs: () => lastStdoutActivityMonotonicMs,
-          setFinalDrainFiredMonotonicMs: (value) => {
-            finalDrainFiredMonotonicMs = value;
-          },
-          getAbortRequested: () => abortRequested
-        }
-      });
-      restartNoResponseTimer();
-      const lineObserver = new ChildPiLineObserver({
-        ...input,
-        onStdoutLine: (line3) => {
-          if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-          stdoutTail.push(`${line3}
-`);
-          input.onStdoutLine?.(line3);
-        },
-        onJsonEvent: (event) => {
-          if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-          if (event && typeof event === "object" && !Array.isArray(event)) {
-            const obj = event;
-            if (obj.type === "turn_end") {
-              const action = steeringController.onTurnEnd(child.pid, child, input.steeringFile);
-              if (action.kind === "hardAbort") killProcessTree(action.pid, action.child);
-            }
-          }
-          lastStdoutActivityMonotonicMs = performance.now();
-          input.onJsonEvent?.(event);
-          if (!isFinalAssistantEvent(event) || childExited || settled || hasFinalDrainTimer()) return;
-          finalAssistantEventMonotonicMs = performance.now();
-          finalDrainArmed = true;
-          armFinalDrain();
-        }
-      });
-      const clearPostExitGuard = () => {
-        if (postExitGuardCleanup) {
-          postExitGuardCleanup();
-          postExitGuardCleanup = void 0;
-        }
-      };
-      const clearChildPiTimeouts = () => {
-        clearAll();
-        clearPostExitGuard();
-      };
-      const settle = (result4) => {
-        if (settled) return Promise.resolve();
-        settled = true;
-        clearChildPiTimeouts();
-        return lineObserver.flush().then(() => {
-          input.signal?.removeEventListener("abort", abort);
-          input.signal?.removeEventListener("abort", onParentAbort);
-          try {
-            cleanupTempDir(tempDir);
-          } catch (error) {
-            cleanupErrors.push(error instanceof Error ? error.message : String(error));
-          }
-          try {
-            resolve26({
-              ...result4,
-              rawFinalText: lineObserver.getRawFinalText(),
-              intermediateFindings: lineObserver.getIntermediateFindings(),
-              exitStatus: result4.exitStatus ?? {
-                exitCode: result4.exitCode,
-                cancelled: abortRequested,
-                timedOut: responseTimeoutHit,
-                killed: hardKilled,
-                // Phase-0 diagnostic (HB-003a): surface the final-drain race state.
-                // finalDrainArmed lets Phase 1 decide whether a signal-death (exitCode=null)
-                // should be treated as a forced final drain. READ-ONLY for now.
-                ...finalDrainArmed || forcedFinalDrain ? {
-                  finalDrainArmed,
-                  forcedFinalDrain,
-                  finalDrainFiredMonotonicMs
-                } : {},
-                cleanupErrors,
-                finalDrainMs
-              }
-            });
-          } catch (resolveError) {
-            logInternalError(
-              "child-pi.settle-resolve",
-              resolveError,
-              `result=${JSON.stringify({ exitCode: result4.exitCode })}`
-            );
-          }
-        }).catch((flushError) => {
-          logInternalError(
-            "child-pi.settle-flush-failed",
-            flushError,
-            `result=${JSON.stringify({ exitCode: result4.exitCode })}`
-          );
-          input.signal?.removeEventListener("abort", abort);
-          input.signal?.removeEventListener("abort", onParentAbort);
-          try {
-            cleanupTempDir(tempDir);
-          } catch (error) {
-            cleanupErrors.push(error instanceof Error ? error.message : String(error));
-          }
-          try {
-            resolve26({
-              ...result4,
-              rawFinalText: lineObserver.getRawFinalText(),
-              intermediateFindings: lineObserver.getIntermediateFindings(),
-              exitStatus: result4.exitStatus ?? {
-                exitCode: result4.exitCode,
-                cancelled: abortRequested,
-                timedOut: responseTimeoutHit,
-                killed: hardKilled,
-                ...finalDrainArmed || forcedFinalDrain ? {
-                  finalDrainArmed,
-                  forcedFinalDrain,
-                  finalDrainFiredMonotonicMs
-                } : {},
-                cleanupErrors,
-                finalDrainMs
-              }
-            });
-          } catch (resolveError) {
-            logInternalError(
-              "child-pi.settle-resolve",
-              resolveError,
-              `result=${JSON.stringify({ exitCode: result4.exitCode })}`
-            );
-          }
-        });
-      };
-      const abort = () => {
-        abortRequested = true;
-        clearNoResponseTimer();
-        killProcessTree(child.pid, child);
-        if (process.platform !== "win32") {
-          trySignalChild(child, "SIGTERM");
-        }
-        try {
-          child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
-        } catch {
-        }
-        armCancelHardKill();
-      };
-      input.signal?.addEventListener("abort", abort, { once: true });
-      const BACKPRESSURE_HIGH = 256 * 1024;
-      let backpressureBytes = 0;
-      const releaseBackpressure = () => {
-        backpressureBytes = 0;
-        try {
-          child.stdout?.resume();
-        } catch {
-        }
-      };
-      child.stdout?.on("data", (chunk) => {
-        if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-        const text = chunk.toString("utf-8");
-        backpressureBytes += text.length;
-        try {
-          lineObserver.observe(text);
-        } catch (err2) {
-          logInternalError("child-pi.line-observer-observe", err2, `text=${text.slice(0, 100)}`);
-        }
-        if (backpressureBytes > BACKPRESSURE_HIGH && child.stdout && !child.stdout.isPaused()) {
-          try {
-            child.stdout.pause();
-          } catch {
-          }
-          const timer = setTimeout(releaseBackpressure, 50);
-          timer.unref();
-        }
-      });
-      child.stderr?.on("data", (chunk) => {
-        if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
-        stderrTail.push(chunk.toString("utf-8"));
-      });
-      child.on("error", (error) => {
-        const stdout = stdoutTail.value();
-        const stderr = stderrTail.value();
-        const processError = new Error(
-          `Child Pi process error: ${error.message}. Stderr: ${redactStderrExcerpt(stderr, 500) || "(none)"}`
-        );
-        try {
-          input.onLifecycleEvent?.({
-            type: "spawn_error",
-            pid: child.pid,
-            error: processError.message,
-            ts: (/* @__PURE__ */ new Date()).toISOString(),
-            stderrExcerpt: redactStderrExcerpt(stderr, 500) || void 0
-          });
-        } catch (err2) {
-          logInternalError("child-pi.on-lifecycle-event", err2, `event=error, pid=${child.pid}`);
-        }
-        void settle({
-          exitCode: null,
-          stdout,
-          stderr,
-          error: processError.message,
-          exitStatus: {
-            exitCode: null,
-            cancelled: abortRequested,
-            timedOut: responseTimeoutHit,
-            killed: false,
-            cleanupErrors,
-            finalDrainMs,
-            crashClass: classifyProcessCrash({
-              exitCode: null,
-              cancelled: abortRequested,
-              timedOut: responseTimeoutHit,
-              spawnError: error,
-              stderrSnippet: stderr ? redactStderrExcerpt(stderr, 1e3) : void 0
-            }).crashClass
-          }
-        });
-      });
-      child.on("exit", (code, signal) => {
-        const stderr = stderrTail.value();
-        if (child.pid) {
-          unregisterActiveChild(child.pid);
-          clearHardKillTimer(child.pid);
-          unregisterChildProcess(child.pid);
-        }
-        const abnormalExit = code !== 0 && code !== null;
-        const isUnexpectedExit = !childExited && !settled && !responseTimeoutHit && !abortRequested && abnormalExit;
-        const exitError = isUnexpectedExit ? new Error(
-          `Child Pi process exited unexpectedly (code=${code ?? "null"} signal=${signal ?? "null"}). Stderr: ${redactStderrExcerpt(stderr, 1e3) || "(none)"}`
-        ) : null;
-        try {
-          input.onLifecycleEvent?.({
-            type: "exit",
-            pid: child.pid,
-            exitCode: code,
-            ts: (/* @__PURE__ */ new Date()).toISOString(),
-            error: exitError?.message,
-            stderrExcerpt: isUnexpectedExit ? redactStderrExcerpt(stderr, 1e3) || void 0 : void 0,
-            // Phase-0 diagnostic fields (kept optional — no type change required).
-            ...signal ? { signal } : {},
-            ...finalDrainArmed || forcedFinalDrain ? {
-              diagnostic: {
-                finalDrainArmed,
-                forcedFinalDrain,
-                finalDrainFiredMonotonicMs,
-                finalAssistantEventMonotonicMs,
-                exitMonotonicMs: performance.now() - spawnMonotonicMs
-              }
-            } : {}
-          });
-        } catch (err2) {
-          logInternalError("child-pi.on-lifecycle-event", err2, `event=exit, pid=${child.pid}`);
-        }
-        childExited = true;
-        clearNoResponseTimer();
-        clearFinalDrainTimers();
-        if (!postExitGuardCleanup) {
-          postExitGuardCleanup = attachPostExitStdioGuard(child, {
-            idleMs: POST_EXIT_STDIO_GUARD_MS,
-            hardMs: HARD_KILL_MS
-          });
-        }
-      });
-      child.on("close", (exitCode) => {
-        const stdout = stdoutTail.value();
-        const stderr = stderrTail.value();
-        if (child.pid) {
-          unregisterActiveChild(child.pid);
-          clearHardKillTimer(child.pid);
-          unregisterChildProcess(child.pid);
-        }
-        try {
-          input.onLifecycleEvent?.({
-            type: "close",
-            pid: child.pid,
-            exitCode,
-            ts: (/* @__PURE__ */ new Date()).toISOString()
-          });
-        } catch (err2) {
-          logInternalError("child-pi.on-lifecycle-event", err2, `event=close, pid=${child.pid}`);
-        }
-        const timeoutError = responseTimeoutHit && !stderr.trim() ? {
-          error: `Child Pi produced no new output for ${responseTimeoutMs}ms; process was terminated as unresponsive.`
-        } : responseTimeoutHit && stderr.trim() ? {
-          error: `Child Pi timed out after ${responseTimeoutMs}ms with stderr: ${redactStderrExcerpt(stderr, 500)}`
-        } : void 0;
-        if (forcedFinalDrain && !timeoutError && exitCode !== 0) {
-          logInternalError(
-            "child-pi.final-drain-zero-exit",
-            new Error(`Child exit code overridden to 0 after forced final drain (original=${exitCode})`),
-            `pid=${child.pid}, finalDrainMs=${finalDrainMs}`
-          );
-        }
-        const finalExitCode = forcedFinalDrain && !timeoutError ? 0 : exitCode;
-        const wasGraceAborted = steeringController.isSoftLimitReached() && steeringController.getTurnCount() >= (steeringController.getMaxTurns() ?? 0) + (steeringController.getGraceTurns() ?? 5);
-        const wasParentAborted = abortDueToParentSignal && !wasGraceAborted;
-        const crashClassification = classifyProcessCrash({
-          exitCode: finalExitCode,
-          signal: child.signalCode ?? void 0,
-          cancelled: abortRequested,
-          timedOut: responseTimeoutHit,
-          killed: hardKilled,
-          spawnError: void 0,
-          stderrSnippet: stderr ? redactStderrExcerpt(stderr, 1e3) : void 0
-        });
-        void settle({
-          exitCode: finalExitCode,
-          stdout,
-          stderr,
-          ...timeoutError ? { error: timeoutError.error } : {},
-          aborted: wasGraceAborted || wasParentAborted,
-          steered: steeringController.isSoftLimitReached() && !wasGraceAborted,
-          exitStatus: {
-            exitCode: finalExitCode,
-            cancelled: abortRequested,
-            timedOut: responseTimeoutHit,
-            killed: hardKilled,
-            cleanupErrors,
-            finalDrainMs,
-            crashClass: crashClassification.crashClass
-          }
-        });
-      });
-    });
-  } finally {
-    if (tempDir && fs35.existsSync(tempDir)) {
-      cleanupTempDir(tempDir);
+  if (!skippedDueToSize) {
+    try {
+      emitFromTeamEvent(fullEvent);
+    } catch (error) {
+      logInternalError("event-log.emit", error);
     }
+  }
+  return fullEvent;
+}
+function appendEventBuffered(eventsPath, event, bufferMs = DEFAULT_BUFFER_MS) {
+  if (TERMINAL_EVENT_TYPES.has(event.type)) {
+    const flushPromise = bufferedQueues.has(eventsPath) ? flushOneEventLogBuffer(eventsPath).catch(() => void 0) : Promise.resolve();
+    return flushPromise.then(() => appendEvent(eventsPath, event));
+  }
+  return new Promise((resolve26, reject) => {
+    const queue = bufferedQueues.get(eventsPath) ?? [];
+    queue.push({ event, resolve: resolve26, reject });
+    bufferedQueues.set(eventsPath, queue);
+    if (!bufferedTimers.has(eventsPath)) {
+      const timer = setTimeout(() => {
+        flushOneEventLogBuffer(eventsPath).catch((error) => {
+          logInternalError("event-log.buffered-flush", error, `eventsPath=${eventsPath}`);
+        });
+      }, bufferMs);
+      bufferedTimers.set(eventsPath, timer);
+      timer.unref();
+    }
+  });
+}
+async function flushOneEventLogBuffer(eventsPath) {
+  const queue = bufferedQueues.get(eventsPath);
+  bufferedQueues.delete(eventsPath);
+  const timer = bufferedTimers.get(eventsPath);
+  try {
+    if (!queue || queue.length === 0) return;
+    if (queue.length > 1e3) {
+      const dropped = queue.splice(0, queue.length - 500);
+      overflowCounter++;
+      const firstDroppedMeta = dropped[0]?.event.metadata;
+      const lastDroppedMeta = dropped[dropped.length - 1]?.event.metadata;
+      logInternalError(
+        "event-log.buffer-overflow",
+        new Error(
+          `Buffer overflow #${overflowCounter}: Dropped ${dropped.length} events: first seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}, last seq=${lastDroppedMeta?.seq} type=${dropped[dropped.length - 1]?.event.type}`
+        ),
+        `${eventsPath}: ${queue.length + dropped.length} entries > 1000 cap`
+      );
+      for (const item of dropped) {
+        item.reject(
+          new Error(
+            `Event log buffer overflow: ${queue.length + dropped.length} entries > 1000 cap; oldest ${dropped.length} dropped to keep memory bounded; first dropped seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}`
+          )
+        );
+      }
+    }
+    await withEventLogLockAsync(eventsPath, async () => {
+      await appendEventBatchInsideLock(eventsPath, queue);
+    });
+  } catch (error) {
+    if (queue) for (const item of queue) item.reject(error);
+  } finally {
+    bufferedTimers.delete(eventsPath);
   }
 }
-var __test__trySurfaceBranch;
-var init_child_pi = __esm({
-  "src/runtime/child-pi/child-pi.ts"() {
+async function flushEventLogBuffer() {
+  for (const eventsPath of [...bufferedQueues.keys()]) await flushOneEventLogBuffer(eventsPath);
+}
+function flushBufferedQueuesSync() {
+  for (const eventsPath of [...bufferedQueues.keys()]) {
+    const queue = bufferedQueues.get(eventsPath);
+    bufferedQueues.delete(eventsPath);
+    if (!queue || queue.length === 0) continue;
+    try {
+      withEventLogLockSync(eventsPath, () => {
+        void appendEventBatchInsideLock(eventsPath, queue);
+      });
+    } catch (error) {
+      logInternalError("event-log.sync-flush", error, eventsPath);
+    }
+  }
+  for (const eventsPath of [...bufferedTimers.keys()]) bufferedTimers.delete(eventsPath);
+}
+function __test__appendBatchForUnitTest(eventsPath, queue) {
+  return appendEventBatchInsideLock(eventsPath, queue);
+}
+function appendEventFireAndForget(eventsPath, event) {
+  appendEventAsync(eventsPath, event).catch((error) => logInternalError("event-log.fire-and-forget", error, eventsPath));
+}
+function dedupeTerminalEvents(events) {
+  const seen = /* @__PURE__ */ new Set();
+  const output = [];
+  for (const event of events) {
+    const fingerprint2 = event.metadata?.fingerprint;
+    if (fingerprint2 && TERMINAL_EVENT_TYPES.has(event.type)) {
+      if (seen.has(fingerprint2)) continue;
+      seen.add(fingerprint2);
+    }
+    output.push(event);
+  }
+  return output;
+}
+var TERMINAL_EVENT_TYPES, MAX_EVENTS_BYTES, appendCounters, APPEND_COUNTER_MAX_ENTRIES, overflowCounter, MAX_ASYNC_QUEUES, asyncQueues, asyncLocks, bufferedQueues, bufferedTimers, DEFAULT_BUFFER_MS;
+var init_event_log = __esm({
+  "src/state/event-log/event-log.ts"() {
     "use strict";
-    init_config();
-    init_env_vars();
-    init_crew_cleanup();
+    init_defaults();
+    init_errors3();
     init_run_event_bus();
     init_internal_error();
     init_redaction();
-    init_broker_issuer();
-    init_bounded_tail();
-    init_event_log_tail_source();
-    init_event_stream_bridge();
-    init_degrade();
-    init_surface_spawn();
-    init_child_pi_constants();
-    init_child_pi_kill();
-    init_child_pi_spawn();
-    init_child_pi_steering();
-    init_child_pi_streams();
-    init_child_pi_timers();
-    init_mock_fixtures();
-    init_child_pi_kill();
-    init_child_pi_spawn();
-    init_child_pi_streams();
-    init_pi_args();
-    init_post_exit_stdio_guard();
-    init_crash_classification();
-    init_child_pi_transcript();
-    __test__trySurfaceBranch = trySurfaceBranch;
-  }
-});
-
-// src/extension/crew-cleanup.ts
-function registerCleanupHandler(pi, opts) {
-  terminalStatusDispose = opts?.disposeTerminalStatus;
-  pi.on("session_shutdown", async () => {
-    console.log("[pi-crew] Session shutdown - cleaning up resources");
-    try {
-      if (isSessionSwitchInFlight()) return;
-      await cleanupChildProcesses();
-      await cleanupTempDirectories();
-      console.log("[pi-crew] Cleanup complete");
-    } catch (error) {
-      logInternalError("crew-cleanup.shutdown", error);
-    }
-  });
-  if (!signalHandlersRegistered) {
-    signalHandlersRegistered = true;
-    const handleSignal = async (signal) => {
-      console.log(`[pi-crew] Received ${signal} - starting cleanup`);
-      try {
-        terminalStatusDispose?.();
-      } catch {
-      }
-      await cleanupChildProcesses();
-    };
-    process.on("SIGTERM", () => {
-      handleSignal("SIGTERM").catch((error) => {
-        logInternalError("crew-cleanup.SIGTERM", error);
-      });
+    init_sleep();
+    init_event_log_rotation();
+    init_sequence_cache();
+    init_worker_atomic_writer();
+    init_cursor();
+    init_sequence_cache();
+    TERMINAL_EVENT_TYPES = new Set(DEFAULT_EVENT_LOG.terminalEventTypes);
+    MAX_EVENTS_BYTES = 50 * 1024 * 1024;
+    appendCounters = /* @__PURE__ */ new Map();
+    APPEND_COUNTER_MAX_ENTRIES = 256;
+    overflowCounter = 0;
+    MAX_ASYNC_QUEUES = 256;
+    asyncQueues = /* @__PURE__ */ new Map();
+    asyncLocks = /* @__PURE__ */ new Map();
+    bufferedQueues = /* @__PURE__ */ new Map();
+    bufferedTimers = /* @__PURE__ */ new Map();
+    DEFAULT_BUFFER_MS = 20;
+    process.on("exit", () => {
+      flushBufferedQueuesSync();
+      asyncQueues.clear();
     });
-    process.on("SIGHUP", () => {
-      handleSignal("SIGHUP").catch((error) => {
-        logInternalError("crew-cleanup.SIGHUP", error);
-      });
+    process.on("beforeExit", async () => {
+      if (bufferedQueues.size > 0) {
+        try {
+          await flushEventLogBuffer();
+        } catch {
+        }
+      }
+      if (asyncQueues.size > 0) {
+        try {
+          await drainAsyncQueues();
+        } catch {
+        }
+      }
     });
-  }
-}
-async function cleanupChildProcesses() {
-  const pids = childProcessRegistry.getAllPids();
-  if (pids.length === 0) return;
-  const { killProcessPid: killProcessPid2 } = await Promise.resolve().then(() => (init_child_pi(), child_pi_exports));
-  for (const pid of pids) {
-    try {
-      killProcessPid2(pid);
-      console.log(`[pi-crew] Sent group SIGTERM (+SIGKILL escalation) to child process ${pid}`);
-    } catch (error) {
-      const err2 = error;
-      if (err2.code !== "ESRCH" && err2.code !== "ENOENT") {
-        logInternalError("crew-cleanup.kill", error, `pid=${pid}`);
-      }
-    }
-    childProcessRegistry.unregister(pid);
-  }
-}
-async function cleanupTempDirectories() {
-  try {
-    const result4 = cleanupAllTrackedTempDirs();
-    if (result4.cleaned > 0) {
-      console.log(`[pi-crew] Cleaned ${result4.cleaned} tracked temp dirs (${result4.failed} failed)`);
-    }
-  } catch (error) {
-    logInternalError("crew-cleanup.temp", error);
-  }
-}
-function registerChildProcess(pid, runId, agentId) {
-  childProcessRegistry.register(pid, runId, agentId);
-}
-function unregisterChildProcess(pid) {
-  childProcessRegistry.unregister(pid);
-}
-var signalHandlersRegistered, ChildProcessRegistry, childProcessRegistry, terminalStatusDispose;
-var init_crew_cleanup = __esm({
-  "src/extension/crew-cleanup.ts"() {
-    "use strict";
-    init_pi_args();
-    init_view_session_store();
-    init_internal_error();
-    signalHandlersRegistered = false;
-    ChildProcessRegistry = class {
-      processes = /* @__PURE__ */ new Map();
-      register(pid, runId, agentId) {
-        this.processes.set(pid, { pid, runId, agentId, startedAt: Date.now() });
-      }
-      unregister(pid) {
-        this.processes.delete(pid);
-      }
-      getAllPids() {
-        return Array.from(this.processes.keys());
-      }
-      getInfo(pid) {
-        return this.processes.get(pid);
-      }
-      clear() {
-        this.processes.clear();
-      }
-    };
-    childProcessRegistry = new ChildProcessRegistry();
-  }
-});
-
-// src/utils/task-name-generator.ts
-var init_task_name_generator = __esm({
-  "src/utils/task-name-generator.ts"() {
-    "use strict";
-  }
-});
-
-// src/utils/ids.ts
-import { randomBytes } from "node:crypto";
-function createRunId(prefix = "team") {
-  const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
-  const suffix = randomBytes(8).toString("hex");
-  return `${prefix}_${stamp}_${suffix}`;
-}
-function createTaskId(stepId, index) {
-  const normalized = stepId.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
-  return `${String(index + 1).padStart(2, "0")}_${normalized}`;
-}
-var init_ids = __esm({
-  "src/utils/ids.ts"() {
-    "use strict";
-    init_task_name_generator();
-  }
-});
-
-// src/state/contracts.ts
-function isTeamRunStatus(value) {
-  return typeof value === "string" && TEAM_RUN_STATUSES.includes(value);
-}
-function isTeamTaskStatus(value) {
-  return typeof value === "string" && TEAM_TASK_STATUSES.includes(value);
-}
-function isTerminalRunStatus(status) {
-  return TEAM_TERMINAL_RUN_STATUSES.has(status);
-}
-function isTerminalTaskStatus(status) {
-  return TEAM_TERMINAL_TASK_STATUSES.has(status);
-}
-function canTransitionRunStatus(from, to) {
-  return from === to || (TEAM_RUN_STATUS_TRANSITIONS[from]?.includes(to) ?? false);
-}
-function canTransitionTaskStatus(from, to) {
-  return from === to || (TEAM_TASK_STATUS_TRANSITIONS[from]?.includes(to) ?? false);
-}
-var TEAM_RUN_STATUSES, TEAM_TASK_STATUSES, TEAM_TERMINAL_RUN_STATUSES, TEAM_TERMINAL_TASK_STATUSES, TEAM_RUN_STATUS_TRANSITIONS, TEAM_TASK_STATUS_TRANSITIONS;
-var init_contracts = __esm({
-  "src/state/contracts.ts"() {
-    "use strict";
-    TEAM_RUN_STATUSES = ["queued", "planning", "running", "blocked", "completed", "failed", "cancelled"];
-    TEAM_TASK_STATUSES = [
-      "queued",
-      "running",
-      "waiting",
-      "completed",
-      "failed",
-      "cancelled",
-      "skipped",
-      "needs_attention"
-    ];
-    TEAM_TERMINAL_RUN_STATUSES = /* @__PURE__ */ new Set(["blocked", "completed", "failed", "cancelled"]);
-    TEAM_TERMINAL_TASK_STATUSES = /* @__PURE__ */ new Set([
-      "completed",
-      "failed",
-      "cancelled",
-      "skipped",
-      "needs_attention"
-    ]);
-    TEAM_RUN_STATUS_TRANSITIONS = {
-      queued: ["planning", "running", "cancelled", "failed"],
-      planning: ["running", "blocked", "cancelled", "failed"],
-      running: ["blocked", "completed", "failed", "cancelled"],
-      blocked: ["running", "cancelled", "failed"],
-      completed: ["running", "cancelled"],
-      failed: ["running", "cancelled"],
-      cancelled: ["running"]
-    };
-    TEAM_TASK_STATUS_TRANSITIONS = {
-      queued: ["running", "cancelled", "skipped", "failed"],
-      running: ["completed", "failed", "cancelled", "queued", "waiting"],
-      waiting: ["running", "queued", "completed", "failed", "cancelled"],
-      completed: ["queued"],
-      failed: ["queued", "cancelled"],
-      cancelled: ["queued"],
-      skipped: ["queued", "cancelled"],
-      needs_attention: ["queued", "running"]
-    };
+    process.on("SIGTERM", () => setImmediate(() => flushBufferedQueuesSync()));
+    process.on("SIGINT", () => setImmediate(() => flushBufferedQueuesSync()));
+    process.on("uncaughtException", (error) => {
+      flushBufferedQueuesSync();
+      asyncQueues.clear();
+      throw error;
+    });
   }
 });
 
@@ -23231,10 +18199,10 @@ var init_event_reconstructor = __esm({
 });
 
 // src/state/stores/manifest-io.ts
-import * as fs36 from "node:fs";
+import * as fs24 from "node:fs";
 function quarantineCorruptFile(filePath) {
   try {
-    fs36.renameSync(filePath, `${filePath}.corrupt-${Date.now()}`);
+    fs24.renameSync(filePath, `${filePath}.corrupt-${Date.now()}`);
   } catch {
   }
 }
@@ -23303,7 +18271,7 @@ function migrateTasksFile(parsed, runId) {
 function loadTasksWithRecovery(tasksPath, eventsPath, runId) {
   let content;
   try {
-    content = fs36.readFileSync(tasksPath, "utf-8");
+    content = fs24.readFileSync(tasksPath, "utf-8");
   } catch {
     return [];
   }
@@ -23327,7 +18295,7 @@ function loadTasksWithRecovery(tasksPath, eventsPath, runId) {
 function loadManifestWithRecovery(manifestPath, runId) {
   let content;
   try {
-    content = fs36.readFileSync(manifestPath, "utf-8");
+    content = fs24.readFileSync(manifestPath, "utf-8");
   } catch {
     return void 0;
   }
@@ -23349,7 +18317,7 @@ function loadManifestWithRecovery(manifestPath, runId) {
 async function loadTasksWithRecoveryAsync(tasksPath, eventsPath, runId) {
   let content;
   try {
-    content = await fs36.promises.readFile(tasksPath, "utf-8");
+    content = await fs24.promises.readFile(tasksPath, "utf-8");
   } catch {
     return [];
   }
@@ -23407,15 +18375,15 @@ __export(state_store_exports, {
   unloadRun: () => unloadRun,
   updateRunStatus: () => updateRunStatus
 });
-import * as fs37 from "node:fs";
+import * as fs25 from "node:fs";
 import * as fsp from "node:fs/promises";
-import * as path30 from "node:path";
+import * as path22 from "node:path";
 function statManifestWithWindowsRetry(manifestPath) {
-  if (process.platform !== "win32") return fs37.statSync(manifestPath);
+  if (process.platform !== "win32") return fs25.statSync(manifestPath);
   const retryable = /* @__PURE__ */ new Set(["ENOENT", "EPERM", "EBUSY", "EAGAIN"]);
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      return fs37.statSync(manifestPath);
+      return fs25.statSync(manifestPath);
     } catch (error) {
       const code = error.code;
       if (!retryable.has(code ?? "")) throw error;
@@ -23424,7 +18392,7 @@ function statManifestWithWindowsRetry(manifestPath) {
       }
     }
   }
-  return fs37.statSync(manifestPath);
+  return fs25.statSync(manifestPath);
 }
 function genOf(stateRoot) {
   return manifestCacheGeneration.get(stateRoot) ?? 0;
@@ -23484,7 +18452,7 @@ function resolveRunStateRoot(cwd, runId) {
   const now = Date.now();
   const cached2 = runStateRootCache.get(key);
   if (cached2 && cached2.expiresAt > now) return cached2.root;
-  const runsRoot = path30.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
+  const runsRoot = path22.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
   const scopedPath = resolveContainedRelativePath(runsRoot, runId, "runId");
   try {
     resolveRealContainedPath(runsRoot, runId);
@@ -23506,17 +18474,17 @@ function __test__clearArtifactsVerdictCache() {
 }
 function validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath) {
   if (!manifest.status || typeof manifest.status !== "string") return false;
-  if (manifest.runId !== runId || manifest.stateRoot !== stateRoot || manifest.tasksPath !== tasksPath || manifest.eventsPath !== path30.join(stateRoot, "events.jsonl"))
+  if (manifest.runId !== runId || manifest.stateRoot !== stateRoot || manifest.tasksPath !== tasksPath || manifest.eventsPath !== path22.join(stateRoot, "events.jsonl"))
     return false;
-  const artifactsParent = path30.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
+  const artifactsParent = path22.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
   const expectedArtifactsRoot = resolveContainedRelativePath(artifactsParent, runId, "runId");
   if (manifest.artifactsRoot !== expectedArtifactsRoot) return false;
   const verdictKey = `${cwd}\0${runId}`;
   const cachedVerdict = artifactsVerdictCache.get(verdictKey);
   if (cachedVerdict && cachedVerdict.expiresAt > Date.now()) return true;
-  if (fs37.existsSync(expectedArtifactsRoot)) {
+  if (fs25.existsSync(expectedArtifactsRoot)) {
     try {
-      if (fs37.lstatSync(expectedArtifactsRoot).isSymbolicLink()) return false;
+      if (fs25.lstatSync(expectedArtifactsRoot).isSymbolicLink()) return false;
       resolveRealContainedPath(artifactsParent, runId);
     } catch {
       return false;
@@ -23542,15 +18510,15 @@ function createRunPaths(cwd, runId = createRunId()) {
   }
   assertSafePathId("runId", runId);
   const baseRoot = scopeBaseRoot(cwd);
-  const stateRoot = resolveContainedRelativePath(path30.join(baseRoot, DEFAULT_PATHS.state.runsSubdir), runId, "runId");
-  const artifactsRoot = resolveContainedRelativePath(path30.join(baseRoot, DEFAULT_PATHS.state.artifactsSubdir), runId, "runId");
+  const stateRoot = resolveContainedRelativePath(path22.join(baseRoot, DEFAULT_PATHS.state.runsSubdir), runId, "runId");
+  const artifactsRoot = resolveContainedRelativePath(path22.join(baseRoot, DEFAULT_PATHS.state.artifactsSubdir), runId, "runId");
   return {
     runId,
     stateRoot,
     artifactsRoot,
-    manifestPath: path30.join(stateRoot, DEFAULT_PATHS.state.manifestFile),
-    tasksPath: path30.join(stateRoot, DEFAULT_PATHS.state.tasksFile),
-    eventsPath: path30.join(stateRoot, DEFAULT_PATHS.state.eventsFile)
+    manifestPath: path22.join(stateRoot, DEFAULT_PATHS.state.manifestFile),
+    tasksPath: path22.join(stateRoot, DEFAULT_PATHS.state.tasksFile),
+    eventsPath: path22.join(stateRoot, DEFAULT_PATHS.state.eventsFile)
   };
 }
 function stripGoalTail(prefix) {
@@ -23638,8 +18606,8 @@ function createRunManifest(params) {
     runKind: params.runKind ?? "team-run",
     ...params.args !== void 0 ? { args: params.args } : {}
   };
-  fs37.mkdirSync(paths.stateRoot, { recursive: true });
-  fs37.mkdirSync(paths.artifactsRoot, { recursive: true });
+  fs25.mkdirSync(paths.stateRoot, { recursive: true });
+  fs25.mkdirSync(paths.artifactsRoot, { recursive: true });
   const result4 = saveManifestAndTasksAtomicSync(manifest, tasks);
   if (!result4.manifestWritten || !result4.tasksWritten) {
     const cause = result4.error ? `: ${result4.error}` : "";
@@ -23678,9 +18646,9 @@ function saveRunManifest(manifest) {
   const cachedTasksMtimeMs = cachedBeforeInvalidate?.tasksMtimeMs ?? 0;
   const cachedTasksSize = cachedBeforeInvalidate?.tasksSize ?? 0;
   invalidateRunCache(manifest.stateRoot);
-  const manifestPath = path30.join(manifest.stateRoot, "manifest.json");
+  const manifestPath = path22.join(manifest.stateRoot, "manifest.json");
   atomicWriteJson(manifestPath, manifest);
-  const manifestStat = fs37.statSync(manifestPath);
+  const manifestStat = fs25.statSync(manifestPath);
   setManifestCache(manifest.stateRoot, {
     manifest,
     tasks: cachedTasks,
@@ -23696,11 +18664,11 @@ async function saveRunManifestAsync(manifest) {
   const cachedTasksMtimeMs = cachedBeforeInvalidate?.tasksMtimeMs ?? 0;
   const cachedTasksSize = cachedBeforeInvalidate?.tasksSize ?? 0;
   invalidateRunCache(manifest.stateRoot);
-  const manifestPath = path30.join(manifest.stateRoot, "manifest.json");
+  const manifestPath = path22.join(manifest.stateRoot, "manifest.json");
   await atomicWriteJsonAsync(manifestPath, manifest);
   let manifestStat;
   try {
-    manifestStat = await fs37.promises.stat(manifestPath);
+    manifestStat = await fs25.promises.stat(manifestPath);
   } catch (statError) {
     const code = String(statError.code ?? "");
     if (code !== "ENOENT") throw statError;
@@ -23735,17 +18703,17 @@ function saveRunTasks(manifest, tasks) {
   if (!shouldPersistTasks(manifest, tasks)) return;
   invalidateRunCache(manifest.stateRoot);
   try {
-    fs37.statSync(manifest.stateRoot);
+    fs25.statSync(manifest.stateRoot);
   } catch {
     return;
   }
   atomicWriteJson(manifest.tasksPath, tasks, { compact: true });
-  const manifestPath = path30.join(manifest.stateRoot, "manifest.json");
+  const manifestPath = path22.join(manifest.stateRoot, "manifest.json");
   let manifestStat;
   let tasksStat;
   try {
-    manifestStat = fs37.statSync(manifestPath);
-    tasksStat = fs37.statSync(manifest.tasksPath);
+    manifestStat = fs25.statSync(manifestPath);
+    tasksStat = fs25.statSync(manifest.tasksPath);
   } catch {
     return;
   }
@@ -23775,7 +18743,7 @@ function saveRunTasksCoalesced(manifest, tasks, skipCoalesce = false, durability
     invalidateRunCache(manifest.stateRoot);
   }
   try {
-    fs37.statSync(manifest.stateRoot);
+    fs25.statSync(manifest.stateRoot);
   } catch {
     return;
   }
@@ -23797,7 +18765,7 @@ function saveManifestAndTasksAtomicSync(manifest, tasks) {
   try {
     withRunLockSync(manifest, () => {
       invalidateRunCache(manifest.stateRoot);
-      atomicWriteJson(path30.join(manifest.stateRoot, "manifest.json"), manifest);
+      atomicWriteJson(path22.join(manifest.stateRoot, "manifest.json"), manifest);
       manifestWritten = true;
       atomicWriteJson(manifest.tasksPath, tasks, { compact: true });
       tasksWritten = true;
@@ -23862,7 +18830,7 @@ function __test__clearManifestCache() {
   manifestCacheGeneration.clear();
 }
 async function unloadRun(stateRoot) {
-  flushPendingAtomicWrites(path30.join(stateRoot, "tasks.json"));
+  flushPendingAtomicWrites(path22.join(stateRoot, "tasks.json"));
   invalidateRunCache(stateRoot);
 }
 function getManifestCacheStats() {
@@ -23886,7 +18854,7 @@ function getManifestCacheStats() {
 }
 async function readJsonFileAsync(filePath) {
   try {
-    return JSON.parse(await fs37.promises.readFile(filePath, "utf-8"));
+    return JSON.parse(await fs25.promises.readFile(filePath, "utf-8"));
   } catch (err2) {
     const code = err2.code;
     if (code !== "ENOENT" && code !== "ENOTDIR") {
@@ -23898,8 +18866,8 @@ async function readJsonFileAsync(filePath) {
 function loadRunManifestById(cwd, runId) {
   const stateRoot = resolveRunStateRoot(cwd, runId);
   if (!stateRoot) return void 0;
-  const manifestPath = path30.join(stateRoot, "manifest.json");
-  const tasksPath = path30.join(stateRoot, "tasks.json");
+  const manifestPath = path22.join(stateRoot, "manifest.json");
+  const tasksPath = path22.join(stateRoot, "tasks.json");
   let manifestStat;
   try {
     manifestStat = statManifestWithWindowsRetry(manifestPath);
@@ -23909,7 +18877,7 @@ function loadRunManifestById(cwd, runId) {
   const cached2 = manifestCache.get(stateRoot);
   let tasksStat;
   try {
-    tasksStat = fs37.statSync(tasksPath);
+    tasksStat = fs25.statSync(tasksPath);
   } catch {
     tasksStat = void 0;
   }
@@ -23920,7 +18888,7 @@ function loadRunManifestById(cwd, runId) {
     } else if (!validateRunManifestPaths(cwd, runId, cached2.manifest, stateRoot, tasksPath)) {
       manifestCache.delete(stateRoot);
       return void 0;
-    } else if (!fs37.existsSync(tasksPath)) {
+    } else if (!fs25.existsSync(tasksPath)) {
       manifestCache.delete(stateRoot);
       return void 0;
     } else {
@@ -23931,10 +18899,10 @@ function loadRunManifestById(cwd, runId) {
   let manifest;
   let tasks;
   while (attempts < LOAD_MANIFEST_RETRY_LIMIT) {
-    const freshStat = fs37.statSync(manifestPath);
+    const freshStat = fs25.statSync(manifestPath);
     manifest = cached2 && cached2.manifestMtimeMs === freshStat.mtimeMs && cached2.manifestSize === freshStat.size ? cached2.manifest : readJsonFile(manifestPath);
-    const freshTasksStat = fs37.existsSync(tasksPath) ? fs37.statSync(tasksPath) : void 0;
-    tasks = loadTasksWithRecovery(tasksPath, manifest?.eventsPath ?? path30.join(stateRoot, "events.jsonl"), manifest?.runId ?? runId);
+    const freshTasksStat = fs25.existsSync(tasksPath) ? fs25.statSync(tasksPath) : void 0;
+    tasks = loadTasksWithRecovery(tasksPath, manifest?.eventsPath ?? path22.join(stateRoot, "events.jsonl"), manifest?.runId ?? runId);
     if (freshStat.mtimeMs === manifestStat.mtimeMs && freshStat.size === manifestStat.size && (!freshTasksStat || freshTasksStat.mtimeMs === tasksStat?.mtimeMs && freshTasksStat.size === tasksStat?.size)) {
       break;
     }
@@ -23957,7 +18925,7 @@ function loadRunManifestById(cwd, runId) {
       "warn"
     );
   }
-  if (!manifest && fs37.existsSync(manifestPath)) {
+  if (!manifest && fs25.existsSync(manifestPath)) {
     quarantineCorruptFile(manifestPath);
     logInternalError(
       "state-store",
@@ -23983,18 +18951,18 @@ function loadRunManifestById(cwd, runId) {
 async function loadRunManifestByIdAsync(cwd, runId) {
   const stateRoot = resolveRunStateRoot(cwd, runId);
   if (!stateRoot) return void 0;
-  const manifestPath = path30.join(stateRoot, "manifest.json");
-  const tasksPath = path30.join(stateRoot, "tasks.json");
+  const manifestPath = path22.join(stateRoot, "manifest.json");
+  const tasksPath = path22.join(stateRoot, "tasks.json");
   let manifestStat;
   try {
-    manifestStat = await fs37.promises.stat(manifestPath);
+    manifestStat = await fs25.promises.stat(manifestPath);
   } catch {
     return void 0;
   }
   const cached2 = manifestCache.get(stateRoot);
   let tasksStat;
   try {
-    tasksStat = await fs37.promises.stat(tasksPath);
+    tasksStat = await fs25.promises.stat(tasksPath);
   } catch {
     tasksStat = void 0;
   }
@@ -24019,12 +18987,12 @@ async function loadRunManifestByIdAsync(cwd, runId) {
   let tasks;
   let attempts = 0;
   while (attempts < LOAD_MANIFEST_RETRY_LIMIT) {
-    const freshStat = await fs37.promises.stat(manifestPath);
+    const freshStat = await fs25.promises.stat(manifestPath);
     manifest = cached2 && cached2.manifestMtimeMs === freshStat.mtimeMs && cached2.manifestSize === freshStat.size ? cached2.manifest : await readJsonFileAsync(manifestPath);
-    const freshTasksStat = await fs37.promises.stat(tasksPath).catch(() => void 0);
+    const freshTasksStat = await fs25.promises.stat(tasksPath).catch(() => void 0);
     tasks = await loadTasksWithRecoveryAsync(
       tasksPath,
-      manifest?.eventsPath ?? path30.join(stateRoot, "events.jsonl"),
+      manifest?.eventsPath ?? path22.join(stateRoot, "events.jsonl"),
       manifest?.runId ?? runId
     );
     if (freshStat.mtimeMs === manifestStat.mtimeMs && freshStat.size === manifestStat.size && (!freshTasksStat || freshTasksStat.mtimeMs === tasksStat?.mtimeMs && freshTasksStat.size === tasksStat?.size)) {
@@ -24049,7 +19017,7 @@ async function loadRunManifestByIdAsync(cwd, runId) {
       "warn"
     );
   }
-  if (!manifest && fs37.existsSync(manifestPath)) {
+  if (!manifest && fs25.existsSync(manifestPath)) {
     quarantineCorruptFile(manifestPath);
     logInternalError(
       "state-store",
@@ -24266,14 +19234,14 @@ var init_command_utils = __esm({
 });
 
 // src/runtime/async-marker.ts
-import * as fs38 from "node:fs";
-import * as path31 from "node:path";
+import * as fs26 from "node:fs";
+import * as path23 from "node:path";
 function asyncStartMarkerPath(manifest) {
-  return path31.join(manifest.stateRoot, "async.pid");
+  return path23.join(manifest.stateRoot, "async.pid");
 }
 function hasAsyncStartMarker(manifest) {
   try {
-    const raw = JSON.parse(fs38.readFileSync(asyncStartMarkerPath(manifest), "utf-8"));
+    const raw = JSON.parse(fs26.readFileSync(asyncStartMarkerPath(manifest), "utf-8"));
     return typeof raw.pid === "number" && Number.isInteger(raw.pid) && raw.pid > 0 && typeof raw.startedAt === "string" && raw.startedAt.length > 0;
   } catch {
     return false;
@@ -25242,9 +20210,9 @@ var init_scheduler = __esm({
 });
 
 // src/runtime/settings-store.ts
-import * as fs39 from "node:fs";
-import { homedir as homedir6 } from "node:os";
-import * as path32 from "node:path";
+import * as fs27 from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import * as path24 from "node:path";
 function validateScheduledJob(job) {
   if (!job || typeof job !== "object") return false;
   const obj = job;
@@ -25281,15 +20249,15 @@ function sanitizeSettings(raw) {
   return out;
 }
 function globalPath() {
-  return path32.join(homedir6(), ".pi", "crew-settings.json");
+  return path24.join(homedir5(), ".pi", "crew-settings.json");
 }
 function projectPath(cwd) {
-  return path32.join(cwd, ".pi", "crew-settings.json");
+  return path24.join(cwd, ".pi", "crew-settings.json");
 }
 function readSettingsFile(filePath) {
-  if (!fs39.existsSync(filePath)) return {};
+  if (!fs27.existsSync(filePath)) return {};
   try {
-    return sanitizeSettings(JSON.parse(fs39.readFileSync(filePath, "utf-8")));
+    return sanitizeSettings(JSON.parse(fs27.readFileSync(filePath, "utf-8")));
   } catch (err2) {
     logInternalError("settings-store.read", err2, `Ignoring malformed settings at ${filePath}`);
     return {};
@@ -25303,7 +20271,7 @@ function loadCrewSettings(cwd = process.cwd(), globalFile = globalPath()) {
 }
 function updateCrewSettings(cwd, mutator) {
   const p = projectPath(cwd);
-  fs39.mkdirSync(path32.dirname(p), { recursive: true });
+  fs27.mkdirSync(path24.dirname(p), { recursive: true });
   return withFileLockSync(p, () => {
     const fresh = loadCrewSettings(cwd);
     const next = mutator(fresh);
@@ -25926,6 +20894,1197 @@ var init_handle_schedule = __esm({
     init_settings_store();
     init_context();
     init_param_error();
+  }
+});
+
+// src/runtime/model/pi-args.ts
+import * as fs28 from "node:fs";
+import * as os7 from "node:os";
+import * as path25 from "node:path";
+function getPiTempBase() {
+  return path25.join(userPiRoot(), "tmp");
+}
+function isValidThinkingLevel(value) {
+  return value !== void 0 && THINKING_LEVELS.includes(value);
+}
+function applyThinkingSuffix(model, thinking) {
+  if (!model || !thinking || thinking === "off") return model;
+  const colonIdx = model.lastIndexOf(":");
+  if (colonIdx !== -1 && isValidThinkingLevel(model.substring(colonIdx + 1))) return model;
+  if (!isValidThinkingLevel(thinking)) return model;
+  return `${model}:${thinking}`;
+}
+function currentCrewDepth(env = process.env) {
+  const raw = env.PI_CREW_DEPTH ?? env.PI_TEAMS_DEPTH ?? "0";
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+function resolveCrewMaxDepth(inputMaxDepth, env = process.env) {
+  const raw = env.PI_CREW_MAX_DEPTH ?? env.PI_TEAMS_MAX_DEPTH;
+  const envDepth = raw !== void 0 ? Number(raw) : NaN;
+  if (Number.isInteger(envDepth) && envDepth >= 1 && envDepth <= 10) return envDepth;
+  if (Number.isInteger(envDepth) && envDepth > 10) {
+    console.warn(`PI_CREW_MAX_DEPTH=${envDepth} exceeds cap of 10, clamping to 10. Set 10 or lower to avoid this warning.`);
+    return 10;
+  }
+  if (Number.isInteger(inputMaxDepth) && inputMaxDepth !== void 0 && inputMaxDepth >= 1 && inputMaxDepth <= 10) return inputMaxDepth;
+  if (Number.isInteger(inputMaxDepth) && inputMaxDepth !== void 0 && inputMaxDepth > 10) {
+    console.warn(`maxDepth=${inputMaxDepth} exceeds cap of 10, clamping to 10. Set 10 or lower to avoid this warning.`);
+    return 10;
+  }
+  return DEFAULT_MAX_CREW_DEPTH;
+}
+function checkCrewDepth(inputMaxDepth, env = process.env) {
+  const depth = currentCrewDepth(env);
+  const maxDepth = resolveCrewMaxDepth(inputMaxDepth, env);
+  return { depth, maxDepth, blocked: depth >= maxDepth };
+}
+function createSafeTempDir(base, prefix) {
+  const absoluteBase = path25.resolve(base);
+  const parts = absoluteBase.split(path25.sep);
+  let accumulated = "";
+  if (parts[0] === "") accumulated = "/";
+  for (let i = 1; i < parts.length; i++) {
+    if (parts[i] === "") continue;
+    accumulated = path25.join(accumulated, parts[i]);
+    try {
+      const stat2 = fs28.lstatSync(accumulated);
+      if (stat2.isSymbolicLink()) {
+        const knownDarwinSymlinks = ["/var", "/tmp", "/etc", "/private/var", "/private/tmp", "/private/etc"];
+        if (process.platform === "darwin" && knownDarwinSymlinks.includes(accumulated)) continue;
+        throw new Error("Refusing to create temp dir: ancestor is a symlink: " + accumulated);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("symlink")) throw e;
+      break;
+    }
+  }
+  try {
+    const baseStat = fs28.lstatSync(base);
+    if (baseStat.isSymbolicLink()) throw new Error("Refusing to create temp dir in symlinked base: " + base);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("symlink")) throw e;
+  }
+  if (!fs28.existsSync(base)) fs28.mkdirSync(base, { recursive: true });
+  for (let i = 1; i < parts.length; i++) {
+    if (parts[i] === "") continue;
+    accumulated = path25.join(accumulated, parts[i]);
+    try {
+      const stat2 = fs28.lstatSync(accumulated);
+      if (stat2.isSymbolicLink()) {
+        const knownDarwinSymlinks = ["/var", "/tmp", "/etc", "/private/var", "/private/tmp", "/private/etc"];
+        if (process.platform === "darwin" && knownDarwinSymlinks.includes(accumulated)) continue;
+        throw new Error("Refusing to create temp dir: ancestor is a symlink (post-mkdir): " + accumulated);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("symlink")) throw e;
+      break;
+    }
+  }
+  let resolvedBase;
+  let retries = 3;
+  while (true) {
+    try {
+      resolvedBase = fs28.realpathSync(base);
+      break;
+    } catch (e) {
+      if (--retries <= 0) throw e;
+      const code = e instanceof Object && "code" in e ? e.code : void 0;
+      if (code !== "ENOENT") throw e;
+    }
+    const revalidateParts = absoluteBase.split(path25.sep);
+    let revalidateAccumulated = "";
+    if (revalidateParts[0] === "") revalidateAccumulated = "/";
+    for (let i = 1; i < revalidateParts.length; i++) {
+      if (revalidateParts[i] === "") continue;
+      revalidateAccumulated = path25.join(revalidateAccumulated, revalidateParts[i]);
+      try {
+        const stat2 = fs28.lstatSync(revalidateAccumulated);
+        if (stat2.isSymbolicLink()) {
+          const knownDarwinSymlinks = ["/var", "/tmp", "/etc", "/private/var", "/private/tmp", "/private/etc"];
+          if (process.platform === "darwin" && knownDarwinSymlinks.includes(revalidateAccumulated)) continue;
+          throw new Error("Refusing to create temp dir: ancestor is a symlink (post-mkdir): " + revalidateAccumulated);
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("symlink")) throw e;
+        break;
+      }
+    }
+  }
+  let resolvedBaseStat;
+  try {
+    resolvedBaseStat = fs28.lstatSync(resolvedBase);
+    if (resolvedBaseStat.isSymbolicLink()) throw new Error("Refusing to create temp dir: resolved base is a symlink: " + resolvedBase);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("symlink")) throw e;
+  }
+  const resolvedParts = resolvedBase.split(path25.sep);
+  let resolvedAccumulated = "";
+  if (resolvedParts[0] === "") resolvedAccumulated = "/";
+  for (let i = 1; i < resolvedParts.length; i++) {
+    if (resolvedParts[i] === "") continue;
+    resolvedAccumulated = path25.join(resolvedAccumulated, resolvedParts[i]);
+    try {
+      const stat2 = fs28.lstatSync(resolvedAccumulated);
+      if (stat2.isSymbolicLink())
+        throw new Error("Refusing to create temp dir: resolved path contains symlink ancestor: " + resolvedAccumulated);
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("symlink")) throw e;
+      break;
+    }
+  }
+  const rawTempDir = fs28.mkdtempSync(path25.join(resolvedBase, prefix));
+  try {
+    const stat2 = fs28.lstatSync(rawTempDir);
+    if (stat2.isSymbolicLink()) throw new Error("temp dir is a symlink");
+  } catch (e) {
+    if (e instanceof Error && e.message.includes("symlink")) {
+      fs28.rmSync(rawTempDir, { recursive: true, force: true });
+      throw new Error("Refusing to use symlinked temp directory.");
+    }
+    throw e;
+  }
+  const resolved = fs28.realpathSync(rawTempDir);
+  createdTempDirs.add(resolved);
+  return resolved;
+}
+function buildPiWorkerArgs(input) {
+  const args = ["--mode", "json", "-p"];
+  if (input.sessionEnabled === false) args.push("--no-session");
+  const resolvedModel = input.model ?? input.agent.model;
+  const effectiveThinking = input.thinkingOverride ?? input.agent.thinking;
+  if (resolvedModel) {
+    const modelWithThinking = applyThinkingSuffix(resolvedModel, effectiveThinking);
+    if (modelWithThinking) args.push("--model", modelWithThinking);
+  }
+  if (!resolvedModel && effectiveThinking && effectiveThinking !== "off" && isValidThinkingLevel(effectiveThinking)) {
+    args.push("--thinking", effectiveThinking);
+  }
+  const CONTROL_TOOLS = ["ask", "delegate", "message"];
+  if (input.agent.disableTools === true) {
+    args.push("--no-tools");
+  } else {
+    const rawTools = input.agent.tools;
+    const declared = typeof rawTools === "string" ? rawTools.split(",").map((t2) => t2.trim()).filter(Boolean) : Array.isArray(rawTools) ? rawTools.map((t2) => String(t2).trim()).filter(Boolean) : [];
+    if (declared.length > 0) {
+      const allow = /* @__PURE__ */ new Set([...declared, ...CONTROL_TOOLS]);
+      args.push("--tools", [...allow].join(","));
+    }
+    const disallowed = (input.agent.disallowedTools ?? []).map((t2) => t2.trim()).filter(Boolean);
+    if (disallowed.length > 0) args.push("--exclude-tools", [...new Set(disallowed)].join(","));
+  }
+  args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
+  const extEnv = input.env ?? process.env;
+  const untrustedSource = input.agent.source === "project" || input.agent.source === "project-pi" || input.agent.source === "dynamic";
+  let declaredExtensions = input.agent.extensions ?? [];
+  if (untrustedSource && extEnv.PI_CREW_TRUST_PROJECT_AGENT_EXTENSIONS !== "1") {
+    declaredExtensions = [];
+  }
+  const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path25.basename(name).toLowerCase()));
+  declaredExtensions = declaredExtensions.filter((ext) => !excluded.has(path25.basename(ext).toLowerCase()));
+  for (const ext of declaredExtensions) args.push("--extension", ext);
+  if (input.agent.inheritSkills === false) args.push("--no-skills");
+  for (const skillPath of input.skillPaths ?? []) args.push("--skill", skillPath);
+  let tempDir;
+  if (input.agent.systemPrompt) {
+    const tmpBase = getPiTempBase();
+    tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
+    const promptPath = path25.join(tempDir, `${input.agent.name.replace(/[^\w.-]/g, "_")}.md`);
+    atomicWriteFile(promptPath, input.agent.systemPrompt, { mode: 384 });
+    args.push(input.agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt", promptPath);
+  }
+  if (input.task.length > TASK_ARG_LIMIT) {
+    if (!tempDir) {
+      const tmpBase = getPiTempBase();
+      tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
+    }
+    const taskPath = path25.join(tempDir, "task.md");
+    atomicWriteFile(taskPath, input.task, { mode: 384 });
+    args.push(`@${taskPath}`);
+  } else {
+    args.push(`Task: ${input.task}`);
+  }
+  const env = input.env ?? process.env;
+  const parentDepth = currentCrewDepth(env);
+  const maxDepth = resolveCrewMaxDepth(input.maxDepth, env);
+  return {
+    args,
+    env: {
+      // PI_CREW_KIND is the authoritative machine-readable sub-agent marker. It is always
+      // present on a child-pi process and NEVER present on a user's interactive main session.
+      // doctor --zombies uses it to safely list orphaned sub-agents without ever matching a
+      // main session (the lesson from an accidental `kill` of a live main session).
+      PI_CREW_KIND: "subagent",
+      PI_CREW_INHERIT_PROJECT_CONTEXT: input.agent.inheritProjectContext ? "1" : "0",
+      // B1 (fix round 1): match the argv `=== false` semantics — undefined
+      // inheritSkills means INHERIT (D5 default), not "0".
+      PI_CREW_INHERIT_SKILLS: input.agent.inheritSkills === false ? "0" : "1",
+      PI_CREW_DEPTH: String(parentDepth + 1),
+      PI_CREW_MAX_DEPTH: String(maxDepth),
+      PI_CREW_ROLE: input.agent.name,
+      PI_TEAMS_INHERIT_PROJECT_CONTEXT: input.agent.inheritProjectContext ? "1" : "0",
+      PI_TEAMS_INHERIT_SKILLS: input.agent.inheritSkills === false ? "0" : "1",
+      PI_TEAMS_DEPTH: String(parentDepth + 1),
+      PI_TEAMS_MAX_DEPTH: String(maxDepth),
+      PI_TEAMS_ROLE: input.agent.name,
+      // maxTokens cap for background workers — prompt-runtime reads this to cap API output
+      ...input.agent.maxTokens ? { PI_CREW_MAX_OUTPUT: String(input.agent.maxTokens) } : {}
+    },
+    tempDir
+  };
+}
+function cleanupTempDir(tempDir) {
+  if (!tempDir) return;
+  try {
+    let lstat2;
+    try {
+      lstat2 = fs28.lstatSync(tempDir);
+    } catch {
+      createdTempDirs.delete(tempDir);
+      return;
+    }
+    if (lstat2.isSymbolicLink()) {
+      createdTempDirs.delete(tempDir);
+      return;
+    }
+    fs28.rmSync(tempDir, { recursive: true, force: true });
+    createdTempDirs.delete(tempDir);
+  } catch {
+  }
+}
+function cleanupAllTrackedTempDirs() {
+  let cleaned = 0;
+  let failed = 0;
+  for (const dir of [...createdTempDirs]) {
+    try {
+      let lstat2;
+      try {
+        lstat2 = fs28.lstatSync(dir);
+      } catch {
+        createdTempDirs.delete(dir);
+        failed++;
+        continue;
+      }
+      if (lstat2.isSymbolicLink()) {
+        createdTempDirs.delete(dir);
+        continue;
+      }
+      fs28.rmSync(dir, { recursive: true, force: true });
+      createdTempDirs.delete(dir);
+      cleaned++;
+    } catch {
+      failed++;
+    }
+  }
+  return { cleaned, failed };
+}
+function purgeStaleTrackedTempDirs() {
+  let removed = 0;
+  for (const dir of [...createdTempDirs]) {
+    if (!fs28.existsSync(dir)) {
+      createdTempDirs.delete(dir);
+      removed++;
+    }
+  }
+  return { removed, remaining: createdTempDirs.size };
+}
+function cleanupOrphanTempDirs(now = Date.now(), baseDir = path25.join(userPiRoot(), "tmp")) {
+  let scanned = 0;
+  let cleaned = 0;
+  let failed = 0;
+  try {
+    if (!fs28.existsSync(baseDir)) return { scanned: 0, cleaned: 0, failed: 0 };
+    const entries = fs28.readdirSync(baseDir, { withFileTypes: true });
+    const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-")).sort((a, b) => a.name.localeCompare(b.name)).slice(0, ORPHAN_TEMP_CLEAN_BATCH_SIZE);
+    for (const entry of candidates) {
+      scanned++;
+      const dir = path25.join(baseDir, entry.name);
+      let lstat2;
+      try {
+        lstat2 = fs28.lstatSync(dir);
+      } catch {
+        failed++;
+        continue;
+      }
+      if (lstat2.isSymbolicLink()) continue;
+      if (createdTempDirs.has(dir)) continue;
+      try {
+        let preRmlstat;
+        try {
+          preRmlstat = fs28.lstatSync(dir);
+        } catch {
+          failed++;
+          continue;
+        }
+        if (!preRmlstat || preRmlstat.isSymbolicLink()) continue;
+        if (now - preRmlstat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
+          fs28.rmSync(dir, { recursive: true, force: true });
+          createdTempDirs.delete(dir);
+          cleaned++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+  } catch {
+  }
+  return { scanned, cleaned, failed };
+}
+function cleanupLegacyOrphanTempDirs(now = Date.now(), tmpDirOverride = os7.tmpdir()) {
+  const tmpDir = tmpDirOverride;
+  let scanned = 0;
+  let cleaned = 0;
+  let failed = 0;
+  try {
+    if (!fs28.existsSync(tmpDir)) return { scanned: 0, cleaned: 0, failed: 0 };
+    const entries = fs28.readdirSync(tmpDir, { withFileTypes: true });
+    const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-")).sort((a, b) => a.name.localeCompare(b.name)).slice(0, ORPHAN_TEMP_CLEAN_BATCH_SIZE);
+    for (const entry of candidates) {
+      scanned++;
+      const dir = path25.join(tmpDir, entry.name);
+      let lstat2;
+      try {
+        lstat2 = fs28.lstatSync(dir);
+      } catch {
+        failed++;
+        continue;
+      }
+      if (lstat2.isSymbolicLink()) continue;
+      const crewDir = path25.join(dir, ".crew");
+      let crewDirLstat;
+      try {
+        crewDirLstat = fs28.lstatSync(crewDir);
+      } catch {
+      }
+      if (crewDirLstat && !crewDirLstat.isSymbolicLink()) continue;
+      if (createdTempDirs.has(dir)) continue;
+      try {
+        let preRmlstat;
+        try {
+          preRmlstat = fs28.lstatSync(dir);
+        } catch {
+          failed++;
+          continue;
+        }
+        if (preRmlstat.isSymbolicLink()) continue;
+        if (now - preRmlstat.mtimeMs > ORPHAN_TEMP_MAX_AGE_MS) {
+          fs28.rmSync(dir, { recursive: true, force: true });
+          cleaned++;
+        }
+      } catch {
+        failed++;
+      }
+    }
+  } catch {
+  }
+  return { scanned, cleaned, failed };
+}
+var THINKING_LEVELS, PROMPT_RUNTIME_EXTENSION_PATH, TASK_ARG_LIMIT, DEFAULT_MAX_CREW_DEPTH, createdTempDirs, ORPHAN_TEMP_MAX_AGE_MS, ORPHAN_TEMP_CLEAN_BATCH_SIZE;
+var init_pi_args = __esm({
+  "src/runtime/model/pi-args.ts"() {
+    "use strict";
+    init_atomic_write();
+    init_paths();
+    THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
+    PROMPT_RUNTIME_EXTENSION_PATH = path25.join(packageRoot(), "src", "prompt", "prompt-runtime.ts");
+    TASK_ARG_LIMIT = 8e3;
+    DEFAULT_MAX_CREW_DEPTH = 4;
+    createdTempDirs = /* @__PURE__ */ new Set();
+    purgeStaleTrackedTempDirs();
+    ORPHAN_TEMP_MAX_AGE_MS = 24 * 60 * 60 * 1e3;
+    ORPHAN_TEMP_CLEAN_BATCH_SIZE = 50;
+  }
+});
+
+// src/runtime/surface/surface-provider.ts
+function splitDirectionFor(index) {
+  return index % 2 === 0 ? "down" : "right";
+}
+var MAX_PANES_PER_TAB;
+var init_surface_provider = __esm({
+  "src/runtime/surface/surface-provider.ts"() {
+    "use strict";
+    MAX_PANES_PER_TAB = 8;
+  }
+});
+
+// src/runtime/surface/herdr-provider.ts
+import * as fs29 from "node:fs";
+import * as net from "node:net";
+import * as os8 from "node:os";
+import * as path26 from "node:path";
+function herdrSocketPath(env) {
+  if (env.HERDR_SOCKET_PATH) return env.HERDR_SOCKET_PATH;
+  if (env.HERDR_SESSION) {
+    return path26.join(os8.homedir(), ".config", "herdr", "sessions", env.HERDR_SESSION, "herdr.sock");
+  }
+  return path26.join(os8.homedir(), ".config", "herdr", "herdr.sock");
+}
+function defaultConnect(socketPath) {
+  fs29.accessSync(socketPath);
+  const socket = net.createConnection({ path: socketPath });
+  let lineCb = null;
+  let buffer = "";
+  let ended = false;
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk) => {
+    buffer += chunk;
+    let idx = buffer.indexOf("\n");
+    while (idx !== -1) {
+      const line3 = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      if (line3.trim()) lineCb?.(line3);
+      idx = buffer.indexOf("\n");
+    }
+  });
+  const onEnd = () => {
+    if (ended) return;
+    ended = true;
+    lineCb?.("");
+    lineCb = null;
+  };
+  socket.on("close", onEnd);
+  socket.on("error", onEnd);
+  return {
+    write(line3) {
+      socket.write(`${line3}
+`);
+    },
+    onLine(cb) {
+      lineCb = cb;
+    },
+    close() {
+      socket.destroy();
+    }
+  };
+}
+function createHerdrProvider(deps = {}) {
+  const env = deps.env ?? process.env;
+  const connect = deps.connect ?? defaultConnect;
+  const watchers = /* @__PURE__ */ new Map();
+  let reqSeq = 0;
+  let subscription = null;
+  let subscriptionCb = null;
+  const tabMap = /* @__PURE__ */ new Map();
+  const tabInFlight = /* @__PURE__ */ new Map();
+  function activeWatchers() {
+    let active = 0;
+    for (const watcher of watchers.values()) if (!watcher.exited) active += 1;
+    return active;
+  }
+  function fire(paneId, reason) {
+    const watcher = watchers.get(paneId);
+    if (!watcher || watcher.exited) return;
+    watcher.exited = true;
+    watcher.reason = reason;
+    for (const cb of [...watcher.callbacks]) cb(reason);
+    maybeCloseSubscription();
+  }
+  function maybeCloseSubscription() {
+    if (!subscription || activeWatchers() > 0) return;
+    subscription.close();
+    subscription = null;
+    subscriptionCb = null;
+  }
+  function call(method, params) {
+    reqSeq += 1;
+    const id = `req-${reqSeq}`;
+    return new Promise((resolve26, reject) => {
+      let socket;
+      try {
+        socket = connect(herdrSocketPath(env));
+      } catch (err2) {
+        reject(new Error(`herdr socket unavailable: ${err2.message}`));
+        return;
+      }
+      let settled = false;
+      socket.onLine((line3) => {
+        if (settled) return;
+        if (!line3) {
+          settled = true;
+          socket.close();
+          reject(new Error(`herdr socket closed before response to ${id} (${method})`));
+          return;
+        }
+        let msg;
+        try {
+          msg = JSON.parse(line3);
+        } catch {
+          return;
+        }
+        if (msg.id !== id) return;
+        settled = true;
+        socket.close();
+        if (msg.error) {
+          reject(new Error(`${msg.error.code ?? "herdr_error"}: ${msg.error.message ?? "unknown error"}`));
+          return;
+        }
+        resolve26(msg.result);
+      });
+      socket.write(JSON.stringify({ id, method, params }));
+    });
+  }
+  function onSubscriptionLine(line3) {
+    if (!line3) {
+      subscription = null;
+      subscriptionCb = null;
+      for (const paneId2 of [...watchers.keys()]) fire(paneId2, "mux-dead");
+      return;
+    }
+    let msg;
+    try {
+      msg = JSON.parse(line3);
+    } catch {
+      return;
+    }
+    if (msg.event !== "pane_closed" && msg.event !== "pane_exited") return;
+    const paneId = msg.data?.pane_id;
+    if (typeof paneId === "string" && watchers.has(paneId)) fire(paneId, "pane-closed");
+  }
+  function ensureSubscription() {
+    if (subscription) return;
+    reqSeq += 1;
+    const id = `req-${reqSeq}`;
+    let socket;
+    try {
+      socket = connect(herdrSocketPath(env));
+    } catch {
+      for (const paneId of [...watchers.keys()]) fire(paneId, "mux-dead");
+      return;
+    }
+    subscription = socket;
+    subscriptionCb = onSubscriptionLine;
+    socket.onLine((line3) => subscriptionCb?.(line3));
+    socket.write(
+      JSON.stringify({
+        id,
+        method: "events.subscribe",
+        params: { subscriptions: [{ type: "pane.closed" }, { type: "pane.exited" }] }
+      })
+    );
+  }
+  function makeHandle(paneId, tabId) {
+    return {
+      id: paneId,
+      kind: "herdr",
+      ...tabId ? { tabId } : {},
+      onExit(cb) {
+        let watcher = watchers.get(paneId);
+        if (!watcher) {
+          watcher = { callbacks: [], exited: false };
+          watchers.set(paneId, watcher);
+        }
+        watcher.callbacks.push(cb);
+        if (watcher.exited) {
+          cb(watcher.reason);
+          return;
+        }
+        ensureSubscription();
+      },
+      dispose() {
+        const watcher = watchers.get(paneId);
+        if (!watcher) return;
+        if (!watcher.exited) fire(paneId, "detached");
+        watchers.delete(paneId);
+        maybeCloseSubscription();
+      }
+    };
+  }
+  function assertHerdrHandle(handle) {
+    if (handle.kind !== "herdr") {
+      throw new Error(`Expected a herdr handle, got kind "${handle.kind}" (id ${handle.id})`);
+    }
+  }
+  async function splitAndBoot(opts, parentPaneId, direction, commitTabPane, tabId) {
+    const split = await call("pane.split", {
+      direction,
+      target_pane_id: parentPaneId,
+      cwd: opts.cwd,
+      focus: false
+    });
+    const paneId = split.pane?.pane_id;
+    if (!paneId) throw new Error("pane.split returned no pane_id");
+    commitTabPane?.();
+    if (opts.title) {
+      try {
+        await call("pane.rename", { pane_id: paneId, label: opts.title });
+      } catch {
+      }
+    }
+    if (opts.command !== void 0) {
+      await call("pane.send_text", { pane_id: paneId, text: `${opts.command}
+` });
+    }
+    return makeHandle(paneId, tabId);
+  }
+  async function doTabSpawn(opts, tabKey) {
+    const existing = tabMap.get(tabKey);
+    if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
+      const paneIndexInTab = existing.paneCount;
+      const currentTabId = existing.tabIds[existing.tabIds.length - 1];
+      return splitAndBoot(
+        opts,
+        existing.rootPaneId,
+        splitDirectionFor(paneIndexInTab),
+        () => {
+          existing.paneCount = paneIndexInTab + 1;
+        },
+        currentTabId
+      );
+    }
+    const created = await call("tab.create", {
+      label: opts.title ?? tabKey,
+      ...env.HERDR_WORKSPACE_ID ? { workspace_id: env.HERDR_WORKSPACE_ID } : {}
+    });
+    const tabId = created.tab?.tab_id;
+    const rootPaneId = created.root_pane?.pane_id;
+    if (!tabId || !rootPaneId) throw new Error("tab.create returned no tab_id/root_pane");
+    const priorTabIds = existing?.tabIds ?? [];
+    return splitAndBoot(
+      opts,
+      rootPaneId,
+      splitDirectionFor(0),
+      () => {
+        tabMap.set(tabKey, { tabIds: [...priorTabIds, tabId], rootPaneId, paneCount: 1 });
+      },
+      tabId
+    );
+  }
+  async function spawnFromCallerPane(opts) {
+    const envPaneId = env.HERDR_PANE_ID;
+    let parentPaneId;
+    if (envPaneId) parentPaneId = envPaneId;
+    else {
+      const current = await call("pane.current", {});
+      parentPaneId = current.pane?.pane_id;
+    }
+    if (!parentPaneId) {
+      throw new Error("no parent pane \u2014 HERDR_PANE_ID unset, no tabKey, and pane.current returned no pane_id");
+    }
+    return splitAndBoot(opts, parentPaneId, "right", null);
+  }
+  return {
+    kind: "herdr",
+    detect() {
+      try {
+        const socket = connect(herdrSocketPath(env));
+        socket.close();
+        return { ok: true, kind: "herdr" };
+      } catch (err2) {
+        return { ok: false, reason: `herdr socket unavailable: ${err2.message}` };
+      }
+    },
+    async createSurface(_name, opts) {
+      if (!opts.tabKey) {
+        return spawnFromCallerPane(opts);
+      }
+      const tabKey = opts.tabKey;
+      const prev = tabInFlight.get(tabKey) ?? Promise.resolve();
+      const run = prev.then(() => doTabSpawn(opts, tabKey));
+      tabInFlight.set(
+        tabKey,
+        // biome-ignore lint/suspicious/noEmptyBlockStatements: nuốt lỗi CÓ Ý ĐỊNH — chain cần promise không-bao-giờ-reject
+        run.catch(() => {
+        })
+      );
+      return await run;
+    },
+    async sendCommand(handle, text) {
+      assertHerdrHandle(handle);
+      await call("pane.send_text", { pane_id: handle.id, text: `${text}
+` });
+    },
+    attach(id) {
+      return makeHandle(id);
+    },
+    async readScreen(handle, lines = 50) {
+      assertHerdrHandle(handle);
+      const result4 = await call("pane.read", {
+        pane_id: handle.id,
+        source: "visible",
+        lines: Math.max(1, lines)
+      });
+      return result4.read?.text ?? "";
+    },
+    async closeSurface(handle, _opts) {
+      assertHerdrHandle(handle);
+      try {
+        await call("pane.close", { pane_id: handle.id });
+      } catch (err2) {
+        if (err2.message.includes("pane_not_found")) return;
+        throw err2;
+      }
+    },
+    /**
+     * Task 5 (spec tab-layout §5): run end → đóng MỌI tab của run theo map
+     * nội bộ (run dài >8 pane mở tab kế — cả hai đều phải chết). tab đã mất
+     * (pane exit tự nhiên làm server dọn tab) → tab_not_found → idempotent;
+     * lỗi khác vẫn ném về closeTabForRun (best-effort log ở caller). Dọn cả
+     * lock tabInFlight (minor deferred từ review Task 4) — run đã kết thúc
+     * thì không còn spawn nào cùng tabKey.
+     */
+    async closeTab(tabKey) {
+      const entry = tabMap.get(tabKey);
+      if (!entry) return;
+      tabMap.delete(tabKey);
+      tabInFlight.delete(tabKey);
+      let firstError = null;
+      for (const tabId of entry.tabIds) {
+        try {
+          await call("tab.close", { tab_id: tabId });
+        } catch (err2) {
+          if (err2.message.includes("tab_not_found")) continue;
+          if (firstError === null) firstError = err2;
+        }
+      }
+      if (firstError !== null) throw firstError;
+    },
+    /**
+     * Task 6 (doctor cleanup-by-id): đóng MỘT tab theo id đọc từ
+     * manifest.surface.tabs — doctor chạy ở process khác host đã spawn nên
+     * tabMap ở đó trống (closeTab no-op). Wire 0.8.2 không có lệnh đọc tab
+     * đã verify (tab.get chưa probe) nên liveness lấy từ CHÍNH tab.close:
+     * `tab_not_found` = server xác nhận tab đã mất → "gone", thành công →
+     * "closed" — idempotent như closeTab ở trên, lỗi thật vẫn ném về doctor.
+     */
+    async closeTabById(tabId) {
+      try {
+        await call("tab.close", { tab_id: tabId });
+        return "closed";
+      } catch (err2) {
+        if (err2.message.includes("tab_not_found")) return "gone";
+        throw err2;
+      }
+    }
+  };
+}
+var init_herdr_provider = __esm({
+  "src/runtime/surface/herdr-provider.ts"() {
+    "use strict";
+    init_surface_provider();
+  }
+});
+
+// src/runtime/surface/tmux-provider.ts
+import { execFileSync as execFileSync2 } from "node:child_process";
+function defaultHasCommand(bin) {
+  const cached2 = binaryAvailability.get(bin);
+  if (cached2 !== void 0) return cached2;
+  let available = false;
+  try {
+    execFileSync2("sh", ["-c", `command -v ${bin}`], { stdio: "ignore" });
+    available = true;
+  } catch {
+    available = false;
+  }
+  binaryAvailability.set(bin, available);
+  return available;
+}
+function defaultSchedule(fn, ms) {
+  const timer = setInterval(fn, ms);
+  timer.unref();
+  return { clear: () => clearInterval(timer) };
+}
+function parsePaneStatus(stdout) {
+  const status = /* @__PURE__ */ new Map();
+  for (const line3 of stdout.split("\n")) {
+    const match = line3.trim().match(/^(\d+)\s+(\S+)$/);
+    if (match) status.set(match[2], match[1] === "1");
+  }
+  return status;
+}
+function findPanePid(stdout, paneId) {
+  for (const line3 of stdout.split("\n")) {
+    const match = line3.trim().match(/^(\d+)\s+(\S+)$/);
+    if (match && match[2] === paneId) {
+      const pid = Number(match[1]);
+      return Number.isFinite(pid) ? pid : null;
+    }
+  }
+  return null;
+}
+function createTmuxProvider(deps = {}) {
+  const tmux = deps.tmux ?? ((args) => execFileSync2("tmux", args, { encoding: "utf8" }));
+  const env = deps.env ?? process.env;
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
+  const killTree = deps.killTree ?? ((pid) => process.kill(pid, "SIGTERM"));
+  const hasCommand = deps.hasCommand ?? defaultHasCommand;
+  const schedule = deps.schedule ?? defaultSchedule;
+  const watchers = /* @__PURE__ */ new Map();
+  let timer = null;
+  const tabWindows = /* @__PURE__ */ new Map();
+  function activeWatchers() {
+    let active = 0;
+    for (const watcher of watchers.values()) if (!watcher.exited) active += 1;
+    return active;
+  }
+  function ensureTimer() {
+    if (timer || activeWatchers() === 0) return;
+    timer = schedule(pollExits, EXIT_POLL_INTERVAL_MS);
+  }
+  function maybeStopTimer() {
+    if (!timer || activeWatchers() > 0) return;
+    timer.clear();
+    timer = null;
+  }
+  function fire(paneId, reason) {
+    const watcher = watchers.get(paneId);
+    if (!watcher || watcher.exited) return;
+    watcher.exited = true;
+    watcher.reason = reason;
+    for (const cb of [...watcher.callbacks]) cb(reason);
+    maybeStopTimer();
+  }
+  function pollExits() {
+    let stdout;
+    try {
+      stdout = tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]);
+    } catch {
+      for (const paneId of [...watchers.keys()]) fire(paneId, "mux-dead");
+      return;
+    }
+    const status = parsePaneStatus(stdout);
+    for (const [paneId, watcher] of [...watchers]) {
+      if (!watcher.exited && status.get(paneId) !== false) fire(paneId, "pane-closed");
+    }
+  }
+  function makeHandle(paneId, tabId) {
+    return {
+      id: paneId,
+      kind: "tmux",
+      ...tabId ? { tabId } : {},
+      onExit(cb) {
+        let watcher = watchers.get(paneId);
+        if (!watcher) {
+          watcher = { callbacks: [], exited: false };
+          watchers.set(paneId, watcher);
+        }
+        watcher.callbacks.push(cb);
+        if (watcher.exited) {
+          cb(watcher.reason);
+          return;
+        }
+        ensureTimer();
+      },
+      dispose() {
+        const watcher = watchers.get(paneId);
+        if (!watcher) return;
+        if (!watcher.exited) fire(paneId, "detached");
+        watchers.delete(paneId);
+        maybeStopTimer();
+      }
+    };
+  }
+  function assertTmuxHandle(handle) {
+    if (handle.kind !== "tmux") {
+      throw new Error(`Expected a tmux handle, got kind "${handle.kind}" (id ${handle.id})`);
+    }
+  }
+  function isPaneAlive(paneId) {
+    try {
+      return parsePaneStatus(tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"])).get(paneId) === false;
+    } catch {
+      return false;
+    }
+  }
+  function killPaneBestEffort(paneId) {
+    try {
+      tmux(["kill-pane", "-t", paneId]);
+    } catch {
+    }
+  }
+  return {
+    kind: "tmux",
+    detect() {
+      if (!env.TMUX) {
+        return { ok: false, reason: "TMUX env not set \u2014 pi is not running inside a tmux session" };
+      }
+      if (!hasCommand("tmux")) {
+        return { ok: false, reason: "tmux binary not found on PATH" };
+      }
+      return { ok: true, kind: "tmux" };
+    },
+    async createSurface(_name, opts) {
+      let targetWindow;
+      let directionFlag;
+      let tabId;
+      let commitTabPane = null;
+      if (opts.tabKey) {
+        const tabKey = opts.tabKey;
+        const existing = tabWindows.get(tabKey);
+        if (existing && existing.paneCount < MAX_PANES_PER_TAB) {
+          const paneIndexInTab = existing.paneCount;
+          const currentWindowId = existing.windows[existing.windows.length - 1];
+          targetWindow = currentWindowId;
+          tabId = currentWindowId;
+          directionFlag = splitDirectionFor(paneIndexInTab) === "down" ? "-v" : "-h";
+          commitTabPane = () => {
+            existing.paneCount = paneIndexInTab + 1;
+          };
+        } else {
+          const windowId = tmux(["new-window", "-d", "-P", "-F", "#{window_id}"]).trim();
+          if (!/^@\d+$/.test(windowId)) {
+            throw new Error(`Unexpected tmux new-window output: ${JSON.stringify(windowId)}`);
+          }
+          const label = opts.title ?? tabKey;
+          try {
+            tmux(["rename-window", "-t", windowId, label]);
+          } catch {
+          }
+          targetWindow = windowId;
+          tabId = windowId;
+          directionFlag = splitDirectionFor(0) === "down" ? "-v" : "-h";
+          const priorWindows = existing?.windows ?? [];
+          commitTabPane = () => {
+            tabWindows.set(tabKey, { windows: [...priorWindows, windowId], paneCount: 1 });
+          };
+        }
+      } else {
+        const parentPane = env.TMUX_PANE;
+        if (!parentPane) {
+          throw new Error("TMUX_PANE not set \u2014 tmux provider ch\u1EC9 ch\u1EA1y b\xEAn trong tmux session");
+        }
+        targetWindow = parentPane;
+        directionFlag = "-h";
+      }
+      const raw = tmux(["split-window", "-d", directionFlag, "-P", "-F", "#{pane_id}", "-t", targetWindow]);
+      const paneId = raw.trim();
+      if (!/^%\d+$/.test(paneId)) {
+        throw new Error(`Unexpected tmux split-window output: ${JSON.stringify(raw)}`);
+      }
+      commitTabPane?.();
+      if (opts.title) {
+        try {
+          tmux(["select-pane", "-t", paneId, "-T", opts.title]);
+        } catch {
+        }
+      }
+      if (opts.command !== void 0) {
+        tmux(["send-keys", "-t", paneId, "-l", opts.command]);
+        tmux(["send-keys", "-t", paneId, "Enter"]);
+      }
+      return makeHandle(paneId, tabId);
+    },
+    async sendCommand(handle, text) {
+      assertTmuxHandle(handle);
+      tmux(["send-keys", "-t", handle.id, "-l", text]);
+      tmux(["send-keys", "-t", handle.id, "Enter"]);
+    },
+    attach(id) {
+      let status;
+      try {
+        status = parsePaneStatus(tmux(["list-panes", "-a", "-F", "#{pane_dead} #{pane_id}"]));
+      } catch {
+        return null;
+      }
+      if (status.get(id) !== false) return null;
+      return makeHandle(id);
+    },
+    async readScreen(handle, lines = 50) {
+      assertTmuxHandle(handle);
+      return tmux(["capture-pane", "-p", "-t", handle.id, "-S", `-${Math.max(1, lines)}`]);
+    },
+    async closeSurface(handle, opts) {
+      assertTmuxHandle(handle);
+      if (opts?.force) {
+        killPaneBestEffort(handle.id);
+        return;
+      }
+      if (!isPaneAlive(handle.id)) return;
+      const pid = findPanePid(tmux(["list-panes", "-a", "-F", "#{pane_pid} #{pane_id}"]), handle.id);
+      if (pid !== null && pid > 1) {
+        killTree(pid);
+        await sleep4(GRACEFUL_TERM_WAIT_MS);
+      }
+      if (isPaneAlive(handle.id)) killPaneBestEffort(handle.id);
+    },
+    /**
+     * Task 5 (spec tab-layout §5): run end → kill MỌI window của run theo
+     * map nội bộ (run dài >8 pane mở window kế — cả hai đều phải chết).
+     * Window đã tự đóng từ trước (pane cuối tự exit làm window biến mất)
+     * → kill-window throw → nuốt: idempotent.
+     */
+    async closeTab(tabKey) {
+      const entry = tabWindows.get(tabKey);
+      if (!entry) return;
+      tabWindows.delete(tabKey);
+      for (const windowId of entry.windows) {
+        try {
+          tmux(["kill-window", "-t", windowId]);
+        } catch {
+        }
+      }
+    },
+    /**
+     * Task 6 (doctor cleanup-by-id): đóng MỘT window theo id đọc từ
+     * manifest.surface.tabs — doctor chạy ở process khác host đã spawn nên
+     * tabWindows ở đó trống (closeTab no-op). Liveness check TRƯỚC khi
+     * đóng (pattern pane-orphan của doctor): list-windows toàn server, dễ
+     * thấy window → gone, không kill-window mù; window mất giữa lúc check
+     * và kill → throw được nuốt thành gone (idempotent).
+     */
+    async closeTabById(tabId) {
+      let windows;
+      try {
+        windows = tmux(["list-windows", "-a", "-F", "#{window_id}"]).trim().split("\n");
+      } catch (error) {
+        throw new Error(
+          `tmux list-windows failed before closing tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      if (!windows.includes(tabId)) return "gone";
+      try {
+        tmux(["kill-window", "-t", tabId]);
+      } catch {
+        return "gone";
+      }
+      return "closed";
+    }
+  };
+}
+var GRACEFUL_TERM_WAIT_MS, EXIT_POLL_INTERVAL_MS, binaryAvailability;
+var init_tmux_provider = __esm({
+  "src/runtime/surface/tmux-provider.ts"() {
+    "use strict";
+    init_surface_provider();
+    GRACEFUL_TERM_WAIT_MS = 3e3;
+    EXIT_POLL_INTERVAL_MS = 2e3;
+    binaryAvailability = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/runtime/surface/resolve-surface.ts
+import { execFileSync as execFileSync3 } from "node:child_process";
+import { Worker as Worker2 } from "node:worker_threads";
+function hasBinary(bin) {
+  const cached2 = binaryAvailability2.get(bin);
+  if (cached2 !== void 0) return cached2;
+  let available = false;
+  try {
+    execFileSync3("sh", ["-c", `command -v ${bin}`], { stdio: "ignore" });
+    available = true;
+  } catch {
+    available = false;
+  }
+  binaryAvailability2.set(bin, available);
+  return available;
+}
+function pingSocketSync(socketPath, timeoutMs = HERDR_PING_TIMEOUT_MS) {
+  const sab = new SharedArrayBuffer(4);
+  const flag = new Int32Array(sab);
+  let worker2;
+  try {
+    worker2 = new Worker2(PING_WORKER_SRC, {
+      eval: true,
+      workerData: { socketPath, timeoutMs, sab }
+    });
+    worker2.unref();
+  } catch {
+    return false;
+  }
+  try {
+    Atomics.wait(flag, 0, 0, timeoutMs + 150);
+  } catch {
+    return false;
+  } finally {
+    void worker2.terminate().catch(() => {
+    });
+  }
+  return Atomics.load(flag, 0) === 1;
+}
+function surfaceGateEnvSnapshot(env) {
+  return {
+    tmux: !!env.TMUX,
+    herdrEnv: env.HERDR_ENV === "1",
+    asyncRun: env.PI_CREW_ASYNC_RUN === "1",
+    depth: currentCrewDepth(env)
+  };
+}
+function resolveSurfaceDetailed(env, config, role, livePaneCount, opts = {}) {
+  const surface = config.runtime?.surface;
+  const mode = surface?.mode ?? "auto";
+  const reject = (gate, reason) => ({
+    provider: null,
+    rejection: { gate, reason, env: surfaceGateEnvSnapshot(env) }
+  });
+  if (mode === "off") return reject("mode-off", 'runtime.surface.mode is "off"');
+  const hostDepth = currentCrewDepth(env);
+  if (hostDepth > 0) return reject("depth", `host PI_CREW_DEPTH=${hostDepth} > 0 \u2014 no pane-in-pane (tier-1 workers only)`);
+  if (livePaneCount >= MAX_SURFACE_WORKERS)
+    return reject("pane-cap", `livePaneCount ${livePaneCount} >= MAX_SURFACE_WORKERS ${MAX_SURFACE_WORKERS}`);
+  const visibleAgents = surface?.visibleAgents ?? [];
+  if (!visibleAgents.includes("*") && !visibleAgents.includes(role))
+    return reject("role-not-visible", `role "${role}" not in visibleAgents [${visibleAgents.join(", ")}]`);
+  const tmuxBin = opts.tmuxBin ?? "tmux";
+  const herdrBin = opts.herdrBin ?? "herdr";
+  const tmuxWhy = () => !hasBinary(tmuxBin) ? "tmux binary not found" : "TMUX unset";
+  const herdrWhy = () => !hasBinary(herdrBin) ? "herdr binary not found" : env.HERDR_ENV !== "1" ? "HERDR_ENV!=1" : "socket not live";
+  const tmuxCell = () => hasBinary(tmuxBin) && !!env.TMUX;
+  const herdrCell = () => hasBinary(herdrBin) && env.HERDR_ENV === "1" && (opts.pingSocket ?? pingSocketSync)(herdrSocketPath(env));
+  let kind;
+  if (mode === "tmux") {
+    kind = tmuxCell() ? "tmux" : null;
+  } else if (mode === "herdr") {
+    kind = herdrCell() ? "herdr" : null;
+  } else {
+    kind = tmuxCell() ? "tmux" : herdrCell() ? "herdr" : null;
+  }
+  if (kind === null) {
+    const detail = mode === "tmux" ? tmuxWhy() : mode === "herdr" ? herdrWhy() : `tmux: ${tmuxWhy()}; herdr: ${herdrWhy()}`;
+    return reject("no-mux", `mode "${mode}" found no live mux (${detail})`);
+  }
+  const injected = opts.providers?.[kind];
+  if (injected) return { provider: injected };
+  if (kind === "tmux") {
+    tmuxProviderSingleton ??= createTmuxProvider();
+    return { provider: tmuxProviderSingleton };
+  }
+  herdrProviderSingleton ??= createHerdrProvider();
+  return { provider: herdrProviderSingleton };
+}
+function surfaceProviderForCleanup(kind) {
+  try {
+    if (kind === "tmux") {
+      tmuxProviderSingleton ??= createTmuxProvider();
+      return tmuxProviderSingleton;
+    }
+    herdrProviderSingleton ??= createHerdrProvider();
+    return herdrProviderSingleton;
+  } catch {
+    return null;
+  }
+}
+var MAX_SURFACE_WORKERS, HERDR_PING_TIMEOUT_MS, binaryAvailability2, tmuxProviderSingleton, herdrProviderSingleton, PING_WORKER_SRC;
+var init_resolve_surface = __esm({
+  "src/runtime/surface/resolve-surface.ts"() {
+    "use strict";
+    init_pi_args();
+    init_herdr_provider();
+    init_tmux_provider();
+    MAX_SURFACE_WORKERS = 6;
+    HERDR_PING_TIMEOUT_MS = 500;
+    binaryAvailability2 = /* @__PURE__ */ new Map();
+    tmuxProviderSingleton = null;
+    herdrProviderSingleton = null;
+    PING_WORKER_SRC = `
+const { parentPort, workerData } = require("node:worker_threads");
+const net = require("node:net");
+const flag = new Int32Array(workerData.sab);
+const done = (ok) => {
+  if (Atomics.load(flag, 0) !== 0) return;
+  Atomics.store(flag, 0, ok ? 1 : 2);
+  Atomics.notify(flag, 0);
+};
+try {
+  const socket = net.connect({ path: workerData.socketPath });
+  const timer = setTimeout(() => { socket.destroy(); done(false); }, workerData.timeoutMs);
+  socket.on("connect", () => { clearTimeout(timer); socket.destroy(); done(true); });
+  socket.on("error", () => { clearTimeout(timer); done(false); });
+} catch {
+  done(false);
+}
+parentPort.unref();
+`;
   }
 });
 
@@ -26659,7 +22818,7 @@ function asUnaryFn(value, owner) {
 function asInverse(value, owner) {
   return asUnaryFn(value, owner) ?? inverseAnsi;
 }
-function asRecord6(value) {
+function asRecord2(value) {
   return value && typeof value === "object" ? value : void 0;
 }
 function callMaybeString(fn) {
@@ -26681,7 +22840,7 @@ function themeSignature(theme) {
 }
 function asUnsubscribe(value) {
   if (typeof value === "function") return value;
-  const record = asRecord6(value);
+  const record = asRecord2(value);
   if (!record) return void 0;
   if (typeof record.unsubscribe === "function") return () => record.unsubscribe();
   if (typeof record.dispose === "function") return () => record.dispose();
@@ -27163,14 +23322,14 @@ var init_worker_heartbeat = __esm({
 });
 
 // src/state/stores/plan-store.ts
-import * as fs40 from "node:fs";
-import * as path33 from "node:path";
+import * as fs30 from "node:fs";
+import * as path27 from "node:path";
 function planFilePath(manifest) {
-  return path33.join(manifest.stateRoot, PLAN_SUBPATH);
+  return path27.join(manifest.stateRoot, PLAN_SUBPATH);
 }
 function loadPlanRecords(manifest) {
   try {
-    const raw = fs40.readFileSync(planFilePath(manifest), "utf-8");
+    const raw = fs30.readFileSync(planFilePath(manifest), "utf-8");
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.revisions)) return [];
     return parsed.revisions.filter((r) => Boolean(r?.id && typeof r.version === "number"));
@@ -27192,7 +23351,7 @@ function getCurrentPlanRecord(manifest) {
 }
 function writePlanFile(manifest, revisions) {
   const file = { version: 1, revisions };
-  fs40.mkdirSync(path33.dirname(planFilePath(manifest)), { recursive: true });
+  fs30.mkdirSync(path27.dirname(planFilePath(manifest)), { recursive: true });
   atomicWriteJson(planFilePath(manifest), file);
 }
 function assertRecordWellFormed(record) {
@@ -27305,16 +23464,16 @@ var init_plan_store = __esm({
     init_atomic_write();
     init_locks();
     init_event_log();
-    PLAN_SUBPATH = path33.join("plans", "plans.json");
+    PLAN_SUBPATH = path27.join("plans", "plans.json");
     ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
     TITLE_MAX = 512;
   }
 });
 
 // src/runtime/stale-reconciler.ts
-import * as fs41 from "node:fs";
-import * as os10 from "node:os";
-import * as path34 from "node:path";
+import * as fs31 from "node:fs";
+import * as os9 from "node:os";
+import * as path28 from "node:path";
 function isPlanApprovalPending(manifest) {
   return manifest.status === "blocked" && manifest.planApproval?.required === true && manifest.planApproval.status === "pending";
 }
@@ -27351,7 +23510,7 @@ function checkResultFile(manifest, tasks) {
 }
 function getProcessStartTime(pid) {
   try {
-    const stat2 = fs41.readFileSync(`/proc/${pid}/stat`, "utf-8");
+    const stat2 = fs31.readFileSync(`/proc/${pid}/stat`, "utf-8");
     const lastParen = stat2.lastIndexOf(")");
     if (lastParen === -1) return void 0;
     const fieldsAfterComm2 = stat2.slice(lastParen + 1).trim().split(/\s+/);
@@ -27376,9 +23535,9 @@ function checkPidLiveness(pid, stateRoot) {
   let heartbeatNote = "";
   if (stateRoot) {
     try {
-      const heartbeatPath = path34.join(stateRoot, "heartbeat.json");
-      if (fs41.existsSync(heartbeatPath)) {
-        const hb = JSON.parse(fs41.readFileSync(heartbeatPath, "utf-8"));
+      const heartbeatPath = path28.join(stateRoot, "heartbeat.json");
+      if (fs31.existsSync(heartbeatPath)) {
+        const hb = JSON.parse(fs31.readFileSync(heartbeatPath, "utf-8"));
         if (hb?.pid === pid && hb?.at) {
           heartbeatNote = ` (heartbeat was ${Math.round((Date.now() - hb.at) / 1e3)}s old)`;
         }
@@ -27426,7 +23585,7 @@ function isTaskHeartbeatStale(task, now) {
   if (taskPid && pidAlive) return false;
   if (process.env.PI_CREW_DEBUG_STALE === "1") {
     try {
-      fs41.appendFileSync(
+      fs31.appendFileSync(
         "/tmp/pi-crew-f1-debug.log",
         `${JSON.stringify({ ts: (/* @__PURE__ */ new Date()).toISOString(), taskId: task.id, status: task.status, taskPid, pidAlive, heartbeatAge, activityAge, hbLastSeen: task.heartbeat?.lastSeenAt })}
 `
@@ -27578,27 +23737,27 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
   let repaired = 0;
   let cleanedDirs = 0;
   try {
-    const entries = fs41.readdirSync(tmpDir, { withFileTypes: true });
+    const entries = fs31.readdirSync(tmpDir, { withFileTypes: true });
     const scanBatch = options?.scanBatchSize ?? ORPHAN_TEMP_SCAN_BATCH_SIZE;
     const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-")).sort((a, b) => a.name.localeCompare(b.name)).slice(0, scanBatch);
     for (const entry of candidates) {
       if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
-      const workspaceDir = path34.join(tmpDir, entry.name);
-      const crewDir = path34.join(workspaceDir, ".crew");
-      if (!fs41.existsSync(crewDir)) continue;
-      const stateRunsDir = path34.join(crewDir, "state", "runs");
-      if (!fs41.existsSync(stateRunsDir)) continue;
+      const workspaceDir = path28.join(tmpDir, entry.name);
+      const crewDir = path28.join(workspaceDir, ".crew");
+      if (!fs31.existsSync(crewDir)) continue;
+      const stateRunsDir = path28.join(crewDir, "state", "runs");
+      if (!fs31.existsSync(stateRunsDir)) continue;
       let hasRunning = false;
       try {
-        for (const runDir of fs41.readdirSync(stateRunsDir)) {
-          const manifestPath = path34.join(stateRunsDir, runDir, "manifest.json");
-          const tasksPath = path34.join(stateRunsDir, runDir, "tasks.json");
-          if (!fs41.existsSync(manifestPath) || !fs41.existsSync(tasksPath)) continue;
+        for (const runDir of fs31.readdirSync(stateRunsDir)) {
+          const manifestPath = path28.join(stateRunsDir, runDir, "manifest.json");
+          const tasksPath = path28.join(stateRunsDir, runDir, "tasks.json");
+          if (!fs31.existsSync(manifestPath) || !fs31.existsSync(tasksPath)) continue;
           try {
             const manifest = loadManifestWithRecovery(manifestPath, runDir);
             if (!manifest) continue;
             if (manifest.status !== "running") continue;
-            const tasks = loadTasksWithRecovery(tasksPath, path34.join(stateRunsDir, runDir, "events.jsonl"), runDir);
+            const tasks = loadTasksWithRecovery(tasksPath, path28.join(stateRunsDir, runDir, "events.jsonl"), runDir);
             const result4 = reconcileStaleRun(manifest, tasks, now);
             if (result4.repaired && result4.repairedTasks) {
               atomicWriteJson(tasksPath, result4.repairedTasks);
@@ -27645,35 +23804,35 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
         hasRunning = true;
         logInternalError("stale-reconciler", new Error(`Skipping unreadable runs dir: ${stateRunsDir}: ${err2}`), void 0, "warn");
       }
-      const sentinelPath = path34.join(workspaceDir, ".cleanup-in-progress");
+      const sentinelPath = path28.join(workspaceDir, ".cleanup-in-progress");
       let canCleanup = !hasRunning;
       const cleanupEnabled = options?.cleanupOrphanedTempDirs !== false;
       let dirAge = 0;
       if (cleanupEnabled && !hasRunning) {
         try {
-          const stat2 = fs41.statSync(workspaceDir);
+          const stat2 = fs31.statSync(workspaceDir);
           dirAge = now - stat2.mtimeMs;
         } catch {
         }
       }
       if (canCleanup) {
         try {
-          if (!fs41.existsSync(workspaceDir)) {
-            fs41.mkdirSync(workspaceDir, { recursive: true });
+          if (!fs31.existsSync(workspaceDir)) {
+            fs31.mkdirSync(workspaceDir, { recursive: true });
           }
-          const sentinelFd = fs41.openSync(sentinelPath, "wx");
-          fs41.closeSync(sentinelFd);
+          const sentinelFd = fs31.openSync(sentinelPath, "wx");
+          fs31.closeSync(sentinelFd);
           atomicWriteFile(sentinelPath, JSON.stringify({ startedAt: now }));
         } catch {
           canCleanup = false;
         }
       }
       if (canCleanup) {
-        if (fs41.existsSync(stateRunsDir)) {
+        if (fs31.existsSync(stateRunsDir)) {
           try {
-            for (const runDir of fs41.readdirSync(stateRunsDir)) {
-              const manifestPath = path34.join(stateRunsDir, runDir, "manifest.json");
-              if (!fs41.existsSync(manifestPath)) continue;
+            for (const runDir of fs31.readdirSync(stateRunsDir)) {
+              const manifestPath = path28.join(stateRunsDir, runDir, "manifest.json");
+              if (!fs31.existsSync(manifestPath)) continue;
               const manifest = loadManifestWithRecovery(manifestPath, runDir);
               if (!manifest) continue;
               if (manifest?.status === "running") {
@@ -27694,11 +23853,11 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
       if (canCleanup) {
         if (dirAge > ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS) {
           let stillClean = true;
-          if (fs41.existsSync(stateRunsDir)) {
+          if (fs31.existsSync(stateRunsDir)) {
             try {
-              for (const runDir of fs41.readdirSync(stateRunsDir)) {
-                const manifestPath = path34.join(stateRunsDir, runDir, "manifest.json");
-                if (!fs41.existsSync(manifestPath)) continue;
+              for (const runDir of fs31.readdirSync(stateRunsDir)) {
+                const manifestPath = path28.join(stateRunsDir, runDir, "manifest.json");
+                if (!fs31.existsSync(manifestPath)) continue;
                 const manifest = loadManifestWithRecovery(manifestPath, runDir);
                 if (!manifest) continue;
                 if (manifest.status === "running") {
@@ -27711,7 +23870,7 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
             }
           }
           if (stillClean) {
-            fs41.rmSync(workspaceDir, {
+            fs31.rmSync(workspaceDir, {
               recursive: true,
               force: true
             });
@@ -27719,7 +23878,7 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
           }
         }
         try {
-          fs41.unlinkSync(sentinelPath);
+          fs31.unlinkSync(sentinelPath);
         } catch {
         }
       }
@@ -27730,7 +23889,7 @@ function reconcileOrphanedTempWorkspaces(now = Date.now(), options) {
 }
 function getSafeTempDir() {
   try {
-    return fs41.existsSync(os10.tmpdir()) ? os10.tmpdir() : void 0;
+    return fs31.existsSync(os9.tmpdir()) ? os9.tmpdir() : void 0;
   } catch {
     return void 0;
   }
@@ -27768,13 +23927,13 @@ __export(crash_recovery_exports, {
   reconcileAllStaleRuns: () => reconcileAllStaleRuns,
   shouldRecoverTask: () => shouldRecoverTask
 });
-import * as fs42 from "node:fs";
-import * as path35 from "node:path";
+import * as fs32 from "node:fs";
+import * as path29 from "node:path";
 function isTerminalTask(task) {
   return task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "skipped" || task.status === "needs_attention";
 }
 function _setReadManifestFileSyncForTest(fn) {
-  _readManifestFileSync = fn ?? ((p) => fs42.readFileSync(p, "utf-8"));
+  _readManifestFileSync = fn ?? ((p) => fs32.readFileSync(p, "utf-8"));
 }
 function readManifestWithTransientRetry(manifestPath, maxRetries = 3, baseDelayMs = 100) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -27991,7 +24150,7 @@ function tryRemoveRunDirectories(entry) {
   for (const root of roots) {
     try {
       resolveRealContainedPath(root, entry.stateRoot);
-      fs42.rmSync(entry.stateRoot, { recursive: true, force: true });
+      fs32.rmSync(entry.stateRoot, { recursive: true, force: true });
       break;
     } catch {
     }
@@ -27999,7 +24158,7 @@ function tryRemoveRunDirectories(entry) {
 }
 function heartbeatAgeMs(entry, now) {
   try {
-    const mtime = fs42.statSync(path35.join(entry.stateRoot, "heartbeat.json")).mtimeMs;
+    const mtime = fs32.statSync(path29.join(entry.stateRoot, "heartbeat.json")).mtimeMs;
     return Number.isFinite(mtime) ? now - mtime : Infinity;
   } catch {
     return Infinity;
@@ -28017,16 +24176,16 @@ function purgeStaleActiveRunIndex(staleThresholdMs = 3e5, now = Date.now(), curr
   const kept = [];
   const entries = readActiveRunRegistry();
   for (const entry of entries) {
-    if (!fs42.existsSync(entry.manifestPath)) {
-      if (!fs42.existsSync(entry.stateRoot)) {
+    if (!fs32.existsSync(entry.manifestPath)) {
+      if (!fs32.existsSync(entry.stateRoot)) {
         tryRemoveRunDirectories(entry);
       }
       unregisterActiveRun(entry.runId);
       purged.push(entry.runId);
       continue;
     }
-    if (!fs42.existsSync(entry.cwd)) {
-      if (!fs42.existsSync(entry.stateRoot)) {
+    if (!fs32.existsSync(entry.cwd)) {
+      if (!fs32.existsSync(entry.stateRoot)) {
         tryRemoveRunDirectories(entry);
       }
       unregisterActiveRun(entry.runId);
@@ -28041,7 +24200,7 @@ function purgeStaleActiveRunIndex(staleThresholdMs = 3e5, now = Date.now(), curr
       const isTransient = code !== void 0 && TRANSIENT_READ_ERRNO_CODES.has(code);
       if (isTransient) continue;
       try {
-        fs42.renameSync(entry.manifestPath, entry.manifestPath + ".corrupt-" + Date.now() + "-" + process.pid);
+        fs32.renameSync(entry.manifestPath, entry.manifestPath + ".corrupt-" + Date.now() + "-" + process.pid);
       } catch {
       }
       unregisterActiveRun(entry.runId);
@@ -28230,7 +24389,7 @@ var init_crash_recovery = __esm({
     init_process_status();
     init_stale_reconciler();
     TRANSIENT_READ_ERRNO_CODES = /* @__PURE__ */ new Set(["EBUSY", "EACCES", "EAGAIN", "EPERM", "ENFILE", "EMFILE"]);
-    _readManifestFileSync = (p) => fs42.readFileSync(p, "utf-8");
+    _readManifestFileSync = (p) => fs32.readFileSync(p, "utf-8");
   }
 });
 
@@ -28314,8 +24473,8 @@ var init_widget_model = __esm({
 });
 
 // src/ui/agents-jobs-browser.ts
-import { existsSync as existsSync24, readdirSync as readdirSync13 } from "node:fs";
-import { join as join33 } from "node:path";
+import { existsSync as existsSync23, readdirSync as readdirSync11 } from "node:fs";
+import { join as join30 } from "node:path";
 import { matchesKey } from "@earendil-works/pi-tui";
 function recordTokPerSec(record, nowMs3) {
   if (record.status !== "running") return void 0;
@@ -28587,13 +24746,13 @@ var init_agents_jobs_browser = __esm({
         }
         const manifest = entry.manifest ?? this.manifestFor(entry.runId);
         if (manifest?.artifactsRoot) {
-          const dir = join33(manifest.artifactsRoot, "transcripts");
+          const dir = join30(manifest.artifactsRoot, "transcripts");
           try {
-            const hit = readdirSync13(dir).filter((name) => name.startsWith(`${entry.taskId}.attempt-`) && name.endsWith(".jsonl")).sort().at(-1);
-            if (hit) return join33(dir, hit);
+            const hit = readdirSync11(dir).filter((name) => name.startsWith(`${entry.taskId}.attempt-`) && name.endsWith(".jsonl")).sort().at(-1);
+            if (hit) return join30(dir, hit);
           } catch {
           }
-          return join33(dir, `${entry.taskId}.attempt-0.jsonl`);
+          return join30(dir, `${entry.taskId}.attempt-0.jsonl`);
         }
         return void 0;
       }
@@ -29024,7 +25183,7 @@ var init_live_conversation_overlay = __esm({
         const slot = statusSlot(this.handle.status);
         const lines = [];
         lines.push(canopyLine({ word: "LIVE", subject: this.handle.agent ?? this.handle.taskId ?? "?", theme: th, budget }));
-        const statusIcon5 = this.handle.status === "running" ? th.fg("accent", spinnerFrame(this.handle.taskId ?? this.handle.agentId ?? "")) : iconForStatus(this.handle.status);
+        const statusIcon4 = this.handle.status === "running" ? th.fg("accent", spinnerFrame(this.handle.taskId ?? this.handle.agentId ?? "")) : iconForStatus(this.handle.status);
         const desc = this.handle.description ?? this.handle.role ?? "";
         const parts = [];
         if (act.maxTurns != null) parts.push(`turn ${act.turnCount ?? 0}/${act.maxTurns}`);
@@ -29042,7 +25201,7 @@ var init_live_conversation_overlay = __esm({
         if ((act.compactionCount ?? 0) > 0) parts.push(th.fg("dim", `\u21BB${act.compactionCount}`));
         if (this.handle.modelName) parts.push(th.fg("muted", this.handle.modelName));
         const describe = desc ? `${th.fg("muted", desc)} ${th.fg("dim", "\xB7")} ` : "";
-        lines.push(railLine(RAIL.body, slot, truncate(`${statusIcon5} ${describe}${th.fg("dim", parts.join(" \xB7 "))}`, budget), th, budget));
+        lines.push(railLine(RAIL.body, slot, truncate(`${statusIcon4} ${describe}${th.fg("dim", parts.join(" \xB7 "))}`, budget), th, budget));
         const vh = this.viewportHeight();
         const visible = this.cachedLines.slice(this.scrollOffset, this.scrollOffset + vh);
         for (const line3 of visible) {
@@ -29269,7 +25428,7 @@ var init_syntax_highlight = __esm({
 });
 
 // src/ui/transcript-cache.ts
-import * as fs43 from "node:fs";
+import * as fs33 from "node:fs";
 function cacheKey(path103, options) {
   return `${path103}:${options.full ? "full" : `tail:${options.maxTailBytes}`}`;
 }
@@ -29282,14 +25441,14 @@ function getTranscriptCacheEntry(path103, options = {}) {
 }
 function readTranscriptText(path103, stat2, options) {
   if (options.full || stat2.size <= options.maxTailBytes) {
-    const raw = fs43.readFileSync(path103);
+    const raw = fs33.readFileSync(path103);
     return { raw, offset: 0, bytesRead: raw.length, truncated: false };
   }
   const bytesToRead = Math.min(stat2.size, options.maxTailBytes);
-  const fd = fs43.openSync(path103, "r");
+  const fd = fs33.openSync(path103, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
-    fs43.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+    fs33.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
     const firstNewline = buffer.indexOf(10);
     const start = firstNewline >= 0 ? firstNewline + 1 : 0;
     return {
@@ -29299,24 +25458,24 @@ function readTranscriptText(path103, stat2, options) {
       truncated: true
     };
   } finally {
-    fs43.closeSync(fd);
+    fs33.closeSync(fd);
   }
 }
 function appendTranscriptText(path103, previous, stat2, options) {
   const deltaLength = stat2.size - previous.size;
-  const fd = fs43.openSync(path103, "r");
+  const fd = fs33.openSync(path103, "r");
   let delta;
   try {
     delta = Buffer.alloc(deltaLength);
     let read = 0;
     while (read < deltaLength) {
-      const n = fs43.readSync(fd, delta, read, deltaLength - read, previous.size + read);
+      const n = fs33.readSync(fd, delta, read, deltaLength - read, previous.size + read);
       if (n <= 0) break;
       read += n;
     }
     if (read < deltaLength) return null;
   } finally {
-    fs43.closeSync(fd);
+    fs33.closeSync(fd);
   }
   let raw = Buffer.concat([previous.raw, delta], previous.raw.length + deltaLength);
   let offset = previous.offset;
@@ -29344,7 +25503,7 @@ function readTranscriptLinesCached(path103, parse4, now = Date.now(), options = 
   const previous = transcriptCache.get(key);
   let stat2;
   try {
-    stat2 = fs43.statSync(path103);
+    stat2 = fs33.statSync(path103);
   } catch {
     return previous?.lines ?? [];
   }
@@ -29399,19 +25558,19 @@ __export(transcript_viewer_exports, {
   formatTranscriptText: () => formatTranscriptText,
   readRunTranscript: () => readRunTranscript
 });
-import * as fs44 from "node:fs";
+import * as fs34 from "node:fs";
 import { matchesKey as matchesKey3 } from "@earendil-works/pi-tui";
 function readRunTranscriptCacheKey(manifest, taskId, readOptions) {
   return `${manifest.runId}|${taskId ?? ""}|${readOptions.full ? "full" : "tail"}|${readOptions.maxTailBytes}`;
 }
-function asRecord7(value) {
+function asRecord3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
-function textFromContent2(content) {
+function textFromContent(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.map((part) => {
-    const obj = asRecord7(part);
+    const obj = asRecord3(part);
     if (!obj) return "";
     if (typeof obj.text === "string") return obj.text;
     if (typeof obj.content === "string") return obj.content;
@@ -29444,13 +25603,13 @@ function highlightCodeBlocks(input, theme) {
 }
 function formatTranscriptEvent(event, themeLike = void 0) {
   const theme = asCrewTheme(themeLike);
-  const obj = asRecord7(event);
+  const obj = asRecord3(event);
   if (!obj) return [String(event)];
   const type = typeof obj.type === "string" ? obj.type : void 0;
   const toolName = typeof obj.toolName === "string" ? obj.toolName : typeof obj.name === "string" ? obj.name : void 0;
-  const content = textFromContent2(obj.content);
+  const content = textFromContent(obj.content);
   if (type && /tool/i.test(type)) {
-    const result4 = asRecord7(obj.result);
+    const result4 = asRecord3(obj.result);
     const isError = obj.isError === true || result4?.isError === true;
     const isPartial = obj.isPartial === true;
     const status = isError ? "failed" : isPartial ? "running" : "completed";
@@ -29474,10 +25633,10 @@ function formatTranscriptEvent(event, themeLike = void 0) {
       ...text.split(/\r?\n/).filter(Boolean).map((line3) => theme.fg("muted", line3))
     ];
   }
-  const message = asRecord7(obj.message);
+  const message = asRecord3(obj.message);
   if (message) {
     const role = typeof message.role === "string" ? message.role : "message";
-    const text = textFromContent2(message.content);
+    const text = textFromContent(message.content);
     if (text.trim()) {
       const label = role === "assistant" ? "Assistant" : role === "user" ? "User" : role;
       const header = `[${label}]:`;
@@ -29537,7 +25696,7 @@ function readRunTranscript(manifest, taskId, options = {}) {
   if (agent?.transcriptPath) {
     try {
       const safeTranscriptPath = resolveRealContainedPath(manifest.artifactsRoot, agent.transcriptPath);
-      if (fs44.existsSync(safeTranscriptPath)) transcriptPath = safeTranscriptPath;
+      if (fs34.existsSync(safeTranscriptPath)) transcriptPath = safeTranscriptPath;
     } catch {
     }
   }
@@ -30190,8 +26349,8 @@ var init_recovery_recipes = __esm({
 });
 
 // src/runtime/diagnostic-export.ts
-import * as fs45 from "node:fs";
-import * as path36 from "node:path";
+import * as fs35 from "node:fs";
+import * as path30 from "node:path";
 function envRedacted() {
   const output = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -30273,19 +26432,19 @@ async function exportDiagnostic(ctx, runId, options = {}) {
     runMailboxUnread: snapshot.mailbox,
     recoveryLedger
   };
-  const dir = path36.join(loaded.manifest.artifactsRoot, "diagnostic");
-  fs45.mkdirSync(dir, { recursive: true });
-  const filePath = path36.join(dir, `diagnostic-${safeTimestamp}.json`);
+  const dir = path30.join(loaded.manifest.artifactsRoot, "diagnostic");
+  fs35.mkdirSync(dir, { recursive: true });
+  const filePath = path30.join(dir, `diagnostic-${safeTimestamp}.json`);
   atomicWriteFile(filePath, `${JSON.stringify(report, null, 2)}
 `);
   return { path: filePath, report };
 }
 function listRecentDiagnostic(dir, windowMs, now = Date.now()) {
   try {
-    if (!fs45.existsSync(dir)) return void 0;
-    return fs45.readdirSync(dir).filter((file) => file.startsWith("diagnostic-") && file.endsWith(".json")).map((file) => ({
+    if (!fs35.existsSync(dir)) return void 0;
+    return fs35.readdirSync(dir).filter((file) => file.startsWith("diagnostic-") && file.endsWith(".json")).map((file) => ({
       file,
-      mtimeMs: fs45.statSync(path36.join(dir, file)).mtimeMs
+      mtimeMs: fs35.statSync(path30.join(dir, file)).mtimeMs
     })).filter((entry) => now - entry.mtimeMs < windowMs).sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.file;
   } catch {
     return void 0;
@@ -30309,12 +26468,12 @@ var init_diagnostic_export = __esm({
 
 // src/extension/plan-orchestrate.ts
 import { randomUUID as randomUUID6 } from "node:crypto";
-import * as fs46 from "node:fs";
+import * as fs36 from "node:fs";
 function parsePlanDocument(planPath) {
-  if (!fs46.existsSync(planPath)) {
+  if (!fs36.existsSync(planPath)) {
     throw new Error(`Plan document not found: ${planPath}`);
   }
-  const content = fs46.readFileSync(planPath, "utf-8");
+  const content = fs36.readFileSync(planPath, "utf-8");
   return parsePlanDocumentContent(content);
 }
 function parsePlanDocumentContent(content) {
@@ -30367,10 +26526,10 @@ function parsePlanDocumentContent(content) {
   return steps;
 }
 function parsePlanDocumentSimple(planPath) {
-  if (!fs46.existsSync(planPath)) {
+  if (!fs36.existsSync(planPath)) {
     throw new Error(`Plan document not found: ${planPath}`);
   }
-  const content = fs46.readFileSync(planPath, "utf-8");
+  const content = fs36.readFileSync(planPath, "utf-8");
   const steps = parsePlanDocumentContent(content);
   if (steps.length === 0) {
     const tag = detectImplicitTag(content);
@@ -30549,7 +26708,7 @@ var init_plan_orchestrate = __esm({
 });
 
 // src/runtime/plan-approval.ts
-import * as fs47 from "node:fs";
+import * as fs37 from "node:fs";
 function requiresPlanApproval(_workflow, runtimeConfig) {
   return runtimeConfig?.requirePlanApproval === true;
 }
@@ -30579,7 +26738,7 @@ async function ensurePlanApprovalRequested(manifest, tasks) {
   let record = getCurrentPlanRecord(manifest);
   if (!record && planTask?.resultArtifact?.path) {
     try {
-      const text = fs47.readFileSync(planTask.resultArtifact.path, "utf-8");
+      const text = fs37.readFileSync(planTask.resultArtifact.path, "utf-8");
       const parsed = parsePlannerPlanOutput(text, manifest.runId, planTask.id);
       if (parsed) record = appendPlanRevision(manifest, parsed);
     } catch {
@@ -30657,8 +26816,8 @@ var init_key_utils = __esm({
 });
 
 // src/ui/keybinding-map.ts
-import * as fs48 from "node:fs";
-import * as path37 from "node:path";
+import * as fs38 from "node:fs";
+import * as path31 from "node:path";
 import { matchesKey as matchesKey6 } from "@earendil-works/pi-tui";
 function overlayBindingKey(overlay, action) {
   return `overlay:${overlay}:${action}`;
@@ -30738,7 +26897,7 @@ function computeEffectiveBindings(overrides) {
 }
 function readConfigKeybindings(cwd) {
   try {
-    const raw = JSON.parse(fs48.readFileSync(path37.join(cwd, ".crew", "config.json"), "utf-8"));
+    const raw = JSON.parse(fs38.readFileSync(path31.join(cwd, ".crew", "config.json"), "utf-8"));
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
     return parseKeybindingOverride(raw.keybindings);
   } catch {
@@ -30756,7 +26915,7 @@ function readEnvKeybindings() {
 }
 function configKeybindingsMtime(cwd) {
   try {
-    return fs48.statSync(path37.join(cwd, ".crew", "config.json")).mtimeMs;
+    return fs38.statSync(path31.join(cwd, ".crew", "config.json")).mtimeMs;
   } catch {
     return void 0;
   }
@@ -31029,8 +27188,8 @@ var init_keybinding_map = __esm({
 });
 
 // src/state/coordination/mailbox.ts
-import * as fs49 from "node:fs";
-import * as path38 from "node:path";
+import * as fs39 from "node:fs";
+import * as path32 from "node:path";
 function registerMailboxAppendObserver(fn) {
   mailboxAppendObservers.add(fn);
   return () => {
@@ -31050,19 +27209,19 @@ function notifyMailboxAppended(message) {
   });
 }
 function mailboxDir(manifest) {
-  return path38.join(manifest.stateRoot, "mailbox");
+  return path32.join(manifest.stateRoot, "mailbox");
 }
 function safeMailboxDir(manifest, create = false) {
   const dir = mailboxDir(manifest);
   if (create) {
     try {
-      fs49.mkdirSync(dir, { recursive: true });
+      fs39.mkdirSync(dir, { recursive: true });
     } catch (error) {
       if (process.platform === "win32" && error.code === "EPERM") {
         try {
-          const realDir = fs49.realpathSync(path38.dirname(dir));
-          const correctedDir = path38.join(realDir, path38.basename(dir));
-          fs49.mkdirSync(correctedDir, { recursive: true });
+          const realDir = fs39.realpathSync(path32.dirname(dir));
+          const correctedDir = path32.join(realDir, path32.basename(dir));
+          fs39.mkdirSync(correctedDir, { recursive: true });
         } catch {
           throw error;
         }
@@ -31071,51 +27230,51 @@ function safeMailboxDir(manifest, create = false) {
       }
     }
   }
-  if (!fs49.existsSync(dir)) {
+  if (!fs39.existsSync(dir)) {
     if (create) throw new Error(`Mailbox directory creation failed: ${dir}`);
-    return path38.join(dir);
+    return path32.join(dir);
   }
-  if (fs49.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid mailbox directory: ${dir}`);
+  if (fs39.lstatSync(dir).isSymbolicLink()) throw new Error(`Invalid mailbox directory: ${dir}`);
   return dir;
 }
 function safeTaskId(taskId) {
-  if (!/^[\w.-]+$/.test(taskId) || taskId.includes("..") || path38.isAbsolute(taskId))
+  if (!/^[\w.-]+$/.test(taskId) || taskId.includes("..") || path32.isAbsolute(taskId))
     throw new Error(`Invalid mailbox task id: ${taskId}`);
   return taskId;
 }
 function safeMailboxTasksRoot(manifest, create = false) {
-  const root = path38.join(safeMailboxDir(manifest, create), "tasks");
-  if (create) fs49.mkdirSync(root, { recursive: true });
-  if (!fs49.existsSync(root)) return root;
-  if (fs49.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid mailbox tasks directory: ${root}`);
+  const root = path32.join(safeMailboxDir(manifest, create), "tasks");
+  if (create) fs39.mkdirSync(root, { recursive: true });
+  if (!fs39.existsSync(root)) return root;
+  if (fs39.lstatSync(root).isSymbolicLink()) throw new Error(`Invalid mailbox tasks directory: ${root}`);
   return root;
 }
 function taskMailboxDir(manifest, taskId, create = false) {
   const tasksRoot = safeMailboxTasksRoot(manifest, create);
   const normalizedTaskId = safeTaskId(taskId);
-  const resolved = path38.resolve(tasksRoot, normalizedTaskId);
-  const relative8 = path38.relative(tasksRoot, resolved);
-  if (relative8.startsWith("..") || path38.isAbsolute(relative8)) throw new Error(`Invalid mailbox task id: ${taskId}`);
-  if (create) fs49.mkdirSync(resolved, { recursive: true });
-  if (fs49.existsSync(resolved) && fs49.lstatSync(resolved).isSymbolicLink()) throw new Error(`Invalid mailbox task directory: ${resolved}`);
+  const resolved = path32.resolve(tasksRoot, normalizedTaskId);
+  const relative8 = path32.relative(tasksRoot, resolved);
+  if (relative8.startsWith("..") || path32.isAbsolute(relative8)) throw new Error(`Invalid mailbox task id: ${taskId}`);
+  if (create) fs39.mkdirSync(resolved, { recursive: true });
+  if (fs39.existsSync(resolved) && fs39.lstatSync(resolved).isSymbolicLink()) throw new Error(`Invalid mailbox task directory: ${resolved}`);
   return resolved;
 }
 function safeMailboxFile(filePath, parentDir) {
-  if (!fs49.existsSync(filePath)) return filePath;
-  if (fs49.lstatSync(filePath).isSymbolicLink()) throw new Error(`Invalid mailbox file: ${filePath}`);
+  if (!fs39.existsSync(filePath)) return filePath;
+  if (fs39.lstatSync(filePath).isSymbolicLink()) throw new Error(`Invalid mailbox file: ${filePath}`);
   return filePath;
 }
 function mailboxFile(manifest, direction, taskId, create = false) {
   const parent = taskId ? taskMailboxDir(manifest, taskId, create) : safeMailboxDir(manifest, create);
-  return safeMailboxFile(path38.join(parent, `${direction}.jsonl`), parent);
+  return safeMailboxFile(path32.join(parent, `${direction}.jsonl`), parent);
 }
 function deliveryFile(manifest, create = false) {
   try {
     const parent = safeMailboxDir(manifest, create);
-    return safeMailboxFile(path38.join(parent, "delivery.json"), parent);
+    return safeMailboxFile(path32.join(parent, "delivery.json"), parent);
   } catch (err2) {
     if (err2.code === "ENOENT") {
-      return path38.join(mailboxDir(manifest), "delivery.json");
+      return path32.join(mailboxDir(manifest), "delivery.json");
     }
     throw err2;
   }
@@ -31124,14 +27283,14 @@ function ensureRunMailbox(manifest) {
   safeMailboxDir(manifest, true);
   for (const direction of ["inbox", "outbox"]) {
     const filePath = mailboxFile(manifest, direction, void 0, true);
-    if (!fs49.existsSync(filePath)) {
-      fs49.mkdirSync(path38.dirname(filePath), { recursive: true });
+    if (!fs39.existsSync(filePath)) {
+      fs39.mkdirSync(path32.dirname(filePath), { recursive: true });
       atomicWriteFile(filePath, "");
     }
   }
   const delivery = deliveryFile(manifest, true);
-  if (!fs49.existsSync(delivery)) {
-    fs49.mkdirSync(path38.dirname(delivery), { recursive: true });
+  if (!fs39.existsSync(delivery)) {
+    fs39.mkdirSync(path32.dirname(delivery), { recursive: true });
     atomicWriteFile(delivery, `${JSON.stringify({ messages: {}, updatedAt: (/* @__PURE__ */ new Date()).toISOString() }, null, 2)}
 `);
   }
@@ -31141,7 +27300,7 @@ function ensureTaskMailbox(manifest, taskId) {
   taskMailboxDir(manifest, taskId, true);
   for (const direction of ["inbox", "outbox"]) {
     const filePath = mailboxFile(manifest, direction, taskId, true);
-    if (!fs49.existsSync(filePath)) atomicWriteFile(filePath, "");
+    if (!fs39.existsSync(filePath)) atomicWriteFile(filePath, "");
   }
 }
 function isDirection(value) {
@@ -31192,7 +27351,7 @@ function parseMailboxMessage(raw, expectedDirection) {
 }
 function parseMailboxFile(filePath, direction) {
   const messages = [];
-  const raw = fs49.readFileSync(filePath, "utf-8");
+  const raw = fs39.readFileSync(filePath, "utf-8");
   for (const line3 of raw.split(/\r?\n/).filter(Boolean)) {
     try {
       const message = parseMailboxMessage(JSON.parse(line3), direction);
@@ -31205,7 +27364,7 @@ function parseMailboxFile(filePath, direction) {
 function cachedMailboxRead(filePath, direction) {
   let stat2;
   try {
-    stat2 = fs49.statSync(filePath);
+    stat2 = fs39.statSync(filePath);
   } catch {
     mailboxParseCache.delete(filePath);
     return [];
@@ -31223,11 +27382,11 @@ function cachedMailboxRead(filePath, direction) {
 function safeReadMailboxFile(filePath, direction) {
   const messages = cachedMailboxRead(filePath, direction);
   try {
-    const dir = path38.dirname(filePath);
-    const base = path38.basename(filePath);
-    for (const entry of fs49.readdirSync(dir)) {
+    const dir = path32.dirname(filePath);
+    const base = path32.basename(filePath);
+    for (const entry of fs39.readdirSync(dir)) {
       if (!entry.startsWith(`${base}.`) || !entry.endsWith(".archive.jsonl")) continue;
-      const archivePath = path38.join(dir, entry);
+      const archivePath = path32.join(dir, entry);
       messages.push(...cachedMailboxRead(archivePath, direction));
     }
   } catch {
@@ -31236,12 +27395,12 @@ function safeReadMailboxFile(filePath, direction) {
 }
 function rotateMailboxFileIfNeeded(filePath, thresholdBytes = MAILBOX_ARCHIVE_THRESHOLD_BYTES) {
   try {
-    if (!fs49.existsSync(filePath)) return false;
-    const stat2 = fs49.statSync(filePath);
+    if (!fs39.existsSync(filePath)) return false;
+    const stat2 = fs39.statSync(filePath);
     if (stat2.size < thresholdBytes) return false;
     const ts = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
     const archivePath = `${filePath}.${ts}.archive.jsonl`;
-    fs49.renameSync(filePath, archivePath);
+    fs39.renameSync(filePath, archivePath);
     atomicWriteFile(filePath, "");
     pruneOldMailboxArchives(filePath);
     return true;
@@ -31252,12 +27411,12 @@ function rotateMailboxFileIfNeeded(filePath, thresholdBytes = MAILBOX_ARCHIVE_TH
 }
 function pruneOldMailboxArchives(mailboxFilePath) {
   try {
-    const dir = path38.dirname(mailboxFilePath);
-    const base = path38.basename(mailboxFilePath);
-    const archives = fs49.readdirSync(dir).filter((f) => f.startsWith(base) && f.includes(".archive.jsonl")).sort();
+    const dir = path32.dirname(mailboxFilePath);
+    const base = path32.basename(mailboxFilePath);
+    const archives = fs39.readdirSync(dir).filter((f) => f.startsWith(base) && f.includes(".archive.jsonl")).sort();
     const excess = archives.length - DEFAULT_MAILBOX.maxArchivesPerDirection;
     for (let i = 0; i < excess; i += 1) {
-      fs49.rmSync(path38.join(dir, archives[i]), { force: true });
+      fs39.rmSync(path32.join(dir, archives[i]), { force: true });
     }
   } catch (error) {
     logInternalError("mailbox.prune", error, mailboxFilePath);
@@ -31270,8 +27429,8 @@ function readMailbox(manifest, direction, taskId, kind) {
 function readAllMessages(manifest, direction, signal) {
   const messages = [...safeReadMailboxFile(mailboxFile(manifest, direction), direction)];
   const tasksDir = safeMailboxTasksRoot(manifest);
-  if (fs49.existsSync(tasksDir)) {
-    for (const entry of fs49.readdirSync(tasksDir, { withFileTypes: true })) {
+  if (fs39.existsSync(tasksDir)) {
+    for (const entry of fs39.readdirSync(tasksDir, { withFileTypes: true })) {
       if (signal?.aborted) break;
       if (!entry.isDirectory()) continue;
       messages.push(...safeReadMailboxFile(mailboxFile(manifest, direction, entry.name), direction));
@@ -31296,7 +27455,7 @@ function readDeliveryState(manifest) {
   const filePath = deliveryFile(manifest);
   let stat2;
   try {
-    stat2 = fs49.statSync(filePath);
+    stat2 = fs39.statSync(filePath);
   } catch (e) {
     if (e.code !== "ENOENT") throw e;
     deliveryCache.delete(filePath);
@@ -31307,7 +27466,7 @@ function readDeliveryState(manifest) {
     return { ...cached2.state, messages: { ...cached2.state.messages } };
   }
   try {
-    const raw = JSON.parse(fs49.readFileSync(filePath, "utf-8"));
+    const raw = JSON.parse(fs39.readFileSync(filePath, "utf-8"));
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid delivery state.");
     const obj = raw;
     const messages = {};
@@ -31323,7 +27482,7 @@ function readDeliveryState(manifest) {
   } catch (error) {
     const quarantinePath = `${filePath}.corrupt-${Date.now()}`;
     try {
-      fs49.renameSync(filePath, quarantinePath);
+      fs39.renameSync(filePath, quarantinePath);
     } catch (renameError) {
       logInternalError("mailbox.readDeliveryState.quarantine", renameError, `filePath=${filePath}`);
     }
@@ -31354,7 +27513,7 @@ function writeDeliveryState(manifest, state2, options) {
     durability: options?.durability ?? "best-effort"
   });
   try {
-    const postStat = fs49.statSync(filePath);
+    const postStat = fs39.statSync(filePath);
     setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state: state2 });
   } catch {
     deliveryCache.delete(filePath);
@@ -31386,7 +27545,7 @@ function appendMailboxMessage(manifest, message) {
     replyContent: message.replyContent
   };
   withFileLockSync(mailboxFile(manifest, complete.direction, complete.taskId), () => {
-    fs49.appendFileSync(
+    fs39.appendFileSync(
       mailboxFile(manifest, complete.direction, complete.taskId),
       `${JSON.stringify(redactSecrets(complete))}
 `,
@@ -31458,7 +27617,7 @@ async function appendMailboxMessageAsync(manifest, message) {
   };
   const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
   await withFileLockAsync(mbFile, async () => {
-    await fs49.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}
+    await fs39.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}
 `, "utf-8");
     rotateMailboxFileIfNeeded(mbFile);
   });
@@ -31525,8 +27684,8 @@ function updateMailboxMessageReply(manifest, originalMessageId, replyContent) {
     });
   }
   const tasksDir = safeMailboxTasksRoot(manifest);
-  if (fs49.existsSync(tasksDir)) {
-    for (const entry of fs49.readdirSync(tasksDir, { withFileTypes: true })) {
+  if (fs39.existsSync(tasksDir)) {
+    for (const entry of fs39.readdirSync(tasksDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       for (const direction of directions) {
         filesToSearch.push({
@@ -31537,9 +27696,9 @@ function updateMailboxMessageReply(manifest, originalMessageId, replyContent) {
     }
   }
   for (const { filePath, direction } of filesToSearch) {
-    if (!fs49.existsSync(filePath)) continue;
+    if (!fs39.existsSync(filePath)) continue;
     const found = withFileLockSync(filePath, () => {
-      const lines = fs49.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
+      const lines = fs39.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
       let localFound = false;
       const updatedLines = [];
       for (const line3 of lines) {
@@ -31589,7 +27748,7 @@ function validateMailbox(manifest, options = {}) {
     if (options.signal?.aborted) break;
     const filePath = mailboxFile(manifest, direction);
     withFileLockSync(filePath, () => {
-      const lines = fs49.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
+      const lines = fs39.readFileSync(filePath, "utf-8").split(/\r?\n/).filter(Boolean);
       const validLines = [];
       for (let i = 0; i < lines.length; i += 1) {
         if (options.signal?.aborted) break;
@@ -31650,8 +27809,8 @@ var init_mailbox = __esm({
 
 // src/state/stores/artifact-store.ts
 import { createHash as createHash3 } from "node:crypto";
-import * as fs50 from "node:fs";
-import * as path39 from "node:path";
+import * as fs40 from "node:fs";
+import * as path33 from "node:path";
 function hashContent(content) {
   return createHash3("sha256").update(content).digest("hex");
 }
@@ -31667,7 +27826,7 @@ function nowMs2() {
 }
 function readMarkerMtime(artifactsRoot, markerFile) {
   try {
-    return fs50.statSync(path39.join(artifactsRoot, markerFile)).mtimeMs;
+    return fs40.statSync(path33.join(artifactsRoot, markerFile)).mtimeMs;
   } catch {
     return void 0;
   }
@@ -31678,11 +27837,11 @@ function shouldCleanup(artifactsRoot, markerFile, scanGraceMs) {
   return nowMs2() - marker >= scanGraceMs;
 }
 function writeCleanupMarker(artifactsRoot, markerFile) {
-  fs50.mkdirSync(artifactsRoot, { recursive: true });
-  atomicWriteFile(path39.join(artifactsRoot, markerFile), String(nowMs2()));
+  fs40.mkdirSync(artifactsRoot, { recursive: true });
+  atomicWriteFile(path33.join(artifactsRoot, markerFile), String(nowMs2()));
 }
 function cleanupOldArtifacts(artifactsRoot, options) {
-  if (!fs50.existsSync(artifactsRoot)) return;
+  if (!fs40.existsSync(artifactsRoot)) return;
   const maxAgeDays = parseAgeDays(options.maxAgeDays);
   if (maxAgeDays === void 0) return;
   const markerFile = options.markerFile ?? CLEANUP_MARKER_FILE;
@@ -31692,18 +27851,18 @@ function cleanupOldArtifacts(artifactsRoot, options) {
   const cutoff = nowMs2() - maxAgeMs;
   let didCleanup = false;
   try {
-    const entries = fs50.readdirSync(artifactsRoot, { withFileTypes: true });
+    const entries = fs40.readdirSync(artifactsRoot, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.name === markerFile) continue;
       if (entry.isSymbolicLink()) continue;
-      const target = path39.join(artifactsRoot, entry.name);
+      const target = path33.join(artifactsRoot, entry.name);
       try {
-        const stat2 = fs50.statSync(target);
+        const stat2 = fs40.statSync(target);
         if (stat2.mtimeMs >= cutoff) continue;
         if (entry.isDirectory()) {
-          fs50.rmSync(target, { recursive: true, force: true });
+          fs40.rmSync(target, { recursive: true, force: true });
         } else {
-          fs50.unlinkSync(target);
+          fs40.unlinkSync(target);
         }
         didCleanup = true;
       } catch {
@@ -31732,7 +27891,7 @@ function pruneExpiredArtifacts(descriptors, options) {
   for (const desc of descriptors) {
     if (!isArtifactExpired(desc, nowMs3, temporaryTtlMs)) continue;
     try {
-      fs50.unlinkSync(desc.path);
+      fs40.unlinkSync(desc.path);
       deleted++;
     } catch {
     }
@@ -31741,24 +27900,24 @@ function pruneExpiredArtifacts(descriptors, options) {
 }
 function resolveInside(baseDir, relativePath) {
   try {
-    if (fs50.lstatSync(baseDir).isSymbolicLink()) throw new Error(`Artifacts root is a symbolic link \u2014 not allowed: ${baseDir}`);
+    if (fs40.lstatSync(baseDir).isSymbolicLink()) throw new Error(`Artifacts root is a symbolic link \u2014 not allowed: ${baseDir}`);
   } catch (err2) {
     if (err2.code !== "ENOENT") throw err2;
   }
   const normalizedRelativePath = relativePath.replaceAll("\\", "/").replace(/^\.\/+/, "");
-  if (!normalizedRelativePath || normalizedRelativePath.split("/").some((segment) => segment === "..") || path39.isAbsolute(normalizedRelativePath)) {
+  if (!normalizedRelativePath || normalizedRelativePath.split("/").some((segment) => segment === "..") || path33.isAbsolute(normalizedRelativePath)) {
     throw new Error(`Invalid artifact path: ${relativePath}`);
   }
   return resolveRealContainedPath(baseDir, normalizedRelativePath);
 }
 function writeArtifact(artifactsRoot, options) {
-  fs50.mkdirSync(artifactsRoot, { recursive: true });
-  if (fs50.lstatSync(artifactsRoot).isSymbolicLink()) {
+  fs40.mkdirSync(artifactsRoot, { recursive: true });
+  if (fs40.lstatSync(artifactsRoot).isSymbolicLink()) {
     throw new Error(`Artifacts root is a symbolic link \u2014 not allowed: ${artifactsRoot}`);
   }
   const filePath = resolveInside(artifactsRoot, options.relativePath);
-  fs50.mkdirSync(path39.dirname(filePath), { recursive: true });
-  resolveRealContainedPath(artifactsRoot, path39.dirname(filePath));
+  fs40.mkdirSync(path33.dirname(filePath), { recursive: true });
+  resolveRealContainedPath(artifactsRoot, path33.dirname(filePath));
   let content = options.content;
   const trimmed = content.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
@@ -31772,7 +27931,7 @@ function writeArtifact(artifactsRoot, options) {
   content = redactSecretString(content);
   atomicWriteFile(filePath, content);
   const contentHash = hashContent(content);
-  const stats = fs50.statSync(filePath);
+  const stats = fs40.statSync(filePath);
   return {
     kind: options.kind,
     path: filePath,
@@ -32186,9 +28345,9 @@ var init_provider_quota = __esm({
 });
 
 // src/runtime/model/model-fallback.ts
-import * as fs51 from "node:fs";
-import * as os11 from "node:os";
-import * as path40 from "node:path";
+import * as fs41 from "node:fs";
+import * as os10 from "node:os";
+import * as path34 from "node:path";
 function modelInfoFromUnknown(value) {
   if (typeof value === "string") {
     const raw = value.trim();
@@ -32238,7 +28397,7 @@ function uniqueModelInfos(models) {
 }
 function readJsonObject(filePath) {
   try {
-    const parsed = JSON.parse(fs51.readFileSync(filePath, "utf-8"));
+    const parsed = JSON.parse(fs41.readFileSync(filePath, "utf-8"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : void 0;
   } catch {
     return void 0;
@@ -32247,11 +28406,11 @@ function readJsonObject(filePath) {
 function piAgentDir() {
   const envDir = process.env.PI_CODING_AGENT_DIR?.trim();
   if (envDir) {
-    if (envDir === "~") return os11.homedir();
-    if (envDir.startsWith("~/")) return path40.join(os11.homedir(), envDir.slice(2));
+    if (envDir === "~") return os10.homedir();
+    if (envDir.startsWith("~/")) return path34.join(os10.homedir(), envDir.slice(2));
     return envDir;
   }
-  return path40.join(os11.homedir(), ".pi", "agent");
+  return path34.join(os10.homedir(), ".pi", "agent");
 }
 function settingsModelInfo(settings) {
   if (typeof settings?.defaultProvider !== "string" || typeof settings.defaultModel !== "string") return void 0;
@@ -32282,7 +28441,7 @@ function modelsJsonInfos(modelsJson) {
 }
 function providersWithCredentials(modelsJson, env = process.env) {
   const providers = /* @__PURE__ */ new Set();
-  const auth = readJsonObject(path40.join(piAgentDir(), "auth.json"));
+  const auth = readJsonObject(path34.join(piAgentDir(), "auth.json"));
   for (const key of Object.keys(auth ?? {})) providers.add(key);
   if (modelsJson?.providers && typeof modelsJson.providers === "object" && !Array.isArray(modelsJson.providers)) {
     for (const [provider, rawConfig] of Object.entries(modelsJson.providers)) {
@@ -32300,7 +28459,7 @@ function providersWithCredentials(modelsJson, env = process.env) {
 }
 function fileSignature(filePath) {
   try {
-    const stat2 = fs51.statSync(filePath);
+    const stat2 = fs41.statSync(filePath);
     return `${stat2.mtimeMs}:${stat2.size}`;
   } catch {
     return "-";
@@ -32308,10 +28467,10 @@ function fileSignature(filePath) {
 }
 function configuredModelInfosFromPiConfig(cwd, options) {
   const agentDir = piAgentDir();
-  const globalSettingsPath = path40.join(agentDir, "settings.json");
-  const modelsJsonPath = path40.join(agentDir, "models.json");
-  const authPath = path40.join(agentDir, "auth.json");
-  const projectSettingsPath = cwd ? path40.join(cwd, ".pi", "settings.json") : void 0;
+  const globalSettingsPath = path34.join(agentDir, "settings.json");
+  const modelsJsonPath = path34.join(agentDir, "models.json");
+  const authPath = path34.join(agentDir, "auth.json");
+  const projectSettingsPath = cwd ? path34.join(cwd, ".pi", "settings.json") : void 0;
   const cacheKey2 = `${agentDir}\0${cwd ?? ""}`;
   const signature = [globalSettingsPath, modelsJsonPath, authPath, ...projectSettingsPath ? [projectSettingsPath] : []].map(fileSignature).join("|");
   const cached2 = configuredModelCache.get(cacheKey2);
@@ -32735,6 +28894,130 @@ var init_session_model = __esm({
   }
 });
 
+// src/runtime/output/pi-json-output.ts
+function asRecord4(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function numberField(obj, keys) {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return void 0;
+}
+function mergeUsage(target, source) {
+  return {
+    input: source.input ?? target.input,
+    output: source.output ?? target.output,
+    cacheRead: source.cacheRead ?? target.cacheRead,
+    cacheWrite: source.cacheWrite ?? target.cacheWrite,
+    cost: source.cost ?? target.cost,
+    turns: source.turns ?? target.turns
+  };
+}
+function extractUsage(value) {
+  const obj = asRecord4(value);
+  if (!obj) return void 0;
+  const direct = {
+    input: numberField(obj, ["input", "inputTokens", "input_tokens"]),
+    output: numberField(obj, ["output", "outputTokens", "output_tokens"]),
+    cacheRead: numberField(obj, ["cacheRead", "cache_read", "cacheReadTokens", "cache_read_tokens"]),
+    cacheWrite: numberField(obj, ["cacheWrite", "cache_write", "cacheWriteTokens", "cache_write_tokens"]),
+    cost: numberField(obj, ["cost", "costUsd", "cost_usd"]),
+    turns: numberField(obj, ["turns", "turnCount", "turn_count"])
+  };
+  if (Object.values(direct).some((entry) => entry !== void 0)) return direct;
+  for (const key of ["usage", "message", "tokenUsage", "tokens", "stats"]) {
+    const nested = extractUsage(obj[key]);
+    if (nested) return nested;
+  }
+  return void 0;
+}
+function textFromContent2(content) {
+  if (typeof content === "string") return [content];
+  if (!Array.isArray(content)) return [];
+  const text = [];
+  for (const part of content) {
+    const obj = asRecord4(part);
+    if (!obj) continue;
+    if (obj.type === "text" && typeof obj.text === "string") text.push(obj.text);
+    else if (typeof obj.content === "string") text.push(obj.content);
+  }
+  return text;
+}
+function extractText(value) {
+  const obj = asRecord4(value);
+  if (!obj) return [];
+  const message = asRecord4(obj.message);
+  if (message?.role !== void 0 && message.role !== "assistant") return [];
+  const text = [];
+  if (typeof obj.text === "string") text.push(obj.text);
+  if (typeof obj.output === "string") text.push(obj.output);
+  if (typeof obj.finalOutput === "string") text.push(obj.finalOutput);
+  if (typeof obj.final_output === "string") text.push(obj.final_output);
+  if (!message) text.push(...textFromContent2(obj.content));
+  if (message) text.push(...textFromContent2(message.content));
+  return text.filter((entry) => entry.trim().length > 0);
+}
+function parsePiJsonOutput(stdout) {
+  let jsonEvents = 0;
+  const textEvents = [];
+  const patches = [];
+  const errorMessages = [];
+  let usage;
+  for (const line3 of stdout.split("\n")) {
+    const trimmed = line3.trim();
+    if (!trimmed) continue;
+    let event;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    jsonEvents++;
+    textEvents.push(...extractText(event));
+    extractPatch(event, patches);
+    const errMsg = extractErrorMessage(event);
+    if (errMsg) errorMessages.push(errMsg);
+    const eventUsage2 = extractUsage(event);
+    if (eventUsage2) usage = mergeUsage(usage ?? {}, eventUsage2);
+  }
+  return {
+    jsonEvents,
+    textEvents,
+    finalText: textEvents.length > 0 ? textEvents[textEvents.length - 1] : void 0,
+    usage,
+    patches: patches.length > 0 ? patches : void 0,
+    errorMessages: errorMessages.length > 0 ? errorMessages : void 0
+  };
+}
+function extractErrorMessage(event) {
+  const obj = asRecord4(event);
+  if (!obj) return void 0;
+  const message = asRecord4(obj.message) ?? obj;
+  const errorMessage2 = message.errorMessage;
+  return typeof errorMessage2 === "string" && errorMessage2.trim() ? errorMessage2.trim() : void 0;
+}
+function extractPatch(event, patches) {
+  const obj = asRecord4(event);
+  if (obj?.type !== "tool_result") return;
+  const content = obj.content;
+  if (!Array.isArray(content)) return;
+  for (const item of content) {
+    const part = asRecord4(item);
+    if (part?.type !== "text") continue;
+    const text = typeof part.text === "string" ? part.text : "";
+    if (text.includes("--- a/") || text.includes("diff ---")) {
+      patches.push(text);
+    }
+  }
+}
+var init_pi_json_output = __esm({
+  "src/runtime/output/pi-json-output.ts"() {
+    "use strict";
+  }
+});
+
 // src/extension/team-tool/config-patch.ts
 function sanitizeObject2(obj) {
   if (obj === null || obj === void 0 || typeof obj !== "object") return obj;
@@ -32962,7 +29245,7 @@ __export(run_tracker_exports, {
   resolveRunPromise: () => resolveRunPromise,
   waitForRun: () => waitForRun
 });
-import * as fs52 from "node:fs";
+import * as fs42 from "node:fs";
 function registerRunPromise(runId) {
   const existing = activeRunPromises.get(runId);
   if (existing) return existing;
@@ -33045,7 +29328,7 @@ async function waitForRun(runId, cwd, options = {}) {
     if (entryNow) return await raceRunPromise(entryNow, timeoutMs, deadline);
     if (attempt === 0) {
       const runDir = createRunPaths(cwd, runId).stateRoot;
-      if (!fs52.existsSync(runDir)) {
+      if (!fs42.existsSync(runDir)) {
         throw new Error(`Run ${runId} not found. No run directory at ${runDir}`);
       }
     }
@@ -33213,17 +29496,17 @@ var init_crew_hooks = __esm({
 });
 
 // src/runtime/skill-effectiveness.ts
-import { existsSync as existsSync31, mkdirSync as mkdirSync18, readFileSync as readFileSync34, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname22, join as join39 } from "node:path";
+import { existsSync as existsSync30, mkdirSync as mkdirSync18, readFileSync as readFileSync32, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname19, join as join36 } from "node:path";
 function getSkillMetricsPath(cwd, runId) {
-  return join39(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
+  return join36(projectCrewRoot(cwd), `state/runs/${runId}/skill-metrics.jsonl`);
 }
 function getSkillActivationsPath(cwd, runId) {
-  return join39(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
+  return join36(projectCrewRoot(cwd), `state/runs/${runId}/skill-activations.jsonl`);
 }
 function ensureSkillMetricsDir(cwd, runId) {
-  const dir = dirname22(getSkillMetricsPath(cwd, runId));
-  if (!existsSync31(dir)) {
+  const dir = dirname19(getSkillMetricsPath(cwd, runId));
+  if (!existsSync30(dir)) {
     mkdirSync18(dir, { recursive: true });
   }
 }
@@ -33273,10 +29556,10 @@ function recordSkillActivation(cwd, activation) {
 }
 function getSkillActivations(cwd, runId) {
   const path103 = getSkillActivationsPath(cwd, runId);
-  if (!existsSync31(path103)) {
+  if (!existsSync30(path103)) {
     return [];
   }
-  const content = readFileSync34(path103, "utf-8");
+  const content = readFileSync32(path103, "utf-8");
   if (!content.trim()) {
     return [];
   }
@@ -33454,9 +29737,9 @@ __export(skill_instructions_exports, {
   resetSkillCacheStats: () => resetSkillCacheStats,
   resolveTaskSkillNames: () => resolveTaskSkillNames
 });
-import * as fs53 from "node:fs";
-import * as path41 from "node:path";
-import * as os12 from "node:os";
+import * as fs43 from "node:fs";
+import * as path35 from "node:path";
+import * as os11 from "node:os";
 function isValidSkillName(name) {
   return name.length > 0 && name.length <= MAX_SKILL_NAME_CHARS && isSafePathId(name);
 }
@@ -33517,18 +29800,18 @@ function candidateSkillDirs(cwd) {
     // F6 (v0.7.9): same five roots as discover-skills, in the same precedence
     // order. The first hit wins, so a project `.pi/skills/foo/SKILL.md`
     // overrides both the bundled `foo` and any legacy `<cwd>/skills/foo`.
-    { root: path41.resolve(cwd, ".pi", "skills"), source: "project-pi" },
+    { root: path35.resolve(cwd, ".pi", "skills"), source: "project-pi" },
     {
-      root: path41.resolve(cwd, ".agents", "skills"),
+      root: path35.resolve(cwd, ".agents", "skills"),
       source: "project-agents"
     },
-    { root: path41.resolve(cwd, "skills"), source: "project" },
-    { root: path41.join(getAgentDir(), "skills"), source: "user-pi" },
+    { root: path35.resolve(cwd, "skills"), source: "project" },
+    { root: path35.join(getAgentDir(), "skills"), source: "user-pi" },
     {
-      root: path41.join(os12.homedir(), ".agents", "skills"),
+      root: path35.join(os11.homedir(), ".agents", "skills"),
       source: "user-agents"
     },
-    { root: path41.join(os12.homedir(), ".pi", "skills"), source: "user-pi" }
+    { root: path35.join(os11.homedir(), ".pi", "skills"), source: "user-pi" }
   ];
 }
 function rememberSkill(key, value) {
@@ -33566,7 +29849,7 @@ function _setSkillCacheMaxEntriesForTesting(max) {
 }
 function cachedSkillFresh(value) {
   try {
-    const stat2 = fs53.statSync(value.path);
+    const stat2 = fs43.statSync(value.path);
     return stat2.mtimeMs === value.mtimeMs && stat2.size === value.size;
   } catch {
     return false;
@@ -33574,7 +29857,7 @@ function cachedSkillFresh(value) {
 }
 function readSkillMarkdown(cwd, name) {
   if (!isValidSkillName(name)) return void 0;
-  const cacheKey2 = `${path41.resolve(cwd)}:${name}`;
+  const cacheKey2 = `${path35.resolve(cwd)}:${name}`;
   const cached2 = skillReadCache.get(cacheKey2);
   if (cached2 && cachedSkillFresh(cached2)) {
     skillCacheStats.hits++;
@@ -33585,13 +29868,13 @@ function readSkillMarkdown(cwd, name) {
   skillCacheStats.currentSize = skillReadCache.size;
   for (const entry of candidateSkillDirs(cwd)) {
     try {
-      const relative8 = path41.join(name, "SKILL.md");
+      const relative8 = path35.join(name, "SKILL.md");
       const contained = resolveRealContainedPath(entry.root, relative8);
-      if (!fs53.existsSync(contained)) continue;
-      if (fs53.lstatSync(contained).isSymbolicLink()) continue;
+      if (!fs43.existsSync(contained)) continue;
+      if (fs43.lstatSync(contained).isSymbolicLink()) continue;
       const filePath = resolveRealContainedPath(entry.root, relative8);
-      const stat2 = fs53.statSync(filePath);
-      const rawContent = fs53.readFileSync(filePath, "utf-8");
+      const stat2 = fs43.statSync(filePath);
+      const rawContent = fs43.readFileSync(filePath, "utf-8");
       return rememberSkill(cacheKey2, {
         path: filePath,
         source: entry.source,
@@ -33660,7 +29943,7 @@ Skill '${safeName}' was selected but no SKILL.md file was found. Continue with t
       if (!pushSection(missing)) omittedCount += 1;
       continue;
     }
-    skillPaths.push(path41.dirname(loaded.path));
+    skillPaths.push(path35.dirname(loaded.path));
     const description = frontmatterDescription(loaded.content);
     const source = loaded.source === "project" ? `project:skills/${safeName}` : `package:skills/${safeName}`;
     const weighted = weightedSkills?.find((w) => w.skillId === name);
@@ -33675,7 +29958,7 @@ Skill '${safeName}' was selected but no SKILL.md file was found. Continue with t
       // spec "small instruction + large local reference" pattern, e.g.
       // effective-html's `references/html-effectiveness/`) leave the agent
       // guessing the skill dir. No behavior change for corpus-less skills.
-      `Path: ${path41.dirname(loaded.path)}`
+      `Path: ${path35.dirname(loaded.path)}`
     ].filter(Boolean).join("\n");
     const rawContent = loaded.compacted;
     const wrappedContent = `<!-- skill: ${safeName} -->
@@ -33720,7 +30003,7 @@ var init_skill_instructions = __esm({
     init_safe_paths();
     init_skill_effectiveness();
     init_peer_dep();
-    PACKAGE_SKILLS_DIR = path41.join(packageRoot(), "skills");
+    PACKAGE_SKILLS_DIR = path35.join(packageRoot(), "skills");
     MAX_SKILL_CHARS = 1500;
     MAX_TOTAL_CHARS = 6e3;
     MAX_SKILL_NAME_CHARS = 80;
@@ -34628,7 +30911,7 @@ var init_anchor = __esm({
 });
 
 // src/runtime/live-session/live-agent-control.ts
-import * as fs54 from "node:fs";
+import * as fs44 from "node:fs";
 function liveAgentControlFile(manifest, taskId) {
   return agentStateFile(manifest, taskId, "live-control.jsonl");
 }
@@ -34646,7 +30929,7 @@ function appendLiveAgentControlRequest(manifest, input) {
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const filePath = liveAgentControlFile(manifest, input.taskId);
-  fs54.appendFileSync(filePath, `${JSON.stringify(request)}
+  fs44.appendFileSync(filePath, `${JSON.stringify(request)}
 `, "utf-8");
   return request;
 }
@@ -34657,8 +30940,8 @@ function readLiveAgentControlRequests(manifest, taskId, cursor = { offset: 0 }) 
   } catch {
     return { requests: [], cursor };
   }
-  if (!fs54.existsSync(filePath)) return { requests: [], cursor };
-  const text = fs54.readFileSync(filePath, "utf-8");
+  if (!fs44.existsSync(filePath)) return { requests: [], cursor };
+  const text = fs44.readFileSync(filePath, "utf-8");
   const lines = text.split(/\r?\n/).filter(Boolean);
   const requests = lines.slice(cursor.offset).flatMap((line3) => {
     try {
@@ -35598,15 +31881,15 @@ var init_plan_approval2 = __esm({
 });
 
 // src/runtime/agent-observability.ts
-import * as fs55 from "node:fs";
+import * as fs45 from "node:fs";
 function readTextTail(filePath, maxBytes = 64e3) {
-  if (!fs55.existsSync(filePath)) return { path: filePath, text: "", bytes: 0, truncated: false };
-  const stat2 = fs55.statSync(filePath);
+  if (!fs45.existsSync(filePath)) return { path: filePath, text: "", bytes: 0, truncated: false };
+  const stat2 = fs45.statSync(filePath);
   const bytesToRead = Math.min(stat2.size, Math.max(0, maxBytes));
-  const fd = fs55.openSync(filePath, "r");
+  const fd = fs45.openSync(filePath, "r");
   try {
     const buffer = Buffer.alloc(bytesToRead);
-    fs55.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
+    fs45.readSync(fd, buffer, 0, bytesToRead, stat2.size - bytesToRead);
     return {
       path: filePath,
       text: buffer.toString("utf-8"),
@@ -35614,7 +31897,7 @@ function readTextTail(filePath, maxBytes = 64e3) {
       truncated: stat2.size > bytesToRead
     };
   } finally {
-    fs55.closeSync(fd);
+    fs45.closeSync(fd);
   }
 }
 function compactDuration(ms) {
@@ -35653,8 +31936,8 @@ function outputWarning(manifest, agent) {
   if (agent.status !== "completed") return "";
   try {
     const outputPath = agentOutputPath(manifest, agent.taskId);
-    if (!fs55.existsSync(outputPath)) return " no-output";
-    return fs55.statSync(outputPath).size === 0 ? " no-output" : "";
+    if (!fs45.existsSync(outputPath)) return " no-output";
+    return fs45.statSync(outputPath).size === 0 ? " no-output" : "";
   } catch {
     return " no-output";
   }
@@ -35706,9 +31989,9 @@ var init_agent_observability = __esm({
 });
 
 // src/skills/validate.ts
-import * as fs56 from "node:fs";
+import * as fs46 from "node:fs";
 import { createRequire as createRequire5 } from "node:module";
-import * as path42 from "node:path";
+import * as path36 from "node:path";
 function getYaml() {
   if (!yamlModule) {
     const require5 = createRequire5(import.meta.url);
@@ -35744,11 +32027,11 @@ function warn(path103, field, reason) {
 }
 function validateSkillFrontmatter(skillDir) {
   const errors2 = [];
-  const skillMdPath = path42.join(skillDir, "SKILL.md");
-  const derivedName = path42.basename(skillDir);
+  const skillMdPath = path36.join(skillDir, "SKILL.md");
+  const derivedName = path36.basename(skillDir);
   let content;
   try {
-    content = fs56.readFileSync(skillMdPath, "utf-8");
+    content = fs46.readFileSync(skillMdPath, "utf-8");
   } catch (e) {
     errors2.push(hard(skillDir, "SKILL.md", `Cannot read SKILL.md: ${e.message}`));
     return { ok: false, errors: errors2 };
@@ -35879,24 +32162,24 @@ var init_validate = __esm({
 });
 
 // src/skills/discover-skills.ts
-import * as fs57 from "node:fs";
-import * as os13 from "node:os";
-import * as path43 from "node:path";
+import * as fs47 from "node:fs";
+import * as os12 from "node:os";
+import * as path37 from "node:path";
 function listSkillDirs(cwd) {
   return [
     { root: PACKAGE_SKILLS_DIR2, source: "package" },
-    { root: path43.resolve(cwd, ".pi", "skills"), source: "project-pi" },
+    { root: path37.resolve(cwd, ".pi", "skills"), source: "project-pi" },
     {
-      root: path43.resolve(cwd, ".agents", "skills"),
+      root: path37.resolve(cwd, ".agents", "skills"),
       source: "project-agents"
     },
-    { root: path43.resolve(cwd, "skills"), source: "project" },
-    { root: path43.join(getAgentDir(), "skills"), source: "user-pi" },
+    { root: path37.resolve(cwd, "skills"), source: "project" },
+    { root: path37.join(getAgentDir(), "skills"), source: "user-pi" },
     {
-      root: path43.join(os13.homedir(), ".agents", "skills"),
+      root: path37.join(os12.homedir(), ".agents", "skills"),
       source: "user-agents"
     },
-    { root: path43.join(os13.homedir(), ".pi", "skills"), source: "user-pi" }
+    { root: path37.join(os12.homedir(), ".pi", "skills"), source: "user-pi" }
   ];
 }
 function readDescription(content) {
@@ -35921,29 +32204,29 @@ function discoverSkills(cwd) {
   const results = [];
   const diagnostics = [];
   for (const dir of listSkillDirs(cwd)) {
-    if (!fs57.existsSync(dir.root)) continue;
+    if (!fs47.existsSync(dir.root)) continue;
     try {
-      for (const entry of fs57.readdirSync(dir.root, {
+      for (const entry of fs47.readdirSync(dir.root, {
         withFileTypes: true
       })) {
         if (!entry.isDirectory()) continue;
         if (!isSafePathId(entry.name)) continue;
-        const skillDirPath = path43.join(dir.root, entry.name);
+        const skillDirPath = path37.join(dir.root, entry.name);
         try {
-          if (fs57.lstatSync(skillDirPath).isSymbolicLink()) continue;
+          if (fs47.lstatSync(skillDirPath).isSymbolicLink()) continue;
         } catch {
           continue;
         }
-        const skillMdRelative = path43.join(entry.name, "SKILL.md");
+        const skillMdRelative = path37.join(entry.name, "SKILL.md");
         let skillMdPath;
         try {
           skillMdPath = resolveContainedPath(dir.root, skillMdRelative);
         } catch {
           continue;
         }
-        if (!fs57.existsSync(skillMdPath)) continue;
+        if (!fs47.existsSync(skillMdPath)) continue;
         try {
-          if (fs57.lstatSync(skillMdPath).isSymbolicLink()) continue;
+          if (fs47.lstatSync(skillMdPath).isSymbolicLink()) continue;
         } catch {
           continue;
         }
@@ -35955,12 +32238,12 @@ function discoverSkills(cwd) {
             skillMdPath = readPath;
           } catch {
           }
-          const content = fs57.readFileSync(readPath, "utf-8");
+          const content = fs47.readFileSync(readPath, "utf-8");
           const { description: desc, parseError } = readDescription(content);
           description = desc;
           if (parseError) {
             diagnostics.push({
-              path: path43.dirname(skillMdPath),
+              path: path37.dirname(skillMdPath),
               field: "frontmatter",
               reason: parseError,
               severity: "error"
@@ -35982,7 +32265,7 @@ function discoverSkills(cwd) {
   }
   const filtered = [];
   for (const skill of results) {
-    const validation = validateSkillFrontmatter(path43.dirname(skill.path));
+    const validation = validateSkillFrontmatter(path37.dirname(skill.path));
     if (validation.ok) {
       filtered.push(skill);
     } else {
@@ -36002,7 +32285,7 @@ var init_discover_skills = __esm({
     init_paths();
     init_safe_paths();
     init_validate();
-    PACKAGE_SKILLS_DIR2 = path43.join(packageRoot(), "skills");
+    PACKAGE_SKILLS_DIR2 = path37.join(packageRoot(), "skills");
     CACHE_TTL_MS = 3e4;
     cache2 = null;
     lastDiagnostics = [];
@@ -36109,15 +32392,15 @@ var init_capability_inventory = __esm({
 });
 
 // src/runtime/foreground-control.ts
-import * as fs58 from "node:fs";
-import * as path44 from "node:path";
+import * as fs48 from "node:fs";
+import * as path38 from "node:path";
 function foregroundControlPath(manifest) {
-  return path44.join(manifest.stateRoot, "foreground-control.json");
+  return path38.join(manifest.stateRoot, "foreground-control.json");
 }
 function readLastRequest(controlPath) {
-  if (!fs58.existsSync(controlPath)) return void 0;
+  if (!fs48.existsSync(controlPath)) return void 0;
   try {
-    const parsed = JSON.parse(fs58.readFileSync(controlPath, "utf-8"));
+    const parsed = JSON.parse(fs48.readFileSync(controlPath, "utf-8"));
     return parsed.requests?.at(-1);
   } catch {
     return void 0;
@@ -36141,7 +32424,7 @@ function readForegroundControlStatus(manifest, tasks) {
 function writeForegroundInterruptRequest(manifest, reason = "User requested foreground interrupt.") {
   const controlPath = foregroundControlPath(manifest);
   const lockDir = `${controlPath}.lock`;
-  const pidFile = path44.join(lockDir, "pid");
+  const pidFile = path38.join(lockDir, "pid");
   let requests = [];
   const acquireLock = () => {
     const timeout = 5e3;
@@ -36149,7 +32432,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
     const start = Date.now();
     while (true) {
       try {
-        fs58.mkdirSync(lockDir, { recursive: true });
+        fs48.mkdirSync(lockDir, { recursive: true });
         try {
           atomicWriteFile(pidFile, String(process.pid));
         } catch {
@@ -36158,7 +32441,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
       } catch {
         if (Date.now() - start > timeout) {
           try {
-            const raw = fs58.readFileSync(pidFile, "utf-8").trim();
+            const raw = fs48.readFileSync(pidFile, "utf-8").trim();
             const ownerPid = Number.parseInt(raw, 10);
             if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
               let alive = false;
@@ -36168,7 +32451,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
               } catch {
               }
               if (!alive) {
-                fs58.rmSync(lockDir, {
+                fs48.rmSync(lockDir, {
                   recursive: true,
                   force: true
                 });
@@ -36185,7 +32468,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
           throw err2;
         }
         try {
-          const raw = fs58.readFileSync(pidFile, "utf-8").trim();
+          const raw = fs48.readFileSync(pidFile, "utf-8").trim();
           const ownerPid = Number.parseInt(raw, 10);
           if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
             let alive = false;
@@ -36195,9 +32478,9 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
             } catch {
             }
             if (!alive) {
-              const stat2 = fs58.statSync(lockDir);
+              const stat2 = fs48.statSync(lockDir);
               if (Date.now() - stat2.mtimeMs > staleMs) {
-                fs58.rmSync(lockDir, {
+                fs48.rmSync(lockDir, {
                   recursive: true,
                   force: true
                 });
@@ -36213,15 +32496,15 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
   };
   const releaseLock2 = () => {
     try {
-      fs58.rmSync(lockDir, { recursive: true, force: true });
+      fs48.rmSync(lockDir, { recursive: true, force: true });
     } catch {
     }
   };
   acquireLock();
   try {
-    if (fs58.existsSync(controlPath)) {
+    if (fs48.existsSync(controlPath)) {
       try {
-        const parsed = JSON.parse(fs58.readFileSync(controlPath, "utf-8"));
+        const parsed = JSON.parse(fs48.readFileSync(controlPath, "utf-8"));
         requests = Array.isArray(parsed.requests) ? parsed.requests : [];
       } catch {
         requests = [];
@@ -36234,7 +32517,7 @@ function writeForegroundInterruptRequest(manifest, reason = "User requested fore
       reason,
       acknowledged: false
     };
-    fs58.mkdirSync(path44.dirname(controlPath), { recursive: true });
+    fs48.mkdirSync(path38.dirname(controlPath), { recursive: true });
     atomicWriteFile(controlPath, `${JSON.stringify({ requests: [...requests, request] }, null, 2)}
 `);
     try {
@@ -36261,6 +32544,67 @@ var init_foreground_control = __esm({
     init_sleep();
     init_crew_agent_records();
     init_process_status();
+  }
+});
+
+// src/runtime/compaction/compact-stages/bounded-tail.ts
+function defaultMarker(maxBytes) {
+  return `[pi-crew captured output truncated to last ${Math.round(maxBytes / 1024)} KiB]`;
+}
+var DEFAULT_MAX_BYTES, BoundedTail;
+var init_bounded_tail = __esm({
+  "src/runtime/compaction/compact-stages/bounded-tail.ts"() {
+    "use strict";
+    init_defaults();
+    DEFAULT_MAX_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
+    BoundedTail = class {
+      #maxBytes;
+      #marker;
+      #segs = [];
+      #bytes = 0;
+      #dropped = false;
+      #cached;
+      #dirty = false;
+      constructor(maxBytes = DEFAULT_MAX_BYTES, marker) {
+        if (!(maxBytes > 0)) throw new Error(`BoundedTail: maxBytes must be > 0, got ${maxBytes}`);
+        this.#maxBytes = maxBytes;
+        this.#marker = marker ?? defaultMarker(maxBytes);
+      }
+      /** Append a chunk. O(chunk) amortized; never scans the full buffer. */
+      push(chunk) {
+        if (!chunk) return this;
+        this.#segs.push(chunk);
+        this.#bytes += Buffer.byteLength(chunk, "utf-8");
+        while (this.#bytes > this.#maxBytes && this.#segs.length > 1) {
+          const dropped = this.#segs.shift();
+          this.#bytes -= Buffer.byteLength(dropped, "utf-8");
+          this.#dropped = true;
+        }
+        this.#dirty = true;
+        return this;
+      }
+      /** Materialize the bounded string. Computed at most once per push; cached otherwise. */
+      value() {
+        if (!this.#dirty && this.#cached !== void 0) return this.#cached;
+        const body = this.#segs.join("");
+        const result4 = this.#bound(body);
+        this.#cached = result4;
+        this.#dirty = false;
+        return result4;
+      }
+      /** Byte-exact bound with marker parity vs the old TailCaptureStage path. */
+      #bound(body) {
+        if (Buffer.byteLength(body, "utf-8") <= this.#maxBytes) {
+          return this.#dropped ? `${this.#marker}
+${body}` : body;
+        }
+        const buf = Buffer.from(body, "utf-8");
+        let start = Math.max(0, buf.length - this.#maxBytes);
+        while (start < buf.length && (buf[start] & 192) === 128) start++;
+        return `${this.#marker}
+${buf.subarray(start).toString("utf-8")}`;
+      }
+    };
   }
 });
 
@@ -36567,8 +32911,8 @@ var init_mcp_proxy = __esm({
 });
 
 // src/runtime/output/sidechain-output.ts
-import * as fs59 from "node:fs";
-import * as path45 from "node:path";
+import * as fs49 from "node:fs";
+import * as path39 from "node:path";
 function queueJsonlLine(filePath, line3) {
   const pending2 = pendingJsonlBatches.get(filePath);
   if (pending2) {
@@ -36585,8 +32929,8 @@ function flushJsonlBatch(filePath) {
   pendingJsonlBatches.delete(filePath);
   clearTimeout(pending2.timer);
   try {
-    fs59.mkdirSync(path45.dirname(filePath), { recursive: true });
-    fs59.appendFileSync(filePath, pending2.lines.join(""), "utf-8");
+    fs49.mkdirSync(path39.dirname(filePath), { recursive: true });
+    fs49.appendFileSync(filePath, pending2.lines.join(""), "utf-8");
   } catch (error) {
     logInternalError("sidechain-output.flush", error, `path=${filePath}`);
   }
@@ -36603,7 +32947,7 @@ function flushPendingSidechainWrites() {
 }
 function sidechainOutputPath(stateRoot, taskId) {
   if (!isSafePathId(taskId)) throw new Error(`Invalid taskId: ${taskId}`);
-  return path45.join(stateRoot, "agents", taskId, "sidechain.output.jsonl");
+  return path39.join(stateRoot, "agents", taskId, "sidechain.output.jsonl");
 }
 function eventToSidechainType(event) {
   if (!event || typeof event !== "object" || Array.isArray(event)) return void 0;
@@ -36626,13 +32970,13 @@ var init_sidechain_output = __esm({
 });
 
 // src/runtime/output/streaming-output.ts
-import * as fs60 from "node:fs";
-import * as path46 from "node:path";
+import * as fs50 from "node:fs";
+import * as path40 from "node:path";
 function createStreamingOutput(manifest, taskId) {
   if (!isSafePathId(taskId)) throw new Error(`Invalid taskId: ${taskId}`);
-  const outputDir = path46.join(manifest.artifactsRoot, "streaming");
-  fs60.mkdirSync(outputDir, { recursive: true });
-  const outputPath = path46.join(outputDir, `${taskId}.md`);
+  const outputDir = path40.join(manifest.artifactsRoot, "streaming");
+  fs50.mkdirSync(outputDir, { recursive: true });
+  const outputPath = path40.join(outputDir, `${taskId}.md`);
   let buffer = "";
   let closed = false;
   return {
@@ -36640,7 +32984,7 @@ function createStreamingOutput(manifest, taskId) {
       if (closed) return;
       buffer += text;
       if (buffer.length > 4096) {
-        fs60.appendFileSync(outputPath, buffer, "utf-8");
+        fs50.appendFileSync(outputPath, buffer, "utf-8");
         buffer = "";
       }
     },
@@ -36648,7 +32992,7 @@ function createStreamingOutput(manifest, taskId) {
       if (closed) return;
       closed = true;
       if (buffer) {
-        fs60.appendFileSync(outputPath, buffer, "utf-8");
+        fs50.appendFileSync(outputPath, buffer, "utf-8");
         buffer = "";
       }
     },
@@ -36676,6 +33020,46 @@ function buildSensitivePathConstraint() {
 var init_sensitive_paths = __esm({
   "src/runtime/sensitive-paths.ts"() {
     "use strict";
+  }
+});
+
+// src/runtime/subprocess-tool-registry.ts
+var SubprocessToolRegistryImpl, subprocessToolRegistry;
+var init_subprocess_tool_registry = __esm({
+  "src/runtime/subprocess-tool-registry.ts"() {
+    "use strict";
+    SubprocessToolRegistryImpl = class {
+      handlers = /* @__PURE__ */ new Map();
+      register(toolName, handler) {
+        this.handlers.set(toolName, handler);
+      }
+      getHandler(toolName) {
+        return this.handlers.get(toolName);
+      }
+      hasHandler(toolName) {
+        return this.handlers.has(toolName);
+      }
+      getRegisteredTools() {
+        return [...this.handlers.keys()];
+      }
+      extractAll(event) {
+        const extracted = {};
+        for (const [toolName, handler] of this.handlers) {
+          if (handler.extractData) {
+            const data = handler.extractData(event);
+            if (data !== void 0) {
+              extracted[toolName] = data;
+            }
+          }
+        }
+        return extracted;
+      }
+      /** H3: Clear all registered handlers (for test isolation). */
+      clear() {
+        this.handlers.clear();
+      }
+    };
+    subprocessToolRegistry = new SubprocessToolRegistryImpl();
   }
 });
 
@@ -43490,28 +39874,28 @@ function loadLiveSessionModule() {
   }
   return liveSessionModulePromise;
 }
-function appendTranscript2(filePath, event) {
+function appendTranscript(filePath, event) {
   if (!filePath) return;
   appendBatchedJsonlLine(filePath, `${JSON.stringify(redactSecrets(event))}
 `);
 }
-function asRecord8(value) {
+function asRecord5(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
 }
 function isString(value) {
   return typeof value === "string";
 }
 function extractMessageRole(obj) {
-  const message = obj?.message ? asRecord8(obj.message) : void 0;
+  const message = obj?.message ? asRecord5(obj.message) : void 0;
   return isString(message?.role) ? message.role : void 0;
 }
 function extractMessageUsage(obj) {
-  const message = obj?.message ? asRecord8(obj.message) : void 0;
+  const message = obj?.message ? asRecord5(obj.message) : void 0;
   return message?.usage && typeof message.usage === "object" ? message.usage : void 0;
 }
 function extractToolName(obj) {
   if (!obj) return void 0;
-  const tool = asRecord8(obj.tool);
+  const tool = asRecord5(obj.tool);
   if (isString(tool?.name)) return tool.name;
   if (isString(obj.toolName)) return obj.toolName;
   if (isString(obj.name)) return obj.name;
@@ -43521,7 +39905,7 @@ function textFromContent3(content) {
   if (typeof content === "string") return [content];
   if (!Array.isArray(content)) return [];
   return content.flatMap((part) => {
-    const obj = asRecord8(part);
+    const obj = asRecord5(part);
     if (!obj) return [];
     if (obj.type === "text" && typeof obj.text === "string") return [obj.text];
     if (typeof obj.content === "string") return [obj.content];
@@ -43529,19 +39913,19 @@ function textFromContent3(content) {
   });
 }
 function eventText(event) {
-  const obj = asRecord8(event);
+  const obj = asRecord5(event);
   if (!obj) return [];
   const text = [];
   if (typeof obj.text === "string") text.push(obj.text);
   text.push(...textFromContent3(obj.content));
-  const message = asRecord8(obj.message);
+  const message = asRecord5(obj.message);
   if (message) text.push(...textFromContent3(message.content));
   return text.filter((entry) => entry.trim());
 }
 function finalAssistantText(event) {
-  const obj = asRecord8(event);
+  const obj = asRecord5(event);
   if (obj?.type !== "message_end") return [];
-  const message = asRecord8(obj.message);
+  const message = asRecord5(obj.message);
   if (message?.role !== "assistant") return [];
   return textFromContent3(message.content);
 }
@@ -43579,7 +39963,7 @@ function resolveLiveDefaultSubagentModel(cwd) {
 }
 function modelFromRegistry(modelRegistry, modelId) {
   if (!modelId?.includes("/")) return void 0;
-  const registry2 = asRecord8(modelRegistry);
+  const registry2 = asRecord5(modelRegistry);
   const find = registry2?.find;
   if (typeof find !== "function") return void 0;
   const [provider, ...modelParts] = modelId.split("/");
@@ -43698,7 +40082,7 @@ function filterActiveTools(session, agent, role) {
   session.setActiveToolsByName(active);
 }
 function usageFromStats(stats) {
-  const obj = asRecord8(stats);
+  const obj = asRecord5(stats);
   if (!obj) return void 0;
   const input = numberField2(obj, ["input", "inputTokens", "input_tokens"]);
   const output = numberField2(obj, ["output", "outputTokens", "output_tokens"]);
@@ -43795,7 +40179,7 @@ async function runLiveSessionTask(input) {
       appendEvent,
       input.manifest.eventsPath
     );
-    appendTranscript2(input.transcriptPath, event);
+    appendTranscript(input.transcriptPath, event);
     const sidechainPath = sidechainOutputPath(input.manifest.stateRoot, input.task.id);
     writeSidechainEntry(sidechainPath, {
       agentId: agentId2,
@@ -44040,7 +40424,7 @@ async function runLiveSessionTask(input) {
         try {
           if (!isCurrent()) return;
           jsonEvents += 1;
-          appendTranscript2(input.transcriptPath, event);
+          appendTranscript(input.transcriptPath, event);
           const sidechainType = eventToSidechainType(event);
           if (sidechainType)
             writeSidechainEntry(sidechainPath, {
@@ -44049,7 +40433,7 @@ async function runLiveSessionTask(input) {
               message: event,
               cwd: input.task.cwd
             });
-          const obj = asRecord8(event);
+          const obj = asRecord5(event);
           if (obj?.type === "turn_end") {
             turnCount += 1;
             trackLiveAgentTurnEnd(agentId);
@@ -44385,7 +40769,7 @@ var init_glob_match = __esm({
 });
 
 // src/extension/team-tool/api/read.ts
-import * as fs61 from "node:fs";
+import * as fs51 from "node:fs";
 function safeReadContainedFile(baseDir, filePath) {
   if (!filePath) return void 0;
   let safePath;
@@ -44394,7 +40778,7 @@ function safeReadContainedFile(baseDir, filePath) {
   } catch {
     return void 0;
   }
-  return fs61.existsSync(safePath) ? fs61.readFileSync(safePath, "utf-8") : void 0;
+  return fs51.existsSync(safePath) ? fs51.readFileSync(safePath, "utf-8") : void 0;
 }
 function safeContainedPath(baseDir, filePath) {
   if (!filePath) return void 0;
@@ -45540,6 +41924,3622 @@ var init_automate = __esm({
     init_auto_summarize2();
     init_context();
     init_handle_schedule();
+  }
+});
+
+// src/ui/inline-panel/view-session-store.ts
+function markSessionSwitchInFlight() {
+  sessionSwitchInFlight = true;
+}
+function clearSessionSwitchInFlight() {
+  sessionSwitchInFlight = false;
+}
+function isSessionSwitchInFlight() {
+  return sessionSwitchInFlight;
+}
+var sessionSwitchInFlight;
+var init_view_session_store = __esm({
+  "src/ui/inline-panel/view-session-store.ts"() {
+    "use strict";
+    sessionSwitchInFlight = false;
+  }
+});
+
+// src/extension/crew-cleanup.ts
+function registerCleanupHandler(pi, opts) {
+  terminalStatusDispose = opts?.disposeTerminalStatus;
+  pi.on("session_shutdown", async () => {
+    console.log("[pi-crew] Session shutdown - cleaning up resources");
+    try {
+      if (isSessionSwitchInFlight()) return;
+      await cleanupChildProcesses();
+      await cleanupTempDirectories();
+      console.log("[pi-crew] Cleanup complete");
+    } catch (error) {
+      logInternalError("crew-cleanup.shutdown", error);
+    }
+  });
+  if (!signalHandlersRegistered) {
+    signalHandlersRegistered = true;
+    const handleSignal = async (signal) => {
+      console.log(`[pi-crew] Received ${signal} - starting cleanup`);
+      try {
+        terminalStatusDispose?.();
+      } catch {
+      }
+      await cleanupChildProcesses();
+    };
+    process.on("SIGTERM", () => {
+      handleSignal("SIGTERM").catch((error) => {
+        logInternalError("crew-cleanup.SIGTERM", error);
+      });
+    });
+    process.on("SIGHUP", () => {
+      handleSignal("SIGHUP").catch((error) => {
+        logInternalError("crew-cleanup.SIGHUP", error);
+      });
+    });
+  }
+}
+async function cleanupChildProcesses() {
+  const pids = childProcessRegistry.getAllPids();
+  if (pids.length === 0) return;
+  const { killProcessPid: killProcessPid2 } = await Promise.resolve().then(() => (init_child_pi(), child_pi_exports));
+  for (const pid of pids) {
+    try {
+      killProcessPid2(pid);
+      console.log(`[pi-crew] Sent group SIGTERM (+SIGKILL escalation) to child process ${pid}`);
+    } catch (error) {
+      const err2 = error;
+      if (err2.code !== "ESRCH" && err2.code !== "ENOENT") {
+        logInternalError("crew-cleanup.kill", error, `pid=${pid}`);
+      }
+    }
+    childProcessRegistry.unregister(pid);
+  }
+}
+async function cleanupTempDirectories() {
+  try {
+    const result4 = cleanupAllTrackedTempDirs();
+    if (result4.cleaned > 0) {
+      console.log(`[pi-crew] Cleaned ${result4.cleaned} tracked temp dirs (${result4.failed} failed)`);
+    }
+  } catch (error) {
+    logInternalError("crew-cleanup.temp", error);
+  }
+}
+function registerChildProcess(pid, runId, agentId) {
+  childProcessRegistry.register(pid, runId, agentId);
+}
+function unregisterChildProcess(pid) {
+  childProcessRegistry.unregister(pid);
+}
+var signalHandlersRegistered, ChildProcessRegistry, childProcessRegistry, terminalStatusDispose;
+var init_crew_cleanup = __esm({
+  "src/extension/crew-cleanup.ts"() {
+    "use strict";
+    init_pi_args();
+    init_view_session_store();
+    init_internal_error();
+    signalHandlersRegistered = false;
+    ChildProcessRegistry = class {
+      processes = /* @__PURE__ */ new Map();
+      register(pid, runId, agentId) {
+        this.processes.set(pid, { pid, runId, agentId, startedAt: Date.now() });
+      }
+      unregister(pid) {
+        this.processes.delete(pid);
+      }
+      getAllPids() {
+        return Array.from(this.processes.keys());
+      }
+      getInfo(pid) {
+        return this.processes.get(pid);
+      }
+      clear() {
+        this.processes.clear();
+      }
+    };
+    childProcessRegistry = new ChildProcessRegistry();
+  }
+});
+
+// src/runtime/broker/broker-issuer.ts
+var broker_issuer_exports = {};
+__export(broker_issuer_exports, {
+  getActiveBrokerIssuer: () => getActiveBrokerIssuer,
+  getActiveBrokerRevoker: () => getActiveBrokerRevoker,
+  setActiveBrokerIssuer: () => setActiveBrokerIssuer,
+  setActiveBrokerRevoker: () => setActiveBrokerRevoker
+});
+function setActiveBrokerIssuer(issuer) {
+  activeIssuer = issuer;
+}
+function getActiveBrokerIssuer() {
+  return activeIssuer;
+}
+function setActiveBrokerRevoker(revoker) {
+  activeRevoker = revoker;
+}
+function getActiveBrokerRevoker() {
+  return activeRevoker;
+}
+var activeIssuer, activeRevoker;
+var init_broker_issuer = __esm({
+  "src/runtime/broker/broker-issuer.ts"() {
+    "use strict";
+  }
+});
+
+// src/utils/fs-watch.ts
+import * as fs52 from "node:fs";
+function closeWatcher(watcher) {
+  if (!watcher) {
+    return;
+  }
+  try {
+    watcher.close();
+  } catch {
+  }
+}
+function watchWithErrorHandler(path103, listener, onError) {
+  try {
+    const watcher = fs52.watch(path103, listener);
+    watcher.on("error", onError);
+    return watcher;
+  } catch (error) {
+    onError(error);
+    return null;
+  }
+}
+var init_fs_watch = __esm({
+  "src/utils/fs-watch.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/child-pi/child-pi-constants.ts
+var POST_EXIT_STDIO_GUARD_MS, FINAL_DRAIN_MS, HARD_KILL_MS, RESPONSE_TIMEOUT_MS, MAX_LINE_BUFFER_BYTES, MAX_ASSISTANT_TEXT_CHARS, MAX_THINKING_CHARS, MAX_TOOL_RESULT_CHARS, MAX_TOOL_INPUT_CHARS, MAX_COMPACT_CONTENT_CHARS;
+var init_child_pi_constants = __esm({
+  "src/runtime/child-pi/child-pi-constants.ts"() {
+    "use strict";
+    init_defaults();
+    POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
+    FINAL_DRAIN_MS = DEFAULT_CHILD_PI.finalDrainMs;
+    HARD_KILL_MS = DEFAULT_CHILD_PI.hardKillMs;
+    RESPONSE_TIMEOUT_MS = DEFAULT_CHILD_PI.responseTimeoutMs;
+    MAX_LINE_BUFFER_BYTES = 1024 * 1024;
+    MAX_ASSISTANT_TEXT_CHARS = DEFAULT_CHILD_PI.maxAssistantTextChars;
+    MAX_THINKING_CHARS = 8 * 1024;
+    MAX_TOOL_RESULT_CHARS = DEFAULT_CHILD_PI.maxToolResultChars;
+    MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
+    MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
+  }
+});
+
+// src/runtime/compaction/compact-pipeline.ts
+function applyCompactPipeline(text, stages) {
+  let current = text;
+  const applied = [];
+  for (const stage of stages) {
+    if (!stage || typeof stage.apply !== "function") continue;
+    const next = stage.apply(current);
+    if (typeof next !== "string") continue;
+    if (next.length <= current.length) {
+      current = next;
+      applied.push(stage.id);
+    }
+  }
+  return { text: current, applied };
+}
+var init_compact_pipeline = __esm({
+  "src/runtime/compaction/compact-pipeline.ts"() {
+    "use strict";
+  }
+});
+
+// src/runtime/compaction/important-line-classifier.ts
+function isImportantLine(line3) {
+  if (!line3) return false;
+  for (const pattern of IMPORTANT_LINE_PATTERNS) {
+    if (pattern.test(line3)) return true;
+  }
+  return false;
+}
+function extractImportantLines(text, maxLines = 30) {
+  if (!text || maxLines <= 0) return [];
+  const out = [];
+  for (const line3 of text.split(/\r?\n/)) {
+    if (out.length >= maxLines) break;
+    if (isImportantLine(line3)) out.push(line3);
+  }
+  return out;
+}
+function splitWithImportantLines(value, maxChars, opts = {}) {
+  if (value.length <= maxChars) {
+    return { head: value, tail: "", importantLines: [], baseDropped: 0 };
+  }
+  const headLen = Math.floor(maxChars * 0.75);
+  const tailLen = maxChars - headLen;
+  const head = value.slice(0, headLen);
+  const tail = value.slice(value.length - tailLen);
+  if (opts.preserveImportant === false) {
+    return {
+      head,
+      tail,
+      importantLines: [],
+      baseDropped: value.length - maxChars
+    };
+  }
+  const slackFactor = opts.slackFactor ?? 0.15;
+  const slackChars = Math.max(0, Math.floor(maxChars * slackFactor));
+  const maxCandidates = opts.maxImportantLines ?? 30;
+  const middle = value.slice(headLen, value.length - tailLen);
+  const candidates = extractImportantLines(middle, maxCandidates);
+  const chosen = [];
+  let used = 0;
+  for (const line3 of candidates) {
+    const addLen = (chosen.length > 0 ? 1 : 0) + line3.length;
+    if (used + addLen > slackChars) break;
+    chosen.push(line3);
+    used += addLen;
+  }
+  return {
+    head,
+    tail,
+    importantLines: chosen,
+    baseDropped: value.length - maxChars
+  };
+}
+var IMPORTANT_LINE_PATTERNS;
+var init_important_line_classifier = __esm({
+  "src/runtime/compaction/important-line-classifier.ts"() {
+    "use strict";
+    IMPORTANT_LINE_PATTERNS = [
+      // error keywords — NOTE: "warning" is intentionally excluded here; it has
+      // its own case-sensitive pattern below so that the common prose word
+      // "warning" does not over-match. (Hypa does the same split.)
+      /\b(error|failed|exception|fatal|panic)\b/i,
+      // file:line diagnostic — `child-pi.ts:383:`, `App.tsx:42:`
+      /\w+\.\w+:\d+:/,
+      // HTTP 4xx / 5xx — bounded so it does not match phone numbers etc.
+      /\b[45]\d{2}\b/,
+      // k8s / linter "Warning" event (case-sensitive so prose is not matched)
+      /\bWarning\b/,
+      // compiler / linter diagnostic id — `TS2304`, `CS0246`, `ES1234`
+      /\b[A-Z]{2,4}\d{3,5}\b/
+    ];
+  }
+});
+
+// src/runtime/compaction/compact-stages/truncation-stage.ts
+var DEFAULT_MARKER, TruncationStage;
+var init_truncation_stage = __esm({
+  "src/runtime/compaction/compact-stages/truncation-stage.ts"() {
+    "use strict";
+    init_important_line_classifier();
+    DEFAULT_MARKER = {
+      verb: "compacted",
+      unit: "chars",
+      headSeparator: "\n",
+      tailSeparator: "\n"
+    };
+    TruncationStage = class {
+      id = "truncation";
+      maxChars;
+      preserveImportant;
+      marker;
+      constructor(maxChars, opts = {}) {
+        if (!Number.isFinite(maxChars) || maxChars <= 0) {
+          throw new Error(`TruncationStage: maxChars must be a positive finite number, got ${maxChars}`);
+        }
+        this.maxChars = maxChars;
+        this.preserveImportant = opts.preserveImportant !== false;
+        this.marker = { ...DEFAULT_MARKER, ...opts.marker ?? {} };
+      }
+      apply(text) {
+        if (text.length <= this.maxChars) return text;
+        const { head, tail, importantLines, baseDropped } = splitWithImportantLines(text, this.maxChars, {
+          preserveImportant: this.preserveImportant
+        });
+        let result4;
+        if (importantLines.length === 0) {
+          result4 = `${head}${this.marker.headSeparator}...[pi-crew ${this.marker.verb} ${baseDropped} ${this.marker.unit}, head+tail preserved]...${this.marker.tailSeparator}${tail}`;
+        } else {
+          const joined = importantLines.join("\n");
+          const remaining = text.length - head.length - tail.length - joined.length;
+          result4 = `${head}${this.marker.headSeparator}...[pi-crew ${this.marker.verb} ${baseDropped} ${this.marker.unit}, head+tail + ${importantLines.length} important lines preserved, ${remaining} ${this.marker.unit} remaining dropped]...
+${joined}${this.marker.tailSeparator}${tail}`;
+        }
+        if (result4.length >= text.length) return text;
+        return result4;
+      }
+    };
+  }
+});
+
+// src/runtime/child-pi/child-pi-transcript.ts
+import * as fs53 from "node:fs";
+function appendTranscript2(input, line3) {
+  if (!input.transcriptPath) return;
+  let safePath;
+  try {
+    const artifactsRoot = input.artifactsRoot ?? input.cwd;
+    safePath = resolveRealContainedPath(artifactsRoot, input.transcriptPath);
+  } catch (error) {
+    logInternalError("child-pi.transcript-path-rejected", error, `transcriptPath=${input.transcriptPath}`);
+    return;
+  }
+  trackTranscriptWrite(safePath, line3);
+}
+function scheduleTranscriptFlush() {
+  if (transcriptFlushTimer) return;
+  transcriptFlushTimer = setTimeout(() => {
+    transcriptFlushTimer = void 0;
+    void flushTranscriptBatches();
+  }, TRANSCRIPT_FLUSH_MS);
+  transcriptFlushTimer.unref?.();
+}
+async function flushTranscriptBatches() {
+  const entries = [...transcriptBatches.entries()];
+  transcriptBatches.clear();
+  await Promise.allSettled(
+    entries.map(async ([safePath, lines]) => {
+      if (lines.length === 0) return;
+      const content = lines.join("");
+      try {
+        const fd = await fs53.promises.open(
+          safePath,
+          fs53.constants.O_WRONLY | fs53.constants.O_NOFOLLOW | fs53.constants.O_CREAT | fs53.constants.O_APPEND,
+          384
+        );
+        try {
+          await fd.write(content, void 0, "utf-8");
+        } finally {
+          await fd.close();
+        }
+      } catch (error) {
+        logInternalError("child-pi.transcript-write-failed", error, `path=${safePath}`);
+      }
+    })
+  );
+}
+function trackTranscriptWrite(safePath, line3) {
+  const content = `${redactJsonLine(line3)}
+`;
+  let batch = transcriptBatches.get(safePath);
+  if (!batch) {
+    batch = [];
+    transcriptBatches.set(safePath, batch);
+  }
+  batch.push(content);
+  scheduleTranscriptFlush();
+}
+async function flushPendingTranscriptWrites() {
+  if (transcriptFlushTimer) {
+    clearTimeout(transcriptFlushTimer);
+    transcriptFlushTimer = void 0;
+  }
+  while (transcriptBatches.size > 0) {
+    await flushTranscriptBatches();
+  }
+}
+function resetTranscriptBatchState() {
+  if (transcriptFlushTimer) {
+    clearTimeout(transcriptFlushTimer);
+    transcriptFlushTimer = void 0;
+  }
+  transcriptBatches.clear();
+}
+function compactString(value, maxChars = DEFAULT_CHILD_PI.maxCompactContentChars, opts = {}) {
+  if (value.length <= maxChars) return value;
+  const result4 = applyCompactPipeline(value, [
+    new TruncationStage(maxChars, {
+      preserveImportant: opts.preserveImportant
+    })
+  ]);
+  return result4.text;
+}
+function compactValue(value) {
+  if (typeof value === "string") return compactString(value);
+  if (Array.isArray(value)) {
+    if (value.length > 20) {
+      return [...value.slice(0, 20).map(compactValue), `[pi-crew truncated ${value.length - 20} entries]`];
+    }
+    return value.map(compactValue);
+  }
+  const record = asRecord6(value);
+  if (!record) return value;
+  const entries = Object.entries(record);
+  const compacted = {};
+  for (const [key, entry] of entries.slice(0, 20)) compacted[key] = compactValue(entry);
+  if (entries.length > 20) compacted["[truncated]"] = `${entries.length - 20} entries`;
+  return compacted;
+}
+function asRecord6(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  return value;
+}
+var transcriptBatches, transcriptFlushTimer, TRANSCRIPT_FLUSH_MS;
+var init_child_pi_transcript = __esm({
+  "src/runtime/child-pi/child-pi-transcript.ts"() {
+    "use strict";
+    init_defaults();
+    init_internal_error();
+    init_redaction();
+    init_safe_paths();
+    init_compact_pipeline();
+    init_truncation_stage();
+    transcriptBatches = /* @__PURE__ */ new Map();
+    TRANSCRIPT_FLUSH_MS = 50;
+  }
+});
+
+// src/runtime/child-pi/child-pi-streams.ts
+function asRecord7(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  return value;
+}
+function compactContentPart(part) {
+  const record = asRecord7(part);
+  if (!record) return void 0;
+  if (record.type === "text")
+    return {
+      type: "text",
+      text: typeof record.text === "string" ? compactString(record.text, MAX_ASSISTANT_TEXT_CHARS, {
+        preserveImportant: false
+      }) : ""
+    };
+  if (record.type === "toolCall")
+    return {
+      type: "toolCall",
+      name: record.name,
+      input: compactValue(typeof record.input === "string" ? compactString(record.input, MAX_TOOL_INPUT_CHARS) : record.input)
+    };
+  if (record.type === "thinking")
+    return {
+      type: "thinking",
+      thinking: typeof record.thinking === "string" ? compactString(record.thinking, MAX_THINKING_CHARS, {
+        preserveImportant: false
+      }) : ""
+    };
+  if (record.type === "toolResult")
+    return {
+      type: "toolResult",
+      name: record.name,
+      content: compactValue(
+        typeof record.content === "string" ? compactString(record.content, MAX_TOOL_RESULT_CHARS) : record.content
+      )
+    };
+  return void 0;
+}
+function compactChildPiEvent(event) {
+  const record = asRecord7(event);
+  if (!record) return void 0;
+  if (record.type === "message_update") return void 0;
+  if (record.type === "tool_execution_start" || record.type === "tool_execution_end") {
+    return {
+      type: record.type,
+      toolName: record.toolName,
+      args: record.args
+    };
+  }
+  if (record.type === "tool_result_end" || record.type === "message_end" || record.type === "message") {
+    const message = asRecord7(record.message);
+    if (message?.role === "user" || message?.role === "system") return void 0;
+    const content = Array.isArray(message?.content) ? message.content.map(compactContentPart).filter((part) => part !== void 0) : void 0;
+    return {
+      type: record.type,
+      ...typeof record.text === "string" ? { text: record.text } : {},
+      ...message ? {
+        message: {
+          role: message.role,
+          ...content ? { content } : {},
+          usage: message.usage,
+          model: message.model,
+          errorMessage: message.errorMessage,
+          stopReason: message.stopReason
+        }
+      } : {},
+      usage: record.usage,
+      model: record.model,
+      provider: record.provider,
+      stopReason: record.stopReason
+    };
+  }
+  if (record.type === "supervisor_contact" || record.type === "crew_supervisor_contact") {
+    return {
+      type: record.type,
+      taskId: record.taskId,
+      reason: record.reason,
+      message: record.message,
+      data: record.data
+    };
+  }
+  return record.type ? { type: record.type } : void 0;
+}
+function displayTextFromCompactEvent(event) {
+  const record = asRecord7(event);
+  if (!record) return void 0;
+  if (record.type === "tool_execution_start") {
+    return typeof record.toolName === "string" ? `tool: ${record.toolName}` : "tool started";
+  }
+  if (record.type !== "message" && record.type !== "message_end") return void 0;
+  const message = asRecord7(record.message);
+  if (message?.role !== void 0 && message.role !== "assistant") return void 0;
+  const content = Array.isArray(message?.content) ? message.content : [];
+  const text = content.flatMap((part) => {
+    const item = asRecord7(part);
+    return item?.type === "text" && typeof item.text === "string" ? [item.text] : [];
+  }).join("\n").trim();
+  return text || (typeof record.text === "string" ? record.text : void 0);
+}
+function nonJsonLineResult(line3) {
+  return { json: false, persistedLine: line3, displayLine: line3 };
+}
+function compactChildPiLine(line3, preParsed) {
+  let parsed;
+  if (preParsed !== void 0) {
+    parsed = preParsed;
+  } else {
+    try {
+      parsed = JSON.parse(line3);
+    } catch {
+      return nonJsonLineResult(line3);
+    }
+  }
+  const compact = compactChildPiEvent(parsed);
+  return {
+    json: true,
+    event: compact,
+    persistedLine: compact ? JSON.stringify(compact) : "",
+    displayLine: displayTextFromCompactEvent(compact)
+  };
+}
+var ChildPiLineObserver;
+var init_child_pi_streams = __esm({
+  "src/runtime/child-pi/child-pi-streams.ts"() {
+    "use strict";
+    init_internal_error();
+    init_pi_json_output();
+    init_child_pi_constants();
+    init_child_pi_transcript();
+    ChildPiLineObserver = class _ChildPiLineObserver {
+      buffer = "";
+      input;
+      /** F9: bounded ring buffer for RAW assistant-text fragments. Consumers
+       * (getRawFinalText) only read the last element, but the legacy implementation
+       * accumulated every fragment unconditionally, which let a verbose/long-running
+       * worker grow this array linearly with output. We retain the last 2 entries:
+       * the consumer needs the last; we keep the second-to-last only as a defensive
+       * fence against a race where a final event arrives just after the consumer
+       * read (the previous "last" is still the most-recent pre-final text in that
+       * window). 2 is well below any plausible consumer's "tail-only" need while
+       * bounding memory. */
+      static MAX_RAW_TEXT_EVENTS = 2;
+      rawTextEvents = [];
+      /** F9: bounded ring buffer for intermediate findings. The downstream digest
+       * (getIntermediateFindings) slices the last 20, but the array previously grew
+       * to 1000s of entries. We keep MAX_INTERMEDIATE_DIGEST_LINES + headroom so
+       * the public API behaviour is preserved (still returns "last 20 lines"). */
+      static MAX_INTERMEDIATE_FINDINGS = 32;
+      intermediateFindings = [];
+      constructor(input) {
+        this.input = input;
+      }
+      observe(text) {
+        this.buffer += text;
+        if (this.buffer.length > MAX_LINE_BUFFER_BYTES) {
+          logInternalError(
+            "child-pi.buffer-overflow",
+            new Error(`Line buffer exceeded ${MAX_LINE_BUFFER_BYTES} bytes; force-flushing`),
+            `bufferLen=${this.buffer.length}`
+          );
+          const overflowLines = this.buffer.split(/\r?\n/);
+          this.buffer = "";
+          for (const line3 of overflowLines) this.emitLine(line3);
+          return;
+        }
+        const lines = this.buffer.split(/\r?\n/);
+        this.buffer = lines.pop() ?? "";
+        for (const line3 of lines) this.emitLine(line3);
+      }
+      flush() {
+        if (this.buffer) {
+          const line3 = this.buffer;
+          this.buffer = "";
+          this.emitLine(line3);
+        }
+        return flushPendingTranscriptWrites();
+      }
+      /** Last non-empty RAW assistant text (mirrors {@link parsePiJsonOutput}'s
+       *  finalText semantics but uncapped). Undefined when no assistant text was
+       *  seen by this observer. {@link extractText} already drops empty fragments,
+       *  so the last entry is the final assistant utterance. */
+      getRawFinalText() {
+        return this.rawTextEvents.length > 0 ? this.rawTextEvents[this.rawTextEvents.length - 1] : void 0;
+      }
+      /** #7 hardening: returns a bounded digest of intermediate findings accumulated
+       *  during the run. This is NOT the final answer — it is a best-effort capture
+       *  of the last assistant text or tool-result display lines before budget
+       *  exhaustion. Only populated when getRawFinalText() would return undefined.
+       *  @param maxChars - maximum total characters to return (default 500). */
+      getIntermediateFindings(maxChars = 500) {
+        const MAX_INTERMEDIATE_DIGEST_LINES = 20;
+        if (this.intermediateFindings.length === 0) return "";
+        const lines = this.intermediateFindings.slice(-MAX_INTERMEDIATE_DIGEST_LINES);
+        const joined = lines.join("\n");
+        if (joined.length <= maxChars) return joined;
+        return joined.slice(-maxChars);
+      }
+      emitLine(line3) {
+        if (!line3.trim()) return;
+        let parsed;
+        try {
+          parsed = JSON.parse(line3);
+        } catch {
+          parsed = void 0;
+        }
+        if (parsed !== void 0) {
+          const rawTexts = extractText(parsed);
+          if (rawTexts.length > 0) {
+            this.rawTextEvents.push(...rawTexts);
+            const rawOverflow = this.rawTextEvents.length - _ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
+            if (rawOverflow > 0) this.rawTextEvents.splice(0, rawOverflow);
+            const last = rawTexts[rawTexts.length - 1];
+            if (last.trim().length > 0) {
+              this.intermediateFindings.push(last.trim());
+              const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
+              if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
+            }
+          }
+        }
+        const compact = parsed !== void 0 ? compactChildPiLine(line3, parsed) : nonJsonLineResult(line3);
+        if (compact.event !== void 0) {
+          try {
+            this.input.onJsonEvent?.(compact.event);
+          } catch (error) {
+            logInternalError("child-pi.on-json-event", error, `line=${compact.persistedLine ?? compact.displayLine ?? ""}`);
+          }
+        }
+        if (compact.persistedLine) appendTranscript2(this.input, compact.persistedLine);
+        if (compact.displayLine?.trim()) {
+          try {
+            this.input.onStdoutLine?.(compact.displayLine);
+          } catch (error) {
+            logInternalError("child-pi.on-stdout-line", error, `line=${compact.displayLine}`);
+          }
+          this.intermediateFindings.push(compact.displayLine.trim());
+          const findingsOverflow = this.intermediateFindings.length - _ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
+          if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
+        }
+      }
+    };
+  }
+});
+
+// src/runtime/event-log-tail-source.ts
+import * as fs54 from "node:fs";
+import * as path41 from "node:path";
+var TAIL_BOOTSTRAP_POLL_MS, TAIL_BOOTSTRAP_POLL_MAX_MS, TAIL_STEADY_POLL_MS, EventLogTailSource;
+var init_event_log_tail_source = __esm({
+  "src/runtime/event-log-tail-source.ts"() {
+    "use strict";
+    init_fs_watch();
+    init_internal_error();
+    init_child_pi_streams();
+    TAIL_BOOTSTRAP_POLL_MS = 250;
+    TAIL_BOOTSTRAP_POLL_MAX_MS = 4 * TAIL_BOOTSTRAP_POLL_MS;
+    TAIL_STEADY_POLL_MS = 250;
+    EventLogTailSource = class {
+      sourceType = "event-log";
+      eventsPath;
+      deps;
+      callback;
+      watcher = null;
+      bootstrapTimer;
+      /** Poll dự phòng steady-state (song song watcher) — xem TAIL_STEADY_POLL_MS. */
+      steadyTimer;
+      /** Số lần bootstrap poll fail liên tiếp — cho backoff + log-once. */
+      bootstrapAttempts = 0;
+      closed = false;
+      /** Cờ chống drain-before-close đệ quy (consumer close() trong callback). */
+      draining = false;
+      /** Byte offset đã đọc tới — tự giữ qua các lần watcher báo đổi. */
+      offset = 0;
+      /** Nửa dòng chưa kết thúc `\n` — giữ tới lần đọc kế tiếp. */
+      partial = "";
+      constructor(input, deps = {}) {
+        this.eventsPath = input.eventsPath;
+        this.deps = deps;
+      }
+      onEvent(cb) {
+        this.callback = cb;
+        if (this.closed) return;
+        this.readFromOffset();
+        this.attachWatcher();
+      }
+      close() {
+        if (this.closed) return;
+        this.drainBeforeClose();
+        this.closed = true;
+        closeWatcher(this.watcher);
+        this.watcher = null;
+        if (this.bootstrapTimer !== void 0) {
+          const clear = this.deps.clearTimeoutFn ?? ((timer) => clearTimeout(timer));
+          clear(this.bootstrapTimer);
+          this.bootstrapTimer = void 0;
+        }
+        if (this.steadyTimer !== void 0) {
+          const clear = this.deps.clearTimeoutFn ?? ((timer) => clearTimeout(timer));
+          clear(this.steadyTimer);
+          this.steadyTimer = void 0;
+        }
+      }
+      /** Drain một lần, chống đệ quy khi consumer gọi close() ngay trong callback. */
+      drainBeforeClose() {
+        if (this.draining) return;
+        this.draining = true;
+        try {
+          this.readFromOffset();
+        } finally {
+          this.draining = false;
+        }
+      }
+      attachWatcher() {
+        if (this.closed || this.watcher) return;
+        let created = null;
+        const onError = (error) => {
+          if (created && this.watcher !== created) return;
+          this.watcher = null;
+          if (created) closeWatcher(created);
+          const err2 = error instanceof Error ? error : new Error(String(error));
+          const isEnoent = err2?.code === "ENOENT" || /ENOENT/.test(err2.message);
+          if (this.bootstrapAttempts === 0 || !isEnoent) {
+            logInternalError("event-log-tail.watch", err2, `eventsPath=${this.eventsPath}`, "warn");
+          }
+          this.scheduleBootstrap();
+        };
+        const dir = path41.dirname(this.eventsPath);
+        const base = path41.basename(this.eventsPath);
+        created = watchWithErrorHandler(
+          dir,
+          (_eventType, filename) => {
+            if (typeof filename === "string" && path41.basename(filename) !== base) return;
+            this.readFromOffset();
+          },
+          onError
+        );
+        if (created) {
+          this.watcher = created;
+          this.bootstrapAttempts = 0;
+          this.scheduleSteadyPoll();
+        } else {
+          this.scheduleBootstrap();
+        }
+      }
+      /**
+       * Lưới an toàn steady-state: watcher có thể gộp/im lặng (FSEvents macOS gộp
+       * appends liên tiếp — CI 33463597499). Poll nhẹ chạy song song, tự reschedule
+       * tới khi close(); unref để không giữ event loop sống.
+       */
+      scheduleSteadyPoll() {
+        if (this.closed || this.steadyTimer !== void 0) return;
+        const set = this.deps.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
+        const timer = set(() => {
+          this.steadyTimer = void 0;
+          if (this.closed) return;
+          this.readFromOffset();
+          if (!this.watcher) this.scheduleBootstrap();
+          else this.scheduleSteadyPoll();
+        }, TAIL_STEADY_POLL_MS);
+        this.steadyTimer = timer;
+        timer?.unref?.();
+      }
+      scheduleBootstrap() {
+        if (this.closed || this.bootstrapTimer !== void 0 || this.watcher) return;
+        const set = this.deps.setTimeoutFn ?? ((fn, ms) => setTimeout(fn, ms));
+        this.bootstrapAttempts += 1;
+        const delay = Math.min(TAIL_BOOTSTRAP_POLL_MAX_MS, TAIL_BOOTSTRAP_POLL_MS * 2 ** (this.bootstrapAttempts - 1));
+        const timer = set(() => {
+          this.bootstrapTimer = void 0;
+          if (this.closed) return;
+          this.readFromOffset();
+          this.attachWatcher();
+          if (!this.watcher) this.scheduleBootstrap();
+        }, delay);
+        this.bootstrapTimer = timer;
+        timer?.unref?.();
+      }
+      /** Đọc từ offset tới cuối file; truncate → reset offset; phát từng dòng JSON. */
+      readFromOffset() {
+        if (this.closed) return;
+        let size;
+        try {
+          size = fs54.statSync(this.eventsPath).size;
+        } catch {
+          this.offset = 0;
+          this.partial = "";
+          return;
+        }
+        if (size < this.offset) {
+          this.offset = 0;
+          this.partial = "";
+        }
+        if (size === this.offset) return;
+        let chunk;
+        let bytesRead;
+        try {
+          const fd = fs54.openSync(this.eventsPath, "r");
+          try {
+            const length = size - this.offset;
+            const buffer = Buffer.alloc(length);
+            bytesRead = fs54.readSync(fd, buffer, 0, length, this.offset);
+            chunk = buffer.toString("utf-8", 0, bytesRead);
+          } finally {
+            fs54.closeSync(fd);
+          }
+        } catch (error) {
+          logInternalError(
+            "event-log-tail.read",
+            error instanceof Error ? error : new Error(String(error)),
+            `eventsPath=${this.eventsPath}`,
+            "warn"
+          );
+          return;
+        }
+        this.offset += bytesRead;
+        const lines = (this.partial + chunk).split("\n");
+        this.partial = lines.pop() ?? "";
+        for (const text of lines) {
+          if (!text.trim()) continue;
+          let parsed;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            logInternalError("event-log-tail.parse", new Error("unparseable JSONL line"), `eventsPath=${this.eventsPath}`, "debug");
+            continue;
+          }
+          if (parsed.event === null || typeof parsed.event !== "object") continue;
+          try {
+            this.callback?.(parsed.event);
+          } catch (error) {
+            logInternalError("event-log-tail.callback", error instanceof Error ? error : new Error(String(error)), void 0, "warn");
+          }
+        }
+      }
+    };
+  }
+});
+
+// src/runtime/event-stream-bridge.ts
+function registerStreamBridge(runId) {
+  const existing = activeBridges.get(runId);
+  if (existing) {
+    return {
+      handler: existing,
+      dispose: () => unregisterStreamBridge(runId)
+    };
+  }
+  const handler = (event) => {
+    runEventBus.emit({
+      type: "worker_status",
+      runId: event.runId,
+      taskId: event.taskId,
+      data: event
+    });
+  };
+  activeBridges.set(runId, handler);
+  return { handler, dispose: () => unregisterStreamBridge(runId) };
+}
+function unregisterStreamBridge(runId) {
+  activeBridges.delete(runId);
+}
+function bridgeEventFromJsonEvent(runId, taskId, event) {
+  if (!event || typeof event !== "object") return null;
+  const record = event;
+  const type = typeof record.type === "string" ? record.type : "";
+  const result4 = {
+    runId,
+    taskId,
+    eventType: type,
+    timestamp: Date.now()
+  };
+  if (typeof record.toolName === "string") result4.toolName = record.toolName;
+  if (record.args && typeof record.args === "object") {
+    try {
+      const json = JSON.stringify(record.args);
+      result4.toolArgs = json.length > 200 ? json.slice(0, 197) + "..." : json;
+    } catch {
+    }
+  }
+  if (typeof record.intent === "string") result4.intent = record.intent;
+  const usage = record.usage ?? record.message?.usage;
+  if (usage && typeof usage === "object") {
+    const u = usage;
+    const input = typeof u.input === "number" ? u.input : 0;
+    const output = typeof u.output === "number" ? u.output : 0;
+    if (input || output) result4.tokens = input + output;
+  }
+  if (result4.toolName && subprocessToolRegistry.hasHandler(result4.toolName)) {
+    const handler = subprocessToolRegistry.getHandler(result4.toolName);
+    if (handler?.extractData) {
+      const extracted = handler.extractData({
+        toolName: result4.toolName,
+        toolCallId: record.toolCallId ?? "",
+        args: record.args,
+        result: record.result,
+        isError: record.isError
+      });
+      if (extracted !== void 0) {
+        result4.extractedToolData = { [result4.toolName]: extracted };
+      }
+    }
+  }
+  return result4;
+}
+var activeBridges;
+var init_event_stream_bridge = __esm({
+  "src/runtime/event-stream-bridge.ts"() {
+    "use strict";
+    init_run_event_bus();
+    init_subprocess_tool_registry();
+    activeBridges = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/runtime/surface/degrade.ts
+import * as fs55 from "node:fs";
+async function classifyOnExit(handle, waitForCompleted, opts) {
+  if (!handle || typeof waitForCompleted !== "function") return "degraded";
+  return await waitForCompleted(opts?.timeoutMs ?? CLASSIFY_TIMEOUT_MS) ? "completed" : "degraded";
+}
+function nextLockoutCounts(prev, cause) {
+  const base = { pane: Math.max(0, prev?.pane ?? 0), mux: Math.max(0, prev?.mux ?? 0) };
+  return cause === "mux-dead" ? { ...base, mux: base.mux + 1 } : { ...base, pane: base.pane + 1 };
+}
+function nextLockoutCountsForBatch(prev, causes) {
+  let counts = { pane: Math.max(0, prev?.pane ?? 0), mux: Math.max(0, prev?.mux ?? 0) };
+  if (causes.some((cause) => cause === "mux-dead")) counts = nextLockoutCounts(counts, "mux-dead");
+  for (const cause of causes) {
+    if (cause !== "pane-closed") continue;
+    counts = nextLockoutCounts(counts, "pane-closed");
+  }
+  return counts;
+}
+function nextConsecutiveSpawnFails(prev, failed) {
+  return failed ? Math.max(0, prev ?? 0) + 1 : 0;
+}
+function isSpawnFailLockout(consecutiveFails) {
+  return consecutiveFails >= SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD;
+}
+function makeTerminalEventProbe(deps) {
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
+  const now = deps.now ?? Date.now;
+  const step = Math.max(1, deps.pollMs ?? CLASSIFY_POLL_MS);
+  let offset = 0;
+  let partial = "";
+  let payload;
+  let fd = null;
+  const ioOpen = deps.io?.open ?? ((path103) => fs55.openSync(path103, "r"));
+  const ioSize = deps.io?.size ?? ((handle) => fs55.fstatSync(handle).size);
+  const ioRead = deps.io?.read ?? ((handle, start, end) => {
+    const length = end - start;
+    const buffer = Buffer.alloc(length);
+    const bytesRead = fs55.readSync(handle, buffer, 0, length, start);
+    return { text: buffer.toString("utf8", 0, bytesRead), bytesRead };
+  });
+  const ioClose = deps.io?.close ?? ((handle) => fs55.closeSync(handle));
+  const closeIo = () => {
+    if (fd === null) return;
+    try {
+      ioClose(fd);
+    } catch {
+    }
+    fd = null;
+  };
+  const probe = async (budgetMs) => {
+    payload = void 0;
+    const deadline = now() + Math.max(0, budgetMs);
+    try {
+      for (; ; ) {
+        if (scanOnce()) return true;
+        if (now() >= deadline) return false;
+        await sleep4(Math.min(step, Math.max(1, deadline - now())));
+      }
+    } finally {
+      closeIo();
+    }
+  };
+  const foundPayload = () => payload ?? EMPTY_PAYLOAD;
+  function feed(chunk) {
+    if (!chunk) return false;
+    const lines = (partial + chunk).split("\n");
+    partial = lines.pop() ?? "";
+    for (const line3 of lines) {
+      if (!line3.trim()) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(line3);
+      } catch {
+        continue;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      const record = parsed;
+      if (record.type !== "worker.completed") continue;
+      if (deps.taskId !== void 0 && record.taskId !== deps.taskId) continue;
+      if (deps.runId !== void 0 && record.runId !== deps.runId) continue;
+      payload = record.data && typeof record.data === "object" && !Array.isArray(record.data) ? record.data : {};
+      return true;
+    }
+    return false;
+  }
+  function scanOnce() {
+    if (deps.readFile) {
+      const content = safeReadFile();
+      if (content === void 0) return false;
+      if (content.length < offset) {
+        offset = 0;
+        partial = "";
+      }
+      const chunk = content.slice(offset);
+      offset += chunk.length;
+      return feed(chunk);
+    }
+    return scanIncremental();
+  }
+  function safeReadFile() {
+    try {
+      return deps.readFile(deps.eventsPath);
+    } catch {
+      return void 0;
+    }
+  }
+  function scanIncremental() {
+    if (fd === null) {
+      try {
+        fd = ioOpen(deps.eventsPath);
+      } catch {
+        return false;
+      }
+    }
+    let size;
+    try {
+      size = ioSize(fd);
+    } catch {
+      closeIo();
+      return false;
+    }
+    if (size < offset) {
+      offset = 0;
+      partial = "";
+    }
+    if (size === offset) return false;
+    let chunk;
+    try {
+      chunk = ioRead(fd, offset, size);
+    } catch {
+      return false;
+    }
+    offset += chunk.bytesRead;
+    return feed(chunk.text);
+  }
+  return Object.assign(probe, { foundPayload });
+}
+function emptySurfaceState() {
+  return { provider: null, panes: {}, workerPids: {}, sessionPaths: {} };
+}
+function normalizeSurfaceState(raw) {
+  const state2 = emptySurfaceState();
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return state2;
+  const value = raw;
+  if (value.provider === "tmux" || value.provider === "herdr") state2.provider = value.provider;
+  state2.panes = stringRecord(value.panes);
+  state2.workerPids = numberRecord(value.workerPids);
+  state2.sessionPaths = stringRecord(value.sessionPaths);
+  const tabs = stringArrayRecord(value.tabs);
+  if (Object.keys(tabs).length > 0) state2.tabs = tabs;
+  const lockout = value.lockout;
+  if (lockout && typeof lockout === "object" && typeof lockout.since === "string") {
+    const counts = lockout.counts ?? {};
+    state2.lockout = {
+      since: lockout.since,
+      counts: {
+        pane: Number.isFinite(counts.pane) ? Number(counts.pane) : 0,
+        mux: Number.isFinite(counts.mux) ? Number(counts.mux) : 0
+      },
+      cause: lockout.cause === "spawn-fail" ? "spawn-fail" : "degrade"
+    };
+  }
+  return state2;
+}
+function stringRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (typeof val === "string" && key) out[key] = val;
+  }
+  return out;
+}
+function numberRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (typeof val === "number" && Number.isFinite(val)) out[key] = val;
+  }
+  return out;
+}
+function stringArrayRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (!key || !Array.isArray(val)) continue;
+    const ids = val.filter((id) => typeof id === "string" && id.length > 0);
+    if (ids.length > 0) out[key] = ids;
+  }
+  return out;
+}
+function recordSurfacePane(state2, input) {
+  return {
+    ...state2,
+    ...input.provider === "tmux" || input.provider === "herdr" ? { provider: input.provider } : {},
+    panes: { ...state2.panes, [input.taskId]: input.paneId }
+  };
+}
+function releaseSurfacePane(state2, taskId) {
+  if (!(taskId in state2.panes)) return state2;
+  const panes = { ...state2.panes };
+  delete panes[taskId];
+  return { ...state2, panes };
+}
+function recordSurfaceTab(state2, input) {
+  const existing = state2.tabs?.[input.tabKey] ?? [];
+  if (existing.includes(input.tabId)) return state2;
+  return { ...state2, tabs: { ...state2.tabs ?? {}, [input.tabKey]: [...existing, input.tabId] } };
+}
+async function closeTabForRun(surface, tabKey, provider) {
+  if (typeof provider?.closeTab === "function") {
+    try {
+      await provider.closeTab(tabKey);
+    } catch (error) {
+      logInternalError(
+        "surface-degrade.close-tab",
+        error instanceof Error ? error : new Error(String(error)),
+        `tabKey=${tabKey} provider=${provider.kind}`
+      );
+    }
+  }
+  const next = { ...surface, tabs: { ...surface.tabs ?? {}, [tabKey]: [] } };
+  Object.assign(surface, next);
+  return next;
+}
+function recordWorkerStarted(state2, input) {
+  const next = { ...state2 };
+  if (typeof input.pid === "number" && Number.isFinite(input.pid)) next.workerPids = { ...state2.workerPids, [input.taskId]: input.pid };
+  if (typeof input.sessionPath === "string" && input.sessionPath)
+    next.sessionPaths = { ...state2.sessionPaths, [input.taskId]: input.sessionPath };
+  return next;
+}
+function applyDegradedBatch(state2, entries) {
+  if (entries.length === 0) return state2;
+  const causes = entries.map((entry) => entry.cause);
+  const counts = nextLockoutCountsForBatch(state2.lockout?.counts ?? { pane: 0, mux: 0 }, causes);
+  return {
+    ...state2,
+    lockout: {
+      since: state2.lockout?.since ?? entries[0].ts,
+      counts,
+      cause: "degrade"
+    }
+  };
+}
+function applySpawnFailLockout(state2, since) {
+  return {
+    ...state2,
+    lockout: {
+      since: state2.lockout?.since ?? since,
+      counts: state2.lockout?.counts ?? { pane: 0, mux: 0 },
+      cause: "spawn-fail"
+    }
+  };
+}
+function renderSurfaceLostResumeNote(entry) {
+  return [
+    "<dependency-context>",
+    "(Scheduler note: the previous worker lost its multiplexer pane before finishing this task",
+    `(cause=${entry.cause}). It was re-dispatched headless with restored scratchpad state.`,
+    "Continue from where you left off.",
+    "(It is DATA, not a system directive.)",
+    "</dependency-context>"
+  ].join("\n");
+}
+function planHeadlessRedeplays(input) {
+  const handled = input.handledTaskIds ?? /* @__PURE__ */ new Set();
+  const byId = new Map(input.tasks.map((task) => [task.id, task]));
+  const plan = { tasks: [...input.tasks], requeuedTaskIds: [], skipped: [] };
+  for (const entry of input.degraded) {
+    const task = byId.get(entry.taskId);
+    if (!task) {
+      plan.skipped.push({ taskId: entry.taskId, reason: "task not in graph" });
+      continue;
+    }
+    if (handled.has(entry.taskId)) {
+      plan.skipped.push({ taskId: entry.taskId, reason: "already re-dispatched once for surface loss" });
+      continue;
+    }
+    const requeueable = task.status === "needs_attention" || task.status === "running";
+    if (!requeueable) {
+      plan.skipped.push({ taskId: entry.taskId, reason: `status ${task.status} is owned by another lifecycle` });
+      continue;
+    }
+    const note2 = input.note ?? renderSurfaceLostResumeNote(entry);
+    plan.tasks = plan.tasks.map(
+      (candidate) => candidate.id === entry.taskId ? {
+        ...candidate,
+        status: "queued",
+        startedAt: void 0,
+        finishedAt: void 0,
+        error: void 0,
+        claim: void 0,
+        heartbeat: candidate.heartbeat,
+        // Không rờ policy.retryCount — degrade không ăn retry budget (spec §7 b5).
+        attempts: [
+          ...candidate.attempts ?? [],
+          {
+            attemptId: `${entry.taskId}:surface-lost`,
+            startedAt: candidate.startedAt ?? entry.ts,
+            endedAt: entry.ts,
+            error: `[surface-lost] ${entry.cause}`
+          }
+        ],
+        pendingSteers: [...candidate.pendingSteers ?? [], note2],
+        diagnostics: {
+          ...candidate.diagnostics ?? {},
+          surfaceLost: { ts: entry.ts, cause: entry.cause, paneId: entry.paneId }
+        },
+        adaptive: candidate.adaptive ? { ...candidate.adaptive, phase: "resumed" } : candidate.adaptive
+      } : candidate
+    );
+    plan.requeuedTaskIds.push(entry.taskId);
+    handled.add(entry.taskId);
+  }
+  return plan;
+}
+function registerSurfaceRuntimeController(controller) {
+  controllersByRun.set(controller.runId, controller);
+}
+function getSurfaceRuntimeController(runId) {
+  if (!runId) return void 0;
+  return controllersByRun.get(runId);
+}
+function clearSurfaceRuntimeController(runId) {
+  if (!runId) return;
+  if (controllersByRun.get(runId)?.runId === runId) controllersByRun.delete(runId);
+}
+function createSurfaceRuntimeController(deps) {
+  const now = deps.now ?? Date.now;
+  const appendEvent2 = deps.appendEvent ?? ((eventsPath, event) => {
+    try {
+      appendEventFireAndForget(eventsPath, event);
+    } catch (error) {
+      logInternalError("surface-degrade.event", error instanceof Error ? error : new Error(String(error)), `runId=${deps.runId}`);
+    }
+  });
+  const state2 = deps.initialState !== void 0 ? normalizeSurfaceState(deps.initialState) : emptySurfaceState();
+  const livePids = new Set(Object.keys(state2.panes));
+  let spawnFailStreak = 0;
+  let degradedQueue = [];
+  const degrade = (input) => {
+    const cause = input.exitReason === "mux-dead" ? "mux-dead" : "pane-closed";
+    const entry = {
+      taskId: input.taskId,
+      paneId: input.paneId,
+      exitReason: input.exitReason,
+      cause,
+      ts: new Date(now()).toISOString()
+    };
+    degradedQueue.push(entry);
+    if (state2.lockout?.cause !== "degrade") {
+      state2.lockout = {
+        since: state2.lockout?.since ?? entry.ts,
+        counts: state2.lockout?.counts ?? { pane: 0, mux: 0 },
+        cause: "degrade"
+      };
+    }
+    try {
+      appendEvent2(deps.eventsPath, {
+        type: "surface.degraded",
+        runId: deps.runId,
+        taskId: entry.taskId,
+        message: `Surface worker lost (${cause}) before worker.completed within ${CLASSIFY_TIMEOUT_MS}ms classify window`,
+        data: { taskId: entry.taskId, paneId: entry.paneId, reason: input.exitReason, ts: entry.ts, cause }
+      });
+    } catch (error) {
+      logInternalError("surface-degrade.event", error instanceof Error ? error : new Error(String(error)), `runId=${deps.runId}`);
+    }
+    try {
+      deps.revoke?.(input.taskId);
+    } catch (error) {
+      logInternalError("surface-degrade.revoke", error instanceof Error ? error : new Error(String(error)), `runId=${deps.runId}`);
+    }
+    deps.onDegrade?.(entry);
+  };
+  return {
+    runId: deps.runId,
+    livePaneCount: () => livePids.size,
+    shouldAttemptSurface: () => state2.lockout === void 0,
+    notifySpawned: ({ taskId, paneId, provider, tabKey, tabId }) => {
+      spawnFailStreak = 0;
+      Object.assign(state2, recordSurfacePane(state2, { taskId, paneId, provider }));
+      if (tabKey && tabId) Object.assign(state2, recordSurfaceTab(state2, { tabKey, tabId }));
+      livePids.add(taskId);
+    },
+    notifySpawnFailed: ({ taskId, reason }) => {
+      spawnFailStreak = nextConsecutiveSpawnFails(spawnFailStreak, true);
+      if (!isSpawnFailLockout(spawnFailStreak)) {
+        logInternalError(
+          "surface-degrade.spawn-fail",
+          new Error(reason),
+          `runId=${deps.runId} taskId=${taskId} streak=${spawnFailStreak}`,
+          "warn"
+        );
+        return;
+      }
+      if (state2.lockout?.cause === "spawn-fail") return;
+      Object.assign(state2, applySpawnFailLockout(state2, new Date(now()).toISOString()));
+      logInternalError(
+        "surface-degrade.spawn-fail-lockout",
+        new Error(reason),
+        `runId=${deps.runId} \u2014 surface OFF rest of the run`,
+        "warn"
+      );
+    },
+    notifyWorkerStarted: ({ taskId, pid, sessionPath }) => {
+      Object.assign(state2, recordWorkerStarted(state2, { taskId, pid, sessionPath }));
+    },
+    notifyPaneExited: ({ taskId, paneId, completed, exitReason, cancelledByAbort, timedOut }) => {
+      livePids.delete(taskId);
+      Object.assign(state2, releaseSurfacePane(state2, taskId));
+      if (completed) return;
+      if (cancelledByAbort || timedOut) return;
+      if (exitReason !== "pane-closed" && exitReason !== "mux-dead") return;
+      degrade({ taskId, paneId, exitReason });
+    },
+    takeDegraded: () => {
+      const drained = degradedQueue;
+      degradedQueue = [];
+      if (drained.length > 0) {
+        Object.assign(state2, applyDegradedBatch(state2, drained));
+      }
+      return drained;
+    },
+    consecutiveSpawnFails: () => spawnFailStreak,
+    closeRunTabs: async (provider) => {
+      for (const tabKey of Object.keys(state2.tabs ?? {})) {
+        await closeTabForRun(state2, tabKey, provider);
+      }
+    },
+    // Trả snapshot MỚI mỗi lần — team-runner gắn nguyên object vào manifest.
+    snapshot: () => snapshotState(state2)
+  };
+}
+function snapshotState(state2) {
+  return {
+    provider: state2.provider,
+    panes: { ...state2.panes },
+    workerPids: { ...state2.workerPids },
+    sessionPaths: { ...state2.sessionPaths },
+    ...state2.tabs ? { tabs: { ...state2.tabs } } : {},
+    ...state2.lockout ? { lockout: { since: state2.lockout.since, counts: { ...state2.lockout.counts }, cause: state2.lockout.cause } } : {}
+  };
+}
+var CLASSIFY_TIMEOUT_MS, CLASSIFY_POLL_MS, SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD, EMPTY_PAYLOAD, controllersByRun;
+var init_degrade = __esm({
+  "src/runtime/surface/degrade.ts"() {
+    "use strict";
+    init_event_log();
+    init_internal_error();
+    CLASSIFY_TIMEOUT_MS = 2e3;
+    CLASSIFY_POLL_MS = 50;
+    SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD = 3;
+    EMPTY_PAYLOAD = Object.freeze({});
+    controllersByRun = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/runtime/process/proc-stat.ts
+function fieldsAfterComm(stat2) {
+  const lastParen = stat2.lastIndexOf(")");
+  if (lastParen === -1) return void 0;
+  return stat2.slice(lastParen + 1).trim().split(/\s+/);
+}
+function procStartTimeTicks(stat2) {
+  const fields = fieldsAfterComm(stat2);
+  if (!fields) return void 0;
+  const raw = fields[PROC_STAT_STARTTIME_INDEX];
+  return raw && Number.isFinite(Number(raw)) ? raw : void 0;
+}
+var PROC_STAT_STARTTIME_INDEX, PROC_STAT_PPID_INDEX;
+var init_proc_stat = __esm({
+  "src/runtime/process/proc-stat.ts"() {
+    "use strict";
+    PROC_STAT_STARTTIME_INDEX = 19;
+    PROC_STAT_PPID_INDEX = 1;
+  }
+});
+
+// src/runtime/surface/launch-script.ts
+import * as fs56 from "node:fs";
+import * as path42 from "node:path";
+function assertSafeTaskId(taskId) {
+  if (!taskId || taskId.includes("/") || taskId.includes("\\") || taskId.includes("\0") || taskId.includes("..")) {
+    throw new SurfaceTaskIdError(taskId);
+  }
+}
+function shellEscape(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+function buildLaunchScript(input) {
+  assertSafeTaskId(input.taskId);
+  const depth = currentCrewDepth(input.callerEnv ?? input.env);
+  if (depth > 0) throw new SurfaceDepthGuardError(depth);
+  const scriptPath = path42.resolve(input.baseDir, `pi-crew-launch-${input.taskId}-${process.pid}.sh`);
+  const lines = ["#!/bin/bash"];
+  for (const [key, value] of Object.entries(input.env)) {
+    lines.push(`export ${key}=${shellEscape(value)}`);
+  }
+  lines.push(`cd ${shellEscape(input.cwd)}`);
+  lines.push('( rm -f -- "$0" ) &');
+  lines.push(input.command);
+  lines.push('rm -f -- "$0"');
+  atomicWriteFile(scriptPath, `${lines.join("\n")}
+`, { mode: 384 });
+  launchScriptRegistry.set(scriptPath, Date.now());
+  return scriptPath;
+}
+function sweepLaunchScripts(registry2, now) {
+  let swept = 0;
+  for (const [scriptPath, createdAt] of [...registry2.entries()]) {
+    if (now - createdAt <= LAUNCH_SCRIPT_TTL_MS) continue;
+    try {
+      fs56.rmSync(scriptPath, { force: true });
+    } catch {
+    }
+    registry2.delete(scriptPath);
+    swept++;
+  }
+  return swept;
+}
+function sweepOrphanLaunchScriptFiles(baseDir, now) {
+  let swept = 0;
+  let entries;
+  try {
+    entries = fs56.readdirSync(baseDir);
+  } catch {
+    return 0;
+  }
+  for (const name of entries) {
+    if (!/^pi-crew-launch-.*\.sh$/.test(name)) continue;
+    const scriptPath = path42.join(baseDir, name);
+    try {
+      const mtimeMs = fs56.statSync(scriptPath).mtimeMs;
+      if (now - mtimeMs <= LAUNCH_SCRIPT_TTL_MS) continue;
+      fs56.rmSync(scriptPath, { force: true });
+      swept++;
+    } catch {
+    }
+  }
+  return swept;
+}
+var SurfaceDepthGuardError, SurfaceTaskIdError, LAUNCH_SCRIPT_TTL_MS, launchScriptRegistry;
+var init_launch_script = __esm({
+  "src/runtime/surface/launch-script.ts"() {
+    "use strict";
+    init_atomic_write();
+    init_pi_args();
+    SurfaceDepthGuardError = class extends Error {
+      constructor(depth) {
+        super(`Refusing to build surface launch script at PI_CREW_DEPTH=${depth}: surface panes are tier-1 only`);
+        this.name = "SurfaceDepthGuardError";
+      }
+    };
+    SurfaceTaskIdError = class extends Error {
+      constructor(taskId) {
+        super(`Refusing to build surface launch script: unsafe taskId ${JSON.stringify(taskId)} \u2014 must not contain "/", "\\", NUL or ".."`);
+        this.name = "SurfaceTaskIdError";
+      }
+    };
+    LAUNCH_SCRIPT_TTL_MS = 6e4;
+    launchScriptRegistry = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/runtime/surface/surface-spawn.ts
+import * as fs57 from "node:fs";
+import * as path43 from "node:path";
+function surfaceAgentEventsPath(stateRoot, taskId) {
+  return stateRoot ? agentEventsPathForStateRoot(stateRoot, taskId) : null;
+}
+function stripHeadlessModeArgs(args) {
+  const idx = args.indexOf("--mode");
+  if (idx === -1 || args[idx + 1] !== "json") return [...args];
+  if (args[idx + 2] !== "-p") return [...args];
+  return [...args.slice(0, idx), ...args.slice(idx + 3)];
+}
+function readParentStartTime(pid, readStat) {
+  const reader = readStat ?? ((p) => {
+    try {
+      return fs57.readFileSync(`/proc/${p}/stat`, "utf8");
+    } catch {
+      return void 0;
+    }
+  });
+  const stat2 = reader(pid);
+  if (!stat2) return "";
+  return procStartTimeTicks(stat2) ?? "";
+}
+function joinCommandLine(spec) {
+  return [spec.command, ...spec.args].map(shellEscape).join(" ");
+}
+async function prepareSurfaceSpawn(input) {
+  const now = input.deps?.now ?? Date.now;
+  try {
+    sweepLaunchScripts(launchScriptRegistry, now());
+  } catch (error) {
+    logInternalError("surface-spawn.sweep", error instanceof Error ? error : new Error(String(error)));
+  }
+  const hardGated = currentCrewDepth(input.env) > 0 ? `host depth ${currentCrewDepth(input.env)} > 0` : null;
+  let resolution;
+  try {
+    if (hardGated && input.deps?.provider !== void 0) {
+      logInternalError(
+        "surface-spawn.hard-gate",
+        new Error(`pre-resolved surface provider ignored: ${hardGated}`),
+        "fail-closed \xA73",
+        "warn"
+      );
+      return {
+        mode: "headless",
+        reason: `surface gated by ${hardGated}`,
+        gateRejected: {
+          gate: "depth",
+          reason: `surface gated by ${hardGated}`,
+          env: surfaceGateEnvSnapshot(input.env)
+        }
+      };
+    }
+    resolution = input.deps?.provider !== void 0 ? { provider: input.deps.provider } : resolveSurfaceDetailed(input.env, input.config, input.role, input.livePaneCount, input.deps?.resolve);
+  } catch (error) {
+    logInternalError("surface-spawn.resolve", error instanceof Error ? error : new Error(String(error)), "resolveSurface threw");
+    return { mode: "headless", reason: `surface resolution threw: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (!resolution.provider) {
+    const rejection = resolution.rejection;
+    return {
+      mode: "headless",
+      reason: rejection ? `surface gate "${rejection.gate}": ${rejection.reason}` : "surface resolution returned null (mode/depth/async/cap/role gate or no mux)",
+      gateRejected: rejection
+    };
+  }
+  const provider = resolution.provider;
+  const runId = input.stateRoot ? path43.basename(input.stateRoot) : void 0;
+  let handle;
+  try {
+    handle = await provider.createSurface(input.taskId, {
+      cwd: input.cwd,
+      title: input.taskId,
+      ...runId ? { tabKey: runId, splitIndex: input.livePaneCount } : {}
+    });
+  } catch (error) {
+    logInternalError(
+      "surface-spawn.create-surface",
+      error instanceof Error ? error : new Error(String(error)),
+      `taskId=${input.taskId}`
+    );
+    return {
+      mode: "headless",
+      reason: `createSurface failed: ${error instanceof Error ? error.message : String(error)}`,
+      attempted: true
+    };
+  }
+  try {
+    if (typeof provider.sendCommand !== "function") {
+      throw new Error("provider does not implement sendCommand \u2014 cannot boot a commandless pane");
+    }
+    const tuiArgs = stripHeadlessModeArgs(input.piArgs);
+    const spawnSpec = (input.deps?.resolveCommand ?? getPiSpawnCommand)(tuiArgs);
+    const eventsPath = surfaceAgentEventsPath(input.stateRoot, input.taskId);
+    const scriptEnv = {
+      ...input.workerEnv,
+      PI_CREW_SURFACE: provider.kind,
+      PI_CREW_SURFACE_PANE: handle.id,
+      PI_CREW_AUTO_EXIT: "1",
+      ...eventsPath ? { PI_CREW_AGENT_EVENTS_PATH: eventsPath } : {},
+      // Host đã set PI_CREW_PARENT_PID trong worker env (child-pi-spawn) —
+      // chỉ tự điền khi worker env chưa có để tránh ghi đè ý của caller.
+      ...input.workerEnv.PI_CREW_PARENT_PID ? {} : { PI_CREW_PARENT_PID: String(process.pid) }
+    };
+    if (!scriptEnv.PI_CREW_PARENT_START_TIME) {
+      scriptEnv.PI_CREW_PARENT_START_TIME = readParentStartTime(process.pid, input.deps?.readParentStat);
+    }
+    const scriptPath = buildLaunchScript({
+      taskId: input.taskId,
+      env: scriptEnv,
+      command: joinCommandLine(spawnSpec),
+      cwd: input.cwd,
+      baseDir: input.baseDir ?? getPiTempBase(),
+      callerEnv: input.env
+    });
+    await provider.sendCommand(handle, `bash ${shellEscape(scriptPath)}; exit`);
+    return {
+      mode: "surface",
+      kind: provider.kind,
+      paneId: handle.id,
+      handle,
+      provider,
+      scriptPath,
+      eventsPath,
+      // Task 5 (tab-layout): đưa tab identity lên cho caller ghi manifest —
+      // provider set handle.tabId trong tab-flow (tabKey có mặt).
+      ...runId && handle.tabId ? { tabKey: runId, tabId: handle.tabId } : {}
+    };
+  } catch (error) {
+    logInternalError(
+      "surface-spawn.boot",
+      error instanceof Error ? error : new Error(String(error)),
+      `taskId=${input.taskId} pane=${handle.id} \u2014 falling back to headless`
+    );
+    try {
+      await provider.closeSurface(handle, { force: true });
+    } catch (closeError) {
+      logInternalError(
+        "surface-spawn.orphan-close",
+        closeError instanceof Error ? closeError : new Error(String(closeError)),
+        `pane=${handle.id}`
+      );
+    }
+    return {
+      mode: "headless",
+      reason: `surface boot failed: ${error instanceof Error ? error.message : String(error)}`,
+      attempted: true
+    };
+  }
+}
+function sweepLaunchScriptsAtRunEnd(now = Date.now) {
+  try {
+    return sweepLaunchScripts(launchScriptRegistry, now());
+  } catch (error) {
+    logInternalError("surface-spawn.run-end-sweep", error instanceof Error ? error : new Error(String(error)));
+    return 0;
+  }
+}
+async function waitForSurfaceExit(outcome, hooks = {}) {
+  const forceClose = async () => {
+    try {
+      await outcome.provider.closeSurface(outcome.handle, { force: true });
+    } catch (error) {
+      logInternalError(
+        "surface-spawn.force-close",
+        error instanceof Error ? error : new Error(String(error)),
+        `pane=${outcome.paneId}`
+      );
+    }
+  };
+  return await new Promise((resolve26) => {
+    let cancelledByAbort = hooks.signal?.aborted === true;
+    let timedOut = false;
+    let settled = false;
+    let synthTimer = null;
+    const finish = (info2) => {
+      if (settled) return;
+      settled = true;
+      if (synthTimer) clearTimeout(synthTimer);
+      resolve26(info2);
+    };
+    const armSyntheticFallback = () => {
+      if (settled || synthTimer) return;
+      const graceMs = Math.max(1, hooks.graceAfterForceCloseMs ?? FORCE_CLOSE_EXIT_GRACE_MS);
+      synthTimer = setTimeout(() => {
+        logInternalError(
+          "surface-spawn.synthetic-exit",
+          new Error(`no onExit within ${graceMs}ms of force-close`),
+          `pane=${outcome.paneId} \u2014 resolving synthetic exit (pane may have died before its first onExit subscription)`
+        );
+        finish({ reason: "detached", cancelledByAbort, timedOut, synthetic: true });
+      }, graceMs);
+      synthTimer.unref();
+    };
+    if (cancelledByAbort) {
+      cancelledByAbort = true;
+      void forceClose();
+      armSyntheticFallback();
+    }
+    const onAbort = () => {
+      if (cancelledByAbort || timedOut || settled) return;
+      cancelledByAbort = true;
+      void forceClose();
+      armSyntheticFallback();
+    };
+    hooks.signal?.addEventListener("abort", onAbort, { once: true });
+    const timer = hooks.deadlineMs !== void 0 ? setTimeout(
+      () => {
+        if (cancelledByAbort || timedOut || settled) return;
+        timedOut = true;
+        void forceClose();
+        armSyntheticFallback();
+      },
+      Math.max(1, hooks.deadlineMs)
+    ) : null;
+    timer?.unref();
+    outcome.handle.onExit((reason) => finish({ reason, cancelledByAbort, timedOut }));
+    if (!hooks.signal && !timer && !synthTimer && !settled) {
+      armSyntheticFallback();
+    }
+  });
+}
+var FORCE_CLOSE_EXIT_GRACE_MS;
+var init_surface_spawn = __esm({
+  "src/runtime/surface/surface-spawn.ts"() {
+    "use strict";
+    init_internal_error();
+    init_crew_agent_records();
+    init_pi_args();
+    init_pi_spawn();
+    init_proc_stat();
+    init_launch_script();
+    init_resolve_surface();
+    FORCE_CLOSE_EXIT_GRACE_MS = 2e3;
+  }
+});
+
+// src/runtime/compaction/compact-stages/tail-capture-stage.ts
+var TailCaptureStage, TAIL_CAPTURE_STREAM_STAGE;
+var init_tail_capture_stage = __esm({
+  "src/runtime/compaction/compact-stages/tail-capture-stage.ts"() {
+    "use strict";
+    TailCaptureStage = class {
+      id;
+      maxChars;
+      maxBytes;
+      marker;
+      constructor(config) {
+        const hasChars = typeof config.maxChars === "number";
+        const hasBytes = typeof config.maxBytes === "number";
+        if (hasChars === hasBytes) {
+          throw new Error(
+            `TailCaptureStage requires exactly one of maxChars or maxBytes (got chars=${config.maxChars} bytes=${config.maxBytes})`
+          );
+        }
+        if (hasChars && config.maxChars <= 0) throw new Error(`TailCaptureStage: maxChars must be > 0, got ${config.maxChars}`);
+        if (hasBytes && config.maxBytes <= 0) throw new Error(`TailCaptureStage: maxBytes must be > 0, got ${config.maxBytes}`);
+        this.maxChars = config.maxChars;
+        this.maxBytes = config.maxBytes;
+        this.marker = config.marker ?? "";
+        this.id = config.id ?? (hasBytes ? "tail-capture" : "tail-capture");
+      }
+      apply(text) {
+        if (this.maxBytes !== void 0) {
+          if (Buffer.byteLength(text, "utf-8") <= this.maxBytes) return text;
+          let tail2 = text.slice(Math.max(0, text.length - this.maxBytes));
+          while (Buffer.byteLength(tail2, "utf-8") > this.maxBytes) tail2 = tail2.slice(0, -1);
+          return this.marker ? `${this.marker}
+${tail2}` : tail2;
+        }
+        const max = this.maxChars;
+        if (text.length <= max) return text;
+        const tail = text.slice(text.length - max);
+        return this.marker ? `${this.marker}
+${tail}` : tail;
+      }
+    };
+    TAIL_CAPTURE_STREAM_STAGE = new TailCaptureStage({
+      maxChars: 16384,
+      id: "tail-capture-stream"
+    });
+  }
+});
+
+// src/runtime/child-pi/child-pi-kill.ts
+import { spawn } from "node:child_process";
+function registerActiveChild(pid, child) {
+  activeChildProcesses.set(pid, child);
+}
+function unregisterActiveChild(pid) {
+  activeChildProcesses.delete(pid);
+}
+function clearHardKillTimer(pid) {
+  if (pid === void 0) return;
+  const timer = childHardKillTimers.get(pid);
+  if (timer) {
+    clearTimeout(timer);
+    childHardKillTimers.delete(pid);
+  }
+}
+function spawnTaskkillSafe(pid) {
+  try {
+    const taskkillChild = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      stdio: "ignore",
+      detached: false
+    });
+    taskkillChild.on("error", (err2) => {
+      logInternalError("child-pi.taskkill-spawn-error", err2 instanceof Error ? err2 : new Error(String(err2)), `pid=${pid}`);
+    });
+    taskkillChild.unref();
+  } catch (error) {
+    logInternalError("child-pi.taskkill-sync-error", error instanceof Error ? error : new Error(String(error)), `pid=${pid}`);
+  }
+}
+function killProcessPid(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  try {
+    if (process.platform === "win32") {
+      spawnTaskkillSafe(pid);
+      const verifyTimer = setTimeout(() => {
+        try {
+          process.kill(pid, 0);
+          logInternalError(
+            "child-pi.taskkill-stuck",
+            new Error(`process ${pid} still alive 2s after taskkill /T /F; retrying`),
+            `pid=${pid}`,
+            "error"
+          );
+          try {
+            spawnTaskkillSafe(pid);
+          } catch {
+          }
+        } catch {
+        }
+      }, 2e3);
+      verifyTimer.unref();
+      return;
+    }
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch (error) {
+      logInternalError("child-pi.sigterm", error, `pid=${pid}`);
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch (fallbackError) {
+        logInternalError("child-pi.sigterm-absolute", fallbackError, `pid=${pid}`);
+      }
+    }
+    clearHardKillTimer(pid);
+    const hardKillTimer = setTimeout(() => {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch (error) {
+        logInternalError("child-pi.sigkill", error, `pid=${pid}`);
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch (fallbackError) {
+          logInternalError("child-pi.sigkill-absolute", fallbackError, `pid=${pid}`);
+        }
+      }
+      childHardKillTimers.delete(pid);
+    }, HARD_KILL_MS);
+    hardKillTimer.unref();
+    childHardKillTimers.set(pid, hardKillTimer);
+  } catch (error) {
+    logInternalError("child-pi.kill-process-pid", error, `pid=${pid}`);
+  }
+}
+function killProcessTree(pid, child) {
+  try {
+    const callerStack = new Error("killProcessTree caller").stack ?? "(no stack)";
+    logInternalError(
+      "child-pi.kill-process-tree-invoked",
+      new Error(`pid=${pid} called from:
+${callerStack.split("\n").slice(0, 8).join("\n")}`),
+      `pid=${pid}`
+    );
+  } catch {
+  }
+  if (!pid || !Number.isInteger(pid) || pid <= 0) return;
+  if (child && child.exitCode !== null) return;
+  killProcessPid(pid);
+  child?.once("exit", () => clearHardKillTimer(pid));
+}
+function terminateActiveChildPiProcesses() {
+  const entries = [...activeChildProcesses.entries()];
+  for (const [pid, child] of entries) killProcessTree(pid, child);
+  return entries.length;
+}
+var MAX_CAPTURE_BYTES, activeChildProcesses, childHardKillTimers;
+var init_child_pi_kill = __esm({
+  "src/runtime/child-pi/child-pi-kill.ts"() {
+    "use strict";
+    init_defaults();
+    init_internal_error();
+    init_tail_capture_stage();
+    init_child_pi_constants();
+    MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
+    activeChildProcesses = /* @__PURE__ */ new Map();
+    childHardKillTimers = /* @__PURE__ */ new Map();
+    setInterval(() => {
+      for (const [pid, child] of activeChildProcesses) {
+        try {
+          process.kill(pid, 0);
+        } catch {
+          activeChildProcesses.delete(pid);
+        }
+      }
+    }, 6e4).unref();
+  }
+});
+
+// src/utils/env-allowlist.ts
+var WINDOWS_ESSENTIAL_ENV_VARS;
+var init_env_allowlist = __esm({
+  "src/utils/env-allowlist.ts"() {
+    "use strict";
+    WINDOWS_ESSENTIAL_ENV_VARS = [
+      "APPDATA",
+      "LOCALAPPDATA",
+      "USERPROFILE",
+      "SystemRoot",
+      "ComSpec",
+      "TEMP",
+      "TMP"
+    ];
+  }
+});
+
+// src/utils/env-filter.ts
+function isKnownProviderKey(key) {
+  return KNOWN_PROVIDER_KEYS.has(key);
+}
+function providerEnvKeys(modelId) {
+  if (!modelId) return [];
+  const separatorIndex = modelId.indexOf("/");
+  if (separatorIndex <= 0) return [];
+  const provider = modelId.substring(0, separatorIndex).toLowerCase();
+  return PROVIDER_ENV_KEY_MAP[provider] ?? [];
+}
+function buildScopedAllowList(baseAllowList, models) {
+  const providerKeys = /* @__PURE__ */ new Set();
+  for (const model of models) {
+    for (const key of providerEnvKeys(model)) {
+      providerKeys.add(key);
+    }
+  }
+  return [...baseAllowList, ...providerKeys];
+}
+function isDangerousGlob(pattern) {
+  if (!pattern.endsWith("*")) return false;
+  const prefix = pattern.slice(0, -1);
+  if (prefix === "") return true;
+  if (prefix.startsWith("PI_CREW_") || prefix === "PI_CREW") return false;
+  for (const suffix of SECRET_SUFFIXES) {
+    if (isSecretKey(prefix + suffix)) {
+      return true;
+    }
+  }
+  return false;
+}
+function sanitizeEnvSecrets(env, options) {
+  const filtered = {};
+  if (options?.allowList && options.allowList.length > 0) {
+    for (const pattern of options.allowList) {
+      if (isDangerousGlob(pattern)) {
+        throw new Error(`Allowlist pattern "${pattern}" could match secret env vars. Use a more specific pattern.`);
+      }
+      if (!pattern.endsWith("*") && isSecretKey(pattern) && !(pattern in env) && !isKnownProviderKey(pattern)) {
+        throw new Error(`Allowlist entry "${pattern}" looks like a secret key. Use a more specific pattern.`);
+      }
+    }
+    const exact = /* @__PURE__ */ new Set();
+    const globPrefixes = [];
+    for (const p of options.allowList) {
+      if (p.endsWith("*")) {
+        globPrefixes.push(p.slice(0, -1));
+      } else {
+        exact.add(p);
+      }
+    }
+    for (const [key, value] of Object.entries(env)) {
+      if (value === void 0) continue;
+      if (exact.has(key)) {
+        filtered[key] = value;
+        continue;
+      }
+      if (globPrefixes.some((prefix) => key.startsWith(prefix) && key.length > prefix.length) && !isSecretKey(key)) {
+        filtered[key] = value;
+      }
+    }
+    return filtered;
+  }
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== void 0 && !isSecretKey(key)) filtered[key] = value;
+  }
+  return filtered;
+}
+var KNOWN_PROVIDER_KEYS, PROVIDER_ENV_KEY_MAP, SECRET_SUFFIXES;
+var init_env_filter = __esm({
+  "src/utils/env-filter.ts"() {
+    "use strict";
+    init_redaction();
+    KNOWN_PROVIDER_KEYS = /* @__PURE__ */ new Set([
+      "MINIMAX_API_KEY",
+      "MINIMAX_GROUP_ID",
+      "OPENAI_API_KEY",
+      "OPENAI_ORG_ID",
+      "ANTHROPIC_API_KEY",
+      "GOOGLE_API_KEY",
+      "GOOGLE_GENERATIVE_LANGUAGE_API_KEY",
+      "AZURE_OPENAI_API_KEY",
+      "AZURE_OPENAI_ENDPOINT",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "AWS_REGION",
+      "ZEU_API_KEY",
+      "ZERODEV_API_KEY"
+    ]);
+    PROVIDER_ENV_KEY_MAP = {
+      minimax: ["MINIMAX_API_KEY", "MINIMAX_GROUP_ID"],
+      openai: ["OPENAI_API_KEY", "OPENAI_ORG_ID"],
+      anthropic: ["ANTHROPIC_API_KEY"],
+      google: ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_LANGUAGE_API_KEY"],
+      gemini: ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_LANGUAGE_API_KEY"],
+      azure: ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
+      "azure-openai": ["AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"],
+      aws: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+      bedrock: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+      zai: ["ZEU_API_KEY"],
+      zerodev: ["ZERODEV_API_KEY"]
+    };
+    SECRET_SUFFIXES = ["token", "api", "key", "password", "passwd", "secret", "credential", "authorization", "private"];
+  }
+});
+
+// src/runtime/scratchpad/snapshot-lookup.ts
+import { lstatSync as lstatSync11, readdirSync as readdirSync17 } from "node:fs";
+import { join as join44 } from "node:path";
+function findLatestScratchpadSnapshot(artifactsRoot, agentId) {
+  const scratchpadDir = join44(artifactsRoot, "scratchpad");
+  let dirStat;
+  try {
+    dirStat = lstatSync11(scratchpadDir);
+  } catch {
+    return null;
+  }
+  if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) return null;
+  let entries;
+  try {
+    entries = readdirSync17(scratchpadDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const prefix = `${agentId}.attempt-`;
+  let best = null;
+  for (const dirent of entries) {
+    if (dirent.isSymbolicLink() || !dirent.isFile()) continue;
+    const name = dirent.name;
+    if (!name.startsWith(prefix) || !name.endsWith(SNAPSHOT_SUFFIX)) continue;
+    const attemptPart = name.slice(prefix.length, name.length - SNAPSHOT_SUFFIX.length);
+    if (!/^\d+$/.test(attemptPart)) continue;
+    const attempt = Number.parseInt(attemptPart, 10);
+    let stat2;
+    try {
+      stat2 = lstatSync11(join44(scratchpadDir, name));
+    } catch {
+      continue;
+    }
+    if (!stat2.isFile()) continue;
+    const hit = { path: join44(scratchpadDir, name), attempt, mtimeMs: stat2.mtimeMs };
+    if (best === null || hit.mtimeMs > best.mtimeMs || hit.mtimeMs === best.mtimeMs && hit.attempt < best.attempt) {
+      best = hit;
+    }
+  }
+  return best;
+}
+var SNAPSHOT_SUFFIX;
+var init_snapshot_lookup = __esm({
+  "src/runtime/scratchpad/snapshot-lookup.ts"() {
+    "use strict";
+    SNAPSHOT_SUFFIX = ".snapshot.json";
+  }
+});
+
+// src/runtime/child-pi/child-pi-spawn.ts
+import * as fs58 from "node:fs";
+import * as path44 from "node:path";
+function buildChildPiSpawnOptions(cwd, env, model) {
+  let validatedCwd;
+  try {
+    validatedCwd = fs58.realpathSync(cwd);
+    const stats = fs58.statSync(validatedCwd);
+    if (!stats.isDirectory()) {
+      throw new Error(`cwd is not a directory: ${cwd}`);
+    }
+  } catch (error) {
+    if (error.code === "ENOENT" && error instanceof Error && error.message.includes("ENOENT")) {
+      validatedCwd = path44.resolve(cwd);
+    } else {
+      throw new Error(`Invalid cwd: ${cwd} \u2014 ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const allowList = model ? buildScopedAllowList(BASE_ALLOWLIST, [model]) : BASE_ALLOWLIST;
+  const filteredEnv = sanitizeEnvSecrets(env, { allowList });
+  if (filteredEnv.NODE_PATH) {
+    const validPrefixes = ["/opt/", "/lib/", "/usr/local/", "/usr/", "/home/"];
+    const validPaths = filteredEnv.NODE_PATH.split(":").filter((p) => {
+      return validPrefixes.some((prefix) => p.startsWith(prefix));
+    });
+    if (validPaths.length > 0) {
+      filteredEnv.NODE_PATH = validPaths.join(":");
+    } else {
+      delete filteredEnv.NODE_PATH;
+    }
+  }
+  return {
+    cwd: validatedCwd,
+    env: {
+      ...filteredEnv,
+      // PI_CREW_PARENT_PID is set so child workers can run a parent-guard
+      // (parent-guard.ts). Consumers (NOT dead):
+      //   1. zombie-scanner.ts:185 — reads PI_CREW_PARENT_PID from
+      //      /proc/<pid>/environ (readProcEnviron) to detect orphaned/zombie
+      //      workers whose leader died.
+      //   2. background-runner.ts:615 — startParentGuard(parentPid)
+      //      self-terminates the orchestrator when its own parent dies.
+      //   3. scratchpad-lifecycle.ts:50,166 — propagates the leader pid into
+      //      scratchpad guest env for guest-zombie detection.
+      // The var is unused ONLY by the external `pi` binary
+      // (@earendil-works/pi-coding-agent): it does NOT read PI_CREW_PARENT_PID
+      // or call startParentGuard (grep of Pi dist = 0 matches), so child-pi
+      // workers cannot self-terminate on leader death — they rely on the
+      // reactive zombie scanner (see docs/decisions/2026-08-14-parent-guard-reactive-scanner.md).
+      // The deeper fix (wiring startParentGuard into the pi worker entry point)
+      // is DEFERRED because workers are an external binary pi-crew doesn't control.
+      //
+      // Orphan-mitigation for this gap relies on:
+      //   1. The RT-2 SIGINT fix in background-runner.ts (abort + exitCode pattern
+      //      lets the finally/runCleanup block terminate child-pi processes).
+      //   2. The reactive zombie-scanner.ts sweep (finds workers whose
+      //      PI_CREW_PARENT_PID points at a dead PID).
+      PI_CREW_PARENT_PID: String(process.pid)
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+    // stdin=ignore: child doesn't wait for input; task comes via CLI args
+    detached: process.platform !== "win32",
+    setsid: true,
+    // NOTE: setsid creates a new session; the child process becomes the session leader
+    // and its parent becomes that session leader (still the team-runner in the same
+    // process group). PI_CREW_PARENT_PID is set before spawn using process.pid (team-runner),
+    // but see the comment above — the pi worker binary does NOT actually consume it. The
+    // parent-guard model would check direct parent liveness via process.kill(pid, 0),
+    // but this is only implemented in background-runner.ts, not in the worker binary.
+    windowsHide: true
+  };
+}
+function assertOnlyControlEnvKeys(builtEnv) {
+  for (const key of Object.keys(builtEnv)) {
+    if (!key.startsWith("PI_CREW_") && !key.startsWith("PI_TEAMS_")) {
+      throw new Error(
+        `SECURITY: built.env contains unexpected key "${key}"; expected only PI_CREW_* or PI_TEAMS_* execution-control vars`
+      );
+    }
+  }
+}
+function buildFinalChildPiSpawnOptions(cwd, mergedEnv, builtEnv, model) {
+  assertOnlyControlEnvKeys(builtEnv);
+  const spawnOptions = buildChildPiSpawnOptions(cwd, mergedEnv, model);
+  spawnOptions.env = { ...spawnOptions.env, ...builtEnv };
+  return spawnOptions;
+}
+function prepareSpawnContext(input, effectiveTask, depthEnv) {
+  const built = buildPiWorkerArgs({
+    task: effectiveTask,
+    agent: input.agent,
+    model: input.model,
+    sessionEnabled: true,
+    maxDepth: input.maxDepth,
+    skillPaths: input.skillPaths,
+    role: input.role,
+    thinkingOverride: input.thinkingOverride,
+    // ADR-5 §3: depthOverride is pre-encoded into depthEnv by runChildPi
+    // (parent's record depth as base-env PI_CREW_DEPTH); forward it so the
+    // child env gets parentDepth+1 = the true grandchild depth.
+    env: depthEnv
+  });
+  if (input.steeringFile) built.env.PI_CREW_STEERING_FILE = input.steeringFile;
+  if (input.runId) built.env.PI_CREW_BROKER_RUN_ID = input.runId;
+  if (input.agentId) built.env.PI_CREW_BROKER_TASK_ID = input.agentId;
+  built.env.PI_CREW_ASK_ENABLED = "1";
+  built.env.PI_CREW_MSG_ENABLED = "1";
+  built.env.PI_CREW_DELEGATE_ENABLED = "1";
+  if (input.eventsPath) built.env.PI_CREW_STATE_ROOT = path44.dirname(input.eventsPath);
+  if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
+    built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
+    built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+  }
+  if (input.eventsPath) {
+    built.env.PI_CREW_EVENTS_PATH = input.eventsPath;
+    if (input.agentId && !built.env.PI_CREW_TASK_ID) built.env.PI_CREW_TASK_ID = input.agentId;
+  }
+  if (input.agentId && isScratchpadEnabledForRole(input.role ?? input.agent.name, input.agent)) {
+    built.env.PI_CREW_SCRATCHPAD = "1";
+    built.env.PI_CREW_TASK_ID = input.agentId;
+    built.env.PI_CREW_ATTEMPT = String(input.attempt ?? 0);
+    if (input.artifactsRoot) {
+      built.env.PI_CREW_ARTIFACTS_ROOT = input.artifactsRoot;
+    }
+    const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
+    built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
+    const restoreHit = input.artifactsRoot ? findLatestScratchpadSnapshot(input.artifactsRoot, input.agentId) : null;
+    if (restoreHit) {
+      built.env.PI_CREW_SCRATCHPAD_RESTORE = restoreHit.path;
+      built.env.PI_CREW_SCRATCHPAD_RESTORE_MTIME = String(restoreHit.mtimeMs);
+    }
+  }
+  if (input.signal?.aborted) {
+    return {
+      kind: "aborted",
+      result: {
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        error: "Aborted before spawn (parent AbortSignal already aborted)",
+        aborted: true
+      }
+    };
+  }
+  const spawnSpec = getPiSpawnCommand(built.args);
+  return {
+    kind: "ready",
+    ctx: {
+      spawnSpec,
+      builtArgs: built.args,
+      mergedEnv: { ...process.env, ...built.env },
+      tempDir: built.tempDir,
+      builtEnv: built.env
+    }
+  };
+}
+var BASE_ALLOWLIST;
+var init_child_pi_spawn = __esm({
+  "src/runtime/child-pi/child-pi-spawn.ts"() {
+    "use strict";
+    init_role_tools();
+    init_env_allowlist();
+    init_env_filter();
+    init_internal_error();
+    init_safe_paths();
+    init_pi_args();
+    init_pi_spawn();
+    init_snapshot_lookup();
+    BASE_ALLOWLIST = [
+      "PATH",
+      "HOME",
+      "USER",
+      "SHELL",
+      "TERM",
+      "LANG",
+      "LC_ALL",
+      "LC_COLLATE",
+      "LC_CTYPE",
+      "LC_MESSAGES",
+      "LC_MONETARY",
+      "LC_NUMERIC",
+      "LC_TIME",
+      "XDG_CONFIG_HOME",
+      "XDG_DATA_HOME",
+      "XDG_CACHE_HOME",
+      "XDG_RUNTIME_DIR",
+      // Windows essentials — see WINDOWS_ESSENTIAL_ENV_VARS (src/utils/env-allowlist.ts).
+      ...WINDOWS_ESSENTIAL_ENV_VARS,
+      "NVM_BIN",
+      "NVM_DIR",
+      "NVM_INC",
+      "NODE_DISABLE_COLORS",
+      "NODE_EXTRA_CA_CERTS",
+      "NPM_CONFIG_REGISTRY",
+      "NPM_CONFIG_USERCONFIG",
+      "NPM_CONFIG_GLOBALCONFIG",
+      "PI_CREW_DEPTH"
+    ];
+  }
+});
+
+// src/runtime/child-pi/child-pi-steering.ts
+import * as fs59 from "node:fs";
+var ChildPiSteeringController;
+var init_child_pi_steering = __esm({
+  "src/runtime/child-pi/child-pi-steering.ts"() {
+    "use strict";
+    init_internal_error();
+    init_child_pi_kill();
+    ChildPiSteeringController = class {
+      turnCount = 0;
+      softLimitReached = false;
+      hardAbortInitiatedFlag = false;
+      maxTurns;
+      graceTurns;
+      constructor(maxTurns, graceTurns) {
+        this.maxTurns = maxTurns;
+        this.graceTurns = graceTurns !== void 0 && graceTurns > 1e3 ? 1e3 : graceTurns;
+      }
+      /** Called on each `turn_end` event. Returns the action to take (if any). */
+      onTurnEnd(pid, child, steeringFile) {
+        this.turnCount += 1;
+        if (this.maxTurns !== void 0 && !this.softLimitReached && this.turnCount >= this.maxTurns) {
+          this.softLimitReached = true;
+          if (steeringFile) {
+            try {
+              fs59.appendFileSync(
+                steeringFile,
+                JSON.stringify({
+                  type: "steer",
+                  message: "You have reached your turn limit. Wrap up immediately \u2014 provide your final answer now."
+                }) + "\n",
+                "utf-8"
+              );
+            } catch (err2) {
+              logInternalError("child-pi.steer-write-failed", err2 instanceof Error ? err2 : new Error(String(err2)), `pid=${pid}`);
+            }
+          }
+          return { kind: "steer" };
+        }
+        if (this.maxTurns !== void 0 && this.softLimitReached && this.turnCount >= this.maxTurns + (this.graceTurns ?? 5)) {
+          this.hardAbortInitiatedFlag = true;
+          if (pid !== void 0 && child) {
+            killProcessTree(pid, child);
+            return { kind: "hardAbort", pid, child };
+          }
+          return { kind: "none" };
+        }
+        return { kind: "none" };
+      }
+      /**
+       * Returns true once the hard-abort has been initiated. Callers (onJsonEvent,
+       * onStdoutLine, stdout/stderr data handlers) should skip restartNoResponseTimer
+       * when this returns true to avoid masking a SIGTERM-ignoring child.
+       */
+      isHardAbortInitiated() {
+        return this.hardAbortInitiatedFlag;
+      }
+      /**
+       * Returns true once the soft-limit steer has been delivered (the worker has
+       * been notified to wrap up). Used by runChildPi's settle path to distinguish
+       * a graceful-abort from a parent-abort.
+       */
+      isSoftLimitReached() {
+        return this.softLimitReached;
+      }
+      /** Current turn count (incremented on each `turn_end` event). */
+      getTurnCount() {
+        return this.turnCount;
+      }
+      /** Max turns configured (undefined = no limit). */
+      getMaxTurns() {
+        return this.maxTurns;
+      }
+      /** Grace turns configured (after soft limit before hard abort). */
+      getGraceTurns() {
+        return this.graceTurns;
+      }
+    };
+  }
+});
+
+// src/runtime/child-pi/child-pi-timers.ts
+function createChildPiTimers(deps) {
+  let finalDrainTimer;
+  let hardKillTimer;
+  let noResponseTimer;
+  let safetyTimer;
+  let cancelHardKillTimer;
+  let pollHandle;
+  const restartNoResponseTimer = () => {
+    if (deps.responseTimeoutMs <= 0) return;
+    if (noResponseTimer) clearTimeout(noResponseTimer);
+    noResponseTimer = setTimeout(() => {
+      deps.state.setResponseTimeoutHit(true);
+      const stderr = deps.stderrTail.value();
+      const timeoutStderr = deps.redactStderrExcerpt(stderr, 1024);
+      deps.input.onLifecycleEvent?.({
+        type: "response_timeout",
+        pid: deps.child.pid,
+        error: `No output for ${deps.responseTimeoutMs}ms`,
+        ts: (/* @__PURE__ */ new Date()).toISOString(),
+        stderr: timeoutStderr || void 0
+      });
+      killProcessTree(deps.child.pid, deps.child);
+      try {
+        deps.child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
+      } catch (error) {
+        logInternalError("child-pi.response-timeout-term", error, `pid=${deps.child.pid}`);
+      }
+      const SAFETY_SETTLE_MS = HARD_KILL_MS + 2e3;
+      safetyTimer = setTimeout(() => {
+        if (deps.state.getSettled() || deps.state.getChildExited()) return;
+        logInternalError(
+          "child-pi.settle-safety-fired",
+          new Error(`Child did not exit within ${SAFETY_SETTLE_MS}ms of kill; forcing settle`),
+          `pid=${deps.child.pid}, responseTimeoutMs=${deps.responseTimeoutMs}`
+        );
+        try {
+          process.kill(deps.child.pid, 0);
+          const timeoutErr = `Child Pi produced no new output for ${deps.responseTimeoutMs}ms; killed but did not exit within ${SAFETY_SETTLE_MS}ms (possible zombie).`;
+          void deps.getSettle()({
+            exitCode: null,
+            stdout: deps.stdoutTail.value(),
+            stderr: deps.stderrTail.value(),
+            error: timeoutErr,
+            exitStatus: {
+              exitCode: null,
+              cancelled: deps.state.getAbortRequested(),
+              timedOut: true,
+              killed: deps.state.getHardKilled(),
+              cleanupErrors: deps.cleanupErrors,
+              finalDrainMs: deps.finalDrainMs,
+              crashClass: "timeout"
+            }
+          });
+        } catch {
+        }
+      }, SAFETY_SETTLE_MS);
+      safetyTimer.unref();
+    }, deps.responseTimeoutMs);
+    noResponseTimer.unref();
+  };
+  const clearNoResponseTimer = () => {
+    if (noResponseTimer) clearTimeout(noResponseTimer);
+    noResponseTimer = void 0;
+  };
+  const clearFinalDrainTimers = () => {
+    if (finalDrainTimer) clearTimeout(finalDrainTimer);
+    if (hardKillTimer) clearTimeout(hardKillTimer);
+    finalDrainTimer = void 0;
+    hardKillTimer = void 0;
+  };
+  return {
+    restartNoResponseTimer,
+    clearNoResponseTimer,
+    clearFinalDrainTimers,
+    armFinalDrain() {
+      const quietMs = deps.input.finalDrainQuietMs ?? DEFAULT_CHILD_PI.finalDrainQuietMs;
+      if (quietMs < (deps.input.finalDrainMs ?? DEFAULT_CHILD_PI.finalDrainMs)) {
+        pollHandle = setInterval(() => {
+          if (deps.state.getSettled() || deps.state.getChildExited()) {
+            if (pollHandle) {
+              clearInterval(pollHandle);
+              pollHandle.unref();
+            }
+            pollHandle = void 0;
+            return;
+          }
+          const sinceLast = performance.now() - deps.state.getLastStdoutActivityMonotonicMs();
+          if (sinceLast >= quietMs) {
+            if (pollHandle) {
+              clearInterval(pollHandle);
+              pollHandle.unref();
+            }
+            pollHandle = void 0;
+            deps.state.setForcedFinalDrain(true);
+            deps.state.setFinalDrainFiredMonotonicMs(performance.now());
+            deps.input.onLifecycleEvent?.({
+              type: "final_drain",
+              pid: deps.child.pid,
+              ts: (/* @__PURE__ */ new Date()).toISOString(),
+              reason: "stdout-quiet"
+            });
+            try {
+              deps.child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
+            } catch (error) {
+              logInternalError("child-pi.quiet-drain-term", error, `pid=${deps.child.pid}`);
+            }
+            hardKillTimer = setTimeout(() => {
+              if (deps.state.getSettled() || deps.state.getChildExited()) return;
+              try {
+                deps.state.setHardKilled(true);
+                deps.input.onLifecycleEvent?.({
+                  type: "hard_kill",
+                  pid: deps.child.pid,
+                  ts: (/* @__PURE__ */ new Date()).toISOString()
+                });
+                deps.child.kill(process.platform === "win32" ? void 0 : "SIGKILL");
+              } catch (error) {
+                logInternalError("child-pi.quiet-drain-hard-kill", error, `pid=${deps.child.pid}`);
+              }
+            }, deps.hardKillMs);
+            hardKillTimer.unref();
+            if (finalDrainTimer) {
+              clearTimeout(finalDrainTimer);
+              finalDrainTimer = void 0;
+            }
+          }
+        }, 200);
+        pollHandle.unref();
+      }
+      finalDrainTimer = setTimeout(() => {
+        if (deps.state.getSettled() || deps.state.getChildExited()) return;
+        deps.state.setForcedFinalDrain(true);
+        deps.state.setFinalDrainFiredMonotonicMs(performance.now());
+        deps.input.onLifecycleEvent?.({
+          type: "final_drain",
+          pid: deps.child.pid,
+          ts: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        try {
+          deps.child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
+        } catch (error) {
+          logInternalError("child-pi.final-drain-term", error, `pid=${deps.child.pid}`);
+        }
+        hardKillTimer = setTimeout(() => {
+          if (deps.state.getSettled() || deps.state.getChildExited()) return;
+          try {
+            deps.state.setHardKilled(true);
+            deps.input.onLifecycleEvent?.({
+              type: "hard_kill",
+              pid: deps.child.pid,
+              ts: (/* @__PURE__ */ new Date()).toISOString()
+            });
+            deps.child.kill(process.platform === "win32" ? void 0 : "SIGKILL");
+          } catch (error) {
+            logInternalError("child-pi.final-drain-kill", error, `pid=${deps.child.pid}`);
+          }
+        }, deps.hardKillMs);
+        hardKillTimer.unref();
+      }, deps.finalDrainMs);
+      finalDrainTimer.unref();
+    },
+    hasFinalDrainTimer() {
+      return finalDrainTimer !== void 0;
+    },
+    armCancelHardKill() {
+      cancelHardKillTimer = setTimeout(() => {
+        if (deps.state.getSettled() || deps.state.getChildExited()) return;
+        try {
+          deps.state.setHardKilled(true);
+          deps.child.kill(process.platform === "win32" ? void 0 : "SIGKILL");
+        } catch (error) {
+          logInternalError("child-pi.cancel-fast-kill", error, `pid=${deps.child.pid}`);
+        }
+      }, 200);
+      cancelHardKillTimer.unref();
+    },
+    clearAll() {
+      clearNoResponseTimer();
+      if (safetyTimer) clearTimeout(safetyTimer);
+      safetyTimer = void 0;
+      clearFinalDrainTimers();
+      if (cancelHardKillTimer) clearTimeout(cancelHardKillTimer);
+      cancelHardKillTimer = void 0;
+      if (pollHandle) {
+        clearInterval(pollHandle);
+        pollHandle.unref();
+      }
+      pollHandle = void 0;
+    }
+  };
+}
+var init_child_pi_timers = __esm({
+  "src/runtime/child-pi/child-pi-timers.ts"() {
+    "use strict";
+    init_defaults();
+    init_internal_error();
+    init_child_pi_constants();
+    init_child_pi_kill();
+  }
+});
+
+// src/runtime/child-pi/mock-fixtures.ts
+import * as fs60 from "node:fs";
+import * as os13 from "node:os";
+import * as path45 from "node:path";
+async function runMockChildPi(input, effectiveTask, observe) {
+  const mock = getCrewEnv("PI_TEAMS_MOCK_CHILD_PI");
+  if (!mock) return void 0;
+  const allowMock = getCrewEnv("PI_CREW_ALLOW_MOCK") === "1" || getCrewEnv("PI_CREW_ALLOW_MOCK") === "true";
+  if (!allowMock) {
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "Mock mode requires PI_CREW_ALLOW_MOCK=1"
+    };
+  }
+  logInternalError("child-pi.mock", new Error(`Mock mode active: ${mock}`), "NOT running real agents");
+  if (mock === "success") {
+    const stdout = `[MOCK] Success for ${input.agent.name}
+`;
+    await observe(input, stdout);
+    return { exitCode: 0, stdout, stderr: "" };
+  }
+  if (mock === "json-slow-success") {
+    const windowMs = Number(getCrewEnv("PI_TEAMS_MOCK_STEER_WINDOW_MS") ?? "1500");
+    await new Promise((resolve26) => setTimeout(resolve26, Math.min(windowMs, 5e3)));
+    const text = `[MOCK] JSON success for ${input.agent.name}`;
+    const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
+${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
+`;
+    await observe(input, stdout);
+    return { exitCode: 0, stdout, stderr: "" };
+  }
+  if (mock === "json-success" || mock === "adaptive-plan") {
+    const text = mock === "adaptive-plan" && effectiveTask.includes("ADAPTIVE_PLAN_JSON_START") ? `[MOCK] Adaptive plan
+ADAPTIVE_PLAN_JSON_START
+${JSON.stringify({
+      phases: [
+        {
+          name: "research",
+          tasks: [
+            {
+              role: "explorer",
+              task: "Explore adaptive target"
+            },
+            {
+              role: "analyst",
+              task: "Analyze adaptive target"
+            },
+            {
+              role: "planner",
+              task: "Plan adaptive target"
+            }
+          ]
+        },
+        {
+          name: "build",
+          tasks: [
+            {
+              role: "executor",
+              task: "Implement adaptive target"
+            }
+          ]
+        },
+        {
+          name: "check",
+          tasks: [
+            {
+              role: "reviewer",
+              task: "Review adaptive target"
+            },
+            {
+              role: "test-engineer",
+              task: "Test adaptive target"
+            },
+            {
+              role: "writer",
+              task: "Summarize adaptive target"
+            }
+          ]
+        }
+      ]
+    })}
+ADAPTIVE_PLAN_JSON_END` : `[MOCK] JSON success for ${input.agent.name}`;
+    const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
+${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
+`;
+    await observe(input, stdout);
+    return { exitCode: 0, stdout, stderr: "" };
+  }
+  if (mock === "retryable-failure")
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: "[MOCK] rate limit: mock failure"
+    };
+  if (mock === "retryable-failure-then-success") {
+    const counterFile = path45.join(os13.tmpdir(), `pi-crew-mock-counter-${process.pid}-retryable-failure-then-success`);
+    let count2 = 0;
+    try {
+      const raw = fs60.readFileSync(counterFile, "utf-8");
+      const parsed = Number.parseInt(raw.trim(), 10);
+      if (Number.isFinite(parsed) && parsed >= 0) count2 = parsed;
+    } catch {
+    }
+    count2 += 1;
+    try {
+      atomicWriteFile(counterFile, String(count2));
+    } catch (error) {
+      logInternalError("child-pi.mock-counter-write", error, `file=${counterFile}`);
+    }
+    if (count2 === 1) {
+      const failureEvent = {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [],
+          errorMessage: "Provider error: api_error",
+          stopReason: "error"
+        }
+      };
+      const stdout2 = `${JSON.stringify(failureEvent)}
+`;
+      await observe(input, stdout2);
+      return { exitCode: 0, stdout: stdout2, stderr: "" };
+    }
+    const text = `[MOCK] JSON success for ${input.agent.name}`;
+    const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
+${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
+`;
+    await observe(input, stdout);
+    return { exitCode: 0, stdout, stderr: "" };
+  }
+  return { exitCode: 1, stdout: "", stderr: `[MOCK] failure: ${mock}` };
+}
+var init_mock_fixtures = __esm({
+  "src/runtime/child-pi/mock-fixtures.ts"() {
+    "use strict";
+    init_env_vars();
+    init_atomic_write();
+    init_internal_error();
+  }
+});
+
+// src/runtime/process/post-exit-stdio-guard.ts
+function trySignalChild(child, signal) {
+  try {
+    return child.kill(signal);
+  } catch {
+    return false;
+  }
+}
+function attachPostExitStdioGuard(child, options) {
+  const { idleMs, hardMs } = options;
+  let exited = false;
+  let stdoutEnded = false;
+  let stderrEnded = false;
+  let idleTimer;
+  let hardTimer;
+  const destroyUnendedStdio = () => {
+    if (!stdoutEnded) {
+      try {
+        child.stdout?.destroy();
+      } catch (error) {
+        logInternalError("post-exit-stdio-guard.stdout-destroy", error, void 0, "debug");
+      }
+    }
+    if (!stderrEnded) {
+      try {
+        child.stderr?.destroy();
+      } catch (error) {
+        logInternalError("post-exit-stdio-guard.stderr-destroy", error, void 0, "debug");
+      }
+    }
+  };
+  const clearTimers = () => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = void 0;
+    }
+    if (hardTimer) {
+      clearTimeout(hardTimer);
+      hardTimer = void 0;
+    }
+  };
+  const armIdleTimer = () => {
+    if (!exited) return;
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(destroyUnendedStdio, idleMs);
+    idleTimer.unref();
+  };
+  child.stdout?.on("data", armIdleTimer);
+  child.stderr?.on("data", armIdleTimer);
+  child.stdout?.on("end", () => {
+    stdoutEnded = true;
+    if (stdoutEnded && stderrEnded) clearTimers();
+  });
+  child.stderr?.on("end", () => {
+    stderrEnded = true;
+    if (stdoutEnded && stderrEnded) clearTimers();
+  });
+  const armHardTimer = () => {
+    if (hardTimer) return;
+    hardTimer = setTimeout(destroyUnendedStdio, hardMs);
+    hardTimer.unref();
+  };
+  const onExit = () => {
+    exited = true;
+    armIdleTimer();
+    armHardTimer();
+  };
+  if (child.exitCode != null || child.signalCode != null) {
+    onExit();
+  }
+  child.on("exit", onExit);
+  child.on("close", clearTimers);
+  child.on("error", clearTimers);
+  return clearTimers;
+}
+var init_post_exit_stdio_guard = __esm({
+  "src/runtime/process/post-exit-stdio-guard.ts"() {
+    "use strict";
+    init_internal_error();
+  }
+});
+
+// src/runtime/recovery/crash-classification.ts
+function detectNativePanic(stderrSnippet) {
+  if (!stderrSnippet) return null;
+  const lower = stderrSnippet.toLowerCase();
+  for (const sig of NATIVE_PANIC_SIGNATURES) {
+    if (lower.includes(sig.pattern)) return sig.label;
+  }
+  return null;
+}
+function normalizeSignal(signal) {
+  return signal ?? null;
+}
+function classifyProcessCrash(input) {
+  const exitCode = input.exitCode ?? null;
+  const signal = normalizeSignal(input.signal);
+  if (input.timedOut) {
+    return {
+      crashClass: "timeout",
+      reason: "process timed out (response timeout guard fired)"
+    };
+  }
+  if (input.cancelled) {
+    return {
+      crashClass: "cancelled",
+      reason: "process was cancelled (abort requested)"
+    };
+  }
+  if (input.spawnError !== void 0 && input.spawnError !== null) {
+    return {
+      crashClass: "spawn_error",
+      reason: `spawn error: ${stringifyError(input.spawnError)}`
+    };
+  }
+  const abnormalExit = signal !== null || exitCode !== null && exitCode !== 0;
+  if (abnormalExit) {
+    const panic = detectNativePanic(input.stderrSnippet);
+    if (panic !== null) {
+      return {
+        crashClass: "native_panic",
+        reason: `native panic detected: ${panic}`
+      };
+    }
+  }
+  if (signal !== null) {
+    return {
+      crashClass: "signal_exit",
+      reason: `process exited after signal ${signal}`
+    };
+  }
+  if (exitCode === 0) {
+    return { crashClass: "clean_exit", reason: "process exited cleanly" };
+  }
+  if (exitCode !== null) {
+    return {
+      crashClass: "non_zero_exit",
+      reason: `process exited with code ${exitCode}`
+    };
+  }
+  if (input.killed) {
+    return {
+      crashClass: "protocol_exit",
+      reason: "process was killed but no signal/exit code was captured"
+    };
+  }
+  return {
+    crashClass: "protocol_exit",
+    reason: "process exited before protocol completion (exit code unknown)"
+  };
+}
+function stringifyError(error) {
+  if (error instanceof Error) return error.message || error.name;
+  if (typeof error === "string") return error;
+  try {
+    return String(error);
+  } catch {
+    return "(unstringifiable error)";
+  }
+}
+var NATIVE_PANIC_SIGNATURES;
+var init_crash_classification = __esm({
+  "src/runtime/recovery/crash-classification.ts"() {
+    "use strict";
+    NATIVE_PANIC_SIGNATURES = [
+      { pattern: "sigsegv", label: "segmentation fault" },
+      { pattern: "segfault", label: "segmentation fault" },
+      { pattern: "segmentation fault", label: "segmentation fault" },
+      { pattern: "sigabrt", label: "abort signal" },
+      { pattern: "abort(", label: "abort" },
+      { pattern: "fatal error", label: "V8/node fatal error" },
+      { pattern: "panic:", label: "rust/go panic" },
+      { pattern: "thread '", label: "rust panic (thread context)" },
+      { pattern: "illegal instruction", label: "illegal instruction" },
+      { pattern: "double free", label: "heap corruption (double free)" }
+    ];
+  }
+});
+
+// src/runtime/child-pi/child-pi.ts
+var child_pi_exports = {};
+__export(child_pi_exports, {
+  ChildPiLineObserver: () => ChildPiLineObserver,
+  __test__trySurfaceBranch: () => __test__trySurfaceBranch,
+  appendTranscript: () => appendTranscript2,
+  buildChildPiSpawnOptions: () => buildChildPiSpawnOptions,
+  buildFinalChildPiSpawnOptions: () => buildFinalChildPiSpawnOptions,
+  compactString: () => compactString,
+  compactValue: () => compactValue,
+  flushPendingTranscriptWrites: () => flushPendingTranscriptWrites,
+  killProcessPid: () => killProcessPid,
+  redactStderrExcerpt: () => redactStderrExcerpt,
+  resetTranscriptBatchState: () => resetTranscriptBatchState,
+  runChildPi: () => runChildPi,
+  terminateActiveChildPiProcesses: () => terminateActiveChildPiProcesses
+});
+import { spawn as spawn2 } from "node:child_process";
+import * as fs61 from "node:fs";
+import * as path46 from "node:path";
+function redactStderrExcerpt(stderr, maxChars) {
+  return redactSecretString(stderr.slice(-maxChars));
+}
+async function observeStdoutChunk(input, text) {
+  const observer = new ChildPiLineObserver(input);
+  observer.observe(text);
+  await observer.flush();
+}
+function asRecord8(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function isFinalAssistantEvent(event) {
+  const obj = asRecord8(event);
+  if (obj?.type !== "message_end") return false;
+  const message = asRecord8(obj.message);
+  const role = message?.role;
+  if (role !== void 0 && role !== "assistant") return false;
+  const stopReason = typeof message?.stopReason === "string" ? message.stopReason : typeof obj.stopReason === "string" ? obj.stopReason : void 0;
+  if (stopReason !== void 0 && stopReason !== "stop") return false;
+  const content = Array.isArray(message?.content) ? message.content : [];
+  return !content.some((part) => asRecord8(part)?.type === "toolCall");
+}
+function safeLoadSurfaceConfig(cwd) {
+  try {
+    return loadConfig(cwd).config;
+  } catch (error) {
+    logInternalError(
+      "child-pi.surface-config",
+      error instanceof Error ? error : new Error(String(error)),
+      "surface gate uses default (off)"
+    );
+    return {};
+  }
+}
+async function trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir) {
+  if (!input.agentId) return null;
+  const surfaceOpts = input.surface;
+  const preResolved = surfaceOpts?.providers?.tmux ?? surfaceOpts?.providers?.herdr;
+  const taskId = input.agentId;
+  const degradeController = getSurfaceRuntimeController(input.runId);
+  if (degradeController && !degradeController.shouldAttemptSurface()) return null;
+  const surfaceConfig = surfaceOpts?.config ?? safeLoadSurfaceConfig(input.cwd);
+  let outcome;
+  try {
+    outcome = await prepareSurfaceSpawn({
+      // Detection env must be the HOST's base env (depth 0 tier-1), NOT the
+      // child's built env whose PI_CREW_DEPTH is parentDepth+1 — layer-1
+      // guard would misfire on our own tier-1 workers.
+      env: depthEnv ?? process.env,
+      workerEnv: buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model).env,
+      config: surfaceConfig,
+      role: input.role ?? input.agent.name,
+      livePaneCount: degradeController ? degradeController.livePaneCount() : surfaceOpts?.livePaneCount ?? 0,
+      taskId,
+      cwd: input.cwd,
+      piArgs: builtArgs,
+      stateRoot: input.eventsPath ? path46.dirname(input.eventsPath) : "",
+      baseDir: surfaceOpts?.baseDir,
+      deps: preResolved ? { provider: preResolved } : {}
+    });
+  } catch (error) {
+    logInternalError("child-pi.surface-unexpected", error instanceof Error ? error : new Error(String(error)), `taskId=${taskId}`);
+    return null;
+  }
+  if (outcome.mode !== "surface") {
+    if (outcome.mode === "headless" && outcome.attempted) {
+      degradeController?.notifySpawnFailed({ taskId, reason: outcome.reason ?? "surface spawn failed" });
+      input.onLifecycleEvent?.({
+        type: "surface_spawn_failed",
+        surfaceKind: preResolved?.kind,
+        error: outcome.reason,
+        ts: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+    if (outcome.mode === "headless" && outcome.gateRejected) {
+      const visibleAgents = surfaceConfig.runtime?.surface?.visibleAgents ?? [];
+      if (visibleAgents.length > 0) {
+        input.onLifecycleEvent?.({
+          type: "surface_gate_blocked",
+          gate: outcome.gateRejected.gate,
+          error: outcome.gateRejected.reason,
+          env: outcome.gateRejected.env,
+          ts: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
+    }
+    return null;
+  }
+  const surfaceMeta = {
+    kind: outcome.kind,
+    paneId: outcome.paneId,
+    scriptPath: outcome.scriptPath
+  };
+  degradeController?.notifySpawned({
+    taskId,
+    paneId: outcome.paneId,
+    provider: outcome.kind,
+    // Task 5 (tab-layout): tab của run lên controller → manifest surface.tabs
+    // — run end (closeRunTabs) đóng đúng tab, worker xong KHÔNG đóng.
+    ...outcome.tabKey && outcome.tabId ? { tabKey: outcome.tabKey, tabId: outcome.tabId } : {}
+  });
+  input.onLifecycleEvent?.({
+    type: "surface_spawned",
+    surfaceKind: outcome.kind,
+    paneId: outcome.paneId,
+    ts: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  const eventSource = outcome.eventsPath ? new EventLogTailSource({ eventsPath: outcome.eventsPath }) : void 0;
+  if (eventSource && input.runId && input.agentId) {
+    const runId = input.runId;
+    const taskId2 = input.agentId;
+    const controllerForBridge = degradeController;
+    eventSource.onEvent((event) => {
+      if (event?.type === "worker.started") {
+        const started = event;
+        controllerForBridge?.notifyWorkerStarted({
+          taskId: taskId2,
+          pid: typeof started.pid === "number" ? started.pid : void 0,
+          sessionPath: typeof started.sessionPath === "string" ? started.sessionPath : void 0
+        });
+      }
+      const bridgeEvent = bridgeEventFromJsonEvent(runId, taskId2, event);
+      if (bridgeEvent) runEventBus.emit({ type: "worker_status", runId, taskId: taskId2, data: bridgeEvent });
+      input.onSurfaceActivity?.(event);
+    });
+  }
+  let exitInfo;
+  try {
+    exitInfo = await waitForSurfaceExit(outcome, {
+      signal: input.signal,
+      deadlineMs: input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS
+    });
+  } finally {
+    eventSource?.close();
+  }
+  let completedPayload;
+  if (!exitInfo.cancelledByAbort && !exitInfo.timedOut) {
+    const probe = makeTerminalEventProbe({ eventsPath: input.eventsPath ?? "", taskId, runId: input.runId ?? void 0 });
+    const verdict = await classifyOnExit(outcome.handle, probe);
+    const completed = verdict === "completed";
+    if (completed) {
+      const payload = probe.foundPayload();
+      completedPayload = payload && typeof payload.result === "string" && payload.result.trim().length > 0 ? payload : void 0;
+    } else {
+      surfaceMeta.degraded = {
+        cause: exitInfo.reason === "mux-dead" ? "mux-dead" : "pane-closed",
+        exitReason: exitInfo.reason,
+        classifiedAt: (/* @__PURE__ */ new Date()).toISOString()
+      };
+    }
+    degradeController?.notifyPaneExited({
+      taskId,
+      paneId: outcome.paneId,
+      completed,
+      exitReason: exitInfo.reason
+    });
+  } else {
+    degradeController?.notifyPaneExited({
+      taskId,
+      paneId: outcome.paneId,
+      completed: false,
+      exitReason: exitInfo.reason,
+      cancelledByAbort: exitInfo.cancelledByAbort,
+      timedOut: exitInfo.timedOut
+    });
+  }
+  const surfaceResultText = typeof completedPayload?.result === "string" ? completedPayload.result : "";
+  input.onLifecycleEvent?.({
+    type: "surface_closed",
+    surfaceKind: outcome.kind,
+    paneId: outcome.paneId,
+    paneExitReason: exitInfo.reason,
+    ts: (/* @__PURE__ */ new Date()).toISOString()
+  });
+  cleanupTempDir(tempDir);
+  return {
+    exitCode: exitInfo.cancelledByAbort || exitInfo.timedOut ? null : 0,
+    stdout: "",
+    stderr: "",
+    ...exitInfo.cancelledByAbort ? { error: `Cancelled while running in ${outcome.kind} pane ${outcome.paneId} (${exitInfo.reason})` } : {},
+    ...exitInfo.timedOut ? {
+      error: `Surface worker in ${outcome.kind} pane ${outcome.paneId} produced no completion within ${input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS}ms response timeout; pane was force-closed.`
+    } : {},
+    rawFinalText: surfaceResultText,
+    intermediateFindings: "",
+    ...exitInfo.cancelledByAbort ? { aborted: true } : {},
+    surface: surfaceMeta,
+    exitStatus: {
+      exitCode: exitInfo.cancelledByAbort || exitInfo.timedOut ? null : 0,
+      cancelled: exitInfo.cancelledByAbort,
+      timedOut: exitInfo.timedOut,
+      killed: false,
+      cleanupErrors: [],
+      finalDrainMs: 0
+    }
+  };
+}
+async function runChildPi(input) {
+  const effectiveTask = input.inheritContext === true && input.parentContext ? `${input.parentContext}
+
+---
+# Child Worker Task
+${input.task}` : input.task;
+  const depthEnv = input.depthOverride !== void 0 ? {
+    ...input.env ?? process.env,
+    PI_CREW_DEPTH: String(input.depthOverride - 1),
+    PI_TEAMS_DEPTH: String(input.depthOverride - 1)
+  } : void 0;
+  const depth = checkCrewDepth(input.maxDepth, depthEnv);
+  if (depth.blocked)
+    return {
+      exitCode: 1,
+      stdout: "",
+      stderr: `pi-crew depth guard blocked child worker: depth ${depth.depth} >= max ${depth.maxDepth}`
+    };
+  const mockResult = await runMockChildPi(input, effectiveTask, observeStdoutChunk);
+  if (mockResult) return mockResult;
+  let brokerSpawn = input.brokerSpawn;
+  const brokerIssuer = input.brokerIssuer ?? getActiveBrokerIssuer();
+  if (!brokerSpawn && brokerIssuer && input.runId) {
+    try {
+      brokerSpawn = await brokerIssuer(input.runId, input.agentId, input.depthOverride);
+    } catch (error) {
+      logInternalError(
+        "child-pi.broker-issuer-failed",
+        error instanceof Error ? error : new Error(String(error)),
+        `runId=${input.runId} agentId=${input.agentId ?? "?"} \u2014 child will spawn without broker credentials`
+      );
+      brokerSpawn = void 0;
+    }
+  }
+  const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask, depthEnv);
+  if (spawnPrep.kind === "aborted") return spawnPrep.result;
+  const { spawnSpec, mergedEnv, tempDir, builtEnv, builtArgs } = spawnPrep.ctx;
+  const surfaceResult = await trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir);
+  if (surfaceResult) return surfaceResult;
+  try {
+    return await new Promise((resolve26) => {
+      const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
+      const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
+      if (child.pid) {
+        registerActiveChild(child.pid, child);
+        input.onSpawn?.(child.pid);
+        input.onLifecycleEvent?.({
+          type: "spawned",
+          pid: child.pid,
+          ts: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        registerChildProcess(
+          child.pid,
+          input.runId ?? `untracked-run-${child.pid}`,
+          input.agentId ?? `untracked-agent-${child.pid}`
+        );
+      } else {
+        input.onLifecycleEvent?.({
+          type: "spawn_error",
+          error: "spawn returned no pid",
+          ts: (/* @__PURE__ */ new Date()).toISOString()
+        });
+      }
+      const stdoutTail = new BoundedTail();
+      const stderrTail = new BoundedTail();
+      let settled = false;
+      let childExited = false;
+      let postExitGuardCleanup;
+      const finalDrainMs = input.finalDrainMs ?? FINAL_DRAIN_MS;
+      const hardKillMs = input.hardKillMs ?? HARD_KILL_MS;
+      let finalDrainArmed = false;
+      let lastStdoutActivityMonotonicMs = performance.now();
+      let finalDrainFiredMonotonicMs;
+      const spawnMonotonicMs = performance.now();
+      let finalAssistantEventMonotonicMs;
+      const RESPONSE_TIMEOUT_MIN_MS = 1e3;
+      const RESPONSE_TIMEOUT_MAX_MS = 36e5;
+      const responseTimeoutEnv = Number.parseInt(getCrewEnv("PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS") ?? "", 10);
+      const envInRange = Number.isFinite(responseTimeoutEnv) && responseTimeoutEnv >= RESPONSE_TIMEOUT_MIN_MS && responseTimeoutEnv <= RESPONSE_TIMEOUT_MAX_MS;
+      const responseTimeoutMs = envInRange ? responseTimeoutEnv : input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS;
+      let responseTimeoutHit = false;
+      let forcedFinalDrain = false;
+      let abortRequested = input.signal?.aborted === true;
+      let hardKilled = false;
+      const cleanupErrors = [];
+      const steeringController = new ChildPiSteeringController(input.maxTurns, input.graceTurns);
+      let abortDueToParentSignal = false;
+      const onParentAbort = () => {
+        abortDueToParentSignal = true;
+      };
+      input.signal?.addEventListener("abort", onParentAbort, {
+        once: true
+      });
+      const {
+        restartNoResponseTimer,
+        clearNoResponseTimer,
+        clearFinalDrainTimers,
+        armFinalDrain,
+        hasFinalDrainTimer,
+        armCancelHardKill,
+        clearAll
+      } = createChildPiTimers({
+        child,
+        input,
+        responseTimeoutMs,
+        finalDrainMs,
+        hardKillMs,
+        stdoutTail,
+        stderrTail,
+        cleanupErrors,
+        getSettle: () => settle,
+        redactStderrExcerpt,
+        state: {
+          getSettled: () => settled,
+          getChildExited: () => childExited,
+          setResponseTimeoutHit: (value) => {
+            responseTimeoutHit = value;
+          },
+          getHardKilled: () => hardKilled,
+          setHardKilled: (value) => {
+            hardKilled = value;
+          },
+          setForcedFinalDrain: (value) => {
+            forcedFinalDrain = value;
+          },
+          getLastStdoutActivityMonotonicMs: () => lastStdoutActivityMonotonicMs,
+          setFinalDrainFiredMonotonicMs: (value) => {
+            finalDrainFiredMonotonicMs = value;
+          },
+          getAbortRequested: () => abortRequested
+        }
+      });
+      restartNoResponseTimer();
+      const lineObserver = new ChildPiLineObserver({
+        ...input,
+        onStdoutLine: (line3) => {
+          if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
+          stdoutTail.push(`${line3}
+`);
+          input.onStdoutLine?.(line3);
+        },
+        onJsonEvent: (event) => {
+          if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
+          if (event && typeof event === "object" && !Array.isArray(event)) {
+            const obj = event;
+            if (obj.type === "turn_end") {
+              const action = steeringController.onTurnEnd(child.pid, child, input.steeringFile);
+              if (action.kind === "hardAbort") killProcessTree(action.pid, action.child);
+            }
+          }
+          lastStdoutActivityMonotonicMs = performance.now();
+          input.onJsonEvent?.(event);
+          if (!isFinalAssistantEvent(event) || childExited || settled || hasFinalDrainTimer()) return;
+          finalAssistantEventMonotonicMs = performance.now();
+          finalDrainArmed = true;
+          armFinalDrain();
+        }
+      });
+      const clearPostExitGuard = () => {
+        if (postExitGuardCleanup) {
+          postExitGuardCleanup();
+          postExitGuardCleanup = void 0;
+        }
+      };
+      const clearChildPiTimeouts = () => {
+        clearAll();
+        clearPostExitGuard();
+      };
+      const settle = (result4) => {
+        if (settled) return Promise.resolve();
+        settled = true;
+        clearChildPiTimeouts();
+        return lineObserver.flush().then(() => {
+          input.signal?.removeEventListener("abort", abort);
+          input.signal?.removeEventListener("abort", onParentAbort);
+          try {
+            cleanupTempDir(tempDir);
+          } catch (error) {
+            cleanupErrors.push(error instanceof Error ? error.message : String(error));
+          }
+          try {
+            resolve26({
+              ...result4,
+              rawFinalText: lineObserver.getRawFinalText(),
+              intermediateFindings: lineObserver.getIntermediateFindings(),
+              exitStatus: result4.exitStatus ?? {
+                exitCode: result4.exitCode,
+                cancelled: abortRequested,
+                timedOut: responseTimeoutHit,
+                killed: hardKilled,
+                // Phase-0 diagnostic (HB-003a): surface the final-drain race state.
+                // finalDrainArmed lets Phase 1 decide whether a signal-death (exitCode=null)
+                // should be treated as a forced final drain. READ-ONLY for now.
+                ...finalDrainArmed || forcedFinalDrain ? {
+                  finalDrainArmed,
+                  forcedFinalDrain,
+                  finalDrainFiredMonotonicMs
+                } : {},
+                cleanupErrors,
+                finalDrainMs
+              }
+            });
+          } catch (resolveError) {
+            logInternalError(
+              "child-pi.settle-resolve",
+              resolveError,
+              `result=${JSON.stringify({ exitCode: result4.exitCode })}`
+            );
+          }
+        }).catch((flushError) => {
+          logInternalError(
+            "child-pi.settle-flush-failed",
+            flushError,
+            `result=${JSON.stringify({ exitCode: result4.exitCode })}`
+          );
+          input.signal?.removeEventListener("abort", abort);
+          input.signal?.removeEventListener("abort", onParentAbort);
+          try {
+            cleanupTempDir(tempDir);
+          } catch (error) {
+            cleanupErrors.push(error instanceof Error ? error.message : String(error));
+          }
+          try {
+            resolve26({
+              ...result4,
+              rawFinalText: lineObserver.getRawFinalText(),
+              intermediateFindings: lineObserver.getIntermediateFindings(),
+              exitStatus: result4.exitStatus ?? {
+                exitCode: result4.exitCode,
+                cancelled: abortRequested,
+                timedOut: responseTimeoutHit,
+                killed: hardKilled,
+                ...finalDrainArmed || forcedFinalDrain ? {
+                  finalDrainArmed,
+                  forcedFinalDrain,
+                  finalDrainFiredMonotonicMs
+                } : {},
+                cleanupErrors,
+                finalDrainMs
+              }
+            });
+          } catch (resolveError) {
+            logInternalError(
+              "child-pi.settle-resolve",
+              resolveError,
+              `result=${JSON.stringify({ exitCode: result4.exitCode })}`
+            );
+          }
+        });
+      };
+      const abort = () => {
+        abortRequested = true;
+        clearNoResponseTimer();
+        killProcessTree(child.pid, child);
+        if (process.platform !== "win32") {
+          trySignalChild(child, "SIGTERM");
+        }
+        try {
+          child.kill(process.platform === "win32" ? void 0 : "SIGTERM");
+        } catch {
+        }
+        armCancelHardKill();
+      };
+      input.signal?.addEventListener("abort", abort, { once: true });
+      const BACKPRESSURE_HIGH = 256 * 1024;
+      let backpressureBytes = 0;
+      const releaseBackpressure = () => {
+        backpressureBytes = 0;
+        try {
+          child.stdout?.resume();
+        } catch {
+        }
+      };
+      child.stdout?.on("data", (chunk) => {
+        if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
+        const text = chunk.toString("utf-8");
+        backpressureBytes += text.length;
+        try {
+          lineObserver.observe(text);
+        } catch (err2) {
+          logInternalError("child-pi.line-observer-observe", err2, `text=${text.slice(0, 100)}`);
+        }
+        if (backpressureBytes > BACKPRESSURE_HIGH && child.stdout && !child.stdout.isPaused()) {
+          try {
+            child.stdout.pause();
+          } catch {
+          }
+          const timer = setTimeout(releaseBackpressure, 50);
+          timer.unref();
+        }
+      });
+      child.stderr?.on("data", (chunk) => {
+        if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
+        stderrTail.push(chunk.toString("utf-8"));
+      });
+      child.on("error", (error) => {
+        const stdout = stdoutTail.value();
+        const stderr = stderrTail.value();
+        const processError = new Error(
+          `Child Pi process error: ${error.message}. Stderr: ${redactStderrExcerpt(stderr, 500) || "(none)"}`
+        );
+        try {
+          input.onLifecycleEvent?.({
+            type: "spawn_error",
+            pid: child.pid,
+            error: processError.message,
+            ts: (/* @__PURE__ */ new Date()).toISOString(),
+            stderrExcerpt: redactStderrExcerpt(stderr, 500) || void 0
+          });
+        } catch (err2) {
+          logInternalError("child-pi.on-lifecycle-event", err2, `event=error, pid=${child.pid}`);
+        }
+        void settle({
+          exitCode: null,
+          stdout,
+          stderr,
+          error: processError.message,
+          exitStatus: {
+            exitCode: null,
+            cancelled: abortRequested,
+            timedOut: responseTimeoutHit,
+            killed: false,
+            cleanupErrors,
+            finalDrainMs,
+            crashClass: classifyProcessCrash({
+              exitCode: null,
+              cancelled: abortRequested,
+              timedOut: responseTimeoutHit,
+              spawnError: error,
+              stderrSnippet: stderr ? redactStderrExcerpt(stderr, 1e3) : void 0
+            }).crashClass
+          }
+        });
+      });
+      child.on("exit", (code, signal) => {
+        const stderr = stderrTail.value();
+        if (child.pid) {
+          unregisterActiveChild(child.pid);
+          clearHardKillTimer(child.pid);
+          unregisterChildProcess(child.pid);
+        }
+        const abnormalExit = code !== 0 && code !== null;
+        const isUnexpectedExit = !childExited && !settled && !responseTimeoutHit && !abortRequested && abnormalExit;
+        const exitError = isUnexpectedExit ? new Error(
+          `Child Pi process exited unexpectedly (code=${code ?? "null"} signal=${signal ?? "null"}). Stderr: ${redactStderrExcerpt(stderr, 1e3) || "(none)"}`
+        ) : null;
+        try {
+          input.onLifecycleEvent?.({
+            type: "exit",
+            pid: child.pid,
+            exitCode: code,
+            ts: (/* @__PURE__ */ new Date()).toISOString(),
+            error: exitError?.message,
+            stderrExcerpt: isUnexpectedExit ? redactStderrExcerpt(stderr, 1e3) || void 0 : void 0,
+            // Phase-0 diagnostic fields (kept optional — no type change required).
+            ...signal ? { signal } : {},
+            ...finalDrainArmed || forcedFinalDrain ? {
+              diagnostic: {
+                finalDrainArmed,
+                forcedFinalDrain,
+                finalDrainFiredMonotonicMs,
+                finalAssistantEventMonotonicMs,
+                exitMonotonicMs: performance.now() - spawnMonotonicMs
+              }
+            } : {}
+          });
+        } catch (err2) {
+          logInternalError("child-pi.on-lifecycle-event", err2, `event=exit, pid=${child.pid}`);
+        }
+        childExited = true;
+        clearNoResponseTimer();
+        clearFinalDrainTimers();
+        if (!postExitGuardCleanup) {
+          postExitGuardCleanup = attachPostExitStdioGuard(child, {
+            idleMs: POST_EXIT_STDIO_GUARD_MS,
+            hardMs: HARD_KILL_MS
+          });
+        }
+      });
+      child.on("close", (exitCode) => {
+        const stdout = stdoutTail.value();
+        const stderr = stderrTail.value();
+        if (child.pid) {
+          unregisterActiveChild(child.pid);
+          clearHardKillTimer(child.pid);
+          unregisterChildProcess(child.pid);
+        }
+        try {
+          input.onLifecycleEvent?.({
+            type: "close",
+            pid: child.pid,
+            exitCode,
+            ts: (/* @__PURE__ */ new Date()).toISOString()
+          });
+        } catch (err2) {
+          logInternalError("child-pi.on-lifecycle-event", err2, `event=close, pid=${child.pid}`);
+        }
+        const timeoutError = responseTimeoutHit && !stderr.trim() ? {
+          error: `Child Pi produced no new output for ${responseTimeoutMs}ms; process was terminated as unresponsive.`
+        } : responseTimeoutHit && stderr.trim() ? {
+          error: `Child Pi timed out after ${responseTimeoutMs}ms with stderr: ${redactStderrExcerpt(stderr, 500)}`
+        } : void 0;
+        if (forcedFinalDrain && !timeoutError && exitCode !== 0) {
+          logInternalError(
+            "child-pi.final-drain-zero-exit",
+            new Error(`Child exit code overridden to 0 after forced final drain (original=${exitCode})`),
+            `pid=${child.pid}, finalDrainMs=${finalDrainMs}`
+          );
+        }
+        const finalExitCode = forcedFinalDrain && !timeoutError ? 0 : exitCode;
+        const wasGraceAborted = steeringController.isSoftLimitReached() && steeringController.getTurnCount() >= (steeringController.getMaxTurns() ?? 0) + (steeringController.getGraceTurns() ?? 5);
+        const wasParentAborted = abortDueToParentSignal && !wasGraceAborted;
+        const crashClassification = classifyProcessCrash({
+          exitCode: finalExitCode,
+          signal: child.signalCode ?? void 0,
+          cancelled: abortRequested,
+          timedOut: responseTimeoutHit,
+          killed: hardKilled,
+          spawnError: void 0,
+          stderrSnippet: stderr ? redactStderrExcerpt(stderr, 1e3) : void 0
+        });
+        void settle({
+          exitCode: finalExitCode,
+          stdout,
+          stderr,
+          ...timeoutError ? { error: timeoutError.error } : {},
+          aborted: wasGraceAborted || wasParentAborted,
+          steered: steeringController.isSoftLimitReached() && !wasGraceAborted,
+          exitStatus: {
+            exitCode: finalExitCode,
+            cancelled: abortRequested,
+            timedOut: responseTimeoutHit,
+            killed: hardKilled,
+            cleanupErrors,
+            finalDrainMs,
+            crashClass: crashClassification.crashClass
+          }
+        });
+      });
+    });
+  } finally {
+    if (tempDir && fs61.existsSync(tempDir)) {
+      cleanupTempDir(tempDir);
+    }
+  }
+}
+var __test__trySurfaceBranch;
+var init_child_pi = __esm({
+  "src/runtime/child-pi/child-pi.ts"() {
+    "use strict";
+    init_config();
+    init_env_vars();
+    init_crew_cleanup();
+    init_run_event_bus();
+    init_internal_error();
+    init_redaction();
+    init_broker_issuer();
+    init_bounded_tail();
+    init_event_log_tail_source();
+    init_event_stream_bridge();
+    init_degrade();
+    init_surface_spawn();
+    init_child_pi_constants();
+    init_child_pi_kill();
+    init_child_pi_spawn();
+    init_child_pi_steering();
+    init_child_pi_streams();
+    init_child_pi_timers();
+    init_mock_fixtures();
+    init_child_pi_kill();
+    init_child_pi_spawn();
+    init_child_pi_streams();
+    init_pi_args();
+    init_post_exit_stdio_guard();
+    init_crash_classification();
+    init_child_pi_transcript();
+    __test__trySurfaceBranch = trySurfaceBranch;
   }
 });
 
@@ -64602,8 +64602,8 @@ function buildTeamOnboarding(team, cwd, options = {}) {
       const goalPreview = run.goal ? run.goal.slice(0, 40) : "N/A";
       const goalSuffix = run.goal && run.goal.length > 40 ? "..." : "";
       const status = run.status ?? "unknown";
-      const statusIcon5 = status === "completed" ? "\u2705" : status === "failed" ? "\u274C" : status === "cancelled" ? "\u23F9\uFE0F" : "\u26A0\uFE0F";
-      lines.push(`| \`${run.runId.slice(-8)}\` | ${goalPreview}${goalSuffix} | ${duration} | ${statusIcon5} ${status} |`);
+      const statusIcon4 = status === "completed" ? "\u2705" : status === "failed" ? "\u274C" : status === "cancelled" ? "\u23F9\uFE0F" : "\u26A0\uFE0F";
+      lines.push(`| \`${run.runId.slice(-8)}\` | ${goalPreview}${goalSuffix} | ${duration} | ${statusIcon4} ${status} |`);
     }
     lines.push("");
   }
@@ -65067,8 +65067,8 @@ function handleExplain(params, cwd) {
       write: "documentation"
     };
     const layer = layerMap[task.adaptive?.phase ?? ""] ?? "unknown";
-    const statusIcon5 = task.status === "completed" ? "\u2705" : task.status === "failed" ? "\u274C" : "\u23F3";
-    lines.push(`| \`${task.id}\` | ${task.role} | ${statusIcon5} ${task.status} | ${layer} |`);
+    const statusIcon4 = task.status === "completed" ? "\u2705" : task.status === "failed" ? "\u274C" : "\u23F3";
+    lines.push(`| \`${task.id}\` | ${task.role} | ${statusIcon4} ${task.status} | ${layer} |`);
   }
   lines.push("");
   lines.push("---");
@@ -82862,9 +82862,6 @@ function registerContextStatusInjection(pi, opts = {}) {
   });
 }
 
-// src/extension/register.ts
-init_crew_cleanup();
-
 // src/extension/crew-input-router.ts
 var CREW_PHRASES = [
   { phrase: "crew status", command: "/team-status" },
@@ -83465,7 +83462,7 @@ function statusLevel(status) {
       return "muted";
   }
 }
-function statusIcon4(status) {
+function statusIcon3(status) {
   switch (status) {
     case "completed":
       return "\u2705";
@@ -83496,7 +83493,7 @@ function renderRunCompleted(message, _options, theme) {
   const details = message.details ?? {};
   const status = details.status;
   const level = statusLevel(status);
-  const icon = statusIcon4(status);
+  const icon = statusIcon3(status);
   const goal = details.goal ? truncate2(details.goal, 60) : "";
   const tasks = details.taskCount !== void 0 ? ` \xB7 ${details.taskCount} tasks` : "";
   const text = `${icon} crew run ${details.runId ?? ""} ${status ?? "finished"}${tasks}${goal ? ` \u2014 ${goal}` : ""}`;

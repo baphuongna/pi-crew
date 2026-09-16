@@ -27,7 +27,6 @@ import { installChildProcessAbortShield } from "../utils/child-process-shield.ts
 import { resetTimings, time } from "../utils/timings.ts";
 import { registerAutonomousPolicy } from "./autonomous-policy.ts";
 import { registerContextStatusInjection } from "./context-status-injection.ts";
-import { registerCleanupHandler } from "./crew-cleanup.ts";
 import { registerCrewInputRouter } from "./crew-input-router.ts";
 import { registerCrewShortcuts } from "./crew-shortcuts.ts";
 import { registerCrewVibes } from "./crew-vibes/index.ts";

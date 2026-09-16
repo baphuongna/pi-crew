@@ -6958,16 +6958,42 @@
       ],
       "format": "esm"
     },
-    "src/runtime/model/pi-args.ts": {
-      "bytes": 28944,
+    "src/extension/crew-input-router.ts": {
+      "bytes": 4104,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/utils/file-coalescer.ts": {
+      "bytes": 2558,
       "imports": [
         {
           "path": "node:fs",
           "kind": "import-statement",
           "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "src/utils/redaction.ts": {
+      "bytes": 18213,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/crew-agent-runtime.ts": {
+      "bytes": 1764,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/crew-agent-records.ts": {
+      "bytes": 36871,
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
         },
         {
-          "path": "node:os",
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
@@ -6979,19 +7005,39 @@
         {
           "path": "src/state/atomic-write.ts",
           "kind": "import-statement",
-          "original": "../../state/atomic-write.ts"
+          "original": "../state/atomic-write.ts"
         },
         {
-          "path": "src/utils/paths.ts",
+          "path": "src/utils/file-coalescer.ts",
           "kind": "import-statement",
-          "original": "../../utils/paths.ts"
+          "original": "../utils/file-coalescer.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/redaction.ts",
+          "kind": "import-statement",
+          "original": "../utils/redaction.ts"
+        },
+        {
+          "path": "src/utils/safe-paths.ts",
+          "kind": "import-statement",
+          "original": "../utils/safe-paths.ts"
+        },
+        {
+          "path": "src/utils/sleep.ts",
+          "kind": "import-statement",
+          "original": "../utils/sleep.ts"
+        },
+        {
+          "path": "src/runtime/crew-agent-runtime.ts",
+          "kind": "import-statement",
+          "original": "./crew-agent-runtime.ts"
         }
       ],
-      "format": "esm"
-    },
-    "src/ui/inline-panel/view-session-store.ts": {
-      "bytes": 1371,
-      "imports": [],
       "format": "esm"
     },
     "src/errors.ts": {
@@ -6999,9 +7045,41 @@
       "imports": [],
       "format": "esm"
     },
-    "src/utils/redaction.ts": {
-      "bytes": 18213,
+    "src/utils/task-name-generator.ts": {
+      "bytes": 4155,
       "imports": [],
+      "format": "esm"
+    },
+    "src/utils/ids.ts": {
+      "bytes": 669,
+      "imports": [
+        {
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/task-name-generator.ts",
+          "kind": "import-statement",
+          "original": "./task-name-generator.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/state/contracts.ts": {
+      "bytes": 6285,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/ui/run-event-bus.ts": {
+      "bytes": 14094,
+      "imports": [
+        {
+          "path": "src/state/event-log/event-log.ts",
+          "kind": "import-statement",
+          "original": "../state/event-log/event-log.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/state/event-log/event-log-rotation.ts": {
@@ -7187,889 +7265,6 @@
           "original": "./sequence-cache.ts"
         }
       ],
-      "format": "esm"
-    },
-    "src/ui/run-event-bus.ts": {
-      "bytes": 14094,
-      "imports": [
-        {
-          "path": "src/state/event-log/event-log.ts",
-          "kind": "import-statement",
-          "original": "../state/event-log/event-log.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/broker/broker-issuer.ts": {
-      "bytes": 3236,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compaction/compact-stages/bounded-tail.ts": {
-      "bytes": 3610,
-      "imports": [
-        {
-          "path": "src/config/defaults.ts",
-          "kind": "import-statement",
-          "original": "../../../config/defaults.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/utils/fs-watch.ts": {
-      "bytes": 1157,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/output/pi-json-output.ts": {
-      "bytes": 6342,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi-constants.ts": {
-      "bytes": 2280,
-      "imports": [
-        {
-          "path": "src/config/defaults.ts",
-          "kind": "import-statement",
-          "original": "../../config/defaults.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/compaction/compact-pipeline.ts": {
-      "bytes": 2335,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compaction/important-line-classifier.ts": {
-      "bytes": 5412,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/compaction/compact-stages/truncation-stage.ts": {
-      "bytes": 3320,
-      "imports": [
-        {
-          "path": "src/runtime/compaction/important-line-classifier.ts",
-          "kind": "import-statement",
-          "original": "../important-line-classifier.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi-transcript.ts": {
-      "bytes": 6495,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/config/defaults.ts",
-          "kind": "import-statement",
-          "original": "../../config/defaults.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/utils/redaction.ts",
-          "kind": "import-statement",
-          "original": "../../utils/redaction.ts"
-        },
-        {
-          "path": "src/utils/safe-paths.ts",
-          "kind": "import-statement",
-          "original": "../../utils/safe-paths.ts"
-        },
-        {
-          "path": "src/runtime/compaction/compact-pipeline.ts",
-          "kind": "import-statement",
-          "original": "../compaction/compact-pipeline.ts"
-        },
-        {
-          "path": "src/runtime/compaction/compact-stages/truncation-stage.ts",
-          "kind": "import-statement",
-          "original": "../compaction/compact-stages/truncation-stage.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi-streams.ts": {
-      "bytes": 13824,
-      "imports": [
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/output/pi-json-output.ts",
-          "kind": "import-statement",
-          "original": "../output/pi-json-output.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-constants.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-constants.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-transcript.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-transcript.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/event-log-tail-source.ts": {
-      "bytes": 15766,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/utils/fs-watch.ts",
-          "kind": "import-statement",
-          "original": "../utils/fs-watch.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-streams.ts",
-          "kind": "import-statement",
-          "original": "./child-pi/child-pi-streams.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/subprocess-tool-registry.ts": {
-      "bytes": 2075,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/event-stream-bridge.ts": {
-      "bytes": 3027,
-      "imports": [
-        {
-          "path": "src/ui/run-event-bus.ts",
-          "kind": "import-statement",
-          "original": "../ui/run-event-bus.ts"
-        },
-        {
-          "path": "src/runtime/subprocess-tool-registry.ts",
-          "kind": "import-statement",
-          "original": "./subprocess-tool-registry.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/surface/degrade.ts": {
-      "bytes": 32948,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/state/event-log/event-log.ts",
-          "kind": "import-statement",
-          "original": "../../state/event-log/event-log.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/utils/file-coalescer.ts": {
-      "bytes": 2558,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/crew-agent-runtime.ts": {
-      "bytes": 1764,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/crew-agent-records.ts": {
-      "bytes": 36871,
-      "imports": [
-        {
-          "path": "node:crypto",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/state/atomic-write.ts",
-          "kind": "import-statement",
-          "original": "../state/atomic-write.ts"
-        },
-        {
-          "path": "src/utils/file-coalescer.ts",
-          "kind": "import-statement",
-          "original": "../utils/file-coalescer.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        },
-        {
-          "path": "src/utils/redaction.ts",
-          "kind": "import-statement",
-          "original": "../utils/redaction.ts"
-        },
-        {
-          "path": "src/utils/safe-paths.ts",
-          "kind": "import-statement",
-          "original": "../utils/safe-paths.ts"
-        },
-        {
-          "path": "src/utils/sleep.ts",
-          "kind": "import-statement",
-          "original": "../utils/sleep.ts"
-        },
-        {
-          "path": "src/runtime/crew-agent-runtime.ts",
-          "kind": "import-statement",
-          "original": "./crew-agent-runtime.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/process/proc-stat.ts": {
-      "bytes": 1876,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/surface/launch-script.ts": {
-      "bytes": 7419,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/state/atomic-write.ts",
-          "kind": "import-statement",
-          "original": "../../state/atomic-write.ts"
-        },
-        {
-          "path": "src/runtime/model/pi-args.ts",
-          "kind": "import-statement",
-          "original": "../model/pi-args.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/surface/surface-provider.ts": {
-      "bytes": 4840,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/surface/herdr-provider.ts": {
-      "bytes": 22017,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:net",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/runtime/surface/surface-provider.ts",
-          "kind": "import-statement",
-          "original": "./surface-provider.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/surface/tmux-provider.ts": {
-      "bytes": 15448,
-      "imports": [
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/runtime/surface/surface-provider.ts",
-          "kind": "import-statement",
-          "original": "./surface-provider.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/surface/resolve-surface.ts": {
-      "bytes": 10985,
-      "imports": [
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:worker_threads",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/runtime/model/pi-args.ts",
-          "kind": "import-statement",
-          "original": "../model/pi-args.ts"
-        },
-        {
-          "path": "src/runtime/surface/herdr-provider.ts",
-          "kind": "import-statement",
-          "original": "./herdr-provider.ts"
-        },
-        {
-          "path": "src/runtime/surface/tmux-provider.ts",
-          "kind": "import-statement",
-          "original": "./tmux-provider.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/surface/surface-spawn.ts": {
-      "bytes": 20760,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/crew-agent-records.ts",
-          "kind": "import-statement",
-          "original": "../crew-agent-records.ts"
-        },
-        {
-          "path": "src/runtime/model/pi-args.ts",
-          "kind": "import-statement",
-          "original": "../model/pi-args.ts"
-        },
-        {
-          "path": "src/runtime/pi-spawn.ts",
-          "kind": "import-statement",
-          "original": "../pi-spawn.ts"
-        },
-        {
-          "path": "src/runtime/process/proc-stat.ts",
-          "kind": "import-statement",
-          "original": "../process/proc-stat.ts"
-        },
-        {
-          "path": "src/runtime/surface/launch-script.ts",
-          "kind": "import-statement",
-          "original": "./launch-script.ts"
-        },
-        {
-          "path": "src/runtime/surface/resolve-surface.ts",
-          "kind": "import-statement",
-          "original": "./resolve-surface.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/compaction/compact-stages/tail-capture-stage.ts": {
-      "bytes": 3558,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi-kill.ts": {
-      "bytes": 6718,
-      "imports": [
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/config/defaults.ts",
-          "kind": "import-statement",
-          "original": "../../config/defaults.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/compaction/compact-stages/tail-capture-stage.ts",
-          "kind": "import-statement",
-          "original": "../compaction/compact-stages/tail-capture-stage.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-constants.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-constants.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/utils/env-allowlist.ts": {
-      "bytes": 1185,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/utils/env-filter.ts": {
-      "bytes": 7025,
-      "imports": [
-        {
-          "path": "src/utils/redaction.ts",
-          "kind": "import-statement",
-          "original": "./redaction.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/scratchpad/snapshot-lookup.ts": {
-      "bytes": 2985,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi-spawn.ts": {
-      "bytes": 21412,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/config/role-tools.ts",
-          "kind": "import-statement",
-          "original": "../../config/role-tools.ts"
-        },
-        {
-          "path": "src/utils/env-allowlist.ts",
-          "kind": "import-statement",
-          "original": "../../utils/env-allowlist.ts"
-        },
-        {
-          "path": "src/utils/env-filter.ts",
-          "kind": "import-statement",
-          "original": "../../utils/env-filter.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/utils/safe-paths.ts",
-          "kind": "import-statement",
-          "original": "../../utils/safe-paths.ts"
-        },
-        {
-          "path": "src/runtime/model/pi-args.ts",
-          "kind": "import-statement",
-          "original": "../model/pi-args.ts"
-        },
-        {
-          "path": "src/runtime/pi-spawn.ts",
-          "kind": "import-statement",
-          "original": "../pi-spawn.ts"
-        },
-        {
-          "path": "src/runtime/scratchpad/snapshot-lookup.ts",
-          "kind": "import-statement",
-          "original": "../scratchpad/snapshot-lookup.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi-steering.ts": {
-      "bytes": 4974,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-kill.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-kill.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi-timers.ts": {
-      "bytes": 13956,
-      "imports": [
-        {
-          "path": "src/config/defaults.ts",
-          "kind": "import-statement",
-          "original": "../../config/defaults.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-constants.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-constants.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-kill.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-kill.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/mock-fixtures.ts": {
-      "bytes": 7232,
-      "imports": [
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/config/env-vars.ts",
-          "kind": "import-statement",
-          "original": "../../config/env-vars.ts"
-        },
-        {
-          "path": "src/state/atomic-write.ts",
-          "kind": "import-statement",
-          "original": "../../state/atomic-write.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/process/post-exit-stdio-guard.ts": {
-      "bytes": 3073,
-      "imports": [
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/runtime/recovery/crash-classification.ts": {
-      "bytes": 8547,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/runtime/child-pi/child-pi.ts": {
-      "bytes": 54092,
-      "imports": [
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/config/config.ts",
-          "kind": "import-statement",
-          "original": "../../config/config.ts"
-        },
-        {
-          "path": "src/config/env-vars.ts",
-          "kind": "import-statement",
-          "original": "../../config/env-vars.ts"
-        },
-        {
-          "path": "src/extension/crew-cleanup.ts",
-          "kind": "import-statement",
-          "original": "../../extension/crew-cleanup.ts"
-        },
-        {
-          "path": "src/ui/run-event-bus.ts",
-          "kind": "import-statement",
-          "original": "../../ui/run-event-bus.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../../utils/internal-error.ts"
-        },
-        {
-          "path": "src/utils/redaction.ts",
-          "kind": "import-statement",
-          "original": "../../utils/redaction.ts"
-        },
-        {
-          "path": "src/runtime/broker/broker-issuer.ts",
-          "kind": "import-statement",
-          "original": "../broker/broker-issuer.ts"
-        },
-        {
-          "path": "src/runtime/compaction/compact-stages/bounded-tail.ts",
-          "kind": "import-statement",
-          "original": "../compaction/compact-stages/bounded-tail.ts"
-        },
-        {
-          "path": "src/runtime/event-log-tail-source.ts",
-          "kind": "import-statement",
-          "original": "../event-log-tail-source.ts"
-        },
-        {
-          "path": "src/runtime/event-stream-bridge.ts",
-          "kind": "import-statement",
-          "original": "../event-stream-bridge.ts"
-        },
-        {
-          "path": "src/runtime/surface/degrade.ts",
-          "kind": "import-statement",
-          "original": "../surface/degrade.ts"
-        },
-        {
-          "path": "src/runtime/surface/surface-spawn.ts",
-          "kind": "import-statement",
-          "original": "../surface/surface-spawn.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-constants.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-constants.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-kill.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-kill.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-spawn.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-spawn.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-steering.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-steering.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-streams.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-streams.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-timers.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-timers.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/mock-fixtures.ts",
-          "kind": "import-statement",
-          "original": "./mock-fixtures.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-kill.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-kill.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-spawn.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-spawn.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-streams.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-streams.ts"
-        },
-        {
-          "path": "src/runtime/model/pi-args.ts",
-          "kind": "import-statement",
-          "original": "../model/pi-args.ts"
-        },
-        {
-          "path": "src/runtime/process/post-exit-stdio-guard.ts",
-          "kind": "import-statement",
-          "original": "../process/post-exit-stdio-guard.ts"
-        },
-        {
-          "path": "src/runtime/recovery/crash-classification.ts",
-          "kind": "import-statement",
-          "original": "../recovery/crash-classification.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi-transcript.ts",
-          "kind": "import-statement",
-          "original": "./child-pi-transcript.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/extension/crew-cleanup.ts": {
-      "bytes": 7175,
-      "imports": [
-        {
-          "path": "src/runtime/model/pi-args.ts",
-          "kind": "import-statement",
-          "original": "../runtime/model/pi-args.ts"
-        },
-        {
-          "path": "src/ui/inline-panel/view-session-store.ts",
-          "kind": "import-statement",
-          "original": "../ui/inline-panel/view-session-store.ts"
-        },
-        {
-          "path": "src/utils/internal-error.ts",
-          "kind": "import-statement",
-          "original": "../utils/internal-error.ts"
-        },
-        {
-          "path": "src/runtime/child-pi/child-pi.ts",
-          "kind": "dynamic-import",
-          "original": "../runtime/child-pi/child-pi.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/extension/crew-input-router.ts": {
-      "bytes": 4104,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/utils/task-name-generator.ts": {
-      "bytes": 4155,
-      "imports": [],
-      "format": "esm"
-    },
-    "src/utils/ids.ts": {
-      "bytes": 669,
-      "imports": [
-        {
-          "path": "node:crypto",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "src/utils/task-name-generator.ts",
-          "kind": "import-statement",
-          "original": "./task-name-generator.ts"
-        }
-      ],
-      "format": "esm"
-    },
-    "src/state/contracts.ts": {
-      "bytes": 6285,
-      "imports": [],
       "format": "esm"
     },
     "src/state/types.ts": {
@@ -8409,6 +7604,120 @@
           "path": "src/extension/team-tool/param-error.ts",
           "kind": "import-statement",
           "original": "./param-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/model/pi-args.ts": {
+      "bytes": 28944,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/state/atomic-write.ts",
+          "kind": "import-statement",
+          "original": "../../state/atomic-write.ts"
+        },
+        {
+          "path": "src/utils/paths.ts",
+          "kind": "import-statement",
+          "original": "../../utils/paths.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/surface/surface-provider.ts": {
+      "bytes": 4840,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/surface/herdr-provider.ts": {
+      "bytes": 22017,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:net",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/surface/surface-provider.ts",
+          "kind": "import-statement",
+          "original": "./surface-provider.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/surface/tmux-provider.ts": {
+      "bytes": 15448,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/surface/surface-provider.ts",
+          "kind": "import-statement",
+          "original": "./surface-provider.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/surface/resolve-surface.ts": {
+      "bytes": 10985,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:worker_threads",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/runtime/model/pi-args.ts",
+          "kind": "import-statement",
+          "original": "../model/pi-args.ts"
+        },
+        {
+          "path": "src/runtime/surface/herdr-provider.ts",
+          "kind": "import-statement",
+          "original": "./herdr-provider.ts"
+        },
+        {
+          "path": "src/runtime/surface/tmux-provider.ts",
+          "kind": "import-statement",
+          "original": "./tmux-provider.ts"
         }
       ],
       "format": "esm"
@@ -9488,6 +8797,11 @@
       ],
       "format": "esm"
     },
+    "src/runtime/output/pi-json-output.ts": {
+      "bytes": 6342,
+      "imports": [],
+      "format": "esm"
+    },
     "src/extension/team-tool/config-patch.ts": {
       "bytes": 2201,
       "imports": [
@@ -10014,6 +9328,17 @@
       ],
       "format": "esm"
     },
+    "src/runtime/compaction/compact-stages/bounded-tail.ts": {
+      "bytes": 3610,
+      "imports": [
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../../../config/defaults.ts"
+        }
+      ],
+      "format": "esm"
+    },
     "src/runtime/custom-tools/irc-tool.ts": {
       "bytes": 8272,
       "imports": [
@@ -10122,6 +9447,11 @@
           "external": true
         }
       ],
+      "format": "esm"
+    },
+    "src/runtime/subprocess-tool-registry.ts": {
+      "bytes": 2075,
+      "imports": [],
       "format": "esm"
     },
     "node_modules/ajv/dist/compile/codegen/code.js": {
@@ -11846,6 +11176,676 @@
           "path": "src/extension/team-tool/handle-schedule.ts",
           "kind": "import-statement",
           "original": "../handle-schedule.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/ui/inline-panel/view-session-store.ts": {
+      "bytes": 1371,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/extension/crew-cleanup.ts": {
+      "bytes": 7175,
+      "imports": [
+        {
+          "path": "src/runtime/model/pi-args.ts",
+          "kind": "import-statement",
+          "original": "../runtime/model/pi-args.ts"
+        },
+        {
+          "path": "src/ui/inline-panel/view-session-store.ts",
+          "kind": "import-statement",
+          "original": "../ui/inline-panel/view-session-store.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi.ts",
+          "kind": "dynamic-import",
+          "original": "../runtime/child-pi/child-pi.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/broker/broker-issuer.ts": {
+      "bytes": 3236,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/utils/fs-watch.ts": {
+      "bytes": 1157,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi-constants.ts": {
+      "bytes": 2280,
+      "imports": [
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../../config/defaults.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/compaction/compact-pipeline.ts": {
+      "bytes": 2335,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/compaction/important-line-classifier.ts": {
+      "bytes": 5412,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/compaction/compact-stages/truncation-stage.ts": {
+      "bytes": 3320,
+      "imports": [
+        {
+          "path": "src/runtime/compaction/important-line-classifier.ts",
+          "kind": "import-statement",
+          "original": "../important-line-classifier.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi-transcript.ts": {
+      "bytes": 6495,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../../config/defaults.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/redaction.ts",
+          "kind": "import-statement",
+          "original": "../../utils/redaction.ts"
+        },
+        {
+          "path": "src/utils/safe-paths.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-paths.ts"
+        },
+        {
+          "path": "src/runtime/compaction/compact-pipeline.ts",
+          "kind": "import-statement",
+          "original": "../compaction/compact-pipeline.ts"
+        },
+        {
+          "path": "src/runtime/compaction/compact-stages/truncation-stage.ts",
+          "kind": "import-statement",
+          "original": "../compaction/compact-stages/truncation-stage.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi-streams.ts": {
+      "bytes": 13824,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/output/pi-json-output.ts",
+          "kind": "import-statement",
+          "original": "../output/pi-json-output.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-constants.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-constants.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-transcript.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-transcript.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/event-log-tail-source.ts": {
+      "bytes": 15766,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/fs-watch.ts",
+          "kind": "import-statement",
+          "original": "../utils/fs-watch.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-streams.ts",
+          "kind": "import-statement",
+          "original": "./child-pi/child-pi-streams.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/event-stream-bridge.ts": {
+      "bytes": 3027,
+      "imports": [
+        {
+          "path": "src/ui/run-event-bus.ts",
+          "kind": "import-statement",
+          "original": "../ui/run-event-bus.ts"
+        },
+        {
+          "path": "src/runtime/subprocess-tool-registry.ts",
+          "kind": "import-statement",
+          "original": "./subprocess-tool-registry.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/surface/degrade.ts": {
+      "bytes": 32948,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/state/event-log/event-log.ts",
+          "kind": "import-statement",
+          "original": "../../state/event-log/event-log.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/process/proc-stat.ts": {
+      "bytes": 1876,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/surface/launch-script.ts": {
+      "bytes": 7419,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/state/atomic-write.ts",
+          "kind": "import-statement",
+          "original": "../../state/atomic-write.ts"
+        },
+        {
+          "path": "src/runtime/model/pi-args.ts",
+          "kind": "import-statement",
+          "original": "../model/pi-args.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/surface/surface-spawn.ts": {
+      "bytes": 20760,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/crew-agent-records.ts",
+          "kind": "import-statement",
+          "original": "../crew-agent-records.ts"
+        },
+        {
+          "path": "src/runtime/model/pi-args.ts",
+          "kind": "import-statement",
+          "original": "../model/pi-args.ts"
+        },
+        {
+          "path": "src/runtime/pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "../pi-spawn.ts"
+        },
+        {
+          "path": "src/runtime/process/proc-stat.ts",
+          "kind": "import-statement",
+          "original": "../process/proc-stat.ts"
+        },
+        {
+          "path": "src/runtime/surface/launch-script.ts",
+          "kind": "import-statement",
+          "original": "./launch-script.ts"
+        },
+        {
+          "path": "src/runtime/surface/resolve-surface.ts",
+          "kind": "import-statement",
+          "original": "./resolve-surface.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/compaction/compact-stages/tail-capture-stage.ts": {
+      "bytes": 3558,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi-kill.ts": {
+      "bytes": 6718,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../../config/defaults.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/compaction/compact-stages/tail-capture-stage.ts",
+          "kind": "import-statement",
+          "original": "../compaction/compact-stages/tail-capture-stage.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-constants.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-constants.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/utils/env-allowlist.ts": {
+      "bytes": 1185,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/utils/env-filter.ts": {
+      "bytes": 7025,
+      "imports": [
+        {
+          "path": "src/utils/redaction.ts",
+          "kind": "import-statement",
+          "original": "./redaction.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/scratchpad/snapshot-lookup.ts": {
+      "bytes": 2985,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi-spawn.ts": {
+      "bytes": 21412,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/role-tools.ts",
+          "kind": "import-statement",
+          "original": "../../config/role-tools.ts"
+        },
+        {
+          "path": "src/utils/env-allowlist.ts",
+          "kind": "import-statement",
+          "original": "../../utils/env-allowlist.ts"
+        },
+        {
+          "path": "src/utils/env-filter.ts",
+          "kind": "import-statement",
+          "original": "../../utils/env-filter.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/safe-paths.ts",
+          "kind": "import-statement",
+          "original": "../../utils/safe-paths.ts"
+        },
+        {
+          "path": "src/runtime/model/pi-args.ts",
+          "kind": "import-statement",
+          "original": "../model/pi-args.ts"
+        },
+        {
+          "path": "src/runtime/pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "../pi-spawn.ts"
+        },
+        {
+          "path": "src/runtime/scratchpad/snapshot-lookup.ts",
+          "kind": "import-statement",
+          "original": "../scratchpad/snapshot-lookup.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi-steering.ts": {
+      "bytes": 4974,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-kill.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-kill.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi-timers.ts": {
+      "bytes": 13956,
+      "imports": [
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../../config/defaults.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-constants.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-constants.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-kill.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-kill.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/mock-fixtures.ts": {
+      "bytes": 7232,
+      "imports": [
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/env-vars.ts",
+          "kind": "import-statement",
+          "original": "../../config/env-vars.ts"
+        },
+        {
+          "path": "src/state/atomic-write.ts",
+          "kind": "import-statement",
+          "original": "../../state/atomic-write.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/process/post-exit-stdio-guard.ts": {
+      "bytes": 3073,
+      "imports": [
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        }
+      ],
+      "format": "esm"
+    },
+    "src/runtime/recovery/crash-classification.ts": {
+      "bytes": 8547,
+      "imports": [],
+      "format": "esm"
+    },
+    "src/runtime/child-pi/child-pi.ts": {
+      "bytes": 54092,
+      "imports": [
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "src/config/config.ts",
+          "kind": "import-statement",
+          "original": "../../config/config.ts"
+        },
+        {
+          "path": "src/config/env-vars.ts",
+          "kind": "import-statement",
+          "original": "../../config/env-vars.ts"
+        },
+        {
+          "path": "src/extension/crew-cleanup.ts",
+          "kind": "import-statement",
+          "original": "../../extension/crew-cleanup.ts"
+        },
+        {
+          "path": "src/ui/run-event-bus.ts",
+          "kind": "import-statement",
+          "original": "../../ui/run-event-bus.ts"
+        },
+        {
+          "path": "src/utils/internal-error.ts",
+          "kind": "import-statement",
+          "original": "../../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/redaction.ts",
+          "kind": "import-statement",
+          "original": "../../utils/redaction.ts"
+        },
+        {
+          "path": "src/runtime/broker/broker-issuer.ts",
+          "kind": "import-statement",
+          "original": "../broker/broker-issuer.ts"
+        },
+        {
+          "path": "src/runtime/compaction/compact-stages/bounded-tail.ts",
+          "kind": "import-statement",
+          "original": "../compaction/compact-stages/bounded-tail.ts"
+        },
+        {
+          "path": "src/runtime/event-log-tail-source.ts",
+          "kind": "import-statement",
+          "original": "../event-log-tail-source.ts"
+        },
+        {
+          "path": "src/runtime/event-stream-bridge.ts",
+          "kind": "import-statement",
+          "original": "../event-stream-bridge.ts"
+        },
+        {
+          "path": "src/runtime/surface/degrade.ts",
+          "kind": "import-statement",
+          "original": "../surface/degrade.ts"
+        },
+        {
+          "path": "src/runtime/surface/surface-spawn.ts",
+          "kind": "import-statement",
+          "original": "../surface/surface-spawn.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-constants.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-constants.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-kill.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-kill.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-spawn.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-steering.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-steering.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-streams.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-streams.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-timers.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-timers.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/mock-fixtures.ts",
+          "kind": "import-statement",
+          "original": "./mock-fixtures.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-kill.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-kill.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-spawn.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-spawn.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-streams.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-streams.ts"
+        },
+        {
+          "path": "src/runtime/model/pi-args.ts",
+          "kind": "import-statement",
+          "original": "../model/pi-args.ts"
+        },
+        {
+          "path": "src/runtime/process/post-exit-stdio-guard.ts",
+          "kind": "import-statement",
+          "original": "../process/post-exit-stdio-guard.ts"
+        },
+        {
+          "path": "src/runtime/recovery/crash-classification.ts",
+          "kind": "import-statement",
+          "original": "../recovery/crash-classification.ts"
+        },
+        {
+          "path": "src/runtime/child-pi/child-pi-transcript.ts",
+          "kind": "import-statement",
+          "original": "./child-pi-transcript.ts"
         }
       ],
       "format": "esm"
@@ -15645,7 +15645,7 @@
       "format": "esm"
     },
     "src/extension/registration/team-tool.ts": {
-      "bytes": 16297,
+      "bytes": 16285,
       "imports": [
         {
           "path": "node:fs",
@@ -21296,7 +21296,7 @@
       "format": "esm"
     },
     "src/extension/register.ts": {
-      "bytes": 7166,
+      "bytes": 7106,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -21342,11 +21342,6 @@
           "path": "src/extension/context-status-injection.ts",
           "kind": "import-statement",
           "original": "./context-status-injection.ts"
-        },
-        {
-          "path": "src/extension/crew-cleanup.ts",
-          "kind": "import-statement",
-          "original": "./crew-cleanup.ts"
         },
         {
           "path": "src/extension/crew-input-router.ts",
@@ -21483,7 +21478,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8196554
+      "bytes": 8196517
     },
     "dist/index.mjs": {
       "imports": [
@@ -21733,12 +21728,22 @@
           "external": true
         },
         {
-          "path": "node:os",
+          "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
           "kind": "import-statement",
           "external": true
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:crypto",
           "kind": "import-statement",
           "external": true
         },
@@ -21789,171 +21794,6 @@
         },
         {
           "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:crypto",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:net",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:worker_threads",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:os",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:child_process",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:fs",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:path",
-          "kind": "import-statement",
-          "external": true
-        },
-        {
-          "path": "node:crypto",
           "kind": "import-statement",
           "external": true
         },
@@ -22004,6 +21844,56 @@
         },
         {
           "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:net",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:worker_threads",
           "kind": "import-statement",
           "external": true
         },
@@ -22324,6 +22214,111 @@
         },
         {
           "path": "node:crypto",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:os",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:child_process",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:fs",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:path",
           "kind": "import-statement",
           "external": true
         },
@@ -24247,17 +24242,32 @@
         "src/extension/run-index.ts": {
           "bytesInOutput": 3493
         },
-        "src/runtime/model/pi-args.ts": {
-          "bytesInOutput": 15884
+        "src/utils/file-coalescer.ts": {
+          "bytesInOutput": 1211
         },
-        "src/ui/inline-panel/view-session-store.ts": {
-          "bytesInOutput": 395
+        "src/utils/redaction.ts": {
+          "bytesInOutput": 9094
+        },
+        "src/runtime/crew-agent-runtime.ts": {
+          "bytesInOutput": 492
+        },
+        "src/runtime/crew-agent-records.ts": {
+          "bytesInOutput": 22615
         },
         "src/errors.ts": {
           "bytesInOutput": 8101
         },
-        "src/utils/redaction.ts": {
-          "bytesInOutput": 9094
+        "src/utils/task-name-generator.ts": {
+          "bytesInOutput": 106
+        },
+        "src/utils/ids.ts": {
+          "bytesInOutput": 589
+        },
+        "src/state/contracts.ts": {
+          "bytesInOutput": 2294
+        },
+        "src/ui/run-event-bus.ts": {
+          "bytesInOutput": 11114
         },
         "src/state/event-log/event-log-rotation.ts": {
           "bytesInOutput": 7572
@@ -24273,129 +24283,6 @@
         },
         "src/state/event-log/event-log.ts": {
           "bytesInOutput": 26321
-        },
-        "src/ui/run-event-bus.ts": {
-          "bytesInOutput": 11114
-        },
-        "src/runtime/broker/broker-issuer.ts": {
-          "bytesInOutput": 687
-        },
-        "src/runtime/compaction/compact-stages/bounded-tail.ts": {
-          "bytesInOutput": 2161
-        },
-        "src/utils/fs-watch.ts": {
-          "bytesInOutput": 468
-        },
-        "src/runtime/output/pi-json-output.ts": {
-          "bytesInOutput": 4334
-        },
-        "src/runtime/child-pi/child-pi-constants.ts": {
-          "bytesInOutput": 938
-        },
-        "src/runtime/compaction/compact-pipeline.ts": {
-          "bytesInOutput": 523
-        },
-        "src/runtime/compaction/important-line-classifier.ts": {
-          "bytesInOutput": 2461
-        },
-        "src/runtime/compaction/compact-stages/truncation-stage.ts": {
-          "bytesInOutput": 1878
-        },
-        "src/runtime/child-pi/child-pi-transcript.ts": {
-          "bytesInOutput": 3643
-        },
-        "src/runtime/child-pi/child-pi-streams.ts": {
-          "bytesInOutput": 9786
-        },
-        "src/runtime/event-log-tail-source.ts": {
-          "bytesInOutput": 7095
-        },
-        "src/runtime/subprocess-tool-registry.ts": {
-          "bytesInOutput": 1136
-        },
-        "src/runtime/event-stream-bridge.ts": {
-          "bytesInOutput": 2321
-        },
-        "src/runtime/surface/degrade.ts": {
-          "bytesInOutput": 16418
-        },
-        "src/utils/file-coalescer.ts": {
-          "bytesInOutput": 1211
-        },
-        "src/runtime/crew-agent-runtime.ts": {
-          "bytesInOutput": 492
-        },
-        "src/runtime/crew-agent-records.ts": {
-          "bytesInOutput": 22615
-        },
-        "src/runtime/process/proc-stat.ts": {
-          "bytesInOutput": 611
-        },
-        "src/runtime/surface/launch-script.ts": {
-          "bytesInOutput": 2816
-        },
-        "src/runtime/surface/surface-provider.ts": {
-          "bytesInOutput": 243
-        },
-        "src/runtime/surface/herdr-provider.ts": {
-          "bytesInOutput": 11069
-        },
-        "src/runtime/surface/tmux-provider.ts": {
-          "bytesInOutput": 9790
-        },
-        "src/runtime/surface/resolve-surface.ts": {
-          "bytesInOutput": 4882
-        },
-        "src/runtime/surface/surface-spawn.ts": {
-          "bytesInOutput": 8498
-        },
-        "src/runtime/compaction/compact-stages/tail-capture-stage.ts": {
-          "bytesInOutput": 1820
-        },
-        "src/runtime/child-pi/child-pi-kill.ts": {
-          "bytesInOutput": 3911
-        },
-        "src/utils/env-allowlist.ts": {
-          "bytesInOutput": 291
-        },
-        "src/utils/env-filter.ts": {
-          "bytesInOutput": 3707
-        },
-        "src/runtime/scratchpad/snapshot-lookup.ts": {
-          "bytesInOutput": 1570
-        },
-        "src/runtime/child-pi/child-pi-spawn.ts": {
-          "bytesInOutput": 7928
-        },
-        "src/runtime/child-pi/child-pi-steering.ts": {
-          "bytesInOutput": 2926
-        },
-        "src/runtime/child-pi/child-pi-timers.ts": {
-          "bytesInOutput": 7552
-        },
-        "src/runtime/child-pi/mock-fixtures.ts": {
-          "bytesInOutput": 4757
-        },
-        "src/runtime/process/post-exit-stdio-guard.ts": {
-          "bytesInOutput": 2032
-        },
-        "src/runtime/recovery/crash-classification.ts": {
-          "bytesInOutput": 2909
-        },
-        "src/runtime/child-pi/child-pi.ts": {
-          "bytesInOutput": 27115
-        },
-        "src/extension/crew-cleanup.ts": {
-          "bytesInOutput": 3103
-        },
-        "src/utils/task-name-generator.ts": {
-          "bytesInOutput": 106
-        },
-        "src/utils/ids.ts": {
-          "bytesInOutput": 589
-        },
-        "src/state/contracts.ts": {
-          "bytesInOutput": 2294
         },
         "src/state/types.ts": {
           "bytesInOutput": 206
@@ -24444,6 +24331,21 @@
         },
         "src/extension/team-tool/handle-schedule.ts": {
           "bytesInOutput": 10663
+        },
+        "src/runtime/model/pi-args.ts": {
+          "bytesInOutput": 15884
+        },
+        "src/runtime/surface/surface-provider.ts": {
+          "bytesInOutput": 243
+        },
+        "src/runtime/surface/herdr-provider.ts": {
+          "bytesInOutput": 11069
+        },
+        "src/runtime/surface/tmux-provider.ts": {
+          "bytesInOutput": 9790
+        },
+        "src/runtime/surface/resolve-surface.ts": {
+          "bytesInOutput": 4882
         },
         "src/runtime/usage-tracker.ts": {
           "bytesInOutput": 901
@@ -24494,7 +24396,7 @@
           "bytesInOutput": 6610
         },
         "src/runtime/stale-reconciler.ts": {
-          "bytesInOutput": 17627
+          "bytesInOutput": 17624
         },
         "src/runtime/recovery/crash-recovery.ts": {
           "bytesInOutput": 19530
@@ -24518,7 +24420,7 @@
           "bytesInOutput": 4313
         },
         "src/ui/transcript-viewer.ts": {
-          "bytesInOutput": 17032
+          "bytesInOutput": 17029
         },
         "src/extension/registration/viewers.ts": {
           "bytesInOutput": 4807
@@ -24573,6 +24475,9 @@
         },
         "src/runtime/model/session-model.ts": {
           "bytesInOutput": 2915
+        },
+        "src/runtime/output/pi-json-output.ts": {
+          "bytesInOutput": 4337
         },
         "src/extension/team-tool/config-patch.ts": {
           "bytesInOutput": 1876
@@ -24643,6 +24548,9 @@
         "src/runtime/foreground-control.ts": {
           "bytesInOutput": 5015
         },
+        "src/runtime/compaction/compact-stages/bounded-tail.ts": {
+          "bytesInOutput": 2161
+        },
         "src/runtime/custom-tools/irc-tool.ts": {
           "bytesInOutput": 6051
         },
@@ -24660,6 +24568,9 @@
         },
         "src/runtime/sensitive-paths.ts": {
           "bytesInOutput": 583
+        },
+        "src/runtime/subprocess-tool-registry.ts": {
+          "bytesInOutput": 1136
         },
         "node_modules/ajv/dist/compile/codegen/code.js": {
           "bytesInOutput": 4834
@@ -24875,7 +24786,7 @@
           "bytesInOutput": 1356
         },
         "src/runtime/live-session/live-session-runtime.ts": {
-          "bytesInOutput": 33395
+          "bytesInOutput": 33392
         },
         "src/utils/glob-match.ts": {
           "bytesInOutput": 400
@@ -24900,6 +24811,90 @@
         },
         "src/extension/team-tool/dispatch/automate.ts": {
           "bytesInOutput": 2101
+        },
+        "src/ui/inline-panel/view-session-store.ts": {
+          "bytesInOutput": 395
+        },
+        "src/extension/crew-cleanup.ts": {
+          "bytesInOutput": 3103
+        },
+        "src/runtime/broker/broker-issuer.ts": {
+          "bytesInOutput": 687
+        },
+        "src/utils/fs-watch.ts": {
+          "bytesInOutput": 468
+        },
+        "src/runtime/child-pi/child-pi-constants.ts": {
+          "bytesInOutput": 938
+        },
+        "src/runtime/compaction/compact-pipeline.ts": {
+          "bytesInOutput": 523
+        },
+        "src/runtime/compaction/important-line-classifier.ts": {
+          "bytesInOutput": 2461
+        },
+        "src/runtime/compaction/compact-stages/truncation-stage.ts": {
+          "bytesInOutput": 1878
+        },
+        "src/runtime/child-pi/child-pi-transcript.ts": {
+          "bytesInOutput": 3644
+        },
+        "src/runtime/child-pi/child-pi-streams.ts": {
+          "bytesInOutput": 9787
+        },
+        "src/runtime/event-log-tail-source.ts": {
+          "bytesInOutput": 7095
+        },
+        "src/runtime/event-stream-bridge.ts": {
+          "bytesInOutput": 2321
+        },
+        "src/runtime/surface/degrade.ts": {
+          "bytesInOutput": 16418
+        },
+        "src/runtime/process/proc-stat.ts": {
+          "bytesInOutput": 611
+        },
+        "src/runtime/surface/launch-script.ts": {
+          "bytesInOutput": 2816
+        },
+        "src/runtime/surface/surface-spawn.ts": {
+          "bytesInOutput": 8498
+        },
+        "src/runtime/compaction/compact-stages/tail-capture-stage.ts": {
+          "bytesInOutput": 1820
+        },
+        "src/runtime/child-pi/child-pi-kill.ts": {
+          "bytesInOutput": 3911
+        },
+        "src/utils/env-allowlist.ts": {
+          "bytesInOutput": 291
+        },
+        "src/utils/env-filter.ts": {
+          "bytesInOutput": 3707
+        },
+        "src/runtime/scratchpad/snapshot-lookup.ts": {
+          "bytesInOutput": 1573
+        },
+        "src/runtime/child-pi/child-pi-spawn.ts": {
+          "bytesInOutput": 7928
+        },
+        "src/runtime/child-pi/child-pi-steering.ts": {
+          "bytesInOutput": 2926
+        },
+        "src/runtime/child-pi/child-pi-timers.ts": {
+          "bytesInOutput": 7552
+        },
+        "src/runtime/child-pi/mock-fixtures.ts": {
+          "bytesInOutput": 4759
+        },
+        "src/runtime/process/post-exit-stdio-guard.ts": {
+          "bytesInOutput": 2032
+        },
+        "src/runtime/recovery/crash-classification.ts": {
+          "bytesInOutput": 2909
+        },
+        "src/runtime/child-pi/child-pi.ts": {
+          "bytesInOutput": 27116
         },
         "src/extension/team-tool/intent-policy.ts": {
           "bytesInOutput": 1245
@@ -25610,7 +25605,7 @@
           "bytesInOutput": 3150
         },
         "src/extension/register.ts": {
-          "bytesInOutput": 2431
+          "bytesInOutput": 2410
         },
         "src/config/migration-validator.ts": {
           "bytesInOutput": 1081
@@ -25805,7 +25800,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3413989
+      "bytes": 3413940
     }
   }
 }
