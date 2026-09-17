@@ -1,9 +1,9 @@
-# Verification + Gap-Finding Round — AUDIT-2026-08-03.md
+# Verification + Gap-Finding Round — docs/archive/AUDIT-2026-08-03.md
 
 **Date:** 2026-08-03 (same day as source audit)
 **HEAD:** e9bb3aca, v0.9.57
 **Method:** Skill `iterative-audit`, round type = **verification of prior audit doc against source** (skill rule: "Never trust audit docs — ~30% are false positives or already fixed"). 4 parallel read-only auditors (security / runtime+locks / state / perf).
-**Baseline doc:** `docs/AUDIT-2026-08-03.md`
+**Baseline doc:** `docs/archive/AUDIT-2026-08-03.md`
 
 ---
 

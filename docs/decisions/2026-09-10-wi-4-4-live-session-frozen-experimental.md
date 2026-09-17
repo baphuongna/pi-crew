@@ -5,7 +5,7 @@
 **Supersedes**: existing `live-session.experimental` warn-once (unchanged)
 **Refs**:
 - `pi-crew-upgrade-spec.md` §5 M4 / WI-4.4
-- `docs/improvement-plan-2026-08-09.md` (precursor plan)
+- `docs/archive/improvement-plan-2026-08-09.md` (precursor plan)
 - `docs/perf/performance-audit-2026-07-29.md` P2-29, P2-14
 - `docs/TEST_MATRIX.md` (live-session row)
 

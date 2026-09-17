@@ -308,9 +308,9 @@ FIXED — see the Wave 1A remediation section above. Genuinely remaining:
 
 ## References
 
-- Plan: `docs/refactor-plan.md` Phase 5 rows 5.1/5.2 (Round 4 verdict SOUND-LOW,
+- Plan: `docs/archive/refactor-plan.md` Phase 5 rows 5.1/5.2 (Round 4 verdict SOUND-LOW,
   Round 19 premise update).
-- Review: `docs/refactor-plan.review.md` §ROUND 4 P3 (S-R5/S-R6/S-R7),
+- Review: `docs/archive/refactor-plan.review.md` §ROUND 4 P3 (S-R5/S-R6/S-R7),
   §ROUND 19 Part A (F19-1/2/3, F19-4, F19-5; Wave 1A items S19-1/2/5, F19-6/7).
 - Code: `src/schema/config-schema.ts`, `src/schema/sensitive-config-paths.ts`,
   `src/config/sanitize-project-config.ts`, `src/config/config-validation.ts`,

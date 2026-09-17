@@ -1,6 +1,6 @@
 # Implementation Plan — RLM/scratchpad Fixes (sau verification 2026-08-12)
 
-> Source of truth: `rlm-deep-review-2026-08-12.md` (đã sửa). Mỗi phần có verification evidence.
+> Source of truth: `docs/archive/rlm-deep-review-2026-08-12.md` (đã sửa). Mỗi phần có verification evidence.
 > Workflow mỗi phần: **implement → loop review (3 reviewer song song: security / correctness / tests, read-only) → fix findings → typecheck + test → commit note**.
 
 ## Scope (6 phần không-blocked)

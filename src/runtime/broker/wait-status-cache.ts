@@ -1,7 +1,7 @@
 /**
  * wait-status-cache.ts — R10-3: mtime+size-gated load cache for task.waitStatus.
  *
- * Problem (docs/refactor-plan.review.md §Round 10, R10-3): the broker's
+ * Problem (docs/archive/refactor-plan.review.md §Round 10, R10-3): the broker's
  * task.waitStatus poll loop ticks every 200ms per waiter and each tick calls
  * loadRunManifestById() — stat manifest + stat tasks + (on the state-store
  * manifest-cache miss, which every write invalidates via generation bump) a

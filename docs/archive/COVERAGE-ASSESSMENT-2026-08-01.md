@@ -104,7 +104,7 @@ Followed the structural assessment (runtime/ had 156 flat files — the "mess").
 
 **Verification (post-reorg)**: unit 6700/6697/0 fail · integration 208/0 · typecheck 0 · lint 0 errors · bundle rebuilt. Real-LLM E2E still green (6 workflows).
 
-**Note on older docs**: `AUDIT-2026-07-30.md`, `REMEDIATION-PLAN-2026-07-30.md`, and `docs/perf/*` reference pre-reorg paths (e.g. `src/runtime/child-pi-spawn.ts` → now `src/runtime/child-pi/child-pi-spawn.ts`; `src/runtime/crew-broker-*.ts` → `src/runtime/broker/`). These are historical snapshots; the cluster map above is authoritative for current structure.
+**Note on older docs**: `docs/archive/AUDIT-2026-07-30.md`, `docs/archive/REMEDIATION-PLAN-2026-07-30.md`, and `docs/perf/*` reference pre-reorg paths (e.g. `src/runtime/child-pi-spawn.ts` → now `src/runtime/child-pi/child-pi-spawn.ts`; `src/runtime/crew-broker-*.ts` → `src/runtime/broker/`). These are historical snapshots; the cluster map above is authoritative for current structure.
 
 ### Update (2026-08-03): Phase 3-7 complete — full source reorg done
 

@@ -12,7 +12,7 @@
  * applyTerminalRunEventToManifests, plus an end-to-end check against the real
  * runEventBus mirroring the setupRenderLoop onAny wiring.
  *
- * See docs/cross-session-leak-fix-plan.md "Phase 5" and
+ * See docs/archive/cross-session-leak-fix-plan.md "Phase 5" and
  * docs/bugs/bug-026-runner-reliability-gaps.md sub-issue C.
  */
 import assert from "node:assert/strict";

@@ -1,6 +1,6 @@
 # pi-crew v0.9.56 — Test Strategy (mọi trường hợp × mọi loại test)
 
-**Mục tiêu:** đảm bảo MỖI finding được cover bởi đúng loại test và MỌI trường hợp (happy / failure / boundary / adversarial / concurrent), có **mutation check** cho HIGH-risk, và **security PoC** cho security findings. Bổ sung/ràng buộc cho `REMEDIATION-PLAN-2026-07-30.md`.
+**Mục tiêu:** đảm bảo MỖI finding được cover bởi đúng loại test và MỌI trường hợp (happy / failure / boundary / adversarial / concurrent), có **mutation check** cho HIGH-risk, và **security PoC** cho security findings. Bổ sung/ràng buộc cho `docs/archive/REMEDIATION-PLAN-2026-07-30.md`.
 
 ---
 

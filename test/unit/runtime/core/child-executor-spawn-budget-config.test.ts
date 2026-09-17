@@ -12,8 +12,8 @@
  * immutable-snapshot invariant (the same `TeamTaskState` object may already
  * be referenced by the `tasks` array / snapshots) is preserved.
  *
- * See docs/AUDIT-2026-07-30.md (### RT-6, ### RT-8) +
- * docs/TEST-STRATEGY-2026-07-30.md.
+ * See docs/archive/AUDIT-2026-07-30.md (### RT-6, ### RT-8) +
+ * docs/archive/TEST-STRATEGY-2026-07-30.md.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";

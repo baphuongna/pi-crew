@@ -4,7 +4,7 @@
 **Status**: ACCEPTED — **verdict: DEFER** (precondition window not satisfied)
 **Refs**:
 - pi-crew-upgrade-spec.md §5 M5 / WI-5.2
-- docs/improvement-plan-2026-08-11.md §5 (I5 follow-up)
+- docs/archive/improvement-plan-2026-08-11.md §5 (I5 follow-up)
 - ADR 2026-08-12 (scratchpad HMAC REMOVED — anti-claim)
 
 ## Spec gate (verbatim)
@@ -58,7 +58,7 @@ captured since registration. This means:
    failure, not a soft one. Spec says: "thiếu → DEFER là verdict hợp
    lệ".
 2. Re-evaluating without wiring the emit path is impossible. The emit
-   path is I5's prescribed fix in `docs/improvement-plan-2026-08-11.md`
+   path is I5's prescribed fix in `docs/archive/improvement-plan-2026-08-11.md`
    (§I5: use `appendEventFireAndForget` / `void appendEventAsync().catch(
    logInternalError)` — H1 pattern). Wiring that emit path ITSELF is
    separate work that should be a follow-up ADR (out of scope for WI-5.2).
@@ -97,6 +97,6 @@ This ADR is superseded when ANY:
 ## Citation
 
 - Spec: pi-crew-upgrade-spec.md §5 M5 / WI-5.2
-- Plan: docs/improvement-plan-2026-08-11.md §I5
+- Plan: docs/archive/improvement-plan-2026-08-11.md §I5
 - Event types: src/state/contracts.ts:155-157
 - Run data: .crew/state/ (last 30 days; 0 emitted events)

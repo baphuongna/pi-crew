@@ -20,7 +20,7 @@
  * `deps` (values) + `state` (getters/setters over the runChildPi-local flags)
  * so behavior is preserved byte-for-byte.
  *
- * R6-F1 (refactor-plan.review.md §ROUND 6): clearAll() MUST cover all six
+ * R6-F1 (docs/archive/refactor-plan.review.md §ROUND 6): clearAll() MUST cover all six
  * constructs — previously cancelHardKill was a local const inside abort() and
  * was NOT cleared by clearChildPiTimeouts(), leaking a 200 ms unref'd timer per
  * cancel on short-lived children.

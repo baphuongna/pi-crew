@@ -883,7 +883,7 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		let tasks: TeamTaskState[];
 		let agents: CrewAgentRecord[];
 		try {
-			// R10-4 (docs/refactor-plan.review.md §ROUND 10): sync/async parity.
+			// R10-4 (docs/archive/refactor-plan.review.md §ROUND 10): sync/async parity.
 			// loadRunManifestById already returns tasks validated against the
 			// current tasks.json (mtime+size+generation check in state-store),
 			// so the old readTasks() re-read only doubled tasks.json I/O per

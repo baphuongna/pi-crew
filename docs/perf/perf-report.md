@@ -66,7 +66,7 @@
 | `test:unit` (full ~800 file) | **>900s — không hoàn tất trong 15 phút budget** (bị cut) — số chính xác chờ M3/WI-3.0 đo trên máy idle/CI runner |
 | `test:integration` | chưa đo (M3) |
 
-Chi tiết + note flaky timeout: `docs/test-tiering-phase1.md`.
+Chi tiết + note flaky timeout: `docs/archive/test-tiering-phase1.md`.
 
 ---
 
@@ -112,7 +112,7 @@ node scripts/run-bench.mjs     # runs legacy test/bench + bench/b*.bench.ts
 - No event-loop blocking (spawn is async); the RSS delta is near-zero because
   the child is detached (`setsid`).
 - A full spawn + broker-handshake + first-LLM-turn probe needs a live Pi
-  session + credentials — TODO in perf-analysis.md §7.
+  session + credentials — TODO in docs/perf/perf-analysis.md §7.
 
 ## 2. b2 — broker handshake + round-trip (real unix-socket CrewBroker)
 

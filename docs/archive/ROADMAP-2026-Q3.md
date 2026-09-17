@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 
-Companion to `docs/improvement-plan-2026-08-09.md` (maintainability inventory),
+Companion to `docs/archive/improvement-plan-2026-08-09.md` (maintainability inventory),
 `docs/stories/backlog.md` (story backlog), and `docs/decisions/` (ADRs). This
 document is a planning artifact, not an accepted spec — see `AGENTS.md`
 source-of-truth order.
@@ -110,5 +110,5 @@ can consume exported run bundles without manual migration.
 
 ## Change log
 
-- 2026-08-10: initial draft from assessment of `improvement-plan-2026-08-09.md`,
+- 2026-08-10: initial draft from assessment of `docs/archive/improvement-plan-2026-08-09.md`,
   `stories/backlog.md`, `README.md`, ADR set (2026-08-10 ×3).

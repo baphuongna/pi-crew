@@ -8,7 +8,7 @@
 
 Phase 3.1 of the maintainability refactor audits the lock families and asks
 whether they can be unified into one shared primitive. The audit verdict
-(`docs/refactor-plan.review.md` §ROUND 4 P1) was **RISKY (HIGH)** for naive
+(`docs/archive/refactor-plan.review.md` §ROUND 4 P1) was **RISKY (HIGH)** for naive
 unification: the families are NOT "the same primitives with the same
 parameters and the same on-disk format". The reframed plan (row 3.1) therefore
 required an ADR choosing ONE of:
@@ -157,9 +157,9 @@ move + re-export added value with LOW risk. **It was not created.** Reasons:
 
 ## References
 
-- Plan: `docs/refactor-plan.md` Phase 3 rows 3.0/3.1 (decision α/β framing),
+- Plan: `docs/archive/refactor-plan.md` Phase 3 rows 3.0/3.1 (decision α/β framing),
   Risk register "Round 4 — lock family divergence".
-- Review: `docs/refactor-plan.review.md` §ROUND 4 P1 (4 divergences,
+- Review: `docs/archive/refactor-plan.review.md` §ROUND 4 P1 (4 divergences,
   S-R1/S-R2/S-R3), §ROUND 16/17/18 (event-log dual-namespace, empirical
   seq-dup, lock ordering).
 - Code: `src/state/coordination/locks.ts`, `src/runtime/crew-agent-records.ts`,

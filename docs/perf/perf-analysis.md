@@ -1,6 +1,6 @@
 # pi-crew Performance Analysis (v0.9.62)
 
-> Companion to [`perf-report.md`](./perf-report.md) (measured numbers) and the
+> Companion to [`docs/perf/perf-report.md`](./perf-report.md) (measured numbers) and the
 > `bench/b*.bench.ts` suite (repeatable measurements).
 
 ## 1. Architecture at a glance
@@ -49,7 +49,7 @@ its I/O pattern is the key to reasoning about performance.
 **Known cost (measured in b4):** sync append ≈ **14 ms/event** (~70 events/s) —
 lock acquisition + fsync dominate; it blocks the event loop (uses `sleepSync`).
 Async append ≈ **1 ms/event** (~900 events/s); buffered ≈ **0.3 ms/event** at
-1k. See [`perf-report.md`](./perf-report.md#b4-event-log) for the table.
+1k. See [`docs/perf/perf-report.md`](./perf-report.md#b4-event-log) for the table.
 
 ### 2.2 observation-store (`src/state/stores/observation-store.ts`)
 

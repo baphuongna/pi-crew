@@ -112,7 +112,7 @@ function readSettingsFile(filePath: string): CrewSettings {
  * API — never this function. Kept exported for back-compat reads/tests;
  * adding a new consumer that writes into loadedConfig re-introduces the
  * fixed P1 bypass (see docs/decisions/2026-08-15-schema-driven-sanitize.md
- * and the Wave 2B execution log in docs/refactor-plan.md).
+ * and the Wave 2B execution log in docs/archive/refactor-plan.md).
  */
 export function loadCrewSettings(cwd: string = process.cwd(), globalFile: string = globalPath()): CrewSettings {
 	return {

@@ -1,56 +1,67 @@
-# docs/ — documentation index
+# pi-crew docs
 
-pi-crew's documentation. After the v0.9.x reorg the **living/active** docs
-stay at the root of this directory; historical/retired docs live in
-[`archive/`](./archive/). Cluster maps for the code live in
-[`src/runtime/README.md`](../src/runtime/README.md) and
-[`src/state/README.md`](../src/state/README.md).
+Documentation for the pi-crew package (multi-agent team orchestration as a Pi
+extension). The root of `docs/` holds only **living** docs; dated point-in-time
+material (audits, plans, fix specs, roadmaps) is archived under
+[`archive/`](./archive/).
 
-## Living docs (root)
+## Start here
 
 | Doc | Contents |
 |-----|----------|
-| [`usage.md`](./usage.md) | Usage patterns + config examples |
-| [`commands-reference.md`](./commands-reference.md) | Slash commands + `/team-api` |
-| [`actions-reference.md`](./actions-reference.md) | Full tool actions + examples |
-| [`resource-formats.md`](./resource-formats.md) | Agent/team/workflow file formats |
-| [`architecture.md`](./architecture.md) | Internal architecture + run flow |
-| [`runtime-flow.md`](./runtime-flow.md) | Runtime execution details |
-| [`dynamic-workflows.md`](./dynamic-workflows.md) | `.dwf.ts` script runtime + trust model |
-| [`goals.md`](./goals.md) | Autonomous goal loops (`team action='goal'`) |
-| [`live-mailbox-runtime.md`](./live-mailbox-runtime.md) | Mailbox + live-session runtime |
-| [`troubleshooting.md`](./troubleshooting.md) | Common errors, recovery, error-code reference (E001–E012) |
-| [`publishing.md`](./publishing.md) | Release & publish process |
-| [`migration-v0.4-v0.5.md`](./migration-v0.4-v0.5.md) | Migration guide: v0.4 → v0.5 |
-| [`HARNESS.md`](./HARNESS.md) | Agent-testing harness operating model |
-| [`HARNESS_BACKLOG.md`](./HARNESS_BACKLOG.md) | Harness capability backlog |
-| [`FEATURE_INTAKE.md`](./FEATURE_INTAKE.md) | Feature-intake gate for implementation prompts |
-| [`TEST_MATRIX.md`](./TEST_MATRIX.md) | Behavior→proof mapping (every row needs real evidence) |
-| [`TEST-STRATEGY-2026-07-30.md`](./TEST-STRATEGY-2026-07-30.md) | v0.9.56 test strategy (coverage × test type) |
-| [`COVERAGE-ASSESSMENT-2026-08-01.md`](./COVERAGE-ASSESSMENT-2026-08-01.md) | v0.9.56 coverage assessment + source-reorg history |
-| [`AUDIT-2026-07-30.md`](./AUDIT-2026-07-30.md) | v0.9.56 comprehensive audit (6 parallel streams) |
-| [`REMEDIATION-PLAN-2026-07-30.md`](./REMEDIATION-PLAN-2026-07-30.md) | v0.9.56 remediation plan |
-| [`refactor-plan.md`](./refactor-plan.md) | Maintainability refactor plan (phased, v0.9.68) |
-| [`refactor-plan.review.md`](./refactor-plan.review.md) | Verification sweep 3 (vòng 4) audit trail — 3 large-file baselines CONFIRMED, 6 corrections, Phase 4 reframe |
+| [`../README.md`](../README.md) | Package README — what pi-crew is, install, quickstart |
+| [`usage.md`](./usage.md) | Config, run modes, slash commands, management actions |
+| [`architecture.md`](./architecture.md) | Layers, state layout, and the run lifecycle (the former `runtime-flow.md` content lives here) |
+| [`troubleshooting.md`](./troubleshooting.md) | Common errors, recovery procedures, error codes (E001–E013) |
 
-## Subdirectories
+## Reference
+
+| Doc | Contents |
+|-----|----------|
+| [`actions-reference.md`](./actions-reference.md) | Every `team` tool action with parameters and examples |
+| [`commands-reference.md`](./commands-reference.md) | Slash commands and `/team-api` |
+| [`hooks-reference.md`](./hooks-reference.md) | The three hook/event subsystems and when to use each |
+| [`role-tools.md`](./role-tools.md) | Role → tool permission matrix. **Generated** from `src/config/role-tools.ts` via `scripts/gen-role-tools-docs.mjs` — regenerate, do not hand-edit |
+| [`resource-formats.md`](./resource-formats.md) | Agent/team/workflow file formats |
+| [`trust-model.md`](./trust-model.md) | The authoritative trust model (single source of truth) |
+| [`goals.md`](./goals.md) | Autonomous goal loops (`team action='goal'`) |
+| [`dynamic-workflows.md`](./dynamic-workflows.md) | `.dwf.ts` script workflows and their trust model |
+| [`live-mailbox-runtime.md`](./live-mailbox-runtime.md) | Mailbox files and the live-session runtime direction |
+| [`UI-DESIGN-SYSTEM.md`](./UI-DESIGN-SYSTEM.md) | RAIL design contract for TUI surfaces (primitive source: `src/ui/rail.ts`) |
+| [`publishing.md`](./publishing.md) | npm release and publish process |
+| [`failure-mode-inventory.md`](./failure-mode-inventory.md) | Failure modes mapped to their handlers; gaps are declared, not hidden |
+| [`TEST_MATRIX.md`](./TEST_MATRIX.md) | Behavior → proof mapping; every row needs real evidence |
+| [`HARNESS.md`](./HARNESS.md) | Development-harness operating model for building pi-crew itself |
+| [`HARNESS_BACKLOG.md`](./HARNESS_BACKLOG.md) | Harness capability backlog (HB-xxx items) |
+| [`FEATURE_INTAKE.md`](./FEATURE_INTAKE.md) | Intake gate every implementation prompt must pass |
+
+## Records
+
+Historical and supporting material lives in subdirectories. These are records,
+not living specs — verify against code before relying on them.
 
 | Subdir | Contents |
 |--------|----------|
-| [`archive/`](./archive/) | Historical/retired docs (flat; ~59 files — audits, research, superseded plans) |
-| [`bugs/`](./bugs/) | Bug write-ups + security audit/issues |
-| [`decisions/`](./decisions/) | Architecture decision records (ADRs, numbered) |
-| [`distillation/`](./distillation/) | Distilled pattern/skill references |
-| [`fixes/`](./fixes/) | Bug-fix reports |
-| [`migration/`](./migration/) | Migration guides (e.g. atomic-write v2) |
-| [`patterns/`](./patterns/) | Reusable pattern references |
-| [`perf/`](./perf/) | Performance audits, sprint reports, optimization plans |
-| [`product/`](./product/) | Product-domain docs |
-| [`skills/`](./skills/) | pi-crew skills reference |
-| [`stories/`](./stories/) | Story-sized work packets |
-| [`superpowers/`](./superpowers/) | Fallow-patterns adoption plans |
-| [`templates/`](./templates/) | Decision / story / validation-report templates |
+| [`decisions/`](./decisions/) | Architecture decision records (ADRs); index in its README |
+| [`design/`](./design/) | Design and implementation-plan docs for features in flight (subagent-v2, inline agent panel, work-item splits) |
+| [`bugs/`](./bugs/) | Bug write-ups plus security audits/issues |
+| [`fixes/`](./fixes/) | Per-bug fix reports: root cause, evidence, applied layers |
+| [`perf/`](./perf/) | Performance baselines, bench reports, optimization plans, sprint reports |
+| [`archive/`](./archive/) | Dated point-in-time docs (audits, plans, fix specs, roadmaps) kept for history |
+| [`ui-samples/`](./ui-samples/) | TUI surface catalog: captures rendered by the real render functions, PNGs, and generator scripts |
+| [`real-test/`](./real-test/) | Real-binary test session reports and probe logs |
+| [`evidence/`](./evidence/) | Raw evidence logs captured for work items (e.g., RED demos) |
+| [`migration/`](./migration/) | Migration guides (e.g., atomic-write v2) |
+| [`patterns/`](./patterns/) | Distilled reusable patterns (command → agent → skill tiers) |
+| [`product/`](./product/) | Product-domain docs: team-run lifecycle, team-tool API, state contracts |
+| [`skills/`](./skills/) | Skill chains and effectiveness reference |
+| [`stories/`](./stories/) | Story-sized work packets with status |
+| [`superpowers/`](./superpowers/) | Adopted workflow plans (`plans/`) and specs (`specs/`) |
+| [`templates/`](./templates/) | Templates: `decision.md`, `story.md`, `validation-report.md` |
+| [`distillation/`](./distillation/) | Distillations of external skill libraries into pi-crew patterns |
 
-See also the top-level [README.md](../README.md) and the source cluster maps
-([`src/runtime/README.md`](../src/runtime/README.md),
-[`src/state/README.md`](../src/state/README.md)).
+## See also
+
+- [Package README](../README.md) and [CHANGELOG](../CHANGELOG.md)
+- Source cluster maps: [`src/runtime/README.md`](../src/runtime/README.md),
+  [`src/state/README.md`](../src/state/README.md)

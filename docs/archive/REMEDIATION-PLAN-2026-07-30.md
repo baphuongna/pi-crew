@@ -1,9 +1,9 @@
 # pi-crew v0.9.56 — Remediation Plan
 
-> **Note (2026-08-02)**: post-remediation source reorganization moved `src/runtime/child-pi-*.ts` → `src/runtime/child-pi/` and `src/runtime/crew-broker-*.ts` → `src/runtime/broker/`, and removed 4 dead-code modules. Paths in this plan are pre-reorg. See `docs/COVERAGE-ASSESSMENT-2026-08-01.md` § Source reorganization + `src/runtime/README.md` (cluster map).
+> **Note (2026-08-02)**: post-remediation source reorganization moved `src/runtime/child-pi-*.ts` → `src/runtime/child-pi/` and `src/runtime/crew-broker-*.ts` → `src/runtime/broker/`, and removed 4 dead-code modules. Paths in this plan are pre-reorg. See `docs/archive/COVERAGE-ASSESSMENT-2026-08-01.md` § Source reorganization + `src/runtime/README.md` (cluster map).
 
 **Date:** 2026-07-30
-**Source audit:** `AUDIT-2026-07-30.md` (corrected, 3 verify rounds)
+**Source audit:** `docs/archive/AUDIT-2026-07-30.md` (corrected, 3 verify rounds)
 **Baseline:** 6489 unit tests (6486 pass, 3 skip, 0 fail, 839 suites), typecheck 0 errors, 2.4 MB tarball
 **Scope:** ALL findings — Tier 1 (SEC-1..5), Tier 2 (ST-1..6, RT-1..5, EXT-1..2), Tier 3 (RT-6..19, ST-7..15, EXT-3..12, UI-1..14, QA-1..12)
 
@@ -659,7 +659,7 @@ Execute sprints in order **A → B → C → D → E → F → G**:
 ## 8. Test binding (ràng buộc "no done without test")
 
 **Rule:** Không PR nào được claim "done" cho đến khi:
-1. TẤT CẢ test case trong `TEST-STRATEGY-2026-07-30.md` §3 cho finding(s) của PR → **green**.
+1. TẤT CẢ test case trong `docs/archive/TEST-STRATEGY-2026-07-30.md` §3 cho finding(s) của PR → **green**.
 2. **HIGH-risk** (RT-1, RT-5, ST-1, ST-4, ST-3, RT-2, SEC-1/2, PR-G1a/b/c) → **mutation check PASS** (revert fix → test phải fail). Dùng `mutationCheck()` helper (TEST-STRATEGY §4).
 3. **Security** (SEC-1/2) → **hostile-repo PoC PASS**.
 4. **Lock/seq** (ST-3/5/14) → **cross-process/concurrency test PASS**.
@@ -730,4 +730,4 @@ Execute sprints in order **A → B → C → D → E → F → G**:
 
 ---
 
-*End of remediation plan. 52 PRs, 72 findings, 7 sprints. Practical concurrency cap: 6 worktree (hardware-bound). Test binding: TEST-STRATEGY-2026-07-30.md — no PR "done" without its cases green + mutation (HIGH-risk) + PoC (security).*
+*End of remediation plan. 52 PRs, 72 findings, 7 sprints. Practical concurrency cap: 6 worktree (hardware-bound). Test binding: docs/archive/TEST-STRATEGY-2026-07-30.md — no PR "done" without its cases green + mutation (HIGH-risk) + PoC (security).*

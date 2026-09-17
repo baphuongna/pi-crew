@@ -36,4 +36,4 @@ This matches the pattern used by `test/integration/async-restart-recovery.test.t
 - `test/unit/runtime/core/lazy-agent-materialization.test.ts:17-65` — the skipped test
 - `src/runtime/foreground-control.ts` — `startForegroundRun` (the non-blocking entry point)
 - `src/runtime/crew-agent-records.ts` — `readCrewAgents` (the snapshot reader)
-- `improvement-plan-2026-08-09.md` D.1 — the convention this bug file matches
+- `docs/archive/improvement-plan-2026-08-09.md` D.1 — the convention this bug file matches

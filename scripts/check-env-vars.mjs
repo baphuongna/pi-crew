@@ -188,7 +188,7 @@ if (violations.length > 0) {
 	for (const v of violations) console.error(`  ${v}`);
 	console.error("");
 	console.error('Fix: route every crew env read through the registry — `getCrewEnv("PI_CREW_X")`');
-	console.error("from src/config/env-vars.ts (Phase 3.2 of docs/refactor-plan.md).");
+	console.error("from src/config/env-vars.ts (Phase 3.2 of docs/archive/refactor-plan.md).");
 	console.error("Raw WRITES (assignments / delete / secret set-clear) are allowed and not flagged.");
 	process.exit(1);
 }

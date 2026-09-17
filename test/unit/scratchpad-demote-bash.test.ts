@@ -5,7 +5,7 @@
  * PI_CREW_SCRATCHPAD_DEMOTE_BASH=1, `resolveToolPolicy` removes `bash` from the
  * tool surface (allowlist filter + denylist add) so the model reaches for the
  * scratchpad `sh()` binding instead. This is the lever to break 0-adoption
- * (rlm-deep-review-2026-08-12.md §5.1A). Default off → zero behavior change.
+ * (docs/archive/rlm-deep-review-2026-08-12.md §5.1A). Default off → zero behavior change.
  *
  * Pins both spawn paths stay correct: resolveToolPolicy is the single source of
  * truth for child-pi (`--tools`/`--exclude-tools`) AND live-session.

@@ -13,7 +13,7 @@
  * `seqCounters.clear()` is called between modes to clear global counters.
  *
  * NOTE (learned): the sync path uses sleepSync which blocks the event loop —
- * this is a known finding reported in docs/perf-report.md, not a bug here.
+ * this is a known finding reported in docs/perf/perf-report.md, not a bug here.
  *
  * Run standalone:
  *   node --experimental-strip-types bench/b4-event-log.bench.ts

@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### docs: lean docs tree
+
+- README rewritten as a lean landing page (1099 → 206 lines): the changelog-duplicate section, full config dump, and action/command tables are replaced by links to their single sources; stale claims corrected (55 actions, 18 agents).
+- Dated point-in-time docs (audits, plans, fix specs, roadmaps, migration guides) moved to `docs/archive/`; perf analyses to `docs/perf/`; `docs/README.md` rebuilt as a three-group index (Start here / Reference / Records).
+- `runtime-flow.md` folded into `architecture.md` ("Runtime flow"); the stale `v0.10.3` version header dropped.
+- Error-code range corrected to E001–E013 everywhere (E013 `ModelOutOfScope` shipped undocumented).
+- Cross-references updated repo-wide (docs, src/test comments, runtime warning string, tarball whitelist); `migration-v0.4-v0.5.md` and `runtime-flow.md` dropped from the npm file whitelist.
+
 > **Note:** `atomic-write-v2.ts` / `AtomicWriter` mentioned in historical entries below was consolidated into `atomic-write.ts` as of v0.9.42. This changelog is preserved as historical record — the migration was completed (the v2 class was never adopted; v1 won on simplicity + symlink-safety + link+unlink atomicity). See `docs/migration/atomic-write-v2-migration.md` for the decision rationale.
 
 ## [0.11.1] — RAIL: one UI design language for every surface + UI-audit fixes (2026-09-16)
@@ -860,7 +870,7 @@ waiting-producer-ask, spec-system (+ round-1 errata).
 Branch `refactor/maintainability`: 16-round audit → 5-phase refactor →
 finding-by-finding sweep → full remediation of every open finding (Waves
 1A/1B/2A/2B/B/C). Full execution log with commit map:
-`docs/refactor-plan.md`. Audit inventory: `docs/refactor-plan.review.md`.
+`docs/archive/refactor-plan.md`. Audit inventory: `docs/archive/refactor-plan.review.md`.
 
 ### Security (config tiering)
 - Schema-driven project-config sanitize: `sensitive:true` drop-list +
@@ -923,8 +933,8 @@ finding-by-finding sweep → full remediation of every open finding (Waves
 
 ## [0.9.68] — RLM fixes after deep-review verification (2026-08-12)
 
-Fixes from `docs/rlm-deep-review-2026-08-12.md` (verified) +
-`docs/rlm-fixes-implementation-plan.md`. Each code part loop-reviewed (3
+Fixes from `docs/archive/rlm-deep-review-2026-08-12.md` (verified) +
+`docs/archive/rlm-fixes-implementation-plan.md`. Each code part loop-reviewed (3
 parallel reviewers: security/correctness/tests, read-only) before merge here.
 
 ### Fixes
@@ -971,7 +981,7 @@ parallel reviewers: security/correctness/tests, read-only) before merge here.
 
 ## [0.9.67] — RLM/scratchpad adoption batch (I1–I7) (2026-08-11)
 
-First shippable slice of `improvement-plan-2026-08-11.md` — the scratchpad was
+First shippable slice of `docs/archive/improvement-plan-2026-08-11.md` — the scratchpad was
 armed-but-unused (0 cells in 14 runs); this batch fixes the doctrine, adds an
 adoption/value metric, and ports the pattern-12 shell guard. Each item was
 loop-reviewed (iterative-audit) before commit; `test:critical` 101/0, 129
@@ -1221,10 +1231,10 @@ Six fixes distilled from the `real-test-pi-crew` 9-tier battery (run 2026-08-10)
   - **Notifier/session-summary (`src/extension/async-notifier.ts`, `session-summary.ts`)**: filter `listRuns` theo `ownerSessionId` trước notify — session B không còn toast về run của A.
   - **Health filter (#3)**: `ctx.currentCtx?.sessionManager?.getSessionId()` + bỏ dead clause `ownerSessionGeneration` (field không tồn tại trên `TeamRunManifest`) — trước đó silently drop tất cả owned runs.
   - Verified end-to-end theo skill `real-test-pi-crew`: `test:critical` 101/101, 3-path kill-switch green, typecheck + bundle + md5 sync OK, live TUI (tmux + pty) render không crash, smoke verifier 52s (<300s, no hang), full feature battery (team tool 9a–9f + subagent tools) clean — zero `Unknown type`/`Validation failed`. 6837 unit + 214 integration tests pass.
-- Lưu ý: `#12` (DeliveryCoordinator) infrastructure staged nhưng inert — `deliver*` không có production caller, nên queue không bao giờ được feed. Documented trong `docs/cross-session-leak-fix-plan.md`.
+- Lưu ý: `#12` (DeliveryCoordinator) infrastructure staged nhưng inert — `deliver*` không có production caller, nên queue không bao giờ được feed. Documented trong `docs/archive/cross-session-leak-fix-plan.md`.
 
 ### Docs
-- `docs/cross-session-leak-audit.md` (audit re-verify: 2/2 root cause CONFIRMED, 12/13 vector CONFIRMED, #3 REFUTED) + `docs/cross-session-leak-fix-plan.md` (phased plan, reviewed).
+- `docs/archive/cross-session-leak-audit.md` (audit re-verify: 2/2 root cause CONFIRMED, 12/13 vector CONFIRMED, #3 REFUTED) + `docs/archive/cross-session-leak-fix-plan.md` (phased plan, reviewed).
 
 ## [0.9.58] — fix load crash on stale hoisted typebox: defensive guard + bundle vendoring (survives `pi update`) + round-1/round-2 fixes (2026-08-04)
 
@@ -6580,7 +6590,7 @@ Note: `src/runtime/parent-guard.ts:37` left as-is — that's an exit-time log th
 - **CHANGELOG.md** — Added the v0.5.5 entry covering all 13 rounds of code review hardening (this entry).
 - **SECURITY-ISSUES.md** — Bumped to v2.0, added v0.5.5 round-13 findings table (8 new issues closed).
 - **docs/architecture.md** — Cross-references v0.5.5 and `docs/pi-crew-v0.5.5-audit-fix-plan.md`.
-- **docs/migration-v0.4-v0.5.md** — Added v0.5.5 highlights (no breaking changes; drop-in replacement).
+- **docs/archive/migration-v0.4-v0.5.md** — Added v0.5.5 highlights (no breaking changes; drop-in replacement).
 
 ### Fixes
 
@@ -6749,7 +6759,7 @@ correctness+error-handling, and performance+architecture audits across 77 source
 - Improved consistency in section naming
 
 ### Documentation
-- Added `docs/migration-v0.4-v0.5.md` - comprehensive migration guide
+- Added `docs/archive/migration-v0.4-v0.5.md` - comprehensive migration guide
 - Updated `docs/deep-review-report.md` - complete issue tracking
 
 ### Dependencies
@@ -7431,7 +7441,7 @@ correctness+error-handling, and performance+architecture audits across 77 source
 - docs/pi-crew-bugs.md: v0.5.22 + historical note
 - docs/TEST_MATRIX.md: test count updated to 2703
 - docs/deep-review-report.md: marked historical
-- docs/migration-v0.4-v0.5.md: drop-in replacement note
+- docs/archive/migration-v0.4-v0.5.md: drop-in replacement note
 
 ### CI
 - `.github/workflows/ci.yml`: typecheck step re-enabled (was disabled since v0.3.x)

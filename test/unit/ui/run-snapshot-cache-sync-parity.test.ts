@@ -1,6 +1,6 @@
 /**
  * R10-4 — sync build() / async buildAsync() tasks parity
- * (docs/refactor-plan.review.md §ROUND 10, row R10-4).
+ * (docs/archive/refactor-plan.review.md §ROUND 10, row R10-4).
  *
  * Decision trail: git blame + comment audit found NO freshness / RT-series /
  * H-series rationale for the sync re-read — `readTasks()` at the old build() site was

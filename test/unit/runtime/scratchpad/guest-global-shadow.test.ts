@@ -7,7 +7,7 @@
  *
  * Spawns real EngineManager guests (like guest-sh.test.ts). Pre-fix these would
  * silently corrupt: `typeof process.env` would be 'undefined', `Buffer.alloc`
- * would be missing — with NO error. See rlm-deep-review-2026-08-12.md §2.3.
+ * would be missing — with NO error. See docs/archive/rlm-deep-review-2026-08-12.md §2.3.
  */
 
 import assert from "node:assert/strict";

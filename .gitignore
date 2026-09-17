@@ -12,6 +12,7 @@ src/**/*.js
 .crew/cache/
 .crew.pi-recall/
 PI_MEMORY.md
+docs/archive/PI_MEMORY.md
 .pi-recall
 .profile/
 test/bench/results.json
@@ -48,3 +49,4 @@ bench/results/
 
 # superpowers SDD workspaces
 .superpowers/
+docs/archive/perf-report-team/

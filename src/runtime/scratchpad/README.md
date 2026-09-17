@@ -125,7 +125,7 @@ attempt N+1 worker (scratchpad-lifecycle.ts)
   is a Phase 2.5/3 hardening if artifacts ever land in a shared location.
 
 > **REMOVED (2026-08-12):** `src/runtime/scratchpad/snapshot-hmac.ts` and its
-> test were deleted. Decision (P3 of `docs/rlm-fixes-implementation-plan.md`):
+> test were deleted. Decision (P3 of `docs/archive/rlm-fixes-implementation-plan.md`):
 > the HMAC threat is double-conditional — it only materializes when scratchpad
 > has adoption (>0 cells; today: 0/83 runs) AND snapshots move to a
 > shared/networked store (today: same-uid dev-machine). Hardening a

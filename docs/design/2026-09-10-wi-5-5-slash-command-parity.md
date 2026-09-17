@@ -100,5 +100,5 @@ This decision is superseded when ANY:
 
 - Spec: pi-crew-upgrade-spec.md §5 M5 / WI-5.5
 - Parity test: test/unit/extension/slash-command-parity.test.ts
-- Gap audit corrected count: docs/gap-freshness-audit-2026-09.md
+- Gap audit corrected count: docs/archive/gap-freshness-audit-2026-09.md
 - Module map: src/extension/registration/commands/*.ts

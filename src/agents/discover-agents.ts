@@ -410,7 +410,7 @@ function parseAgentFile(filePath: string, source: ResourceSource): AgentConfig |
 		// below use logInternalError).
 		if (contextMode === "fork" && !warnedForkAgents.has(filePath)) {
 			console.warn(
-				"contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/runtime-flow.md.",
+				"contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/architecture.md.",
 			);
 			warnedForkAgents.add(filePath);
 			// R5-L5: FIFO eviction — drop the oldest entry past the cap.

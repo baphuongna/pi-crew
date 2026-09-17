@@ -1,6 +1,6 @@
 # pi-crew Improvement Plan — 2026-08-10
 
-> Companion to `docs/improvement-plan-2026-08-09.md`. This batch contains NEW
+> Companion to `docs/archive/improvement-plan-2026-08-09.md`. This batch contains NEW
 > findings from a 4-axis parallel audit (performance, quality, test infra,
 > contract consistency) performed 2026-08-10 against HEAD `919d7a92` (v0.9.65).
 > Items below were verified to NOT overlap with the 2026-08-09 plan (A.1–A.6,

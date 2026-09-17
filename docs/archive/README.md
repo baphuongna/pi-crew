@@ -84,7 +84,7 @@ cluttering the active docs surface.
 - `FEATURE_INTAKE.md`, `HARNESS.md`, `HARNESS_BACKLOG.md`, `TEST_MATRIX.md`,
   `troubleshooting.md`, `usage.md`, `goals.md`, `live-mailbox-runtime.md`,
   `runtime-flow.md`, `resource-formats.md`, `publishing.md`,
-  `migration-v0.4-v0.5.md` — active project docs
+  `docs/archive/migration-v0.4-v0.5.md` — active project docs
 - `bugs/`, `fixes/`, `distillation/`, `product/`, `stories/`, `skills/`,
   `templates/`, `superpowers/`, `perf/`, `patterns/` — themed subdirs
 - `next-upgrade-roadmap.md` — referenced from `README.md`

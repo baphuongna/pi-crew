@@ -32,4 +32,4 @@ clusters are extracted into subdirectories; the remaining files stay at the root
 - **observability** — `effectiveness.ts`, `agent-observability.ts`, `command-trace.ts`
 - **misc** — `stale-reconciler.ts`, `parent-guard.ts`, `manifest-cache.ts`, `event-stream-bridge.ts`, `policy-engine.ts`, `role-permission.ts`, `workspace-lock.ts`, `workspace-tree.ts`, `session-*.ts`, ...
 
-See `docs/COVERAGE-ASSESSMENT-2026-08-01.md` § "Source reorganization" for the reorg history + remaining-cluster plan.
+See `docs/archive/COVERAGE-ASSESSMENT-2026-08-01.md` § "Source reorganization" for the reorg history + remaining-cluster plan.

@@ -33,7 +33,7 @@ cập nhật trạng thái THẬT (không copy số cũ)"). Re-verified:
 | sleepSync deadlock (v0.9.26) | ADR-KEEP (deferred asyncify) | `docs/decisions/2026-09-10-wi-7-3-sleep-sync-keep-most.md` |
 | Heartbeat source divergence | CLOSED + parity test | `test/unit/runtime/heartbeat/heartbeat-source-parity.test.ts` (5/5) |
 | Append-event sync flood | CLOSED | 51/51 M2a + 21/21 M2b conversions + 3/6 WI-2.2 (75 total) |
-| Slot-budget deadlock (R2 P1-1) | CLOSED (head designed-for-mixed) | `pi-crew/docs/m2-targets-and-framework.md` §lock-contract |
+| Slot-budget deadlock (R2 P1-1) | CLOSED (head designed-for-mixed) | `pi-crew/docs/archive/m2-targets-and-framework.md` §lock-contract |
 | crew-broker >2000 line gate | CLOSED (1998 lines) | `scripts/wc-gate.mjs` + `pi-crew/docs/decisions/...` |
 
 ### Known accepted risks (not closed, by design)

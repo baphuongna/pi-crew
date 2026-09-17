@@ -1,6 +1,6 @@
 # Plan — Fix Cross-Session Information Leak (pi-crew)
 
-> **Source audit:** [`cross-session-leak-audit.md`](./cross-session-leak-audit.md) (re-verified: 2/2 root cause CONFIRMED, 12/13 vector CONFIRMED, #3 REFUTED).
+> **Source audit:** [`docs/archive/cross-session-leak-audit.md`](./cross-session-leak-audit.md) (re-verified: 2/2 root cause CONFIRMED, 12/13 vector CONFIRMED, #3 REFUTED).
 > **Pi version:** 0.83.0 · **pi-crew src:** `pi-crew/src/`
 > **Revision:** v2 — sửa sau critique (B1–B4 blocking, N1–N7). Đã verify source.
 > **Mục tiêu:** loại bỏ rò rỉ thông tin / can thiệp trạng thái giữa các pi session song song trên cùng repo, **không phá** crash-recovery cho session thực sự chết.

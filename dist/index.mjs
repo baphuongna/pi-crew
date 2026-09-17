@@ -12959,7 +12959,7 @@ function parseAgentFile(filePath, source) {
     const contextMode = parseContextMode(frontmatter.contextMode);
     if (contextMode === "fork" && !warnedForkAgents.has(filePath)) {
       console.warn(
-        "contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/runtime-flow.md."
+        "contextMode: 'fork' is only effective in live-session runtime; current default child-process will behave as 'fresh'. See docs/architecture.md."
       );
       warnedForkAgents.add(filePath);
       if (warnedForkAgents.size > MAX_WARNED_FORK_AGENTS) {

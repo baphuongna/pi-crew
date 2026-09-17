@@ -158,4 +158,4 @@ can skip it.
   - src/extension/team-tool/anchor.ts (178 LOC)
   - src/extension/team-tool/handle-schedule.ts (350 LOC)
   - src/extension/team-tool/auto-summarize.ts (142 LOC)
-- Gap audit: docs/gap-freshness-audit-2026-09.md §G14
+- Gap audit: docs/archive/gap-freshness-audit-2026-09.md §G14

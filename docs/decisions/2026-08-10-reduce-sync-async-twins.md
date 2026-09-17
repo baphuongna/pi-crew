@@ -5,7 +5,7 @@
 ## Status
 
 Proposed — implementation gated on contract-test-first
-**Supersedes:** the B.1 / B.2 items in `docs/improvement-plan-2026-08-09.md`
+**Supersedes:** the B.1 / B.2 items in `docs/archive/improvement-plan-2026-08-09.md`
 (which were originally framed as "extract shared helpers" — the framing
 turned out to understate the work; see Context).
 
@@ -145,7 +145,7 @@ before any B.2 pair lands.
 
 ## References
 
-- `docs/improvement-plan-2026-08-09.md` Group B (the original items)
+- `docs/archive/improvement-plan-2026-08-09.md` Group B (the original items)
 - `src/worktree/worktree-manager.ts` lines 132-182 (the drift examples)
 - `src/state/stores/state-store.ts` (the durability-critical twins)
 - Historical: ST-15 comments duplicated across twins; Round 29 ST-3-FIX

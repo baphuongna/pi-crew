@@ -350,7 +350,7 @@ $ cd pi-crew && npx tsc --noEmit
 
 ### Remaining Work
 - C6: Event-loop blocking (needs async rewrite)
-- M14: Migration guide → ✅ Created `docs/migration-v0.4-v0.5.md`
+- M14: Migration guide → ✅ Created `docs/archive/migration-v0.4-v0.5.md`
 - L*: Low priority improvements
 
 ---
@@ -371,7 +371,7 @@ $ cd pi-crew && npx tsc --noEmit
 ### Additional Work Completed (v0.5.3)
 
 - **CHANGELOG.md**: Updated with v0.5.3 entry
-- **Migration Guide**: Created `docs/migration-v0.4-v0.5.md`
+- **Migration Guide**: Created `docs/archive/migration-v0.4-v0.5.md`
 - **Test Fixes**: Fixed TypeScript errors in 6 test files
 - **Skills**: All 35 skills have `triggers:` frontmatter
 

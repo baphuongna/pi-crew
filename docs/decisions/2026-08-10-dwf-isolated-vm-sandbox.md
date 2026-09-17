@@ -103,7 +103,7 @@ prerequisite plan so the work can be picked up deliberately.
 
 ## References
 
-- `docs/improvement-plan-2026-08-09.md` E.1
+- `docs/archive/improvement-plan-2026-08-09.md` E.1
 - `docs/dynamic-workflows.md:204-228` (advisory-check honesty)
 - `src/runtime/goal-workflow/dynamic-workflow-runner.ts:154-163` (F-01
   trust gate, current mitigation)

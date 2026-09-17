@@ -336,7 +336,7 @@ const snapshot = {
 		agentId: "ag_t1",
 		status: "running",
 		startedAt: now.getTime() - 95_000,
-		agents: [ag("t1", { status: "running", progress: { turns: 12, tokens: 16_100, currentTool: "read", toolCount: 7, recentOutput: ["đang đọc docs/UI-AUDIT-2026-09-15.md"] } })],
+		agents: [ag("t1", { status: "running", progress: { turns: 12, tokens: 16_100, currentTool: "read", toolCount: 7, recentOutput: ["đang đọc docs/archive/UI-AUDIT-2026-09-15.md"] } })],
 	});
 	const agentCall = agentToolRenderer.renderCall({ prompt: "Đọc docs/UI-AUDIT và liệt kê finding P0", description: "audit reader", agent: "explorer" }, theme, { expanded: false, width: W });
 	const agentRun = agentToolRenderer.renderResult(

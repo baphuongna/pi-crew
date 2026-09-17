@@ -4,7 +4,7 @@
  * Verifies transformCell builds a correct `lineMap` AND that guest runCell
  * remaps V8's transformed error line back to the cell's source line.
  *
- * Background (§2.4 of rlm-deep-review-2026-08-12.md): V8 reports the error line
+ * Background (§2.4 of docs/archive/rlm-deep-review-2026-08-12.md): V8 reports the error line
  * relative to the TRANSFORMED body (which esbuild type-stripping and the import
  * pre-rewrite shift). Pre-fix, a cell error showed a wrong line number.
  *

@@ -69,7 +69,7 @@ path). Target v0.12.0 in case the nonce auth surface expands.
 | Severity | LOW (per docs/bugs/SECURITY-ISSUES.md §SEC-008) |
 | Owner | solo maintainer |
 | Target version | N/A — accepted risk; will not change |
-| Mitigation | `ROADMAP-2026-Q3.md` R1-5 documented `limits.strictLockOwnership` opt-in gate. Default OFF; explicitly opt in via config. |
+| Mitigation | `docs/archive/ROADMAP-2026-Q3.md` R1-5 documented `limits.strictLockOwnership` opt-in gate. Default OFF; explicitly opt in via config. |
 
 **Verdict**: SEC-008 = ACCEPTED. The deny path treats EPERM as
 "not alive" because blocking indefinitely on a different-user holder

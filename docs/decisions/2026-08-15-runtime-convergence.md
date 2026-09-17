@@ -21,7 +21,7 @@ pi-crew has two execution paths for agent tasks:
   aborts via `ac.abort()` + `session.abort?.()`.
 
 Phase 4 of the maintainability plan considered converging the two paths onto a
-shared `TaskExecutor` contract. The Round 4 audit verdict (refactor-plan.review.md
+shared `TaskExecutor` contract. The Round 4 audit verdict (docs/archive/refactor-plan.review.md
 §ROUND 4 P2) was **RISKY (HIGH)**: the convergence premise overstates the shared
 contract.
 

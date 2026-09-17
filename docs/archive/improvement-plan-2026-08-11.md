@@ -1,7 +1,7 @@
 # pi-crew Improvement Plan — 2026-08-11 (RLM / scratchpad adoption batch)
 
-> Third in the series after `docs/improvement-plan-2026-08-09.md` (A–F) and
-> `docs/improvement-plan-2026-08-10.md` (G1–G13, H1–H9). This batch is narrower
+> Third in the series after `docs/archive/improvement-plan-2026-08-09.md` (A–F) and
+> `docs/archive/improvement-plan-2026-08-10.md` (G1–G13, H1–H9). This batch is narrower
 > and has a single thesis: **the pi-rlm pattern transfer is technically complete
 > but commercially unproven — the `scratchpad` tool has never been called once.**
 > Item IDs continue the sequence: **I** = Tier 1 (this batch), **J** = Tier 2 /
@@ -119,7 +119,7 @@ lines + `src/prompt/scratchpad-lifecycle.ts` 605 lines = **2 321 lines**, plus
   (`src/extension/team-tool/api*`, `src/runtime/team-runner.ts`,
   `src/state/gitignore-manager.ts`, deleted `src/types/new-api-types.ts`,
   moved integration tests, …) matching the G1–G13 + H1–H8 execution changelog
-  in `improvement-plan-2026-08-10.md`. HEAD is `7c6815aa` (v0.9.66); that work
+  in `docs/archive/improvement-plan-2026-08-10.md`. HEAD is `7c6815aa` (v0.9.66); that work
   is **not** in a commit.
 - **Action:** commit the 08-10 batch before starting any item below, so the
   I-batch diff stays reviewable and the H-work cannot be lost.

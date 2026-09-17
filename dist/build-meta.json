@@ -6596,7 +6596,7 @@
       "format": "esm"
     },
     "src/agents/agent-config.ts": {
-      "bytes": 9782,
+      "bytes": 9795,
       "imports": [
         {
           "path": "src/config/env-vars.ts",
@@ -7510,7 +7510,7 @@
       "format": "esm"
     },
     "src/runtime/settings-store.ts": {
-      "bytes": 19320,
+      "bytes": 19328,
       "imports": [
         {
           "path": "node:fs",
@@ -11622,7 +11622,7 @@
       "format": "esm"
     },
     "src/runtime/child-pi/child-pi-timers.ts": {
-      "bytes": 13956,
+      "bytes": 13969,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -12622,7 +12622,7 @@
       "format": "esm"
     },
     "src/runtime/scratchpad/protocol.ts": {
-      "bytes": 3580,
+      "bytes": 3593,
       "imports": [],
       "format": "esm"
     },
@@ -19232,7 +19232,7 @@
       "format": "esm"
     },
     "src/ui/run-snapshot-cache.ts": {
-      "bytes": 41362,
+      "bytes": 41370,
       "imports": [
         {
           "path": "node:crypto",
@@ -20286,7 +20286,7 @@
       "format": "esm"
     },
     "src/runtime/broker/wait-status-cache.ts": {
-      "bytes": 6097,
+      "bytes": 6105,
       "imports": [
         {
           "path": "node:fs",
@@ -21478,7 +21478,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8195035
+      "bytes": 8195098
     },
     "dist/index.mjs": {
       "imports": [

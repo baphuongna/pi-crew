@@ -47,7 +47,7 @@ The live-session path (`task-runner/live-executor.ts` →
 `live-session-runtime.ts`) delegates to the `@earendil-works/pi-coding-agent`
 SDK via `createAgentSession` (in-process). It is intentionally **divergent**
 from the supported child-process path (`task-runner/child-executor.ts`); a
-convergence attempt was assessed **RISKY (HIGH)** in refactor-plan.review.md
+convergence attempt was assessed **RISKY (HIGH)** in docs/archive/refactor-plan.review.md
 §ROUND 4 P2 and rejected.
 
 ### Gap matrix (sweep 3, 2026-08-13; re-confirmed 2026-08-15)

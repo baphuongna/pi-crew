@@ -45,7 +45,7 @@ src/runtime/scratchpad/protocol.ts:48:  host_request: { ... type: "host_request"
 
 Sole occurrence = a TYPE entry in the protocol message union. The
 inline comment documents the intent:
-> RESERVED for future host bridge (rlm-deep-review-2026-08-12.md §5.2F /
+> RESERVED for future host bridge (docs/archive/rlm-deep-review-2026-08-12.md §5.2F /
 > J2): guest-side cells would request host services (tools.read,
 > tools.grep) so data enters the namespace WITHOUT crossing the
 > transcript — pi-rlm's core token-saving value proposition. Declared

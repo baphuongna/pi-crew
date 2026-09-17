@@ -33,4 +33,4 @@ Option (1) is preferred — it also improves production debuggability (operators
 
 - `test/integration/phase8-smoke.test.ts:160-166` — the skipped test
 - `src/ui/overlays/mailbox-detail-overlay.ts` — the overlay (handleInput 'X' → ackAll)
-- `improvement-plan-2026-08-09.md` D.1 — the convention this bug file matches
+- `docs/archive/improvement-plan-2026-08-09.md` D.1 — the convention this bug file matches

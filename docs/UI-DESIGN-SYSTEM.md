@@ -5,7 +5,7 @@
 > **`src/ui/rail.ts`**. Reference implementation: `src/ui/tool-renderers/index.ts`
 > (tool card, shipped in R3).
 
-The audit (`UI-AUDIT-2026-09-15.md`) found every non-tool surface still wearing
+The audit (`docs/archive/UI-AUDIT-2026-09-15.md`) found every non-tool surface still wearing
 the pre-R3 language: rounded boxes `╭─╮│╰─╯`, inline `── label ──` rules, four
 overflow dialects, two cursor vocabularies, 27 hand-typed hint strings and
 `▸` overloaded three ways. This document replaces all of that with one grammar.

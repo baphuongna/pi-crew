@@ -73,7 +73,7 @@ appendEventBuffered(eventsPath, { type: "x.y", runId, data: {...} })
 
 ## 3. Noise floor (gate falsifiability)
 
-Từ baseline M1a 3-run data (xem `docs/perf-report.md` BASELINE 2026-09-10):
+Từ baseline M1a 3-run data (xem `docs/perf/perf-report.md` BASELINE 2026-09-10):
 - **b4 n100**: spread 7,7% → gate ±10% = baseline_p50 × (1 ± 0,1)
 - **b4 n1000**: spread 2,9% → gate ±5% = baseline_p50 × (1 ± 0,05)
 - **b1 cold boot**: spread 5–53% (cao ở n10) → không dùng single-run làm gate, lấy median ≥3 runs

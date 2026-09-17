@@ -1,7 +1,7 @@
 # SPEC: UI Fix — pi-crew (SDD)
 
 **Ngày:** 2026-09-15
-**Nguồn phát hiện:** `docs/UI-AUDIT-2026-09-15.md` (đã qua 1 vòng cold-verify, §9)
+**Nguồn phát hiện:** `docs/archive/UI-AUDIT-2026-09-15.md` (đã qua 1 vòng cold-verify, §9)
 **Repo:** `/home/bom/source/my_pi/pi-crew` (git repo riêng, đang clean ngoài file audit)
 **Plan mode:** high-risk (nhiều file, có dead-code, có thay đổi hành vi UI)
 
@@ -81,7 +81,7 @@ Ký hiệu state: `TODO` → `IN_PROGRESS` → `REVIEW` → `DONE`.
 | **W2 renderers** | `src/ui/tool-renderers/index.ts`, `src/ui/tool-renderers/brief-mode.ts`, `src/ui/tool-progress-formatter.ts`, `src/ui/overlays/help-overlay.ts`, `src/extension/registration/commands/manage.ts`, test mới cho renderer |
 | **W3 dashboard** | `src/ui/keybinding-map.ts`, `src/ui/run-dashboard.ts`, `src/ui/live-conversation-overlay.ts`, `src/extension/registration/commands/shared.ts`, `src/extension/help.ts`, `src/ui/overlays/{agent-picker,confirm,mailbox-detail,mailbox-compose}-overlay.ts`, `src/ui/inline-panel/index.ts` |
 | **W4 docs** | `docs/commands-reference.md`, `docs/usage.md` (nếu cần) |
-| **Leader (tôi)** | `docs/UI-FIX-SPEC-2026-09-15.md`, `docs/UI-AUDIT-2026-09-15.md`, rebuild `dist/`, gate cuối |
+| **Leader (tôi)** | `docs/archive/UI-FIX-SPEC-2026-09-15.md`, `docs/archive/UI-AUDIT-2026-09-15.md`, rebuild `dist/`, gate cuối |
 
 `*` = file mới, không xung đột.
 

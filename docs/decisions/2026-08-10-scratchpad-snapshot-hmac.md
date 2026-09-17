@@ -6,8 +6,8 @@
 
 **SUPERSEDED / REVERTED (2026-08-12)** — the Phase 1 helper module
 `src/runtime/scratchpad/snapshot-hmac.ts` and its 11 unit tests were
-**deleted**. Rationale (decision P3 of `docs/rlm-fixes-implementation-plan.md`,
-grounded in `docs/rlm-deep-review-2026-08-12.md` §5.2E):
+**deleted**. Rationale (decision P3 of `docs/archive/rlm-fixes-implementation-plan.md`,
+grounded in `docs/archive/rlm-deep-review-2026-08-12.md` §5.2E):
 
 1. **The mitigated threat is double-conditional.** v8.deserialize-gadget
    tampering only materializes when (a) scratchpad has real adoption (today:
@@ -129,7 +129,7 @@ callout.
 
 ## References
 
-- `docs/improvement-plan-2026-08-09.md` E.2
+- `docs/archive/improvement-plan-2026-08-09.md` E.2
 - `src/runtime/scratchpad/README.md:120` (gap declaration)
 - `src/runtime/scratchpad/snapshot-hmac.ts` (Phase 1 helper)
 - `test/unit/runtime/scratchpad/snapshot-hmac.test.ts` (Phase 1 tests)

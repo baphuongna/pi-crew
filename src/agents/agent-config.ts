@@ -167,7 +167,7 @@ export function resolveToolPolicy(agent: AgentConfig, role?: string): ResolvedTo
 		agent.loadMode === "lean" && agent.defaultTools?.length ? uniqueToolMerge(explicitTools, agent.defaultTools) : explicitTools;
 	// denylist: additive merge of role excludeTools + agent disallowedTools.
 	let excludeTools = uniqueToolMerge(roleConfig.excludeTools, agent.disallowedTools);
-	// P2 (scratchpad adoption lever, rlm-deep-review-2026-08-12.md §5.1A):
+	// P2 (scratchpad adoption lever, docs/archive/rlm-deep-review-2026-08-12.md §5.1A):
 	// when scratchpad is armed for this role AND the operator opted in via
 	// PI_CREW_SCRATCHPAD_DEMOTE_BASH=1, remove `bash` from the tool surface so
 	// the model reaches for `sh()` inside scratchpad cells (structured value

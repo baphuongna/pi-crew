@@ -4,7 +4,7 @@
 **Status**: ACCEPTED — **verdict: DEFERRAL+MINI-SPEC** (recorded for follow-up)
 **Refs**:
 - pi-crew-upgrade-spec.md §5 M7 / WI-7.2 (G25)
-- ROADMAP-2026-Q3.md R3-1..R3-4 (US-021/022/cite artifact)
+- docs/archive/ROADMAP-2026-Q3.md R3-1..R3-4 (US-021/022/cite artifact)
 - docs/stories/backlog.md US-021/US-022 rows
 - spec §5 M7 acceptance: "Chạy sau re-scoping checkpoint M4 — nếu cut-line ép buộc, M7.2 là cái cắt đầu tiên"
 
@@ -105,5 +105,5 @@ This deferral is revisited when ANY:
 
 - Spec: pi-crew-upgrade-spec.md §5 M7 / WI-7.2
 - Backlog: docs/stories/backlog.md:26-27
-- Audit: docs/gap-freshness-audit-2026-09.md §G25
-- ROADMAP: docs/ROADMAP-2026-Q3.md:66-69
+- Audit: docs/archive/gap-freshness-audit-2026-09.md §G25
+- ROADMAP: docs/archive/ROADMAP-2026-Q3.md:66-69

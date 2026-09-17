@@ -2,8 +2,6 @@
 
 `pi-crew` is a Pi package for coordinated multi-agent work. It is intentionally durable-first: every run is represented on disk, every task has a state record, and child workers stream progress into JSONL/status files so foreground sessions, background jobs, dashboards, and later restarts all read the same source of truth.
 
-**Current version:** v0.10.3 — 100+ rounds of code review hardening (see [CHANGELOG.md](../CHANGELOG.md)).
-
 ## Layers
 
 ```text
@@ -24,38 +22,94 @@ State layer (project root resolves to <crewRoot>:
   <crewRoot>/artifacts/{runId}/...
 ```
 
-## Run flow
+## Runtime flow
+
+The former `docs/runtime-flow.md` was folded into this section; the standalone
+file is being retired.
+
+### Run lifecycle
 
 ```text
-user/team tool
-  │
-  ▼
-handleTeamTool(action=run)
-  ├─ discover agents/teams/workflows
-  ├─ validate team/workflow refs
-  ├─ create run manifest + task graph
-  ├─ write goal artifact
-  └─ choose foreground/session-bound or async/background mode
-        │
-        ├─ foreground: startForegroundRun() schedules executeTeamRun()
-        │
-        └─ async: spawnBackgroundTeamRun()
-              ├─ node --import jiti-register.mjs background-runner.ts
-              ├─ background-runner writes async.started + async.pid marker
-              └─ executeTeamRun()
-                    ├─ resolve ready task batch
-                    ├─ resolveBatchConcurrency() with hard cap
-                    ├─ runTeamTask() per task
-                    │    ├─ build prompt + dependency context
-                    │    ├─ choose configured Pi model candidates
-                    │    ├─ spawn child `pi` worker
-                    │    ├─ observe JSONL/stdout progress
-                    │    ├─ persist agent status/events/output
-                    │    └─ write result/log/transcript artifacts
-                    ├─ merge task updates monotonically
-                    ├─ write progress artifacts
-                    └─ synthesize policy closeout
+team tool (action=run) or /team-run
+  └─ handleTeamTool → team-tool/run.ts
+       ├─ discover agents/teams/workflows; validate refs
+       ├─ create run manifest, tasks.json, goal artifact
+       └─ foreground (default, session-bound) or async (background)?
+            ├─ foreground: startForegroundRun() schedules executeTeamRun()
+            └─ async: spawnBackgroundTeamRun()
+                 ├─ node --import jiti-register.mjs background-runner.ts (detached)
+                 ├─ fail-fast when jiti is missing
+                 └─ background-runner: append async.started, write async.pid
+                    startup marker, re-discover resources, executeTeamRun()
+
+executeTeamRun()
+  ├─ mark run.running; materialize queued/running agent records lazily
+  ├─ build task-graph index
+  ├─ while queued tasks remain:
+  │    ├─ snapshot task graph; resolveBatchConcurrency() (hard-capped)
+  │    ├─ getReadyTasks() → run the ready batch concurrently
+  │    │    └─ runTeamTask():
+  │    │         prepare workspace/worktree, render prompt + dependency
+  │    │         context, choose model candidates from Pi config, spawn the
+  │    │         child pi process, parse its JSONL stdout/stderr, persist
+  │    │         agent status/events/output, write result/log/transcript
+  │    │         artifacts
+  │    ├─ merge task updates monotonically
+  │    ├─ optional adaptive plan injection
+  │    └─ persist tasks/agents/progress + batch artifact
+  └─ policy closeout → run.completed | run.failed | run.blocked | run.cancelled
 ```
+
+Run/task states: `queued` / `planning` / `running` → `completed` / `failed` /
+`blocked` / `cancelled`; tasks additionally use `skipped`. Terminal states are
+monotonic — parallel merges must not regress them (see
+[Team runner](#team-runner)).
+
+Action routing (`status`, `cancel`, `resume`, `forget`, `doctor`, …) is
+documented in [actions-reference.md](actions-reference.md).
+
+### Key files in the run path
+
+```text
+src/extension/register.ts              Pi extension entry/wiring
+src/extension/team-tool/run.ts         run creation; foreground/async split
+src/runtime/background-runner.ts       detached async entrypoint
+src/runtime/async-runner.ts            background spawn command/options
+src/runtime/team-runner.ts             workflow/task-graph scheduler
+src/runtime/task-runner.ts             single task execution (+ task-runner/)
+src/runtime/child-pi/child-pi.ts       child Pi process + output observer
+src/runtime/model/model-fallback.ts    configured model candidates/routing
+src/runtime/scheduling/concurrency.ts  batch concurrency decisions
+src/runtime/process-status.ts          pid/liveness/stale detection
+src/state/stores/state-store.ts        manifest/tasks persistence
+src/state/event-log/event-log.ts       JSONL run events
+src/runtime/crew-agent-records.ts      aggregate + per-agent status files
+```
+
+### Runtime env vars
+
+The complete registry is `src/config/env-vars.ts` — the CI gate
+(`scripts/check-env-vars.mjs`) fails on any raw `PI_CREW_*` / `PI_TEAMS_*`
+read outside it, and mirror-pair resolution (`PI_CREW_*` ↔ `PI_TEAMS_*`)
+lives there. The ones most likely to be set by hand:
+
+| Env | Effect |
+|---|---|
+| `PI_CREW_EXECUTE_WORKERS=0` | Disable real workers; use scaffold behavior (`PI_TEAMS_EXECUTE_WORKERS=0` legacy alias). |
+| `PI_CREW_DEPTH` / `PI_CREW_MAX_DEPTH` | Subagent recursion guard (`PI_TEAMS_*` legacy aliases). |
+| `PI_TEAMS_HOME` | Override user config/state home (tests). |
+| `PI_TEAMS_PI_BIN` | Override the child `pi` executable. |
+| `PI_CREW_ASYNC_EARLY_EXIT_GUARD=0` | Disable the async-run early-exit guard. |
+| `PI_TEAMS_MOCK_CHILD_PI` / `PI_CREW_MOCK_LIVE_SESSION` | Test hooks for mocked worker execution. |
+| `PI_CREW_MAX_WORKERS` | Cap concurrent workers (default `max(2, cpus−2)`). |
+| `PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS` | Child Pi response timeout. |
+
+### Debugging a run
+
+- `background.log` — early import/spawn errors of async runs.
+- `events.jsonl` — run event chronology; `agents/{taskId}/status.json` — per-agent model/progress/tool status.
+- `artifacts/{runId}/transcripts/{taskId}.jsonl` — raw child Pi transcript.
+- `team action='status' runId=…` — canonical state + stale async detection; `/team-dashboard` for a UI overview.
 
 ## Extension layer
 
@@ -169,7 +223,7 @@ Foreground runs are session-bound and should be interrupted on session shutdown 
 
 Key config sections:
 
-- `runtime`: `auto`, `child-process`, `scaffold`, experimental `live-session`.
+- `runtime`: `auto` (default; resolves to `child-process` unless config/env requests otherwise), `child-process`, `scaffold` (explicit dry-run, no child workers), experimental `live-session`.
 - `limits`: concurrency/task/depth safety controls.
 - `ui`: widget/dashboard/powerbar/model-token display settings.
 - `observability`: in-memory metrics, heartbeat watcher interval, metric file retention.
@@ -179,4 +233,4 @@ Key config sections:
 - `agents`: builtin overrides for models/fallbacks/tools.
 - `autonomous`: policy injection/profile for proactive team delegation.
 
-See `usage.md`, `resource-formats.md`, `runtime-flow.md`, and `live-mailbox-runtime.md` for operational details.
+See `usage.md`, `resource-formats.md`, and `live-mailbox-runtime.md` for operational details.

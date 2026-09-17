@@ -2,7 +2,7 @@
  * Unit tests for EXT-2: runtime handler missing-field errors include example
  * shapes so calling agents (LLMs) can self-correct.
  * @see src/extension/team-tool/param-error.ts (paramRequired)
- * @see docs/AUDIT-2026-07-30.md (### EXT-2)
+ * @see docs/archive/AUDIT-2026-07-30.md (### EXT-2)
  *
  * EXT-2 (AUDIT-2026-07-30): the schema-validation path (`formatTeamToolParamError`)
  * provides rich examples, but runtime handler errors used to return a plain

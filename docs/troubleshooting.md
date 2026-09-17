@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common problems and their fixes. If you hit an error code (E001–E012), see the
+Common problems and their fixes. If you hit an error code (E001–E013), see the
 [Error codes](#error-codes) table below.
 
 ## Quick health check
@@ -130,7 +130,7 @@ team action='status' details=false   # compact: status, progress, goal, issues o
 
 ## Error codes
 
-pi-crew uses a structured error taxonomy (E001–E012). Each error renders its
+pi-crew uses a structured error taxonomy (E001–E013). Each error renders its
 code + a help hint inline. Common ones:
 
 | Code | Name | Meaning | First check |
@@ -147,6 +147,7 @@ code + a help hint inline. Common ones:
 | E010 | EventLogLockTimeout | event log locked under contention | transient; retry, or lower concurrency |
 | E011 | DepthLimitExceeded | crew nesting too deep | raise `crew.maxDepth` or flatten the call |
 | E012 | RunStale | run reconciled as stale | see "Stale async process" above |
+| E013 | ModelOutOfScope | requested model not in pi's `enabledModels` allowlist | pick a model listed in `enabledModels` (settings.json) or disable `reliability.scopeModels` |
 
 ## Still stuck
 

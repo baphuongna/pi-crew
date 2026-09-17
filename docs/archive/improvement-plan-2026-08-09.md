@@ -5,7 +5,7 @@
 > artifact, not an accepted spec — see `AGENTS.md` source-of-truth order.
 >
 > Companion to `docs/failure-mode-inventory.md` (runtime failure modes) and
-> `docs/audit-findings.md` (most recent audit). This doc focuses on
+> `docs/archive/audit-findings.md` (most recent audit). This doc focuses on
 > **maintainability, dead code, and consolidation** rather than runtime bugs.
 
 ## Verification status legend

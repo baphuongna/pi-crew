@@ -20,7 +20,7 @@
  * resolved, env-filtered, spawned detached, and booted far enough to answer.
  *
  * A full "spawn + handshake + first LLM turn" probe requires a live Pi session
- * and provider credentials — recorded as TODO (see perf-analysis.md §7).
+ * and provider credentials — recorded as TODO (see docs/perf/perf-analysis.md §7).
  *
  * Sizes: 1, 5, 10 children (sequential within a batch).
  *
@@ -117,7 +117,7 @@ function main(): void {
 		sizes,
 		cases,
 		spawnSpec: resolveSpawnSpec().command,
-		note: "REAL pi binary spawn via getPiSpawnCommand + buildFinalChildPiSpawnOptions. Includes pi runtime boot (--version). NOT a bare node -e probe. Full spawn+handshake+LLM requires live Pi session (see TODO in perf-analysis.md).",
+		note: "REAL pi binary spawn via getPiSpawnCommand + buildFinalChildPiSpawnOptions. Includes pi runtime boot (--version). NOT a bare node -e probe. Full spawn+handshake+LLM requires live Pi session (see TODO in docs/perf/perf-analysis.md).",
 		error,
 		rssBaselineBytes: process.memoryUsage().rss,
 	};

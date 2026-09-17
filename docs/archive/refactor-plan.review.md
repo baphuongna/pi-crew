@@ -1,11 +1,11 @@
-# REVIEW VÒNG 4 (SWEEP 3) — `refactor-plan.md`
+# REVIEW VÒNG 4 (SWEEP 3) — `docs/archive/refactor-plan.md`
 
 > **Vòng**: 4 của chuỗi verify (sweep 1 = 5 fix location, sweep 2 = 3 reframe premise, **sweep 3 = vòng này**).
 > **Bản chất**: READ-ONLY verification — 0 source edit. Tiếp tục vòng 4 mà session Droid `d16153d3` bị "Droid Core usage limit" cắt giữa chừng (03:15, đang check large-file baselines + Phase 5 + UI caches + các mục 🔍 còn treo).
-> **File review**: `pi-crew/docs/refactor-plan.md` (v0.9.68 baseline). **Repo**: `/home/bom/source/my_pi/pi-crew`.
+> **File review**: `pi-crew/docs/archive/refactor-plan.md` (v0.9.68 baseline). **Repo**: `/home/bom/source/my_pi/pi-crew`.
 > **Methodology**: 3 explorer pi-crew subagent song song (batch `v4-verify`) — 1 agent verify 3 file lớn (xong sạch), 2 agent còn lại bị cut sớm → parent tự verify trực tiếp bằng `grep`/`read` READ-ONLY cho nhóm Phase 5/UI/🔍.
 > **Quy ước**: TAB indent (AGENTS.md), tiếng Việt communication + tiếng Anh code/docs (HARNESS.md).
-> **Trạng thái corrections**: ĐÃ APPLY inline vào `refactor-plan.md` + Execution log (sweep 3 row). File review này là **audit trail độc lập** cho verification round.
+> **Trạng thái corrections**: ĐÃ APPLY inline vào `docs/archive/refactor-plan.md` + Execution log (sweep 3 row). File review này là **audit trail độc lập** cho verification round.
 
 ---
 
@@ -150,7 +150,7 @@ Cả 3 vòng verification đều bắt được lỗi từ **cùng 1 root cause*
 - **Plan state**: mọi claim checkable đã đối chiếu code tại HEAD v0.9.68. Execution log có 3 rows (sweep 1/2/3).
 - **Remaining 🔍**: 2 instances — cả 2 đều là (a) status-legend definition (line 11) và (b) self-reference trong sweep 3 row (line 287). **0 claim 🔍 chưa verify**.
 - **Execute-ready**: Phase 1 (dead code + cleanup hardening) là entry point rủi ro thấp nhất. Khi user "bắt đầu Phase 1", làm theo plan §Phase 1 với file mapping đã verify.
-- **File review này**: audit trail độc lập. Corrections đã apply inline vào `refactor-plan.md`; review file dùng để track verification rounds + làm reference cho reviewer sau.
+- **File review này**: audit trail độc lập. Corrections đã apply inline vào `docs/archive/refactor-plan.md`; review file dùng để track verification rounds + làm reference cho reviewer sau.
 
 ---
 
@@ -1011,7 +1011,7 @@ Fresh-at-read, transition-guarded, nhưng write `updateRunStatus` no lock. Concu
 ### 🆕 R14-4 — MEDIUM (latent) — `crash-recovery.ts:137-190` (applyRecoveryPlan/declineRecoveryPlan) — reviewer NEW
 
 - **Race**: `applyRecoveryPlan` `loadRunManifestById` (:138, no lock) → **`await executeHook("run_recovery")` (:145 — async gap arbitrary duration)** → `saveRunTasks(loaded.manifest, tasks)` (:169 reset-to-queued từ stale) + appendEvent. `declineRecoveryPlan` `loadRunManifestById` (:183) → `updateRunStatus(loaded.manifest, "cancelled")` (:190) no lock.
-- **Reachability**: LATENT — hiện chỉ test calls (recovery-hooks.test.ts), no production caller; docs cross-session-leak-audit.md:474 nói chạy chỉ trên dashboard manual-accept. **Exported API có documented dashboard path** → class-completion gap.
+- **Reachability**: LATENT — hiện chỉ test calls (recovery-hooks.test.ts), no production caller; docs docs/archive/cross-session-leak-audit.md:474 nói chạy chỉ trên dashboard manual-accept. **Exported API có documented dashboard path** → class-completion gap.
 - **Fix**: lock + fresh re-read sau hook await.
 
 ### Part B verdicts

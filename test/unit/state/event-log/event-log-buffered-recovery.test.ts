@@ -6,7 +6,7 @@ import test from "node:test";
 import { appendEventBuffered, flushEventLogBuffer, readEvents } from "../../../../src/state/event-log/event-log.ts";
 
 /**
- * M2a recovery tests (spec §2.1 / m2-targets-and-framework.md §2.1):
+ * M2a recovery tests (spec §2.1 / docs/archive/m2-targets-and-framework.md §2.1):
  *   - scenario 2: overflow truncate (>1000 entries) — oldest dropped with explicit reject
  *   - scenario 3: lock-acquire fail rejection — caller .catch handles, no unhandled rejection
  *

@@ -1,4 +1,4 @@
-// pi-crew structured error module — taxonomy mapping E001–E006.
+// pi-crew structured error module — taxonomy mapping E001–E013.
 /**
  * @fileoverview Error types and structured error handling for pi-crew.
  *
@@ -6,7 +6,7 @@
  * matching fallow's E001-E004 pattern. It exports three main constructs:
  *
  * - {@link ErrorCode} — a `const` object and string-literal union type alias
- *   enumerating machine-readable error codes (E001–E006). Implemented as a
+ *   enumerating machine-readable error codes (E001–E013). Implemented as a
  *   `const` object rather than a TypeScript `enum` so that Node's
  *   `--experimental-strip-types` can load this module (enum syntax is not
  *   supported in strip-only mode).

@@ -463,10 +463,10 @@ File: `/tmp/rlm-probe/probe2.ts` — doctrine worked example + global shadow poi
 
 ### 8.3 Docs đã đọc
 
-- `docs/improvement-plan-2026-08-11.md` (37 851 dòng) — RLM/scratchpad adoption batch (I1-I7, J1-J6, decision gate)
-- `docs/ROADMAP-2026-Q3.md` — Q3 roadmap (4 phases)
-- `docs/improvement-plan-2026-08-09.md` — maintainability inventory
-- `docs/improvement-plan-2026-08-10.md` — G1-G13, H1-H9 batch
+- `docs/archive/improvement-plan-2026-08-11.md` (37 851 dòng) — RLM/scratchpad adoption batch (I1-I7, J1-J6, decision gate)
+- `docs/archive/ROADMAP-2026-Q3.md` — Q3 roadmap (4 phases)
+- `docs/archive/improvement-plan-2026-08-09.md` — maintainability inventory
+- `docs/archive/improvement-plan-2026-08-10.md` — G1-G13, H1-H9 batch
 - `rlm-apply-pi-crew.md` — 22-pattern matrix + FLAGSHIP design
 - `pi-rlm-report.md` — pi-rlm v0.2.0 deep-dive report
 - `rlm-patterns/` — 22 pattern docs
