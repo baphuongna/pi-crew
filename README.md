@@ -13,12 +13,24 @@ npm:   pi-crew
 repo:  https://github.com/baphuongna/pi-crew
 ```
 
-> **Honest scope note.** pi-crew was developed almost entirely by AI, for the
-> author's own workflow. It spawns processes, runs shell commands, and writes
-> files on your behalf — including project-defined workflow scripts. It is not
-> an audited product. Fork it, read the parts you'll touch, and see
-> [docs/trust-model.md](docs/trust-model.md) and
-> [Known limitations](#known-limitations) before relying on it.
+> ## ⚠️ IMPORTANT — Read before using
+>
+> **pi-crew was developed almost entirely by AI, for the author's own
+> workflow.** It is not a hardened, audited product:
+>
+> - **AI-generated code, limited human review.** Every change ships after
+>   static review + runtime tests, but nothing is independently audited.
+> - **It acts on your machine.** It spawns processes, runs shell commands, and
+>   writes files — including project-defined `.dwf.ts` scripts, which carry
+>   the same trust as any `node script.js` you downloaded.
+> - **Built for one workflow** (the author's). It may not fit yours — that's
+>   fine.
+>
+> If that's too risky, don't use it — no hard feelings. If you still want it:
+> **fork it, read the parts you'll touch, and adapt it to your setup.**
+> Details: [trust model](docs/trust-model.md) ·
+> [security issues](docs/bugs/SECURITY-ISSUES.md) ·
+> [Known limitations](#known-limitations).
 
 ## Features
 

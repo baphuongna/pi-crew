@@ -4,7 +4,7 @@
 
 ### docs: lean docs tree
 
-- README rewritten as a lean landing page (1099 → 206 lines): the changelog-duplicate section, full config dump, and action/command tables are replaced by links to their single sources; stale claims corrected (55 actions, 18 agents).
+- README rewritten as a lean landing page (1099 → 206 lines): the changelog-duplicate section, full config dump, and action/command tables are replaced by links to their single sources; stale claims corrected (55 actions, 18 agents). The "⚠️ IMPORTANT — Read before using" warning is restored as a compact callout (same honest framing, details delegated to trust-model/security-issues/limitations).
 - Dated point-in-time docs (audits, plans, fix specs, roadmaps, migration guides) moved to `docs/archive/`; perf analyses to `docs/perf/`; `docs/README.md` rebuilt as a three-group index (Start here / Reference / Records).
 - `runtime-flow.md` folded into `architecture.md` ("Runtime flow"); the stale `v0.10.3` version header dropped.
 - Error-code range corrected to E001–E013 everywhere (E013 `ModelOutOfScope` shipped undocumented).
