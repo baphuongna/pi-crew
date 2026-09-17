@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getBuiltinTemplates, instantiateTemplate, listTemplates } from "../../../skills/skill-templates.ts";
 import { atomicWriteFile } from "../../../state/atomic-write.ts";
@@ -8,6 +9,29 @@ import { handleTeamManagerCommand } from "../../team-manager-command.ts";
 import { commandText, notifyCommandResult, parseScalar, pushUnset, setNestedConfig } from "../command-utils.ts";
 import type { RegisterTeamCommandsDeps } from "./shared.ts";
 import { handleTeamTool, openTeamSettingsOverlay, teamCommandContext } from "./shared.ts";
+
+/**
+ * Resolve the user-level skills directory (<pi-crew package root>/skills).
+ *
+ * ESM-safe replacement for the former `require.resolve("../../../../package.json",
+ * { paths: [__dirname] })`: neither `require` nor `__dirname` exists under
+ * strip-types source loading or inside the esbuild ESM bundle (dist/index.mjs).
+ * Anchoring on `import.meta.url` and walking up to the nearest package.json
+ * yields the package root under BOTH layouts — src/.../commands/manage.ts and
+ * dist/index.mjs sit at different depths, so a fixed relative hop count cannot
+ * serve both.
+ */
+export function resolveUserSkillsDir(): string {
+	let dir = fileURLToPath(new URL(".", import.meta.url));
+	for (;;) {
+		if (fs.existsSync(path.join(dir, "package.json"))) return path.join(dir, "skills");
+		const parent = path.dirname(dir);
+		if (parent === dir) {
+			throw new Error(`pi-crew: cannot locate package root (no package.json above ${dir})`);
+		}
+		dir = parent;
+	}
+}
 
 export function registerManageCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
 	pi.registerCommand("team-prune", {
@@ -210,16 +234,20 @@ export function registerManageCommands(pi: ExtensionAPI, deps: RegisterTeamComma
 					return idx === -1 ? [s, ""] : [s.slice(0, idx), s.slice(idx + 1)];
 				});
 			const templateId = tokens.find((t) => !t.startsWith("--") && !t.includes("="));
+			const availableTemplateIds = listTemplates().map((t) => t.id);
 			if (!templateId) {
 				await notifyCommandResult(
 					ctx,
-					"Usage: /skill-create <template-id> [--var key=value...] [--project]\nRun /skill-list to see available templates.",
+					`Usage: /skill-create <template-id> [--var key=value...] [--project]\nAvailable templates: ${availableTemplateIds.join(", ")}`,
 				);
 				return;
 			}
 			const template = getBuiltinTemplates().find((t) => t.id === templateId);
 			if (!template) {
-				await notifyCommandResult(ctx, `Unknown template '${templateId}'. Run /skill-list to see available templates.`);
+				await notifyCommandResult(
+					ctx,
+					`Unknown template '${templateId}'.\nUsage: /skill-create <template-id> [--var key=value...] [--project]\nAvailable templates: ${availableTemplateIds.join(", ")}`,
+				);
 				return;
 			}
 			const variables: Record<string, string> = {};
@@ -249,19 +277,7 @@ export function registerManageCommands(pi: ExtensionAPI, deps: RegisterTeamComma
 				await notifyCommandResult(ctx, error instanceof Error ? error.message : String(error));
 				return;
 			}
-			const skillsDir = path.resolve(
-				cwd,
-				useProject
-					? "skills"
-					: path.join(
-							path.dirname(
-								require.resolve("../../../../package.json", {
-									paths: [__dirname],
-								}),
-							),
-							"skills",
-						),
-			);
+			const skillsDir = useProject ? path.resolve(cwd, "skills") : resolveUserSkillsDir();
 			const skillDir = path.join(skillsDir, template.id);
 			const skillPath = path.join(skillDir, "SKILL.md");
 			try {

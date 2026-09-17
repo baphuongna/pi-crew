@@ -14,26 +14,29 @@ Slash commands are manual actions triggered from the Pi chat. Autonomous tool us
 | `/team-resume <runId>` | Resume a stopped run |
 | `/team-retry <runId>` | Retry a failed run |
 | `/team-result <runId>` | Show a task result artifact |
-| `/team-respond <taskId> <message>` | Respond to a waiting worker task |
-| `/team-follow-up [options]` | Manage follow-up notifications |
+| `/team-respond <runId> <taskId\|--all> <message>` | Respond to a waiting worker task |
+| `/team-follow-up <runId> <taskId> <prompt>` | Send a follow-up prompt to a task |
 | `/team-events <runId>` | View the event log |
 | `/team-artifacts <runId>` | View artifacts |
 | `/team-transcript <runId>` | Open the transcript viewer |
 | `/team-worktrees <runId>` | View worktree metadata |
-| `/team-cleanup <runId>` | Remove worktrees (interactive menu: `/team-cleanup-menu`) |
 | `/team-forget <runId>` | Fully delete a run |
 | `/team-prune` | Delete multiple old runs |
-| `/team-invalidate [scope]` | Invalidate caches |
+| `/team-invalidate <runId>` | Invalidate the snapshot cache for a run |
 | `/team-export <runId>` | Export a run bundle |
 | `/team-import <path>` | Import a run bundle |
 | `/team-imports` | List imported bundles |
 | `/team-api <runId> <op>` | State API interop |
 | `/team-metrics [filter]` | View metrics |
+| `/schedules [log <jobId-or-name>]` | List scheduled jobs (`log` tails the latest run output) |
 | `/team-manager` | Interactive helper |
+| `/team-cleanup-menu` | Alias for `/team-manager` (interactive menu) |
 | `/team-dashboard` | Live dashboard overlay |
 | `/team-init [options]` | Initialize the project layout |
 | `/team-config [options]` | View or update config |
 | `/team-settings <subcmd>` | Manage config keys |
+| `/skill-list [--json]` | List builtin skill templates |
+| `/skill-create <template-id> [--var key=value] [--project]` | Create a skill from a builtin template |
 | `/team-autonomy <subcmd>` | Manage delegation |
 | `/team-validate` | Validate resources |
 | `/team-help` | Help text |
@@ -43,7 +46,8 @@ Slash commands are manual actions triggered from the Pi chat. Autonomous tool us
 | **`/workflows`** | **v0.9.0** List static + dynamic workflows (`.dwf.ts`) |
 | `/crew-view <runId> <taskId>` | Open an agent's live full-screen transcript view (thin alias for the inline-panel pane wiring; never switches sessions) |
 | `/crew-back` | Close the agent transcript view and return to the main conversation |
-| `/team-vibes [on\|off\|speed on\|off\|capacity on\|off]` | Toggle crew-vibes speed + context meters (on/off, speed, capacity) |
+| `/team-vibes [on\|off]` | Toggle the provider-quota status |
+| `/crew-brief [on\|off\|status]` | Toggle brief mode for crew `team`/`agent` tool output |
 
 **Removed (v0.10.1 docs hygiene):** `/team-orchestrate`, `/team-schedule`,
 `/team-scheduled`, `/team-search`, `/team-graph` — phantom entries; none of

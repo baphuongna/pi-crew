@@ -23,8 +23,34 @@ export function commandText(result: { content?: Array<{ type: string; text?: str
 	return result.content?.map((item) => item.text ?? "").join("\n") ?? "";
 }
 
-export async function notifyCommandResult(ctx: ExtensionCommandContext, text: string): Promise<void> {
-	ctx.ui.notify(text.length > 800 ? `${text.slice(0, 797)}...` : text, "info");
+/** Hard cap for command-result notifications (spec W5: cap value stays 800). */
+export const NOTIFY_TEXT_CAP = 800;
+
+/** Explicit marker appended whenever a command-result notification is clipped. */
+export const TRUNCATION_MARKER = "\n… [truncated]";
+
+export interface NotifyCommandResultOptions {
+	/**
+	 * Pointer appended AFTER the truncation marker when clipping occurs (e.g.
+	 * the on-disk log path so the full output stays reachable). Included
+	 * INSIDE the cap — the body shrinks to make room. Ignored when the text
+	 * fits without clipping.
+	 */
+	truncatedFooter?: string;
+}
+
+export async function notifyCommandResult(
+	ctx: ExtensionCommandContext,
+	text: string,
+	options: NotifyCommandResultOptions = {},
+): Promise<void> {
+	if (text.length <= NOTIFY_TEXT_CAP) {
+		ctx.ui.notify(text, "info");
+		return;
+	}
+	const tail = `${TRUNCATION_MARKER}${options.truncatedFooter ?? ""}`;
+	const bodyLength = Math.max(0, NOTIFY_TEXT_CAP - tail.length);
+	ctx.ui.notify(`${text.slice(0, bodyLength)}${tail}`, "info");
 }
 
 export function parseScalar(raw: string): unknown {

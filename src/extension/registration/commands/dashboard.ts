@@ -105,12 +105,22 @@ export function registerDashboardCommands(pi: ExtensionAPI, deps: RegisterTeamCo
 	pi.registerCommand("team-dashboard", {
 		description: "Open a pi-crew run dashboard overlay",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+			// W4 (slash-commands fix spec): headless invocation previously fell
+			// through to openTeamDashboard's silent `if (!ctx.hasUI) return;`
+			// no-op — notify + return here instead so headless users get an
+			// actionable pointer instead of silence.
+			if (!ctx.hasUI) {
+				ctx.ui.notify("team-dashboard needs a UI session — headless runs can use /team-status instead.", "info");
+				return;
+			}
 			await openTeamDashboard(ctx);
 		},
 	});
 
 	pi.registerCommand("team-mascot", {
-		description: "Show an animated mascot splash",
+		// W4: cosmetic command is a documented silent no-op without a UI
+		// session (handler's `if (!ctx.hasUI) return;` stays).
+		description: "Show an animated mascot splash (UI session only)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			if (!ctx.hasUI) return;
 			const tokens = args.trim().split(/\s+/).filter(Boolean);

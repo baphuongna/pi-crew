@@ -11,12 +11,6 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
 var __esm = (fn, res, err2) => function __init() {
   if (err2) throw err2[0];
   try {
@@ -25,7 +19,7 @@ var __esm = (fn, res, err2) => function __init() {
     throw err2 = [e], e;
   }
 };
-var __commonJS = (cb, mod) => function __require2() {
+var __commonJS = (cb, mod) => function __require() {
   try {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   } catch (e) {
@@ -19190,8 +19184,14 @@ function parseRunArgs(args) {
 function commandText(result4) {
   return result4.content?.map((item) => item.text ?? "").join("\n") ?? "";
 }
-async function notifyCommandResult(ctx, text) {
-  ctx.ui.notify(text.length > 800 ? `${text.slice(0, 797)}...` : text, "info");
+async function notifyCommandResult(ctx, text, options = {}) {
+  if (text.length <= NOTIFY_TEXT_CAP) {
+    ctx.ui.notify(text, "info");
+    return;
+  }
+  const tail = `${TRUNCATION_MARKER}${options.truncatedFooter ?? ""}`;
+  const bodyLength = Math.max(0, NOTIFY_TEXT_CAP - tail.length);
+  ctx.ui.notify(`${text.slice(0, bodyLength)}${tail}`, "info");
 }
 function parseScalar(raw) {
   if (raw === "true") return true;
@@ -19217,9 +19217,12 @@ function setNestedConfig(config, key, value) {
   }
   target[parts[parts.length - 1]] = value;
 }
+var NOTIFY_TEXT_CAP, TRUNCATION_MARKER;
 var init_command_utils = __esm({
   "src/extension/registration/command-utils.ts"() {
     "use strict";
+    NOTIFY_TEXT_CAP = 800;
+    TRUNCATION_MARKER = "\n\u2026 [truncated]";
   }
 });
 
@@ -64441,7 +64444,6 @@ function piTeamsHelp() {
     "",
     "Core:",
     "- Agent can use the `team` tool autonomously; slash commands are manual controls.",
-    "- Tool action `recommend` suggests the best team/workflow for a goal.",
     "- /teams \u2014 list teams, workflows, agents, recent runs",
     "- /team-run [--team=name] [--workflow=name] [--async] [--worktree] <goal>",
     "- /team-status <runId>",
@@ -64449,35 +64451,47 @@ function piTeamsHelp() {
     "- /team-resume <runId>",
     "- /team-cancel <runId>",
     "- /team-retry <runId> [taskId]",
+    "- /team-respond <runId> <taskId|--all> <message>",
+    "- /team-follow-up <runId> <taskId> <prompt>",
+    "- /team-goal \u2014 autonomous goal loop (sub-actions: start/status/pause/resume/stop/step/clear)",
+    "- /workflows \u2014 list static + dynamic workflows",
     "",
     "Inspection:",
     "- /team-events <runId>",
     "- /team-artifacts <runId>",
-    "- /team-worktrees <runId>",
-    "- /team-api <runId> <operation> [taskId=<taskId>] [body=<message>]",
-    "- /team-dashboard",
-    "- /schedules [log <jobId-or-name>] \u2014 list scheduled jobs / tail latest run output",
-    "- /team-mascot",
-    "- /team-transcript <runId> [taskId]",
     "- /team-result <runId> [taskId]",
-    "- /team-manager \u2014 interactive menu (alias: /team-cleanup-menu)",
+    "- /team-transcript <runId> [taskId]",
+    "- /team-worktrees <runId>",
+    "- /team-api <runId> <operation> [key=value]",
+    "- /team-metrics [filter]",
+    "- /team-dashboard",
+    "- /team-mascot",
     "",
     "Maintenance:",
+    "- /team-manager \u2014 interactive menu (alias: /team-cleanup-menu)",
     "- /team-forget <runId> --confirm [--force]",
     "- /team-prune --keep=20 --confirm",
+    "- /team-invalidate <runId>",
+    "",
+    "Skills:",
+    "- /skill-list [--json] \u2014 list builtin skill templates",
+    "- /skill-create <template-id> [--var key=value...] [--project]",
     "",
     "Portability:",
     "- /team-export <runId>",
-    "- /team-import <path-to-run-export.json> [--user]",
+    "- /team-import <path-to-run-export.json>",
     "- /team-imports",
     "",
-    "Diagnostics:",
+    "Diagnostics & config:",
     "- /team-doctor",
+    "- /team-validate",
     "- /team-init [--copy-builtins] [--overwrite]",
     "- /team-config [key=value] [--unset=key.path] [--project]",
-    "- /team-autonomy [status|on|off|manual|suggested|assisted|aggressive] [--prefer-async] [--no-worktree-suggest]",
-    "- /team-validate",
+    "- /team-settings [list|get <key>|set <key> <value>|unset <key>|path|scope]",
+    "- /team-autonomy [status|on|off|manual|suggested|assisted|aggressive]",
     "- /team-help",
+    "",
+    "Non-team commands: /schedules [log <jobId-or-name>], /crew-view <runId> <taskId>, /crew-back, /team-vibes [on|off], /crew-brief [on|off|status]",
     "",
     "Goal loops (P0/P1 \u2014 autonomous goal loop):",
     "- team action='goal' config.subAction='start' config.objective='...' config.evaluatorModel='...' [config.maxTurns=20] [budgetTotal=N]",
@@ -77797,11 +77811,17 @@ function registerDashboardCommands(pi, deps) {
   pi.registerCommand("team-dashboard", {
     description: "Open a pi-crew run dashboard overlay",
     handler: async (_args, ctx) => {
+      if (!ctx.hasUI) {
+        ctx.ui.notify("team-dashboard needs a UI session \u2014 headless runs can use /team-status instead.", "info");
+        return;
+      }
       await openTeamDashboard(ctx);
     }
   });
   pi.registerCommand("team-mascot", {
-    description: "Show an animated mascot splash",
+    // W4: cosmetic command is a documented silent no-op without a UI
+    // session (handler's `if (!ctx.hasUI) return;` stays).
+    description: "Show an animated mascot splash (UI session only)",
     handler: async (args, ctx) => {
       if (!ctx.hasUI) return;
       const tokens = args.trim().split(/\s+/).filter(Boolean);
@@ -78336,6 +78356,18 @@ var init_team_manager_command = __esm({
 // src/extension/registration/commands/manage.ts
 import * as fs113 from "node:fs";
 import * as path90 from "node:path";
+import { fileURLToPath as fileURLToPath6 } from "node:url";
+function resolveUserSkillsDir() {
+  let dir = fileURLToPath6(new URL(".", import.meta.url));
+  for (; ; ) {
+    if (fs113.existsSync(path90.join(dir, "package.json"))) return path90.join(dir, "skills");
+    const parent = path90.dirname(dir);
+    if (parent === dir) {
+      throw new Error(`pi-crew: cannot locate package root (no package.json above ${dir})`);
+    }
+    dir = parent;
+  }
+}
 function registerManageCommands(pi, deps) {
   pi.registerCommand("team-prune", {
     description: "Prune old finished pi-crew runs, keeping the newest N",
@@ -78503,16 +78535,23 @@ function registerManageCommands(pi, deps) {
         return idx === -1 ? [s, ""] : [s.slice(0, idx), s.slice(idx + 1)];
       });
       const templateId = tokens.find((t2) => !t2.startsWith("--") && !t2.includes("="));
+      const availableTemplateIds = listTemplates().map((t2) => t2.id);
       if (!templateId) {
         await notifyCommandResult(
           ctx,
-          "Usage: /skill-create <template-id> [--var key=value...] [--project]\nRun /skill-list to see available templates."
+          `Usage: /skill-create <template-id> [--var key=value...] [--project]
+Available templates: ${availableTemplateIds.join(", ")}`
         );
         return;
       }
       const template = getBuiltinTemplates().find((t2) => t2.id === templateId);
       if (!template) {
-        await notifyCommandResult(ctx, `Unknown template '${templateId}'. Run /skill-list to see available templates.`);
+        await notifyCommandResult(
+          ctx,
+          `Unknown template '${templateId}'.
+Usage: /skill-create <template-id> [--var key=value...] [--project]
+Available templates: ${availableTemplateIds.join(", ")}`
+        );
         return;
       }
       const variables = {};
@@ -78542,17 +78581,7 @@ function registerManageCommands(pi, deps) {
         await notifyCommandResult(ctx, error instanceof Error ? error.message : String(error));
         return;
       }
-      const skillsDir = path90.resolve(
-        cwd,
-        useProject ? "skills" : path90.join(
-          path90.dirname(
-            __require.resolve("../../../../package.json", {
-              paths: [__dirname]
-            })
-          ),
-          "skills"
-        )
-      );
+      const skillsDir = useProject ? path90.resolve(cwd, "skills") : resolveUserSkillsDir();
       const skillDir = path90.join(skillsDir, template.id);
       const skillPath = path90.join(skillDir, "SKILL.md");
       try {
@@ -78697,6 +78726,10 @@ function registerRunCommands(pi, deps) {
       const taskToken = tokens[0] === "--all" ? tokens.shift() : tokens.shift();
       const taskId = taskToken === "--all" ? void 0 : taskToken;
       const message = tokens.join(" ") || void 0;
+      if (!runId || !taskToken || !message) {
+        await notifyCommandResult(ctx, "Usage: /team-respond <runId> <taskId|--all> <message>\u2026");
+        return;
+      }
       const result4 = await handleTeamTool4({ action: "respond", runId, taskId, message }, teamCommandContext(ctx));
       await notifyCommandResult(ctx, commandText(result4));
     }
@@ -78747,7 +78780,19 @@ function registerRunCommands(pi, deps) {
     }
   });
   pi.registerCommand("team-goal", {
-    description: "Autonomous goal loop control: [start|status|pause|resume|stop|step|clear] [goalId] [--objective=...] [--evaluatorModel=...] [--maxTurns=N]",
+    description: "Autonomous goal loop control (defaults to status): [start|status|pause|resume|stop|cancel|reset|step|clear] [goalId] [--objective=...] [--evaluatorModel=...] [--maxTurns=N]",
+    // Suggest the stop-aliases only while completing the FIRST argument:
+    // pi hands `getArgumentCompletions` the whole argument text (there is no
+    // argument-index parameter), so any whitespace in it means the cursor is
+    // already past arg 1 — nothing useful to suggest for goalId/flags.
+    getArgumentCompletions: (argumentPrefix) => {
+      if (argumentPrefix.includes(" ")) return [];
+      const prefix = argumentPrefix.trim();
+      return [
+        { value: "cancel", label: "cancel", description: "stop the goal loop (alias of stop)" },
+        { value: "reset", label: "reset", description: "stop the goal loop (alias of stop)" }
+      ].filter((item) => item.value.startsWith(prefix));
+    },
     handler: async (args, ctx) => {
       const tokens = args.trim().split(/\s+/).filter(Boolean);
       const knownSubs = /* @__PURE__ */ new Set(["start", "status", "pause", "resume", "stop", "step", "clear", "cancel", "reset"]);
@@ -78785,7 +78830,10 @@ function registerRunCommands(pi, deps) {
           metricRegistry: deps.getMetricRegistry?.()
         }
       );
-      await notifyCommandResult(ctx, commandText(result4));
+      const text = commandText(result4);
+      const trimmed = text.trim();
+      const hint = !trimmed || trimmed === "[]" ? "\nNo metrics yet \u2014 observability may be disabled for this team. Set `observability: true` in the team frontmatter to enable." : "";
+      await notifyCommandResult(ctx, text + hint);
     }
   });
   pi.registerCommand("team-imports", {
@@ -78816,6 +78864,13 @@ var init_run3 = __esm({
 });
 
 // src/extension/registration/commands/status.ts
+async function eventsLogFooter(runId, text, cwd) {
+  if (!runId || text.length <= NOTIFY_TEXT_CAP) return void 0;
+  const { locateRunCwd: locateRunCwd2 } = await Promise.resolve().then(() => (init_team_tool2(), team_tool_exports));
+  const runCwd = locateRunCwd2(runId, cwd);
+  const manifest = runCwd ? loadRunManifestById(runCwd, runId)?.manifest : void 0;
+  return manifest ? ` Full log: ${manifest.eventsPath}` : void 0;
+}
 function registerStatusCommands(pi, deps) {
   pi.registerCommand("teams", {
     description: "List pi-crew teams, workflows, and agents",
@@ -78844,7 +78899,12 @@ function registerStatusCommands(pi, deps) {
             getRunSnapshotCache: deps.getRunSnapshotCache
           }
         );
-        await notifyCommandResult(ctx, commandText(result4));
+        const text = commandText(result4);
+        await notifyCommandResult(ctx, text, {
+          // W5: only `team-events` output is a truncatable on-disk log —
+          // point at the full file when the listing gets clipped.
+          truncatedFooter: action === "events" ? await eventsLogFooter(runId, text, ctx.cwd) : void 0
+        });
       }
     });
   }
@@ -78869,6 +78929,7 @@ function registerStatusCommands(pi, deps) {
 var init_status3 = __esm({
   "src/extension/registration/commands/status.ts"() {
     "use strict";
+    init_state_store();
     init_command_completions();
     init_help();
     init_command_utils();
@@ -82934,7 +82995,7 @@ init_internal_error();
 
 // src/extension/crew-vibes/config.ts
 init_env_vars();
-import { existsSync as existsSync79, mkdirSync as mkdirSync45, readFileSync as readFileSync85, writeFileSync as writeFileSync12 } from "node:fs";
+import { existsSync as existsSync80, mkdirSync as mkdirSync45, readFileSync as readFileSync85, writeFileSync as writeFileSync12 } from "node:fs";
 import { dirname as dirname45, join as join88 } from "node:path";
 var PROVIDER_STATUS_ID = "pi-crew-bar";
 function resolveHome() {
@@ -82997,7 +83058,7 @@ function normalizeConfig(raw) {
 function loadConfig2() {
   try {
     const path103 = configPath2();
-    if (!existsSync79(path103)) return normalizeConfig(void 0);
+    if (!existsSync80(path103)) return normalizeConfig(void 0);
     return normalizeConfig(JSON.parse(readFileSync85(path103, "utf8")));
   } catch {
     return normalizeConfig(void 0);

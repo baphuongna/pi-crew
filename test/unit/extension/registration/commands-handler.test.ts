@@ -137,7 +137,9 @@ test("notifyCommandResult routes text to ctx.ui.notify with info level and trunc
 	const longText = "x".repeat(810);
 	await notifyCommandResult(ctx, longText);
 	assert.equal(notifications[1]!.text.length, 800);
-	assert.equal(notifications[1]!.text, `${"x".repeat(797)}...`);
+	// W5 (slash-commands fix spec): clipping is now explicit — the opaque
+	// "..." tail was replaced by "\n… [truncated]" (total stays ≤ 800).
+	assert.equal(notifications[1]!.text, `${"x".repeat(786)}\n… [truncated]`);
 });
 
 // ─── parseRunArgs dispatch ─────────────────────────────────────────────────

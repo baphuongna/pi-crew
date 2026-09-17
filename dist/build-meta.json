@@ -7452,7 +7452,7 @@
       "format": "esm"
     },
     "src/extension/registration/command-utils.ts": {
-      "bytes": 2448,
+      "bytes": 3289,
       "imports": [],
       "format": "esm"
     },
@@ -16034,7 +16034,7 @@
       "format": "esm"
     },
     "src/extension/help.ts": {
-      "bytes": 2649,
+      "bytes": 3123,
       "imports": [],
       "format": "esm"
     },
@@ -18760,7 +18760,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/dashboard.ts": {
-      "bytes": 5404,
+      "bytes": 5955,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -18837,7 +18837,7 @@
       "format": "esm"
     },
     "src/extension/registration/commands/manage.ts": {
-      "bytes": 12132,
+      "bytes": 13149,
       "imports": [
         {
           "path": "node:fs",
@@ -18846,6 +18846,11 @@
         },
         {
           "path": "node:path",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
+          "path": "node:url",
           "kind": "import-statement",
           "external": true
         },
@@ -18888,17 +18893,12 @@
           "path": "src/ui/tool-renderers/brief-mode.ts",
           "kind": "dynamic-import",
           "original": "../../../ui/tool-renderers/brief-mode.ts"
-        },
-        {
-          "path": "<runtime>",
-          "kind": "import-statement",
-          "external": true
         }
       ],
       "format": "esm"
     },
     "src/extension/registration/commands/run.ts": {
-      "bytes": 9918,
+      "bytes": 11061,
       "imports": [
         {
           "path": "src/extension/command-completions.ts",
@@ -18919,8 +18919,13 @@
       "format": "esm"
     },
     "src/extension/registration/commands/status.ts": {
-      "bytes": 2442,
+      "bytes": 3837,
       "imports": [
+        {
+          "path": "src/state/stores/state-store.ts",
+          "kind": "import-statement",
+          "original": "../../../state/stores/state-store.ts"
+        },
         {
           "path": "src/extension/command-completions.ts",
           "kind": "import-statement",
@@ -18940,6 +18945,11 @@
           "path": "src/extension/registration/commands/shared.ts",
           "kind": "import-statement",
           "original": "./shared.ts"
+        },
+        {
+          "path": "src/extension/team-tool.ts",
+          "kind": "dynamic-import",
+          "original": "../../team-tool.ts"
         }
       ],
       "format": "esm"
@@ -21478,7 +21488,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8195098
+      "bytes": 8202443
     },
     "dist/index.mjs": {
       "imports": [
@@ -23088,6 +23098,11 @@
           "external": true
         },
         {
+          "path": "node:url",
+          "kind": "import-statement",
+          "external": true
+        },
+        {
           "path": "node:crypto",
           "kind": "import-statement",
           "external": true
@@ -24303,7 +24318,7 @@
           "bytesInOutput": 2302
         },
         "src/extension/registration/command-utils.ts": {
-          "bytesInOutput": 2086
+          "bytesInOutput": 2424
         },
         "src/runtime/async-marker.ts": {
           "bytesInOutput": 610
@@ -25317,7 +25332,7 @@
           "bytesInOutput": 5605
         },
         "src/extension/help.ts": {
-          "bytesInOutput": 2847
+          "bytesInOutput": 3349
         },
         "src/extension/team-onboard.ts": {
           "bytesInOutput": 4612
@@ -25521,7 +25536,7 @@
           "bytesInOutput": 17751
         },
         "src/extension/registration/commands/dashboard.ts": {
-          "bytesInOutput": 4862
+          "bytesInOutput": 5177
         },
         "src/skills/skill-templates.ts": {
           "bytesInOutput": 11936
@@ -25530,13 +25545,13 @@
           "bytesInOutput": 4578
         },
         "src/extension/registration/commands/manage.ts": {
-          "bytesInOutput": 11231
+          "bytesInOutput": 11685
         },
         "src/extension/registration/commands/run.ts": {
-          "bytesInOutput": 9140
+          "bytesInOutput": 10321
         },
         "src/extension/registration/commands/status.ts": {
-          "bytesInOutput": 2153
+          "bytesInOutput": 2889
         },
         "src/extension/registration/commands/index.ts": {
           "bytesInOutput": 508
@@ -25800,7 +25815,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3413163
+      "bytes": 3416323
     }
   }
 }

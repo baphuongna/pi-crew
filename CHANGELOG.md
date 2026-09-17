@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### slash-commands usability fixes
+
+- `/team-respond` now guards its arguments (`<runId> <taskId|--all> <message>`) with a usage message instead of surfacing an opaque tool error.
+- `/team-goal` metadata is honest: description lists the real sub-actions (`cancel`, `reset`, default `status`) and first-argument completions suggest them.
+- `/team-metrics` appends a hint when the snapshot is empty — naming observability as the likely cause and the `observability: true` enable path.
+- `/team-dashboard` in a headless session now notifies that it needs a UI (suggesting `/team-status`) instead of silently doing nothing.
+- Notification truncation is explicit: clipped output ends with `… [truncated]`, still capped at 800 chars; `/team-events` appends the on-disk events log path when truncated so the full log stays reachable.
+- `/skill-create` resolution is ESM-safe (`import.meta.url` walk-up replacing `require.resolve`/`__dirname`) and works identically under strip-types and the bundle; missing/unknown template ids now list the available template ids.
+- `/team-help` resynced to the real command surface (all 38 team commands + pointer to the 5 non-team commands).
+- `docs/commands-reference.md` truth-synced: phantom `/team-cleanup` removed, `/team-respond`//`/team-follow-up`//`/team-invalidate` args fixed, `/team-vibes` reduced to its real `[on|off]` surface, `/schedules`//`/skill-list`//`/skill-create`//`/crew-brief`//`/team-cleanup-menu` documented — locked by a new docs↔code set-equality parity test.
+- New handler tests: team-respond guard, team-goal metadata, command output hints (truncation/dashboard/metrics), skill-create ESM resolution, team-vibes (status/on/off/usage-error).
+
 ### docs: lean docs tree
 
 - README rewritten as a lean landing page (1099 → 206 lines): the changelog-duplicate section, full config dump, and action/command tables are replaced by links to their single sources; stale claims corrected (55 actions, 18 agents). The "⚠️ IMPORTANT — Read before using" warning is restored as a compact callout (same honest framing, details delegated to trust-model/security-issues/limitations).

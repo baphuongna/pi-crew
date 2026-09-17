@@ -1,9 +1,27 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { loadRunManifestById } from "../../../state/stores/state-store.ts";
 import { suggestRunIds } from "../../command-completions.ts";
 import { piTeamsHelp } from "../../help.ts";
-import { commandText, notifyCommandResult } from "../command-utils.ts";
+import { commandText, NOTIFY_TEXT_CAP, notifyCommandResult } from "../command-utils.ts";
 import type { RegisterTeamCommandsDeps } from "./shared.ts";
 import { handleTeamTool, teamCommandContext } from "./shared.ts";
+
+/**
+ * W5 (slash-commands fix spec): `/team-events` pointer. When the events
+ * listing is about to be clipped by the 800-char notification cap, resolve
+ * the run's on-disk events log so the message can end with a reachable path.
+ * Derived from the SAME source the `events` team action reads
+ * (inspect.ts): locateRunCwd + loadRunManifestById → manifest.eventsPath.
+ * The dynamic team-tool import is free here — the awaited handleTeamTool
+ * call above it already loaded that module into the ESM cache.
+ */
+async function eventsLogFooter(runId: string | undefined, text: string, cwd: string): Promise<string | undefined> {
+	if (!runId || text.length <= NOTIFY_TEXT_CAP) return undefined;
+	const { locateRunCwd } = await import("../../team-tool.ts"); // LAZY: defer team-tool chain to call site (handleTeamTool already cached it).
+	const runCwd = locateRunCwd(runId, cwd);
+	const manifest = runCwd ? loadRunManifestById(runCwd, runId)?.manifest : undefined;
+	return manifest ? ` Full log: ${manifest.eventsPath}` : undefined;
+}
 
 export function registerStatusCommands(pi: ExtensionAPI, deps: RegisterTeamCommandsDeps): void {
 	pi.registerCommand("teams", {
@@ -34,7 +52,12 @@ export function registerStatusCommands(pi: ExtensionAPI, deps: RegisterTeamComma
 						getRunSnapshotCache: deps.getRunSnapshotCache,
 					},
 				);
-				await notifyCommandResult(ctx, commandText(result));
+				const text = commandText(result);
+				await notifyCommandResult(ctx, text, {
+					// W5: only `team-events` output is a truncatable on-disk log —
+					// point at the full file when the listing gets clipped.
+					truncatedFooter: action === "events" ? await eventsLogFooter(runId, text, ctx.cwd) : undefined,
+				});
 			},
 		});
 	}

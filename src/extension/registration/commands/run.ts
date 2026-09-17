@@ -109,6 +109,10 @@ export function registerRunCommands(pi: ExtensionAPI, deps: RegisterTeamCommands
 			const taskToken = tokens[0] === "--all" ? tokens.shift() : tokens.shift();
 			const taskId = taskToken === "--all" ? undefined : taskToken;
 			const message = tokens.join(" ") || undefined;
+			if (!runId || !taskToken || !message) {
+				await notifyCommandResult(ctx, "Usage: /team-respond <runId> <taskId|--all> <message>…");
+				return;
+			}
 			const result = await handleTeamTool({ action: "respond", runId, taskId, message }, teamCommandContext(ctx));
 			await notifyCommandResult(ctx, commandText(result));
 		},
@@ -163,7 +167,19 @@ export function registerRunCommands(pi: ExtensionAPI, deps: RegisterTeamCommands
 
 	pi.registerCommand("team-goal", {
 		description:
-			"Autonomous goal loop control: [start|status|pause|resume|stop|step|clear] [goalId] [--objective=...] [--evaluatorModel=...] [--maxTurns=N]",
+			"Autonomous goal loop control (defaults to status): [start|status|pause|resume|stop|cancel|reset|step|clear] [goalId] [--objective=...] [--evaluatorModel=...] [--maxTurns=N]",
+		// Suggest the stop-aliases only while completing the FIRST argument:
+		// pi hands `getArgumentCompletions` the whole argument text (there is no
+		// argument-index parameter), so any whitespace in it means the cursor is
+		// already past arg 1 — nothing useful to suggest for goalId/flags.
+		getArgumentCompletions: (argumentPrefix: string) => {
+			if (argumentPrefix.includes(" ")) return [];
+			const prefix = argumentPrefix.trim();
+			return [
+				{ value: "cancel", label: "cancel", description: "stop the goal loop (alias of stop)" },
+				{ value: "reset", label: "reset", description: "stop the goal loop (alias of stop)" },
+			].filter((item) => item.value.startsWith(prefix));
+		},
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const tokens = args.trim().split(/\s+/).filter(Boolean);
 			const knownSubs = new Set(["start", "status", "pause", "resume", "stop", "step", "clear", "cancel", "reset"]);
@@ -203,7 +219,13 @@ export function registerRunCommands(pi: ExtensionAPI, deps: RegisterTeamCommands
 					metricRegistry: deps.getMetricRegistry?.(),
 				},
 			);
-			await notifyCommandResult(ctx, commandText(result));
+			const text = commandText(result);
+			const trimmed = text.trim();
+			const hint =
+				!trimmed || trimmed === "[]"
+					? "\nNo metrics yet — observability may be disabled for this team. Set `observability: true` in the team frontmatter to enable."
+					: "";
+			await notifyCommandResult(ctx, text + hint);
 		},
 	});
 
