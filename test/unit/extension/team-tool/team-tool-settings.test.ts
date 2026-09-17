@@ -10,6 +10,7 @@ import { describe, it } from "node:test";
 import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
 import { handleSettings } from "../../../../src/extension/team-tool/handle-settings.ts";
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
+import { validateConfig } from "../../../../src/schema/config-schema.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 function makeCtx(cwd: string): TeamContext {
@@ -296,7 +297,7 @@ describe("handleSettings unknown subcommand", () => {
 // into mkdtemp dirs so nothing can read or write the real ~/.pi config.
 
 describe("handleSettings ui.* keys (M1-9)", () => {
-	const UI_KEYS = ["ui.widgetRowStyle", "ui.inlinePanel", "ui.autoCloseDashboardMs"] as const;
+	const UI_KEYS = ["ui.inlinePanel", "ui.autoCloseDashboardMs"] as const;
 
 	function withSandboxedHome(fn: (home: string, cwd: string) => void): void {
 		const savedHome = process.env.HOME;
@@ -345,7 +346,7 @@ describe("handleSettings ui.* keys (M1-9)", () => {
 		});
 	});
 
-	it("schema lists the three ui keys", () => {
+	it("schema lists the ui keys", () => {
 		withSandboxedHome((_home, cwd) => {
 			const text = textFromToolResult(handleSettings(makeConfig("schema"), makeCtx(cwd)));
 			for (const key of UI_KEYS) {
@@ -354,7 +355,14 @@ describe("handleSettings ui.* keys (M1-9)", () => {
 		});
 	});
 
-	it("set ui.widgetRowStyle persists into the sandboxed user config and reads back", () => {
+	it("set ui.widgetRowStyle is accepted permissively but silently DROPPED — the key is retired", () => {
+		// ui.widgetRowStyle was REMOVED 2026-09-16 (dead config chain). The
+		// set/get paths stay permissive for every ui.* key (no unknown-key
+		// warning — same as any ui.foo), but configPatchFromConfig() runs the
+		// patch through parseConfig(), which no longer parses the key — so the
+		// write is a no-op and nothing lands in the user config. This pins the
+		// full retirement: permissive surface, dropped persistence, strict
+		// loader.
 		withSandboxedHome((home, cwd) => {
 			const res = handleSettings(makeConfig("set ui.widgetRowStyle detailed"), makeCtx(cwd));
 			const text = textFromToolResult(res);
@@ -362,11 +370,15 @@ describe("handleSettings ui.* keys (M1-9)", () => {
 			assert.ok(!text.includes("unknown key"), `ui.* is exempt from the unknown-key warning, got: ${text}`);
 
 			const written = path.join(home, ".pi", "agent", "pi-crew.json");
-			assert.ok(fs.existsSync(written), `expected the user config inside the sandbox at ${written}`);
-			assert.equal(JSON.parse(fs.readFileSync(written, "utf8")).ui?.widgetRowStyle, "detailed");
+			const persisted = fs.existsSync(written) ? (JSON.parse(fs.readFileSync(written, "utf8")).ui?.widgetRowStyle ?? null) : null;
+			assert.equal(persisted, null, `the retired key must not persist into the user config, got ${String(persisted)}`);
 
 			const readBack = textFromToolResult(handleSettings(makeConfig("get ui.widgetRowStyle"), makeCtx(cwd)));
-			assert.ok(readBack.includes("detailed"), `the set value must round-trip through get, got: ${readBack}`);
+			assert.ok(!readBack.includes("detailed"), `a dropped key must not read back, got: ${readBack}`);
+
+			// And the strict schema rejects it outright on a hand-written config.
+			const outcome = validateConfig({ ui: { widgetRowStyle: "detailed" } });
+			assert.equal(outcome.hasErrors, true, "validateConfig() must flag the retired ui.widgetRowStyle");
 		});
 	});
 });

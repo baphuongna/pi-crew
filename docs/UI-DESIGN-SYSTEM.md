@@ -160,10 +160,11 @@ were consolidated into `src/ui/rail.ts`.
 
 ## 6. Residual (known, not part of the sync)
 
-1. **Orphaned config:** `ui.widgetRowStyle` / `WidgetRowStyle` / `model.rowStyle` are
-   dead since the dock collapsed to one line (their last consumer was the
-   component-level spinner swap). Removing them is a config-schema change, so it
-   needs its own decision.
+1. ~~**Orphaned config:** `ui.widgetRowStyle` / `WidgetRowStyle` /
+   `model.rowStyle`~~ — **REMOVED 2026-09-16** (user-approved): the whole chain
+   (defaults/types/parser/TypeBox schema/schema.json/KNOWN_KEYS/model field +
+   tests) is gone; the strict schema now rejects the key as unknown. Tests pin
+   both directions so it cannot resurface.
 2. **Parallel glyph map:** `src/ui/status-colors.ts:40-61` still carries a
    status-glyph table used for colourising plain text; not yet merged into
    `rail.ts`.

@@ -334,10 +334,10 @@ test("crew widget header spinner animates time-based across renders even when st
 			},
 		} as never;
 		const state: CrewWidgetState = { frame: 7 };
-		// The spinner-frame swap is a LEGACY header behavior; the compact dock's
-		// line 0 is the hint text and must not spin. Force detailed so this test
-		// keeps covering the animated legacy header.
-		updateCrewWidget(ctx, state, { widgetPlacement: "aboveEditor", widgetRowStyle: "detailed" });
+		// The dock spinner rides the rail line unconditionally since the M4 RAIL
+		// redesign (ui.widgetRowStyle was removed 2026-09-16); this test covers
+		// the animated rail glyph itself.
+		updateCrewWidget(ctx, state, { widgetPlacement: "aboveEditor" });
 		const factory = setWidgetCalls.find((call) => call.key === "pi-crew-active" && call.content)?.content as (
 			tui: unknown,
 			theme: unknown,
@@ -407,7 +407,7 @@ test("compact dock hint line never gets the legacy spinner-frame swap (pi-subtas
 			},
 		} as never;
 		const state: CrewWidgetState = { frame: 7 };
-		updateCrewWidget(ctx, state, { widgetPlacement: "belowEditor" }); // rowStyle defaults to compact
+		updateCrewWidget(ctx, state, { widgetPlacement: "belowEditor" });
 		const factory = setWidgetCalls.find((call) => call.key === "pi-crew-active" && call.content)?.content as (
 			tui: unknown,
 			theme: unknown,

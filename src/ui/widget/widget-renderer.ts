@@ -229,15 +229,6 @@ export function orderWidgetAgents(entry: WidgetRun, now = Date.now()): { active:
 
 // ── Line builder ──────────────────────────────────────────────────────
 
-/**
- * Row layout for the per-agent lines.
- *
- * - `detailed` — the historical two-line tree (name row + `⊶ activity` row).
- * - `compact`  — one width-budgeted line per agent, so a wide terminal shows the
- *   full description instead of the same clip a narrow one gets.
- */
-export type WidgetRowStyle = "compact" | "detailed";
-
 export interface WidgetRenderOptions {
 	/** Task id under the inline panel cursor, if any. */
 	selectedTaskId?: string;

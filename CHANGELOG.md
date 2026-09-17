@@ -76,6 +76,12 @@
 - Deleted `overlay-stack.ts`, `ui/loaders.ts`, `crew-vibes/figures.ts`,
   `crew-vibes/font-detect.ts`, `dynamic-border.ts` and `boxLine()` plus their
   tests (~1.7k lines net), together with the dead `compactAgentRow` chain.
+- Removed the orphaned `ui.widgetRowStyle` config chain (default, type,
+  parser, TypeBox schema, `schema.json`, KNOWN_KEYS, `model.rowStyle` field,
+  `WidgetRowStyle` type): the M4 RAIL dock renders exactly one layout, so the
+  key had no reader left. The strict schema now rejects it as unknown;
+  schema-sync + settings tests pin the removal in both directions so it cannot
+  resurface.
 
 ### fix(ui): defects found by rendering a REAL team run
 

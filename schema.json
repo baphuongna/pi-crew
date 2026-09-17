@@ -344,15 +344,6 @@
           "minimum": 1,
           "maximum": 50
         },
-        "widgetRowStyle": {
-          "type": "string",
-          "enum": [
-            "compact",
-            "detailed"
-          ],
-          "default": "compact",
-          "description": "Dock widget row style. 'compact' keeps the single-line dock; 'detailed' also suppresses the leading spinner-glyph swap."
-        },
         "inlinePanel": {
           "type": "boolean",
           "default": true,

@@ -245,11 +245,12 @@ const KNOWN_KEYS = new Set([
 	// ui
 	"ui.widgetPlacement",
 	"ui.widgetMaxLines",
-	// M1-9/P1-8: widgetRowStyle + inlinePanel are schema keys (config-schema.ts
+	// M1-9/P1-8: inlinePanel is a schema key (config-schema.ts
 	// PiTeamsUiConfigSchema) and ui.autoCloseDashboardMs is parsed by
 	// parseUiConfig — keep this list mirroring the schema's ui block so
 	// `team-settings schema` lists what the schema actually accepts.
-	"ui.widgetRowStyle",
+	// (ui.widgetRowStyle was REMOVED 2026-09-16: the RAIL dock renders one
+	// layout; the key no longer has any reader.)
 	"ui.inlinePanel",
 	"ui.dashboardPlacement",
 	"ui.dashboardWidth",
@@ -450,7 +451,7 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 		// Try to provide helpful note for unknown keys.
 		// M1-9/P1-8: `ui.*` is exempt exactly like the `set` path below (:497) —
 		// every ui.* key is accepted by the schema's ui block, so `get
-		// ui.widgetRowStyle` must not answer "(unknown key — may not take
+		// ui.<key>` must not answer "(unknown key — may not take
 		// effect)" for a key the config layer actually honours.
 		let note = "";
 		if (!KNOWN_KEYS.has(key) && !key.startsWith("agents.overrides.") && !key.startsWith("ui.")) {

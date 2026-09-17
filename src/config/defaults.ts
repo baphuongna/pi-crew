@@ -136,7 +136,6 @@ export const DEFAULT_UI = {
 	// quota/meter footer (falls back to belowEditor when no footer sink exists).
 	widgetPlacement: "bottom" as const,
 	widgetMaxLines: 8,
-	widgetRowStyle: "compact" as const,
 	inlinePanel: true,
 	powerbar: true,
 	dashboardPlacement: "center" as const,

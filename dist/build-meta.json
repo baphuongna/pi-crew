@@ -100,7 +100,7 @@
       "format": "esm"
     },
     "src/config/defaults.ts": {
-      "bytes": 10303,
+      "bytes": 10266,
       "imports": [
         {
           "path": "src/config/env-vars.ts",
@@ -6253,7 +6253,7 @@
       "format": "esm"
     },
     "src/schema/config-schema.ts": {
-      "bytes": 17454,
+      "bytes": 16949,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -6279,7 +6279,7 @@
       "format": "esm"
     },
     "src/config/config-validation.ts": {
-      "bytes": 33062,
+      "bytes": 32908,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -14751,7 +14751,7 @@
       "format": "esm"
     },
     "src/extension/team-tool/handle-settings.ts": {
-      "bytes": 20039,
+      "bytes": 20111,
       "imports": [
         {
           "path": "src/config/config.ts",
@@ -15387,7 +15387,7 @@
       "format": "esm"
     },
     "src/ui/widget/widget-renderer.ts": {
-      "bytes": 21033,
+      "bytes": 20697,
       "imports": [
         {
           "path": "src/extension/team-tool/handle-schedule.ts",
@@ -15553,7 +15553,7 @@
       "format": "esm"
     },
     "src/ui/widget/index.ts": {
-      "bytes": 25240,
+      "bytes": 25121,
       "imports": [
         {
           "path": "src/config/defaults.ts",
@@ -21478,7 +21478,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8196517
+      "bytes": 8195035
     },
     "dist/index.mjs": {
       "imports": [
@@ -23412,7 +23412,7 @@
           "bytesInOutput": 22870
         },
         "src/config/defaults.ts": {
-          "bytesInOutput": 6404
+          "bytesInOutput": 6371
         },
         "src/state/coordination/locks.ts": {
           "bytesInOutput": 10482
@@ -24159,13 +24159,13 @@
           "bytesInOutput": 127
         },
         "src/schema/config-schema.ts": {
-          "bytesInOutput": 18141
+          "bytesInOutput": 17594
         },
         "src/config/suggestions.ts": {
           "bytesInOutput": 1325
         },
         "src/config/config-validation.ts": {
-          "bytesInOutput": 27236
+          "bytesInOutput": 27079
         },
         "src/config/config-merge.ts": {
           "bytesInOutput": 4765
@@ -25206,7 +25206,7 @@
           "bytesInOutput": 4464
         },
         "src/extension/team-tool/handle-settings.ts": {
-          "bytesInOutput": 18012
+          "bytesInOutput": 18098
         },
         "src/extension/team-tool/workflow-manage.ts": {
           "bytesInOutput": 8639
@@ -25281,7 +25281,7 @@
           "bytesInOutput": 6130
         },
         "src/ui/widget/index.ts": {
-          "bytesInOutput": 14502
+          "bytesInOutput": 14376
         },
         "src/utils/safe-abort.ts": {
           "bytesInOutput": 436
@@ -25800,7 +25800,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3413940
+      "bytes": 3413163
     }
   }
 }

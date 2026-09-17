@@ -434,7 +434,6 @@ export function updateCrewWidget(
 	}
 
 	const runs = activeWidgetRuns(ctx.cwd, manifestCache, snapshotCache, preloadedManifests, workspaceId);
-	const rowStyle = config?.widgetRowStyle ?? DEFAULT_UI.widgetRowStyle;
 	// The inline panel navigates the same run list the widget paints, and this is
 	// the only place already holding the manifest/snapshot caches — so the row
 	// projection is registered here instead of re-reading state on every keypress.
@@ -507,7 +506,6 @@ export function updateCrewWidget(
 			snapshotCache,
 			preloadManifests: preloadedManifests,
 			workspaceId,
-			rowStyle,
 		};
 	else {
 		state.model.cwd = ctx.cwd;
@@ -518,7 +516,6 @@ export function updateCrewWidget(
 		state.model.snapshotCache = snapshotCache;
 		state.model.preloadManifests = preloadedManifests;
 		state.model.workspaceId = workspaceId;
-		state.model.rowStyle = rowStyle;
 	}
 
 	if (needsWidgetInstall) {

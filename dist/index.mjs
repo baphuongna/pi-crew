@@ -1627,7 +1627,6 @@ var init_defaults = __esm({
       // quota/meter footer (falls back to belowEditor when no footer sink exists).
       widgetPlacement: "bottom",
       widgetMaxLines: 8,
-      widgetRowStyle: "compact",
       inlinePanel: true,
       powerbar: true,
       dashboardPlacement: "center",
@@ -10636,13 +10635,6 @@ var init_config_schema = __esm({
       {
         widgetPlacement: Type.Optional(Type.Union([Type.Literal("aboveEditor"), Type.Literal("belowEditor"), Type.Literal("bottom")])),
         widgetMaxLines: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
-        /** Dock row style. M1-9/P1-8: already parsed (config-validation.ts
-         *  parseUiConfig), already read (src/ui/widget/index.ts) and already
-         *  defaulted (defaults.ts DEFAULT_UI.widgetRowStyle = "compact"), but
-         *  absent from this schema — so validateConfig() warned "unknown key" for
-         *  a supported setting. The literals mirror `WidgetRowStyle`
-         *  (src/ui/widget/widget-renderer.ts:123). */
-        widgetRowStyle: Type.Optional(Type.Union([Type.Literal("compact"), Type.Literal("detailed")])),
         /** Inline panel (editor-wrapper agent rows). M1-9/P1-8: parsed + read
          *  (src/ui/inline-panel/index.ts) + defaulted (true), but absent from this
          *  schema → same unknown-key warning. */
@@ -11136,11 +11128,9 @@ function parseUiConfig(value) {
     obj.widgetPlacement
   );
   const rawDashboardPlacement = parseWithSchema(Type.Union([Type.Literal("center"), Type.Literal("right")]), obj.dashboardPlacement);
-  const rawRowStyle = parseWithSchema(Type.Union([Type.Literal("compact"), Type.Literal("detailed")]), obj.widgetRowStyle);
   const ui2 = {
     widgetPlacement: rawWidgetPlacement,
     widgetMaxLines: parsePositiveInteger(obj.widgetMaxLines, 50),
-    widgetRowStyle: rawRowStyle,
     inlinePanel: parseWithSchema(Type.Boolean(), obj.inlinePanel),
     powerbar: parseWithSchema(Type.Boolean(), obj.powerbar),
     dashboardPlacement: rawDashboardPlacement,
@@ -59181,11 +59171,12 @@ var init_handle_settings = __esm({
       // ui
       "ui.widgetPlacement",
       "ui.widgetMaxLines",
-      // M1-9/P1-8: widgetRowStyle + inlinePanel are schema keys (config-schema.ts
+      // M1-9/P1-8: inlinePanel is a schema key (config-schema.ts
       // PiTeamsUiConfigSchema) and ui.autoCloseDashboardMs is parsed by
       // parseUiConfig — keep this list mirroring the schema's ui block so
       // `team-settings schema` lists what the schema actually accepts.
-      "ui.widgetRowStyle",
+      // (ui.widgetRowStyle was REMOVED 2026-09-16: the RAIL dock renders one
+      // layout; the key no longer has any reader.)
       "ui.inlinePanel",
       "ui.dashboardPlacement",
       "ui.dashboardWidth",
@@ -63033,7 +63024,6 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     if (active?.ownerSessionId) workspaceId = active.ownerSessionId;
   }
   const runs = activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId);
-  const rowStyle = config?.widgetRowStyle ?? DEFAULT_UI.widgetRowStyle;
   setPanelRowsProvider(() => panelRowsFromRuns(activeWidgetRuns(ctx.cwd, manifestCache2, snapshotCache, preloadedManifests, workspaceId)));
   const placement = config?.widgetPlacement ?? DEFAULT_UI.widgetPlacement;
   const bottomMode = placement === "bottom";
@@ -63072,8 +63062,7 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
       manifestCache: manifestCache2,
       snapshotCache,
       preloadManifests: preloadedManifests,
-      workspaceId,
-      rowStyle
+      workspaceId
     };
   else {
     state2.model.cwd = ctx.cwd;
@@ -63084,7 +63073,6 @@ function updateCrewWidget(ctx, state2, config, manifestCache2, snapshotCache, pr
     state2.model.snapshotCache = snapshotCache;
     state2.model.preloadManifests = preloadedManifests;
     state2.model.workspaceId = workspaceId;
-    state2.model.rowStyle = rowStyle;
   }
   if (needsWidgetInstall) {
     const model = state2.model;

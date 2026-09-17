@@ -81,50 +81,43 @@ describe("config-schema sync (CFG-2)", () => {
  * parsed and honoured by the config layer but absent from the schema produced a
  * hard "unknown property" finding from validateConfig() — a false alarm on a
  * supported setting. Before this fix (HEAD):
- *   - `ui.widgetRowStyle` and `ui.inlinePanel` were parsed by parseUiConfig()
- *     (config-validation.ts) and read by src/ui/widget/index.ts /
- *     src/ui/inline-panel/index.ts, but missing from the schema;
+ *   - `ui.inlinePanel` was parsed by parseUiConfig() (config-validation.ts)
+ *     and read by src/ui/inline-panel/index.ts, but missing from the schema;
  *   - `ui.autoCloseDashboardMs` was in the schema but missing from
  *     handle-settings KNOWN_KEYS.
+ * UPDATE 2026-09-16: `ui.widgetRowStyle` was REMOVED entirely — the M4 RAIL
+ * dock redesign deleted its last reader (`compactDock`), so the config chain
+ * (defaults/types/parser/schema/KNOWN_KEYS/model field) was dead weight.
+ * The removal is pinned below: the strict schema must now reject it as an
+ * unknown property (a supported-then-removed key resurfacing would mean the
+ * dead chain crept back).
  * Note: this test pins the NESTED ui.* keys; the top-level sync test above and
  * schema.json only cover top-level keys, which is exactly the gap that let the
  * drift live (see the scout memo §5 — schema.json is hand-maintained).
  */
 describe("M1-9 (P1-8): ui.* sub-key parity", () => {
-	const DRIFTED_UI_KEYS = ["widgetRowStyle", "inlinePanel", "autoCloseDashboardMs"] as const;
+	const DRIFTED_UI_KEYS = ["inlinePanel", "autoCloseDashboardMs"] as const;
 
 	it("PiTeamsUiConfigSchema declares the previously-drifted ui keys", () => {
 		const props = (PiTeamsUiConfigSchema.properties ?? {}) as Record<string, unknown>;
-		assert.ok(
-			"widgetRowStyle" in props,
-			"ui.widgetRowStyle must be in PiTeamsUiConfigSchema (parsed + honoured but absent = false 'unknown key')",
-		);
 		assert.ok("inlinePanel" in props, "ui.inlinePanel must be in PiTeamsUiConfigSchema");
 		assert.ok("autoCloseDashboardMs" in props, "ui.autoCloseDashboardMs must be in PiTeamsUiConfigSchema");
+		assert.ok(
+			!("widgetRowStyle" in props),
+			"ui.widgetRowStyle was removed 2026-09-16 with its dead config chain — it must not resurface",
+		);
 	});
 
-	it("ui.widgetRowStyle literals match WidgetRowStyle and the parser", () => {
-		const rowStyle = PiTeamsUiConfigSchema.properties.widgetRowStyle as { anyOf?: { const?: unknown }[] } | undefined;
-		const literals = (rowStyle?.anyOf ?? []).map((b) => b.const).sort();
-		assert.deepEqual(literals, ["compact", "detailed"], "ui.widgetRowStyle literals must match the real values");
-
-		// The real values live in the renderer type + the parser union.
-		const renderer = fs.readFileSync(path.join(process.cwd(), "src/ui/widget/widget-renderer.ts"), "utf8");
-		assert.match(renderer, /export type WidgetRowStyle = "compact" \| "detailed";/, "WidgetRowStyle drifted from compact|detailed");
-		const parser = fs.readFileSync(path.join(process.cwd(), "src/config/config-validation.ts"), "utf8");
-		assert.match(parser, /Type\.Union\(\[Type\.Literal\("compact"\), Type\.Literal\("detailed"\)\]\)/, "parseUiConfig union drifted");
-	});
-
-	it("validateConfig() accepts the 3 drifted ui keys with no unknown-property finding", () => {
-		const outcome = validateConfig({ ui: { widgetRowStyle: "detailed", inlinePanel: false, autoCloseDashboardMs: 5000 } });
+	it("validateConfig() accepts the drifted ui keys with no unknown-property finding", () => {
+		const outcome = validateConfig({ ui: { inlinePanel: false, autoCloseDashboardMs: 5000 } });
 		const unknown = outcome.findings.filter((f) => f.message.includes("unknown property") || f.message.includes("Unexpected property"));
 		assert.deepEqual(unknown, [], `validateConfig() reported unknown ui keys: ${JSON.stringify(unknown)}`);
 		assert.equal(outcome.hasErrors, false, `validateConfig() errored on supported ui keys: ${JSON.stringify(outcome.findings)}`);
 	});
 
-	it("validateConfig() still rejects an out-of-union ui.widgetRowStyle (the bound is real)", () => {
-		const outcome = validateConfig({ ui: { widgetRowStyle: "bogus" } });
-		assert.equal(outcome.hasErrors, true, "an invalid row style must stay rejected");
+	it("validateConfig() rejects the removed ui.widgetRowStyle as unknown (the dead chain stays dead)", () => {
+		const outcome = validateConfig({ ui: { widgetRowStyle: "detailed" } });
+		assert.equal(outcome.hasErrors, true, "the removed row-style key must be rejected");
 		assert.ok(
 			outcome.findings.some((f) => f.field === "ui.widgetRowStyle"),
 			`expected a ui.widgetRowStyle finding, got ${JSON.stringify(outcome.findings)}`,
@@ -178,7 +171,7 @@ describe("M1-9b: schema.json ui.* block parity (published artifact)", () => {
 		);
 	});
 
-	it("schema.json ui block is still strict and pins widgetRowStyle to the real literals", () => {
+	it("schema.json ui block is still strict and widgetRowStyle stays removed", () => {
 		const ui = (
 			readSchemaJson().properties as Record<
 				string,
@@ -186,10 +179,9 @@ describe("M1-9b: schema.json ui.* block parity (published artifact)", () => {
 			>
 		).ui;
 		assert.equal(ui?.additionalProperties, false, "schema.json ui block must stay additionalProperties:false");
-		assert.deepEqual(
-			[...(ui?.properties?.widgetRowStyle?.enum ?? [])].sort(),
-			["compact", "detailed"],
-			"schema.json widgetRowStyle enum must match WidgetRowStyle",
+		assert.ok(
+			!("widgetRowStyle" in (ui?.properties ?? {})),
+			"schema.json must not re-add ui.widgetRowStyle after its 2026-09-16 removal (editors would validate a dead setting)",
 		);
 	});
 });
