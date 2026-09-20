@@ -66,8 +66,12 @@ test("ST-1b: snapshotDirtyWorktree captures non-ASCII filenames when caller pass
 			cwd: worktreePath,
 		} satisfies TeamTaskState;
 
-		const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
-		assert.equal(snapshotOk, true, "snapshotDirtyWorktree must report success");
+		const snapshotResult = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+		// RR-010: structured result — `complete` replaces the old boolean. The
+		// non-ASCII file must be fully captured (no truncation/skipped entries).
+		assert.equal(snapshotResult.complete, true, "snapshotDirtyWorktree must report a COMPLETE snapshot");
+		assert.deepEqual(snapshotResult.truncated, [], "no entry may be truncated in this fixture");
+		assert.deepEqual(snapshotResult.skipped, [], "no entry may be skipped in this fixture");
 
 		const recoveryDir = path.join(artifactsRoot, "worktree-recovery");
 		const files = fs.readdirSync(recoveryDir).filter((f) => f.endsWith(".md"));
@@ -203,10 +207,13 @@ test("ST-1: snapshotDirtyWorktree captures untracked dirs, binary files, and tra
 			cwd: worktreePath,
 		} satisfies TeamTaskState;
 
-		const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+		const snapshotResult = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
 
-		// snapshotOk guard must be true (no write failure)
-		assert.equal(snapshotOk, true, "snapshotDirtyWorktree must report success");
+		// RR-010: structured result — `complete` replaces the old boolean (no
+		// write failure). All fixture entries are small ⇒ nothing truncated/skipped.
+		assert.equal(snapshotResult.complete, true, "snapshotDirtyWorktree must report a COMPLETE snapshot");
+		assert.deepEqual(snapshotResult.truncated, [], "no entry may be truncated in this fixture");
+		assert.deepEqual(snapshotResult.skipped, [], "no entry may be skipped in this fixture");
 
 		// --- Find and read the generated snapshot file ---
 		const recoveryDir = path.join(artifactsRoot, "worktree-recovery");

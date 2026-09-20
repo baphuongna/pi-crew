@@ -21,6 +21,19 @@ export interface PreparedTaskWorkspace {
 	syntheticPaths?: string[];
 }
 
+/**
+ * Options for prepareTaskWorkspace / prepareTaskWorkspaceAsync (RR-010).
+ */
+export interface PrepareTaskWorkspaceOptions {
+	/**
+	 * RR-010 / AGENTS.md rule 40: allow discarding a dirty reused worktree EVEN
+	 * WHEN the recovery snapshot is incomplete (truncated/skipped entries, failed
+	 * tracked diff). Explicit per-call escape hatch — deliberately NOT a global
+	 * config flag, so approval cannot silently become permanent.
+	 */
+	force?: boolean;
+}
+
 const execFileAsync = promisify(execFile);
 
 export interface WorktreeDiffStat {
@@ -658,13 +671,139 @@ export function overlaySeedPaths(repoRoot: string, worktreePath: string, seedPat
 }
 
 /**
+ * Per-file byte cap for the recovery-snapshot PREVIEW (ST-1, kept at 256 KiB so
+ * the artifact stays readable). RR-010 (F01): the cap now ALSO bounds how many
+ * bytes are read (allocation bound) and marks over-cap entries as an
+ * INCOMPLETE backup — completeness, not preview size, gates the destructive
+ * reuse cleanup (AGENTS.md rule 40).
+ */
+export const SNAPSHOT_MAX_FILE_BYTES = 256 * 1024;
+
+/** Entry whose backup was cut at SNAPSHOT_MAX_FILE_BYTES (partial capture). */
+export interface WorktreeSnapshotTruncatedEntry {
+	/** Repo-relative path of the entry. */
+	path: string;
+	/** On-disk size in bytes BEFORE truncation (not the truncated size). */
+	originalSize: number;
+}
+
+/** Entry that could not be backed up at all — absent from the artifact content. */
+export interface WorktreeSnapshotSkippedEntry {
+	/** Repo-relative path of the entry. */
+	path: string;
+	/** Why the entry was skipped (unreadable, unstat-able, missing, directory...). */
+	reason: string;
+}
+
+/**
+ * Structured result of a dirty-worktree recovery snapshot (RR-010 / F01).
+ *
+ * A bare boolean could not distinguish "artifact written" from "backup
+ * complete": truncation at the cap, unreadable entries and a failed tracked
+ * diff all used to return `true`, so the reuse path ran `git checkout -- .` +
+ * `git clean -fd` and destroyed data the artifact never contained. `complete`
+ * is the invariant `truncated/skipped empty && no diff/write error` — callers
+ * must gate the destructive cleanup on it via shouldDiscardDirtyWorktree.
+ */
+export interface WorktreeSnapshotResult {
+	/** True ONLY when every dirty entry was fully backed up and the tracked diff (if any) was captured. */
+	complete: boolean;
+	/** Entries backed up only partially (cut at the preview cap). */
+	truncated: WorktreeSnapshotTruncatedEntry[];
+	/** Entries that could not be backed up at all. */
+	skipped: WorktreeSnapshotSkippedEntry[];
+	/** Set when `git diff HEAD --binary` failed — tracked changes may be lost. */
+	trackedDiffError?: string;
+	/** Set when writing the recovery artifact itself failed (the old `false`). */
+	writeError?: string;
+}
+
+/**
+ * Pure, git-free gate for the destructive reuse cleanup (RR-010 AC4): discard
+ * dirty worktree content ONLY when the snapshot is complete, or when the caller
+ * explicitly set `force` (AGENTS.md rule 40). Fail CLOSED — when in doubt,
+ * preserve the worktree.
+ */
+export function shouldDiscardDirtyWorktree(result: WorktreeSnapshotResult, force: boolean): boolean {
+	return force || result.complete;
+}
+
+/**
+ * Allocation-bounded file read for the recovery snapshot (RR-010 AC5).
+ * Opens the file and reads at most `cap` bytes — `readFileSync` would allocate
+ * the WHOLE file in memory just to truncate it afterwards, so a multi-GiB
+ * untracked file could OOM the snapshot path. A short read (file shrank
+ * mid-read) is reported as truncated so it can never count as a complete
+ * backup (fail closed).
+ */
+export function readFileCappedForSnapshot(abs: string, cap: number): { data: Buffer; originalSize: number; truncated: boolean } {
+	const fd = fs.openSync(abs, "r");
+	try {
+		const originalSize = fs.fstatSync(fd).size;
+		const want = Math.min(originalSize, cap);
+		const data = Buffer.alloc(want);
+		let read = 0;
+		while (read < want) {
+			const n = fs.readSync(fd, data, read, want - read, read);
+			if (n <= 0) break;
+			read += n;
+		}
+		return {
+			data: read === want ? data : data.subarray(0, read),
+			originalSize,
+			truncated: read < want || originalSize > cap,
+		};
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+/** Human-readable incompleteness summary for the dirtyPreserved log (RR-010). */
+function describeIncompleteSnapshot(result: WorktreeSnapshotResult): string {
+	const reasons: string[] = [];
+	if (result.writeError !== undefined) reasons.push(`snapshot write failed: ${result.writeError}`);
+	if (result.trackedDiffError !== undefined) reasons.push(`tracked diff capture failed: ${result.trackedDiffError}`);
+	if (result.truncated.length > 0)
+		reasons.push(
+			`${result.truncated.length} file(s) exceeded the ${SNAPSHOT_MAX_FILE_BYTES}-byte cap: ${result.truncated
+				.map((e) => `${e.path} (${e.originalSize} bytes)`)
+				.join(", ")}`,
+		);
+	if (result.skipped.length > 0)
+		reasons.push(
+			`${result.skipped.length} unreadable/unstat-able entries: ${result.skipped.map((e) => `${e.path} (${e.reason})`).join(", ")}`,
+		);
+	return reasons.length > 0 ? ` — ${reasons.join("; ")}` : "";
+}
+
+/**
  * Snapshot uncommitted work in a reused worktree to a recovery artifact BEFORE
  * discarding it, so the data is never silently lost. Captures tracked changes
  * (git diff HEAD) and inlines untracked file contents so the work can be
- * recovered via `git apply` / manual restore. Best-effort: a snapshot failure
- * only logs (it must not block the clean-slate reuse flow).
+ * recovered via `git apply` / manual restore.
+ *
+ * RR-010 (F01) — returns a structured WorktreeSnapshotResult. An artifact that
+ * was written is NOT proof the backup is complete: truncated (over-cap /
+ * short-read) entries, unreadable entries and a failed tracked diff all surface
+ * in the result so callers can refuse the destructive cleanup
+ * (shouldDiscardDirtyWorktree). Design choice (RR-010 design.md §3–§4):
+ * structured result + pure predicate over raising the cap (moves the boundary,
+ * does not remove it), louder warnings (violates AGENTS.md rule 40), full
+ * base64 (artifact size explodes), dropping cleanup entirely (breaks
+ * clean-slate reuse; `force` stays as the escape hatch) and `git stash` (also a
+ * destructive git op with no artifact trail). The 256 KiB PREVIEW cap is kept
+ * on purpose — backup completeness, not preview size, gates cleanup.
  */
-export function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskState, worktreePath: string, dirtyStatus: string): boolean {
+export function snapshotDirtyWorktree(
+	manifest: TeamRunManifest,
+	task: TeamTaskState,
+	worktreePath: string,
+	dirtyStatus: string,
+): WorktreeSnapshotResult {
+	const truncated: WorktreeSnapshotTruncatedEntry[] = [];
+	const skipped: WorktreeSnapshotSkippedEntry[] = [];
+	let trackedDiffError: string | undefined;
+	let writeError: string | undefined;
 	try {
 		const parts: string[] = [
 			`# Worktree recovery snapshot`,
@@ -676,14 +815,16 @@ export function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskS
 		let trackedDiff = "";
 		try {
 			trackedDiff = git(worktreePath, ["diff", "HEAD", "--binary"]);
-		} catch {
+		} catch (err) {
+			// RR-010: "" stays reserved for the legitimate "no tracked changes" outcome —
+			// a FAILED diff is an incomplete backup (tracked edits would be destroyed by
+			// `git checkout -- .` with no copy anywhere).
 			trackedDiff = "";
+			trackedDiffError = err instanceof Error ? err.message : String(err);
 		}
 		if (trackedDiff.trim()) {
 			parts.push("## Tracked changes (`git diff HEAD --binary`)", "```diff", trackedDiff, "```", "");
 		}
-		// ST-1: per-file byte cap — skip/truncate larger files with a note to avoid OOM.
-		const MAX_FILE_BYTES = 256 * 1024;
 		for (const line of dirtyStatus.split("\n")) {
 			if (!line.startsWith("?? ")) continue;
 			// Strip the "?? " prefix and surrounding git quotes.
@@ -691,15 +832,24 @@ export function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskS
 			if (!rel) continue;
 			try {
 				const abs = path.join(worktreePath, rel);
-				if (!fs.existsSync(abs) || fs.statSync(abs).isDirectory()) continue;
+				if (!fs.existsSync(abs)) {
+					// RR-010: record instead of silently `continue` — a vanished entry is
+					// unexplained and must fail CLOSED (preserve, do not clean).
+					skipped.push({ path: rel, reason: "not found (deleted between status and snapshot?)" });
+					continue;
+				}
+				if (fs.statSync(abs).isDirectory()) {
+					skipped.push({ path: rel, reason: "directory entry — individual files must be captured instead" });
+					continue;
+				}
 				// ST-1: read raw bytes (not utf-8) so binary files are not corrupted.
-				const buf = fs.readFileSync(abs);
-				const originalSize = buf.byteLength;
-				let data: Buffer = buf;
+				// RR-010: bounded read — never allocate more than the cap for a file that
+				// is only going to be truncated anyway (AC5).
+				const { data, originalSize, truncated: overCap } = readFileCappedForSnapshot(abs, SNAPSHOT_MAX_FILE_BYTES);
 				let note = "";
-				if (originalSize > MAX_FILE_BYTES) {
-					data = buf.subarray(0, MAX_FILE_BYTES);
-					note = ` (truncated: ${originalSize} → ${MAX_FILE_BYTES} bytes)`;
+				if (overCap) {
+					truncated.push({ path: rel, originalSize });
+					note = ` (truncated: ${originalSize} → ${data.byteLength} bytes)`;
 				}
 				// ST-1: detect non-UTF-8 via fatal TextDecoder; base64-encode binary files.
 				let isUtf8 = true;
@@ -713,9 +863,21 @@ export function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskS
 				} else {
 					parts.push(`## Untracked file: ${rel}${note} (base64-encoded binary)`, "```base64", data.toString("base64"), "```", "");
 				}
-			} catch {
-				/* skip unreadable/unstat-able entry */
+			} catch (err) {
+				// RR-010: unreadable/unstat-able entries are recorded (and named in the
+				// artifact below) instead of being silently dropped — they used to be
+				// destroyed by `git clean -fd` with ZERO recovery.
+				skipped.push({ path: rel, reason: err instanceof Error ? err.message : String(err) });
 			}
+		}
+		// RR-010 (AC3): skipped entries MUST be named in the artifact so operators
+		// can see exactly which files were NOT backed up before deciding to force a
+		// cleanup — an artifact silent about them is false evidence.
+		if (skipped.length > 0) {
+			parts.push("## Skipped entries (NOT backed up)", ...skipped.map((s) => `- ${s.path} — ${s.reason}`), "");
+		}
+		if (trackedDiffError !== undefined) {
+			parts.push("## Tracked diff capture FAILED — tracked modifications are NOT backed up", "```", trackedDiffError, "```", "");
 		}
 		writeArtifact(manifest.artifactsRoot, {
 			kind: "diff",
@@ -724,15 +886,16 @@ export function snapshotDirtyWorktree(manifest: TeamRunManifest, task: TeamTaskS
 			producer: "worktree-manager.snapshotDirtyWorktree",
 			retention: "run",
 		});
-		return true;
 	} catch (err) {
 		logInternalError(
 			"worktree.recovery.snapshotFailed",
 			err instanceof Error ? err : new Error(String(err)),
 			`runId=${manifest.runId}, taskId=${task.id}`,
 		);
-		return false;
+		writeError = err instanceof Error ? err.message : String(err);
 	}
+	const complete = truncated.length === 0 && skipped.length === 0 && trackedDiffError === undefined && writeError === undefined;
+	return { complete, truncated, skipped, trackedDiffError, writeError };
 }
 
 /**
@@ -775,7 +938,12 @@ async function cleanupCreatedWorktreeAsync(repoRoot: string, worktreePath: strin
 	}
 }
 
-export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskState, stepSeedPaths?: string[]): PreparedTaskWorkspace {
+export function prepareTaskWorkspace(
+	manifest: TeamRunManifest,
+	task: TeamTaskState,
+	stepSeedPaths?: string[],
+	options?: PrepareTaskWorkspaceOptions,
+): PreparedTaskWorkspace {
 	if (manifest.workspaceMode !== "worktree") return { cwd: task.cwd };
 	const repoRoot = findGitRoot(manifest.cwd);
 	const loadedConfig = loadConfig(manifest.cwd);
@@ -852,11 +1020,17 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 		if (dirtyStatus.trim()) {
 			// Snapshot uncommitted work to a recovery artifact BEFORE discarding, so the
 			// previous run's changes are never silently destroyed on reuse.
-			const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
-			if (snapshotOk) {
+			// RR-010 (F01): discard only when the snapshot is COMPLETE (or the caller
+			// explicitly forced it) — AGENTS.md rule 40. An artifact that was written
+			// is not proof the backup is complete; fail CLOSED and preserve.
+			const snapshotResult = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+			if (shouldDiscardDirtyWorktree(snapshotResult, options?.force === true)) {
 				logInternalError(
 					"worktree.reused.dirty",
-					new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
+					new Error(
+						`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)` +
+							(snapshotResult.complete ? "" : " — SNAPSHOT INCOMPLETE, discarded because caller set force=true"),
+					),
 					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
 				);
 				git(worktreePath, ["checkout", "--", "."]);
@@ -865,7 +1039,7 @@ export function prepareTaskWorkspace(manifest: TeamRunManifest, task: TeamTaskSt
 				logInternalError(
 					"worktree.reused.dirtyPreserved",
 					new Error(
-						`Snapshot failed — preserving dirty worktree at ${worktreePath} (skipping git checkout/clean to prevent data loss)`,
+						`Snapshot incomplete — preserving dirty worktree at ${worktreePath} (skipping git checkout/clean to prevent data loss)${describeIncompleteSnapshot(snapshotResult)}`,
 					),
 					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
 				);
@@ -948,6 +1122,7 @@ export async function prepareTaskWorkspaceAsync(
 	manifest: TeamRunManifest,
 	task: TeamTaskState,
 	stepSeedPaths?: string[],
+	options?: PrepareTaskWorkspaceOptions,
 ): Promise<PreparedTaskWorkspace> {
 	if (manifest.workspaceMode !== "worktree") return { cwd: task.cwd };
 	const repoRoot = await findGitRootAsync(manifest.cwd);
@@ -1012,11 +1187,16 @@ export async function prepareTaskWorkspaceAsync(
 		// ST-1: use -uall so untracked directories are expanded to individual files.
 		const dirtyStatus = await gitAsync(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
 		if (dirtyStatus.trim()) {
-			const snapshotOk = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
-			if (snapshotOk) {
+			// RR-010 (F01): mirror of the sync gate — discard only when the snapshot is
+			// COMPLETE (or explicitly forced). AGENTS.md rule 40. Fail CLOSED.
+			const snapshotResult = snapshotDirtyWorktree(manifest, task, worktreePath, dirtyStatus);
+			if (shouldDiscardDirtyWorktree(snapshotResult, options?.force === true)) {
 				logInternalError(
 					"worktree.reused.dirty",
-					new Error(`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)`),
+					new Error(
+						`Discarding uncommitted changes in reused worktree at ${worktreePath} (snapshot saved to artifacts)` +
+							(snapshotResult.complete ? "" : " — SNAPSHOT INCOMPLETE, discarded because caller set force=true"),
+					),
 					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
 				);
 				await gitAsync(worktreePath, ["checkout", "--", "."]);
@@ -1025,7 +1205,7 @@ export async function prepareTaskWorkspaceAsync(
 				logInternalError(
 					"worktree.reused.dirtyPreserved",
 					new Error(
-						`Snapshot failed — preserving dirty worktree at ${worktreePath} (skipping git checkout/clean to prevent data loss)`,
+						`Snapshot incomplete — preserving dirty worktree at ${worktreePath} (skipping git checkout/clean to prevent data loss)${describeIncompleteSnapshot(snapshotResult)}`,
 					),
 					`runId=${manifest.runId}, taskId=${task.id}, dirtyStatus=${dirtyStatus.trim()}`,
 				);

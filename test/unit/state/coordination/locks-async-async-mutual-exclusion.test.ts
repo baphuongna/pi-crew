@@ -3,7 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { withFileLockAsync } from "../../../../src/state/coordination/locks.ts";
+import { withFileLockAsync, withRunLock } from "../../../../src/state/coordination/locks.ts";
+import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
 /**
  * ST-3-FIX regression test.
@@ -120,6 +121,60 @@ test("ST-3-FIX: three concurrent withFileLockAsync callers for the SAME file are
 		maxConcurrent,
 		1,
 		`async↔async mutual exclusion must hold for 3 callers — maxConcurrent should be 1, got ${maxConcurrent}`,
+	);
+
+	fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+// RR-011 (F02) non-regression: the run-lock family and the file-lock family share
+// acquireLockWithRetryAsync. While a RUN lock is held by a live in-process async
+// context (the exact state that now makes run-lock contenders WAIT instead of
+// stealing), withFileLockAsync mutual exclusion on an unrelated path must be
+// completely unaffected — the run-lock token set must never influence the
+// .flock family's serialization.
+test("RR-011: a concurrently held run lock does not affect withFileLockAsync mutual exclusion", async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-rr011-filefam-"));
+	const target = path.join(cwd, "mailbox.json");
+	const stateRoot = path.join(cwd, "state");
+	fs.mkdirSync(stateRoot, { recursive: true });
+	const manifest = { stateRoot } as unknown as TeamRunManifest;
+
+	const runEntered = createDeferred<void>();
+	const releaseRun = createDeferred<void>();
+	const runPromise = withRunLock(manifest, async () => {
+		runEntered.resolve();
+		await releaseRun.promise;
+		return "run-done";
+	});
+	await runEntered.promise;
+
+	let current = 0;
+	let maxConcurrent = 0;
+	const aEntered = createDeferred<void>();
+	const critical = async (label: string, isFirst: boolean): Promise<string> => {
+		current++;
+		maxConcurrent = Math.max(maxConcurrent, current);
+		if (isFirst) aEntered.resolve();
+		await sleep(40);
+		current--;
+		return label;
+	};
+
+	// Two async file-lock callers while the run lock is held elsewhere.
+	const p1 = withFileLockAsync(target, () => critical("a", true));
+	await aEntered.promise;
+	const p2 = withFileLockAsync(target, () => critical("b", false));
+
+	const [a, b] = await Promise.all([p1, p2]);
+	releaseRun.resolve();
+	const runResult = await runPromise;
+
+	assert.deepEqual([a, b].sort(), ["a", "b"]);
+	assert.equal(runResult, "run-done");
+	assert.equal(
+		maxConcurrent,
+		1,
+		`file-lock async↔async mutual exclusion must hold independently of run locks — maxConcurrent should be 1, got ${maxConcurrent}`,
 	);
 
 	fs.rmSync(cwd, { recursive: true, force: true });

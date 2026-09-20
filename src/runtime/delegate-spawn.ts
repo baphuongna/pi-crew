@@ -96,7 +96,11 @@ export function grandchildArtifactsRoot(cwd: string, runId: string, parentTaskId
 }
 
 export async function spawnDelegateGrandchild(input: GrandchildSpawnInput): Promise<GrandchildSpawnResult> {
-	const artifactsRoot = path.join(input.cwd, ".crew", "artifacts", input.runId, input.parentTaskId, "nested", input.subId);
+	// RR-012 F03: single artifacts formula — grandchildArtifactsRoot(input.cwd, …).
+	// input.cwd is the PARENT TASK cwd threaded by the broker (the admitted
+	// worktree in worktree mode), so artifacts land under the admitted cwd —
+	// never under the leader/broker workspace.
+	const artifactsRoot = grandchildArtifactsRoot(input.cwd, input.runId, input.parentTaskId, input.subId);
 	fs.mkdirSync(artifactsRoot, { recursive: true });
 
 	const abort = new AbortController();

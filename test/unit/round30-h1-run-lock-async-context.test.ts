@@ -212,3 +212,79 @@ test("H-1: concurrent sync call from a setTimeout (different async context) seri
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+// RR-011 (F02) — measurement of the sync-holder + async-caller direction.
+// Verification C2 proved async↔async broken and async-holder + sync-caller correct,
+// but the reverse (sync holder + async caller) had no probe. Structurally, a
+// synchronous critical section NEVER yields the event loop, so no async
+// acquisition of the same process can interleave with it — timers/microtasks
+// scheduled from inside the sync section only run after it completes. This test
+// pins that structural fact: an async acquisition queued DURING the sync holder's
+// critical section runs strictly after it exits, and succeeds (no steal happened,
+// no lock is stuck). A true interleaving probe is impossible at unit level —
+// recorded as a known gap in docs/stories/RR-011/validation.md §3.5.
+test("RR-011: an async caller queued inside a sync holder's critical section runs only after it exits", async () => {
+	const dir = mkTmp();
+	try {
+		const manifest = mkManifest(dir);
+		const events: string[] = [];
+		let asyncResult = "";
+		let asyncFailed = "";
+
+		const syncResult = withRunLockSync(manifest, () => {
+			events.push("sync-enter");
+			// Queue an async acquisition for the SAME run from inside the sync
+			// critical section. It cannot run yet (JS has no preemption of sync
+			// code) — this is exactly the window where, if interleaving were
+			// possible, the pre-F02 code would steal the sync holder's lock.
+			Promise.resolve().then(() => {
+				withRunLock(manifest, async () => {
+					events.push("async-enter");
+					asyncResult = "async-ok";
+					return "async-done";
+				}).catch((error: unknown) => {
+					asyncFailed = String(error);
+				});
+			});
+			events.push("sync-exit");
+			return "sync-ok";
+		});
+
+		assert.equal(syncResult, "sync-ok");
+		await new Promise<void>((resolve) => setTimeout(resolve, 50)); // let the queued async caller run
+		assert.equal(asyncFailed, "", `queued async acquisition must not fail: ${asyncFailed}`);
+		assert.equal(asyncResult, "async-ok", "queued async acquisition must succeed once the sync holder released");
+		assert.deepEqual(
+			events,
+			["sync-enter", "sync-exit", "async-enter"],
+			`async caller must run strictly after the sync holder exits, got ${JSON.stringify(events)}`,
+		);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// RR-011 (F02): sync↔sync nested re-entrance in the same async context bypasses
+// (mirrors the async/async and async/sync nesting tests above — completes the
+// re-entrance matrix) and the outer hold survives the nested bypass.
+test("RR-011: nested withRunLockSync in the SAME async context bypasses without releasing early", () => {
+	const dir = mkTmp();
+	try {
+		const manifest = mkManifest(dir);
+		const lockFile = path.join(dir, "run.lock");
+		let lockExistsAfterInner = false;
+		const inner = withRunLockSync(manifest, () => "inner-sync-ok");
+		assert.equal(inner, "inner-sync-ok");
+		// Outer level: re-acquire (the inner call fully released when it returned).
+		const outer = withRunLockSync(manifest, () => {
+			const nested = withRunLockSync(manifest, () => "nested-ok"); // same context → bypass
+			lockExistsAfterInner = fs.existsSync(lockFile);
+			return `outer-${nested}`;
+		});
+		assert.equal(outer, "outer-nested-ok");
+		assert.equal(lockExistsAfterInner, true, "outer hold must survive the nested bypass call");
+		assert.equal(fs.existsSync(lockFile), false, "lock released after the outermost sync acquisition finishes");
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});

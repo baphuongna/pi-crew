@@ -41,6 +41,7 @@ import { NestedSlotBudget } from "../scheduling/nested-slots.ts";
 import { evaluateDelegateAdmission } from "../spawn-policy.ts";
 import { type BrokerToken, BrokerTokenRegistry } from "./crew-broker-tokens.ts";
 import { recordDelegateEvent } from "./delegate/delegate-event.ts";
+import { promoteShadowToRunning } from "./delegate/shadow-lifecycle.ts";
 import { fanoutMailboxMessage } from "./mailbox-observer/mailbox-fanout.ts";
 import type { CrewBrokerOptions, ServerConnection } from "./protocol/connection-state.ts";
 import { handleEventsSince } from "./protocol/events-replay.ts";
@@ -1449,6 +1450,10 @@ export class CrewBroker {
 				});
 				return { code: "bad-params" as const, message: `delegate: parent task '${parentTaskId}' is ${task.status}, not running` };
 			}
+			// RR-012 F03: authoritative execution cwd = the parent task's cwd from
+			// this locked fresh read — ONE source for overlap check, shadow record
+			// and spawner input; broker cwd stays for manifest lookup only.
+			const executionCwd = task.cwd;
 			const catalog = this.options.modelCatalog?.();
 			// S3 fail-closed: a DEFINED loader yielding undefined is a loader failure.
 			const effectiveCatalog = this.options.modelCatalog !== undefined ? (catalog ?? []) : undefined;
@@ -1459,7 +1464,7 @@ export class CrewBroker {
 					t.id !== parentTaskId &&
 					t.status === "running" &&
 					(t.role === "executor" || t.role === "test-engineer") &&
-					t.cwd === task.cwd,
+					t.cwd === executionCwd,
 			).length;
 			const decision = evaluateDelegateAdmission({
 				maxDepth: this.options.nestingMaxDepth ?? resolveCrewMaxDepth(undefined), // config knob > env-clamped 1..10, default 4 (D8; ADR-5 §3)
@@ -1551,19 +1556,19 @@ export class CrewBroker {
 					agent: "delegate",
 					title: `delegate: ${(requested as { description?: string }).description ?? subId}`,
 					status: "queued",
-					cwd: task.cwd,
+					cwd: executionCwd,
 					dependsOn: [],
 					depth: decision.childDepth ?? 2,
 					startedAt: new Date().toISOString(),
 				} satisfies TeamTaskState,
 			]);
-			return { code: "ok" as const, decision, reserved };
+			return { code: "ok" as const, decision, reserved, executionCwd };
 		});
 		if (admissionOutcome.code !== "ok") {
 			this.sendError(conn, id, admissionOutcome.code, admissionOutcome.message);
 			return;
 		}
-		const { decision, reserved } = admissionOutcome;
+		const { decision, reserved, executionCwd } = admissionOutcome;
 		this.recordDelegateEvent(loaded.manifest, "delegate.admitted", parentTaskId, {
 			subId,
 			childDepth: decision.childDepth,
@@ -1585,7 +1590,7 @@ export class CrewBroker {
 			let outcome: GrandchildSpawnResult;
 			try {
 				outcome = await spawner({
-					cwd,
+					cwd: executionCwd,
 					runId,
 					parentTaskId,
 					subId,
@@ -1597,6 +1602,10 @@ export class CrewBroker {
 					...(requested.maxTurns !== undefined ? { maxTurns: requested.maxTurns } : {}),
 					timeoutSec: decision.timeoutSec ?? 900,
 					depthOverride: decision.childDepth ?? 2,
+					// RR-012 F16: promote shadow queued→running once the process exists.
+					onSpawn: (pid) => {
+						if (pid !== null) promoteShadowToRunning(cwd, runId, subId);
+					},
 				});
 			} catch (err) {
 				outcome = { ok: false, resultText: `delegate spawn failed: ${(err as Error).message}` };
@@ -1649,12 +1658,9 @@ export class CrewBroker {
 								});
 							}
 						}
-						// S1#1: flip the shadow task to terminal — UNCONDITIONAL (verifier N1): the
-						// flip must not depend on a reservation; no allocation producer ships
-						// yet so reserved===0 is the common case and the guard left every
-						// shadow "queued" forever.
-						// S1#1: flip the shadow task to terminal so the subId record does not
-						// linger as "queued" in team status views.
+						// S1#1 (verifier N1): the terminal flip is UNCONDITIONAL — never depends
+						// on a reservation. RR-012 F16: onSpawn promotes the record to "running"
+						// during execution; this flip terminalizes every settle path.
 						saveRunTasks(
 							latest.manifest,
 							tasksToWrite.map((t) =>

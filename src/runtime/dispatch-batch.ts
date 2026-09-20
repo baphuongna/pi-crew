@@ -19,6 +19,7 @@ import { loadRunManifestById, saveRunManifest, saveRunTasks, saveRunTasksAsync, 
 import type { TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
+import { isDelegateShadowTask } from "./broker/delegate/shadow-lifecycle.ts";
 import { readCrewAgents, recordFromTask, saveCrewAgents } from "./crew-agent-records.ts";
 import { appendDeadletter } from "./deadletter.ts";
 import { classifyHeartbeat, DEFAULT_GRADIENT_THRESHOLDS } from "./heartbeat/heartbeat-gradient.ts";
@@ -328,6 +329,13 @@ function failedTaskFrom(result: { tasks: TeamTaskState[] }, taskId: string): Tea
 function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): string[] | null {
 	const hasExplicitDeps = tasks.some((t) => t.dependsOn.length > 0);
 	if (!hasExplicitDeps) return null;
+	// RR-012 (adjacent scheduler risk — proven reachable): exclude
+	// delegate-broker shadow records from the DAG. They are managed by the
+	// external grandchild spawner, not this scheduler: (1) as WAVE members a
+	// running shadow would gate dependent waves / trigger markBlocked although
+	// it is never in ctx.pendingUnits; (2) getDagReadyTasks below ignores both
+	// status AND graph, so a queued OR running shadow surfaces as ready.
+	const workflowTasks = tasks.filter((t) => !isDelegateShadowTask(t));
 	// FIX (goal-wrap runtime test): task.dependsOn stores STEP IDs (e.g. "execute"), not
 	// task IDs (e.g. "02_execute"). The DAG scheduler compares deps against completedIds
 	// (which are task IDs), so step-ID deps would never match → dependent tasks stuck blocked
@@ -335,10 +343,10 @@ function dagReadyTaskIds(tasks: TeamTaskState[], completedIds: Set<string>): str
 	// task-graph-scheduler.ts which handles this via stepToTaskId). buildDagExecutionPlan +
 	// getDagReadyTasks then work on consistent task IDs.
 	const stepToTaskId = new Map<string, string>();
-	for (const t of tasks) {
+	for (const t of workflowTasks) {
 		if (t.stepId) stepToTaskId.set(t.stepId, t.id);
 	}
-	const nodes: TaskNode[] = tasks.map((t) => ({
+	const nodes: TaskNode[] = workflowTasks.map((t) => ({
 		id: t.id,
 		dependsOn: t.dependsOn.map((dep) => stepToTaskId.get(dep) ?? dep),
 		phase: t.adaptive?.phase ?? t.stepId,
@@ -410,7 +418,15 @@ export async function selectDispatchBatch(ctx: SchedulerContext): Promise<Schedu
 	// existing task-graph-scheduler when no explicit deps exist (backward compat).
 	const completedIds = new Set(ctx.tasks.filter((t) => t.status === "completed" || t.status === "needs_attention").map((t) => t.id));
 	const dagReady = dagReadyTaskIds(ctx.tasks, completedIds);
-	const readyBeforeFilter = dagReady ?? snapshot.ready;
+	// RR-012 (adjacent scheduler risk — proven reachable): belt-and-braces
+	// selection guard. dagReadyTaskIds already excludes shadow records from the
+	// DAG; this filter also covers the snapshot fallback (a graphed queued
+	// shadow would resolve to queue "ready"). A shadow in a batch makes
+	// findStep() throw ResourceNotFound (task.stepId === undefined) — the run
+	// aborts (pre-warm site) or the record is force-failed by the synthesized
+	// unit error. Shadow records stay visible in snapshots / team status.
+	const shadowTaskIds = new Set(ctx.tasks.filter(isDelegateShadowTask).map((t) => t.id));
+	const readyBeforeFilter = (dagReady ?? snapshot.ready).filter((taskId) => !shadowTaskIds.has(taskId));
 
 	// Workflow phase precondition check (non-blocking: log warnings only).
 	if (ctx.wfMachine.currentPhaseIndex < ctx.wfMachine.phases.length) {

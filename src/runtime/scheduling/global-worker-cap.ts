@@ -64,11 +64,16 @@ export function __test_resetCap(testCapacity: number): void {
  * Acquire a global worker slot. Resolves immediately if under cap, else queues
  * (FIFO) until a slot frees. MUST be paired with releaseWorkerSlot().
  *
+ * RR-014 / F15: an optional AbortSignal makes the WAIT itself cancellable — a
+ * waiter whose signal fires is removed from the queue eagerly and the acquire
+ * REJECTS (SemaphoreAbortedError) without consuming a slot. Without a signal
+ * the semantics are unchanged.
+ *
  * Used to bound WORKER spawns only. Do NOT route the goal-judge through this
  * (see the RFC MAJ#3 rationale in the module header).
  */
-export async function acquireWorkerSlot(): Promise<void> {
-	await semaphore.acquire();
+export async function acquireWorkerSlot(signal?: AbortSignal): Promise<void> {
+	await semaphore.acquire(signal);
 }
 
 /**
@@ -82,13 +87,15 @@ export function releaseWorkerSlot(): void {
 /**
  * Convenience: acquire a worker slot, run `fn`, and release on completion OR
  * throw. The slot is ALWAYS released — including when `fn` rejects — so a
- * throwing worker never leaks a slot (deadlock prevention).
+ * throwing worker never leaks a slot (deadlock prevention). If `signal` is
+ * provided and fires while WAITING for a slot, the acquire rejects and `fn`
+ * never runs (no slot was taken, so there is nothing to release).
  *
  * Example:
- *   const result = await withWorkerSlot(() => runChildPi(...));
+ *   const result = await withWorkerSlot(() => runChildPi(...), input.signal);
  */
-export async function withWorkerSlot<T>(fn: () => Promise<T>): Promise<T> {
-	await acquireWorkerSlot();
+export async function withWorkerSlot<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+	await acquireWorkerSlot(signal);
 	try {
 		return await fn();
 	} finally {

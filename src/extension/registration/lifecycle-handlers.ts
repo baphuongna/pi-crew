@@ -66,6 +66,7 @@ import { handleTeamTool } from "../team-tool.ts";
 import { runArtifactCleanup } from "./artifact-cleanup.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 import { createScheduleEventNotifier } from "./schedule-toast-bridge.ts";
+import { refreshCrossExtensionWiringForSession } from "./wire-cross-extension.ts";
 
 /**
  * Register all session-lifecycle handlers on the ExtensionAPI. The caller
@@ -251,6 +252,10 @@ function installSessionStartHandler(pi: ExtensionAPI, ctx: RegistrationContext):
 		// it can issue tokens for child runs in this session. The controller
 		// already gates by flag + root-session; this is a no-op when disabled.
 		ctx.brokerController?.setSessionId(currentSessionId);
+		// F13 (RR-018): RPC wiring is extension-lifetime and survives session
+		// switches; rebind the crew global registry to THIS session's manifest
+		// cache (idempotent — see wire-cross-extension.ts).
+		refreshCrossExtensionWiringForSession(pi, ctx);
 
 		// Defer ALL heavy cleanup to after the session_start handler returns.
 		// These operations involve synchronous directory scanning (readdirSync, readFileSync)
@@ -649,6 +654,18 @@ export function evictRunFromManifests(manifests: TeamRunManifest[], runId: strin
 }
 
 /**
+ * F14 (RR-019): cheap signature of the preloaded-manifest frame. Only a
+ * CHANGED signature lets `backgroundPreload` count as render activity
+ * (`schedule()`); an identical signature means "nothing the widget would
+ * paint differently" and must NOT reset the render scheduler's idle
+ * counters (that defeated the R1 idle stop — see setupRenderLoop). Covers
+ * run identity, status transitions, and updatedAt bumps. Exported for tests.
+ */
+export function manifestsFrameSignature(manifests: TeamRunManifest[]): string {
+	return manifests.map((m) => `${m.runId}:${m.status}:${m.updatedAt}`).join("|");
+}
+
+/**
  * Apply a runEventBus payload to a preloaded-manifest frame: evict the run on
  * terminal events, pass through unchanged otherwise. This is the exact logic
  * wired into the setupRenderLoop `runEventBus.onAny` subscription (bug-026
@@ -677,16 +694,24 @@ function setupRenderLoop(
 	let lastPreloadedManifests: TeamRunManifest[] = [];
 	let lastFrameManifestCache: ReturnType<typeof createManifestCache> | undefined;
 	let lastFrameSnapshotCache: ReturnType<typeof createRunSnapshotCache> | undefined;
+	// F14: signature of the last frame backgroundPreload saw — only a change
+	// here counts as render activity.
+	let lastFrameSignature: string | undefined;
 
 	const ownerGeneration = ctx.sessionGeneration;
 
-	const buildFrame = async (): Promise<boolean> => {
-		if (!ctx.currentCtx) return false;
+	const buildFrame = async (): Promise<{ ok: boolean; changed: boolean }> => {
+		if (!ctx.currentCtx) return { ok: false, changed: false };
 		lastPreloadedConfig = loadConfig(ctx.currentCtx.cwd);
 		lastFrameManifestCache = ctx.getManifestCache(ctx.currentCtx.cwd);
 		lastFrameSnapshotCache = ctx.getRunSnapshotCache(ctx.currentCtx.cwd);
 		const manifests = lastFrameManifestCache.list(20);
 		lastPreloadedManifests = manifests;
+		// F14 (RR-019): compute the frame signature BEFORE the preload await so
+		// `changed` reflects what this tick saw, not a mid-preload mutation.
+		const frameSignature = manifestsFrameSignature(manifests);
+		const frameChanged = frameSignature !== lastFrameSignature;
+		lastFrameSignature = frameSignature;
 		// pts/2 hang fix: reconcile per-run watchers against the ACTIVE set only.
 		{
 			const onRunChange = (runId: string): void => {
@@ -718,16 +743,23 @@ function setupRenderLoop(
 		}
 		const runIds = manifests.map((r) => r.runId);
 		await lastFrameSnapshotCache.preloadAllStale(runIds);
-		return true;
+		return { ok: true, changed: frameChanged };
 	};
 
 	const backgroundPreload = (): void => {
 		if (!ctx.currentCtx || preloading) return;
 		preloading = true;
 		buildFrame()
-			.then((ok) => {
+			.then(({ ok, changed }) => {
 				preloading = false;
-				if (ok) ctx.renderScheduler?.schedule();
+				// F14 (RR-019): preload completion is maintenance, NOT user activity.
+				// Only a genuinely CHANGED frame may call schedule() — an unchanged
+				// frame calling schedule() reset `lastEventAt`/`idleFallbackRenders`
+				// and re-armed the fallback loop that fallbackLoop() had just
+				// deliberately stopped (R1), rendering forever while idle. Real
+				// work still animates: runEventBus + fs.watch subscriptions call
+				// schedule() directly on genuine events.
+				if (ok && changed) ctx.renderScheduler?.schedule();
 			})
 			.catch((error: unknown) => {
 				preloading = false;

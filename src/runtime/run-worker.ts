@@ -72,7 +72,18 @@ export interface WorkerSpawnInput extends ChildPiRunInput {
 export async function runWorker(input: WorkerSpawnInput): Promise<ChildPiRunResult> {
 	const { cap = true, ...childPiInput } = input;
 	if (cap) {
-		return withWorkerSlot(() => runChildPi(childPiInput));
+		// RR-014 / F15: thread the caller's signal into the slot WAIT itself.
+		// Previously the signal lived only inside childPiInput and was read by
+		// runChildPi AFTER the acquire resolved — a cancelled task queued on a
+		// full pool stayed pending until the slot holder finished (and delayed
+		// every drainPendingUnits awaiting it). Two consistent outcomes:
+		// - abort wins the race → acquire rejects (SemaphoreAbortedError), no
+		//   slot taken, fn never runs;
+		// - grant wins the race → acquire resolves, runChildPi's pre-spawn
+		//   guard (child-pi-spawn.ts B5) sees signal.aborted and returns
+		//   kind "aborted" WITHOUT spawning, and withWorkerSlot's finally
+		//   releases the slot within a microtask.
+		return withWorkerSlot(() => runChildPi(childPiInput), childPiInput.signal);
 	}
 	return runChildPi(childPiInput);
 }

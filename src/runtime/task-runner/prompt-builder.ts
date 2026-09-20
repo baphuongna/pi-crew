@@ -139,15 +139,31 @@ export interface StableComponents {
 const stableComponentCache = new Map<string, StableComponents>();
 
 // P9 (perf): cross-run cache for the I/O-heavy sub-results (workspace tree +
-// retrieval). The tree and retrieval don't depend on runId, only on (cwd, step).
-// A short-lived (TTL-bounded) cross-run cache lets sequential runs in the same
-// session amortize the cost: run #2 in cwd X with the same step text gets a
-// cache hit instead of redoing `buildWorkspaceTree` (which walks the FS) and
-// `runRetrievalCycle`. The TTL bounds staleness in long-lived sessions (e.g.,
-// the workspace may have changed between runs); a mtime check on the
-// .git/HEAD or workspace marker would be overkill for an already-bounded
-// perf win. The full per-run cache key still drives the fast path on a
-// hot batch (so concurrent siblings in the SAME run never re-do work).
+// retrieval + knowledge). The tree and retrieval don't depend on runId, but
+// they DO depend on the run GOAL: `runRetrievalCycle(step.task, goal, cwd)`
+// and `buildKnowledgeFragment(cwd, { goal, taskText, role })` both take the
+// goal as a query signal. A short-lived (TTL-bounded) cross-run cache lets
+// sequential runs in the same session amortize the cost: run #2 in cwd X with
+// the same step text AND the same goal gets a cache hit instead of redoing
+// `buildWorkspaceTree` (which walks the FS) and `runRetrievalCycle`. The TTL
+// bounds staleness in long-lived sessions (e.g., the workspace may have
+// changed between runs); a mtime check on the .git/HEAD or workspace marker
+// would be overkill for an already-bounded perf win. The full per-run cache
+// key still drives the fast path on a hot batch (so concurrent siblings in
+// the SAME run never re-do work).
+//
+// BR-06 (correctness): the goal MUST be part of the cross-run key. The step
+// text here is the UNSUBSTITUTED `step.task` template (the goal keyword is
+// only substituted into the prompt text in renderTaskPrompt), so a goal-blind
+// key made run B reuse run A's suggested-files / knowledge fragment whenever
+// both runs shared cwd + step template. Reachable in-process: the goal-loop
+// runner (src/runtime/goal-loop-runner.ts) calls executeTeamRun once per turn
+// with a DIFFERENT goal and the same step template, and chain steps
+// (src/extension/team-tool/chain-executor.ts) reuse step templates across
+// runs. NOTE: `role` is deliberately NOT part of this key —
+// KnowledgeQuery.role is documented "not scored yet"
+// (src/extension/knowledge-injection.ts:61-68); if it ever starts scoring, the
+// key must gain it too.
 interface CachedStableIO {
 	treeBlock: string;
 	suggestedFilesBlock: string;
@@ -158,8 +174,11 @@ const STABLE_IO_TTL_MS = 60_000; // 60s — short enough that long-lived session
 // re-warm on workspace drift; long enough that back-to-back runs share.
 const stableIOCache = new Map<string, CachedStableIO>();
 
-function stableIOCacheKey(cwd: string, stepTask: string): string {
-	return `${cwd}\u0001${stepTask}`;
+function stableIOCacheKey(cwd: string, stepTask: string, goal: string | undefined): string {
+	// `?? ""` — a hand-built/persisted manifest can reach here with an absent
+	// goal at runtime (the type says required); without the normalization it
+	// stringifies to "undefined" and collides with a literal goal "undefined".
+	return `${cwd}\u0001${stepTask}\u0001${goal ?? ""}`;
 }
 
 function stablePrefixCacheKey(task: TeamTaskState, step: WorkflowStep, manifest: TeamRunManifest): string {
@@ -195,10 +214,12 @@ export async function computeStablePrefixComponents(
 	const cached = stableComponentCache.get(cacheKey);
 	if (cached) return cached;
 
-	// P9 cross-run path: same (cwd, step.task) across different runIds share
+	// P9 cross-run path: same (cwd, step.task, goal) across different runIds share
 	// the I/O-heavy sub-results (tree, retrieval, knowledge) for STABLE_IO_TTL_MS.
 	// This is the second-level cache; on a hit we save 3 awaits + a FS walk.
-	const ioKey = stableIOCacheKey(task.cwd, step.task);
+	// BR-06: the goal is part of the key — retrieval and the knowledge fragment
+	// are goal-scored, so a goal-blind key leaks run A's context into run B.
+	const ioKey = stableIOCacheKey(task.cwd, step.task, manifest.goal);
 	const ioCached = stableIOCache.get(ioKey);
 	const now = Date.now();
 	const ioFresh = ioCached && now - ioCached.at < STABLE_IO_TTL_MS;

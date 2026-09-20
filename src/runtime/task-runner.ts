@@ -119,7 +119,10 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		const coordinationArtifact = ctx.coordinationArtifact;
 
 		// MuxSurface degrade path returns NO result artifact — undefined until a
-		// branch produces one (finalizeTaskResult's surfaceLost branch ignores it).
+		// branch produces one. RR-013 (F04): the finalizer's `surfaceLost` branch
+		// IS reachable from this function — `surfaceLost` below is forwarded from
+		// the child-process branch into `execResult`. That branch intentionally
+		// ignores `resultArtifact` (no fabricated result for a lost worker).
 		let resultArtifact: ArtifactDescriptor | undefined;
 		let logArtifact: ArtifactDescriptor | undefined;
 		let transcriptArtifact: ArtifactDescriptor | undefined;
@@ -131,6 +134,19 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		let transcriptPath: string | undefined;
 		let terminalEvidence: OperationTerminalEvidence[] = [];
 		let startupEvidence = ctx.startupEvidence;
+		// RR-013 (F04): the child-process branch may return these two fields; every
+		// other branch leaves them undefined. They MUST be forwarded into
+		// `execResult` — the hand-maintained field list here previously dropped
+		// `surfaceLost` (which made finalizeTaskResult's `needs_attention`
+		// terminalisation UNREACHABLE in production: a worker that lost its pane
+		// was reported `completed` with no result) and `rawFinalText` (which
+		// starved the spec-evidence footer union at post-execution.ts).
+		//
+		// Do NOT set these in the live-session/scaffold branches: live-session has
+		// its own terminalisation path and scaffold must not inherit the degrade
+		// branch. Leaving them undefined preserves those branches' behavior.
+		let surfaceLost: TaskExecutionResult["surfaceLost"];
+		let rawFinalText: string | undefined;
 		if (runtimeKind === "child-process") {
 			// CORE-5 extraction 4: the entire child-process branch (model routing +
 			// model-fallback attempt loop, runWorker callbacks, R3 listener-leak
@@ -151,6 +167,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			transcriptPath = child.transcriptPath;
 			terminalEvidence = child.terminalEvidence;
 			startupEvidence = child.startupEvidence;
+			surfaceLost = child.surfaceLost;
+			rawFinalText = child.rawFinalText;
 		} else if (runtimeKind === "live-session") {
 			// LAZY: live-executor is only needed for live-session runtime branches.
 			const { runLiveTask } = await import("./task-runner/live-executor.ts");
@@ -217,6 +235,8 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			transcriptPath,
 			terminalEvidence,
 			startupEvidence,
+			surfaceLost,
+			rawFinalText,
 		};
 		return await finalizeTaskResult(ctx, execResult);
 	} finally {

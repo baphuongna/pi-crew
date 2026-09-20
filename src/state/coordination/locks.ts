@@ -80,7 +80,11 @@ function isLockHolderAlive(filePath: string): boolean {
  *
  * Returns `{ canSteal: true }` if the lock is stale OR the holder is dead
  * (safe to forcibly remove); `{ canSteal: false }` if it is fresh AND held by
- * a live process (must keep waiting).
+ * a live process (must keep waiting). RR-011 additionally reports
+ * `heldByLiveInProcess: true` when the stored token belongs to a run-lock
+ * acquisition of THIS process that is still inside its critical section — the
+ * async acquire loop then WAITS (timer-based retry) instead of throwing or
+ * stealing.
  *
  * ## EPERM Handling (Accepted Risk)
  *
@@ -105,7 +109,11 @@ function isLockHolderAlive(filePath: string): boolean {
  *
  * See also: SECURITY-ISSUES.md SEC-008 for documented acceptance.
  */
-function readLockSnapshot(filePath: string, staleMs: number, options?: { treatOwnPidAsStealable?: boolean }): { canSteal: boolean } {
+function readLockSnapshot(
+	filePath: string,
+	staleMs: number,
+	options?: { treatOwnPidAsStealable?: boolean; activeHolderTokens?: ReadonlySet<string> },
+): { canSteal: boolean; heldByLiveInProcess: boolean } {
 	const treatOwnPidAsStealable = options?.treatOwnPidAsStealable === true;
 	let stat: fs.Stats | undefined;
 	let raw: string | undefined;
@@ -119,21 +127,23 @@ function readLockSnapshot(filePath: string, staleMs: number, options?: { treatOw
 		// "locked" error.
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
-			return { canSteal: true };
+			return { canSteal: true, heldByLiveInProcess: false };
 		}
 		// Transient I/O error — be conservative (don't steal, retry the read on
 		// next attempt).
-		return { canSteal: false };
+		return { canSteal: false, heldByLiveInProcess: false };
 	}
 	// Staleness from a single snapshot.
 	let createdAt = parseCreatedAtFromLock(raw);
 	if (createdAt === undefined) createdAt = stat.mtimeMs;
 	const isStale = Date.now() - createdAt > staleMs;
 	let holderPid: number | undefined;
+	let holderToken: string | undefined;
 	let isAlive = true;
 	try {
-		const parsed = JSON.parse(raw) as { pid?: unknown };
+		const parsed = JSON.parse(raw) as { pid?: unknown; token?: unknown };
 		holderPid = typeof parsed.pid === "number" ? parsed.pid : undefined;
+		holderToken = typeof parsed.token === "string" ? parsed.token : undefined;
 	} catch {
 		/* malformed payload — keep isAlive=true */
 	}
@@ -151,9 +161,28 @@ function readLockSnapshot(filePath: string, staleMs: number, options?: { treatOw
 	// (used by withRunLock* which is single-process — a fresh lock with our pid
 	// between acquisitions is just a leftover from a previous call that
 	// releaseOwnLock didn't get to delete yet; safe to steal).
+	//
+	// RR-011 (F02): "our own pid" alone can no longer authorize a steal for the
+	// async run-lock path — a lock CURRENTLY HELD by another async context of
+	// this process also carries our pid while its holder is merely awaiting
+	// inside the critical section. The on-disk token disambiguates: a token in
+	// `activeHolderTokens` (runLockHeldTokens — every live acquisition of this
+	// process registers its token) means the holder is ALIVE in-process → the
+	// own-pid steal branch is suppressed (see acquireLockWithRetryAsync: such a
+	// holder WAITS instead of stealing/throwing). A token-less payload (legacy
+	// lock file) or a token not in the set is a leftover corpse → still stealable,
+	// preserving the anti-CI-flake behaviour the flag was added for.
+	// NOTE (trap, design.md §4.2): comparing the stored token to the CURRENT
+	// acquisition's token would be WRONG — each acquisition mints a fresh
+	// randomUUID, so a live holder's token always differs from ours and the
+	// predicate would steal anyway. Only a lookup into the LIVE-token set is
+	// correct.
 	const isOurOwnHolder = holderPid === process.pid;
+	const holderIsLiveInProcess = holderToken !== undefined && (options?.activeHolderTokens?.has(holderToken) ?? false);
+	const ownPidStealable = treatOwnPidAsStealable && isOurOwnHolder && !holderIsLiveInProcess;
 	return {
-		canSteal: isStale || !isAlive || (treatOwnPidAsStealable && isOurOwnHolder),
+		canSteal: isStale || !isAlive || ownPidStealable,
+		heldByLiveInProcess: holderIsLiveInProcess,
 	};
 }
 
@@ -239,25 +268,29 @@ function timingSafeTokenMatch(a: string, b: string): boolean {
 }
 
 /**
- * Release the lock we (this process) just acquired. Unlike releaseLock, this is
- * used in the `finally` blocks of withRunLock and withRunLockSync so the file was
- * created earlier in the SAME call. Within the same process the new acquire uses
- * a fresh randomUUID token, so token matching would falsely fail and leak the
- * file across releases.
+ * Release the lock we (this process) just acquired. Used in the `finally` blocks
+ * of withRunLock and withRunLockSync, so the file was created earlier in the SAME
+ * call and carries OUR token.
  *
  * LOCK-1 (Round 2): PID-guarded release. Previously this deleted
  * UNCONDITIONALLY — if our critical section exceeded staleMs, another process
  * could steal our lock (overwrite the file with its own pid); our finally would
- * then DELETE THE STEALER's lock, breaking mutual exclusion. We now verify the
- * lock file still records OUR pid before removing; if it records a different pid
- * the lock was stolen and the current holder owns it. Same-process re-acquire is
- * preserved (pid matches → delete). Mirrors the proven pattern in event-log.ts
- * (Round 26, BUG 5).
+ * then DELETE THE STEALER's lock, breaking mutual exclusion. We therefore verify
+ * the lock file still records OUR pid before removing; if it records a different
+ * pid the lock was stolen and the current holder owns it.
+ *
+ * RR-011 (F02): within one process, PID equality no longer identifies "our" lock
+ * — two same-process async holders are distinguished ONLY by token. A finishing
+ * context must not delete another acquisition's lock (verification probe 2: the
+ * lock file was ENOENT while the second holder was still inside its critical
+ * section). So after the pid check, the stored token must also match ours. A
+ * token-less payload (legacy lock file from an older release) keeps the
+ * PID-only behaviour so old files are still cleaned up.
  *
  * Symlink guard is preserved: if a symlink appeared since our writeLockFile, we
  * don't rm it (defense against attacker-planted symlinks).
  */
-export function releaseOwnLock(filePath: string, _token: string): void {
+export function releaseOwnLock(filePath: string, token: string): void {
 	try {
 		const stat = fs.lstatSync(filePath);
 		if (stat.isSymbolicLink()) return;
@@ -266,11 +299,20 @@ export function releaseOwnLock(filePath: string, _token: string): void {
 	}
 	try {
 		const raw = fs.readFileSync(filePath, "utf-8");
-		const holderPid = (JSON.parse(raw) as { pid?: unknown })?.pid;
-		if (holderPid === process.pid) {
-			fs.rmSync(filePath, { force: true });
+		const parsed = JSON.parse(raw) as { pid?: unknown; token?: unknown };
+		const holderPid = parsed.pid;
+		const storedToken = typeof parsed.token === "string" ? parsed.token : undefined;
+		if (holderPid !== process.pid) {
+			// holderPid !== process.pid → lock stolen by another process; do NOT touch.
+			return;
 		}
-		// holderPid !== process.pid → lock stolen by another process; do NOT touch.
+		if (storedToken !== undefined && storedToken !== token) {
+			// RR-011 (F02): same process, different token → the lock now belongs to
+			// another acquisition of THIS process (steal window / superseded holder).
+			// Do not delete it — the current holder owns it.
+			return;
+		}
+		fs.rmSync(filePath, { force: true });
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code !== "ENOENT") {
@@ -321,6 +363,25 @@ function releaseLock(filePath: string, token: string): void {
 function isLockContention(code: string | undefined): boolean {
 	return code === "EEXIST" || code === "EPERM" || code === "EBUSY";
 }
+
+// RR-011 (F02): tokens of run-lock acquisitions that are CURRENTLY HELD in this
+// process. It answers exactly one question — "is this holder still alive
+// in-process?" — and NOTHING else:
+//   - Re-entrance (bypass) decisions stay in `lockCtx` (per async context). This
+//     set must NEVER be consulted for bypass — that is the H-1 bug class.
+//   - The async steal predicate consults it (via readLockSnapshot's
+//     activeHolderTokens) so a SECOND independent async context can no longer
+//     steal a lock whose holder is merely awaiting inside its critical section.
+//
+// INVARIANT: a token is added synchronously right after a successful acquire
+// (no await between acquire returning and the add) and deleted in the
+// acquisition's `finally` BEFORE releaseOwnLock runs — so a token in this set
+// always corresponds to a live critical section, and a leftover lock file from
+// a finished acquisition (token no longer in the set, or a legacy token-less
+// payload) remains stealable, preserving the CI-flake fix that
+// treatOwnPidAsStealable was added for. If a `finally` were ever skipped, the
+// leaked entry is inert: future lock files always mint a fresh randomUUID.
+const runLockHeldTokens = new Set<string>();
 
 function acquireLockWithRetry(filePath: string, staleMs: number, kind: LockKind = "file"): string {
 	let attempt = 0;
@@ -381,9 +442,47 @@ async function acquireLockWithRetryAsync(filePath: string, staleMs: number, kind
 			// file still exists with our own pid. Stealing it avoids spurious 'locked'
 			// errors. The sync file-lock path (withFileLockSync) above uses false to
 			// preserve the multi-process safety guarantee.
-			const { canSteal } = readLockSnapshot(filePath, staleMs, { treatOwnPidAsStealable: true });
-			if (!canSteal) {
+			// RR-011 (F02): the steal now consults runLockHeldTokens — a lock whose
+			// stored token belongs to a LIVE acquisition of this process is NOT a
+			// leftover corpse and must not be stolen (that broke async↔async mutual
+			// exclusion: two independent async contexts entered the critical section
+			// together). Token-less legacy files are still stolen (CI-flake fix).
+			const verdict = readLockSnapshot(filePath, staleMs, {
+				treatOwnPidAsStealable: true,
+				activeHolderTokens: runLockHeldTokens,
+			});
+			if (!verdict.canSteal && verdict.heldByLiveInProcess) {
+				// RR-011 (F02): the holder is a LIVE acquisition in THIS process (another
+				// async context awaiting inside its critical section). It releases in its
+				// `finally` on this same event loop — WAIT via a timer (never sleepSync:
+				// blocking the event loop would starve the very holder we are waiting
+				// for, the v0.9.26 deadlock class) and retry the create. The loop deadline
+				// above plus the staleMs check in readLockSnapshot bound the wait, so a
+				// hung holder eventually becomes stale-stealable and this can never
+				// block indefinitely.
+				const delay = Math.min(250, 25 * 2 ** attempt);
+				await sleep(delay);
+				attempt++;
+				continue;
+			}
+			if (!verdict.canSteal) {
 				throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
+			}
+			if (verdict.heldByLiveInProcess) {
+				// Review MAJOR 2: the staleMs backstop is stealing a lock whose holder
+				// is STILL a live acquisition of this process (its critical section
+				// legitimately exceeded staleMs — fsync stalls, loaded machine). The
+				// steal is the documented design (ADR 2026-09-17-run-lock-async-
+				// ownership) but mutual exclusion is about to be violated knowingly,
+				// so it must be observable, never silent — production holders are
+				// ms-scale; seeing this warn means the invariant "critical section <
+				// staleMs" was broken and the budget should be revisited.
+				logInternalError(
+					"locks.steal-live-holder",
+					new Error(`staleMs steal of a lock held by a LIVE in-process acquisition (staleMs=${staleMs})`),
+					filePath,
+					"warn",
+				);
 			}
 			// Stale or dead holder — forcibly remove the lock.
 			try {
@@ -622,6 +721,10 @@ export function withRunLockSync<T>(manifest: TeamRunManifest, fn: () => T, optio
 	}
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	const token = acquireLockWithRetry(filePath, staleMs, "run");
+	// RR-011 (F02): register the hold so async contenders of this process see a
+	// LIVE holder (wait) instead of a stealable corpse. Sync here too, keeping the
+	// invariant uniform for every run-lock acquisition of this process.
+	runLockHeldTokens.add(token);
 	const prevHeld = lockCtx.getStore() ?? new Set<string>();
 	const newHeld = new Set(prevHeld);
 	newHeld.add(filePath);
@@ -632,14 +735,11 @@ export function withRunLockSync<T>(manifest: TeamRunManifest, fn: () => T, optio
 		try {
 			return fn();
 		} finally {
-			// FIX (CI flake): releaseLock uses token matching to prevent the
-			// "losing contender wipes winner's lock" race in multi-process scenarios.
-			// But within withRunLockSync/withRunLock (same process), the new acquire
-			// uses a FRESH random token — the previous stored token doesn't match the
-			// current token — and the lock file is never removed. Repeat acquisitions
-			// then keep failing with EEXIST because the file lingers.
-			// Since withRunLock* is always single-process, unconditionally delete
-			// (symlink guard is still applied for safety).
+			// RR-011 (F02): unregister BEFORE releasing (see runLockHeldTokens
+			// invariant) — the token must not linger as "live" once the hold ends.
+			// releaseOwnLock is token-guarded: if our lock was superseded in the
+			// meantime, the current holder's file is left untouched.
+			runLockHeldTokens.delete(token);
 			releaseOwnLock(filePath, token);
 		}
 	});
@@ -654,6 +754,10 @@ export async function withRunLock<T>(manifest: TeamRunManifest, fn: () => Promis
 	}
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
 	const token = await acquireLockWithRetryAsync(filePath, staleMs, "run");
+	// RR-011 (F02): register the hold IMMEDIATELY (no await between the acquire
+	// returning and this add — otherwise a concurrent contender could observe the
+	// fresh on-disk token as a stealable corpse). Deleted in the finally below.
+	runLockHeldTokens.add(token);
 	const prevHeld = lockCtx.getStore() ?? new Set<string>();
 	const newHeld = new Set(prevHeld);
 	newHeld.add(filePath);
@@ -664,8 +768,9 @@ export async function withRunLock<T>(manifest: TeamRunManifest, fn: () => Promis
 		try {
 			return await fn();
 		} finally {
-			// FIX (CI flake): see withRunLockSync above — use releaseOwnLock for
-			// unconditional deletion of the lock file we created (same process).
+			// RR-011 (F02): see withRunLockSync above — unregister the live token
+			// BEFORE the token-guarded releaseOwnLock (runLockHeldTokens invariant).
+			runLockHeldTokens.delete(token);
 			releaseOwnLock(filePath, token);
 		}
 	});

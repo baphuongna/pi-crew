@@ -23,6 +23,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { sanitizeAgentSystemPrompt } from "../agents/discover-agents.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
 import type { BeforeAgentStartEvent, ExtensionAPI } from "./pi-api.ts";
@@ -463,7 +464,7 @@ export function registerKnowledgeInjection(pi: ExtensionAPI): void {
 		// ARCH-2: never fire in child worker processes — knowledge reaches
 		// workers via prompt-builder's stablePrefix fragment; firing here too
 		// would double-inject.
-		if (process.env.PI_CREW_KIND === "subagent") return;
+		if (getCrewEnv("PI_CREW_KIND") === "subagent") return;
 		const options =
 			(
 				event as BeforeAgentStartEvent & {

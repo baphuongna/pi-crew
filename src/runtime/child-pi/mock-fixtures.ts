@@ -131,6 +131,54 @@ export async function runMockChildPi(
 			stderr: "[MOCK] rate limit: mock failure",
 		};
 
+	// RR-013 (F04) test seam: reproduce the MuxSurface A1 degrade result WITHOUT a
+	// real multiplexer. child-executor's `childResult.surface?.degraded` branch is
+	// the ONLY producer of TaskExecutionResult.surfaceLost, and runTeamTask offers
+	// no seam to inject `surface.providers` (child-executor's runWorker() call
+	// passes no `surface` field), so no other mock mode can reach that branch.
+	//
+	// SCOPE NOTE: this mode does NOT simulate `classifyOnExit` (the 2s window) — it
+	// starts from the exact point where classifyOnExit already returned
+	// `degraded`. That is the correct scope: the F04 defect lives at the
+	// child-executor → task-runner → finalizer boundary, not in classify (which is
+	// covered by degrade.test.ts + child-pi-surface.test.ts).
+	//
+	// Guarded by the existing PI_CREW_ALLOW_MOCK parent-only check above, so it
+	// cannot be activated from a child worker.
+	if (mock === "surface-degraded") {
+		return {
+			exitCode: 0,
+			stdout: "",
+			stderr: "",
+			rawFinalText: "",
+			surface: {
+				kind: "tmux",
+				paneId: "%9",
+				scriptPath: "/tmp/pi-crew-mock-launch.sh",
+				degraded: {
+					cause: "pane-closed",
+					exitReason: "pane-closed",
+					classifiedAt: new Date().toISOString(),
+				},
+			},
+		};
+	}
+
+	// RR-013 (AC-2) test seam: the ONLY result channel carrying text is
+	// `rawFinalText` (stdout/transcript are empty). This reproduces the compaction
+	// scenario the TaskExecutionResult.rawFinalText docstring describes —
+	// parsedOutput.finalText and finalStdout are both empty, so the spec-evidence
+	// footer union can only see the text if rawFinalText survives the
+	// child-executor → task-runner → finalizer boundary.
+	if (mock === "raw-final-text-only") {
+		return {
+			exitCode: 0,
+			stdout: "",
+			stderr: "",
+			rawFinalText: "RR-013 boundary probe result.\n\nSPEC-EVIDENCE:\nacc-1: ran the boundary check\n",
+		};
+	}
+
 	// E2E fallback-chain fixture: invocation #1 returns a SILENT retryable
 	// failure (exit code 0, no real assistant text, message_end carries a
 	// retryable-pattern errorMessage). Invocation #2+ delegates to the
