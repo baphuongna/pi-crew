@@ -93,7 +93,14 @@ function buildCleanupSessionResourcesOnly(ctx: RegistrationContext): () => void 
 		void disposeObservability(ctx.observabilityState, ctx.cleanedUp);
 		ctx.lifecycleState.deliveryCoordinator?.dispose();
 		clearHooksScoped();
-		uninstallCrewGlobalRegistry();
+		// F13 (RR-018): RPC + the crew global registry are EXTENSION-lifetime
+		// resources — they are NOT torn down on a session switch. The RPC
+		// handle resolves the current session context at request time
+		// (wire-cross-extension.ts), and session_start rebinds the registry to
+		// the current session's manifest cache (refreshCrossExtensionWiringForSession).
+		// Removing them here used to kill RPC permanently for the process
+		// lifetime (4 pi-crew:rpc:* subscriptions → 0 after the first switch,
+		// never reinstalled). Full teardown still happens in cleanupRuntime.
 		ctx.lifecycleState.overflowTracker?.dispose();
 		ctx.lifecycleState.deliveryCoordinator = undefined;
 		ctx.lifecycleState.overflowTracker = undefined;
@@ -104,8 +111,7 @@ function buildCleanupSessionResourcesOnly(ctx: RegistrationContext): () => void 
 		ctx.renderScheduler = undefined;
 		ctx.autoRecoveryLast.clear();
 		disposeNotifications(ctx.lifecycleState);
-		ctx.rpcHandle?.unsubscribe();
-		ctx.rpcHandle = undefined;
+		// F13: ctx.rpcHandle stays installed here (extension lifetime).
 		ctx.disposeI18n();
 		ctx.sessionGeneration += 1;
 		ctx.currentCtx = undefined;

@@ -26,6 +26,15 @@ export interface BenchmarkResult {
 	/** Task-type label for aggregation grouping. */
 	taskType?: string;
 	passed: boolean;
+	/**
+	 * F20: true when the task produced NO verdict at all (e.g. `judges: []`).
+	 * An inconclusive result is never a pass — `passed` stays `false` because
+	 * `Array.prototype.every` on an empty array is vacuously `true`, which used
+	 * to report a judge-less task as `passed: true`.
+	 */
+	inconclusive?: boolean;
+	/** Why the result is inconclusive (present iff `inconclusive` is true). */
+	inconclusiveReason?: string;
 	judgeResults: { description: string; passed: boolean; output?: string }[];
 	durationMs: number;
 	/** Estimated cost in dollars (0 if not tracked). */
@@ -33,84 +42,120 @@ export interface BenchmarkResult {
 }
 
 /**
- * Validate command against allowlist to prevent shell injection.
- * Only allows specific safe commands with arguments.
+ * Executables the runner may spawn directly (no shell is involved: the
+ * executable and its args are passed to `execFileSync` as separate argv
+ * entries, so no shell parsing happens at all).
+ *
+ * SECURITY (H-7): `npx`/`node` are NOT allowed because they enable arbitrary
+ * code execution without any shell metacharacter (e.g. `npx --yes
+ * evil-package` or `node -e "require('fs')…"`). `echo` is allowed because the
+ * metacharacter blocker below rejects command substitution (`$(...)`,
+ * backticks), so `echo $(evil)` cannot run; bare `echo …` only prints. It is
+ * the canonical exit-0 command used in benchmark fixtures across
+ * Linux/macOS/Windows(sh).
  */
+const ALLOWED_EXECUTABLES: ReadonlySet<string> = new Set(["pytest", "grep", "npm", "cargo", "echo"]);
+
 /**
- * Validate command against allowlist to prevent shell injection.
- * Uses comprehensive shell metacharacter blocking similar to safe-bash.ts.
+ * Executables that additionally require a specific first argument. Without this
+ * the allowlist entry `npm` would admit `npm publish` / `npm install <evil>`.
  */
-function validateCommand(command: string): void {
-	// Basic allowlist - must start with an allowed command.
-	// SECURITY (H-7): `npx`/`node` were removed because they enable arbitrary code
-	// execution without any shell metacharacter (e.g. `npx --yes evil-package`
-	// or `node -e "require('fs')…"`). Use `npm test`/`npm run …` instead of raw
-	// `node`/`npx` in benchmark task definitions.
-	// `echo` is allowed because the metachar blocker (validateGateCommand) rejects
-	// command substitution (`$(...)`, backticks), so `echo $(evil)` cannot run;
-	// bare `echo …` only prints. It's the canonical exit-0 command used in
-	// benchmark fixtures across Linux/macOS/Windows(sh).
-	const allowlist = /^(pytest|grep|npm test|cargo test|cargo clippy|echo) /;
-	if (!allowlist.test(command)) {
-		throw new Error(`Command not allowed: ${command}. Only pytest, grep, npm test, cargo test/clippy, echo allowed.`);
+const REQUIRED_SUBCOMMANDS: Readonly<Record<string, readonly string[]>> = {
+	npm: ["test"],
+	cargo: ["test", "clippy"],
+};
+
+/** Human-readable allowlist used in error messages (must match the code above). */
+const ALLOWED_SUMMARY = "pytest, grep, npm test, cargo test, cargo clippy, echo";
+
+/** Shell metacharacters blocked inside command arguments. */
+const DANGEROUS_ARG_PATTERNS: readonly RegExp[] = [
+	/[;&|`$(){}[\]<>\\]/, // Shell metacharacters
+	/\$\([^)]*\)/, // Command substitution $(...)
+	/`[^`]*`/, // Backtick command substitution
+	/\|/, // Pipe
+	/&&/, // And
+	/\|\|/, // Or
+	/>>/, // Append redirect
+	/2>&1/, // stderr redirect
+	/>/, // Output redirect
+	/</, // Input redirect
+];
+
+/**
+ * Validate a benchmark judge command and split it into executable + args.
+ *
+ * F20: the previous implementation used a single regex
+ * (`/^(pytest|grep|npm test|cargo test|cargo clippy|echo) /`) with a TRAILING
+ * SPACE, so the bare form of every allowed command was rejected — while the
+ * error message listed that same bare command as allowed
+ * ("Command not allowed: npm test. Only pytest, grep, npm test, …"). The
+ * executable and the sub-command are now validated as separate tokens, so
+ * `npm test` is accepted and `npm publish` / `npm install x` are not.
+ *
+ * Exported for direct unit testing of the validation boundary.
+ */
+export function parseAndValidateCommand(command: string): { program: string; args: string[] } {
+	const trimmed = (command ?? "").trim();
+	if (trimmed.length === 0) throw new Error("Empty command");
+
+	// Naive split on whitespace: the metacharacter blocker below (plus the
+	// executable allowlist) means a simple split cannot smuggle shell syntax.
+	const parts = trimmed.split(/\s+/);
+	const program = parts[0]!;
+	const args = parts.slice(1);
+
+	if (!ALLOWED_EXECUTABLES.has(program)) {
+		throw new Error(`Command not allowed: ${command}. Only ${ALLOWED_SUMMARY} allowed.`);
 	}
 
-	// Block shell metacharacters after command name
-	const afterCommand = command.substring(command.indexOf(" ") + 1);
+	const required = REQUIRED_SUBCOMMANDS[program];
+	if (required && !required.includes(args[0] ?? "")) {
+		const forms = required.map((sub) => `"${program} ${sub}"`).join(" or ");
+		throw new Error(`Command not allowed: ${command}. "${program}" must be invoked as ${forms}.`);
+	}
 
-	// Block dangerous shell metacharacters
-	const dangerousPatterns = [
-		/[;&|`$(){}[\]<>\\]/, // Shell metacharacters
-		/\$\([^)]*\)/, // Command substitution $(...)
-		/`[^`]*`/, // Backtick command substitution
-		/\|/, // Pipe
-		/&&/, // And
-		/\|\|/, // Or
-		/>>/, // Append redirect
-		/2>&1/, // stderr redirect
-		/>/, // Output redirect
-		/</, // Input redirect
-	];
-
-	for (const pattern of dangerousPatterns) {
-		if (pattern.test(afterCommand)) {
+	// Block shell metacharacters in the ARGUMENTS. The executable is matched
+	// against the allowlist above, so it can never carry metacharacters itself.
+	const argsText = args.join(" ");
+	for (const pattern of DANGEROUS_ARG_PATTERNS) {
+		if (pattern.test(argsText)) {
 			throw new Error(`Shell metacharacters not allowed in command arguments`);
 		}
 	}
-}
 
-/**
- * Run a single benchmark task with tiered judges.
- * Tier 1: pytest (fast, deterministic)
- * Tier 2: grep pattern matching
- * Tier 3: command execution
- * Fails fast on first tier failure.
- */
-function splitCommand(command: string): { program: string; args: string[] } {
-	// Naive split on whitespace. validateCommand already rejects shell
-	// metacharacters, so a simple split is safe.
-	const parts = command.trim().split(/\s+/);
-	if (parts.length === 0) {
-		throw new Error("Empty command");
-	}
-	return { program: parts[0]!, args: parts.slice(1) };
+	return { program, args };
 }
 
 export async function runBenchmark(task: BenchmarkTask): Promise<BenchmarkResult> {
 	const startTime = Date.now();
 	const judgeResults: BenchmarkResult["judgeResults"] = [];
+	const judges = task.judges ?? [];
 
-	for (const judge of task.judges) {
+	// FAIL CLOSED (F20): a task with no judges produces no evidence. `every()` on
+	// an empty array is vacuously TRUE, so `judges: []` used to be reported as
+	// `passed: true`. Return an explicit inconclusive result instead — never a pass.
+	if (judges.length === 0) {
+		return {
+			taskId: task.id,
+			passed: false,
+			inconclusive: true,
+			inconclusiveReason: "task defines no judges — nothing was evaluated, so pass/fail cannot be decided",
+			judgeResults: [],
+			durationMs: Date.now() - startTime,
+			cost: 0,
+			taskType: task.taskType,
+		};
+	}
+
+	for (const judge of judges) {
 		try {
 			let passed = false;
 			let output: string | undefined;
 
 			if (judge.type === "pytest" && judge.command) {
-				// Validate command before execution (defense-in-depth)
-				validateCommand(judge.command);
-				// Use execFileSync to avoid shell parsing. validateCommand
-				// already rejects metacharacters, so a simple split is safe.
-				const { program, args } = splitCommand(judge.command);
+				// Validate the executable + args before execution (defense-in-depth)
+				const { program, args } = parseAndValidateCommand(judge.command);
 				// Tier 1: pytest - fast deterministic check
 				output = execFileSync(program, args, {
 					timeout: 5000,
@@ -120,9 +165,7 @@ export async function runBenchmark(task: BenchmarkTask): Promise<BenchmarkResult
 				// Look for pytest summary line with passed count
 				passed = output.includes("passed");
 			} else if (judge.type === "grep" && judge.pattern && judge.command) {
-				// Validate command before execution (defense-in-depth)
-				validateCommand(judge.command);
-				const { program, args } = splitCommand(judge.command);
+				const { program, args } = parseAndValidateCommand(judge.command);
 				// Tier 2: grep pattern matching
 				output = execFileSync(program, args, {
 					timeout: 5000,
@@ -131,9 +174,7 @@ export async function runBenchmark(task: BenchmarkTask): Promise<BenchmarkResult
 				});
 				passed = output.includes(judge.pattern);
 			} else if (judge.type === "command" && judge.command) {
-				// Validate command before execution (defense-in-depth)
-				validateCommand(judge.command);
-				const { program, args } = splitCommand(judge.command);
+				const { program, args } = parseAndValidateCommand(judge.command);
 				// Tier 3: command execution
 				output = execFileSync(program, args, {
 					timeout: 10000,
@@ -141,11 +182,18 @@ export async function runBenchmark(task: BenchmarkTask): Promise<BenchmarkResult
 					cwd: process.cwd(),
 				});
 				passed = true; // Command succeeded = pass
+			} else {
+				// Malformed judge (no command, or grep without a pattern). Fail the
+				// judge with an explicit diagnostic instead of silently recording an
+				// unexplained `passed: false` with no output.
+				throw new Error(
+					`Invalid judge "${judge.description}": type "${judge.type}" requires ${judge.type === "grep" ? "command + pattern" : "command"}`,
+				);
 			}
 
 			judgeResults.push({
 				description: judge.description,
-				passed: passed ?? false,
+				passed,
 				output,
 			});
 		} catch (e: unknown) {
@@ -160,7 +208,11 @@ export async function runBenchmark(task: BenchmarkTask): Promise<BenchmarkResult
 
 	return {
 		taskId: task.id,
-		passed: judgeResults.every((j) => j.passed),
+		// F20: explicit `length > 0` guard. `every()` is vacuously true on an
+		// empty array, so a judge list that produced no verdicts must never be
+		// read as success (the empty case is short-circuited above, but the
+		// guard keeps the invariant local to this expression).
+		passed: judgeResults.length > 0 && judgeResults.every((j) => j.passed),
 		judgeResults,
 		durationMs: Date.now() - startTime,
 		cost: 0,

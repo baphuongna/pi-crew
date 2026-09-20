@@ -107,6 +107,13 @@ export interface NotificationsDeps {
 		ctx: ExtensionContext,
 		notificationCount: number,
 	) => void;
+	/**
+	 * F11 (RR-018): ownership predicate — true only while the session that
+	 * started this configure is still current. Checked after every lazy-import
+	 * await boundary before publishing into shared state. Optional for older
+	 * hand-built deps; defaults to "still owner".
+	 */
+	isOwnerSession?: () => boolean;
 }
 
 /**
@@ -117,6 +124,11 @@ export interface NotificationsDeps {
  *  - `config.notifications?.enabled === false` → no-op.
  */
 export async function configureNotifications(ctx: ExtensionContext, state: LifecycleState, deps: NotificationsDeps): Promise<void> {
+	// F11 (RR-018): ownership predicate — re-verified after every await below.
+	// A continuation whose session was cleaned up or superseded must not
+	// publish resources into shared state. Optional so hand-built deps from
+	// older call sites keep working (defaults to "still owner").
+	const stillOwns = deps.isOwnerSession ?? (() => true);
 	state.notificationRouter?.dispose();
 	state.notificationSink?.dispose();
 	state.notificationRouter = undefined;
@@ -126,26 +138,29 @@ export async function configureNotifications(ctx: ExtensionContext, state: Lifec
 
 	// LAZY: notification router — wires events to sinks
 	const { NotificationRouter } = await import("../notification-router.ts");
+	if (!stillOwns()) return;
 	// LAZY: JSONL sink — file-backed notification storage
 	const { createJsonlSink } = await import("../notification-sink.ts");
+	if (!stillOwns()) return;
 	// LAZY: follow-up helpers — shared with subagent handoff
 	const { sendFollowUp } = await import("./subagent-helpers.ts");
+	if (!stillOwns()) return;
 	// LAZY: widget updater — refreshes the TUI status widget
 	const { updateCrewWidget } = await import("../../ui/widget/index.ts");
+	if (!stillOwns()) return;
 
-	if (config.telemetry?.enabled !== false) {
-		state.notificationSink = createJsonlSink(
-			projectCrewRoot(ctx.cwd),
-			config.notifications?.sinkRetentionDays ?? DEFAULT_NOTIFICATIONS.sinkRetentionDays,
-		);
-	}
-	state.notificationRouter = new NotificationRouter(
+	// F11: create into locals — publish only while ownership still holds.
+	const notificationSink =
+		config.telemetry?.enabled !== false
+			? createJsonlSink(projectCrewRoot(ctx.cwd), config.notifications?.sinkRetentionDays ?? DEFAULT_NOTIFICATIONS.sinkRetentionDays)
+			: undefined;
+	const notificationRouter = new NotificationRouter(
 		{
 			dedupWindowMs: config.notifications?.dedupWindowMs ?? DEFAULT_NOTIFICATIONS.dedupWindowMs,
 			batchWindowMs: config.notifications?.batchWindowMs ?? DEFAULT_NOTIFICATIONS.batchWindowMs,
 			quietHours: config.notifications?.quietHours,
 			severityFilter: config.notifications?.severityFilter ?? [...DEFAULT_NOTIFICATIONS.severityFilter],
-			sink: (notification) => state.notificationSink?.write(notification),
+			sink: (notification) => notificationSink?.write(notification),
 		},
 		(notification: NotificationDescriptor) => {
 			if (notification.clear) {
@@ -183,6 +198,15 @@ export async function configureNotifications(ctx: ExtensionContext, state: Lifec
 			}
 		},
 	);
+	if (!stillOwns()) {
+		// F11: ownership lost while suspended — dispose what was just created
+		// instead of publishing (no orphans).
+		notificationRouter.dispose();
+		notificationSink?.dispose();
+		return;
+	}
+	state.notificationSink = notificationSink;
+	state.notificationRouter = notificationRouter;
 }
 
 /** Dispose notification router + sink. */
@@ -200,6 +224,8 @@ export interface DeliveryDeps {
 	notifyOperator: (notification: NotificationDescriptor) => void;
 	sendFollowUp: (pi: ExtensionAPI, message: string) => void;
 	sendAgentWakeUp: (pi: ExtensionAPI, message: string) => void;
+	/** F11 (RR-018): same ownership predicate as NotificationsDeps.isOwnerSession. */
+	isOwnerSession?: () => boolean;
 }
 
 /**
@@ -207,15 +233,19 @@ export interface DeliveryDeps {
  * register.ts as part of H3-L2 (delivery lifecycle service).
  */
 export async function configureDeliveryCoordinator(state: LifecycleState, deps: DeliveryDeps): Promise<void> {
+	// F11: ownership predicate — re-verified after the lazy imports below.
+	const stillOwns = deps.isOwnerSession ?? (() => true);
 	state.deliveryCoordinator?.dispose();
 	state.deliveryCoordinator = undefined;
 	state.overflowTracker?.dispose();
 	state.overflowTracker = undefined;
 	// LAZY: delivery coordinator — batches notification fan-out
 	const { DeliveryCoordinator } = await import("../../runtime/delivery-coordinator.ts");
+	if (!stillOwns()) return;
 	// LAZY: overflow tracker — recovers from backlog overflow
 	const { OverflowRecoveryTracker } = await import("../../runtime/recovery/overflow-recovery.ts");
-	state.deliveryCoordinator = new DeliveryCoordinator({
+	if (!stillOwns()) return;
+	const deliveryCoordinator = new DeliveryCoordinator({
 		emit: (event, data) => {
 			deps.pi.events?.emit?.(event, data);
 		},
@@ -226,7 +256,7 @@ export async function configureDeliveryCoordinator(state: LifecycleState, deps: 
 			deps.sendAgentWakeUp(deps.pi, message);
 		},
 	});
-	state.overflowTracker = new OverflowRecoveryTracker({
+	const overflowTracker = new OverflowRecoveryTracker({
 		onPhaseChange: (phaseState, previousPhase) => {
 			if (deps.observabilityState.metricRegistry) {
 				deps.observabilityState.metricRegistry
@@ -254,6 +284,15 @@ export async function configureDeliveryCoordinator(state: LifecycleState, deps: 
 			});
 		},
 	});
+	if (!stillOwns()) {
+		// F11: ownership lost while suspended — dispose what was just created
+		// instead of publishing (no orphans).
+		deliveryCoordinator.dispose();
+		overflowTracker.dispose();
+		return;
+	}
+	state.deliveryCoordinator = deliveryCoordinator;
+	state.overflowTracker = overflowTracker;
 }
 
 /** Dispose delivery coordinator + overflow tracker. */

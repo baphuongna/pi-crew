@@ -5,11 +5,19 @@ name: Weekly Smoke Tests
 # Actions tab → "Weekly Smoke Tests" → Run workflow, OR let the cron run
 # automatically Monday 9am UTC to catch regressions before they accumulate.
 #
-# NOTE: the smoke suite bills tokens if PI_AUTH_JSON is configured as a repo
-# secret. To stay a free weekly canary, leave PI_AUTH_JSON unset in the repo
-# settings — the argv-flags smoke test does NOT need LLM credentials, but
-# the agent-* and dwf-workflow smoke tests will skip without auth. If you
-# want to exercise those, configure the secret and re-enable them below.
+# NOTE: the smoke suite is split by credential need (F19 / RR-015).
+#   - AUTH-FREE probes (test/smoke/argv-flags.smoke.ts) exercise the real `pi`
+#     BINARY and its OPTION PARSER but never call a model. They are gated only
+#     on PI_CREW_SMOKE=1 (see `binarySmokeSkipReason()` in test/smoke/_helpers.ts)
+#     and therefore RUN in this credential-free canary. The dedicated
+#     "Verify auth-free smoke probe ran" step below FAILS the job if that probe
+#     is skipped, so the canary can never again report a green run that
+#     executed nothing.
+#   - LLM-BILLED smoke tests (agent-*.smoke.ts, dwf-workflow.smoke.ts) need a
+#     resolvable model + API key (`smokeSkipReason()` → `MODEL_AUTH_AVAILABLE`)
+#     and will report "skipped" here. Leave PI_AUTH_JSON unset to keep this a
+#     free weekly canary; configure the repo secret to exercise them (they
+#     bill tokens).
 #
 # Distinct from .github/workflows/smoke.yml (manual LLM-billed suite) and
 # .github/workflows/ci.yml (per-PR push gate). This is the cheapest,
@@ -49,6 +57,25 @@ jobs:
         run: npm run build:bundle
       - name: Run smoke tests
         run: npm run test:smoke
+      - name: Verify auth-free smoke probe ran (not skipped)
+        # F19 / RR-015 AC-17+AC-18: the argv/binary probe needs NO credentials,
+        # so "skipped" here means the canary proved nothing. Assert on the TAP
+        # summary of a fresh run of that single file: it must report at least
+        # one PASSING test and ZERO skipped. This is what makes the canary's
+        # green meaningful instead of vacuous.
+        run: |
+          node scripts/test-runner.mjs --test-concurrency=1 --test-timeout=180000 test/smoke/argv-flags.smoke.ts 2>&1 | tee /tmp/argv-smoke.tap
+          PASS=$(sed -n 's/^# pass \([0-9]\+\).*/\1/p' /tmp/argv-smoke.tap | tail -1)
+          SKIPPED=$(sed -n 's/^# skipped \([0-9]\+\).*/\1/p' /tmp/argv-smoke.tap | tail -1)
+          echo "auth-free probe: pass=${PASS:-?} skipped=${SKIPPED:-?}"
+          if [ "${PASS:-0}" -lt 1 ]; then
+            echo "::error::the auth-free argv probe reported no passing tests — the canary proved nothing"
+            exit 1
+          fi
+          if [ "${SKIPPED:-1}" -ne 0 ]; then
+            echo "::error::the auth-free argv probe was SKIPPED (${SKIPPED}) — it must run without credentials"
+            exit 1
+          fi
       - name: Upload smoke logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

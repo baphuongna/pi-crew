@@ -1123,6 +1123,46 @@ function cancelPendingCoalescedWrite(filePath: string): void {
 }
 
 /**
+ * F10 / RR-016: path-scoped PUBLIC cancel for callers that DELETE a file whose
+ * coalesced write is still buffered. Without it the pending timer fires after
+ * the unlink and RE-CREATES the file with stale content — the measured
+ * `removeCrewAgent` defect (`agents/<task>/status.json` reappearing with
+ * `status:"running"` after the exit drain, while `agents.json` stayed empty).
+ *
+ * `cancelPendingCoalescedWrite` above already has exactly this semantics for
+ * immediate-write supersession; this export only widens the seam so a deleter
+ * can use it too. Returns true when an entry was pending (and was cancelled).
+ */
+export function cancelPendingCoalescedWriteForPath(filePath: string): boolean {
+	const pending = pendingAtomicWrites.has(filePath);
+	cancelPendingCoalescedWrite(filePath);
+	return pending;
+}
+
+/** @internal Test/diagnostic hook: is a coalesced write pending for this exact path? */
+export function hasPendingCoalescedWrite(filePath: string): boolean {
+	return pendingAtomicWrites.has(filePath);
+}
+
+/**
+ * Read the buffered (not-yet-flushed) value for `filePath`, if any.
+ *
+ * F06 / RR-017: gives callers a read-after-write view WITHOUT forcing the
+ * pending coalesced write to disk. `readCrewAgents()` previously called
+ * `flushPendingAtomicWrites(agentsPath)` before every read, and since
+ * `upsertCrewAgent` always reads first, EVERY non-terminal upsert destroyed the
+ * coalescing window it had just created (20 progress upserts → 19 agents.json
+ * renames). Overlaying this snapshot on the on-disk content preserves
+ * read-after-write semantics with zero I/O.
+ *
+ * The value is returned by reference, exactly like the flush path stringifies
+ * `entry.value` at flush time — callers must treat it as read-only.
+ */
+export function peekPendingCoalescedWrite<T>(filePath: string): T | undefined {
+	return pendingAtomicWrites.get(filePath)?.value as T | undefined;
+}
+
+/**
  * Flush every queued coalesced write synchronously. Safe to call any time.
  *
  * R10-2: pass `filePath` to flush ONLY the pending coalesced entry for that

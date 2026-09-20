@@ -157,7 +157,7 @@ export function readLinesSince(filePath: string, state: IncrementalReadState): I
 			totalRead += bytesRead;
 		}
 
-		const content = buf.toString("utf-8", 0, totalRead);
+		const content = buf.subarray(0, totalRead);
 		const lines: string[] = [];
 		let lineCount = state.lineCount;
 		let committedOffset = state.byteOffset;
@@ -165,8 +165,16 @@ export function readLinesSince(filePath: string, state: IncrementalReadState): I
 		let searchFrom = 0;
 		let newlineIdx: number;
 
-		while ((newlineIdx = content.indexOf("\n", searchFrom)) !== -1) {
-			const lineText = content.slice(searchFrom, newlineIdx);
+		// F07 / RR-017: scan the BUFFER, not a decoded string. A string index is a
+		// CHARACTER index, so using it as a byte offset silently mis-commits the
+		// watermark on any multi-byte UTF-8 line (Vietnamese diacritics, emoji,
+		// CJK): the next read then restarts mid-line and produces a corrupt line
+		// (measured: a delta read of a 4-line file returned one `raw` garbage
+		// event plus the three real ones). Byte offsets are what the API promises,
+		// so `Buffer.indexOf(0x0a)` is the correct scan and decoding happens only
+		// per complete line.
+		while ((newlineIdx = content.indexOf(0x0a, searchFrom)) !== -1) {
+			const lineText = content.toString("utf-8", searchFrom, newlineIdx);
 			committedOffset = state.byteOffset + newlineIdx + 1;
 			searchFrom = newlineIdx + 1;
 			if (lineText.length > 0) {

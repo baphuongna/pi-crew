@@ -2,7 +2,7 @@
 ### Fixture: LiveAgentHandle với session.subscribe replay 4 event thật → đúng đường pushLine/refreshSummary của overlay
 
 ┏ LIVE ▸ planner                                                                                    
-┃ ⠧ Lập plan fix 15 finding · turn 12/30 · 18 tools · 292.3s · anthropic/claude-sonnet-4.5          
+┃ ⠇ Lập plan fix 15 finding · turn 12/30 · 18 tools · 292.3s · anthropic/claude-sonnet-4.5          
 ┃ [parent] steer: thử grep ở thư mục con                                                            
 ┃ ⠋ đang chạy bash grep -rn "powerbar" src/ui                                                       
 ┃ ✔ 12 match · powerbar-publisher.ts 4 hit                                                          

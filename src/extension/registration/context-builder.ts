@@ -58,6 +58,7 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 			autoRepairTimer: undefined,
 			tempReconcileTimer: undefined,
 			otlpExporter: undefined,
+			initPromise: undefined,
 		} as ObservabilityState,
 		lifecycleState: {
 			notifierStarted: false,
@@ -121,7 +122,12 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 	};
 
 	ctx.getManifestCache = (cwd: string) => {
-		if (ctx.manifestCache && ctx.cacheCwd === cwd) return ctx.manifestCache;
+		// F13 (RR-018): a disposed cache pair must be recreated EVEN WHEN the cwd
+		// is unchanged. Session cleanup disposes the caches but used to leave
+		// `cacheCwd` pointing at them, so same-cwd access returned the disposed
+		// instance (no disposed flag existed). isDisposed() makes the pair's
+		// liveness part of the swap check.
+		if (ctx.manifestCache && ctx.cacheCwd === cwd && !ctx.runSnapshotCache.isDisposed()) return ctx.manifestCache;
 		if (ctx.manifestCache) ctx.manifestCache.dispose();
 		if (ctx.runSnapshotCache) ctx.runSnapshotCache.dispose?.();
 		ctx.cacheCwd = cwd;
@@ -130,7 +136,7 @@ export function buildRegistrationContext(pi: ExtensionAPI): RegistrationContext 
 		return ctx.manifestCache;
 	};
 	ctx.getRunSnapshotCache = (cwd: string) => {
-		if (ctx.cacheCwd !== cwd) ctx.getManifestCache(cwd);
+		if (ctx.cacheCwd !== cwd || ctx.runSnapshotCache.isDisposed()) ctx.getManifestCache(cwd);
 		return ctx.runSnapshotCache;
 	};
 

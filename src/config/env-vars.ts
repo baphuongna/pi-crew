@@ -257,6 +257,10 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_DEBUG_BUDGET",
 		doc: "'1' logs token budget (team-tool/run.ts:498)",
 	},
+	PI_CREW_DEBUG_STALE: {
+		name: "PI_CREW_DEBUG_STALE",
+		doc: "'1' writes a forensic sidecar log of every STALE verdict from the stale reconciler (stale-reconciler.ts:287) — the reconciler may run in ANY host process, hence a fixed env gate",
+	},
 	PI_CREW_DWF_SCRIPT_TIMEOUT_MS: {
 		name: "PI_CREW_DWF_SCRIPT_TIMEOUT_MS",
 		parser: "int",

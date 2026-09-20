@@ -35,3 +35,31 @@ export function installCrossExtensionWiring(pi: ExtensionAPI, ctx: RegistrationC
 		});
 	});
 }
+
+/**
+ * F13 (RR-018): refresh the extension-lifetime cross-extension wiring for a
+ * new session. Called on every `session_start`.
+ *
+ * The RPC handle is installed ONCE at registration and survives session
+ * switches — its `getCtx` closure resolves the CURRENT session context at
+ * request time, so nothing needs reinstalling (re-registering would double
+ * the pi-crew:rpc:* subscriptions). The crew global registry IS rebound to
+ * the current session's manifest cache so a cross-project switch never
+ * leaves it reading a stale project's runs. Idempotent and cheap (a plain
+ * object construction — installCrewGlobalRegistry swaps the module-scoped
+ * singleton atomically).
+ */
+export function refreshCrossExtensionWiringForSession(pi: ExtensionAPI, ctx: RegistrationContext): void {
+	if (!ctx.rpcHandle) {
+		// Edge: registration never installed the handle (or a full shutdown
+		// removed it) — install it once, idempotently.
+		installCrossExtensionWiring(pi, ctx);
+		return;
+	}
+	void import("../team-tool.ts").then(({ installCrewGlobalRegistry }) => {
+		installCrewGlobalRegistry({
+			manifestCache: ctx.getManifestCache(ctx.currentCtx?.cwd ?? process.cwd()),
+			cwdProvider: () => ctx.currentCtx?.cwd ?? process.cwd(),
+		});
+	});
+}

@@ -3,10 +3,10 @@
 
 ### REAL — dòng dock widget (buildWidgetLines, width 100): đích mà ↓ dừng trên (↓·enter mở browser)
 ### (segment ⏰ lấy từ schedule reader fixture 2 job của mục 1 — cùng process, deterministic)
-┃ ⠧ CREW ▸ 2 runs · 1 running · 2/3 done · ⏰ 2 sched ···· ↓·enter
+┃ ⠏ CREW ▸ 2 runs · 1 running · 2/3 done · ⏰ 2 sched ···· ↓·enter
 
 ### REAL — dòng dock khi cursor đang ở TRÊN nó (options.focused)
-❯ ┃ ⠧ CREW ▸ 2 runs · 1 running · 2/3 done · ⏰ 2 sched ···· ↓·enter
+❯ ┃ ⠏ CREW ▸ 2 runs · 1 running · 2/3 done · ⏰ 2 sched ···· ↓·enter
 
 ### REAL — panel rows mà cursor đi qua (panelRowsFromRuns, đúng thứ tự widget paint)
   1. planner · t2 · active

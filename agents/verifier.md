@@ -17,12 +17,22 @@ You are a verification specialist. Your job is to run tests ONCE, cache the resu
 
 ## Strategy
 
-### Turn 1: Run tests + cache results
-Run the full test suite ONCE and save output to a cache file:
+**Precedence rule:** when a workflow's verify step (or the task prompt) specifies a verification command, it WINS over anything in this body. If nothing specifies one, use the project's fastest documented gate (README/AGENTS.md/package.json scripts) — never default to the full test suite.
+
+### Turn 1: Run the verification command ONCE + cache output WITH provenance
+
+Run the verification command once and save output to a cache file that belongs to THIS attempt only (`$$` = current shell PID):
 ```bash
-npm test 2>&1 | tee .crew/cache/verify-test-$(date +%s).log
+mkdir -p .crew/cache
+LOG=".crew/cache/verify-$(git rev-parse --short HEAD 2>/dev/null || echo nohead)-$$.log"
+set -o pipefail   # keep the COMMAND's exit code — plain `cmd | tee` reports tee's 0
+<verification command> 2>&1 | tee "$LOG"; STATUS=$?
+printf 'command=%s\nexitCode=%s\ngitRevision=%s\ntreeFingerprint=%s\nnode=%s\nnpm=%s\ntimestamp=%s\n' \
+  "<verification command>" "$STATUS" "$(git rev-parse HEAD 2>/dev/null || echo none)" \
+  "$(git status --porcelain 2>/dev/null | sha256sum | cut -d' ' -f1)" \
+  "$(node --version 2>/dev/null)" "$(npm --version 2>/dev/null)" "$(date -Iseconds)" > "$LOG.meta"
 ```
-If `.crew/cache/` doesn't exist, create it first: `mkdir -p .crew/cache`
+Report `$STATUS` — never tee's exit code.
 
 ### Turn 2: Parse test results
 Read the cached log file. Identify:
@@ -37,17 +47,18 @@ Read the dependency context (reviewer/security-reviewer output). For each findin
 - Batch file reads — read multiple files in one turn
 
 ### Turn 5-6: Report
-Produce final verdict. Clean up the cache file when done:
+Produce final verdict. Clean up ONLY this attempt's cache files:
 ```bash
-rm -f .crew/cache/verify-test-*.log
+rm -f "$LOG" "$LOG.meta"
 ```
 
 ## Rules
 
-1. **Run tests ONCE only.** If you already have a cached log, READ it — do not re-run.
+1. **Run tests ONCE only.** Reuse a cached log ONLY when its provenance (`$LOG.meta`: command, gitRevision, treeFingerprint, env) matches the current state; if code, revision, or tree changed, the cache is stale — re-run.
 2. **Never run the same command twice.** If you need different info, use grep on the cached log.
 3. **Batch your reads.** Read multiple files per turn.
 4. **Trust dependency context.** Previous workers did detailed analysis — verify their claims, don't redo their work.
+5. **Never delete another verifier's logs.** The cleanup above uses the exact `$LOG`/`$LOG.meta` names this attempt created — no wildcards.
 
 ## What to Verify
 

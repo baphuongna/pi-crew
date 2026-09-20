@@ -49,6 +49,13 @@ export interface ObservabilityState {
 	autoRepairTimer: ReturnType<typeof setInterval> | undefined;
 	tempReconcileTimer: ReturnType<typeof setInterval> | undefined;
 	otlpExporter: OTLPExporterInstance | undefined;
+	/**
+	 * F11 (RR-018): promise of the most recent `configureObservability` run.
+	 * `disposeObservability` settles it deliberately so teardown never races a
+	 * still-suspended init continuation (which re-checks ownership after every
+	 * await and self-disposes its locals when ownership was lost).
+	 */
+	initPromise: Promise<void> | undefined;
 }
 
 /** Dependencies passed in by register.ts so this module stays decoupled. */
@@ -57,6 +64,13 @@ export interface ObservabilityDeps {
 	getManifestCache: (cwd: string) => ReturnType<typeof import("../../runtime/manifest-cache.ts").createManifestCache>;
 	notifyOperator: (notification: NotificationDescriptor) => void;
 	isCleanedUp: () => boolean;
+	/**
+	 * F11 (RR-018): read the RegistrationContext's `sessionGeneration`. The
+	 * generation is bumped by cleanup AND by every session_start/before_switch,
+	 * so unlike `isCleanedUp` it can never be reset back to "still owner" by a
+	 * newer session. Reuse this counter — do not invent a parallel one.
+	 */
+	getSessionGeneration: () => number;
 	reconcileStaleRuns: (cwd: string, cache: ReturnType<ObservabilityDeps["getManifestCache"]>, currentSessionId?: string) => unknown[];
 	reconcileOrphanedTempWorkspaces: (now: number, opts: { cleanupOrphanedTempDirs?: boolean }) => unknown;
 	cleanupOrphanTempDirs: () => { cleaned: number; scanned: number; failed: number };
@@ -94,43 +108,77 @@ async function importOTLPExporter(): Promise<OTLPExporterCtor> {
  *  - `config.reliability?.autoRecover === true` → lazy-imports crash-recovery
  *    on a deferred setTimeout to avoid blocking session_start.
  */
-export async function configureObservability(ctx: ExtensionContext, state: ObservabilityState, deps: ObservabilityDeps): Promise<void> {
+export function configureObservability(ctx: ExtensionContext, state: ObservabilityState, deps: ObservabilityDeps): Promise<void> {
+	// F11: track the init promise so `disposeObservability` can settle it
+	// deliberately instead of racing it. The internal run first awaits any
+	// PREVIOUS init (via disposeObservability), so this assignment can never
+	// self-deadlock — state.initPromise still referenced the old run when the
+	// internal run suspended.
+	const run = configureObservabilityInternal(ctx, state, deps);
+	state.initPromise = run;
+	return run;
+}
+
+async function configureObservabilityInternal(ctx: ExtensionContext, state: ObservabilityState, deps: ObservabilityDeps): Promise<void> {
+	// F11 (RR-018): capture the session generation at configure time. Every
+	// await boundary below re-verifies ownership before touching shared state;
+	// a continuation whose generation no longer matches can never publish —
+	// even when a newer session has already reset `cleanedUp` back to false
+	// (the real ordering: cleanup sets it true, session_start resets it false).
+	const ownerGeneration = deps.getSessionGeneration();
+	const stillOwns = (): boolean => deps.getSessionGeneration() === ownerGeneration && !deps.isCleanedUp();
+
 	// Always start from a clean slate: dispose any prior-session state first.
 	await disposeObservability(state, deps.isCleanedUp());
+	if (!stillOwns()) return;
 
 	const config = loadConfig(ctx.cwd).config;
 	if (config.observability?.enabled === false) return;
 
 	// LAZY: observability stack — only paid for when observability is actually enabled
 	const { createMetricRegistry } = await import("../../observability/metric-registry.ts");
+	if (!stillOwns()) return;
 	// LAZY: event→metric bridge
 	const { wireEventToMetrics } = await import("../../observability/event-to-metric.ts");
+	if (!stillOwns()) return;
 	// LAZY: file-backed metric sink
 	const { createMetricFileSink } = await import("../../observability/metric-sink.ts");
+	if (!stillOwns()) return;
 
-	state.metricRegistry = createMetricRegistry();
-	if (deps.pi.events) {
-		state.eventMetricSub = wireEventToMetrics(deps.pi.events, state.metricRegistry);
+	// F11: create into LOCALS — shared state is only touched after ownership is
+	// re-verified. If ownership was lost in the gap, everything just created is
+	// disposed right here in the continuation instead of leaking (0 orphans).
+	const metricRegistry = createMetricRegistry();
+	const eventMetricSub = deps.pi.events ? wireEventToMetrics(deps.pi.events, metricRegistry) : undefined;
+	const metricSink =
+		config.telemetry?.enabled !== false
+			? createMetricFileSink({
+					crewRoot: projectCrewRoot(ctx.cwd),
+					registry: metricRegistry,
+					retentionDays: config.observability?.metricRetentionDays ?? 7,
+				})
+			: undefined;
+	if (!stillOwns()) {
+		eventMetricSub?.dispose();
+		metricSink?.dispose();
+		metricRegistry.dispose();
+		return;
 	}
-	if (config.telemetry?.enabled !== false) {
-		state.metricSink = createMetricFileSink({
-			crewRoot: projectCrewRoot(ctx.cwd),
-			registry: state.metricRegistry,
-			retentionDays: config.observability?.metricRetentionDays ?? 7,
-		});
-	}
+	state.metricRegistry = metricRegistry;
+	state.eventMetricSub = eventMetricSub;
+	state.metricSink = metricSink;
 
 	// OTLP export is opt-in. Lazy-loaded via dynamic import.
 	if (config.otlp?.enabled === true && config.otlp.endpoint) {
 		const otlpEndpoint = config.otlp.endpoint;
 		const otlpHeaders = config.otlp.headers;
 		const otlpInterval = config.otlp.intervalMs;
-		const owningRegistry = state.metricRegistry;
+		const owningRegistry = metricRegistry;
 		// LAZY: opt-in OTLP export — load the exporter module on first enable.
 		void importOTLPExporter()
 			.then((Ctor) => {
-				if (deps.isCleanedUp() || state.metricRegistry !== owningRegistry || !owningRegistry) return;
-				state.otlpExporter = new Ctor(
+				if (!stillOwns() || state.metricRegistry !== owningRegistry || !owningRegistry) return;
+				const otlpExporter = new Ctor(
 					{
 						endpoint: otlpEndpoint,
 						headers: otlpHeaders,
@@ -138,18 +186,20 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 					},
 					owningRegistry,
 				);
-				state.otlpExporter?.start();
+				state.otlpExporter = otlpExporter;
+				otlpExporter.start();
 			})
 			.catch((error: unknown) => logInternalError("register.otlp-lazy-import", error));
 	}
 
 	// LAZY: heartbeat watcher — polled per-session, wires deadletter + metric events.
 	const { HeartbeatWatcher } = await import("../../runtime/heartbeat/heartbeat-watcher.ts");
-	state.heartbeatWatcher = new HeartbeatWatcher({
+	if (!stillOwns()) return;
+	const heartbeatWatcher = new HeartbeatWatcher({
 		cwd: ctx.cwd,
 		pollIntervalMs: config.observability?.pollIntervalMs ?? 5000,
 		manifestCache: deps.getManifestCache(ctx.cwd),
-		registry: state.metricRegistry,
+		registry: metricRegistry,
 		router: {
 			enqueue: (notification) => {
 				deps.notifyOperator(notification);
@@ -173,25 +223,24 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 			});
 		},
 	});
-	state.heartbeatWatcher.start();
+	// F11: the watcher is created into a local and only published once
+	// ownership is re-verified — a lost-ownership continuation disposes it
+	// instead of publishing a live poller nobody will tear down.
+	if (!stillOwns()) {
+		heartbeatWatcher.dispose();
+		return;
+	}
+	state.heartbeatWatcher = heartbeatWatcher;
+	heartbeatWatcher.start();
 
 	// RT-F2: opportunistic stale-run reconcile hook.
-	// The .unref()'d setInterval below never fires while the event loop is idle
-	// (e.g. user has the editor open but hasn't sent a turn in an hour). Pair it
-	// with a before_agent_start hook so reconcileAllStaleRuns also fires when
-	// the user actually drives the session — bounded by user activity.
-	try {
-		deps.pi.on?.("before_agent_start", () => {
-			if (deps.isCleanedUp()) return;
-			try {
-				deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd), extractSessionId(ctx));
-			} catch (error) {
-				logInternalError("register.autoRepair.turnHook", error);
-			}
-		});
-	} catch {
-		/* older Pi without before_agent_start — rely on the interval alone */
-	}
+	// F12 (RR-018): the `before_agent_start` hook is NO LONGER registered here.
+	// It is registered exactly ONCE per extension in `lazy-configurers.ts`
+	// (installTurnReconcileHook) and resolves the CURRENT session context at
+	// fire time — per-session registration accumulated one dead hook per
+	// switch (there is no pi.off), and the stale hook re-activated with the
+	// old session's cwd, flipping the shared manifest cache back. The
+	// .unref()'d setInterval below remains the idle-time safety net.
 
 	// Auto-repair timers: stale-run reconcile + orphan-temp cleanup.
 	// RT-F2: default raised from 60_000ms to 5 minutes (300_000ms). The previous
@@ -273,7 +322,7 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
 		void deps
 			.importCrashRecovery()
 			.then(({ detectInterruptedRuns }) => {
-				if (deps.isCleanedUp()) return;
+				if (!stillOwns()) return;
 				const sid = extractSessionId(ctx);
 				for (const plan of detectInterruptedRuns(cwdSnapshot, cacheSnapshot, 300_000, sid)) {
 					deps.notifyOperator({
@@ -296,6 +345,20 @@ export async function configureObservability(ctx: ExtensionContext, state: Obser
  * gated by the orchestrator's overall cleanup state.
  */
 export async function disposeObservability(state: ObservabilityState, _isCleanedUp: boolean): Promise<void> {
+	// F11 (RR-018): settle any in-flight init BEFORE disposing shared state, so
+	// teardown never races a still-suspended continuation. The continuation
+	// itself re-checks ownership after every await and self-disposes its
+	// locals, so this await only bounds the race window — it never starts new
+	// work and cannot deadlock (the previous init completes on its own).
+	const initPromise = state.initPromise;
+	state.initPromise = undefined;
+	if (initPromise) {
+		try {
+			await initPromise;
+		} catch {
+			/* configureObservabilityImpl logs its own errors */
+		}
+	}
 	state.heartbeatWatcher?.dispose();
 	state.heartbeatWatcher = undefined;
 	if (state.autoRepairTimer) {

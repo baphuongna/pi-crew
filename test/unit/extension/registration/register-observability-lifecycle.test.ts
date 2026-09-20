@@ -36,8 +36,8 @@ function createFakePi(events: ReturnType<typeof createEventBus>) {
 			handlers.push(handler);
 			lifecycle.set(event, handlers);
 		},
-		emitLifecycle(event: string, ctx: unknown) {
-			for (const handler of lifecycle.get(event) ?? []) handler({}, ctx);
+		emitLifecycle(event: string, ctx: unknown, payload: unknown = {}) {
+			for (const handler of lifecycle.get(event) ?? []) handler(payload, ctx);
 		},
 		registerCommand() {
 			/* no-op */
@@ -79,7 +79,11 @@ test("registerPiTeams leaves no observability event subscriptions after repeated
 		for (let index = 0; index < 3; index += 1) {
 			pi.emitLifecycle("session_start", ctx);
 			assert.ok(events.totalSubscriptions() > 0, "session_start should register event subscriptions");
-			pi.emitLifecycle("session_shutdown", ctx);
+			// F13 (RR-018): full shutdown (quit/reload) tears down EVERYTHING,
+			// including extension-lifetime RPC (which now survives session
+			// switches — covered by session-switch-rpc-cache.test.ts). The === 0
+			// contract below is the full-shutdown contract.
+			pi.emitLifecycle("session_shutdown", ctx, { reason: "quit" });
 			assert.equal(events.totalSubscriptions(), 0, `cycle ${index + 1} leaked event subscriptions`);
 		}
 	} finally {

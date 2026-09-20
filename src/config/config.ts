@@ -264,12 +264,47 @@ function unsetPath(record: Record<string, unknown>, dottedPath: string): void {
 	delete target[parts[parts.length - 1]!];
 }
 
+// F08 (RR-016): the JSON depth guard below MAX_JSON_DEPTH containers of TRUE
+// nesting — measured by an explicit-stack walk over the parsed value, NOT by a
+// JSON.parse reviver counter. The previous reviver incremented once per VALUE,
+// so a shallow-but-wide config (48 agent model overrides = 101 values) was
+// rejected as "too deep" and the ENTIRE file was discarded — silently losing
+// every resource limit in it, while a genuinely 96-level-deep document with 99
+// values was accepted. Keeping this a real depth limit preserves the guard
+// against pathological nesting without punishing wide configs.
+const MAX_CONFIG_SIZE = 10 * 1024 * 1024;
+const MAX_JSON_DEPTH = 100;
+
+/**
+ * Deepest container (object/array) nesting level of a parsed JSON value;
+ * scalars do not add depth. Iterative (explicit stack) on purpose: a recursive
+ * walk would itself stack-overflow on the exact input this guard exists to
+ * reject. Cost is O(nodes) and it is only run once per config parse (which the
+ * 2s loadConfig cache already amortizes).
+ */
+function measureJsonDepth(root: unknown): number {
+	let maxDepth = 0;
+	const stack: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 1 }];
+	while (stack.length > 0) {
+		const frame = stack.pop()!;
+		if (frame.depth > maxDepth) maxDepth = frame.depth;
+		const children: unknown[] = Array.isArray(frame.value)
+			? frame.value
+			: frame.value !== null && typeof frame.value === "object"
+				? Object.values(frame.value as Record<string, unknown>)
+				: [];
+		for (const child of children) {
+			if (child !== null && typeof child === "object") stack.push({ value: child, depth: frame.depth + 1 });
+		}
+	}
+	return maxDepth;
+}
+
 function readConfigRecord(filePath: string): Record<string, unknown> {
 	if (!fs.existsSync(filePath)) return {};
 	// Defense-in-depth: reject config files larger than 10 MB before parsing.
-	// This prevents memory exhaustion and blocks deeply nested JSON that could
-	// cause stack overflow during parsing.
-	const MAX_CONFIG_SIZE = 10 * 1024 * 1024;
+	// This prevents memory exhaustion from oversized files. (Behaviour kept
+	// unchanged by F08/RR-016: the byte-size limit stays a separate, hard cap.)
 	const stat = fs.statSync(filePath);
 	if (stat.size > MAX_CONFIG_SIZE) {
 		logInternalError(
@@ -279,17 +314,16 @@ function readConfigRecord(filePath: string): Record<string, unknown> {
 		);
 		return {};
 	}
-	// Parse with depth limit to prevent stack overflow from deeply nested JSON.
-	// Nesting beyond 100 levels is almost certainly an attack or malformed file.
-	const MAX_JSON_DEPTH = 100;
-	let depth = 0;
-	const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"), (_key, value) => {
-		if (++depth > MAX_JSON_DEPTH) {
-			throw new Error(`config JSON exceeds max depth ${MAX_JSON_DEPTH}`);
-		}
-		return value;
-	}) as unknown;
+	// Plain parse first (V8's JSON.parse is iterative — a 1e6-deep document
+	// parses without a stack overflow), then the iterative depth walk above.
+	const raw = JSON.parse(fs.readFileSync(filePath, "utf-8")) as unknown;
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+	const depth = measureJsonDepth(raw);
+	if (depth > MAX_JSON_DEPTH) {
+		throw new Error(
+			`config JSON nesting depth ${depth} exceeds max depth ${MAX_JSON_DEPTH} (fix: reduce nesting in ${filePath}, or delete the file to fall back to defaults)`,
+		);
+	}
 	return raw as Record<string, unknown>;
 }
 

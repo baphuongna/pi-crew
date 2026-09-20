@@ -1,14 +1,24 @@
 /**
  * Tests for src/benchmark/benchmark-runner.ts
  * Coverage:
- * - validateCommand: allowlist enforcement, metacharacter blocking
+ * - parseAndValidateCommand: allowlist enforcement, metacharacter blocking
  * - runBenchmark: pytest judge, grep judge, command judge
  * - runBenchmarkSuite: filter by taskType, aggregate counts
  * - aggregateBenchmarkMetrics: per-type bucketing, ratios, rounding
  * - generateBenchmarkReport: table format
  *
- * Note: validateCommand only allows pytest/grep/npm test/cargo test/clippy prefixes (npx/node removed — H-7).
- * Tests use 'grep' for command-style and 'echo' is NOT allowed (intentional).
+ * Note: parseAndValidateCommand allows the executables pytest/grep/npm/cargo/echo
+ * (npx/node removed — H-7); npm and cargo additionally require a known
+ * sub-command (npm test, cargo test/clippy). `echo` IS allowed (the metachar
+ * blocker makes it inert).
+ *
+ * F20 regression coverage (added 2026-09-17, RR-015):
+ * - `judges: []` must NOT report `passed: true` — `Array.prototype.every` on an
+ *   empty array is vacuously true, which used to make a judge-less task green.
+ * - The bare form of every allowlisted command (`npm test`, `cargo test`,
+ *   `cargo clippy`, `pytest`, `grep`, `echo`) must be ACCEPTED. The old
+ *   single-regex allowlist had a trailing space, so it rejected the bare form
+ *   while the error message listed that same form as allowed.
  *
  * Cross-platform notes (Phase 1 M1):
  * - `runBenchmark` uses `execFileSync(program, args)` to spawn the judge
@@ -27,6 +37,7 @@ import {
 	type BenchmarkResult,
 	type BenchmarkTask,
 	generateBenchmarkReport,
+	parseAndValidateCommand,
 	runBenchmark,
 	runBenchmarkSuite,
 } from "../../src/benchmark/benchmark-runner.ts";
@@ -47,7 +58,7 @@ test("runBenchmark grep judge: matches pattern in output", async () => {
 		id: "t1",
 		name: "grep task",
 		prompt: "search",
-		// grep with simple args is allowed by validateCommand
+		// grep with simple args is allowed by parseAndValidateCommand
 		judges: [
 			{
 				type: "grep",
@@ -61,6 +72,148 @@ test("runBenchmark grep judge: matches pattern in output", async () => {
 	// grep with no input file fails (exit code 2), so judge is "not passed"
 	// We just verify the judge ran (didn't throw validation)
 	assert.equal(result.taskId, "t1");
+});
+
+// ---------------------------------------------------------------------------
+// F20 — empty judge set is INCONCLUSIVE, never a pass
+// ---------------------------------------------------------------------------
+
+test("F20: runBenchmark with an empty judge set is inconclusive, NOT passed", async () => {
+	const task: BenchmarkTask = {
+		id: "f20-empty",
+		name: "no judges",
+		prompt: "p",
+		judges: [],
+	};
+	const result = await runBenchmark(task);
+
+	// RED before the fix: `[].every(...)` is `true` → passed: true with no
+	// evidence at all. A task nobody judged must never be reported as passing.
+	assert.equal(result.passed, false, "empty judge set must not report passed: true");
+	assert.equal(result.inconclusive, true, "empty judge set must be flagged inconclusive");
+	assert.match(result.inconclusiveReason ?? "", /no judges/i);
+	assert.deepEqual(result.judgeResults, []);
+	assert.equal(result.taskId, "f20-empty");
+	assert.ok(result.durationMs >= 0);
+});
+
+test("F20: runBenchmarkSuite counts an inconclusive task as failed, not passed", async () => {
+	const tasks: BenchmarkTask[] = [
+		{ id: "no-judges", name: "none", prompt: "p", judges: [] },
+		{ id: "judged", name: "bad", prompt: "p", judges: [{ type: "command", command: "rm -rf /", description: "bad" }] },
+	];
+	const suite = await runBenchmarkSuite(tasks);
+	assert.equal(suite.totalPassed, 0, "inconclusive task must not be counted as passed");
+	assert.equal(suite.totalFailed, 2);
+});
+
+// ---------------------------------------------------------------------------
+// F20 — bare command forms must be accepted (allowlist ↔ message agreement)
+// ---------------------------------------------------------------------------
+
+test("F20: parseAndValidateCommand accepts the BARE form of every allowlisted command", () => {
+	// RED before the fix: the allowlist regex was
+	// /^(pytest|grep|npm test|cargo test|cargo clippy|echo) / — the TRAILING
+	// SPACE made every bare form fail, including `npm test`, which the error
+	// message itself listed as allowed (self-contradictory).
+	const accepted: [string, string[]][] = [
+		["pytest", ["pytest"]],
+		["grep", ["grep"]],
+		["npm test", ["npm", "test"]],
+		["cargo test", ["cargo", "test"]],
+		["cargo clippy", ["cargo", "clippy"]],
+		["echo", ["echo"]],
+	];
+	for (const [command, expected] of accepted) {
+		const parsed = parseAndValidateCommand(command);
+		assert.deepEqual([parsed.program, ...parsed.args], expected, `bare "${command}" must be accepted`);
+	}
+});
+
+test("F20: parseAndValidateCommand accepts the allowlisted command WITH arguments", () => {
+	const withArgs: [string, string[]][] = [
+		["pytest -q tests/", ["pytest", "-q", "tests/"]],
+		["grep hello file.txt", ["grep", "hello", "file.txt"]],
+		["npm test -- --runInBand", ["npm", "test", "--", "--runInBand"]],
+		["cargo test --release", ["cargo", "test", "--release"]],
+		["echo hi", ["echo", "hi"]],
+	];
+	for (const [command, expected] of withArgs) {
+		const parsed = parseAndValidateCommand(command);
+		assert.deepEqual([parsed.program, ...parsed.args], expected, `"${command}" must be accepted`);
+	}
+});
+
+test("F20: parseAndValidateCommand validates executable and args SEPARATELY", () => {
+	// Executable not on the allowlist — rejected regardless of arguments.
+	for (const bad of ["ls -la", "rm -rf /", "node -e 'x'", "npx --yes evil", "", "   "]) {
+		assert.throws(() => parseAndValidateCommand(bad), /Command not allowed|Empty command/, `"${bad}" must be rejected`);
+	}
+
+	// Allowlisted executable, disallowed sub-command — rejected on the ARGS check.
+	for (const bad of ["npm publish", "npm install evil", "npm", "cargo build", "cargo"]) {
+		assert.throws(() => parseAndValidateCommand(bad), /Command not allowed/, `"${bad}" must be rejected (sub-command not allowlisted)`);
+	}
+
+	// Metacharacters in the arguments — rejected (executable itself is fine).
+	for (const bad of ["echo hi; rm -rf /", "echo $(whoami)", "echo `id`", "echo a && b", "echo a | b", "grep x > out.txt"]) {
+		assert.throws(() => parseAndValidateCommand(bad), /Shell metacharacters/, `"${bad}" must be rejected (metacharacters)`);
+	}
+});
+
+test("F20: the 'not allowed' message only lists commands the validator accepts", () => {
+	// The message names the allowlist; every name it mentions must actually be
+	// accepted, otherwise it is the same self-contradiction as before the fix.
+	let message = "";
+	try {
+		parseAndValidateCommand("ls -la");
+	} catch (e) {
+		message = e instanceof Error ? e.message : String(e);
+	}
+	assert.match(message, /Only .*allowed/);
+	for (const command of ["pytest", "grep", "npm test", "cargo test", "cargo clippy", "echo"]) {
+		assert.ok(message.includes(command), `message must list "${command}": ${message}`);
+		assert.doesNotThrow(() => parseAndValidateCommand(command), `message lists "${command}" so it must be accepted`);
+	}
+});
+
+test("F20: runBenchmark accepts a BARE allowlisted command (reaches execution, no validation error)", async (t) => {
+	if (skipIfWindows(t, "echo shell builtin unsupported via execFileSync on win32")) return;
+	// Before the fix, the trailing space in the allowlist regex rejected the
+	// bare form of EVERY allowed command with the self-contradictory message
+	// "Command not allowed: echo. Only pytest, grep, npm test, … echo allowed".
+	// Bare `echo` is used here (not `npm test`) so the unit test never spawns a
+	// real test suite: the point is that the bare form clears VALIDATION and
+	// reaches execution.
+	const result = await runBenchmark({
+		id: "f20-bare",
+		name: "bare echo",
+		prompt: "p",
+		judges: [{ type: "command", command: "echo", description: "bare echo" }],
+	});
+	const output = result.judgeResults[0]?.output ?? "";
+	assert.doesNotMatch(output, /Command not allowed/, `bare "echo" must pass validation. Got: ${output}`);
+	assert.equal(result.passed, true, `bare "echo" should succeed as a command judge. Got: ${output}`);
+});
+
+test("F20: bare 'npm test' clears validation (asserted without spawning npm)", () => {
+	// Validation is asserted directly rather than via runBenchmark so this test
+	// never shells out to a real `npm test` (which would recursively run this
+	// very suite). The pre-fix behaviour was a validation rejection whose own
+	// message listed `npm test` as allowed.
+	assert.doesNotThrow(() => parseAndValidateCommand("npm test"));
+	assert.deepEqual(parseAndValidateCommand("npm test"), { program: "npm", args: ["test"] });
+});
+
+test("runBenchmark fails on invalid judge shape (no command) with a diagnostic", async () => {
+	const result = await runBenchmark({
+		id: "f20-invalid-judge",
+		name: "invalid",
+		prompt: "p",
+		judges: [{ type: "command", description: "no command field" }],
+	});
+	assert.equal(result.passed, false);
+	assert.match(result.judgeResults[0]?.output ?? "", /Invalid judge/);
 });
 
 test("runBenchmark command judge: fails for commands not in allowlist", async () => {

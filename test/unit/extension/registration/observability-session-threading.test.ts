@@ -1,17 +1,18 @@
 /**
  * M3 — Observability reconcile threading test (Vector #5, highest-freq leak path).
  *
- * `src/extension/registration/observability.ts` registers a `before_agent_start`
- * hook (fires every user turn) and a setInterval (every autoRepairIntervalMs)
- * that both call `deps.reconcileStaleRuns(cwd, cache, currentSessionId)`. The
- * `currentSessionId` is derived via `extractSessionId(ctx)` so reconcile skips
+ * F12 (RR-018) moved the `before_agent_start` reconcile hook to extension
+ * registration (lazy-configurers.ts → installTurnReconcileHook — see
+ * turn-hook-once.test.ts for the once-per-extension contract). What REMAINS
+ * in `configureObservability` is the per-session auto-repair interval, which
+ * still calls `deps.reconcileStaleRuns(cwd, cache, currentSessionId)` with
+ * `currentSessionId` derived via `extractSessionId(ctx)` — so reconcile skips
  * the current session's own live runs instead of cancelling them.
  *
  * This test drives `configureObservability` directly with a SPY
- * `reconcileStaleRuns`, captures the `before_agent_start` handler via a fake
- * `pi.on`, fires it with an ExtensionContext whose
- * `sessionManager.getSessionId()` returns "session-X", and asserts the spy
- * received `currentSessionId === "session-X"`.
+ * `reconcileStaleRuns`, a fast autoRepairIntervalMs (via project config), and
+ * asserts the spy receives `currentSessionId === "session-X"` from the
+ * ExtensionContext's `sessionManager.getSessionId()`.
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
@@ -25,21 +26,24 @@ import {
 	type ObservabilityState,
 } from "../../../../src/extension/registration/observability.ts";
 
-test("configureObservability threads extractSessionId(ctx) into reconcileStaleRuns via before_agent_start (#5)", async () => {
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("configureObservability threads extractSessionId(ctx) into reconcileStaleRuns via the auto-repair interval (#5)", async () => {
+	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-obs-thread-home-"));
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-obs-session-"));
+	const prevHome = process.env.PI_CREW_HOME;
+	process.env.PI_CREW_HOME = home;
 	try {
 		fs.writeFileSync(path.join(cwd, "package.json"), "{}\n", "utf-8");
+		// Fast auto-repair interval so the timer path fires within the test.
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(cwd, ".crew", "config.json"), JSON.stringify({ reliability: { autoRepairIntervalMs: 40 } }), "utf-8");
 
-		// Capture the before_agent_start handler so we can fire it manually and
-		// observe what args reconcileStaleRuns receives.
-		const lifecycleHandlers = new Map<string, Array<() => void>>();
+		// `events: undefined` skips wireEventToMetrics (no subscriptions to clean).
 		const fakePi = {
-			// `events: undefined` skips wireEventToMetrics (no subscriptions to clean).
 			events: undefined,
-			on(event: string, handler: () => void) {
-				const arr = lifecycleHandlers.get(event) ?? [];
-				arr.push(handler);
-				lifecycleHandlers.set(event, arr);
+			on() {
+				/* hook registration moved to lazy-configurers (F12) */
 			},
 		};
 
@@ -55,6 +59,7 @@ test("configureObservability threads extractSessionId(ctx) into reconcileStaleRu
 			getManifestCache: () => manifestCache,
 			notifyOperator: () => undefined,
 			isCleanedUp: () => false,
+			getSessionGeneration: () => 1,
 			reconcileStaleRuns: (cwdArg: string, _cache: unknown, currentSessionId?: string) => {
 				reconcileCalls.push({ cwd: cwdArg, currentSessionId });
 				return [];
@@ -74,6 +79,7 @@ test("configureObservability threads extractSessionId(ctx) into reconcileStaleRu
 			autoRepairTimer: undefined,
 			tempReconcileTimer: undefined,
 			otlpExporter: undefined,
+			initPromise: undefined,
 		};
 
 		// ExtensionContext whose sessionManager reports "session-X". This is the
@@ -88,19 +94,19 @@ test("configureObservability threads extractSessionId(ctx) into reconcileStaleRu
 		// No reconcile should have fired at configure time.
 		assert.equal(reconcileCalls.length, 0, "no reconcile at configure time");
 
-		// The before_agent_start hook must have been registered exactly once.
-		const hooks = lifecycleHandlers.get("before_agent_start") ?? [];
-		assert.equal(hooks.length, 1, "before_agent_start handler should be registered");
-
-		// Fire the hook the way Pi would on each user turn.
-		hooks[0]!();
-
-		assert.equal(reconcileCalls.length, 1, "reconcileStaleRuns called once per before_agent_start");
-		assert.equal(reconcileCalls[0]?.cwd, cwd);
-		assert.equal(reconcileCalls[0]?.currentSessionId, "session-X", "currentSessionId must be threaded from ctx.sessionManager");
+		// The auto-repair interval (40ms) must fire with the session id threaded.
+		await sleep(250);
+		assert.ok(reconcileCalls.length >= 1, `auto-repair interval should have fired (got ${reconcileCalls.length} calls)`);
+		for (const call of reconcileCalls) {
+			assert.equal(call.cwd, cwd);
+			assert.equal(call.currentSessionId, "session-X", "currentSessionId must be threaded from ctx.sessionManager");
+		}
 
 		await disposeObservability(state, false);
 	} finally {
+		if (prevHome === undefined) delete process.env.PI_CREW_HOME;
+		else process.env.PI_CREW_HOME = prevHome;
+		fs.rmSync(home, { recursive: true, force: true });
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

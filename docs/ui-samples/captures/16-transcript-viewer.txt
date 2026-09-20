@@ -1,7 +1,7 @@
 ### 16. Transcript viewer — /team-transcript <runId> [taskId] hoặc phím v · REAL render: DurableTranscriptViewer.render(100)
 ### Fixture: transcript.jsonl thật ghi tại agentOutputPath(run, t1); viewer đọc lại qua readRunTranscript
 
-┏ TRANSCRIPT ▸ pi-crew transcript ······ team_20260916163258_9845cbbd85444a25:t1 · full 0KB · f full
+┏ TRANSCRIPT ▸ pi-crew transcript ······ team_20260917172059_d2345fb30e750be6:t1 · full 0KB · f full
 ┃ J/K scroll · PgUp/PgDn page · G/G top/bottom · A auto · F full/tail · Q/Esc close                 
 ┃ [User]:                                                                                           
 ┃ Khảo sát 70 file trong src/ui và liệt kê finding P0                                               

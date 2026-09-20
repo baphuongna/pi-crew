@@ -49,13 +49,51 @@ const registered = new Set(
 //        });
 //    so a line-based grep cannot see the `type:` literal. We walk the source
 //    in JS, find each `appendEvent<A>*(` token, then scan forward up to a
-//    bounded window (15 lines / 800 chars) for a `type:\s*"..."` literal.
-//    Only catches LITERAL string types — dynamic types from variables are
-//    out of scope; the eventual type-tightening (Phase 2) catches those at
-//    compile time.
+//    bounded window (15 lines / 800 chars) for `type:` keys.
+//
+//    2026-09-17 fix: the old pattern `type:\s*"..."` required the literal to
+//    immediately follow the colon, so CONDITIONAL emit sites were invisible:
+//        type: error ? "task.failed" : noYield ? "task.needs_attention" : "task.completed",
+//        type: record.version === 1 ? "plan.created" : "plan.revised",
+//    That produced false entries in BOTH lists (8 verified false "unused",
+//    e.g. task.completed/task.failed/plan.*). We now capture the whole value
+//    expression (up to the first top-level `,` / unbalanced closer / cap)
+//    and treat EVERY dotted string literal in it as an emitted type — each
+//    branch of a conditional is a type this site can emit.
+//    Dynamic types from variables remain out of scope; the eventual
+//    type-tightening (Phase 2) catches those at compile time.
 const APPEND_RE = /\bappendEvent[A-Za-z]*\s*\(/g;
-const TYPE_RE = /type:\s*"([a-z][a-z0-9_.]+)"/g;
+const TYPE_ANCHOR_RE = /\btype:\s*/g;
+const DOTTED_LITERAL_RE = /"([a-z][a-z0-9_.]+)"/g;
 const WINDOW_LINES = 15;
+const TYPE_EXPR_MAX_CHARS = 300;
+
+/** Extract every dotted string literal in the value expression that follows a
+ *  `type:` key. Stops at the first top-level `,` (next property), an unbalanced
+ *  closer (end of the enclosing object), or a char cap — newlines are allowed
+ *  so a multi-line ternary still parses. */
+function extractTypeLiterals(text) {
+	let depth = 0;
+	let end = text.length;
+	for (let i = 0; i < Math.min(text.length, TYPE_EXPR_MAX_CHARS); i++) {
+		const ch = text[i];
+		if (ch === "(" || ch === "[" || ch === "{") depth++;
+		else if (ch === ")" || ch === "]" || ch === "}") {
+			depth--;
+			if (depth < 0) {
+				end = i;
+				break;
+			}
+		} else if (ch === "," && depth === 0) {
+			end = i;
+			break;
+		}
+	}
+	const expr = text.slice(0, end);
+	const out = [];
+	for (const m of expr.matchAll(DOTTED_LITERAL_RE)) out.push(m[1]);
+	return out;
+}
 
 function listTsFiles(dir, out = []) {
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -77,14 +115,16 @@ for (const file of tsFiles) {
 		APPEND_RE.lastIndex = 0;
 		const slice = lines.slice(i, i + WINDOW_LINES).join("\n");
 		const rel = path.relative(root, file);
-		for (const m of slice.matchAll(TYPE_RE)) {
-			const t = m[1];
-			// `type:` may belong to a nested object (e.g. a tool def inside
-			// the data payload). Heuristic: only keep dotted names that look
-			// like events (one or more dots, lowercase, no slashes).
-			if (!t.includes(".")) continue;
-			if (!emitted.has(t)) emitted.set(t, []);
-			emitted.get(t).push(`${rel}:${i + 1}`);
+		for (const anchor of slice.matchAll(TYPE_ANCHOR_RE)) {
+			const after = slice.slice(anchor.index + anchor[0].length);
+			for (const t of extractTypeLiterals(after)) {
+				// `type:` may belong to a nested object (e.g. a tool def inside
+				// the data payload). Heuristic: only keep dotted names that look
+				// like events (one or more dots, lowercase, no slashes).
+				if (!t.includes(".")) continue;
+				if (!emitted.has(t)) emitted.set(t, []);
+				emitted.get(t).push(`${rel}:${i + 1}`);
+			}
 		}
 	}
 }

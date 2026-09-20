@@ -155,6 +155,114 @@ export const TEAM_EVENT_TYPES = [
 	// RLM/scratchpad adoption metrics (plan I5)
 	"scratchpad.cell",
 	"scratchpad.restored",
+	// ─── 2026-09-17 drift closure ─────────────────────────────────────────────
+	// The remaining types below were ALREADY EMITTED in production but never
+	// registered — they were silent to consumers of TEAM_EVENT_TYPES. The
+	// check:event-types gate also had a detection bug (conditional `type:`
+	// expressions like `type: error ? "task.failed" : ...` were invisible),
+	// which is why this drift accumulated unnoticed. Registered here grouped
+	// by prefix; verified against literal emit sites (see
+	// scripts/check-event-types-registry.mjs and the 2026-09-17 review
+	// verification, §6.3). The gate now runs with --enforce in CI.
+	// Adaptive planning (goal-workflow/adaptive-plan.ts)
+	"adaptive.plan_injected",
+	"adaptive.plan_missing",
+	"adaptive.plan_repaired",
+	"adaptive.plan_repair_failed",
+	// Agent control / group-join / nudge
+	"agent.control.queued",
+	"agent.group_join.acknowledged",
+	"agent.group_join.ack_timeout",
+	"agent.group_join.delivery_reused",
+	"agent.group_join.partial",
+	"agent.group_join.completed",
+	"agent.nudged",
+	// Background-runner lifecycle forensics (async sidecar/runner death, signals)
+	"async.died",
+	"async.exit",
+	"async.interrupt_detected",
+	"async.kill_requested",
+	"async.sigterm_received_graceful_shutdown",
+	"async.watchdog_fired",
+	"background.unregister_worker_failed",
+	// Chain runner
+	"chain.step_completed",
+	// Config
+	"config.warning",
+	// Stale-run reconciliation (stale-reconciler.ts)
+	"crew.run.reconciled_stale",
+	"crew.run.orphan_cancelled",
+	"crew.run.orphan_skip",
+	"crew.run.recovery_blocked",
+	"crew.run.recovery_declined",
+	"crew.run.recovery_skipped",
+	"crew.run.resumed",
+	"crew.task.heartbeat_dead",
+	"crew.task.retry_attempt",
+	// Dynamic workflow resume
+	"dwf.resumed",
+	// Foreground interrupt
+	"foreground.interrupt_requested",
+	// Goal loop (P0/P1) additional outcomes
+	"goal.resumed",
+	"goal.resume_spawn_failed",
+	"goal.stuck",
+	"goal.turn_terminal_status",
+	"goal.verification_compromised",
+	"goal.workspace_lock_failed",
+	// Hook execution trace
+	"hook.executed",
+	// Limits
+	"limits.unbounded",
+	// Mailbox delivery (ack/replay/timeout observable surface)
+	"mailbox.acknowledged",
+	"mailbox.message",
+	"mailbox.replayed",
+	// Recovery
+	"recovery.rerun_task",
+	// Run-level budget/effectiveness/export/lifecycle bookkeeping
+	"run.started",
+	"run.budget_warning",
+	"run.budget_abort",
+	"run.deliverable_warning",
+	"run.effectiveness",
+	"run.exported",
+	"run.forget_requested",
+	"run.goal_achievement",
+	"run.resume_requested",
+	// Runtime/surface resolution
+	"runtime.resolved",
+	"surface.degraded",
+	"surface.requeued",
+	// Task scheduling/steer/budget/fairness bookkeeping
+	"task.attention",
+	"task.claimed",
+	"task.claim_released",
+	"task.coalesced",
+	"task.coalesced_dispatch_start",
+	"task.coalesced_dispatch_end",
+	"task.parallel_start",
+	"task.status_transitioned",
+	"task.reconciled_from_disk",
+	"task.checkpoint_recovered",
+	"task.retry_attempt",
+	"task.budget_fair_share",
+	"task.model_dropped",
+	"task.output_validation",
+	"task.steer_queued",
+	"task.steer_dropped",
+	"task.surface_lost",
+	// Worker lifecycle (surface runtime / broker-side)
+	"worker.heartbeat",
+	"worker.cancelled",
+	"worker.kill_stale",
+	"worker.message",
+	// Workflow phase advance (note: supersedes the legacy `phase.*` names
+	// above, which are kept registered for backward compatibility)
+	"workflow.phase_completed",
+	"workflow.phase_failed",
+	"workflow.phase_guard_blocked",
+	"workflow.preconditions",
 ] as const;
 export type TeamEventType = (typeof TEAM_EVENT_TYPES)[number];
 

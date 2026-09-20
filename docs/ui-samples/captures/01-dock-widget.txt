@@ -2,10 +2,10 @@
 ┃ CREW ▸ idle · ⏰ 2 sched ···· ↓·enter
 
 ### 1b. Run đang chạy — 2 running · 1 queued · 1 waiting · 1/5 done + ⏰ 2 sched
-┃ ⠦ CREW ▸ implementation · 2 running · 1 queued · 1 waiting · 1/5 done · ⏰ 2 sched ···· ↓·enter
+┃ ⠧ CREW ▸ implementation · 2 running · 1 queued · 1 waiting · 1/5 done · ⏰ 2 sched ···· ↓·enter
 
 ### 1c. Focused (con trỏ ↓ đang nằm trên dòng widget) + badge 7 alert
-❯ ┃ ⠦ CREW ▸ implementation · 2 running · 1 queued · 1 waiting · 1/5 done · ⏰ 2 sched · [7 …  ↓·en…
+❯ ┃ ⠧ CREW ▸ implementation · 2 running · 1 queued · 1 waiting · 1/5 done · ⏰ 2 sched · [7 …  ↓·en…
 
 ### 1d. Schedules segment standalone (2 job + 3 hidden)
 ⏰ 2 sched · 3 hidden

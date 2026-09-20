@@ -543,22 +543,146 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 	}
 }
 
+const MAX_DELIVERY_MESSAGES = 10000;
+
+/**
+ * F09 (RR-016): an `acknowledged` delivery entry is the ONLY durable record
+ * that a message was handled — the inbox line keeps `status: "queued"` forever
+ * (nothing writes the ack back to the message), so `replayPendingMailboxMessages`
+ * keys on the delivery map. The old prune sorted `queued(0) < delivered(1) <
+ * acknowledged(2)` and kept `slice(0, MAX)`, i.e. it evicted ACKNOWLEDGED entries
+ * FIRST — the moment the cap was crossed, an acked message became replayable
+ * again, and it never self-healed (replay only writes "delivered"), so it was
+ * re-delivered on EVERY resume.
+ *
+ * Fix: the prune may only drop an acknowledged entry when the message it refers
+ * to is provably no longer replayable (absent from the whole replayable history:
+ * live inbox files + retained archives — the exact set `replayPendingMailboxMessages`
+ * reads). Non-acknowledged entries keep the previous eviction semantics
+ * (queued → delivered → acknowledged, oldest-inserted first within a tier).
+ *
+ * Acknowledged entries are tiny (`"<id>":"acknowledged"`), but they must not
+ * grow without bound either: a sweep that drops the PROVABLY-dead acks is run
+ * once the ack set is large enough to matter, and at most once per
+ * ACK_SWEEP_MIN_INTERVAL_MS (the sweep reads the mailbox history, so it is
+ * throttled rather than run on every append).
+ */
+const ACK_SWEEP_MIN_ACKS = 1000;
+const ACK_SWEEP_FORCE_ACKS = 5000;
+const ACK_SWEEP_MIN_INTERVAL_MS = 30_000;
+// Bounded FIFO (the asyncAgentReaderCache pattern) so a long-running process
+// cannot accumulate one timestamp per run ever seen.
+const ACK_SWEEP_TIMESTAMP_MAX_ENTRIES = 256;
+const lastAckSweepAt = new Map<string, number>();
+
+function recordAckSweep(filePath: string, at: number): void {
+	if (lastAckSweepAt.has(filePath)) lastAckSweepAt.delete(filePath);
+	lastAckSweepAt.set(filePath, at);
+	while (lastAckSweepAt.size > ACK_SWEEP_TIMESTAMP_MAX_ENTRIES) {
+		const oldest = lastAckSweepAt.keys().next().value;
+		if (oldest === undefined) break;
+		lastAckSweepAt.delete(oldest);
+	}
+}
+
+/** Ids of every message `replayPendingMailboxMessages` could return (live inbox
+ *  files + retained archives, run-level and per-task). Returns `undefined` when
+ *  the history could not be READ (fail-closed, review MAJOR 1): an unreadable
+ *  history must never be conflated with an empty one — the sweep treats an
+ *  empty set as "every ack is dead" and would delete all acknowledged entries,
+ *  replaying already-processed messages (the F09 bug class). */
+function collectReplayableInboxIds(manifest: TeamRunManifest): Set<string> | undefined {
+	const ids = new Set<string>();
+	try {
+		for (const message of readAllInboxMessages(manifest)) ids.add(message.id);
+	} catch (error) {
+		logInternalError("mailbox.collect-replayable-ids", error, `runId=${manifest.runId}`);
+		return undefined;
+	}
+	return ids;
+}
+
+/** Drop acknowledged entries whose message can no longer be replayed. Returns
+ *  the number of entries dropped. Never drops an entry whose message is still
+ *  in the replayable history. FAIL-CLOSED (review MAJOR 1): if the replayable
+ *  history cannot be read, the sweep aborts dropping NOTHING and does not
+ *  consume the throttle window (`recordAckSweep` is only recorded after a
+ *  successful read), so the next prune retries once the FS is readable. */
+function sweepDeadAcknowledgements(manifest: TeamRunManifest, state: MailboxDeliveryState): number {
+	const ackedIds = Object.entries(state.messages)
+		.filter(([, status]) => status === "acknowledged")
+		.map(([id]) => id);
+	if (ackedIds.length === 0) return 0;
+	const filePath = deliveryFile(manifest, true);
+	const now = Date.now();
+	const last = lastAckSweepAt.get(filePath) ?? 0;
+	// The sweep reads the whole replayable history, so it is time-throttled:
+	// at most once per ACK_SWEEP_MIN_INTERVAL_MS below ACK_SWEEP_FORCE_ACKS,
+	// and immediately above it so the ack set cannot grow unbounded.
+	const shouldSweep =
+		ackedIds.length >= ACK_SWEEP_FORCE_ACKS || (ackedIds.length >= ACK_SWEEP_MIN_ACKS && now - last >= ACK_SWEEP_MIN_INTERVAL_MS);
+	if (!shouldSweep) return 0;
+	const replayable = collectReplayableInboxIds(manifest);
+	if (replayable === undefined) return 0; // unreadable history → abort, keep every ack
+	recordAckSweep(filePath, now);
+	let dropped = 0;
+	for (const id of ackedIds) {
+		if (replayable.has(id)) continue;
+		delete state.messages[id];
+		dropped++;
+	}
+	return dropped;
+}
+
+function pruneDeliveryMessages(manifest: TeamRunManifest, state: MailboxDeliveryState): void {
+	const entries = Object.entries(state.messages);
+	const ackedCount = entries.reduce((count, [, status]) => (status === "acknowledged" ? count + 1 : count), 0);
+	if (ackedCount > ACK_SWEEP_MIN_ACKS) sweepDeadAcknowledgements(manifest, state);
+	const remaining = Object.entries(state.messages);
+	if (remaining.length <= MAX_DELIVERY_MESSAGES) return;
+	// Stable sort: within a status tier the previous insertion order (which is
+	// the order entries were first written) is preserved, so the eviction choice
+	// for non-acknowledged entries is unchanged from before this fix.
+	const sorted = [...remaining].sort(([, a], [, b]) => {
+		const order = { queued: 0, delivered: 1, acknowledged: 2 };
+		return (order[a] ?? 3) - (order[b] ?? 3);
+	});
+	const ackedAfterSweep = sorted.filter(([, status]) => status === "acknowledged").length;
+	if (ackedAfterSweep > MAX_DELIVERY_MESSAGES) {
+		// Pathological: more acks than the cap and every one of them still refers
+		// to a replayable message. Correctness (an acked message must never
+		// replay) wins over the memory bound — keep them and make it visible.
+		logInternalError(
+			"mailbox.delivery-ack-over-cap",
+			new Error(`delivery.json holds ${ackedAfterSweep} acknowledged entries for replayable messages (cap ${MAX_DELIVERY_MESSAGES})`),
+			`runId=${manifest.runId}`,
+			"warn",
+		);
+	}
+	const keptIds = new Set<string>();
+	let evictableBudget = Math.max(0, MAX_DELIVERY_MESSAGES - ackedAfterSweep);
+	for (const [id, status] of sorted) {
+		if (status === "acknowledged") {
+			keptIds.add(id);
+			continue;
+		}
+		if (evictableBudget > 0) {
+			keptIds.add(id);
+			evictableBudget--;
+		}
+	}
+	// Filter the ORIGINAL entry order so surviving entries keep their positions.
+	state.messages = Object.fromEntries(remaining.filter(([id]) => keptIds.has(id)));
+}
+
 function writeDeliveryState(
 	manifest: TeamRunManifest,
 	state: MailboxDeliveryState,
 	options?: { durability?: "full" | "best-effort" },
 ): void {
 	ensureRunMailbox(manifest);
-	// Prune oldest entries if capped
-	const MAX_DELIVERY_MESSAGES = 10000;
-	if (Object.keys(state.messages).length > MAX_DELIVERY_MESSAGES) {
-		const sorted = Object.entries(state.messages).sort(([, a], [, b]) => {
-			const order = { queued: 0, delivered: 1, acknowledged: 2 };
-			return (order[a] ?? 3) - (order[b] ?? 3);
-		});
-		const trimmed = sorted.slice(0, MAX_DELIVERY_MESSAGES);
-		state.messages = Object.fromEntries(trimmed);
-	}
+	// Prune oldest entries if capped (F09: acknowledged entries are protected).
+	pruneDeliveryMessages(manifest, state);
 	// F4: mailbox delivery is informational — accept losing the very last write on
 	// a hard crash (the next message will overwrite it on disk). Cheaper fsync on
 	// the hot path; terminal/reply paths still pass full durability below.

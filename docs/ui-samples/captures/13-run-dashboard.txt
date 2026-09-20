@@ -3,17 +3,17 @@
 
 ┏ DASHBOARD ▸ 2 runs ······················································· 1-8 pane · ↑/↓ move · Enter select · ? help
 ┣ ACTIVE ▸ 1                                                                                                            
-┃ › ⠸ 85444a25 running · implementation · step t2 · Audit toàn bộ UI của pi-crew và fix mọi finding                     
+┃ › ⠏ 0e750be6 running · implementation · step t2 · Audit toàn bộ UI của pi-crew và fix mọi finding                     
 ┣ RECENT ▸ 1                                                                                                            
-┃   ✓ af4952ec completed · implementation · agents 1 · Nightly audit toàn bộ pi-crew                                    
+┃   ✓ cbeea50e completed · implementation · agents 1 · Nightly audit toàn bộ pi-crew                                    
 ┣ RUN                                                                                                                   
 ┃ ▸ Audit toàn bộ UI của pi-crew và fix mọi finding                                                                     
-┃   implementation · running · 85444a25                                                                                 
+┃   implementation · running · 0e750be6                                                                                 
 ┣ AGENTS                                                                                                                
 ┃ 1/4 tasks · 2 agents                                                                                                  
 ┃   ✓ t1 explorer · 39.0k $0.0800    10m                                                                                
 ┃     done                                                                                                              
-┃   ⠴ t2 planner · 16.1k $0.0310  4m50s                                                                                 
+┃   ⠦ t2 planner · 16.1k $0.0310  4m50s                                                                                 
 ┃     thinking…                                                                                                         
 ┃                                                                                                                       
 ┃                                                                                                                       

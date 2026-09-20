@@ -27,6 +27,13 @@ export interface RunSnapshotCache extends RunSnapshotCacheBase {
 	preloadAllStale(runIds: string[]): Promise<void>;
 	/** Task 17 (perf/review-2026-08-24): watcher-facing coalesced async refresh. */
 	scheduleRefresh(runId: string): void;
+	/**
+	 * F13 (RR-018): true once dispose() has run. Callers that retain the cache
+	 * (RegistrationContext.getManifestCache/getRunSnapshotCache) use this to
+	 * recreate a FRESH instance even when the cwd is unchanged — a disposed
+	 * instance must never be handed back just because `cacheCwd` still matches.
+	 */
+	isDisposed(): boolean;
 }
 
 /** WP-7 (R7): the plans slice + Plan pane load only when this flag is set —
@@ -840,6 +847,9 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 	const recentEventsLimit = options.recentEvents ?? DEFAULT_RECENT_EVENTS;
 	const recentOutputLimit = options.recentOutputLines ?? DEFAULT_RECENT_OUTPUT_LINES;
 	const entries = new Map<string, CacheEntry>();
+	// F13 (RR-018): liveness flag — dispose() flips it so cache holders can
+	// detect a disposed instance and recreate instead of reusing it.
+	let disposed = false;
 
 	function touch(runId: string, entry: CacheEntry): RunUiSnapshot {
 		entry.lastAccessMs = Date.now();
@@ -1143,9 +1153,16 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			return new Map([...entries.entries()].map(([key, entry]) => [key, entry.snapshot]));
 		},
 		dispose(): void {
+			// F13: idempotent — a second dispose must be a no-op, never a throw
+			// (cleanup paths can race a lazy cache swap).
+			if (disposed) return;
+			disposed = true;
 			unsubscribe();
 			inFlightRefreshes.clear();
 			entries.clear();
+		},
+		isDisposed(): boolean {
+			return disposed;
 		},
 	};
 }

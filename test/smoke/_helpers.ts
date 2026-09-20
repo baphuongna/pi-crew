@@ -24,6 +24,18 @@ export const SMOKE_ENABLED = process.env.PI_CREW_SMOKE === "1";
 export const SKIP_REASON = "set PI_CREW_SMOKE=1 to run real-binary smoke tests (bills tokens)";
 
 /**
+ * Reason shown when the BINARY/PARSER probe is disabled.
+ *
+ * F19 (RR-015): this gate deliberately does NOT require model auth. The argv
+ * probe spawns the real `pi` binary but never reaches a model — it only needs
+ * the OPTION PARSER, which runs before any provider lookup. Gating it on
+ * `hasModelAuth()` (as the old single `smokeSkipReason()` did) meant the weekly
+ * canary — which has no `secrets.*` configured — reported `# skipped 1` and
+ * exited 0, so the one probe that needed no credentials never ran there.
+ */
+export const SKIP_REASON_BINARY_ONLY = "set PI_CREW_SMOKE=1 to run real-binary smoke tests (no LLM needed)";
+
+/**
  * Smoke tests spawn the REAL `pi` binary, which needs a resolvable model +
  * API key. On a fresh CI runner with neither PI_AUTH_JSON nor a
  * ~/.pi/agent/auth.json, `pi` exits 1 ("No API key found for the selected
@@ -48,6 +60,19 @@ export const SMOKE_SKIP_NO_AUTH =
 export function smokeSkipReason(): string | false {
 	if (!SMOKE_ENABLED) return SKIP_REASON;
 	if (!MODEL_AUTH_AVAILABLE) return SMOKE_SKIP_NO_AUTH;
+	return false;
+}
+
+/**
+ * Auth-free skip gate for smoke tests that exercise the real BINARY/PARSER but
+ * make no LLM call.
+ *
+ * F19 (RR-015): these probes must run in the token-free weekly canary, so the
+ * ONLY condition is `PI_CREW_SMOKE=1`. `hasModelAuth()` is deliberately not
+ * consulted — a missing API key must not hide a parser regression.
+ */
+export function binarySmokeSkipReason(): string | false {
+	if (!SMOKE_ENABLED) return SKIP_REASON_BINARY_ONLY;
 	return false;
 }
 

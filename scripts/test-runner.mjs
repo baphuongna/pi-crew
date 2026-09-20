@@ -11,12 +11,98 @@
  * mode where a long-running test keeps file handles/timers open and
  * blocks the agent's wait-for-exit.
  *
+ * F05 (RR-015) — FAIL CLOSED on an unknown child outcome:
+ * `spawnSync()` reports `status: null` when the child was terminated by a
+ * signal, and `status: undefined` (plus `error`) when the spawn itself failed.
+ * The previous `process.exit(result.status ?? 0)` mapped BOTH to exit code 0,
+ * so a test run whose coordinator was SIGKILLed reported success — a silent
+ * CI false-green whose stdout was only "TAP version 13" (no `not ok` line for
+ * a TAP scraper to catch either). Only `status === 0` with no signal is
+ * success now; every other outcome prints a diagnostic and exits non-zero.
+ *
  * Usage: node scripts/test-runner.mjs [tsx test args...]
  */
 import { spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Decide the wrapper's exit code from a `spawnSync` result. PURE + exported so
+ * the exit semantics are unit-testable without spawning anything (F05 AC-6).
+ *
+ * Fail closed: only `status === 0` AND no `signal` AND no `error` is success.
+ * - `signal` set (child killed)            → non-zero (was 0 for SIGKILL: the bug)
+ * - `status === null`/`undefined`          → non-zero (unknown outcome)
+ * - `error` (ENOENT/E2BIG/ETIMEDOUT…)      → non-zero (spawn failed)
+ * - `status > 0`                           → that code (test failure)
+ *
+ * @param {{status?: number|null, signal?: string|null, error?: Error}} result
+ * @returns {number} exit code
+ */
+export function resolveExitCode(result) {
+	if (!result || typeof result !== "object") return 1;
+	if (result.error) return 1;
+	if (result.signal) return 1;
+	if (typeof result.status !== "number") return 1;
+	return result.status;
+}
+
+/** Human-readable diagnostic for a non-zero, non-plain-failure outcome. */
+export function describeExitOutcome(result) {
+	if (result?.error) return `spawn failed: ${result.error.message}`;
+	if (result?.signal) return `test process was terminated by signal ${result.signal}`;
+	if (result && typeof result.status !== "number") return "test process exited without a status code (unknown outcome)";
+	return undefined;
+}
+
+const isEntryPoint = (() => {
+	const argv1 = process.argv[1];
+	if (!argv1) return false;
+	const self = fileURLToPath(import.meta.url);
+	try {
+		return realpathSync(argv1) === realpathSync(self);
+	} catch {
+		// realpathSync fails only if a path vanished mid-run; fall back to a
+		// lexical comparison so the CLI never silently becomes a no-op.
+		return path.resolve(argv1) === path.resolve(self);
+	}
+})();
+
+/**
+ * Environment for the spawned test process.
+ *
+ * NODE_TEST_CONTEXT is DELETED on purpose. Node's test runner exports it to
+ * every test file it loads (value `child-v8`); when a test file itself spawns
+ * `node --test`, the nested runner sees that marker and prints
+ *   "node:test run() is being called recursively within a test file. skipping
+ *    running files."
+ * then exits **0** having run NOTHING. That is the same class of silent
+ * false-green as F05 (a green exit code with no tests executed), so the wrapper
+ * must not hand the marker to its child. Node sets the variable for the child
+ * it spawns itself, so removing it here only prevents the accidental nesting.
+ */
+function buildChildEnv() {
+	const env = {
+		...process.env,
+		NODE_ENV: "test",
+		PI_CREW_SKIP_HOME_CHECK: "1",
+		// F-01: trust project-sourced .dwf.ts fixtures under test. The test
+		// runner is a trusted context (our own fixtures, never hostile), so
+		// opt into the project-dwf trust gate globally. Individual unit
+		// tests (dynamic-workflow-runner-trust.test.ts) override this env
+		// locally to exercise the deny path.
+		PI_CREW_TRUST_PROJECT_DWF: "1",
+	};
+	delete env.NODE_TEST_CONTEXT;
+	return env;
+}
+
+if (!isEntryPoint) {
+	// Imported as a module (unit tests import `resolveExitCode`). Do nothing —
+	// the CLI logic below must not run on import.
+} else {
 
 const args = process.argv.slice(2);
 if (args.length === 0) {
@@ -94,12 +180,7 @@ if (watchMode) {
 	const { spawn } = await import("node:child_process");
 	const child = spawn(process.execPath, [...nodeFlags, ...testArgs], {
 		stdio: "inherit",
-		env: {
-			...process.env,
-			NODE_ENV: "test",
-			PI_CREW_SKIP_HOME_CHECK: "1",
-			PI_CREW_TRUST_PROJECT_DWF: "1",
-		},
+		env: buildChildEnv(),
 	});
 	for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 		process.on(sig, () => child.kill(sig));
@@ -111,33 +192,30 @@ if (watchMode) {
 } else {
 	const result = spawnSync(process.execPath, [...nodeFlags, ...testArgs], {
 		stdio: "inherit",
-		env: {
-			...process.env,
-			NODE_ENV: "test",
-			PI_CREW_SKIP_HOME_CHECK: "1",
-			// F-01: trust project-sourced .dwf.ts fixtures under test. The test
-			// runner is a trusted context (our own fixtures, never hostile), so
-			// opt into the project-dwf trust gate globally. Individual unit
-			// tests (dynamic-workflow-runner-trust.test.ts) override this env
-			// locally to exercise the deny path.
-			PI_CREW_TRUST_PROJECT_DWF: "1",
-		},
+		env: buildChildEnv(),
 		// 2026-07-01: bumped from 600s → 900s after atomic-write.ts added
 		// fs.fsyncSync for the mailbox-replay flake fix. fsync adds ~5-10ms
 		// per atomic-write, which compounded across 5800 tests pushed
-		// Windows CI just over the 10-minute budget. 15 minutes gives
-		// comfortable headroom on Windows (slowest) without masking real
-		// test bugs.
-		timeout: 900_000,
+		// Windows CI just over the 10-minute budget.
+		// 2026-09-17: bumped 900s → 1500s. The suite is now ~7900 tests (~737s
+		// observed on idle Linux), leaving only ~20% headroom at 900s — and the
+		// F05 fail-closed fix (correctly) turns a budget overrun into a red
+		// build instead of the old silent exit-0. 25 min bounds a genuinely
+		// hung coordinator while giving the grown suite + slower CI runners
+		// room. Override with PI_CREW_TEST_RUNNER_TIMEOUT_MS if needed.
+		timeout: Number(process.env.PI_CREW_TEST_RUNNER_TIMEOUT_MS ?? 1_500_000),
 	});
 
-	if (result.error) {
-		console.error("Test runner error:", result.error.message);
-		process.exit(1);
+	// F05: fail closed. `status === null` means the child died by SIGNAL (or the
+	// spawn itself failed) — the old `result.status ?? 0` turned that into a
+	// green build. Only an explicit 0 with no signal is success.
+	const diagnostic = describeExitOutcome(result);
+	if (diagnostic) {
+		console.error(`\n[test-runner] FAIL (inconclusive): ${diagnostic}.`);
+		console.error("[test-runner] Treating this as a test FAILURE (fail closed) — exit code will be non-zero.");
+		if (result.error) console.error("[test-runner] cause:", result.error.message);
 	}
-
-	// The Node.js test runner exits with non-zero when tests fail.
-	// With --test-force-exit, it may exit with code 1 if force-exited
-	// while tests were still running (which shouldn't happen normally).
-	process.exit(result.status ?? 0);
+	process.exit(resolveExitCode(result));
 }
+
+} // end !isEntryPoint else-branch

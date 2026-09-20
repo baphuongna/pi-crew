@@ -144,7 +144,7 @@ output: apply-plan.md
 - **HOW to apply**: AGENTS.md edit, lint rule add, src/ pattern adopt, CONTRIBUTING.md update, scripts/ operational script, or skill in target's skills/ dir
 - **Exact file:line target** in the target project
 - **Tier priority**: Tier 1 (high V3, low V4 cost) → Tier 2 (high V3, medium V4 cost) → Tier 3 (high V3, high V4 cost — pilot first)
-- **Verification gate per item**: `npm run test:critical` + `npm run typecheck` + `npm run build:bundle` must pass after each apply; bundle MD5 must match or be updated; if tests fail → rollback
+- **Verification gate per item**: `npm run test:critical` + `npm run typecheck` + `npm run build:bundle` must pass after each apply; bundle MD5 must match or be updated; if tests fail → rollback. (If the TARGET project is not this repo or lacks these scripts, use its fastest documented check gate instead — never run a full suite per item.)
 
 Write to `references/apply-plan.md`. This is the input for the executor in Phase 4.
 
@@ -157,7 +157,7 @@ output: applied-changes.md
 
 Per-item protocol:
 1. Edit the target file(s) as specified in apply-plan.md
-2. Run verification gate: `npm run test:critical` (or equivalent) + `npm run typecheck` + `npm run build:bundle`
+2. Run verification gate: `npm run test:critical` (or the target's fastest documented check) + `npm run typecheck` + `npm run build:bundle`
 3. Capture before/after diff + bundle MD5 (before/after)
 4. If any gate fails → rollback the change (git checkout the file), log REJECTED in APPLY-LOG, continue with next item
 5. If passes → log APPLIED in APPLY-LOG with file:line
@@ -173,7 +173,7 @@ verify: true
 
 **Phase 5 (new — Darwin ratchet).** The output of a distillation is NOT "has skill" — it's "target improved." Read `applied-changes.md` + the target project's git diff. For each APPLIED item, re-verify:
 - Does the change actually improve the target? (concrete, measurable — e.g. "new helper reduces 18 sites to 1 import"; not vibes)
-- Do the tests still pass? (`npm run test:critical`)
+- Do the tests still pass? (`npm run test:critical` — or the target's fastest documented check; never the full suite per item)
 - Did the bundle MD5 change as expected? (intentional change OK; unexpected change → flag)
 - Is the change consistent with target's existing style/conventions? (no foreign code injected)
 

@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { atomicWriteJson, atomicWriteJsonCoalesced, flushPendingAtomicWrites, readJsonFile } from "../state/atomic-write.ts";
+import {
+	atomicWriteJson,
+	atomicWriteJsonCoalesced,
+	cancelPendingCoalescedWriteForPath,
+	flushPendingAtomicWrites,
+	peekPendingCoalescedWrite,
+	readJsonFile,
+} from "../state/atomic-write.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
+import { readLinesSince } from "../utils/incremental-reader.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { redactSecretString, redactSecrets } from "../utils/redaction.ts";
 import { assertSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
@@ -282,19 +290,22 @@ function setAsyncAgentReaderCache(
 }
 
 export function readCrewAgents(manifest: TeamRunManifest): CrewAgentRecord[] {
-	// 2.5: ensure intra-process coalesced writes are visible to subsequent
-	// readers in the same process. Cross-process readers still see the file
-	// after at most one coalesce window (250 ms).
-	// R10-2: scoped flush — readCrewAgents only reads agents.json, so it must
-	// not drain unrelated coalesced writes (tasks.json of live runs, other
-	// runs' agents.json) process-wide on every read.
-	flushPendingAtomicWrites(agentsPath(manifest));
+	// F06 / RR-017: read-after-write WITHOUT forcing the pending coalesced write
+	// to disk. `upsertCrewAgent` always reads first, so the previous scoped
+	// `flushPendingAtomicWrites(agentsPath)` (a scoped flush IS a write when an
+	// entry exists — atomic-write.ts:1147) turned every non-terminal upsert into
+	// a durable agents.json rewrite, destroying the very coalescing window the
+	// caller had just created (measured: 20 progress upserts → 19 agents.json
+	// renames). The buffered value is byte-for-byte what a flush would have
+	// written, so overlaying it preserves the "intra-process readers see the
+	// latest data" contract (and cross-process readers still see the file within
+	// one coalesce window) with zero I/O.
+	const agentsFilePath = agentsPath(manifest);
+	const pending = peekPendingCoalescedWrite<CrewAgentRecord[]>(agentsFilePath);
 	try {
-		const records = readJsonFileCoalesced(
-			agentsPath(manifest),
-			AGENT_READER_TTL_MS,
-			() => readJsonFile<CrewAgentRecord[]>(agentsPath(manifest)) ?? [],
-		);
+		const records =
+			pending ??
+			readJsonFileCoalesced(agentsFilePath, AGENT_READER_TTL_MS, () => readJsonFile<CrewAgentRecord[]>(agentsFilePath) ?? []);
 		// Validate schema and deduplicate by id to handle concurrent write conflicts
 		const seen = new Set<string>();
 		const deduped = records.filter((r) => {
@@ -368,6 +379,101 @@ export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<Cr
 	return inFlight;
 }
 
+// ---------------------------------------------------------------------------
+// F06 / RR-017: dirty tracking for per-task status.json writes.
+//
+// `saveCrewAgents`/`saveCrewAgentsCoalesced` used to loop over EVERY record and
+// write its status.json, with no notion of which records actually changed. The
+// measured cost of updating ONE of four `completed` records was 6 renames / 12
+// fsyncs, and the three unchanged records each paid a full durable rename they
+// had no reason to pay.
+//
+// SCOPE OF THE SKIP — durable (terminal) writes only, deliberately:
+//   - a coalesced write is buffered in RAM and collapses per path, so skipping
+//     it saves no I/O; and a skip there could not be trusted anyway, since the
+//     buffered value may never reach disk (the memo would then claim a write
+//     that a crash erased). Coalesced writes therefore stay unconditional.
+//   - a DURABLE write is only skipped when the exact same bytes are already
+//     durably on disk: the memo is written ONLY by durable writes, and the skip
+//     is re-validated against the file actually existing. So a skip can never
+//     lose durability — it can only avoid re-writing identical bytes.
+// Durability is otherwise untouched: agents.json keeps full durability on every
+// save, terminal status keeps its deliberate DOUBLE write (H2/F4 — the second
+// write is unconditional and is NOT removed here), and non-terminal status keeps
+// the coalesced best-effort path.
+// ---------------------------------------------------------------------------
+
+/** Last record content (redacted, JSON-serialized) written DURABLY per status path. */
+const lastWrittenStatus = new Map<string, string>();
+const LAST_WRITTEN_STATUS_MAX_ENTRIES = 2048;
+
+/** @internal Test-only: how many records a save actually persisted status for. */
+let lastSaveStatusWriteCount = 0;
+/** @internal Test-only: read the counter from the most recent save call. */
+export function __test__lastAgentStatusWriteCount(): number {
+	return lastSaveStatusWriteCount;
+}
+
+/** @internal Test-only: drop the durable-write memo. */
+export function __test__clearWrittenStatusMemo(): void {
+	lastWrittenStatus.clear();
+}
+
+function statusSnapshotKey(record: CrewAgentRecord): string {
+	return JSON.stringify(redactSecrets(record));
+}
+
+/**
+ * True when `record`'s status.json must be written durably: either its content
+ * differs from the last durable snapshot for that path, or the file is gone
+ * (someone else deleted it — never trust the memo over the filesystem).
+ */
+function needsDurableStatusWrite(manifest: TeamRunManifest, record: CrewAgentRecord): boolean {
+	const statusPath = agentStatusPath(manifest, record.taskId);
+	const snapshot = statusSnapshotKey(record);
+	if (lastWrittenStatus.get(statusPath) !== snapshot) return true;
+	return !fs.existsSync(statusPath);
+}
+
+function rememberWrittenStatus(manifest: TeamRunManifest, record: CrewAgentRecord): void {
+	const statusPath = agentStatusPath(manifest, record.taskId);
+	if (lastWrittenStatus.has(statusPath)) lastWrittenStatus.delete(statusPath);
+	lastWrittenStatus.set(statusPath, statusSnapshotKey(record));
+	while (lastWrittenStatus.size > LAST_WRITTEN_STATUS_MAX_ENTRIES) {
+		const oldest = lastWrittenStatus.keys().next().value;
+		if (oldest === undefined) break;
+		lastWrittenStatus.delete(oldest);
+	}
+}
+
+/** Drop the memo for a status path whose file was deleted (cancel/removal). */
+function forgetWrittenStatus(statusPath: string): void {
+	lastWrittenStatus.delete(statusPath);
+}
+
+function writeStatusForRecords(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
+	lastSaveStatusWriteCount = 0;
+	for (const record of records) {
+		// H2 (2026-08-10): per-task status.json is a DENORMALIZED read
+		// optimization for the dashboard/notifier, not an authoritative
+		// record — agents.json + events.jsonl cover crash recovery.
+		// Previously EVERY record (including running/queued progress
+		// snapshots) got a full fsync: N+1 fsyncs per saveCrewAgents call
+		// (50-task team ≈ 750ms blocking). Only TERMINAL records keep
+		// full durability (F4: notifier/dashboard must see the final
+		// state immediately); non-terminal per-task status is best-effort
+		// coalesced like the upsertCrewAgent non-terminal path.
+		if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
+			if (!needsDurableStatusWrite(manifest, record)) continue;
+			lastSaveStatusWriteCount++;
+			writeCrewAgentStatus(manifest, record);
+		} else {
+			lastSaveStatusWriteCount++;
+			writeCrewAgentStatusCoalesced(manifest, record);
+		}
+	}
+}
+
 export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentRecord[]): void {
 	// P0-3: flush any pending coalesced (best-effort) write first so a stale
 	// debounced progress snapshot can't clobber this durable write.
@@ -379,22 +485,7 @@ export function saveCrewAgents(manifest: TeamRunManifest, records: CrewAgentReco
 		// durability.
 		atomicWriteJson(filePath, redactSecrets(records));
 		asyncAgentReaderCache.delete(filePath);
-		for (const record of records) {
-			// H2 (2026-08-10): per-task status.json is a DENORMALIZED read
-			// optimization for the dashboard/notifier, not an authoritative
-			// record — agents.json + events.jsonl cover crash recovery.
-			// Previously EVERY record (including running/queued progress
-			// snapshots) got a full fsync: N+1 fsyncs per saveCrewAgents call
-			// (50-task team ≈ 750ms blocking). Only TERMINAL records keep
-			// full durability (F4: notifier/dashboard must see the final
-			// state immediately); non-terminal per-task status is best-effort
-			// coalesced like the upsertCrewAgent non-terminal path.
-			if (TERMINAL_AGENT_STATUSES.has(record.status ?? "")) {
-				writeCrewAgentStatus(manifest, record);
-			} else {
-				writeCrewAgentStatusCoalesced(manifest, record);
-			}
-		}
+		writeStatusForRecords(manifest, records);
 	});
 }
 
@@ -431,6 +522,15 @@ export function removeCrewAgent(manifest: TeamRunManifest, taskId: string): { re
 	// 2. Remove per-task status.json
 	try {
 		const statusPath = agentStatusPath(manifest, taskId);
+		// F10 / RR-016: cancel the pending coalesced status write for THIS exact
+		// path BEFORE unlinking. The record was just dropped from the index, so
+		// `flushPendingAgentWrites` (which only iterates records still in the
+		// index) will never drain — or cancel — its buffered write. Without this
+		// the 250ms timer fired AFTER the unlink and RE-CREATED the file with the
+		// stale pre-cancel snapshot (measured: status.json reappearing as
+		// `status:"running"` after the exit drain while agents.json stayed empty).
+		cancelPendingCoalescedWriteForPath(statusPath);
+		forgetWrittenStatus(statusPath);
 		if (fs.existsSync(statusPath)) {
 			fs.unlinkSync(statusPath);
 			removedStatus = true;
@@ -480,6 +580,10 @@ export function writeCrewAgentStatus(manifest: TeamRunManifest, record: CrewAgen
 	// F4: terminal agent status (completed/failed/cancelled/blocked) — keep full
 	// durability so the notifier/dashboard health sees the final state immediately.
 	atomicWriteJson(agentStatusPath(manifest, record.taskId), redactSecrets(record), { durability: "full" });
+	// F06/RR-017: record the DURABLE snapshot so a later save can skip re-writing
+	// byte-identical content for this record (see writeStatusForRecords). Only
+	// durable writes memoize — a coalesced write may never reach disk.
+	rememberWrittenStatus(manifest, record);
 }
 
 // 2.5 — coalesced variants. Buffer per-agent record + aggregate writes for
@@ -496,7 +600,7 @@ export function saveCrewAgentsCoalesced(manifest: TeamRunManifest, records: Crew
 	// events.jsonl independently of these JSON files.
 	atomicWriteJsonCoalesced(filePath, redactSecrets(records), AGENT_COALESCE_MS, { durability: "best-effort" });
 	asyncAgentReaderCache.delete(filePath);
-	for (const record of records) writeCrewAgentStatusCoalesced(manifest, record);
+	writeStatusForRecords(manifest, records);
 }
 
 export function writeCrewAgentStatusCoalesced(manifest: TeamRunManifest, record: CrewAgentRecord): void {
@@ -640,6 +744,183 @@ function readCrewAgentEvents(manifest: TeamRunManifest, taskId: string): unknown
 	return readCrewAgentEventsCursor(manifest, taskId).events;
 }
 
+// ---------------------------------------------------------------------------
+// F07 / RR-017: incremental agent-event cursor.
+//
+// The legacy reader did `readFileSync → split → JSON.parse each line → filter →
+// slice`, applying `sinceSeq`/`limit` only AFTER reading and parsing the WHOLE
+// file. Measured on a 10000-event file: 697788 bytes read per IDLE poll, linear
+// in file size, and the inline panel polls it every 700 ms
+// (src/ui/inline-panel/index.ts:46, consumer agent-transcript.ts:291).
+//
+// The fix REUSES the existing incremental primitive
+// (`readLinesSince` in src/utils/incremental-reader.ts — the same module
+// src/state/event-log/cursor.ts uses) instead of adding a new reader. A per-path
+// watermark holds `{byteOffset, lineCount, prefixMaxSeq, size, mtimeMs, ino,
+// dev}` — O(1) memory per path, bounded to 512 paths:
+//   - idle poll (unchanged size/mtimeMs/inode): ZERO event bytes read;
+//   - append: reads only the delta [byteOffset, size);
+//   - shrink (truncation) or inode replacement (rotation/rewrite): the watermark
+//     is discarded and the file is re-read from 0 — the same "rewrite-then-
+//     regrow" hole cursor.ts closes with inode stamping.
+//
+// WHY A PREFIX IS NEVER RE-READ (soundness): the cached prefix is the set of
+// events already consumed before `byteOffset`. `prefixMaxSeq` is the maximum seq
+// seen in that prefix, so EVERY prefix event satisfies `seq <= prefixMaxSeq`.
+// When `sinceSeq >= prefixMaxSeq`, no prefix event can pass the
+// `seq > sinceSeq` filter, so the answer is exactly "the delta's matches" —
+// provable without assuming file order equals seq order. When
+// `sinceSeq < prefixMaxSeq` the reader falls back to a full read from 0, so
+// correctness never depends on the bound being tight.
+//
+// LEGACY SEQ SEMANTICS ARE PRESERVED EXACTLY: a line without a numeric `seq`
+// gets `seq = lineIndex + 1`, where lineIndex is the index of that line among
+// the file's NON-EMPTY lines. `readLinesSince` only increments `lineCount` for
+// non-empty lines, so a delta's absolute base index is the cached `lineCount`
+// and the parity holds without re-reading from offset 0.
+//
+// A trailing fragment without "\n" (a mid-append partial line) is held back by
+// `readLinesSince` (it does not advance the committed offset past it), so it is
+// neither lost nor parsed as a torn event — the next poll sees the completed
+// line. Every writer of this file appends a trailing "\n", so this only ever
+// defers a mid-write fragment.
+// ---------------------------------------------------------------------------
+
+interface AgentEventsCursorState {
+	byteOffset: number;
+	lineCount: number;
+	/** Max seq among events already consumed before `byteOffset`. */
+	prefixMaxSeq: number;
+	size: number;
+	mtimeMs: number;
+	ino: number;
+	dev: number;
+}
+
+const agentEventsCursorCache = new Map<string, AgentEventsCursorState>();
+const AGENT_EVENTS_CURSOR_CACHE_MAX_ENTRIES = 512;
+
+// F07 test hook (AC-5/AC-6/AC-11): bytes of event payload the cursor actually
+// read. The tests assert STRUCTURALLY (bytes read, not wall-clock), so the
+// reader exposes this counter instead of the suite monkey-patching `node:fs`
+// (whose ESM named exports are frozen). Mirrors the `__test__agentRecordBufferCount`
+// precedent in this file. Only the incremental read path increments it.
+let agentEventBytesRead = 0;
+
+/** @internal Test-only: reset the F07 byte counter. */
+export function __test__resetAgentEventBytesRead(): void {
+	agentEventBytesRead = 0;
+}
+
+/** @internal Test-only: event-file bytes read since the last reset. */
+export function __test__agentEventBytesRead(): number {
+	return agentEventBytesRead;
+}
+
+/** @internal Test-only: drop the per-path incremental cursor watermarks. */
+export function __test__clearAgentEventsCursorCache(): void {
+	agentEventsCursorCache.clear();
+}
+
+/** @internal Test-only: inspect a watermark (undefined when uncached). */
+export function __test__agentEventsCursorState(filePath: string): AgentEventsCursorState | undefined {
+	return agentEventsCursorCache.get(filePath);
+}
+
+function setAgentEventsCursorState(filePath: string, state: AgentEventsCursorState): void {
+	if (agentEventsCursorCache.has(filePath)) agentEventsCursorCache.delete(filePath);
+	agentEventsCursorCache.set(filePath, state);
+	while (agentEventsCursorCache.size > AGENT_EVENTS_CURSOR_CACHE_MAX_ENTRIES) {
+		const oldest = agentEventsCursorCache.keys().next().value;
+		if (oldest === undefined) break;
+		agentEventsCursorCache.delete(oldest);
+	}
+}
+
+/**
+ * Parse raw JSONL lines into cursor events, assigning the legacy `seq = index+1`
+ * fallback for lines that carry no numeric seq. `lineIndexBase` is the index of
+ * the FIRST line in this batch among the file's non-empty lines (0 when reading
+ * from offset 0).
+ *
+ * A single trailing "\r" is stripped so CRLF files behave like the legacy
+ * `split(/\r?\n/)` reader (JSON.parse tolerates it either way; the difference
+ * only shows up in the `raw` payload of an already-corrupt line).
+ */
+function parseAgentEventLines(lines: string[], lineIndexBase: number): { events: Array<Record<string, unknown>>; maxSeq: number } {
+	const events: Array<Record<string, unknown>> = [];
+	let maxSeq = 0;
+	for (let index = 0; index < lines.length; index += 1) {
+		const raw = lines[index]!;
+		const text = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+		const lineIndex = lineIndexBase + index;
+		let event: Record<string, unknown>;
+		try {
+			const parsed = JSON.parse(text) as unknown;
+			event = parsed !== null && typeof parsed === "object" ? (parsed as Record<string, unknown>) : { seq: lineIndex + 1, raw: text };
+			if (typeof event.seq !== "number") event.seq = lineIndex + 1;
+		} catch {
+			event = { seq: lineIndex + 1, raw: text };
+		}
+		events.push(event);
+		if (typeof event.seq === "number" && event.seq > maxSeq) maxSeq = event.seq;
+	}
+	return { events, maxSeq };
+}
+
+/**
+ * Read the agent events file, consuming only the bytes that are new since the
+ * last read of this path, and return every event with `seq > sinceSeq` (the
+ * legacy `total` is this array's length before `limit` is applied).
+ */
+function readAgentEventMatches(filePath: string, sinceSeq: number): Array<Record<string, unknown>> {
+	let stat: fs.Stats;
+	try {
+		stat = fs.statSync(filePath);
+	} catch {
+		return [];
+	}
+	const cached = agentEventsCursorCache.get(filePath);
+	const sameFile = cached !== undefined && cached.ino === stat.ino && cached.dev === stat.dev;
+	// A shrink (truncate) or an inode change (rotation / rewrite) invalidates the
+	// byte offset: the new content must be read from 0 or events are lost.
+	const usable = sameFile && stat.size > cached.byteOffset;
+	const canServeDelta = usable && sinceSeq >= cached.prefixMaxSeq;
+	const canServeIdle = sameFile && stat.size === cached.byteOffset && stat.mtimeMs === cached.mtimeMs && sinceSeq >= cached.prefixMaxSeq;
+
+	if (canServeIdle) {
+		// Nothing changed AND no prefix event can pass the filter — no bytes read.
+		return [];
+	}
+
+	const baseOffset = canServeDelta ? cached.byteOffset : 0;
+	const baseLineCount = canServeDelta ? cached.lineCount : 0;
+	const baseMaxSeq = canServeDelta ? cached.prefixMaxSeq : 0;
+	const result = readLinesSince(filePath, { byteOffset: baseOffset, lineCount: baseLineCount });
+	// `readLinesSince` reads [state.byteOffset, fileSize); account for the bytes
+	// it requested (a held-back trailing fragment is still READ, just not parsed).
+	agentEventBytesRead += Math.max(0, stat.size - baseOffset);
+	const { events, maxSeq } = parseAgentEventLines(result.lines, baseLineCount);
+	const nextSeqInFile = Math.max(baseMaxSeq, maxSeq);
+	setAgentEventsCursorState(filePath, {
+		byteOffset: result.state.byteOffset,
+		lineCount: result.state.lineCount,
+		prefixMaxSeq: nextSeqInFile,
+		// `Math.max` covers a concurrent append that landed between the stat above
+		// and the read: storing the SMALLER (stale) size would make the next poll
+		// see `size === byteOffset` and needlessly re-read the whole file.
+		size: Math.max(stat.size, result.state.byteOffset),
+		mtimeMs: stat.mtimeMs,
+		ino: stat.ino,
+		dev: stat.dev,
+	});
+
+	// `events` is the whole-file parse when we could not serve a delta, and the
+	// delta-only parse otherwise — either way it holds EVERY event with
+	// seq > sinceSeq, because in the delta case the prefix is provably all <= sinceSeq.
+	return events.filter((event) => typeof event.seq === "number" && event.seq > sinceSeq);
+}
+
 export function readCrewAgentEventsCursor(
 	manifest: TeamRunManifest,
 	taskId: string,
@@ -676,20 +957,8 @@ export function readCrewAgentEventsCursor(
 	const sinceSeq =
 		typeof options.sinceSeq === "number" && Number.isInteger(options.sinceSeq) && options.sinceSeq >= 0 ? options.sinceSeq : 0;
 	const limit = typeof options.limit === "number" && Number.isInteger(options.limit) && options.limit >= 0 ? options.limit : undefined;
-	const parsed = fs
-		.readFileSync(filePath, "utf-8")
-		.split(/\r?\n/)
-		.filter(Boolean)
-		.map((line, index) => {
-			try {
-				const event = JSON.parse(line) as Record<string, unknown>;
-				if (typeof event.seq !== "number") event.seq = index + 1;
-				return event;
-			} catch {
-				return { seq: index + 1, raw: line };
-			}
-		});
-	const filtered = parsed.filter((event) => typeof event.seq === "number" && event.seq > sinceSeq);
+
+	const filtered = readAgentEventMatches(filePath, sinceSeq);
 	const events = limit !== undefined ? filtered.slice(0, limit) : filtered;
 	const returnedMaxSeq = events.reduce((max, event) => (typeof event.seq === "number" ? Math.max(max, event.seq) : max), sinceSeq);
 	return {

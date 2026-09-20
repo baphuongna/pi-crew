@@ -23,12 +23,29 @@ function rotateOldFiles(dir: string, retentionDays: number, now = Date.now()): v
 	}
 }
 
+/**
+ * JSONL notification sink.
+ *
+ * RR-020 Fix 2: writes are gated on the crew root ALREADY existing — this sink
+ * is attached at session start (lifecycle.ts) and the router pushes `info`
+ * notices through it before any severity filter, which used to create an empty
+ * `<crewRoot>/state/notifications/` tree (and with it the crew root) on every
+ * project. A project that never ran a team now stays untouched; once the crew
+ * root exists the sink behaves exactly as before.
+ */
 export function createJsonlSink(crewRoot: string, retentionDays = 7): NotificationSink {
 	const dir = path.join(crewRoot, "state", "notifications");
 	let lastRotateDate = "";
 	return {
 		write(notification: NotificationDescriptor): void {
 			try {
+				// RR-020 Fix 2: never materialise the project crew root. The router
+				// calls this sink BEFORE its severity filter (notification-router.ts),
+				// so an `info` notice on session start used to mkdir `<crewRoot>/`
+				// (→ `<crewRoot>/state/notifications/`) for a project that never ran
+				// a team. Persist only when the crew root already exists — a project
+				// that has real crew state keeps every notification exactly as before.
+				if (!fs.existsSync(crewRoot)) return;
 				const timestamp = notification.timestamp ?? Date.now();
 				const date = new Date(timestamp).toISOString().slice(0, 10);
 				if (date !== lastRotateDate) {

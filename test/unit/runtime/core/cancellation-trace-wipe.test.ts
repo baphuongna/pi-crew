@@ -24,6 +24,7 @@ import {
 	savePersistedSubagentRecord,
 	shouldDeleteOnTerminalStatus,
 } from "../../../../src/runtime/subagent-manager.ts";
+import { flushPendingAtomicWrites } from "../../../../src/state/atomic-write.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
 // `persistedSubagentPath` is module-private. Reconstruct its layout for tests:
@@ -253,6 +254,64 @@ test("upsertCrewAgent: failed status keeps audit trail", () => {
 		upsertCrewAgent(manifest, failed);
 		assert.equal(readCrewAgents(manifest).length, 1, "failed agent should be preserved");
 	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+// ---------------------------------------------------------------------------
+// F10 / RR-016 — cancel must not be undone by a pending coalesced write.
+//
+// Baseline defect (measured before the fix): `upsert(running)` buffers a 250ms
+// coalesced status.json write; `upsert(cancelled)` removes the record from
+// agents.json and unlinks status.json — but the flush helper only iterates
+// records STILL in the index, so the removed record's buffered write was never
+// cancelled or drained. When the timer fired (or the process-exit drain ran),
+// status.json was RE-CREATED with the stale pre-cancel content:
+//   existsAtCancel=false → existsAfterDrain=true, status:"running", indexLen=0
+//
+// These tests assert AFTER the drain, not immediately after cancel — the
+// pre-existing test above only checks the synchronous state and therefore
+// passed even with the defect present.
+// ---------------------------------------------------------------------------
+
+test("F10: cancelled agent's status.json does not reappear after the atomic drain", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-drain-"));
+	try {
+		const manifest = makeManifest(cwd);
+		const statusPath = agentStatusPath(manifest, "c1");
+		const running = makeCrewRecord({ id: "c1", taskId: "c1", status: "running", progress: { pct: 5 } } as never);
+		upsertCrewAgent(manifest, running);
+		assert.equal(fs.existsSync(statusPath), false, "non-terminal status write is buffered, not yet on disk");
+
+		upsertCrewAgent(manifest, { ...running, status: "cancelled" });
+		assert.equal(fs.existsSync(statusPath), false, "status.json is unlinked at cancel time");
+
+		// THE ASSERTION THAT MATTERS: drain every deferred write mechanism.
+		flushPendingAtomicWrites();
+
+		assert.equal(fs.existsSync(statusPath), false, "drain must not re-create status.json (baseline: true)");
+		assert.equal(readCrewAgents(manifest).length, 0, "index stays empty for the cancelled agent");
+	} finally {
+		flushPendingAtomicWrites();
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("F10: removeCrewAgent also survives a drain when the record was already flushed", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-drain2-"));
+	try {
+		const manifest = makeManifest(cwd);
+		const statusPath = agentStatusPath(manifest, "c1");
+		upsertCrewAgent(manifest, makeCrewRecord({ id: "c1", taskId: "c1", status: "running" }));
+		flushPendingAtomicWrites();
+		assert.equal(fs.existsSync(statusPath), true, "drain lands the running snapshot");
+
+		const removed = removeCrewAgent(manifest, "c1");
+		assert.equal(removed.removedStatus, true);
+		flushPendingAtomicWrites();
+		assert.equal(fs.existsSync(statusPath), false, "nothing re-creates the file after removal");
+	} finally {
+		flushPendingAtomicWrites();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

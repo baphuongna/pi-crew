@@ -55,14 +55,23 @@ jobs:
         run: npm run lint
       - name: Format check
         run: npm run format:check
-      - name: Checks (conflict markers / lazy imports)
+      - name: Checks (conflict markers / lazy imports / decision drift / env-vars / event-types)
         # check:bundle-staleness DEFAULT (mtime) mode is intentionally excluded
         # here — mtimes are meaningless on a fresh CI checkout (all files get
         # ~now). The CONTENT-based committed-dist gate runs in the
         # "Committed dist hash gate" step below, BEFORE 'Build bundle'.
+        # 2026-09-17: the three gates that were local-only (never enforced
+        # anywhere) are now wired here so local `npm run ci` and CI agree —
+        # check:env-vars had already drifted (2 raw reads) precisely because
+        # nothing enforced it. check:event-types runs --enforce: the
+        # 2026-09-17 drift closure registered all 79 emitted types, so any
+        # NEW emitted-but-unregistered type now fails CI.
         run: |
           npm run check:conflict-markers
           npm run check:lazy-imports
+          npm run check:decision-drift
+          npm run check:env-vars
+          node scripts/check-event-types-registry.mjs --enforce
       - name: wc-gate (M4 done-gate ≤2000 lines)
         # REVIEW FIX (2026-09-10): enforce the 2000-line done-gate in PR CI,
         # not just local ci:fast. Spec §12 Gate 2 requires no src/runtime
@@ -139,13 +148,20 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
       - name: Run fallow audit (changed-code, JSON)
+        env:
+          # RR-020 (BR-10): pin the analyser instead of `@latest`. `@latest`
+          # re-resolved on every CI run, so a rule-set change could flip the
+          # warn/fail verdict between runs with no code change — verdicts were
+          # not comparable over time. Bump deliberately (the job is
+          # continue-on-error, so a pin bump can never red `main`).
+          FALLOW_VERSION: 3.27.0
         run: |
           # `audit` diffs changed files against the base ref and returns a
           # pass/warn/fail verdict. On a push to main (no diff) it reports 0
           # changed files. We capture JSON + a human-readable summary.
-          npx --yes fallow@latest audit --format json --quiet > fallow-audit.json 2> fallow-audit.err || true
+          npx --yes "fallow@${FALLOW_VERSION}" audit --format json --quiet > fallow-audit.json 2> fallow-audit.err || true
           echo "===== fallow audit (human summary) ====="
-          npx --yes fallow@latest audit --quiet || true
+          npx --yes "fallow@${FALLOW_VERSION}" audit --quiet || true
           echo "===== stderr (if any) ====="
           cat fallow-audit.err || true
       - name: Upload fallow report
