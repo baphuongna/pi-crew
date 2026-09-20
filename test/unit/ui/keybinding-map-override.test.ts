@@ -13,7 +13,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -132,4 +132,35 @@ describe("keybinding-map override (UI-2)", () => {
 		assert.equal(dashboardActionForKey("r", undefined), "artifacts");
 		assert.equal(getKeybindingOverrideWarnings().length, 0);
 	});
+});
+
+it("RR-020 A0-4: reads overrides from the .pi/teams layout too (no hardcoded .crew)", () => {
+	const origCwdLocal = process.cwd();
+	const dir = mkdtempSync(join(tmpdir(), "pi-crew-kb-pi-"));
+	try {
+		// .git makes findRepoRoot resolve INSIDE the temp tree; a `.pi` dir
+		// (and no `.crew`) makes projectCrewRoot pick the .pi/teams layout.
+		mkdirSync(join(dir, ".git"), { recursive: true });
+		mkdirSync(join(dir, ".pi", "teams"), { recursive: true });
+		writeFileSync(join(dir, ".pi", "teams", "config.json"), JSON.stringify({ keybindings: { events: ["z"] } }));
+		delete process.env.PI_CREW_KEYBINDINGS;
+		process.chdir(dir);
+		__test__resetKeybindingCache();
+		assert.equal(dashboardActionForKey("z", undefined), "events", "config override in .pi/teams must take effect");
+		assert.equal(dashboardActionForKey("e", undefined), undefined);
+		assert.equal(dashboardActionForKey("a", undefined), "artifacts");
+		// mtime cache path must also watch the layout-resolved file: write a
+		// NEW override with a FORCED later mtime (the memo compares mtimeMs, and
+		// two writes within the same millisecond are indistinguishable — a
+		// pre-existing granularity limit) and confirm the cache re-reads it.
+		const cfgPath = join(dir, ".pi", "teams", "config.json");
+		writeFileSync(cfgPath, JSON.stringify({ keybindings: { reload: ["9"] } }));
+		const later = new Date(Date.now() + 10);
+		utimesSync(cfgPath, later, later);
+		assert.equal(dashboardActionForKey("9", undefined), "reload", "mtime cache watches the layout-resolved config path");
+	} finally {
+		process.chdir(origCwdLocal);
+		__test__resetKeybindingCache();
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

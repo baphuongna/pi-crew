@@ -56,13 +56,23 @@ export function createMetricFileSink(opts: MetricFileSinkOptions): MetricSink {
 	};
 	const writeSnapshot = (snapshots: MetricSnapshot[]): Promise<void> => {
 		try {
-			const now = new Date();
-			const date = now.toISOString().slice(0, 10);
+			// RR-020 Fix 2 (cold-verify correction): gate on the crew root ALREADY
+			// EXISTING, mirroring notification-sink. The first version of this fix
+			// skipped only EMPTY snapshots — dead code in production, because
+			// wireEventToMetrics (observability.ts registration) registers ~15
+			// metrics at init, so registry.snapshot() is never []; the 60s interval
+			// therefore kept materialising <crewRoot>/state/metrics/ for projects
+			// that never ran a team. Existence gate ⇒ no-op until a real run
+			// creates the crew root; once it exists, writes (empty ticks included)
+			// are byte-identical to HEAD.
+			if (!fs.existsSync(opts.crewRoot)) return Promise.resolve();
 			const redacted = redactSecrets(snapshots);
 			if (!Array.isArray(redacted)) {
 				logInternalError("metric-sink.type", new Error("redactSecrets did not return an array"), `got=${typeof redacted}`);
 				return Promise.resolve();
 			}
+			const now = new Date();
+			const date = now.toISOString().slice(0, 10);
 			const target = ensureFd(date);
 			const line = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted as MetricSnapshot[] })}\n`;
 			// Async write to avoid blocking the main thread on the 60s tick.

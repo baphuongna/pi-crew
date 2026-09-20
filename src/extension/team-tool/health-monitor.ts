@@ -9,6 +9,7 @@ import { hasStaleAsyncProcess, isActiveRunStatus, isLikelyOrphanedActiveRun } fr
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { loadTasksWithRecovery } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
+import { findRunStateDir } from "../../utils/paths.ts";
 import { listRuns } from "../run-index.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -115,7 +116,8 @@ export function detectStuckTasks(run: { runId: string; stateRoot: string }, now:
 
 /**
  * Scan a directory for "pi-crew-*" subdirs that contain
- * .crew/state/runs/ with at least one valid run manifest.
+ * `.crew/state/runs/` OR `.pi/teams/state/runs/` with at least one valid run
+ * manifest (both supported layouts — RR-020 Fix 3).
  * Read-only — does NOT mutate anything.
  * Pattern adapted from stale-reconciler.ts:reconcileOrphanedTempWorkspaces().
  */
@@ -128,12 +130,19 @@ export function scanZombieTempWorkspaces(tmpDir: string, now: number): ZombieWor
 		for (const entry of entries) {
 			if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
 			const workspaceDir = path.join(tmpDir, entry.name);
-			const stateRunsDir = path.join(workspaceDir, ".crew", "state", "runs");
-			if (!fs.existsSync(stateRunsDir)) continue;
+			// RR-020 Fix 3: both layouts (`.crew` and `.pi/teams`) are recognised —
+			// checking only `.crew` made a `.pi/teams` workspace invisible as a
+			// zombie (and eligible for debris deletion).
+			const stateRunsDir = findRunStateDir(workspaceDir);
+			if (!stateRunsDir) continue;
 
 			let runCount = 0;
 			try {
-				for (const runDir of fs.readdirSync(stateRunsDir)) {
+				// Cold-verify F-2: Dirent.isDirectory() is FALSE for a symlink-to-dir,
+				// so a planted `runs/<runId>` symlink is skipped (no out-of-tree read).
+				for (const entry of fs.readdirSync(stateRunsDir, { withFileTypes: true })) {
+					if (!entry.isDirectory()) continue;
+					const runDir = entry.name;
 					const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
 					if (fs.existsSync(manifestPath)) {
 						try {
@@ -194,11 +203,16 @@ export function collectTempWorkspaceRuns(
 		const entries = fs.readdirSync(tmpDir, { withFileTypes: true });
 		for (const entry of entries) {
 			if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
-			const stateRunsDir = path.join(tmpDir, entry.name, ".crew", "state", "runs");
-			if (!fs.existsSync(stateRunsDir)) continue;
+			// RR-020 Fix 3: both layouts (`.crew` and `.pi/teams`).
+			const stateRunsDir = findRunStateDir(path.join(tmpDir, entry.name));
+			if (!stateRunsDir) continue;
 
 			try {
-				for (const runDir of fs.readdirSync(stateRunsDir)) {
+				// Cold-verify F-2: symlinked `runs/<runId>` entries are not directories
+				// per Dirent (withFileTypes does not follow) — skipped.
+				for (const entry of fs.readdirSync(stateRunsDir, { withFileTypes: true })) {
+					if (!entry.isDirectory()) continue;
+					const runDir = entry.name;
 					const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
 					if (!fs.existsSync(manifestPath)) continue;
 					try {

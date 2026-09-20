@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
-import { packageRoot, userPiRoot } from "../../utils/paths.ts";
+import { hasRunStateLayout, packageRoot, userPiRoot } from "../../utils/paths.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 // FIX (2026-07-02): use packageRoot() instead of import.meta.url-relative path.
@@ -629,16 +629,14 @@ export function cleanupLegacyOrphanTempDirs(
 				continue;
 			}
 			if (lstat.isSymbolicLink()) continue;
-			// Skip dirs containing active run state — those are handled by
+			// Skip dirs containing pi-crew run state — those are handled by
 			// reconcileOrphanedTempWorkspaces which has run-state semantics.
-			const crewDir = path.join(dir, ".crew");
-			let crewDirLstat: fs.Stats | undefined;
-			try {
-				crewDirLstat = fs.lstatSync(crewDir);
-			} catch {
-				// doesn't exist
-			}
-			if (crewDirLstat && !crewDirLstat.isSymbolicLink()) continue;
+			// RR-020 Fix 3: recognise BOTH supported layouts — `<dir>/.crew/` and
+			// the `.pi`-based `<dir>/.pi/teams/`. Only `.crew` used to be checked,
+			// so a temp workspace with live `.pi/teams` run state was deleted as
+			// debris. Symlinked layout dirs still do NOT protect the dir (the
+			// scanner keeps rejecting symlinks instead of trusting them).
+			if (hasRunStateLayout(dir)) continue;
 			// Skip dirs currently tracked by this process (defense in depth:
 			// with 8ba270d the Set should never contain /tmp/ paths, but
 			// future code or external callers might).

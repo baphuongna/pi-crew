@@ -42,7 +42,12 @@ import * as path from "node:path";
 import test from "node:test";
 import type { AgentConfig } from "../../../src/agents/agent-config.ts";
 import { runWorker } from "../../../src/runtime/run-worker.ts";
-import { __test_resetCap, getWorkerCapCapacity } from "../../../src/runtime/scheduling/global-worker-cap.ts";
+import {
+	__test_resetCap,
+	acquireWorkerSlot,
+	getWorkerCapCapacity,
+	releaseWorkerSlot,
+} from "../../../src/runtime/scheduling/global-worker-cap.ts";
 
 /** Per-child run interval measured from the shared overlap log (ns, monotonic). */
 interface Span {
@@ -340,5 +345,71 @@ test("T-4: release-on-throw — a rejecting spawn frees its slot (withWorkerSlot
 		fs.rmSync(cwd, { recursive: true, force: true });
 		fs.rmSync(scriptDir, { recursive: true, force: true });
 		fs.rmSync(escapeDir, { recursive: true, force: true });
+	}
+});
+
+test("F15 (RR-014): runWorker(signal) — waiter aborted while QUEUED settles promptly and does NOT spawn", async () => {
+	const envSnap = snapshotEnv(ENV_KEYS);
+	const prevCap = getWorkerCapCapacity();
+	// Canonicalize (macOS: /var/folders/... → /private/var/folders/...) so the
+	// npm_config_prefix allowlist prefix matches what pi-spawn's
+	// validateExplicitBin() sees after fs.realpathSync on the bin path.
+	const scriptDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-runworker-cap-bin-")));
+	const cwd = makeTmpCwd();
+	try {
+		// A's child holds the single slot for ~300ms — B queues on the full pool.
+		useValidPiBin(writeFakePi(scriptDir, 300), scriptDir);
+		__test_resetCap(1);
+
+		const controller = new AbortController();
+		const a = runWorker({ cwd, task: "F15 holder probe", agent });
+		const b = runWorker({ cwd, task: "F15 aborted-waiter probe", agent, signal: controller.signal });
+		setTimeout(() => controller.abort(), 20); // the verified probe's timing
+
+		// B must settle PROMPTLY — the slot WAIT itself was cancelled — long
+		// before A's 300ms child finishes. Pre-fix (F15) B stayed pending until
+		// A released, then acquired a slot it could never use.
+		await assert.rejects(
+			() =>
+				Promise.race([
+					b,
+					new Promise<never>((_, rej) =>
+						setTimeout(
+							() =>
+								rej(
+									new Error(
+										"F15 regression: aborted queued waiter still pending after 150ms (expected a prompt SemaphoreAbortedError rejection)",
+									),
+								),
+							150,
+						),
+					),
+				]),
+			(error: unknown) => {
+				// STRICT predicate: only the semaphore's abort error counts. The
+				// deadline error above must NOT match it (it is the RED signal).
+				assert.equal((error as Error)?.name, "SemaphoreAbortedError");
+				return true;
+			},
+		);
+
+		// A still runs to completion and releases its slot normally.
+		const aResult = await withDeadline(a, 15_000, "F15 holder spawn");
+		assert.equal(aResult.exitCode, 0);
+
+		// NO spawn for B: exactly ONE child interval in the shared overlap log
+		// (A's). child-pi-spawn's B5 guard never even ran for B — it was rejected
+		// at the acquire, so zero forks is the strict bound.
+		const spans = readSpans(path.join(cwd, "worker-overlap.log"));
+		assert.equal(spans.length, 1, `aborted queued waiter must not fork a child (spans=${spans.length})`);
+
+		// Slot accounting intact after the churn: a fresh acquire succeeds.
+		await withDeadline(acquireWorkerSlot(), 500, "post-abort acquire");
+		releaseWorkerSlot();
+	} finally {
+		__test_resetCap(prevCap);
+		restoreEnv(envSnap);
+		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(scriptDir, { recursive: true, force: true });
 	}
 });

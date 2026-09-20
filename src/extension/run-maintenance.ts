@@ -98,7 +98,14 @@ function isSafeToPrune(cwd: string, run: TeamRunManifest): boolean {
 
 function appendPruneAudit(cwd: string, payload: Record<string, unknown>): string | undefined {
 	try {
-		const filePath = path.join(projectCrewRoot(cwd), "audit", "prune.jsonl");
+		// RR-020 Fix 2: a no-op prune must NOT materialize the project crew
+		// root. `<crewRoot>/audit/` only exists because a real prune removed
+		// runs, and a real prune implies the crew root (+ state/runs) exists —
+		// so bail out instead of mkdir-ing a `<crewRoot>/audit/` tree on
+		// session start for a project that never ran a team.
+		const crewRoot = projectCrewRoot(cwd);
+		if (!fs.existsSync(crewRoot)) return undefined;
+		const filePath = path.join(crewRoot, "audit", "prune.jsonl");
 		fs.mkdirSync(path.dirname(filePath), { recursive: true });
 		fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ ...payload, auditedAt: new Date().toISOString() }))}\n`, "utf-8");
 		return filePath;
@@ -165,6 +172,11 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 		sweepStaleCorruptFiles(path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir));
 	}
 
+	// RR-020 Fix 2 note: appendPruneAudit itself bails when the crew root does
+	// not exist, so a no-op prune on a fresh project writes nothing. When the
+	// crew root DOES exist, HEAD parity is preserved — a zero-candidate prune
+	// still records its `kept:[] removed:[]` audit line (cold-verify correction:
+	// the earlier `finished.length === 0` bail suppressed that line).
 	const auditPath = options.dryRun
 		? undefined
 		: appendPruneAudit(cwd, {

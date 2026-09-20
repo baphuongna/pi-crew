@@ -15,8 +15,17 @@ function isSymlinkTestUnsupportedOn(): boolean {
 async function connectClient(args: { runId: string; taskId: string; token: string; socketPath: string }): Promise<CrewBrokerClient> {
 	const client = new CrewBrokerClient({
 		...args,
-		setTimeoutFn: ((cb: () => void, _ms: number) => {
-			const timer = setTimeout(cb, 100);
+		// Timer shape: hide `unref`/`ref`/`hasRef` so the broker client treats the
+		// timer as a plain handle (see crew-broker-client.ts backoff path).
+		// IMPORTANT: the requested `ms` MUST be honored. An earlier version of this
+		// helper hard-clamped every delay to 100ms, which also clamped the broker's
+		// REQUEST_TIMEOUT_DEFAULT_MS (15s) down to 100ms. Under full-suite load the
+		// round-trip can exceed 100ms, so `steer.push` returned
+		// {ok:false,errorCode:"request-timeout"} and the assertion at line ~76 failed
+		// BEFORE the symlink-escape assertions ran — i.e. the security property was
+		// left untested in full runs. Never clamp the caller's timeout here.
+		setTimeoutFn: ((cb: () => void, ms: number) => {
+			const timer = setTimeout(cb, ms);
 			return new Proxy(timer, {
 				get(target, prop) {
 					if (prop === "unref" || prop === "ref" || prop === "hasRef") return undefined;

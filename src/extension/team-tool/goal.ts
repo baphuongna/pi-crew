@@ -23,6 +23,7 @@ import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { createRunPaths, saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type { GoalLoopState, GoalLoopStatus, TeamRunManifest } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { projectCrewRoot } from "../../utils/paths.ts";
 import { result, type TeamContext } from "./context.ts";
 import { paramRequired } from "./param-error.ts";
 
@@ -200,7 +201,9 @@ async function handleStart(input: GoalSubActionInput): Promise<ReturnType<typeof
 				goalId,
 				objective,
 				maxTurns,
-				statePath: `${cwd}/.crew/state/goals/${goalId}.json`,
+				// RR-020 Fix 4: resolve the layout (`<crewRoot>/state/goals/...`) instead
+				// of hardcoding `.crew` — GoalStore writes to projectCrewRoot(cwd).
+				statePath: `${projectCrewRoot(cwd)}/state/goals/${goalId}.json`,
 			},
 		});
 

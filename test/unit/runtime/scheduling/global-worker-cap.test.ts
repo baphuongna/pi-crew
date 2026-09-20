@@ -2,10 +2,16 @@
  * Unit tests for global-worker-cap.ts (P1g).
  *
  * RFC: research-findings/goal-workflow/13-VISION-RFC.md v0.5 §P1g + MAJ#3.
+ *
+ * RR-014 / F15 additions: signal-aware acquireWorkerSlot/withWorkerSlot — a
+ * waiter aborted while QUEUED must settle promptly (reject, no slot taken),
+ * capacity accounting must survive N aborted waiters, and the drain consumer
+ * (budget-enforcement drainPendingUnits) must not hang on a queued+aborted unit.
  */
 
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
+import { drainPendingUnits } from "../../../../src/runtime/budget-enforcement.ts";
 import {
 	__test_resetCap,
 	acquireWorkerSlot,
@@ -13,6 +19,18 @@ import {
 	releaseWorkerSlot,
 	withWorkerSlot,
 } from "../../../../src/runtime/scheduling/global-worker-cap.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
+
+/** Race `promise` against a deadline; resolves to a short outcome tag. */
+function tagWithin(promise: Promise<unknown>, ms: number): Promise<string> {
+	return Promise.race([
+		promise.then(
+			() => "resolved",
+			(e: unknown) => `rejected:${(e as Error)?.name ?? String(e)}`,
+		),
+		new Promise<string>((r) => setTimeout(() => r("TIMEOUT"), ms)),
+	]);
+}
 
 describe("global-worker-cap capacity resolution", () => {
 	it("getWorkerCapCapacity returns the resolved capacity", () => {
@@ -113,6 +131,117 @@ describe("withWorkerSlot", () => {
 		const raced = await Promise.race([probe.then(() => "acquired"), new Promise<string>((r) => setTimeout(() => r("timeout"), 500))]);
 		assert.equal(raced, "acquired", "slot must be released after withWorkerSlot throws");
 		assert.equal(resolved, true);
+		releaseWorkerSlot();
+	});
+});
+
+describe("signal-aware worker slots (RR-014 F15)", () => {
+	beforeEach(() => {
+		__test_resetCap(1);
+	});
+
+	it("acquireWorkerSlot(signal): queued waiter settles PROMPTLY on abort; accounting unchanged (AC-1..AC-4)", async () => {
+		await acquireWorkerSlot(); // A holds the only slot
+		const controller = new AbortController();
+		const b = acquireWorkerSlot(controller.signal);
+		setTimeout(() => controller.abort(), 20);
+
+		// Must settle (rejected) well inside a 150ms deadline WITHOUT A releasing.
+		const tag = await tagWithin(b, 150);
+		assert.match(tag, /^rejected:SemaphoreAbortedError$/, "aborted queued acquire must reject promptly with the abort error");
+
+		// Slot accounting unchanged: A's release restores capacity; C acquires fine.
+		releaseWorkerSlot();
+		const c = acquireWorkerSlot();
+		assert.equal(await tagWithin(c, 150), "resolved", "a subsequent acquire must succeed after A releases");
+		releaseWorkerSlot();
+	});
+
+	it("withWorkerSlot(fn, signal): rejects promptly when aborted while queued; fn never runs; no slot taken", async () => {
+		await acquireWorkerSlot(); // A holds the only slot
+		const controller = new AbortController();
+		let fnRan = false;
+		const unit = withWorkerSlot(async () => {
+			fnRan = true;
+			return 1;
+		}, controller.signal);
+		setTimeout(() => controller.abort(), 20);
+
+		await assert.rejects(
+			() =>
+				Promise.race([
+					unit,
+					new Promise<never>((_, rej) =>
+						setTimeout(() => rej(new Error("timed out after 150ms — aborted unit must settle promptly")), 150),
+					),
+				]),
+			/SemaphoreAbortedError/,
+		);
+		assert.equal(fnRan, false, "fn must never run for a waiter aborted while queued");
+
+		// No slot was taken by the aborted unit: after A releases, a fresh
+		// acquire resolves immediately (capacity intact, nothing leaked).
+		releaseWorkerSlot();
+		assert.equal(await tagWithin(acquireWorkerSlot(), 150), "resolved");
+		releaseWorkerSlot();
+	});
+
+	it("capacity accounting: N aborted waiters do not change the cap (N+1 sequential acquires succeed afterwards)", async () => {
+		__test_resetCap(2);
+		await acquireWorkerSlot();
+		await acquireWorkerSlot(); // cap=2, both slots held
+
+		const N = 6;
+		const controllers = Array.from({ length: N }, () => new AbortController());
+		const waiters = controllers.map((c) =>
+			acquireWorkerSlot(c.signal).then(
+				() => "resolved",
+				(e: Error) => `rejected:${e.name}`,
+			),
+		);
+		for (const c of controllers) c.abort();
+		const tags = await Promise.all(waiters);
+		assert.ok(
+			tags.every((t) => t.startsWith("rejected:")),
+			`all aborted waiters must reject, got ${tags.join(",")}`,
+		);
+
+		releaseWorkerSlot();
+		releaseWorkerSlot();
+
+		// N+1 sequential acquire/release cycles — every acquire must get a slot
+		// promptly: no leaked slot (would queue forever) and no phantom slot
+		// (a third simultaneous acquire would exceed the cap of 2).
+		for (let i = 0; i < N + 1; i++) {
+			assert.equal(await tagWithin(acquireWorkerSlot(), 250), "resolved", `sequential acquire #${i} must succeed after the aborts`);
+			releaseWorkerSlot();
+		}
+	});
+
+	it("F15 consumer (AC-9): drainPendingUnits settles promptly when a queued unit's slot-wait aborts", async () => {
+		await acquireWorkerSlot(); // A holds the only slot
+		const controller = new AbortController();
+		const pendingUnits = new Map<
+			string,
+			{ taskIds: string[]; promise: Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> }
+		>();
+		pendingUnits.set("unit-b", {
+			taskIds: ["t-b"],
+			promise: withWorkerSlot(async () => ({ manifest: {} as TeamRunManifest, tasks: [] as TeamTaskState[] }), controller.signal),
+		});
+
+		// drainPendingUnits aborts the controller itself, then awaits allSettled
+		// of the unit promises. Pre-fix (F15) this hung until A released the
+		// slot; post-fix the queued acquire rejects and the drain settles while
+		// A still holds the slot.
+		const drainPromise = drainPendingUnits(pendingUnits, controller);
+		const tag = await tagWithin(drainPromise, 300);
+		assert.equal(tag, "resolved", "drain must settle within the deadline while A still holds the slot");
+		assert.equal(pendingUnits.size, 0, "drain clears the pending map");
+
+		// Accounting intact: A's release restores capacity; a fresh acquire works.
+		releaseWorkerSlot();
+		assert.equal(await tagWithin(acquireWorkerSlot(), 150), "resolved");
 		releaseWorkerSlot();
 	});
 });

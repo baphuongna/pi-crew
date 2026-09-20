@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getCrewEnv } from "../config/env-vars.ts";
+import { PROJECT_DIR_MARKERS, PROJECT_FILE_MARKERS } from "./project-markers.ts";
 
 // NEW-P1/NEW-P2 (perf): packageRoot() and userPiRoot() are invariant for a
 // process lifetime but each call did statSync/readFileSync/lstatSync (10-15+
@@ -111,17 +112,9 @@ export function userPiRoot(): string {
 	return resolved;
 }
 
-const PROJECT_DIR_MARKERS = [".git", ".pi", ".crew", ".hg", ".svn", ".factory", ".omc"];
-const PROJECT_FILE_MARKERS = [
-	"package.json",
-	"pyproject.toml",
-	"Cargo.toml",
-	"go.mod",
-	"pom.xml",
-	"composer.json",
-	"build.gradle",
-	"build.gradle.kts",
-];
+// Marker lists live in ./project-markers.ts (RR-020 Fix 1) so that
+// src/state/crew-init.ts:findProjectRoot() cannot drift from this resolver
+// again — the drift produced two different project roots for one cwd.
 
 // 2.10 — cache findRepoRoot results so repeated lookups during render ticks
 // (loadConfig, state-store helpers, powerbar, snapshot-cache, ...) skip the
@@ -251,4 +244,86 @@ export function projectCrewRoot(cwd: string): string {
 
 export function userCrewRoot(): string {
 	return path.join(userPiRoot(), "extensions", "pi-crew");
+}
+
+/**
+ * Relative path of the run-state directory under a pi-crew root, per layout:
+ *   - `.crew`        → `<root>/.crew/state/runs`        (classic layout)
+ *   - `.pi/teams`    → `<root>/.pi/teams/state/runs`    (`.pi`-based layout)
+ * Mirrors `projectCrewRoot`'s layout choice, so scanners can recognise the
+ * SAME two layouts the rest of pi-crew writes.
+ */
+export const RUN_STATE_RUNS_SUBPATHS = [path.join(".crew", "state", "runs"), path.join(".pi", "teams", "state", "runs")];
+
+/** Layout dirs derived from RUN_STATE_RUNS_SUBPATHS — the single list (a
+ *  literal copy here is exactly the drift Fix 1 killed for project markers). */
+const RUN_STATE_LAYOUT_DIRS = RUN_STATE_RUNS_SUBPATHS.map((rel) => path.dirname(path.dirname(rel)));
+
+/** Layout dirs split into components for the per-component symlink walk
+ *  (cold-verify F-1: lstat only sees the FINAL path component, so for the
+ *  `.pi/teams` layout the intermediate `.pi` was never checked). */
+const RUN_STATE_LAYOUT_SEGMENTS = RUN_STATE_LAYOUT_DIRS.map((layout) => layout.split(/[\\/]+/).filter(Boolean));
+
+/** True when `p` exists and is NOT a symlink (dir-or-file). A planted symlink
+ *  never passes: scanners must reject rather than trust it. */
+function existsNoSymlink(p: string): boolean {
+	try {
+		return !fs.lstatSync(p).isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
+/** True when EVERY component of `path.join(dir, ...segments)` exists and is
+ *  not a symlink. lstat rejects only the FINAL component, so intermediate
+ *  symlinks must be walked component-by-component — cold-verify F-1 reproduced
+ *  out-of-tree read AND write through `ws/.pi -> /outside` because `.pi` was
+ *  intermediate in all three lstat calls of the earlier fix. */
+function existsSymlinkFreePath(dir: string, segments: string[]): boolean {
+	let current = dir;
+	for (const seg of segments) {
+		current = path.join(current, seg);
+		if (!existsNoSymlink(current)) return false;
+	}
+	return true;
+}
+
+/**
+ * True when `dir` holds pi-crew run state under EITHER supported layout
+ * (`.crew/` or `.pi/teams/`) — used by /tmp debris scanners so a temp
+ * workspace with live `.pi/teams/state/runs` state is not deleted.
+ *
+ * A SYMLINKED layout dir never counts: scanners must be able to reject a
+ * planted symlink instead of treating it as protection.
+ */
+export function hasRunStateLayout(dir: string): boolean {
+	for (const segments of RUN_STATE_LAYOUT_SEGMENTS) {
+		if (existsSymlinkFreePath(dir, segments)) return true;
+	}
+	return false;
+}
+
+/**
+ * Resolve the run-state dir (`<layout>/state/runs`) that actually exists under
+ * `dir`, checking BOTH supported layouts. Returns undefined when neither
+ * layout has a runs dir (i.e. `dir` holds no pi-crew run state).
+ *
+ * Symlink policy matches `hasRunStateLayout` (cold-verify correction: the
+ * first version used existsSync, which FOLLOWS symlinks — a planted
+ * `.crew`/`.pi/teams`/`state/runs` symlink let stale-reconciler and
+ * health-monitor read — and reconcile — run manifests OUTSIDE the scanned
+ * tree). Both the layout dir and the runs dir itself must be symlink-free.
+ */
+export function findRunStateDir(dir: string): string | undefined {
+	for (const segments of RUN_STATE_LAYOUT_SEGMENTS) {
+		// Cold-verify F-1/F-A: EVERY component must be symlink-free — lstat only
+		// sees the final path component, so intermediate symlinks (`.pi` of the
+		// `.pi/teams` layout, the middle `state`, …) were traversed transparently
+		// and let scanners READ and WRITE run manifests OUTSIDE the scanned tree
+		// (reproduced: reconcileOrphanedTempWorkspaces flipped an outside manifest
+		// running→cancelled through both a `.crew/state` and a `.pi` symlink).
+		if (!existsSymlinkFreePath(dir, [...segments, "state", "runs"])) continue;
+		return path.join(dir, ...segments, "state", "runs");
+	}
+	return undefined;
 }

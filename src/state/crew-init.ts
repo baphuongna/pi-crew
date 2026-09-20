@@ -13,10 +13,20 @@
  * The `node:path` import is retained as a *fallback* (only used when the
  * binding is healthy). Don't add new dependencies on other pi-crew modules.
  *
+ * TWO sanctioned exceptions (RR-020):
+ *   - `node:os` — a builtin like fs/path, used ONLY inside try/catch so a
+ *     jiti namespace race degrades to "no home/tmp boundary" (the pre-RR-020
+ *     walk) instead of crashing ensureCrewDirectory.
+ *   - `../utils/project-markers.ts` — a zero-import module of plain string
+ *     literals, so it cannot itself suffer the namespace race and it keeps
+ *     this resolver from drifting away from `src/utils/paths.ts`.
+ *
  * See: https://github.com/baphuongna/pi-crew/issues/28
  */
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { PROJECT_DIR_MARKERS, PROJECT_FILE_MARKERS } from "../utils/project-markers.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import { updateGitignore } from "./gitignore-manager.ts";
 
@@ -164,27 +174,92 @@ function safeResolve(p: string, pathDep?: typeof path): string {
 }
 
 function findProjectRoot(start: string, pathDep?: typeof path): string | undefined {
-	const dirMarkers = [".git", ".hg", ".svn"];
-	const fileMarkers = ["package.json", "pyproject.toml", "Cargo.toml", "go.mod"];
-	// Use `parseRoot` (inlined above) to avoid `path.parse` for the critical
-	// termination root — fixes the jiti namespace race in issue #28.
-	const root = parseRoot(start);
+	// Marker lists come from src/utils/project-markers.ts (RR-020 Fix 1) so this
+	// resolver can never drift from src/utils/paths.ts:computeRepoRoot again —
+	// the drift resolved `parent/subproject` (.pi) to `parent/.crew` here while
+	// paths.ts resolved the same cwd to `subproject/.pi/teams` (two roots).
+	// The module has NO imports of its own, so it is safe under the jiti
+	// namespace race documented at the top of this file.
+	// RR-020 hardening (cold-verify round 2): the marker arrays are the ONE
+	// critical-path dependency on a static import binding. Under the jiti
+	// namespace race (issue #28) a binding can arrive undefined — degrade to the
+	// narrow `.git`-only probe (findProjectRoot then returns undefined more
+	// often, so computeCrewRoot anchors the crew root at the cwd — the same
+	// fallback paths.ts uses) instead of throwing inside ensureCrewDirectory,
+	// the very function hardened for #28. Mirrors the defensive style of
+	// safeJoin/safeDirname/parseRoot and the lazy updateGitignore import.
+	function markerLists(): { dirs: string[]; files: string[] } {
+		try {
+			if (Array.isArray(PROJECT_DIR_MARKERS) && Array.isArray(PROJECT_FILE_MARKERS)) {
+				return { dirs: PROJECT_DIR_MARKERS as string[], files: PROJECT_FILE_MARKERS as string[] };
+			}
+		} catch {
+			// namespace unavailable — fall through to the narrow probe
+		}
+		return { dirs: [".git"], files: [] };
+	}
+	const markers = markerLists();
+	const hasMarker = (dir: string): boolean =>
+		markers.dirs.some((marker) => fs.existsSync(safeJoin(dir, marker))) ||
+		markers.files.some((marker) => fs.existsSync(safeJoin(dir, marker)));
 	let current = safeResolve(start, pathDep);
+	// RR-020 cold-verify follow-up: match findRepoRoot (paths.ts) which
+	// realpaths the start BEFORE walking, so the boundary comparisons below
+	// compare canonical-to-canonical (macOS /var -> /private/var). Best-effort:
+	// ENOENT keeps the lexical path, exactly like findRepoRoot's fallback.
+	try {
+		current = fs.realpathSync(current);
+	} catch {
+		// keep the lexical resolution
+	}
+	// Use `parseRoot` (inlined above) to avoid `path.parse` for the critical
+	// termination root — fixes the jiti namespace race in issue #28. Computed
+	// from the RESOLVED `current` (post-realpath) so a root-prefix change
+	// through a symlink cannot desync `current !== root` (paths.ts computes
+	// path.parse on the realpath'd start for the same reason).
+	const root = parseRoot(current);
+	// RR-020 cold-verify follow-up (bug-029 parity): home/tmp boundary STOP.
+	// computeRepoRoot (paths.ts) refuses to check markers at $HOME or the temp
+	// root; this walk did not, so once the marker lists were unified onto the
+	// wide set, `$HOME/.pi` (created by userPiRoot()) became a marker HERE — a
+	// MARKERLESS cwd under $HOME resolved crew-init to $HOME (⇒
+	// $HOME/.pi/teams) while projectCrewRoot resolved to <cwd>/.crew: the
+	// two-roots bug Fix 1 was meant to kill, in a new shape. `os` access is
+	// defensive: under the jiti namespace race (issue #28) the binding can be
+	// undefined — degrade to "no boundary" (the pre-RR-020 walk), never crash.
+	let home: string | undefined;
+	let tempRoot: string | undefined;
+	try {
+		home = canonicalBoundary(os.homedir());
+		tempRoot = canonicalBoundary(os.tmpdir());
+	} catch {
+		home = undefined;
+		tempRoot = undefined;
+	}
+	const atBoundary = (dir: string): boolean => (home !== undefined && dir === home) || (tempRoot !== undefined && dir === tempRoot);
 	// Walk up to find project root
 	while (current !== root) {
-		for (const marker of dirMarkers) {
-			if (fs.existsSync(safeJoin(current, marker))) return current;
-		}
-		for (const marker of fileMarkers) {
-			if (fs.existsSync(safeJoin(current, marker))) return current;
-		}
+		// Stop walking before checking markers at home or temp root.
+		if (atBoundary(current)) return undefined;
+		if (hasMarker(current)) return current;
 		const parent = safeDirname(current);
 		if (parent === current) break;
 		current = parent;
 	}
 	// Check root as fallback
-	if (dirMarkers.some((m) => fs.existsSync(safeJoin(root, m)))) return root;
+	if (atBoundary(root)) return undefined;
+	if (hasMarker(root)) return root;
 	return undefined;
+}
+
+/** Canonicalize a boundary dir for comparison with the (realpath'd) walk.
+ *  Best-effort: an unresolvable path stays lexical. */
+function canonicalBoundary(p: string): string {
+	try {
+		return fs.realpathSync(p);
+	} catch {
+		return p;
+	}
 }
 
 /**

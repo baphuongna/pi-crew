@@ -425,7 +425,11 @@ function handleProjectCleanup(params: TeamToolParamsValue, ctx: TeamContext): Pi
 			lines.push(`  - ERROR: could not resolve ${crewRoot} (skipped)`);
 			return result(lines.join("\n"), { action: "cleanup", status: "ok", scope }, false);
 		}
-		if (!resolved.endsWith(path.sep + ".crew") && !resolved.endsWith("/teams") && path.basename(resolved) !== ".crew") {
+		// RR-020 A0-4 (round-4 sweep): `"/teams"` hardcoded the POSIX separator,
+		// so on Windows the `.pi\teams` layout never matched and cleanup REFUSED
+		// to remove it (fail-closed, but the feature was broken there).
+		// `path.sep + "teams"` is identical on POSIX and correct on Windows.
+		if (!resolved.endsWith(path.sep + ".crew") && !resolved.endsWith(path.sep + "teams") && path.basename(resolved) !== ".crew") {
 			lines.push(`  - ERROR: refused to remove ${resolved} (does not look like a .crew dir) — skipped`);
 		} else {
 			if (!dryRun) {

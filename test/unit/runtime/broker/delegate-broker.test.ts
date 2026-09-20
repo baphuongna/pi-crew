@@ -321,6 +321,9 @@ test("happy path: immediate ref, fenced mailbox delivery, budget reserve→roll-
 
 			// Spawner received depthOverride from the RECORD (grandchild = 2).
 			assert.equal(spawns[0]?.depthOverride, 2);
+			// RR-012 F03 / AC-4: single-workspace fixture (broker cwd == task cwd) —
+			// the spawner receives that shared cwd exactly as before the fix.
+			assert.equal(spawns[0]?.cwd, s.cwd, "spawner must receive the parent task cwd (== broker cwd in single mode)");
 
 			// Slot released → a second delegate is admitted (no exhaustion).
 			const res2 = await sendDelegate(client, { prompt: "again" }, "dlg-2");

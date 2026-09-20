@@ -33,6 +33,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { type KeyId, matchesKey } from "@earendil-works/pi-tui";
 import { getCrewEnv } from "../config/env-vars.ts";
+import { projectCrewRoot } from "../utils/paths.ts";
 import { keyOf } from "./key-utils.ts";
 
 export const DASHBOARD_KEYS = {
@@ -541,10 +542,17 @@ function computeEffectiveBindings(overrides: KeybindingOverride): EffectiveBindi
 	return { bindings, overlayBindings, reverted: [...reverted] };
 }
 
-/** Read the `keybindings` section from `<cwd>/.crew/config.json`. */
+/**
+ * Read the `keybindings` section from the project config.
+ *
+ * RR-020 Fix 4: resolve via `projectCrewRoot(cwd)` instead of a literal
+ * `<cwd>/.crew` — the config lives in whichever layout the project actually
+ * uses (`.crew/` or `.pi/teams/`), so a `.pi/teams` project's keybinding
+ * overrides are no longer silently ignored.
+ */
 function readConfigKeybindings(cwd: string): KeybindingOverride {
 	try {
-		const raw: unknown = JSON.parse(fs.readFileSync(path.join(cwd, ".crew", "config.json"), "utf-8"));
+		const raw: unknown = JSON.parse(fs.readFileSync(path.join(projectCrewRoot(cwd), "config.json"), "utf-8"));
 		if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
 		return parseKeybindingOverride((raw as Record<string, unknown>).keybindings);
 	} catch {
@@ -565,7 +573,8 @@ function readEnvKeybindings(): KeybindingOverride {
 
 function configKeybindingsMtime(cwd: string): number | undefined {
 	try {
-		return fs.statSync(path.join(cwd, ".crew", "config.json")).mtimeMs;
+		// RR-020 Fix 4: same layout-resolved config path as readConfigKeybindings.
+		return fs.statSync(path.join(projectCrewRoot(cwd), "config.json")).mtimeMs;
 	} catch {
 		return undefined;
 	}

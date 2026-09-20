@@ -1,12 +1,14 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { errors } from "../errors.ts";
 import { atomicWriteFile, atomicWriteJson } from "../state/atomic-write.ts";
 import { getCurrentPlanRecord } from "../state/stores/plan-store.ts";
 import { loadManifestWithRecovery, loadTasksWithRecovery, saveRunManifest } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { findRunStateDir } from "../utils/paths.ts";
 import { recordFromTask, upsertCrewAgent } from "./crew-agent-records.ts";
 import { checkProcessLiveness } from "./process-status.ts";
 
@@ -284,7 +286,7 @@ function isTaskHeartbeatStale(task: TeamTaskState, now: number): boolean {
 	const taskPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
 	const pidAlive = taskPid ? checkProcessLiveness(taskPid).alive : false;
 	if (taskPid && pidAlive) return false;
-	if (process.env.PI_CREW_DEBUG_STALE === "1") {
+	if (getCrewEnv("PI_CREW_DEBUG_STALE") === "1") {
 		// F1 forensic (battery 2026-09-10): sidecar log of every STALE verdict so
 		// live repros can show exactly what the reconciler saw (pid present? alive?
 		// elapsed?) — the reconciler may run in ANY host process, hence a fixed
@@ -573,13 +575,21 @@ export function reconcileOrphanedTempWorkspaces(
 		for (const entry of candidates) {
 			if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
 			const workspaceDir = path.join(tmpDir, entry.name);
-			const crewDir = path.join(workspaceDir, ".crew");
-			if (!fs.existsSync(crewDir)) continue;
-			const stateRunsDir = path.join(crewDir, "state", "runs");
-			if (!fs.existsSync(stateRunsDir)) continue;
+			// RR-020 Fix 3: accept BOTH supported run-state layouts — `<dir>/.crew/
+			// state/runs` and the `.pi`-based `<dir>/.pi/teams/state/runs`. Only the
+			// `.crew` layout used to be seen here, so a temp workspace with live
+			// `.pi/teams` run state was invisible to the reconciler (and then
+			// deleted as debris by the legacy cleanup sweep).
+			const stateRunsDir = findRunStateDir(workspaceDir);
+			if (!stateRunsDir) continue;
 			let hasRunning = false;
 			try {
-				for (const runDir of fs.readdirSync(stateRunsDir)) {
+				// Cold-verify F-2: Dirent.isDirectory() is FALSE for a symlink-to-dir
+				// (withFileTypes does not follow), so a planted `runs/<runId>` symlink
+				// is skipped instead of being read/written out-of-tree.
+				for (const entry of fs.readdirSync(stateRunsDir, { withFileTypes: true })) {
+					if (!entry.isDirectory()) continue;
+					const runDir = entry.name;
 					const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
 					const tasksPath = path.join(stateRunsDir, runDir, "tasks.json");
 					if (!fs.existsSync(manifestPath) || !fs.existsSync(tasksPath)) continue;
@@ -707,7 +717,17 @@ export function reconcileOrphanedTempWorkspaces(
 			if (canCleanup) {
 				if (fs.existsSync(stateRunsDir)) {
 					try {
-						for (const runDir of fs.readdirSync(stateRunsDir)) {
+						// Cold-verify round 5 (E1): a string readdir FOLLOWS a symlinked
+						// `<runId>` entry, and loadManifestWithRecovery on a corrupt manifest
+						// then QUARANTINES it — renameSync resolves through the symlinked
+						// dir and renamed a file OUTSIDE the scanned tree (reproduced even
+						// with cleanupOrphanedTempDirs:false, fired by the production
+						// tempReconcileTimer every session). Dirent.isDirectory() is false
+						// for a symlink-to-dir, so planted entries are skipped. Deletion
+						// itself was already safe (rmSync unlinks symlinks, never follows).
+						for (const entry of fs.readdirSync(stateRunsDir, { withFileTypes: true })) {
+							if (!entry.isDirectory()) continue;
+							const runDir = entry.name;
 							const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
 							if (!fs.existsSync(manifestPath)) continue;
 							const manifest = loadManifestWithRecovery(manifestPath, runDir);
@@ -733,7 +753,11 @@ export function reconcileOrphanedTempWorkspaces(
 					let stillClean = true;
 					if (fs.existsSync(stateRunsDir)) {
 						try {
-							for (const runDir of fs.readdirSync(stateRunsDir)) {
+							// Cold-verify round 5 (E1): same Dirent guard as the first gate —
+							// quarantine-rename through a symlinked `<runId>` wrote outside.
+							for (const entry of fs.readdirSync(stateRunsDir, { withFileTypes: true })) {
+								if (!entry.isDirectory()) continue;
+								const runDir = entry.name;
 								const manifestPath = path.join(stateRunsDir, runDir, "manifest.json");
 								if (!fs.existsSync(manifestPath)) continue;
 								const manifest = loadManifestWithRecovery(manifestPath, runDir);

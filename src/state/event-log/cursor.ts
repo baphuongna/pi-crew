@@ -114,6 +114,10 @@ export function readEvents(eventsPath: string): TeamEvent[] {
 
 export interface EventCursorOptions {
 	sinceSeq?: number;
+	/** Delivery cap for one read. When `limit` truncates the result, `events` is
+	 *  a PREFIX of everything available — resume from the returned `nextSeq`
+	 *  (never from `nextByteOffset`; see the continuation contract on
+	 *  `readEventsCursor`). */
 	limit?: number;
 	fromByteOffset?: number;
 	/** R-03: generation the caller captured on its previous read. When set, a
@@ -528,6 +532,30 @@ export function clearEventsCursorTailCache(eventsPath?: string): void {
 	cursorTailCache.delete(eventsPath);
 }
 
+/**
+ * Read team events with an optional incremental anchor (`sinceSeq`) plus a
+ * delivery cap (`limit`).
+ *
+ * Continuation / backpressure contract (BR-08):
+ *  - `nextSeq` is the continuation token for events that CARRY `metadata.seq`
+ *    (scheduler-emitted events): the max seq among the events DELIVERED by
+ *    this call — never a watermark past an undelivered event. Resume with
+ *    `{ sinceSeq: nextSeq }` (`>` comparison) to receive the rest.
+ *    LIMITS (cold-verify correction — documented, not fixed here): events
+ *    WITHOUT `metadata.seq` (e.g. the worker progress channel) are filtered
+ *    out of the sinceSeq path entirely, and DUPLICATE seqs cannot be paged
+ *    through by seq. Those cases need the `fromByteOffset` anchor.
+ *  - `total` is the number of events AVAILABLE for this read (after the
+ *    sinceSeq filter, before the `limit` slice) — EXCEPT that the tail cap
+ *    (TAIL_EVENT_CAP) may drop a prefix first, in which case `total` counts
+ *    only the retained suffix.
+ *  - `nextByteOffset` is an OPTIONAL incremental-read accelerator, and is only
+ *    returned when it is a SAFE resume anchor: on the `fromByteOffset` path it
+ *    is OMITTED whenever `limit` truncated the delta, because the underlying
+ *    offset then points past the ENTIRE delta (undelivered tail included) —
+ *    resuming from it would silently skip events. The default (non-byte)
+ *    path never returns it at all.
+ */
 export function readEventsCursor(eventsPath: string, options: EventCursorOptions = {}): EventCursorResult {
 	// Incremental byte-offset path: read only new bytes since last known offset
 	if (options.fromByteOffset !== undefined) {
@@ -558,11 +586,19 @@ export function readEventsCursor(eventsPath: string, options: EventCursorOptions
 		const limit = positiveInteger(options.limit);
 		const events = limit !== undefined ? merged.slice(0, limit) : merged;
 		const returnedMaxSeq = events.reduce((max, event) => Math.max(max, event.metadata?.seq ?? 0), sinceSeq);
+		// BR-08: `newState.byteOffset` sits past the ENTIRE delta read above —
+		// including the events the `limit` slice just dropped. Handing that back
+		// as `nextByteOffset` let a caller resume PAST events it never saw (silent
+		// loss: the delta read then returns an empty tail). Only expose the
+		// accelerator when this call delivered the whole delta; under truncation
+		// the caller must continue from `nextSeq` (see the doc comment on
+		// readEventsCursor).
+		const deliveredWholeDelta = limit === undefined || merged.length <= limit;
 		return {
 			events,
 			nextSeq: returnedMaxSeq,
 			total: merged.length,
-			nextByteOffset: newState.byteOffset,
+			...(deliveredWholeDelta ? { nextByteOffset: newState.byteOffset } : {}),
 			generation: liveGen,
 		};
 	}
