@@ -562,10 +562,11 @@ If the two md5s match → session is on the latest code. If not → user must `/
 - `team action='doctor' focus='zombies'` is READ-ONLY (safe) but the follow-up `kill <PID>` it suggests is destructive — confirm with the user before killing
 
 **9e. Admin / mutation** (mutates config or workflow files — use a scratch project cwd or back up first):
-- `team action='create' resource='team' ...` / `update` / `delete` — manage teams/agents/workflows
+- **The scratch cwd MUST carry a project marker** (`.git` / `.crew` / `.pi` / `package.json`). `cwd` is validated to stay under the session workspace root, and `findRepoRoot` WALKS UP looking for a marker — a marker-less scratch dir (e.g. an empty `/tmp/x`) silently resolves to the nearest ancestor project and your `create` lands in the REAL project's `.crew/teams/`. Measured 2026-09-21: an empty scratch dir wrote `t9e-probe-team.team.md` into `my_pi/.crew/teams/`. `mkdir -p <scratch>/.crew` first, then verify where the file landed.
+- `team action='create' resource='team' ...` / `update` / `delete` — manage teams/agents/workflows. Params: `create` takes the name in `config.name`; `update`/`delete` take it in `team`/`agent`/`workflow` (NOT `name` — `name` is an unrecognized field). `delete` needs `confirm:true` (destructive-gated). **`update`/`delete` without an explicit `scope` used to be unable to see a PROJECT resource** (`findResource`'s default pool was `[...builtin, ...user]`, and `sourceMatches` drops builtin → the default degenerated to user-only) while the error message promised "mutable user/project scopes". Fixed 2026-09-21; if you hit "not found in mutable user/project scopes" on a resource you just created, pass `scope:'project'` and file it.
 - `team action='init'` / `config` / `validate` / `autonomy` / `settings` — project setup
-- `team action='workflow-create'` / `workflow-save` / `workflow-delete` / `workflow-get` / `workflow-list` — workflow CRUD
-- `team action='import'` / `imports` / `export` — run data portability
+- `team action='workflow-create'` / `workflow-save` / `workflow-delete` / `workflow-get` / `workflow-list` — workflow CRUD. `workflow-create` needs `confirm:true` + `config.name` + `config.script` (arbitrary-code-execution surface); `workflow-delete` needs `confirm:true`.
+- `team action='import'` / `imports` / `export` — run data portability. `export` needs a `runId` that lives under the SAME root you are operating in (a scratch cwd cannot export a run from another project's `.crew/state/runs/`).
 - `team action='parallel' tasks=[...]` — parallel dispatch (spawn path, costs tokens per task)
 
 **9f. Background / scheduled** (expensive or niche):
@@ -659,6 +660,12 @@ Acceptance: 3/3 cho mỗi suite khi điều kiện backend thỏa; skip vì thi�
 **Bài học wire herdr (3 bug thật chỉ E2E mới bắt được, fix `01af9a78` 2026-08-27)**: herdr 0.8.2 không push `pane.closed` cho process exit tự nhiên (chỉ `pane.exited`) — provider phải subscribe cả hai; frame `\n\n` khiến server đóng subscription; `attach` null khiến doctor không bao giờ đóng orphan herdr. Unit test fake socket KHÔNG bao giờ bắt được loại này — luôn chạy E2E thật khi đụng wire provider.
 
 ### 10b. Live surface run (từ parent Pi session)
+
+**Chạy được từ một pi headless trong tmux** (không cần TUI tương tác): mở `tmux new-session -d`, bật `runtime.surface.visibleAgents=['*']` trong `~/.pi/agent/pi-crew.json`, rồi từ TRONG pane chạy `pi -p "<goal dùng team tool>"`. Evidence (đã đo 2026-09-21, run `team_20260921100246_f2ee9ba752e1b2ad`):
+- `manifest.surface.provider == "tmux"` + `workerPids` non-empty (chỉ nhánh surface ghi `workerPids`)
+- `events.jsonl`: 3× `worker.surface_spawned` (kèm `paneId` `%2`/`%3`/`%4`) + 3× `worker.surface_closed`, **0** `surface.degraded`, **0** `worker.surface_gate_blocked`
+- `tmux list-panes -a` trong lúc run cho thấy pane mang taskId; sau run **không còn pane nào** (auto-exit) — chỉ còn pane shell của bạn
+- **Nhớ khôi phục** `visibleAgents` về `[]` sau probe (nếu không, mọi run sau đều mở pane thật)
 
 ```text
 1. team-settings set runtime.surface.visibleAgents '["*"]'   # hoặc agent cụ thể, vd '["executor"]'
@@ -1100,6 +1107,10 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | Worker's `ask` always times out though the orchestrator *did* answer | Orchestrator turn latency (ambient notifications, a long tool call) exceeded the ask deadline — the reply lands after the park expired. Deadline is `min(max(1, timeoutSec), 480)`s and `timeoutSec: 900` is **silently clamped to 480** (`prompt-runtime.ts:718`; schema advertises max 3600, never used) | Answer from a DETACHED watcher that appends `kind:"response"` + the exact `questionId` to `<runDir>/mailbox/inbox.jsonl` (mkdir -p first — an untouched run has no `mailbox/` yet), not from the agent turn. See Tier 9b-W ask recipe |
 | `ask.answered` in `events.jsonl` but the worker result still says timed out | The worker's own `resolvePark` emits `ask.answered` on every terminal path (incl. timeout) — it is not a leader reply. Discriminator: leader answers carry `data.delivery` (`respond.ts:241`); the self-resolve (`crew-broker.ts:1973`) carries only `{questionId}` | Grep the `ask.answered` payload for `data.delivery`; a real round-trip shows the answer inside `<dependency-context>` in `results/<taskId>.txt` |
 | Parked task + `manifest.waitState` set but no `mailbox/` dir in the run | Expected on a run whose workers never used mailbox/ask before — the dir is created lazily by the product writer (`appendMailboxMessage`→`ensureRunMailbox`), not at run creation | Not a bug. A raw probe append must `mkdir -p` itself |
+| Same agent shows a DIFFERENT duration on two surfaces of the same finished run (dashboard `29m39s` vs tool card `8m22s`) | One surface measured from `completedAt`, the other from `now`. The dashboard's non-live branch computed `nowMs - startedAt` and ignored `completedAt`, so every finished agent of an old run inflated forever (fixed 2026-09-21: prefer a sane `completedAt`, reject NaN/future/before-startedAt). **Any surface that shows a duration for a completed agent must end at `completedAt`.** | Cross-surface duration check is a Tier 13 invariant — grep the same taskId's duration on every surface and require one value |
+| `update`/`delete` says "not found in mutable user/project scopes" for a resource you just created in the project | `findResource`'s default pool omitted `discovery.project` (fixed 2026-09-21). Pass `scope:'project'` as a workaround; file it if it recurs | Tier 9e: create → update/delete WITHOUT `scope` is the probe that catches it (the old unit test always passed `scope` and masked it) |
+| Admin probe wrote into the REAL project's `.crew/` instead of your scratch dir | The scratch cwd had no project marker, so `findRepoRoot` walked up and latched onto the real project | `mkdir -p <scratch>/.crew` before the probe; verify the reported `filePath` points at the scratch |
+| Catalog `captures/*.txt` diff is huge after a UI change and never settles | `capture.ts` uses `new Date()` + live spinner frames + time-derived run ids, so 7/18 files change on every run. **Do not commit the drift** — restore the captures and commit only the real change; re-run `render_png.py` for the glyph self-check (it fails loud on a font-less glyph, which is the part worth running) | Tier 13 catalog step: treat the `.txt` diff as noise unless it shows a real formatting change |
 
 ## Performance budget (per-tier soft limits)
 
