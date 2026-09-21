@@ -435,7 +435,7 @@ team:
   async: false             # synchronous: wait for completion before returning
 ```
 
-The `team` tool is described in the agent's system prompt. Use `team action='status' <runId>` to inspect mid-run, `team action='events' <runId> <limit>` for the event log, `team action='cancel' <runId>` to abort.
+The `team` tool is described in the agent's system prompt. Use `team action='status' <runId>` to inspect mid-run, `team action='events' <runId>` for the event log (**no `limit` param** — it shows the last 500 of the cursor tail; passing `limit` is silently ignored), `team action='cancel' <runId>` to abort.
 
 **Real measured outcomes from this session** (July 2026, under the old 300s timeout — wall-clock shape still representative):
 
@@ -513,13 +513,13 @@ If the two md5s match → session is on the latest code. If not → user must `/
    - `team action='health'` — run-state scan
    - `team action='doctor' focus='zombies'` — orphan subagent + orphan surface-pane scan (read-only)
    - `team action='status' runId='<recent>' details=false` — compact
-   - `team action='events' runId='<recent>'` — full event lifecycle
+   - `team action='events' runId='<recent>'` — full event lifecycle (no `limit` param — bounded to the last 500 events by the cursor reader)
    - `team action='summary' runId='<recent>'` — cost/by-role report
    - `team action='get' resource='workflow' team='implementation'` — resource inspect
    - `team action='explain' runId='<recent>'` — markdown render
    - `team action='worktrees' runId='<recent>'` — workspace listing
    - `team action='graph' runId='<recent>'` — task-graph render (newer action)
-   - `team action='search' query='...'` — event/artifact search (newer action)
+   - `team action='search' goal='<text>'` — search runs/goals (the handler accepts `goal` or `task`; **there is NO `query` field** — passing one returns "Unrecognized team tool parameter field". A no-match search answers "No results found." — that is a PASS, not an error)
    - `team-settings` (slash) or `team action='settings' config={args:'get runtime.surface.mode'}` — config surface incl. the surface/nesting keys
 2. **9b. Spawn paths** (cost tokens — one probe each is enough):
    - `team action='run'` sync (fast-fix, trivial goal) — proves sync run + child-pi spawn + provider-extension loading
@@ -531,6 +531,8 @@ If the two md5s match → session is on the latest code. If not → user must `/
    - `steer_subagent` while a background subagent runs — proves live steering (timing-sensitive; was listed under 9c, but it is the canonical name now — `crew_agent_steer` is the alias)
 3. **9b-W. Worker-tool paths** (cost tokens — proven via goal text that instructs the worker to call the tool; one probe each):
    - **ask round-trip**: goal says "use the `ask` tool to ask the parent <question>, wait for the reply". Proves `wait.request` → park → `team action='respond'` → pickup. **The gate `broker.waitMethodsEnabled` defaulted to `false` until 2026-08-26 (`ceb9a68d` flipped it) — ask slept silently for weeks while every wait.request was rejected `policy-disabled`.** If a worker "answers its own question" instead of asking, the gate or the prompt guidance regressed. Rejections are never silent: a `policy.action` event lands in `events.jsonl`.
+     - **Leader turn latency > ask deadline → false timeout.** Default `ASK_TIMEOUT_SEC_DEFAULT = 480s`, and the effective value is clamped to `ASK_TIMEOUT_SEC_CEILING = 480s` (`prompt-runtime.ts:305-313,718`) — a model-supplied `timeoutSec: 900` is silently clamped to 480 (the typebox schema advertises `max 3600`, but that max is never used for the clamp; only the broker accepts up to 3600). If the orchestrator session's own turn latency (ambient notifications, long tool calls) exceeds the deadline, the worker times out before the leader's `respond` runs. **Fix: answer from a DETACHED responder**, not from the agent turn — a small node watcher that polls `events.jsonl` for `ask.requested`, then appends a `kind:"response"` line (with the exact `questionId`) to `<runDir>/mailbox/inbox.jsonl` (the file `findAskResponse` reads). It answers in ~250ms regardless of turn latency. A working reference is `/tmp/ask-responder.mjs` (mkdir -p the mailbox dir first — a run that has never had a mailbox has NO `mailbox/` dir yet; the PRODUCT writer `appendMailboxMessage`→`ensureRunMailbox` creates it, but a raw probe append does not).
+     - **`ask.answered` alone does NOT prove the leader replied.** The worker's own `resolvePark` emits `ask.answered` ("…answered; task resumed.") on EVERY terminal path incl. timeout. The discriminator: a LEADER answer (`respond.ts:241`) carries `data.delivery` (`"mailbox"` or `"requeue"`); the self-resolve from `crew-broker.ts:1973` carries only `{questionId}`. Grep the payload before claiming a round-trip. Proof of a real round-trip = the worker's result contains the answer wrapped in `<dependency-context>` (`renderAskAnswer`).
    - **message notify**: goal says "use the `message` tool to notify the parent when done". Proves `msg.send` (non-blocking) + the broker `from`-override (anti-spoof) + the wake pattern on the orchestrator session. Rate-limit 10 msg/60s per worker — a burst probe should hit the limit, not hang.
    - **message DM/group**: goal says "DM task `<sibling taskId>` / send to group `x`" — proves `to:` routing + inbox pickup (delivered as fenced `<inbox-message>` DATA, not instructions).
    - **delegate nesting**: goal says "use the `delegate` tool to spawn a child agent". Proves the role gate is open for every role (D8, default-on), the depth cap (`nesting.maxDepth: 4` — a depth-5 attempt must reject with the structured policy message + `delegate.rejected` event, never silently), and the nested-slot budget. Kill switch: `nesting.enabled: false` in **user** config only (sensitive — project config cannot flip it).
@@ -543,10 +545,10 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 **9c. Lifecycle / recovery** (needs a *running* run — start an async run, then exercise these against its runId):
 - `team action='wait' runId='...'` — block until completion
-- `team action='steer' runId='...' message='...'` — inject a steering note mid-run
+- `team action='steer' runId='...' taskId='...' message='...'` — inject a steering note mid-run (**all three params required**; omitting taskId → "steer requires runId, taskId, and message")
 - `team action='status' runId='...' details=true` — full dump mid-run
 - `team action='cache' subAction='...' runId='...'` — snapshot cache ops
-- `team action='checkpoint' runId='...'` — state checkpoint
+- `team action='checkpoint' runId='...' taskId='...'` — state checkpoint (**taskId required** → "Checkpoint requires runId and taskId.")
 - `team action='cancel' runId='...'` — ⚠️ destructive (kills the run); use a throwaway run
 - `team action='invalidate' runId='...'` — cache invalidation
 - `team action='resume' runId='...'` / `retry` — resume a completed/failed run
@@ -1095,6 +1097,9 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | Catalog PNG shows `□` / dashed rails | the render font lacks the glyph (braille spinner, `⟳ ⏰ ⎿`) or `line-height > font-size` | Re-run with the coverage self-check in `render_png.py`; keep the substitution map up to date; set `LH = FS`. |
 | `Test runner error: spawnSync … ETIMEDOUT` mid-suite | the runner's own spawn deadline hit under load (a real test spawns node children); deadline is **1500s since 2026-09-17** (900s before) | Re-run in the foreground with nothing else heavy running; a truncated log is not a verdict. If it repeats on one file, run that file alone. On a loaded box you may raise `PI_CREW_TEST_RUNNER_TIMEOUT_MS` — but note the run now exits non-zero (fail-closed, F05), so a wrapper green is trustworthy |
 | Guidance / `team action='list'` shows an agent description as `>` or missing When-NOT text | Folded-scalar frontmatter (`description: >`) — the line-based parser reads `>` literally (CONTEXT.md Flagged #4) | Restore the single-line value (double-quote it if it contains `": "`); re-run the Tier 12b dual-parse probe |
+| Worker's `ask` always times out though the orchestrator *did* answer | Orchestrator turn latency (ambient notifications, a long tool call) exceeded the ask deadline — the reply lands after the park expired. Deadline is `min(max(1, timeoutSec), 480)`s and `timeoutSec: 900` is **silently clamped to 480** (`prompt-runtime.ts:718`; schema advertises max 3600, never used) | Answer from a DETACHED watcher that appends `kind:"response"` + the exact `questionId` to `<runDir>/mailbox/inbox.jsonl` (mkdir -p first — an untouched run has no `mailbox/` yet), not from the agent turn. See Tier 9b-W ask recipe |
+| `ask.answered` in `events.jsonl` but the worker result still says timed out | The worker's own `resolvePark` emits `ask.answered` on every terminal path (incl. timeout) — it is not a leader reply. Discriminator: leader answers carry `data.delivery` (`respond.ts:241`); the self-resolve (`crew-broker.ts:1973`) carries only `{questionId}` | Grep the `ask.answered` payload for `data.delivery`; a real round-trip shows the answer inside `<dependency-context>` in `results/<taskId>.txt` |
+| Parked task + `manifest.waitState` set but no `mailbox/` dir in the run | Expected on a run whose workers never used mailbox/ask before — the dir is created lazily by the product writer (`appendMailboxMessage`→`ensureRunMailbox`), not at run creation | Not a bug. A raw probe append must `mkdir -p` itself |
 
 ## Performance budget (per-tier soft limits)
 
@@ -1308,7 +1313,7 @@ md5sum dist/index.mjs
 md5sum "$(npm root -g)"/pi-crew/dist/index.mjs 2>/dev/null \
   || md5sum ../node_modules/pi-crew/dist/index.mjs
 # Tier 9 (feature battery — from parent Pi session, tool calls not shell)
-#   read-only: team action=list / recommend / health / doctor / status / events / summary / get / explain / worktrees / settings
+#   read-only: team action=list / recommend / health / doctor / status / events / summary / get / explain / worktrees / graph / search goal='...' / settings
 #   spawn:     team action=run (sync) ; team action=run async=true ; team action=run chain='"A" -> "B"'
 #              Agent (direct) ; crew_agent run_in_background=true + get_subagent_result ; steer_subagent
 #   worker tools (goal-text probes): ask round-trip ; message notify/DM/group ; delegate nesting (depth-cap reject)
