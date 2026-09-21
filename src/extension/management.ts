@@ -175,22 +175,27 @@ function findResource(ctx: ManagementContext, resource: "agent" | "team" | "work
 	const sourceMatches = (item: { name: string; source: ResourceSource }) =>
 		(scope === "user" || scope === "project" ? item.source === scope : item.source !== "builtin") && item.name === normalized;
 	// Search in the correct scope array directly to avoid allAgents shadowing issue.
+	// Tier 9e (2026-09-21): the DEFAULT pool must include PROJECT resources —
+	// the error message already promises "mutable user/project scopes", but the
+	// pool was `[...builtin, ...user]` and `sourceMatches` then drops every
+	// builtin entry, degenerating the default to USER ONLY. A project resource
+	// was invisible unless the caller guessed scope:'project'.
 	if (resource === "agent") {
 		const discovery = discoverAgents(ctx.cwd);
 		const pool =
-			scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.builtin, ...discovery.user];
+			scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.user, ...discovery.project];
 		return pool.filter(sourceMatches);
 	}
 	if (resource === "team") {
 		const discovery = discoverTeams(ctx.cwd);
 		const pool =
-			scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.builtin, ...discovery.user];
+			scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.user, ...discovery.project];
 		return pool.filter(sourceMatches);
 	}
 	{
 		const discovery = discoverWorkflows(ctx.cwd);
 		const pool =
-			scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.builtin, ...discovery.user];
+			scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.user, ...discovery.project];
 		return pool.filter(sourceMatches);
 	}
 }

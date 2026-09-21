@@ -23207,8 +23207,11 @@ function renderAgentsPane(snapshot, options = {}) {
         stats.push(liveHandle.modelName);
       }
     } else if (agent.startedAt) {
-      const ms = nowMs3 - new Date(agent.startedAt).getTime();
-      if (Number.isFinite(ms)) stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
+      const startedMs = new Date(agent.startedAt).getTime();
+      const rawCompleted = agent.completedAt ? new Date(agent.completedAt).getTime() : Number.NaN;
+      const completedMs = Number.isFinite(rawCompleted) && rawCompleted >= startedMs && rawCompleted <= nowMs3 ? rawCompleted : nowMs3;
+      const ms = completedMs - startedMs;
+      if (Number.isFinite(ms) && ms >= 0) stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
     }
     const statsStr = stats.length ? ` \xB7 ${stats.join(" ")}` : "";
     lines.push(`  ${icon} ${agent.taskId ?? "?"} ${role}${statsStr}`);
@@ -58543,17 +58546,17 @@ function findResource(ctx, resource, name, scope) {
   const sourceMatches = (item) => (scope === "user" || scope === "project" ? item.source === scope : item.source !== "builtin") && item.name === normalized;
   if (resource === "agent") {
     const discovery = discoverAgents(ctx.cwd);
-    const pool = scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.builtin, ...discovery.user];
+    const pool = scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.user, ...discovery.project];
     return pool.filter(sourceMatches);
   }
   if (resource === "team") {
     const discovery = discoverTeams(ctx.cwd);
-    const pool = scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.builtin, ...discovery.user];
+    const pool = scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.user, ...discovery.project];
     return pool.filter(sourceMatches);
   }
   {
     const discovery = discoverWorkflows(ctx.cwd);
-    const pool = scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.builtin, ...discovery.user];
+    const pool = scope === "user" ? discovery.user : scope === "project" ? discovery.project : [...discovery.user, ...discovery.project];
     return pool.filter(sourceMatches);
   }
 }

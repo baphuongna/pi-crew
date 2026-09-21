@@ -7822,7 +7822,7 @@
       "format": "esm"
     },
     "src/ui/dashboard-panes/agents-pane.ts": {
-      "bytes": 8455,
+      "bytes": 9181,
       "imports": [
         {
           "path": "src/runtime/live-session/live-agent-manager.ts",
@@ -14694,7 +14694,7 @@
       "format": "esm"
     },
     "src/extension/management.ts": {
-      "bytes": 24309,
+      "bytes": 24731,
       "imports": [
         {
           "path": "node:crypto",
@@ -21589,7 +21589,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8314321
+      "bytes": 8315750
     },
     "dist/index.mjs": {
       "imports": [
@@ -24505,7 +24505,7 @@
           "bytesInOutput": 181
         },
         "src/ui/dashboard-panes/agents-pane.ts": {
-          "bytesInOutput": 4986
+          "bytesInOutput": 5272
         },
         "src/ui/dashboard-panes/schedules-pane.ts": {
           "bytesInOutput": 4188
@@ -25927,7 +25927,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3440724
+      "bytes": 3441010
     }
   }
 }

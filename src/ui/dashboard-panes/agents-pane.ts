@@ -178,8 +178,17 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 				stats.push(liveHandle.modelName);
 			}
 		} else if (agent.startedAt) {
-			const ms = nowMs - new Date(agent.startedAt).getTime();
-			if (Number.isFinite(ms)) stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
+			// Tier 13 (2026-09-21): a FINISHED agent's span must end at completedAt,
+			// never at the wall clock. The naive `nowMs - startedAt` made every
+			// completed agent of an old run inflate forever — the dashboard showed
+			// `01_explore … 29m39s` while the tool card showed the real `8m22s` for
+			// the same agent. Mirror computeLiveDurationMs: prefer a sane completedAt,
+			// else fall back to now; never emit a negative or absurd span.
+			const startedMs = new Date(agent.startedAt).getTime();
+			const rawCompleted = agent.completedAt ? new Date(agent.completedAt).getTime() : Number.NaN;
+			const completedMs = Number.isFinite(rawCompleted) && rawCompleted >= startedMs && rawCompleted <= nowMs ? rawCompleted : nowMs;
+			const ms = completedMs - startedMs;
+			if (Number.isFinite(ms) && ms >= 0) stats.push(alignMetric(formatDuration(ms), DURATION_METRIC_WIDTH));
 		}
 
 		const statsStr = stats.length ? ` · ${stats.join(" ")}` : "";
