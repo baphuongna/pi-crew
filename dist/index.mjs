@@ -19996,13 +19996,18 @@ function parseIntervalMs(s) {
   let ms = 0;
   let remaining = s;
   const unitMs = {
+    // "ms" MUST be first in the regex alternation below and present here:
+    // handle-schedule builds `${params.interval}ms` from the numeric interval
+    // param, so without an ms unit every interval schedule failed to parse
+    // (found live 2026-09-21 — `interval=3600000` was unsatisfiable).
+    ms: 1,
     s: 1e3,
     m: 6e4,
     h: 36e5,
     d: 864e5
   };
   while (remaining.length > 0) {
-    const m = remaining.match(/^(\d+)(s|m|h|d)/);
+    const m = remaining.match(/^(\d+)(ms|s|m|h|d)/);
     if (!m) return void 0;
     ms += parseInt(m[1], 10) * unitMs[m[2]];
     remaining = remaining.slice(m[0].length);
@@ -20362,9 +20367,9 @@ var init_scheduler = __esm({
             normalized: new Date(Date.now() + ms).toISOString()
           };
         }
-        const ivl = trimmed.match(/^(\d+)(s|m|h|d)$/);
+        const ivl = trimmed.match(/^(\d+)(ms|s|m|h|d)$/);
         if (ivl) {
-          const ms = parseInt(ivl[1], 10) * { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[ivl[2]];
+          const ms = parseInt(ivl[1], 10) * { ms: 1, s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[ivl[2]];
           return { type: "interval", intervalMs: ms, normalized: trimmed };
         }
         if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
@@ -30500,13 +30505,20 @@ var init_team_tool_schema = __esm({
         // Empty-string unset marker accepted (Tier-9: models emit "" when unset).
         // 0 accepted as "unset/disabled" (models emit 0 for off); still rejects 1-999
         // as the MISCONFIGURATION GUARD against typo'd silent-abort configs.
+        // Stringified numbers accepted (same pi-ai coercion the sibling budget
+        // params handle): this Union has a Literal("") branch, so pi-ai stringifies
+        // numeric arguments (budgetTotal: 100000 → "100000") and the call died at
+        // schema validation before any coercion could run — found live 2026-09-21
+        // when `team action='goal' budgetTotal=100000` was rejected. Coerced back
+        // to a number by normalizeLooseNumericFields before handlers run.
         Type.Union(
           [
             Type.Literal(""),
             Type.Literal(0),
             Type.Number({
               minimum: 1e3
-            })
+            }),
+            Type.String({ pattern: NUMERIC_STRING_RE })
           ],
           {
             description: "Total token budget for the run. When set, enables budget tracking with default 80% warning and 95% abort thresholds. Minimum 1000 \u2014 this is a MISCONFIGURATION GUARD (catches typos / silent-abort configs like budgetTotal:1, which would abort on turn 1), NOT a usefulness guarantee; a productive multi-turn goal needs far more than 1000 tokens. 0 = unset."
@@ -73492,6 +73504,7 @@ __export(team_tool_exports, {
   installCrewGlobalRegistry: () => installCrewGlobalRegistry,
   locateRunCwd: () => locateRunCwd,
   locateRunCwdUncached: () => locateRunCwdUncached,
+  normalizeLooseNumericFields: () => normalizeLooseNumericFields,
   registerCrewGlobalRegistry: () => registerCrewGlobalRegistry,
   uninstallCrewGlobalRegistry: () => uninstallCrewGlobalRegistry
 });
@@ -74137,7 +74150,7 @@ var init_team_tool2 = __esm({
     init_orchestrate();
     init_plan();
     init_status();
-    LOOSE_NUMERIC_PARAM_KEYS = ["interval", "budgetWarning", "budgetAbort", "tokenBudget", "replyDeadline"];
+    LOOSE_NUMERIC_PARAM_KEYS = ["interval", "budgetWarning", "budgetAbort", "tokenBudget", "replyDeadline", "budgetTotal"];
     MAX_SCAN_ENTRIES = 1e3;
     SKIP_SCAN_DIRS = /* @__PURE__ */ new Set(["node_modules", ".git", ".npm", ".cache", ".local", "proc", "sys", "dev", "Library", "Applications"]);
     runCwdCache = /* @__PURE__ */ new Map();

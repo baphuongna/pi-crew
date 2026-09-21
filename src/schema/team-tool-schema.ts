@@ -277,6 +277,12 @@ const sharedFields = {
 		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
 		// 0 accepted as "unset/disabled" (models emit 0 for off); still rejects 1-999
 		// as the MISCONFIGURATION GUARD against typo'd silent-abort configs.
+		// Stringified numbers accepted (same pi-ai coercion the sibling budget
+		// params handle): this Union has a Literal("") branch, so pi-ai stringifies
+		// numeric arguments (budgetTotal: 100000 → "100000") and the call died at
+		// schema validation before any coercion could run — found live 2026-09-21
+		// when `team action='goal' budgetTotal=100000` was rejected. Coerced back
+		// to a number by normalizeLooseNumericFields before handlers run.
 		Type.Union(
 			[
 				Type.Literal(""),
@@ -284,6 +290,7 @@ const sharedFields = {
 				Type.Number({
 					minimum: 1000,
 				}),
+				Type.String({ pattern: NUMERIC_STRING_RE }),
 			],
 			{
 				description:

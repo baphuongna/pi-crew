@@ -107,6 +107,18 @@ export function createWorkerEventsChannel(options: WorkerEventsChannelOptions = 
 	const write = (item: { type: string; data: Record<string, unknown>; droppedSinceLast: number }): boolean => {
 		try {
 			appendEvent(eventsPath as string, {
+				// TeamEvent contract: `time` (ISO string) is REQUIRED — the import
+				// bundle validator (run-bundle-schema.ts validateEvent) rejects the
+				// whole bundle when any event lacks it, and event readers sort by it.
+				// The channel's default appender is a raw O_APPEND writer (NOT
+				// event-log.ts appendEvent, which stamps time itself), so the stamp
+				// must happen HERE — once, at the single choke point both emit()
+				// and emitTerminal() pass through. Found live 2026-09-21: every
+				// worker.started/completed of a tmux-surface run was written
+				// time-less, and exporting that run produced an un-importable bundle
+				// ("events[i].time must be a string"). Uses the injected clock so
+				// tests stay deterministic.
+				time: new Date(now()).toISOString(),
 				type: item.type,
 				runId,
 				taskId,

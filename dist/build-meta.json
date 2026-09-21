@@ -7520,7 +7520,7 @@
       "format": "esm"
     },
     "src/runtime/scheduling/scheduler.ts": {
-      "bytes": 17004,
+      "bytes": 17676,
       "imports": [],
       "format": "esm"
     },
@@ -8959,7 +8959,7 @@
       "format": "esm"
     },
     "src/schema/team-tool-schema.ts": {
-      "bytes": 24795,
+      "bytes": 25301,
       "imports": [
         {
           "path": "node_modules/@sinclair/typebox/build/esm/index.mjs",
@@ -12749,7 +12749,7 @@
       "format": "esm"
     },
     "src/prompt/worker-events-channel.ts": {
-      "bytes": 8378,
+      "bytes": 9167,
       "imports": [
         {
           "path": "node:fs",
@@ -14694,7 +14694,7 @@
       "format": "esm"
     },
     "src/extension/management.ts": {
-      "bytes": 24731,
+      "bytes": 24677,
       "imports": [
         {
           "path": "node:crypto",
@@ -17979,7 +17979,7 @@
       "format": "esm"
     },
     "src/extension/team-tool.ts": {
-      "bytes": 37888,
+      "bytes": 37910,
       "imports": [
         {
           "path": "node:fs",
@@ -21589,7 +21589,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8315750
+      "bytes": 8317899
     },
     "dist/index.mjs": {
       "imports": [
@@ -24439,7 +24439,7 @@
           "bytesInOutput": 16179
         },
         "src/runtime/scheduling/scheduler.ts": {
-          "bytesInOutput": 14487
+          "bytesInOutput": 14814
         },
         "src/runtime/settings-store.ts": {
           "bytesInOutput": 7777
@@ -24622,7 +24622,7 @@
           "bytesInOutput": 12682
         },
         "src/schema/team-tool-schema.ts": {
-          "bytesInOutput": 17088
+          "bytesInOutput": 17638
         },
         "src/extension/action-suggestions.ts": {
           "bytesInOutput": 749
@@ -25588,7 +25588,7 @@
           "bytesInOutput": 27860
         },
         "src/extension/team-tool.ts": {
-          "bytesInOutput": 27443
+          "bytesInOutput": 27524
         },
         "src/ui/run-action-dispatcher.ts": {
           "bytesInOutput": 4146
@@ -25927,7 +25927,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3441010
+      "bytes": 3441968
     }
   }
 }

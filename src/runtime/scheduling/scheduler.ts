@@ -297,10 +297,14 @@ export class CrewScheduler {
 				normalized: new Date(Date.now() + ms).toISOString(),
 			};
 		}
-		// Interval: 5m
-		const ivl = trimmed.match(/^(\d+)(s|m|h|d)$/);
+		// Interval: 5m — "ms" MUST be accepted: handle-schedule builds
+		// `${params.interval}ms` from the schema-level numeric `interval` param
+		// (ms number), so without an ms unit here every interval schedule died in
+		// the parser ("Invalid schedule …") — found live 2026-09-21 when
+		// `team action='schedule' interval=3600000` was impossible to satisfy.
+		const ivl = trimmed.match(/^(\d+)(ms|s|m|h|d)$/);
 		if (ivl) {
-			const ms = parseInt(ivl[1], 10) * { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[ivl[2] as "s" | "m" | "h" | "d"];
+			const ms = parseInt(ivl[1], 10) * { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[ivl[2] as "ms" | "s" | "m" | "h" | "d"];
 			return { type: "interval", intervalMs: ms, normalized: trimmed };
 		}
 		// ISO timestamp
@@ -329,13 +333,18 @@ function parseIntervalMs(s: string): number | undefined {
 	let ms = 0;
 	let remaining = s;
 	const unitMs: Record<string, number> = {
+		// "ms" MUST be first in the regex alternation below and present here:
+		// handle-schedule builds `${params.interval}ms` from the numeric interval
+		// param, so without an ms unit every interval schedule failed to parse
+		// (found live 2026-09-21 — `interval=3600000` was unsatisfiable).
+		ms: 1,
 		s: 1000,
 		m: 60_000,
 		h: 3_600_000,
 		d: 86_400_000,
 	};
 	while (remaining.length > 0) {
-		const m = remaining.match(/^(\d+)(s|m|h|d)/);
+		const m = remaining.match(/^(\d+)(ms|s|m|h|d)/);
 		if (!m) return undefined;
 		ms += parseInt(m[1], 10) * unitMs[m[2]];
 		remaining = remaining.slice(m[0].length);

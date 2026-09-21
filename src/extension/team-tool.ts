@@ -191,9 +191,9 @@ function artifactKey(artifact: ArtifactDescriptor): string {
  *  passes) but handlers expect real numbers (TeamToolParamsValue types them as
  *  number). This converts the string form back to a number — and treats "" as
  *  unset (deleted) — before any domain router reads the param. */
-const LOOSE_NUMERIC_PARAM_KEYS = ["interval", "budgetWarning", "budgetAbort", "tokenBudget", "replyDeadline"] as const;
+const LOOSE_NUMERIC_PARAM_KEYS = ["interval", "budgetWarning", "budgetAbort", "tokenBudget", "replyDeadline", "budgetTotal"] as const;
 
-function normalizeLooseNumericFields(params: TeamToolParamsValue): TeamToolParamsValue {
+export function normalizeLooseNumericFields(params: TeamToolParamsValue): TeamToolParamsValue {
 	let mutated = false;
 	const out: Record<string, unknown> = { ...params };
 	for (const key of LOOSE_NUMERIC_PARAM_KEYS) {
