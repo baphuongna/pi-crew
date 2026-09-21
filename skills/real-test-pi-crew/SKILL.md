@@ -89,6 +89,10 @@ End-to-end verification discipline for pi-crew changes. Distilled from the broke
 > **2026-09-20 update (RR-010..020 wave, commits `864353b3` RR-010..014 + `fa140d24` RR-015..019 + `afd8782d` RR-020)**: RR-020 hardened the run-state layer — symlink defense via `existsSymlinkFreePath()` walking EVERY path component (`RUN_STATE_LAYOUT_SEGMENTS`), new jiti-safe `utils/project-markers.ts`, `crew-init` realpath-start + home/tmp boundary stop, ALL stale-reconciler run loops (incl. the two pre-deletion gates) on `readdirSync({withFileTypes:true})` + `Dirent.isDirectory()` (E1: quarantine-rename could previously write OUTSIDE the scanned tree through a symlinked `runs/<id>`), health-monitor Dirent-guarded + raw `JSON.parse` manifest reads (no quarantine path) + `readRunTasks` only on trusted `listRuns` roots, no-op writer gating (metric-sink on crewRoot existence; appendPruneAudit bails when root missing), `.pi/teams` keybinding override, `stableIOCacheKey` goal `?? ""`, event-log cursor omits `nextByteOffset` on limit-truncated delta, shadow discriminator `stepId === undefined`. 5 verification rounds incl. cold-verifier subagents + mutation checks (~17/18 caught). New pinned suites: `run-state-layout-parity` (14), `no-op-writers-no-crew-root` (8), `project-markers-parity` (7), `keybinding-map-override` (8), `shadow-task-dag-readiness` (7), `prompt-builder-cache-goal` (3), `event-log-cursor-limit-continuation` (3). **Worker-watchdog RCA (proven end-to-end, run `team_20260919150900_6af9ee2bcd57a7f3`)**: the 600s no-response watchdog (`child-pi-timers.ts` noResponseTimer) resets ONLY on child-Pi pipe data (stdout `child-pi.ts:1008` AND stderr `:1029`); pi's bash tool emits a `tool_execution_update` per output chunk (100ms throttle — `tools/bash.js` → `pi-agent-core/agent-loop.js` → print-mode `writeRawStdout`) so a STREAMING command keeps the worker alive indefinitely, while `| tail` / `| head` / `> file` buffering converts a chatty 12-min suite into guaranteed silence → `worker.response_timeout` "No output for 600000ms" at exactly cmd_start+600s → SIGTERM → exit 143 (pi's print-mode SIGTERM handler exits 143 itself). Genuinely-silent >600s commands (sleep, quiet build) die unpiped too. Suite anchors @ 2026-09-20: unit **8050 pass / 0 fail / 3 skipped** (874 files, ~11-12 min), integration **134 tests / 130 pass / 4 skipped** (15 suites, ~150s), `test:critical` **116** (~21s), bundle **3360.1 KB** md5 `2f45df91ed0580ee5bb5b9b57a8a8c3f` (`--committed-hash` OK).
 
 > **2026-09-21 update (F-L2 — steer boot-window loss, found by the live feature battery)**: a steer written to `<artifactsRoot>/steering/<taskId>.jsonl` while the worker extension is still LOADING was silently lost forever — `registerPiTeamsPromptRuntime` starts the file poll at load time, pi's loader gates action methods until bind (`sendMessage: notInitialized` THROWS), and the old poll advanced `lastOffset` to `stat.size` BEFORE the line loop while its per-line catch swallowed the throw as "malformed line" (run `team_20260921035840`, root-caused by watcher-driven bisection probes R7-R9: +0.65s post-boot = lost, +2.5s+ = delivered). Fix (`src/prompt/prompt-runtime.ts`): walk the buffer by byte offset, advance only past terminal verdicts (delivered/non-steer/rejected/malformed), rewind to the failing line on a DELIVERY failure, `createSeenSteerIdSet.unmark()` releases the dedup id so the retry is not skipped. Regression suite `test/unit/prompt/prompt-runtime-steer-boot-window.test.ts` (4 tests) — mutation-checked both layers (offset-revert → 4 fail; unmark-removal → exactly the id-bearing test fails). Note: `dist/index.mjs` is UNCHANGED by this fix — child workers load prompt-runtime from the SOURCE path (`pi-args.ts PROMPT_RUNTIME_EXTENSION_PATH`), so the fix is live without a bundle bump.
+>
+> **F-L2 live re-verification (post-restart, 2026-09-21 afternoon)** — two independent proofs: (a) **lab**: pre-write the steer, then `PI_CREW_STEERING_FILE=<file> pi --extension <repo>/src/prompt/prompt-runtime.ts -p '<long task>'` — stderr shows `[pi-crew:prompt-runtime.steer-delivery-failed] Extension runtime not initialized…` ×2 (pre-bind ticks now LOGGED instead of swallowed) then the post-bind tick delivers and the model complies; (b) **real team run**: watcher writes at **+0.51s** after the steering dir appears (the previously-lost window) → worker session log gains the `custom_message` and the probe token lands in `results/<taskId>.txt`. Suite anchors @ 2026-09-21 (post-fix): unit **8006 tests / 8003 pass / 0 fail / 3 skipped** (875 files; 1088s under load), integration **134 / 130 pass / 4 skipped**, `test:critical` **116**, bundle **3360.1 KB** md5 `2f45df91ed0580ee5bb5b9b57a8a8c3f` (UNCHANGED — see the source-path note above).
+>
+> **Steering channel filename is RUN-KIND-DEPENDENT — the #1 way to fake a failure** (cost this session a full false-negative investigation): **team workflow runs** poll `<artifactsRoot>/steering/<taskId>.jsonl` (`child-executor.ts:562` → env `PI_CREW_STEERING_FILE` → `prompt-runtime.ts:855`), e.g. `01_assess.jsonl`, `adaptive-01-executor.jsonl`; **crew_agent / direct subagent runs** use the agent-slot name `<slot>-agent.jsonl` (e.g. `01_01-agent.jsonl`). A watcher writing `01_01-agent.jsonl` into a team run's steering dir writes a file **no component reads** (0-byte `<taskId>.jsonl` sits untouched, the phantom file accumulates bytes) — it looks exactly like the boot-window loss but is a probe bug. Always derive the name from the run kind, or write every `*.jsonl` present in the dir (see Tier 9g).
 
 ## Core principle: disk ≠ live Pi
 
@@ -181,7 +185,7 @@ To add Tier 1 to CI as a fast-feedback gate (under 30s):
 
 **What**: run the curated 14-file fast subset.
 
-**Why this exists**: full `npm run test:unit` runs 874 files (was 642 at skill-writing time — it keeps growing), several minutes. Verifier worker response timeout would kill the worker mid-run → run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
+**Why this exists**: full `npm run test:unit` runs 875 files (was 642 at skill-writing time — it keeps growing), several minutes. Verifier worker response timeout would kill the worker mid-run → run = "hang". The fix (introduced in commit `1cb2dca`) splits out a `test:critical` subset covering exactly what changed in the broker/UI work.
 
 **How**:
 
@@ -416,7 +420,7 @@ else:
 
 **What**: prove the verifier worker completes within `RESPONSE_TIMEOUT_MS` (**600s since the stuck-worker hardening — was 300s when this skill was distilled; `DEFAULT_CHILD_PI.responseTimeoutMs = 10 * 60_000`**).
 
-**Why this is its own tier**: `test:critical` covers unit-level invariants, but the verifier LLM is a separate failure mode — it reads the verifier prompt from `src/runtime/goal-workflow/plan-templates.ts:144, 147` (taskTemplate strings) or from `workflows/*.workflow.md` (workflow verifier sections), then decides which bash command to run. If the prompt says "Run tests" without specifying which, the LLM runs `npm test` (823 files) and the worker gets killed by the response timeout with exit 143.
+**Why this is its own tier**: `test:critical` covers unit-level invariants, but the verifier LLM is a separate failure mode — it reads the verifier prompt from `src/runtime/goal-workflow/plan-templates.ts:144, 147` (taskTemplate strings) or from `workflows/*.workflow.md` (workflow verifier sections), then decides which bash command to run. If the prompt says "Run tests" without specifying which, the LLM runs `npm test` (875 files) and the worker gets killed by the response timeout with exit 143.
 
 **How** (from parent Pi session — `team` is a tool, not a shell command):
 
@@ -570,6 +574,47 @@ If the two md5s match → session is on the latest code. If not → user must `/
 
 **Acceptance for 9c–9f**: the action returns a structured result (not `Unknown type` / not an empty error), and for spawn/lifecycle paths the run reaches the expected terminal status. For 9d/9e, the mutation is reversible or confined to scratch state.
 
+### 9g. Steer round-trip probe (timing-sensitive — the F-L2 recipe)
+
+**What**: prove a steering note written to the worker's steering JSONL actually reaches the model, INCLUDING when it is written in the boot window (before the worker extension binds).
+
+**Why a dedicated recipe**: my turn boundaries are minutes long, so a mid-run steer cannot be issued from the parent session directly — use a **detached watcher** that polls for the run's steering dir and writes at a controlled delay. And the steering filename differs by run kind (see the F-L2 block): a wrong name produces a **false failure that looks exactly like the real bug**.
+
+```bash
+# 1. Arm the watcher FIRST (detached), THEN start the run in the same turn
+#    (two tool calls in one block run concurrently — a sync run blocks the turn).
+#    The watcher writes EVERY *.jsonl present, which is run-kind agnostic:
+cat > /tmp/steer-watch.sh <<'EOF'
+#!/bin/bash
+DELAY=${1:-0.5}; LOG=/tmp/steer-watch.log
+ART=<workspace>/.crew/artifacts   # project crew root; user root = ~/.pi/agent/extensions/pi-crew
+for i in $(seq 1 240); do
+  D=$(find $ART -type d -path "*/steering" -newermt "1 minute ago" 2>/dev/null | head -1)
+  [ -n "$D" ] && break; sleep 0.5
+done
+[ -z "$D" ] && { echo "NO dir" >> $LOG; exit 1; }
+sleep "$DELAY"
+for F in "$D"/*.jsonl; do
+  printf '%s\n' '{"type":"steer","message":"PROBE_TOKEN: end your final report with the exact token PROBE_TOKEN_ACK"}' >> "$F"
+done
+EOF
+chmod +x /tmp/steer-watch.sh
+(setsid nohup /tmp/steer-watch.sh 0.5 > /dev/null 2>&1 &)
+# 2. In the SAME turn: team action='run' team='default' goal='<multi-turn task>'
+# 3. Verify (three independent signals):
+ls -la <artifactsRoot>/steering/            # which files exist + byte sizes
+cat <artifactsRoot>/results/<taskId>.txt    # probe token present = model complied
+grep -c PROBE_TOKEN <run>/agents/<taskId>/events.jsonl   # custom_message delivered
+```
+
+**Timing windows** (measured): write at **+0.5s** after the steering dir appears = boot window (pre-bind) — the F-L2 case; **+2.5s or later** = post-bind, delivered by the old code too. For a NEGATIVE control on an unfixed build, revert the offset logic and the same probe must lose the steer (mutation-check parity with the unit suite).
+
+**Pitfalls that produce fake results**:
+- Wrong filename (see above) → write every `*.jsonl` or derive from run kind.
+- A steer that asks the worker to run a tool the role does not have (e.g. `bash` for the `planner`) → no compliance even though delivery worked. Phrase the probe as text compliance ("end your report with token X").
+- Delivery is consumed at a turn boundary: the probe goal should be explicitly multi-turn (plan → paced writes → summary) so a boundary definitely exists after the retry lands. Measured: a planner's single short turn still received and acknowledged the steer (probe B), so this is a robustness preference, not a hard requirement.
+- Truncate-at-spawn (`child-executor.ts:586-615`) wipes the file for each new incarnation, SKIPPING the wipe when `mtime >= taskDispatchStartedAtMs - 1` (the `racedSteerArrived` guard) — a steer written after dispatch survives; verify with `ls -la` (non-zero bytes = survived).
+
 ---
 
 ## Tier 10 — Surface-mode battery (MuxSurface A1, workers in real panes)
@@ -669,7 +714,7 @@ grep -n "Log the event first" src/runtime/recovery/crash-recovery.ts   # design 
 # 3. buffered-site census — snapshot & audit:
 grep -rln "appendEventBuffered" src/ | wc -l   # 16 files / ~70 raw matches (incl. imports+definition) at v0.10.5; audited live conversions = 43; EVERY new site needs the reader-audit
 # 4. the full gate — test:critical has NO stores/dwf/recovery coverage:
-npm run test:unit    # 874 files, ~8050 tests, ~11-12 min (670-730s measured 2026-09-20) — MANDATORY after any delayed-write conversion program
+npm run test:unit    # 875 files, ~8006 tests, ~11-12 min (670-730s measured 2026-09-20; 1088s under load 2026-09-21) — MANDATORY after any delayed-write conversion program
 ```
 
 ### 11b. wc-gate enforcement (M4 done-gate)
@@ -1038,6 +1083,8 @@ When a tier fails, the recovery is usually quick. Match the symptom to the cause
 | `worker.response_timeout` "No output for 600000ms", exit 143 at exactly cmd_start+600s, worker heartbeat FRESH | Event-silence kill (not a crash): the 600s timer resets only on child-Pi pipe data; the running command emitted no output events for 600s — usually `\| tail`/`\| head`/`> file` buffering, or a genuinely silent command | Unbuffer (stream) or split the command; if buffering stdout, keep `2>&1` OUT of the pipe (stderr chunks still reset the timer); `PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS` for legit silent workloads. Mine `background.log` — the killed worker's findings survive |
 | Ambient "N dead worker(s)" notification for a run that already reached a terminal status | Stale health marker re-firing on a terminal run — no live process behind it | Verify before acting: `ps -p <pid>` (dead), `manifest.status` (failed/done), `exit-code.txt`. Nothing to recover; marker clears via `/team-dashboard → health → K` (kill stale). Never kill a pid on a stale heartbeat alone — check pid + log first |
 | Steer written during worker BOOT never reaches the model (no error, no log; later steers work) | F-L2 (fixed 2026-09-21): poll advanced its offset past an entry whose `pi.sendMessage` threw pre-bind ("not initialized") and the per-line catch ate the throw — one-shot silent loss | Fixed in `prompt-runtime.ts` (offset rewind + dedup unmark); pinned by `prompt-runtime-steer-boot-window.test.ts`. On older builds: re-send the steer after ~5s — a steer that lands post-bind delivers fine |
+| Steer "lost" but the file you wrote is FULL while a 0-byte `<taskId>.jsonl` sits beside it | **Probe bug, not a product bug** — the steering filename depends on run kind: team runs poll `<taskId>.jsonl`, crew_agent/subagent runs use `<slot>-agent.jsonl`; you wrote the wrong channel (no component reads it) | Re-run writing every `*.jsonl` in the steering dir (Tier 9g), or derive the name from the run kind. Cross-check `results/<taskId>.txt` + the worker session's `custom_message` before calling it a loss |
+| Fix verified in unit tests but a live probe still fails | Live path ≠ unit path: wrong filename (above), wrong role/tool for the probe instruction, or the session did not cold-start the changed module | Confirm the loaded artifact (`--extension <path>` resolution for workers is the SOURCE file, so a restart is enough; parent-side needs bundle+restart), then re-run Tier 9g with text-only compliance |
 | Full `test:unit` fails ONLY on `wait-request-broker.test.ts` under parallel load | Per-file 180s runner timeout vs the file's real runtime (passes isolated) | `node scripts/test-runner.mjs test/unit/runtime/broker/wait-request-broker.test.ts` — green in isolation = infra flake, not a regression |
 | `undefined` (or `undefined — …`) painted in a live surface | an optional segment interpolated into a template literal without a guard. **Check BOTH paths**: the pure builder and the component that composes the same row (2026-09-16: `widget-renderer.buildWidgetLines` guarded it, `src/ui/widget/index.ts` did not). | Guard before composing (`if (!x) return [] / return undefined`), add a regression lock that renders the zero-state through the COMPONENT, and sweep every `${optional}` on the surface. |
 | Spinner keeps spinning after the run finished (`⠹ … 0 running`) | the surface hardcodes a spinner frame instead of deriving the glyph from state | Derive it: spinner only while an agent/run is actually running, otherwise the outcome glyph (`✓`/`✗`). Assert in the battery that "0 running" never coexists with a braille glyph. |
@@ -1201,6 +1248,7 @@ Use this to answer "đủ full tính năng chưa?" without re-deriving. Every us
 | Run-state layout + symlink defense (`existsSymlinkFreePath` component walk, Dirent-guarded scans, E1 quarantine-rename fix) | `src/utils/paths.ts`, `src/utils/project-markers.ts`, `src/state/crew-init.ts`, `src/runtime/stale-reconciler.ts`, `src/extension/team-tool/health-monitor.ts` | `test/unit/run-state-layout-parity.test.ts` (14) + `test/unit/utils/project-markers-parity.test.ts` (7) + live `team action='health'` |
 | No-op writer gating (metric-sink crewRoot, prune-audit bail) | `src/observability/metric-sink.ts`, `src/extension/run-maintenance.ts` | `test/unit/extension/no-op-writers-no-crew-root.test.ts` (8) |
 | Worker-dashboard keybinding override (`.pi/teams`) | `src/ui/keybinding-map.ts` | `test/unit/ui/keybinding-map-override.test.ts` (8) |
+| Steer delivery incl. boot window (pre-bind retry) | `src/prompt/prompt-runtime.ts` (poll + `createSeenSteerIdSet.unmark`), `src/runtime/child-pi/child-pi-spawn.ts:283` (env), `src/runtime/task-runner/child-executor.ts:562` (filename) | `prompt-runtime-steer-boot-window.test.ts` (4) + **Tier 9g** live (watcher at +0.5s; lab variant with `PI_CREW_STEERING_FILE` + `pi --extension <repo>/src/prompt/prompt-runtime.ts`) |
 
 ---
 
@@ -1225,6 +1273,7 @@ The skill mentions specific commits, line numbers, and version pins. As the code
 | Verify staleness leak-scan still runs | Each `check-bundle-staleness.mjs` edit | `node scripts/check-bundle-staleness.mjs` after `build:bundle` — exit 0 (staleness + path-leak) |
 | Verify release-smoke peer pins + import gate | Each `release-smoke.mjs` edit / release cut | `node scripts/release-smoke.mjs` — peer install + import + shape checks green |
 | Verify suite anchors + bundle md5 chain | Each release / big wave | Update the anchors line (unit/integration/critical counts + bundle size/md5) — see the 2026-09-17 → 2026-09-20 update blocks; `md5sum dist/index.mjs` + `node scripts/check-bundle-staleness.mjs --committed-hash` |
+| Verify steering channel names + spawn-truncate guard | Each `src/runtime/task-runner/child-executor.ts` / `child-pi-spawn.ts` / `prompt-runtime.ts` edit | `grep -n 'steering.*taskId}.jsonl' src/runtime/task-runner/child-executor.ts` (task-id channel) + `grep -n 'PI_CREW_STEERING_FILE' src/runtime/child-pi/child-pi-spawn.ts` + `grep -n racedSteerArrived src/runtime/task-runner/child-executor.ts` — update Tier 9g if the naming/guard changes |
 
 The skill does NOT need to be updated for every commit — only when the cited lines/files move. Consider it a "living reference" not a "live spec".
 
@@ -1233,7 +1282,7 @@ The skill does NOT need to be updated for every commit — only when the cited l
 ## Quick reference — exact commands
 
 ```bash
-# Tier 1 (critical unit, ~21s, 102 tests)
+# Tier 1 (critical unit, ~21s, 116 tests)
 npm run test:critical
 # Tier 2 (3-path proof, broker changes only)
 PI_CREW_BROKER=0 npm run test:critical
@@ -1263,6 +1312,9 @@ md5sum "$(npm root -g)"/pi-crew/dist/index.mjs 2>/dev/null \
 #   spawn:     team action=run (sync) ; team action=run async=true ; team action=run chain='"A" -> "B"'
 #              Agent (direct) ; crew_agent run_in_background=true + get_subagent_result ; steer_subagent
 #   worker tools (goal-text probes): ask round-trip ; message notify/DM/group ; delegate nesting (depth-cap reject)
+#   steer round-trip (incl. boot window) → Tier 9g: arm a detached watcher writing EVERY *.jsonl at +0.5s, then start the run
+#     verify: results/<taskId>.txt carries the probe token + custom_message in the worker session log
+#     NEVER write a single hardcoded filename — team runs poll <taskId>.jsonl, crew_agent runs <slot>-agent.jsonl
 #   reproduce the two silent schema failures:
 #   node --input-type=module -e "import {Value} from '@sinclair/typebox/value'; import {TeamToolParams} from './src/schema/team-tool-schema.ts'; Value.Check(TeamToolParams, {action:'list', skill:'', config:{}})"  # throws 'Unknown type' = Type.Unsafe-without-Kind bug
 # Tier 10 (surface battery)
