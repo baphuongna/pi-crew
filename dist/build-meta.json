@@ -12806,7 +12806,7 @@
       "format": "esm"
     },
     "src/prompt/prompt-runtime.ts": {
-      "bytes": 54388,
+      "bytes": 56635,
       "imports": [
         {
           "path": "node:fs",
@@ -21589,7 +21589,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8311587
+      "bytes": 8314321
     },
     "dist/index.mjs": {
       "imports": [

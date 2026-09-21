@@ -82,7 +82,11 @@ const SEEN_STEER_ID_CAP = 1024;
  * Factory-shaped so multiple prompt-runtime instances (tests, parallel
  * workers) get independent sets.
  */
-export function createSeenSteerIdSet(): { markOrSkip: (id?: string) => boolean; size: () => number } {
+export function createSeenSteerIdSet(): {
+	markOrSkip: (id?: string) => boolean;
+	unmark: (id?: string) => void;
+	size: () => number;
+} {
 	const seen: string[] = [];
 	const set = new Set<string>();
 	return {
@@ -97,6 +101,15 @@ export function createSeenSteerIdSet(): { markOrSkip: (id?: string) => boolean; 
 				if (oldest !== undefined) set.delete(oldest);
 			}
 			return true;
+		},
+		unmark(id?: string): void {
+			// F-L2: a steer whose DELIVERY failed must release its dedup mark so
+			// the retry (after the poll's offset rewind) is not skipped as a
+			// duplicate — that would silently drop the steer instead.
+			if (id === undefined) return;
+			if (!set.delete(id)) return;
+			const idx = seen.indexOf(id);
+			if (idx !== -1) seen.splice(idx, 1);
 		},
 		size: () => set.size,
 	};
@@ -861,42 +874,80 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 					try {
 						const buf = Buffer.alloc(stat.size - lastOffset);
 						fs.readSync(fd, buf, 0, buf.length, lastOffset);
-						lastOffset = stat.size;
-						const lines = buf.toString("utf8").split("\n").filter(Boolean);
-						for (const line of lines) {
+						const offsetBefore = lastOffset;
+						let cursor = 0;
+						// F-L2 (live battery 2026-09-21, run team_20260921035840): a steer
+						// written while the extension is still LOADING makes pi.sendMessage
+						// throw ("Extension runtime not initialized" — pi's loader gates
+						// action methods until bindExtensions). The old code advanced
+						// lastOffset to stat.size BEFORE the line loop and its per-line
+						// catch swallowed that throw as "malformed line" — the entry was
+						// then silently lost forever (the offset was already past it).
+						// Walk the buffer by byte offset and advance only past lines with
+						// a terminal verdict (delivered / non-steer / rejected / malformed);
+						// a DELIVERY failure rewinds to the failing line's start so the
+						// next tick re-reads it (with its dedup id unmarked).
+						while (cursor < buf.length) {
+							const nl = buf.indexOf(10, cursor);
+							const end = nl === -1 ? buf.length : nl;
+							const line = buf.subarray(cursor, end).toString("utf8");
+							if (line.length === 0) {
+								cursor = end + 1;
+								continue;
+							}
 							try {
 								const entry = JSON.parse(line) as SteerEntry;
-								if (entry.type !== "steer") continue;
-								// FIX-S1: cross-channel dedup. The broker writes the
-								// same steer to both the mailbox (live fanout via the
-								// onSteer callback below) and this JSONL file. A
-								// connected worker receives it via the broker first
-								// and via this poll second; the seen-id set ensures
-								// only the first arrival reaches pi.sendMessage.
-								const entryId =
-									typeof (entry as { id?: unknown }).id === "string" ? (entry as { id: string }).id : undefined;
-								if (!seenSteers.markOrSkip(entryId)) continue;
-								// FIX-02: sanitize each steer entry before forwarding
-								// to pi.sendMessage. Reject oversized payloads,
-								// excessive newlines, and control characters.
-								const sanitized = sanitizeSteerMessage(entry);
-								if (!sanitized.valid || sanitized.message === undefined) {
-									logInternalError(
-										"prompt-runtime.steer-rejected",
-										new Error(sanitized.reason ?? "steer-sanitization-failed"),
-										`line-preview=${line.slice(0, 64)}`,
-										"warn",
-									);
-									continue;
+								if (entry.type === "steer") {
+									// FIX-S1: cross-channel dedup. The broker writes the
+									// same steer to both the mailbox (live fanout via the
+									// onSteer callback below) and this JSONL file. A
+									// connected worker receives it via the broker first
+									// and via this poll second; the seen-id set ensures
+									// only the first arrival reaches pi.sendMessage.
+									const entryId =
+										typeof (entry as { id?: unknown }).id === "string" ? (entry as { id: string }).id : undefined;
+									if (seenSteers.markOrSkip(entryId)) {
+										// FIX-02: sanitize each steer entry before forwarding
+										// to pi.sendMessage. Reject oversized payloads,
+										// excessive newlines, and control characters.
+										const sanitized = sanitizeSteerMessage(entry);
+										if (sanitized.valid && sanitized.message !== undefined) {
+											try {
+												pi.sendMessage(
+													{ customType: "crew-steer", content: sanitized.message, display: false },
+													{ deliverAs: "steer" },
+												);
+											} catch (sendErr) {
+												// Delivery failed (e.g. pre-bind notInitialized).
+												// Release the dedup mark so the retry after the
+												// offset rewind is not skipped as a duplicate, then
+												// rewind: cursor stays at this line's start so the
+												// next tick re-reads the entry.
+												seenSteers.unmark(entryId);
+												logInternalError(
+													"prompt-runtime.steer-delivery-failed",
+													sendErr instanceof Error ? sendErr : new Error(String(sendErr)),
+													`line-preview=${line.slice(0, 64)}`,
+													"warn",
+												);
+												break;
+											}
+										} else {
+											logInternalError(
+												"prompt-runtime.steer-rejected",
+												new Error(sanitized.reason ?? "steer-sanitization-failed"),
+												`line-preview=${line.slice(0, 64)}`,
+												"warn",
+											);
+										}
+									}
 								}
-								pi.sendMessage(
-									{ customType: "crew-steer", content: sanitized.message, display: false },
-									{ deliverAs: "steer" },
-								);
 							} catch {
-								// Malformed line — skip
+								// Malformed line — skip (terminal verdict — advance past)
 							}
+							cursor = end + 1;
 						}
+						lastOffset = offsetBefore + Math.min(cursor, buf.length);
 					} finally {
 						try {
 							fs.closeSync(fd);
