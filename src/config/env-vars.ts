@@ -419,6 +419,18 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_AUTO_EXIT",
 		doc: "'1' → the worker shuts its session down after the final settled turn — spec §5.2 D7 (written by prepareSurfaceSpawn, read by surface-worker.ts)",
 	},
+	PI_CREW_AUTO_PRUNE_KEEP: {
+		name: "PI_CREW_AUTO_PRUNE_KEEP",
+		parser: "int",
+		default: "10",
+		doc: "DP-01: number of most-recent finished runs the session-start auto-prune retains (was hard-coded 10). Invalid/negative → 10 with a warning (run-maintenance.ts:resolveAutoPruneKeep)",
+	},
+	PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS: {
+		name: "PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS",
+		parser: "int",
+		default: "24",
+		doc: "DP-01: auto-prune never deletes a finished run younger than this many hours, even beyond top-keep — evidence/incident runs survive a session restart (0 disables; run-maintenance.ts:resolveAutoPruneAgeFloorMs)",
+	},
 	PI_CREW_SURFACE: {
 		name: "PI_CREW_SURFACE",
 		doc: "surface provider kind for this worker ('tmux'|'herdr') — arms the worker-side recorder/parent-guard (written by prepareSurfaceSpawn.ts:214, read by surface-worker.ts)",

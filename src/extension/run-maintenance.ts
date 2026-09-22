@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import { createCancellationToken } from "../runtime/process/cancellation-token.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -22,6 +23,95 @@ export interface PruneRunsOptions {
 	/** When true, compute the removal list WITHOUT deleting any state/artifacts,
 	 *  running worktree cleanup, or writing an audit. Non-destructive preview. */
 	dryRun?: boolean;
+	/** DP-01: never remove a finished run younger than this, even beyond
+	 *  top-keep. Evidence/incident runs must survive a session restart (the
+	 *  2026-09-21 battery lost a morning of evidence to the next session start).
+	 *  0 disables the floor. Defaults to the PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS
+	 *  value (24h) for auto-prune callers; manual prune passes 0 explicitly. */
+	ageFloorMs?: number;
+}
+
+/**
+ * DP-01: resolve the auto-prune keep count from PI_CREW_AUTO_PRUNE_KEEP.
+ * Invalid/negative/non-finite values fall back to 10 (the historical hard-coded
+ * value) with a logged warning — never a crash and never an infinite keep.
+ */
+export function resolveAutoPruneKeep(env: (name: string) => string | undefined = getCrewEnv): number {
+	const raw = env("PI_CREW_AUTO_PRUNE_KEEP")?.trim();
+	if (raw === undefined || raw === "") return 10;
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		logInternalError(
+			"prune.auto-keep-invalid",
+			new Error(`PI_CREW_AUTO_PRUNE_KEEP=${JSON.stringify(raw)} is not a non-negative integer; using 10`),
+		);
+		return 10;
+	}
+	return parsed;
+}
+
+/**
+ * DP-01: resolve the auto-prune age floor (ms) from
+ * PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS (default 24h; 0 disables).
+ */
+export function resolveAutoPruneAgeFloorMs(env: (name: string) => string | undefined = getCrewEnv): number {
+	const raw = env("PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS")?.trim();
+	if (raw === undefined || raw === "") return 24 * 60 * 60 * 1000;
+	const hours = Number.parseFloat(raw);
+	if (!Number.isFinite(hours) || hours < 0) {
+		logInternalError(
+			"prune.auto-age-floor-invalid",
+			new Error(`PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS=${JSON.stringify(raw)} is not a non-negative number; using 24`),
+		);
+		return 24 * 60 * 60 * 1000;
+	}
+	return hours * 60 * 60 * 1000;
+}
+
+/** DP-01: rotate prune.jsonl when it exceeds this size (one generation kept). */
+export const PRUNE_AUDIT_MAX_BYTES = 512 * 1024;
+
+/**
+ * DP-01: size-based rotation for the prune audit log. Best-effort: a rotation
+ * failure must never break the prune path (the audit is observability, not
+ * correctness). One generation is enough — the audit is for recent forensics
+ * (the 2026-09-21 storm RCA read exactly the current window).
+ */
+function rotatePruneAuditIfNeeded(filePath: string): void {
+	try {
+		if (!fs.existsSync(filePath)) return;
+		if (fs.statSync(filePath).size < PRUNE_AUDIT_MAX_BYTES) return;
+		fs.renameSync(filePath, `${filePath}.1`);
+	} catch (error) {
+		logInternalError("prune.audit-rotate", error, `path=${filePath}`);
+	}
+}
+
+/**
+ * DP-01: record a pruned FAILED/BLOCKED run's reason in a durable index that
+ * survives run-dir pruning. Turn-run dirs are aggressively pruned (keep=10 at
+ * session start); without this, a failure reason becomes unrecoverable (live
+ * incident goal_20260921111305 — see docs/specs/DP-01.md). Best-effort.
+ */
+function appendPrunedFailureIndex(cwd: string, run: TeamRunManifest): void {
+	try {
+		const crewRoot = projectCrewRoot(cwd);
+		if (!fs.existsSync(crewRoot)) return;
+		const filePath = path.join(crewRoot, "state", "pruned-failures.jsonl");
+		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		const entry = {
+			runId: run.runId,
+			status: run.status,
+			summary: (run.summary ?? "").split("\n")[0]?.slice(0, 500),
+			goal: (run.goal ?? "").split("\n")[0]?.slice(0, 200),
+			team: run.team,
+			createdAt: run.createdAt,
+			prunedAt: new Date().toISOString(),
+		};
+		fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets(entry))}\n`, "utf-8");
+	} catch (error) {
+		logInternalError("prune.failure-index-write", error, `runId=${run.runId}`);
+	}
 }
 
 /**
@@ -107,6 +197,10 @@ function appendPruneAudit(cwd: string, payload: Record<string, unknown>): string
 		if (!fs.existsSync(crewRoot)) return undefined;
 		const filePath = path.join(crewRoot, "audit", "prune.jsonl");
 		fs.mkdirSync(path.dirname(filePath), { recursive: true });
+		// DP-01: rotate the audit log before it grows unbounded (it reached
+		// 720 KB / 1,436 entries with no cap). Keep the current file under
+		// PRUNE_AUDIT_MAX_BYTES; older entries rotate to .1 (one generation).
+		rotatePruneAuditIfNeeded(filePath);
 		fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets({ ...payload, auditedAt: new Date().toISOString() }))}\n`, "utf-8");
 		return filePath;
 	} catch (error) {
@@ -122,7 +216,18 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 		.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 	const kept = finished.slice(0, keep).map((run) => run.runId);
 	const removed: string[] = [];
-	const toRemove = finished.slice(keep);
+	// DP-01: age floor — a finished run younger than the floor is NEVER removed
+	// by auto-prune, even beyond top-keep. Manual prune passes 0 (no floor).
+	const ageFloorMs = options.ageFloorMs ?? 0;
+	const floorCutoff = ageFloorMs > 0 ? Date.now() - ageFloorMs : 0;
+	const toRemove = finished.slice(keep).filter((run) => {
+		if (floorCutoff === 0) return true;
+		const ts = Date.parse(run.updatedAt ?? run.createdAt ?? "");
+		// Unparseable timestamps are treated as OLD (removable) to preserve
+		// pre-DP-01 behavior for malformed manifests.
+		if (!Number.isFinite(ts)) return true;
+		return ts < floorCutoff;
+	});
 	for (let i = 0; i < toRemove.length; i++) {
 		if (i % 5 === 0) token.heartbeat(`prune:${i}/${toRemove.length}`);
 		const run = toRemove[i];
@@ -165,6 +270,9 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 		}
 		fs.rmSync(run.stateRoot, { recursive: true, force: true });
 		fs.rmSync(run.artifactsRoot, { recursive: true, force: true });
+		// DP-01: preserve the reason of a pruned failed/blocked run in a durable
+		// index (the run dir that held it is gone now).
+		if (run.status === "failed" || run.status === "blocked") appendPrunedFailureIndex(cwd, run);
 		removed.push(run.runId);
 	}
 	// ST-6: Sweep stale .corrupt-* quarantine files to prevent unbounded growth.
@@ -198,7 +306,7 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
  * @param keep Number of most recent finished runs to retain
  * @returns kept and removed run IDs
  */
-export function pruneUserLevelRuns(keep: number): PruneRunsResult {
+export function pruneUserLevelRuns(keep: number, options: PruneRunsOptions = {}): PruneRunsResult {
 	const crewRoot = userCrewRoot();
 	const runsRoot = path.join(crewRoot, DEFAULT_PATHS.state.runsSubdir);
 	if (!fs.existsSync(runsRoot)) return { kept: [], removed: [] };
@@ -207,7 +315,12 @@ export function pruneUserLevelRuns(keep: number): PruneRunsResult {
 	const MAX_DIRS = 500;
 	const finished: Array<{
 		runId: string;
-		updatedAt: string;
+		updatedAt?: string;
+		createdAt?: string;
+		status?: string;
+		summary?: string;
+		goal?: string;
+		team?: string;
 		stateRoot: string;
 		artifactsRoot: string;
 	}> = [];
@@ -252,18 +365,43 @@ export function pruneUserLevelRuns(keep: number): PruneRunsResult {
 		finished.push({
 			runId: manifest.runId,
 			updatedAt: manifest.updatedAt,
+			createdAt: manifest.createdAt,
+			status: manifest.status,
+			summary: manifest.summary,
+			goal: manifest.goal,
+			team: manifest.team,
 			stateRoot: manifest.stateRoot,
 			artifactsRoot: manifest.artifactsRoot,
 		});
 	}
 
-	// Sort newest first, keep top N, remove the rest
+	// Sort newest first, keep top N, remove the rest.
 	finished.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 	const kept = finished.slice(0, keep).map((r) => r.runId);
 	const removed: string[] = [];
+	// DP-01: same age floor as the project-level prune (user-level runs are
+	// equally easy to lose — the 2026-09-21 incident evidence lived here too).
+	const ageFloorMs = options.ageFloorMs ?? 0;
+	const floorCutoff = ageFloorMs > 0 ? Date.now() - ageFloorMs : 0;
 	for (const run of finished.slice(keep)) {
+		if (floorCutoff > 0) {
+			const ts = Date.parse(run.updatedAt ?? run.createdAt ?? "");
+			if (Number.isFinite(ts) && ts >= floorCutoff) continue; // too young — protect
+		}
 		fs.rmSync(run.stateRoot, { recursive: true, force: true });
 		fs.rmSync(run.artifactsRoot, { recursive: true, force: true });
+		// DP-01: preserve a pruned failed/blocked run's reason (the user-level
+		// index lives under the user crew root).
+		if (run.status === "failed" || run.status === "blocked") {
+			appendPrunedFailureIndex(crewRoot, {
+				runId: run.runId,
+				status: run.status,
+				summary: run.summary,
+				goal: run.goal,
+				team: run.team,
+				createdAt: run.createdAt,
+			} as TeamRunManifest);
+		}
 		removed.push(run.runId);
 	}
 

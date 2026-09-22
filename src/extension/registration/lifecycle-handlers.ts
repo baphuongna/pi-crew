@@ -20,7 +20,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import { getCrewEnv } from "../../config/env-vars.ts";
-import { pruneFinishedRuns, pruneUserLevelRuns } from "../../extension/run-maintenance.ts";
+import { pruneFinishedRuns, pruneUserLevelRuns, resolveAutoPruneAgeFloorMs, resolveAutoPruneKeep } from "../../extension/run-maintenance.ts";
 import { type BrokerSpawnCredentials, setActiveBrokerIssuer, setActiveBrokerRevoker } from "../../runtime/broker/broker-issuer.ts";
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
@@ -465,7 +465,12 @@ async function runDeferredSessionCleanup(
 
 	// Auto-prune finished project-level run directories
 	try {
-		const { removed } = pruneFinishedRuns(extensionCtx.cwd, 10);
+		// DP-01: keep + age-floor are env-driven; the age floor means a run
+		// finished <24h ago survives a session restart even beyond top-keep.
+		const { removed } = pruneFinishedRuns(extensionCtx.cwd, resolveAutoPruneKeep(), {
+			ageFloorMs: resolveAutoPruneAgeFloorMs(),
+			intent: "session-start-auto",
+		});
 		if (removed.length > 0) {
 			ctx.notifyOperator({
 				id: `auto_prune_project`,
@@ -481,7 +486,10 @@ async function runDeferredSessionCleanup(
 
 	// Auto-prune finished user-level run directories
 	try {
-		const { removed } = pruneUserLevelRuns(10);
+		const { removed } = pruneUserLevelRuns(resolveAutoPruneKeep(), {
+			ageFloorMs: resolveAutoPruneAgeFloorMs(),
+			intent: "session-start-auto",
+		});
 		if (removed.length > 0) {
 			ctx.notifyOperator({
 				id: `auto_prune_user`,
