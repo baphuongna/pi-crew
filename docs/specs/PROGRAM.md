@@ -91,3 +91,6 @@ US-030 (security review) · US-031
 | 2026-09-22 | US-011 bounded-heap guard (AC-3) | done | G1-G5 ✓ | `22709f63` | mutation red @24.6MB vs 8MB ceiling |
 | 2026-09-22 | Wave 0 audits (US-011/US-022) | done | n/a | explorer run | residual lists recorded in specs |
 | 2026-09-22 | DP-02 dist slim (minify, drop map/meta) | done | G1,G2,G4,G7 ✓ | `de7b486c` | −52% (3.44MB→1.65MB); bundle 4/4; committed-hash MATCH |
+| 2026-09-22 | RM-03 single-writer invariant (partial) | done | G1,G2,G4 ✓ | `9dd9d4d4` | 3/4 anchors not reproducible → recorded |
+| 2026-09-22 | RM-04 F05 mutation re-verified | done | G1,G2 ✓ | `8b72ffe5` | mutation → 6/13 RED incl. AC-1 e2e wrapper |
+| 2026-09-22 | **Wave 0+1 CLOSED (7 specs)** | done | — | — | RM-01..04, US-011, US-022, DP-02 |

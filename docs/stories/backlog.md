@@ -78,8 +78,8 @@ Verdict FIX_THEN_SHIP; 2 MAJOR đã vá ngay (xem TEST_MATRIX 2 hàng "Review-ro
 - [x] **[RM-01](../specs/RM-01.md)** MINOR 2: `peekPendingCoalescedWrite` trả by-reference → **DONE** (`787eeda8`) → shallow-copy lúc serve trong `readCrewAgents` (`src/state/atomic-write.ts:1161`, `src/runtime/crew-agent-records.ts:310`) — callers hiện tại thuần đọc, an toàn (chưa làm)
 - [x] SEC LOW: pin `fallow@<x.y.z>` trong `.github/workflows/ci.yml` — **FIXED RR-020**: `fallow@3.27.0` qua env `FALLOW_VERSION`, inline (không thêm devDependency)
 - [x] **[RM-02](../specs/RM-02.md)** MINOR 8: benchmark `parseAndValidateCommand` whitespace-split → **DONE** (`af65b95e`) phá quoted args (`src/benchmark/benchmark-runner.ts`) — fixtures hiện không dùng quote (WIP khác đang đụng cùng file: `inconclusive` + siết allowlist)
-- [ ] **[RM-03](../specs/RM-03.md)** MINOR 3/4/6/7: doc-notes (terminal durable-fsync trong coalesced path; lastWrittenStatus single-writer assumption; sweep-before-cap; semaphore dead comment) — gộp vào lần doc sweep kế tiếp
-- [ ] **[RM-04](../specs/RM-04.md)** F05 smoke "mutation-verified": reviewer chỉ đọc pattern, chưa tái tạo mutation — verify khi chạy smoke tuần tới
+- [x] **[RM-03](../specs/RM-03.md)** MINOR 3/4/6/7: doc-notes → **PARTIAL** (`9dd9d4d4`; MINOR 4 done, 3/6/7 không tái lập được) (terminal durable-fsync trong coalesced path; lastWrittenStatus single-writer assumption; sweep-before-cap; semaphore dead comment) — gộp vào lần doc sweep kế tiếp
+- [x] **[RM-04](../specs/RM-04.md)** F05 smoke "mutation-verified" → **DONE** (`8b72ffe5`; mutation 6/13 RED tái lập): reviewer chỉ đọc pattern, chưa tái tạo mutation — verify khi chạy smoke tuần tới
 
 ## Epic: Session residuals 2026-09-21/22 (spec'd)
 
