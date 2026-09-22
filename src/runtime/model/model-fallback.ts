@@ -70,6 +70,20 @@ function modelInfoFromUnknown(value: unknown): AvailableModelInfo | undefined {
 	};
 }
 
+// US-012 (2026-09-22): cache the registry-derived model list. The registry is
+// config/env-derived and invariant per session, but `availableModelInfosFromRegistry`
+// is called on EVERY model resolution / worker spawn (a 4-worker team = 4
+// rebuilds). Keyed on the registry object identity (WeakMap) so a new registry
+// instance (config reload) gets a fresh entry automatically, and invalidated by
+// the getAvailable() array identity so a mutated-in-place list is not served
+// stale. WeakMap → no leak when a session's registry is dropped.
+const registryModelCache = new WeakMap<object, { raw: unknown[]; infos: AvailableModelInfo[] }>();
+
+/** @internal — test introspection. */
+export function __test__registryModelCacheHas(registry: object): boolean {
+	return registryModelCache.has(registry);
+}
+
 export function availableModelInfosFromRegistry(registry: unknown): AvailableModelInfo[] | undefined {
 	if (!registry || typeof registry !== "object" || Array.isArray(registry)) return undefined;
 	const candidate = registry as ModelRegistryLike;
@@ -80,7 +94,13 @@ export function availableModelInfosFromRegistry(registry: unknown): AvailableMod
 				? candidate.getAll()
 				: undefined;
 	if (!Array.isArray(raw)) return undefined;
-	return raw.map(modelInfoFromUnknown).filter((entry): entry is AvailableModelInfo => entry !== undefined);
+	// Serve from cache only when the SAME array instance is returned — a
+	// rebuilt/refreshed list (different identity) must be re-normalized.
+	const cached = registryModelCache.get(registry as object);
+	if (cached && cached.raw === raw) return cached.infos;
+	const infos = raw.map(modelInfoFromUnknown).filter((entry): entry is AvailableModelInfo => entry !== undefined);
+	registryModelCache.set(registry as object, { raw, infos });
+	return infos;
 }
 
 export function modelStringFromUnknown(model: unknown): string | undefined {
