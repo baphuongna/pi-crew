@@ -1,8 +1,10 @@
 ---
 name: real-test-pi-crew
 description: >
-  End-to-end verification for pi-crew changes: fast critical tests, 3-path kill-switch proof, bundle md5 sync, live TUI probing, smoke team runs, a live feature-action battery (team tool + subagent tools), a surface-mode battery (workers in real tmux/herdr panes, degrade-to-headless), a resource-contract battery (agent .md frontmatter dual-parse, routing render, output contracts), and a real-run UI render battery (every surface rendered from a real run's on-disk state: state glyphs, invented strings, pluralisation, truncation priority, usage formats, width survival).
-  When NOT to use: unit tests for isolated modules (use test runner directly); pure test execution.
+  LIVE end-to-end battery for pi-crew changes — unit-green ≠ works in a real Pi session; this skill proves the latter.
+  USE WHEN: you changed src/runtime/broker|child-pi|surface|prompt|state, src/ui, src/config, src/schema/team-tool-schema.ts, agents/*.md, workflows, CI, or dist/ — before committing; a worker hung/died/"no output for 600000ms"; a run went green but panes/UI/ask/steer look wrong; someone says "verify it really works".
+  TIERS AT A GLANCE: T1 critical (21s) · T2 kill-switch · T3 bundle+md5 · T4/T8 live-session sync · T5/T6 TUI probes · T7 smoke run · T9 team-tool feature battery · T10 surface panes (tmux + herdr) · T11 regression battery (a–j) · T12 agent-frontmatter contracts · T13 real-run UI render. A decision table at the TOP of the file maps changed-path → required tiers.
+  When NOT to use: unit tests for isolated modules (use the test runner directly); pure test execution.
 
 origin: pi-crew
 triggers:
@@ -77,6 +79,47 @@ triggers:
 # real-test-pi-crew
 
 End-to-end verification discipline for pi-crew changes. Distilled from the broker Phase-4 rollout (commits `1cb2dca` → `d599578` → `612e18b` → `4186284`, July 2026). The pain this skill prevents: shipping code that compiles + unit-tests-green but breaks in the user's live Pi session, or hangs the verifier worker.
+
+## Nhận dạng nhanh — Tier map + decision table
+
+**Bản chất**: unit xanh ≠ chạy thật. Mỗi tier chứng minh MỘT lớp đảm bảo trong một pi session thật. Bảng dưới là chỉ mục — chi tiết ở section tương ứng; ngưỡng thời gian ở "Performance budget" cuối file.
+
+| Tier | Chứng minh gì | Chi phí | Section |
+|---|---|---|---|
+| 1 | critical suites xanh (broker/UI) | 21s | Tier 1 |
+| 2 | kill-switch tắt đúng qua 3 đường | 75s | Tier 2 |
+| 3 | typecheck + rebuild bundle + md5 sync | 25s | Tier 3 |
+| 4 | session sống nhận được bundle mới | <1s + restart | Tier 4 |
+| 5 | TUI sống (tmux send-keys) | 5s | Tier 5 |
+| 6 | TUI sống (pty bulk keys) | 5s | Tier 6 |
+| 7 | smoke run — verifier không treo | 60–120s | Tier 7 |
+| 8 | md5 session == md5 đĩa | <1s | Tier 8 |
+| 9 | team-tool feature battery (9a–9g) | 30s + ~120s/spawn | Tier 9 |
+| 10 | worker chạy trong pane thật (10a E2E · 10b tmux live · 10c herdr live) | 90–120s/lần | Tier 10 |
+| 11 | regression battery ghim các fix cũ (11a–11j) | theo suite | Tier 11 |
+| 12 | resource contract (agent .md frontmatter) | — | Tier 12 |
+| 13 | render MỌI surface từ run thật trên đĩa | 150s | Tier 13 |
+
+**Decision table — "đổi file X thì phải chạy tier gì"** (bản chi tiết đường dẫn ở phần When to use dưới):
+
+| Đổi… | Tier bắt buộc (thứ tự) |
+|---|---|
+| `src/runtime/broker/` | T1 → T7 → T9b-W |
+| `src/ui/` | T1 → (T5|T6) → T13 |
+| `src/config/` (kể cả migration-validator) | T1 → T11c |
+| `src/runtime/child-pi/` (spawn/kill/steer) | T7 → T9g |
+| `src/runtime/surface/` | T10a → T10b → T10c (dò herdr bằng `HERDR_ENV=1`, KHÔNG phải `$TMUX`) |
+| `src/prompt/` (ask/message/delegate/surface-worker) | T9b-W → T9g |
+| `team-runner.ts` / `task-runner/` / `goal-workflow/plan-templates.ts` | T7 |
+| `src/state/` | T7 → T9a → T11a |
+| `paths.ts` / `project-markers.ts` / `stale-reconciler.ts` / `health-monitor.ts` | T11 pinned suites (layout/symlink) |
+| `team-tool-schema.ts` / `registration/team-tool.ts` | T9 FULL — schema validate TRƯỚC handler; schema sai làm chết mọi action âm thầm |
+| `agents/*.md` / `skills/*/SKILL.md` / discovery | T12 |
+| `workflows/*.workflow.md` | T7 |
+| `.github/workflows/ci.yml` | T11e |
+| `scripts/wc-gate.mjs` | T11b |
+| `dist/` (bundle) | T3 → T4 → T8 → T11j |
+| bất kỳ đường dẫn trên, trước khi commit | gates đầy đủ: critical + unit + tsc + biome + md5 |
 
 **When to use**: after any change to `src/runtime/broker/*.ts` (broker + tokens + issuer), `src/ui/`, `src/config/` (incl. `src/config/migration-validator.ts`), `src/extension/registration/lifecycle-handlers.ts`, `src/runtime/child-pi/*.ts` (worker spawn/kill/steering), `src/runtime/surface/*.ts` (MuxSurface providers, degrade, launch script), `src/prompt/*.ts` (worker-side tools: ask / message / delegate / surface-worker recorder), `src/runtime/goal-workflow/plan-templates.ts`, `src/runtime/team-runner.ts` or `src/runtime/task-runner/**` (scheduler / execution — Tier 7 smoke), `src/state/**` (durable state — Tier 7 + 9a events/status + **Tier 11a read-your-writes**), `src/utils/paths.ts` + `src/utils/project-markers.ts` + `src/runtime/stale-reconciler.ts` + `src/extension/team-tool/health-monitor.ts` (run-state layout + symlink defense — pinned suites listed in the 2026-09-20 update), `src/runtime/live-session/**` + `src/runtime/custom-tools/*` (live-session mode + worker custom tools), `src/schema/team-tool-schema.ts` (or any `Type.Unsafe({...})` schema definition), `src/extension/registration/team-tool.ts`, `workflows/*.workflow.md`, `.github/workflows/*.yml` (CI env — Tier 11e), `scripts/wc-gate.mjs` (Tier 11b), or before any commit touching these paths. Schema changes additionally require Tier 9 (feature battery) because the team tool's TypeBox schema is validated by pi-ai BEFORE the handler runs — a too-strict or malformed schema breaks every action silently. Surface changes additionally require Tier 10 (surface-mode battery) because surface is fail-closed: every failure degrades to headless and the run still goes green — only pane-level evidence proves the panes engaged. Resource `.md` changes (agent bodies/frontmatter, skill metadata, discovery, frontmatter parsing) additionally require **Tier 12** (resource-contract battery) because the agent/team/workflow frontmatter parser is line-based, not YAML — a folded scalar parses as `">"` for every consumer while all other tiers stay green.
 
