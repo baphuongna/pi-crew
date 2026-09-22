@@ -55,11 +55,10 @@ test("US-011: a 50k-event (11 MB) log compacts with a bounded heap footprint", (
 	const tmpScript = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "us011-src-")), "child.mjs");
 	fs.writeFileSync(tmpScript, CHILD_SRC);
 	try {
-		const out = execFileSync(
-			process.execPath,
-			["--expose-gc", "--experimental-strip-types", "--no-warnings", tmpScript, moduleUrl],
-			{ encoding: "utf-8", timeout: 120_000 },
-		);
+		const out = execFileSync(process.execPath, ["--expose-gc", "--experimental-strip-types", "--no-warnings", tmpScript, moduleUrl], {
+			encoding: "utf-8",
+			timeout: 120_000,
+		});
 		const { delta, ok } = JSON.parse(out) as { delta: number; ok: boolean };
 		assert.equal(ok, true, "compaction must produce a result for an over-threshold log");
 		const deltaMb = delta / 1024 / 1024;

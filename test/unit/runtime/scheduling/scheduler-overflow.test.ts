@@ -34,7 +34,14 @@ function makeJob(overrides: Partial<ScheduledJob>): ScheduledJob {
 test("interval overflow: a 90-day interval job must NOT fire within a short window (was: every 1ms)", async () => {
 	const s = new CrewScheduler();
 	let fires = 0;
-	s.start({ emit: () => undefined, executor: () => { fires++; return "agent-1"; }, finalizer: () => undefined });
+	s.start({
+		emit: () => undefined,
+		executor: () => {
+			fires++;
+			return "agent-1";
+		},
+		finalizer: () => undefined,
+	});
 	s.add(makeJob({}));
 	await new Promise((r) => setTimeout(r, 250));
 	assert.equal(fires, 0, `overflow interval fired ${fires}× in 250ms — the 1ms hot loop is back`);
@@ -65,7 +72,14 @@ test("normal short intervals still fire", async () => {
 test("once overflow: a '+30d' once job (delay > 2^31-1) must not fire prematurely and self-disables on arrival", async () => {
 	const s = new CrewScheduler();
 	let fires = 0;
-	s.start({ emit: () => undefined, executor: () => { fires++; return "agent-1"; }, finalizer: () => undefined });
+	s.start({
+		emit: () => undefined,
+		executor: () => {
+			fires++;
+			return "agent-1";
+		},
+		finalizer: () => undefined,
+	});
 	const target = new Date(Date.now() + 2_590_000_000).toISOString(); // +30d, overflows 32-bit
 	s.add(makeJob({ schedule: target, scheduleType: "once" }));
 	await new Promise((r) => setTimeout(r, 200));
@@ -78,7 +92,14 @@ test("once overflow: a '+30d' once job (delay > 2^31-1) must not fire prematurel
 test("normal near-future once job fires exactly once and self-disables", async () => {
 	const s = new CrewScheduler();
 	let fires = 0;
-	s.start({ emit: () => undefined, executor: () => { fires++; return "agent-1"; }, finalizer: () => undefined });
+	s.start({
+		emit: () => undefined,
+		executor: () => {
+			fires++;
+			return "agent-1";
+		},
+		finalizer: () => undefined,
+	});
 	const target = new Date(Date.now() + 40).toISOString();
 	s.add(makeJob({ schedule: target, scheduleType: "once" }));
 	await new Promise((r) => setTimeout(r, 250));

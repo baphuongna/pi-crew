@@ -863,20 +863,29 @@ test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
 		// Launch 3 background agents with NO batch_id, WITHOUT joining. Their
 		// near-simultaneous completions should be auto-coalesced (Rule 3) into
 		// fewer wake-ups than agents — ideally ONE consolidated notify.
-		for (const desc of ["X", "Y", "Z"]) {
-			await fake.tools.get("Agent").execute(
-				`rule3-${desc}`,
-				{
-					prompt: `Task ${desc}`,
-					description: `agent ${desc}`,
-					subagent_type: "explorer",
-					run_in_background: true,
-				},
-				undefined,
-				undefined,
-				ctx,
-			);
-		}
+		// SR-03 (2026-09-22): fire the 3 spawns CONCURRENTLY (was: sequential await
+		// per agent). Each execute spawns a real mock child; awaiting one before
+		// starting the next staggered the spawn STARTS by a full spawn duration, so
+		// under the 4-way parallel runner's CPU contention the completions could
+		// spread beyond NOTIFY_COALESCE_BURST_MS (3s) — 3 separate notifies, flaky
+		// Rule-3 assertion. Concurrent spawns remove the self-inflicted stagger;
+		// the assertion now measures the coalescer, not the harness scheduler.
+		await Promise.all(
+			["X", "Y", "Z"].map((desc) =>
+				fake!.tools.get("Agent").execute(
+					`rule3-${desc}`,
+					{
+						prompt: `Task ${desc}`,
+						description: `agent ${desc}`,
+						subagent_type: "explorer",
+						run_in_background: true,
+					},
+					undefined,
+					undefined,
+					ctx,
+				),
+			),
+		);
 		// CI-aware thresholds: CI runners have higher scheduling jitter and FS
 		// latency than local dev, so widen the settle stability window there.
 		const isCI = !!process.env.CI;

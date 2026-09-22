@@ -10,8 +10,29 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import { notifyActiveRuns } from "../../../../src/extension/session-summary.ts";
+// SR-03 (2026-09-22) flake fix: notifyActiveRuns → listRuns UNIONS the project
+// and USER run roots (F-L1). Without pinning the user root away, the REAL user
+// root (or another concurrently-running test's writes to it) leaked active
+// manifests into the exact-count assertions below (vector #11 failed only in
+// full-suite 4-way runs, 4/4 green in isolation). Pattern: manifest-cache-list-active.test.ts.
+const envBackup = new Map<string, string | undefined>();
+test.beforeEach(() => {
+	envBackup.clear();
+	for (const key of Object.keys(process.env)) envBackup.set(key, process.env[key]);
+	delete process.env.PI_TEAMS_HOME; // mirror pair's winning name
+	process.env.PI_CREW_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-sesssum-home-"));
+});
+test.afterEach(() => {
+	for (const key of Object.keys(process.env)) {
+		if (!envBackup.has(key)) delete process.env[key];
+	}
+	for (const [key, value] of envBackup) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+});
 import { recordFromTask, saveCrewAgents } from "../../../../src/runtime/crew-agent-records.ts";
 import { createRunManifest, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
