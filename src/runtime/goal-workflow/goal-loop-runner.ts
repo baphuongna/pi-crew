@@ -739,12 +739,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				// currentRunId — the turn is over.
 				const turnError = turnResult.manifest.summary ?? `turn ${turnIndex} ended ${turnStatus}`;
 				try {
-					goal =
-						store.patch(
-							goal.goalId,
-							{ lastTurnError: turnError, currentRunId: undefined },
-							eventsPath,
-						) ?? goal;
+					goal = store.patch(goal.goalId, { lastTurnError: turnError, currentRunId: undefined }, eventsPath) ?? goal;
 				} catch (error) {
 					logInternalError("goal-loop.persistTurnError", error, `goalId=${goal.goalId}`);
 				}

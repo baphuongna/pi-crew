@@ -20,7 +20,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { loadConfig } from "../../config/config.ts";
 import { DEFAULT_UI } from "../../config/defaults.ts";
 import { getCrewEnv } from "../../config/env-vars.ts";
-import { pruneFinishedRuns, pruneUserLevelRuns, resolveAutoPruneAgeFloorMs, resolveAutoPruneKeep } from "../../extension/run-maintenance.ts";
+import {
+	pruneFinishedRuns,
+	pruneUserLevelRuns,
+	resolveAutoPruneAgeFloorMs,
+	resolveAutoPruneKeep,
+} from "../../extension/run-maintenance.ts";
 import { type BrokerSpawnCredentials, setActiveBrokerIssuer, setActiveBrokerRevoker } from "../../runtime/broker/broker-issuer.ts";
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";

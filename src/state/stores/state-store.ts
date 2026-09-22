@@ -202,9 +202,7 @@ function resolveRunStateRoot(cwd: string, runId: string): string | undefined {
 	// resolve + cache hit), then fall back to the other root. The no-repo case
 	// never falls back to a project path, mirroring scopedRunRoots' `if
 	// (projectRoot)` guard — resolution sees exactly what listing sees.
-	const candidates = useProjectState(cwd)
-		? [projectCrewRoot(cwd), userCrewRoot()]
-		: [userCrewRoot()];
+	const candidates = useProjectState(cwd) ? [projectCrewRoot(cwd), userCrewRoot()] : [userCrewRoot()];
 	for (const root of candidates) {
 		const runsRoot = path.join(root, DEFAULT_PATHS.state.runsSubdir);
 		const scopedPath = resolveContainedRelativePath(runsRoot, runId, "runId");

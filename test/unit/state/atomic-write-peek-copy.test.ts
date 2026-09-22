@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { atomicWriteJsonCoalesced, peekPendingCoalescedWrite } from "../../../src/state/atomic-write.ts";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import test from "node:test";
+import { atomicWriteJsonCoalesced, peekPendingCoalescedWrite } from "../../../src/state/atomic-write.ts";
 
 interface ProbeRecord {
 	id: string;

@@ -55,19 +55,52 @@ function seedFinishedRuns(cwd: string, count: number, ageMs: (i: number) => numb
 }
 
 test("DP-01: resolveAutoPruneKeep — valid, invalid, and empty", () => {
-	assert.equal(resolveAutoPruneKeep(() => "25"), 25);
-	assert.equal(resolveAutoPruneKeep(() => "0"), 0);
-	assert.equal(resolveAutoPruneKeep(() => undefined), 10, "unset → historical default");
-	assert.equal(resolveAutoPruneKeep(() => ""), 10);
-	assert.equal(resolveAutoPruneKeep(() => "abc"), 10, "garbage → default, never a crash");
-	assert.equal(resolveAutoPruneKeep(() => "-5"), 10, "negative → default");
+	assert.equal(
+		resolveAutoPruneKeep(() => "25"),
+		25,
+	);
+	assert.equal(
+		resolveAutoPruneKeep(() => "0"),
+		0,
+	);
+	assert.equal(
+		resolveAutoPruneKeep(() => undefined),
+		10,
+		"unset → historical default",
+	);
+	assert.equal(
+		resolveAutoPruneKeep(() => ""),
+		10,
+	);
+	assert.equal(
+		resolveAutoPruneKeep(() => "abc"),
+		10,
+		"garbage → default, never a crash",
+	);
+	assert.equal(
+		resolveAutoPruneKeep(() => "-5"),
+		10,
+		"negative → default",
+	);
 });
 
 test("DP-01: resolveAutoPruneAgeFloorMs — default 24h, 0 disables, invalid → 24h", () => {
-	assert.equal(resolveAutoPruneAgeFloorMs(() => undefined), 24 * 60 * 60 * 1000);
-	assert.equal(resolveAutoPruneAgeFloorMs(() => "0"), 0);
-	assert.equal(resolveAutoPruneAgeFloorMs(() => "1"), 60 * 60 * 1000);
-	assert.equal(resolveAutoPruneAgeFloorMs(() => "nope"), 24 * 60 * 60 * 1000);
+	assert.equal(
+		resolveAutoPruneAgeFloorMs(() => undefined),
+		24 * 60 * 60 * 1000,
+	);
+	assert.equal(
+		resolveAutoPruneAgeFloorMs(() => "0"),
+		0,
+	);
+	assert.equal(
+		resolveAutoPruneAgeFloorMs(() => "1"),
+		60 * 60 * 1000,
+	);
+	assert.equal(
+		resolveAutoPruneAgeFloorMs(() => "nope"),
+		24 * 60 * 60 * 1000,
+	);
 });
 
 test("DP-01: age floor protects young finished runs beyond top-keep (the incident)", () => {

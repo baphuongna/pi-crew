@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { discoverRunLockFiles, sweepStaleLocks, withRunLockSync } from "../../state/coordination/locks.ts";

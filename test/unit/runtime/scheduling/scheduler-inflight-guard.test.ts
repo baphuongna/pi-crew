@@ -66,7 +66,14 @@ test("slow executor + short interval: overlapping fires are skipped, not stacked
 test("hung executor (never completes): exactly one dispatch, all later ticks skipped", async () => {
 	const s = new CrewScheduler();
 	let dispatches = 0;
-	s.start({ emit: () => undefined, executor: () => { dispatches++; return "agent-1"; }, finalizer: () => undefined });
+	s.start({
+		emit: () => undefined,
+		executor: () => {
+			dispatches++;
+			return "agent-1";
+		},
+		finalizer: () => undefined,
+	});
 	s.add(makeJob({}));
 	await new Promise((r) => setTimeout(r, 250));
 	s.stop();
@@ -76,7 +83,14 @@ test("hung executor (never completes): exactly one dispatch, all later ticks ski
 test("forced fire (run-now) bypasses the in-flight guard", async () => {
 	const s = new CrewScheduler();
 	let dispatches = 0;
-	s.start({ emit: () => undefined, executor: () => { dispatches++; return "agent-1"; }, finalizer: () => undefined });
+	s.start({
+		emit: () => undefined,
+		executor: () => {
+			dispatches++;
+			return "agent-1";
+		},
+		finalizer: () => undefined,
+	});
 	// Seed a hung in-flight window the way fire() does.
 	s.add(makeJob({ lastStatus: "running" }));
 	// force=true is the run-now path.

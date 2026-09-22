@@ -185,8 +185,20 @@ test("GL-1b: a failing turn persists its reason at goal level (survives turn-dir
 		store.save(goalState); // patch() loads from disk — goal must exist first
 		const outer = createRunManifest({
 			cwd,
-			team: { name: "default", description: "", source: "builtin", filePath: "x", roles: [{ name: "executor", agent: "executor" }] } as never,
-			workflow: { name: "default", description: "", source: "builtin", filePath: "x", steps: [{ id: "s1", role: "executor", task: "do" }] } as never,
+			team: {
+				name: "default",
+				description: "",
+				source: "builtin",
+				filePath: "x",
+				roles: [{ name: "executor", agent: "executor" }],
+			} as never,
+			workflow: {
+				name: "default",
+				description: "",
+				source: "builtin",
+				filePath: "x",
+				steps: [{ id: "s1", role: "executor", task: "do" }],
+			} as never,
 			goal: goalState.objective,
 			ownerSessionId: "test-gl1b",
 			runKind: "goal-loop",
@@ -244,8 +256,20 @@ test("SR-01 (GL-1b part C): a pre-executeTeamRun throw marks the turn manifest f
 		store.save(goalState);
 		const outer = createRunManifest({
 			cwd,
-			team: { name: "default", description: "", source: "builtin", filePath: "x", roles: [{ name: "executor", agent: "executor" }] } as never,
-			workflow: { name: "default", description: "", source: "builtin", filePath: "x", steps: [{ id: "s1", role: "executor", task: "do" }] } as never,
+			team: {
+				name: "default",
+				description: "",
+				source: "builtin",
+				filePath: "x",
+				roles: [{ name: "executor", agent: "executor" }],
+			} as never,
+			workflow: {
+				name: "default",
+				description: "",
+				source: "builtin",
+				filePath: "x",
+				steps: [{ id: "s1", role: "executor", task: "do" }],
+			} as never,
 			goal: goalState.objective,
 			ownerSessionId: "test-sr01",
 			runKind: "goal-loop",
@@ -272,13 +296,12 @@ test("SR-01 (GL-1b part C): a pre-executeTeamRun throw marks the turn manifest f
 		// The turn manifest must be failed, NOT queued. The turn run is the only
 		// run under .crew/state/runs that is NOT the goal-loop run itself.
 		const runsRoot = path.join(cwd, ".crew", "state", "runs");
-		const turnDirs = fs
-			.readdirSync(runsRoot)
-			.filter((d) => d !== outer.manifest.runId && d.startsWith("team_"));
+		const turnDirs = fs.readdirSync(runsRoot).filter((d) => d !== outer.manifest.runId && d.startsWith("team_"));
 		assert.equal(turnDirs.length, 1, `expected exactly one turn run dir, got ${turnDirs.join(",")}`);
-		const turnManifest = JSON.parse(
-			fs.readFileSync(path.join(runsRoot, turnDirs[0]!, "manifest.json"), "utf-8"),
-		) as { status: string; summary?: string };
+		const turnManifest = JSON.parse(fs.readFileSync(path.join(runsRoot, turnDirs[0]!, "manifest.json"), "utf-8")) as {
+			status: string;
+			summary?: string;
+		};
 		assert.equal(turnManifest.status, "failed", "pre-exec throw must mark the turn failed, not queued");
 		assert.match(String(turnManifest.summary ?? ""), /pre-execute failure/);
 	} finally {

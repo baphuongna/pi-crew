@@ -172,9 +172,9 @@ export class CrewScheduler {
 			const delay = target - this.now().getTime();
 			if (delay > 0) {
 				// Same 32-bit ceiling as the interval branch above: a once job armed
-			// > 2^31-1 ms out (e.g. "+30d" — a LEGAL relative spec — or a far ISO
-			// timestamp) overflowed setTimeout to a 1ms PREMATURE fire. Chained hops
-			// instead; cronTick self-disables once-jobs on arrival (below).
+				// > 2^31-1 ms out (e.g. "+30d" — a LEGAL relative spec — or a far ISO
+				// timestamp) overflowed setTimeout to a 1ms PREMATURE fire. Chained hops
+				// instead; cronTick self-disables once-jobs on arrival (below).
 				this.setCronTimeout(job.id, target);
 			} else {
 				this.update(job.id, { enabled: false, lastStatus: "error" });
@@ -330,7 +330,8 @@ export class CrewScheduler {
 		// `team action='schedule' interval=3600000` was impossible to satisfy.
 		const ivl = trimmed.match(/^(\d+)(ms|s|m|h|d)$/);
 		if (ivl) {
-			const ms = parseInt(ivl[1], 10) * { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[ivl[2] as "ms" | "s" | "m" | "h" | "d"];
+			const ms =
+				parseInt(ivl[1], 10) * { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[ivl[2] as "ms" | "s" | "m" | "h" | "d"];
 			return { type: "interval", intervalMs: ms, normalized: trimmed };
 		}
 		// ISO timestamp

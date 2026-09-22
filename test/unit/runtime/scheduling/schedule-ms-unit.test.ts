@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-	CrewScheduler,
-	nextRunTime,
-	parseSchedule,
-} from "../../../../src/runtime/scheduling/scheduler.ts";
+import { CrewScheduler, nextRunTime, parseSchedule } from "../../../../src/runtime/scheduling/scheduler.ts";
 
 /**
  * Regression (found live 2026-09-21): `team action='schedule' interval=3600000`

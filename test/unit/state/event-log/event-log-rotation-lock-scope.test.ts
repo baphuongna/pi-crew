@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { compactEventLog } from "../../../../src/state/event-log/event-log-rotation.ts";
 import { appendEvent } from "../../../../src/state/event-log/event-log.ts";
+import { compactEventLog } from "../../../../src/state/event-log/event-log-rotation.ts";
 
 /**
  * US-001 (2026-09-22): lock-scope reduction for event-log compaction.

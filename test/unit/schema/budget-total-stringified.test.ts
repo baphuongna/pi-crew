@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
-import { TeamToolParams } from "../../../src/schema/team-tool-schema.ts";
 import { normalizeLooseNumericFields } from "../../../src/extension/team-tool.ts";
+import { TeamToolParams } from "../../../src/schema/team-tool-schema.ts";
 
 /** The function's param type is not exported; the loose-numeric inputs we
  * exercise (stringified numbers) only exist pre-coercion, so the literals are
@@ -36,7 +36,7 @@ function valid(input: Record<string, unknown>): boolean {
 }
 
 describe("budgetTotal stringified-number acceptance (schema)", () => {
-	it("accepts budgetTotal:\"100000\" (pi-ai stringifies numbers on Literal(\"\") unions)", () => {
+	it('accepts budgetTotal:"100000" (pi-ai stringifies numbers on Literal("") unions)', () => {
 		assert.equal(valid({ action: "goal", goal: "x", budgetTotal: "100000" }), true);
 	});
 
@@ -48,7 +48,7 @@ describe("budgetTotal stringified-number acceptance (schema)", () => {
 		assert.equal(valid({ action: "goal", goal: "x", budgetTotal: 500 }), false);
 	});
 
-	it("still accepts the unset markers: 0 and \"\"", () => {
+	it('still accepts the unset markers: 0 and ""', () => {
 		assert.equal(valid({ action: "goal", goal: "x", budgetTotal: 0 }), true);
 		assert.equal(valid({ action: "goal", goal: "x", budgetTotal: "" }), true);
 	});
@@ -59,12 +59,12 @@ describe("budgetTotal stringified-number acceptance (schema)", () => {
 });
 
 describe("budgetTotal coercion (normalizeLooseNumericFields)", () => {
-	it("coerces \"100000\" back to the number 100000", () => {
+	it('coerces "100000" back to the number 100000', () => {
 		const out = normalizeLooseNumericFields({ action: "goal", goal: "x", budgetTotal: "100000" } as unknown as LooseParams);
 		assert.equal(out.budgetTotal, 100_000);
 	});
 
-	it("treats \"\" as unset (field removed)", () => {
+	it('treats "" as unset (field removed)', () => {
 		const out = normalizeLooseNumericFields({ action: "goal", goal: "x", budgetTotal: "" } as unknown as LooseParams);
 		assert.equal("budgetTotal" in out, false);
 	});
