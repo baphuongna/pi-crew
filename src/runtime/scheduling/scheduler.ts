@@ -24,6 +24,7 @@ export type ScheduleChangeEvent =
 	| { type: "removed"; jobId: string; spawnedRunIds?: string[] }
 	| { type: "updated"; job: ScheduledJob }
 	| { type: "fired"; jobId: string; agentId: string; name: string }
+	| { type: "skipped"; jobId: string; reason: string }
 	| { type: "error"; jobId: string; error: string };
 
 export interface CrewSchedulerOptions {
@@ -156,7 +157,7 @@ export class CrewScheduler {
 			// setInterval(fire, intervalMs). Node timers are 32-bit — a LEGAL long
 			// interval (e.g. 90d = 7,776,000,000ms > 2^31-1) overflows and Node
 			// silently sets the delay to 1ms (TimeoutOverflowWarning): the job then
-			// fired every millisecond, and fire() has no in-flight guard, so each
+			// fired every millisecond, and each
 			// tick dispatched another run (measured live: ~104 garbage runs + 50+
 			// node processes from ONE registered 90-day interval job). armCron()
 			// already clamps its hops below the same ceiling — the interval branch
@@ -278,6 +279,18 @@ export class CrewScheduler {
 		const job = this.jobs.get(id);
 		if (!job || !this.executor) return;
 		if (!job.enabled && !force) return;
+		// In-flight guard (2026-09-22, storm follow-up): the executor dispatches
+		// asynchronously and resets lastStatus (success/error) only on completion,
+		// so `running` marks the in-flight window. Without backpressure here, any
+		// interval shorter than the run duration stacks one overlapping run per
+		// tick (the 1ms overflow loop was the extreme case; fixed below/above).
+		// Skips emit a "skipped" event (visible to pi.events consumers; the toast
+		// bridge stays silent — a slow executor + short interval would spam).
+		// `force` (run-now) is the explicit escape hatch.
+		if (job.lastStatus === "running" && !force) {
+			this.emit?.({ type: "skipped", jobId: id, reason: "previous dispatch still in flight" });
+			return;
+		}
 		this.update(id, { lastStatus: "running" });
 		let agentId: string;
 		try {

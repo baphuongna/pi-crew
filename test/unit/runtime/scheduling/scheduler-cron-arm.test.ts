@@ -98,10 +98,15 @@ test("after each fire the timer re-arms and job.nextRun advances to the next occ
 	h.advance(5 * 60_000); // → 10:05: first fire
 	assert.equal(h.fired(), 1);
 	assert.equal(h.job()?.nextRun, "2026-05-10T10:10:00.000Z", "nextRun must advance to the next occurrence after firing");
+	// Emulate the async run completion (real wiring resets lastStatus in the
+	// executor's setImmediate block). The in-flight guard suppresses overlaps,
+	// so without this reset the next occurrence would be skipped.
+	h.scheduler.update("cron-job", { lastStatus: "success" });
 
 	h.advance(5 * 60_000); // → 10:10: re-armed timer fires the second occurrence
 	assert.equal(h.fired(), 2, "re-arm after fire must fire the next occurrence");
 	assert.equal(h.job()?.nextRun, "2026-05-10T10:15:00.000Z");
+	h.scheduler.update("cron-job", { lastStatus: "success" });
 
 	h.advance(5 * 60_000); // → 10:15: third occurrence, still exactly once each
 	assert.equal(h.fired(), 3);
