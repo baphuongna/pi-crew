@@ -193,19 +193,39 @@ function resolveRunStateRoot(cwd: string, runId: string): string | undefined {
 	const now = Date.now();
 	const cached = runStateRootCache.get(key);
 	if (cached && cached.expiresAt > now) return cached.root;
-	const runsRoot = path.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
-	const scopedPath = resolveContainedRelativePath(runsRoot, runId, "runId");
-	try {
-		resolveRealContainedPath(runsRoot, runId);
-	} catch {
-		return undefined;
+	// F-L1 (2026-09-22): listing (run-index scopedRunRoots) UNIONS the user and
+	// project run roots, but this resolution used scopeBaseRoot's single XOR
+	// pick — a run living under the OTHER root (e.g. created by another cwd or
+	// before the repo got a marker) listed fine yet FAILED every by-ID lookup:
+	// team status / prune / forget / scheduler provenance all returned "not
+	// found". Try the primary root first (hot path unchanged — one contained
+	// resolve + cache hit), then fall back to the other root. The no-repo case
+	// never falls back to a project path, mirroring scopedRunRoots' `if
+	// (projectRoot)` guard — resolution sees exactly what listing sees.
+	const candidates = useProjectState(cwd)
+		? [projectCrewRoot(cwd), userCrewRoot()]
+		: [userCrewRoot()];
+	for (const root of candidates) {
+		const runsRoot = path.join(root, DEFAULT_PATHS.state.runsSubdir);
+		const scopedPath = resolveContainedRelativePath(runsRoot, runId, "runId");
+		// resolveRealContainedPath deliberately ACCEPTS a missing target (write-path
+		// semantics: ENOENT is fine, only symlink/escape violations throw) — so
+		// existence must be probed explicitly. Without this, the primary root
+		// always "wins" with a phantom path and the fallback can never run.
+		if (!fs.existsSync(path.join(scopedPath, DEFAULT_PATHS.state.manifestFile))) continue;
+		try {
+			resolveRealContainedPath(runsRoot, runId);
+		} catch {
+			continue; // symlink/escape violation under this root — try the other
+		}
+		if (runStateRootCache.size >= RUN_STATE_ROOT_CACHE_MAX) {
+			const oldest = runStateRootCache.keys().next().value;
+			if (oldest !== undefined) runStateRootCache.delete(oldest);
+		}
+		runStateRootCache.set(key, { root: scopedPath, expiresAt: now + RUN_STATE_ROOT_TTL_MS });
+		return scopedPath;
 	}
-	if (runStateRootCache.size >= RUN_STATE_ROOT_CACHE_MAX) {
-		const oldest = runStateRootCache.keys().next().value;
-		if (oldest !== undefined) runStateRootCache.delete(oldest);
-	}
-	runStateRootCache.set(key, { root: scopedPath, expiresAt: now + RUN_STATE_ROOT_TTL_MS });
-	return scopedPath;
+	return undefined;
 }
 
 // PERF (2026-08-24): the artifacts containment verdict (existsSync + lstat +
@@ -239,7 +259,13 @@ function validateRunManifestPaths(cwd: string, runId: string, manifest: TeamRunM
 		manifest.eventsPath !== path.join(stateRoot, "events.jsonl")
 	)
 		return false;
-	const artifactsParent = path.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
+	// F-L1 (2026-09-22): derive the artifacts parent from the RESOLVED stateRoot's
+	// base root (…/<base>/state/runs/<runId>), not scopeBaseRoot — cross-root
+	// runs (state under the fallback root, artifacts written beside it at
+	// creation) must validate against their OWN root; scopeBaseRoot would
+	// reject every fallback-resolved run and keep it invisible by ID.
+	const baseRoot = path.resolve(stateRoot, "..", "..", "..");
+	const artifactsParent = path.join(baseRoot, DEFAULT_PATHS.state.artifactsSubdir);
 	const expectedArtifactsRoot = resolveContainedRelativePath(artifactsParent, runId, "runId");
 	if (manifest.artifactsRoot !== expectedArtifactsRoot) return false;
 	// PERF (2026-08-24): memoized verdict — see artifactsVerdictCache above.
@@ -409,9 +435,14 @@ export function createRunManifest(params: {
 	runKind?: "team-run" | "goal-loop" | "dynamic-workflow";
 	/** round-14 P1-5: typed workflow arguments for .dwf.ts scripts (ctx.args<T>()). */
 	args?: unknown;
+	/** Deterministic-capture support (2026-09-22): pin the run ID and/or clock
+	 * so tools like docs/ui-samples/capture.ts produce byte-stable output.
+	 * Defaults preserve current behavior (generated id, wall clock). */
+	runId?: string;
+	now?: () => Date;
 }): { manifest: TeamRunManifest; tasks: TeamTaskState[]; paths: RunPaths } {
-	const paths = createRunPaths(params.cwd);
-	const now = new Date().toISOString();
+	const paths = createRunPaths(params.cwd, params.runId);
+	const now = (params.now ? params.now() : new Date()).toISOString();
 	const tasks = params.workflow ? createTasksFromWorkflow(paths.runId, params.workflow, params.team, params.cwd, params.goal) : [];
 	const manifest: TeamRunManifest = {
 		schemaVersion: CURRENT_SCHEMA_VERSION,
