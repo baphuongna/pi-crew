@@ -83,6 +83,66 @@ const DANGEROUS_ARG_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
+ * Tokenize a command string honoring simple POSIX-style quoting.
+ *
+ * RM-02 (2026-09-22): the previous `trimmed.split(/\s+/)` mis-split a quoted
+ * argument (`llm-judge --prompt "score 1-10"` → `"score` + `1-10"`), silently
+ * handing wrong argv to a real process. Supports single quotes, double quotes,
+ * and backslash escapes outside single quotes. Deliberately NOT a shell:
+ * no globbing, no env expansion, no command substitution — and an unterminated
+ * quote FAILS CLOSED rather than silently mis-splitting.
+ *
+ * Exported for direct unit testing.
+ */
+export function tokenizeCommand(command: string): string[] {
+	const tokens: string[] = [];
+	let current = "";
+	let hasToken = false;
+	let state: "plain" | "single" | "double" = "plain";
+	for (let i = 0; i < command.length; i += 1) {
+		const ch = command[i]!;
+		if (state === "single") {
+			if (ch === "'") state = "plain";
+			else current += ch;
+			continue;
+		}
+		if (state === "double") {
+			if (ch === '"') state = "plain";
+			else if (ch === "\\" && i + 1 < command.length) {
+				// In double quotes a backslash escapes the next char (keeps it literal).
+				i += 1;
+				current += command[i]!;
+			} else current += ch;
+			continue;
+		}
+		// plain state
+		if (ch === "'") {
+			state = "single";
+			hasToken = true;
+		} else if (ch === '"') {
+			state = "double";
+			hasToken = true;
+		} else if (ch === "\\" && i + 1 < command.length) {
+			i += 1;
+			current += command[i]!;
+			hasToken = true;
+		} else if (/\s/.test(ch)) {
+			if (hasToken) {
+				tokens.push(current);
+				current = "";
+				hasToken = false;
+			}
+		} else {
+			current += ch;
+			hasToken = true;
+		}
+	}
+	if (state !== "plain") throw new Error(`Unterminated ${state === "single" ? "single" : "double"} quote in command`);
+	if (hasToken) tokens.push(current);
+	return tokens;
+}
+
+/**
  * Validate a benchmark judge command and split it into executable + args.
  *
  * F20: the previous implementation used a single regex
@@ -99,9 +159,11 @@ export function parseAndValidateCommand(command: string): { program: string; arg
 	const trimmed = (command ?? "").trim();
 	if (trimmed.length === 0) throw new Error("Empty command");
 
-	// Naive split on whitespace: the metacharacter blocker below (plus the
-	// executable allowlist) means a simple split cannot smuggle shell syntax.
-	const parts = trimmed.split(/\s+/);
+	// RM-02: quote-aware tokenize (was `split(/\s+/)`, which broke quoted
+	// args). The metacharacter blocker below still runs on the RESULTING args,
+	// so quoting cannot smuggle shell syntax past it.
+	const parts = tokenizeCommand(trimmed);
+	if (parts.length === 0) throw new Error("Empty command");
 	const program = parts[0]!;
 	const args = parts.slice(1);
 
