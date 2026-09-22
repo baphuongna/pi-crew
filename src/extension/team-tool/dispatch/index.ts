@@ -10,8 +10,8 @@
  *   status  (16): status, list, get, events, artifacts, summary, graph, search,
  *                 health, worktrees, checkpoint, cache, explain, onboard, recommend, help
  *   control (7):  cancel, invalidate, respond, cleanup, prune, forget, doctor
- *   manage  (16): create, update, delete, init, config, validate, autonomy, settings,
- *                 workflow-create/get/list/save/delete, import, imports, export
+ *   manage  (17): create, update, delete, init, config, validate, autonomy, settings,
+ *                 workflow-create/get/list/save/delete, import, imports, export, compare
  *   automate(6):  schedule, scheduled, anchor, auto-summarize, auto_boomerang, api
  */
 import type { TeamDomain } from "../../../schema/team-tool-schema.ts";
@@ -80,6 +80,7 @@ const ACTION_TO_DOMAIN: Record<string, TeamDomain> = {
 	import: "manage",
 	imports: "manage",
 	export: "manage",
+	compare: "manage",
 
 	// automate domain (6)
 	schedule: "automate",

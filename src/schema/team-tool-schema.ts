@@ -148,6 +148,13 @@ const sharedFields = {
 		}),
 	),
 	taskId: Type.Optional(Type.String({ description: "Task ID for respond action." })),
+	// US-021: the two runs to diff. Items allow "" so model callers that emit
+	// unset strings are filtered at the handler, same policy as runId.
+	runIds: Type.Optional(
+		Type.Array(Type.String({ pattern: "^$|^[A-Za-z0-9_-]+$" }), {
+			description: "The two run IDs to compare: { action: 'compare', runIds: ['team_a', 'team_b'] }.",
+		}),
+	),
 	message: Type.Optional(Type.String({ description: "Message for respond action." })),
 	async: Type.Optional(
 		Type.Boolean({
@@ -438,6 +445,7 @@ const MANAGE_ACTIONS = [
 	"import",
 	"imports",
 	"export",
+	"compare",
 ] as const;
 const manageActions = Type.Optional(buildStringEnum(MANAGE_ACTIONS, ACTION_DESCRIPTION));
 
@@ -522,6 +530,8 @@ export interface TeamToolParamsValue {
 	task?: string;
 	singleAgent?: boolean;
 	runId?: string;
+	/** (compare) The two runs to diff: { action: 'compare', runIds: ['team_a', 'team_b'] } (US-021). */
+	runIds?: string[];
 	taskId?: string;
 	message?: string;
 	async?: boolean;

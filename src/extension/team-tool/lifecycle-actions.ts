@@ -13,6 +13,7 @@ import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import { sleep } from "../../utils/sleep.ts";
 import { cleanupRunWorktrees } from "../../worktree/cleanup.ts";
 import { listImportedRuns } from "../import-index.ts";
+import { runCompareBundle } from "../run-compare.ts";
 import { exportRunBundle } from "../run-export.ts";
 import { importRunBundle } from "../run-import.ts";
 import { pruneFinishedRuns } from "../run-maintenance.ts";
@@ -141,6 +142,49 @@ export async function handleExport(params: TeamToolParamsValue, ctx: TeamContext
 			runId: loaded.manifest.runId,
 			artifactsRoot: loaded.manifest.artifactsRoot,
 		},
+	);
+}
+
+// US-021 (2026-09-22): compare two runs (before/after a fix, two attempts at
+// the same goal). Pure diff logic lives in run-compare.ts; this handler owns
+// param validation, ownership security (mirrors handleExport) and the
+// no-partial-artifact guarantee (both runs load BEFORE anything is written).
+export function handleCompare(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+	const raw = params.runIds ?? [];
+	const runIds = Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string" && id !== "") : [];
+	if (runIds.length !== 2)
+		return result(
+			paramRequired("compare", "runIds", "{ action: 'compare', runIds: ['team_a', 'team_b'] }"),
+			{ action: "compare", status: "error" },
+			true,
+		);
+	const a = loadRunManifestById(ctx.cwd, runIds[0]);
+	if (!a) return result(`Run '${runIds[0]}' not found.${RUN_NOT_FOUND_HINT}`, { action: "compare", status: "error" }, true);
+	const b = loadRunManifestById(ctx.cwd, runIds[1]);
+	if (!b) return result(`Run '${runIds[1]}' not found.${RUN_NOT_FOUND_HINT}`, { action: "compare", status: "error" }, true);
+
+	// SECURITY: Ownership check — mirrors handleExport. A comparison reveals
+	// another session's task statuses, costs and event types; foreign-run
+	// comparison therefore requires confirm: true (explicit user intent).
+	for (const loaded of [a, b]) {
+		const foreignRun = typeof loaded.manifest.ownerSessionId === "string" && loaded.manifest.ownerSessionId !== ctx.sessionId;
+		if (foreignRun && !params.confirm)
+			return result(
+				`Run ${loaded.manifest.runId} belongs to another session. Use confirm: true to compare anyway.`,
+				{ action: "compare", status: "error", runId: loaded.manifest.runId },
+				true,
+			);
+	}
+
+	const { comparison, markdownPath } = runCompareBundle(a.manifest, a.tasks, b.manifest, b.tasks);
+	return result(
+		[
+			`Compared ${a.manifest.runId} vs ${b.manifest.runId}: ${comparison.identical ? "identical" : "different"}.`,
+			`Tasks: ${comparison.tasks.length} compared, ${comparison.tasksOnlyInA.length} only in a, ${comparison.tasksOnlyInB.length} only in b.`,
+			`Tokens Δ: ${comparison.usage.tokensDelta >= 0 ? "+" : ""}${comparison.usage.tokensDelta}, Cost Δ: ${comparison.usage.costDelta >= 0 ? "+" : ""}${comparison.usage.costDelta.toFixed(4)}`,
+			`Markdown: ${markdownPath}`,
+		].join("\n"),
+		{ action: "compare", status: "ok", runId: a.manifest.runId },
 	);
 }
 

@@ -3,7 +3,7 @@
  *
  * Actions: create, update, delete, init, config, validate, autonomy, settings,
  * workflow-create, workflow-get, workflow-list, workflow-save, workflow-delete,
- * import, imports, export.
+ * import, imports, export, compare.
  *
  * Inline cases (init, autonomy, config, validate) are moved verbatim from the
  * former handleTeamTool switch.
@@ -18,7 +18,7 @@ import { formatValidationReport, validateResources } from "../../validate-resour
 import { autonomousPatchFromConfig, configPatchFromConfig, formatAutonomyStatus } from "../config-patch.ts";
 import { configRecord, result, type TeamContext } from "../context.ts";
 import { handleSettings } from "../handle-settings.ts";
-import { handleExport, handleImport, handleImports } from "../lifecycle-actions.ts";
+import { handleCompare, handleExport, handleImport, handleImports } from "../lifecycle-actions.ts";
 import {
 	handleWorkflowCreate,
 	handleWorkflowDelete,
@@ -51,6 +51,7 @@ export const MANAGE_DOMAIN_ACTIONS = [
 	"import",
 	"imports",
 	"export",
+	"compare",
 ] as const;
 type ManageDomainAction = (typeof MANAGE_DOMAIN_ACTIONS)[number];
 
@@ -161,6 +162,8 @@ export async function handleManageDomain(params: TeamToolParamsValue, ctx: TeamC
 		}
 		case "export":
 			return handleExport(params, ctx);
+		case "compare":
+			return handleCompare(params, ctx);
 		case "import":
 			return handleImport(params, ctx);
 		case "imports":
