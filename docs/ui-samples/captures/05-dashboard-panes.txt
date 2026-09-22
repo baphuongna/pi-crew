@@ -1,15 +1,15 @@
 ### Pane 1 — Agents (phím 1)
 ────────────────────────────────────────────────────────────
 1/5 tasks · 5 agents
-  ⠧ t1 explorer · 16.1k $0.0310     5m
+  ⠴ t1 explorer · 16.1k $0.0310     5m
     thinking…
-  ⠇ t2 planner · 16.1k $0.0310     5m
+  ⠦ t2 planner · 16.1k $0.0310     5m
     thinking…
   ○ t3 executor · 16.1k $0.0310     5m
     queued
   ⏳ t4 executor · 16.1k $0.0310     5m
     done
-  ✓ t5 reviewer · 39.0k $0.0800     5m
+  ✓ t5 reviewer · 39.0k $0.0800     4m
     done
 
 ### Pane 2 — Progress (phím 2)
@@ -18,9 +18,9 @@ Progress pane: 1/5 completed · running=2 queued=1 failed=0
 All 1 phases done: 20% (1/5)
   Phase 1 default: 20% (1/5) [waiting]
 group joins: none
-#40 2026-09-17T17:18:57.242Z task.started t1
-#41 2026-09-17T17:19:27.242Z agent.progress t1
-#42 2026-09-17T17:19:57.242Z task.completed t5
+#40 2026-09-15T08:58:00.000Z task.started t1
+#41 2026-09-15T08:58:30.000Z agent.progress t1
+#42 2026-09-15T08:59:00.000Z task.completed t5
 
 ### Pane 3 — Mailbox (phím 3)
 ────────────────────────────────────────────────────────────

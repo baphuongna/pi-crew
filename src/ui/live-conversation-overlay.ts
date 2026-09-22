@@ -62,11 +62,14 @@ export class LiveConversationOverlay {
 	private handle: LiveAgentHandle;
 	private theme: CrewTheme;
 
-	constructor(handle: LiveAgentHandle, theme: CrewTheme, columns = 80, rows = 24) {
+	private readonly nowMs: () => number;
+
+	constructor(handle: LiveAgentHandle, theme: CrewTheme, columns = 80, rows = 24, nowMs?: () => number) {
 		this.handle = handle;
 		this.theme = theme;
 		this.columns = columns;
 		this.rows = rows;
+		this.nowMs = nowMs ?? Date.now;
 		// R8: Subscribe to real session events if available
 		const session = handle.session as Record<string, unknown>;
 		if (typeof session.subscribe === "function") {
@@ -117,7 +120,7 @@ export class LiveConversationOverlay {
 
 	private refreshSummary(): void {
 		const act = this.handle.activity;
-		const summary = `${LiveConversationOverlay.SUMMARY_PREFIX}[${formatCount(act.turnCount ?? 0, "turn")} · ${formatCount(act.toolUses ?? 0, "tool")} · ${(computeLiveDurationMs(act) / 1000).toFixed(1)}s]`;
+		const summary = `${LiveConversationOverlay.SUMMARY_PREFIX}[${formatCount(act.turnCount ?? 0, "turn")} · ${formatCount(act.toolUses ?? 0, "tool")} · ${(computeLiveDurationMs(act, this.nowMs()) / 1000).toFixed(1)}s]`;
 		const lastLine = this.cachedLines[this.cachedLines.length - 1];
 		if (lastLine?.startsWith(LiveConversationOverlay.SUMMARY_PREFIX)) {
 			this.cachedLines[this.cachedLines.length - 1] = summary;
@@ -267,7 +270,7 @@ export class LiveConversationOverlay {
 		if (act.maxTurns != null) parts.push(`turn ${act.turnCount ?? 0}/${act.maxTurns}`);
 		else if ((act.turnCount ?? 0) > 0) parts.push(`turn ${act.turnCount}`);
 		if ((act.toolUses ?? 0) > 0) parts.push(formatCount(act.toolUses ?? 0, "tool"));
-		parts.push(`${(computeLiveDurationMs(act) / 1000).toFixed(1)}s`);
+		parts.push(`${(computeLiveDurationMs(act, this.nowMs()) / 1000).toFixed(1)}s`);
 		try {
 			const ctxPct = this.handle.session.getSessionStats?.()?.contextUsage?.percent;
 			if (ctxPct != null) {

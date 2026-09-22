@@ -46,7 +46,7 @@ import {
 	statusSlot,
 	truncVisual,
 } from "../rail.ts";
-import { spinnerFrame } from "../spinner.ts";
+import { spinnerClockNow, spinnerFrame } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 import { parseCompactToolProgress } from "../tool-progress-formatter.ts";
 import { briefToolResult, isBrief } from "./brief-mode.ts";
@@ -206,7 +206,7 @@ function renderTeamResult(result: Record<string, unknown>, options: unknown, the
 	if (isPartial && !ctx.expanded) {
 		const parsed = parseStreamingProgress(extractContentText(result?.content));
 		if (parsed) {
-			const spinner = theme.fg("accent", spinnerFrame(String(Date.now())));
+			const spinner = theme.fg("accent", spinnerFrame(String(spinnerClockNow())));
 			const elapsed = theme.fg("dim", formatDuration(parsed.elapsedMs));
 			const lines: string[] = [];
 
@@ -550,7 +550,7 @@ function computeTotalDuration(records: CrewAgentRecord[]): number {
 function computeRecordDuration(r: CrewAgentRecord): number {
 	if (!r.startedAt) return 0;
 	const start = new Date(r.startedAt).getTime();
-	const end = r.completedAt ? new Date(r.completedAt).getTime() : Date.now();
+	const end = r.completedAt ? new Date(r.completedAt).getTime() : spinnerClockNow();
 	if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
 	return Math.max(0, end - start);
 }

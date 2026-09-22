@@ -8,6 +8,7 @@
 
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { formatDuration, formatTokens, truncLine } from "../format-helpers.ts";
+import { spinnerClockNow } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 
 // ── State ──────────────────────────────────────────────────────────────
@@ -149,7 +150,7 @@ function computeTotalDuration(records: CrewAgentRecord[]): number {
 	for (const r of records) {
 		if (r.startedAt) {
 			const start = new Date(r.startedAt).getTime();
-			const end = r.completedAt ? new Date(r.completedAt).getTime() : Date.now();
+			const end = r.completedAt ? new Date(r.completedAt).getTime() : spinnerClockNow();
 			if (Number.isFinite(start) && Number.isFinite(end)) total += Math.max(0, end - start);
 		}
 	}

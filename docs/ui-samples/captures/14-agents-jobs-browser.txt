@@ -5,7 +5,7 @@
 ┏ AGENTS ▸ 2 agents · 1 job · 1 hidden ····················································· ↑/↓ move · Enter transcript
 ┃ ⚠ 1 project-tier job hidden — opt in via ~/.pi/crew-settings.json: schedulingEnabled + allowProjectScheduledJobs      
 ┃ Live agents (2)                                    ···················································· ▸ planner · t2
-┃ › ⠸ planner · 41 tok/s · t2                        ··············································· 0/1 tasks · 1 agent
+┃ › ⠦ planner · 41 tok/s · t2                        ··············································· 0/1 tasks · 1 agent
 ┃   ✓ explorer · t1                                  ·····························   ⠦ t2 planner · 16.1k $0.0310  4m50s
 ┃ Scheduled jobs (1)                                 ·····················································     thinking…
 ┃   ⏰ watch: omo · 0 */2 * * * · next in 60m · ●    ·································································· 

@@ -18,7 +18,18 @@ function save(name: string, lines: string[] | string): void {
 }
 
 // ── fixtures ───────────────────────────────────────────────────────────
-const now = new Date();
+// Deterministic captures (2026-09-22): pin the clock AND ids so re-running
+// this script produces byte-identical output (git-diffable UI catalog). Before,
+// `new Date()` at import time made spinner phase + elapsed durations drift
+// between runs, and generated run ids changed every capture.
+const now = new Date("2026-09-15T09:00:00.000Z");
+// Spinner phase derives from wall time at ~30 render sites that don't thread
+// `now` through — swap the clock source once instead (production default is
+// Date.now; see src/ui/spinner.ts).
+{
+	const { __setSpinnerClockSource } = await import(`${ROOT}/src/ui/spinner.ts`);
+	__setSpinnerClockSource(() => now.getTime());
+}
 const iso = (offsetMs: number) => new Date(now.getTime() - offsetMs).toISOString();
 
 function ag(id: string, o: Record<string, unknown> = {}) {
@@ -170,7 +181,7 @@ const snapshot = {
 	const bus = { emit: (event: string, data: unknown) => events.push({ event, data: data as Record<string, unknown> }) };
 	const team = { name: "implementation", description: "", roles: [{ name: "explorer", agent: "explorer" }], source: "demo", filePath: "builtin" } as never;
 	const workflow = { name: "implementation", description: "", steps: [{ id: "explore", role: "explorer" }, { id: "execute", role: "executor" }, { id: "verify", role: "verifier" }], source: "demo", filePath: "builtin" } as never;
-	const created = createRunManifest({ cwd, team, workflow, goal: "capture powerbar demo" });
+	const created = createRunManifest({ cwd, team, workflow, goal: "capture powerbar demo", runId: "team_20260915_powerbar_demo", now: () => now });
 	saveRunManifest({ ...created.manifest, status: "running" });
 	saveRunTasks(created.manifest, [
 		{ id: "t1", role: "explorer", agent: "explorer", title: "explore", status: "completed", dependsOn: [], cwd },
@@ -227,7 +238,7 @@ const snapshot = {
 		"05-dashboard-panes.txt",
 		[
 			"### Pane 1 — Agents (phím 1)", "─".repeat(60),
-			...renderAgentsPane(snapshot, {}),
+			...renderAgentsPane(snapshot, { nowMs: now.getTime() }),
 			"", "### Pane 2 — Progress (phím 2)", "─".repeat(60),
 			...renderProgressPane(snapshot),
 			"", "### Pane 3 — Mailbox (phím 3)", "─".repeat(60),
@@ -473,7 +484,7 @@ try {
 	} as never;
 
 	// ── Run 1: đang chạy (dashboard/browser/transcript/live overlay dùng) ──
-	const created = createRunManifest({ cwd: demoCwd, team: demoTeam, workflow: demoWorkflow, goal: "Audit toàn bộ UI của pi-crew và fix mọi finding" });
+	const created = createRunManifest({ cwd: demoCwd, team: demoTeam, workflow: demoWorkflow, goal: "Audit toàn bộ UI của pi-crew và fix mọi finding", runId: "team_20260915_ui_demo_active", now: () => now });
 	const activeRun = { ...created.manifest, status: "running" as const, updatedAt: iso(5_000) };
 	saveRunManifest(activeRun);
 	saveRunTasks(activeRun, [
@@ -533,7 +544,7 @@ try {
 	);
 
 	// ── Run 2: đã xong (để dashboard/browser có cả group RECENT) ──
-	const created2 = createRunManifest({ cwd: demoCwd, team: demoTeam, workflow: demoWorkflow, goal: "Nightly audit toàn bộ pi-crew" });
+	const created2 = createRunManifest({ cwd: demoCwd, team: demoTeam, workflow: demoWorkflow, goal: "Nightly audit toàn bộ pi-crew", runId: "team_20260915_ui_demo_nightly", now: () => now });
 	const finishedRun = { ...created2.manifest, status: "completed" as const, updatedAt: iso(120_000) };
 	saveRunManifest(finishedRun);
 	saveRunTasks(finishedRun, [
@@ -728,7 +739,7 @@ try {
 				modelName: "anthropic/claude-sonnet-4.5",
 			},
 		} as never;
-		const overlay = new LiveConversationOverlay(handle, theme, 100, 24);
+		const overlay = new LiveConversationOverlay(handle, theme, 100, 24, () => now.getTime());
 		save(
 			"17-live-conversation-overlay.txt",
 			[

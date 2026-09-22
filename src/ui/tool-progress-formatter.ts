@@ -1,5 +1,6 @@
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import { spinnerClockNow } from "./spinner.ts";
 
 export interface ToolProgressInput {
 	/** Subagent record id or synthetic agent label shown in the header. */
@@ -177,7 +178,7 @@ function taskCounts(tasks: TeamTaskState[] | undefined): string | undefined {
  * the chat widget overlay does not jitter.
  */
 export function formatCompactToolProgress(input: ToolProgressInput): string {
-	const elapsedSec = Math.max(0, Math.round((Date.now() - input.startedAt) / 1000));
+	const elapsedSec = Math.max(0, Math.round((spinnerClockNow() - input.startedAt) / 1000));
 	const head = input.agentId ? `${PROGRESS_FORMAT.agentKey}=${input.agentId}` : PROGRESS_FORMAT.agentKey;
 	// Emitted from PROGRESS_FORMAT so the parser can never drift from the wire format.
 	const lines: string[] = [
