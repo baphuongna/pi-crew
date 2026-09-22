@@ -61,6 +61,14 @@ function removeStaleRegistryLock(lockPath: string, staleMs: number): boolean {
 }
 
 function withRegistryLock<T>(fn: () => T): T {
+	// US-010 (2026-09-22): sleepSync below is INTENTIONAL — this lock is sync-only
+	// (fn is synchronous, and its callers at :352/:378 are sync). Converting the
+	// backoff to `await sleep` here would repeat the documented v0.9.26
+	// starvation: the sync spinner's sleepSync blocks the event loop while an
+	// in-process async holder's `await`-based release can never run. The lock is
+	// held only for a sub-millisecond read-modify-write and the loop is bounded by
+	// a 10s deadline, so blocking is bounded and rare (contention is cross-process
+	// only). See src/state/event-log/sequence-cache.ts:270 for the same reasoning.
 	const filePath = registryLockPath();
 	const staleMs = 30_000;
 	fs.mkdirSync(path.dirname(filePath), { recursive: true });
