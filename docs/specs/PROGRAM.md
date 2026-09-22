@@ -97,3 +97,6 @@ US-030 (security review) · US-031
 | 2026-09-22 | DP-01 auto-prune retention guards | done | G1-G6,G8 ✓ | `e01ee7d7` | 3 mutations red; live probe 12/12 young protected |
 | 2026-09-22 | DP-04 small-goal routing hint | done | G1,G2,G4,G5 ✓ | (this) | mutation red; plan suites 38/38 |
 | 2026-09-22 | SR-01 GL-1b part C (pre-try turn marking) | done | G1,G2,G4,G5 ✓ | `dad41423` | mutation red; smoke 5/5 |
+| 2026-09-22 | US-002 stale-lock sweep | done | G1-G5 ✓ | `01ada6e7` | mutation 3/3 red (safety cases); caught an OR-vs-AND bug in my own first cut |
+| 2026-09-22 | US-010 sleepSync → async (verify-close) | done | G1,G2,G4,G5 ✓ | `3aa8f3e5` | async paths already yield; 1 site documented; yield-contract test |
+| 2026-09-22 | US-012 model registry cache | done | G1,G2,G4,G5 ✓ | `c8bc84ed` | WeakMap+identity cache; mutation red; model suites green |

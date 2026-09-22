@@ -31,16 +31,16 @@ Kế hoạch: `docs/superpowers/plans/2026-09-17-review-remediation.md`.
 | ID | Title | Lane | Priority | Status |
 |----|-------|------|----------|--------|
 | [US-001](../specs/US-001.md) | Lock-free event log rotation (lock-scope reduction) | normal | P2 | planned (verify-close) |
-| [US-002](../specs/US-002.md) | Structured run-level lock cleanup | normal | P2 | planned |
+| [US-002](../specs/US-002.md) ✅ | Structured run-level lock cleanup | normal | P2 | planned |
 | [US-003](../specs/US-003.md) | Dead letter queue for permanently failed tasks | normal | P3 | planned |
 
 ## Epic: Performance
 
 | ID | Title | Lane | Priority | Status |
 |----|-------|------|----------|--------|
-| [US-010](../specs/US-010.md) | Replace sleepSync busy-wait with proper async | normal | P3 | planned |
+| [US-010](../specs/US-010.md) ✅ | Replace sleepSync busy-wait with proper async | normal | P3 | planned |
 | [US-011](../specs/US-011.md) | Stream-based event log for large runs | normal | P3 | closed (ST-11 hot paths + bounded-heap guard; 3 cold residuals recorded) |
-| [US-012](../specs/US-012.md) | Cache available models across runs | tiny | P3 | planned |
+| [US-012](../specs/US-012.md) ✅ | Cache available models across runs | tiny | P3 | planned |
 
 ## Epic: DX (Developer Experience)
 
