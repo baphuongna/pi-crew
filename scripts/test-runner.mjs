@@ -57,6 +57,124 @@ export function describeExitOutcome(result) {
 	return undefined;
 }
 
+// ─── DP-03 (2026-09-22): CI test sharding ─────────────────────────────────────
+// CI cannot raise --test-concurrency (clamped at 2 for Windows Defender /
+// macOS tmp contention — see the clamp block below), and the unit suite
+// (~8.1k tests, ~20 min local at concurrency 4, slower at 2) is about to
+// breach the 1500s runner budget. The remaining lever is SHARDING: split the
+// suite across parallel CI jobs, each on its own filesystem, so the per-FS
+// contention that forced the clamp does not apply ACROSS jobs.
+
+/**
+ * Static wall-clock weights per top-level directory under test/unit/.
+ * PER-FILE average weight = (directory wall-clock) ÷ (directory file count),
+ * in centiseconds. MEASURED 2026-09-22 (idle Linux, node v22.23.1): every
+ * directory run sequentially via test-runner at the SAME clamped concurrency
+ * the CI shards use (--test-concurrency=2); the "(root)" bucket (files
+ * directly in test/unit/) measured via 'test/unit/*.test.ts'. With per-file
+ * weights, a shard's cumulative sum ÷100 ≈ its expected wall-clock seconds —
+ * so the ±20% balance assertion in shard-partition.test.ts asserts REAL
+ * expected runtime balance. Rebalance after big test additions.
+ * If you add a top-level dir under test/unit/ you MUST add its weight here:
+ * shard-partition.test.ts fails loudly on an unweighted directory.
+ */
+export const SHARD_DIR_WEIGHTS = {
+	// PER-FILE average weights in centiseconds (dir wall-clock ÷ dir file count,
+	// from the 2026-09-22 measurement). Per-FILE (not per-dir) is essential:
+	// weighting each file by its DIR TOTAL balances cumulative bookkeeping sums
+	// while real shard runtime stayed 2.5× apart (101s vs 254s) — caught while
+	// validating this table. Cumulative shard sums in these units ≈ expected
+	// real seconds × 100.
+	scripts: 602, // 5 files, 30.1s — spawn subprocess runners per test
+	teams: 166,
+	extension: 158,
+	prompt: 136,
+	schema: 121,
+	docs: 91,
+	runtime: 80,
+	state: 63,
+	config: 55,
+	security: 55,
+	ui: 54,
+	worktree: 43,
+	"(root)": 43,
+	benchmark: 37,
+	agents: 31,
+	workflows: 24,
+	skills: 24,
+	utils: 20,
+	hooks: 20,
+	observability: 16,
+};
+
+/** Top-level dir key of a test file path (relative or absolute, any base). */
+export function shardDirKey(file) {
+	const norm = String(file).replaceAll("\\", "/").replace(/^\.\//, "");
+	// Drop empty segments (absolute-path leading "", stray "//") before prefix logic.
+	const parts = norm.split("/").filter((p) => p !== "");
+	// Locate a "test/unit" pair ANYWHERE in the path so absolute paths from CI
+	// checkouts map like relative ones ('.../pi-crew/test/unit/runtime/x' → 'runtime').
+	// Bare base-relative paths ('runtime/x.test.ts') fall back to segment 0. A
+	// file DIRECTLY under the base dir has no deeper segment → "(root)" bucket.
+	let i = 0;
+	const unitIdx = parts.indexOf("unit");
+	if (unitIdx > 0 && parts[unitIdx - 1] === "test") i = unitIdx + 1;
+	else if (parts[0] === "test") i = 1;
+	return parts.length <= i + 1 ? "(root)" : parts[i];
+}
+
+/**
+ * Deterministic weighted contiguous partition (DP-03).
+ * Sorts the file list (stable, locale-independent), accumulates each file's
+ * directory weight, and cuts the sorted list into `total` contiguous runs
+ * whose accumulated weights are as close to totalWeight/total as greedy fill
+ * allows. The requested shard's slice is returned.
+ * Determinism contract: same input list + same weights => byte-identical
+ * shard contents across runs/machines (sorted input, integer weights).
+ */
+export function partitionShard(files, { shard, total, weights = SHARD_DIR_WEIGHTS }) {
+	if (!Number.isInteger(shard) || !Number.isInteger(total) || total < 1 || shard < 0 || shard >= total) {
+		throw new Error(`invalid shard spec: shard=${shard} total=${total} (want 0 <= shard < total, total >= 1)`);
+	}
+	const sorted = [...files].map((f) => String(f)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+	if (total === 1) return sorted;
+	const weightOf = (f) => {
+		const key = shardDirKey(f);
+		const w = weights[key];
+		if (w === undefined) throw new Error(`no shard weight for directory '${key}' (${f}) — add it to SHARD_DIR_WEIGHTS`);
+		return w;
+	};
+	const totalWeight = sorted.reduce((acc, f) => acc + weightOf(f), 0);
+	const target = totalWeight / total;
+	const out = [];
+	let idx = 0;
+	for (let s = 0; s < total; s += 1) {
+		let acc = 0;
+		while (idx < sorted.length) {
+			// Last shard takes everything that remains.
+			if (s === total - 1) {
+				out.push(sorted[idx]);
+				idx += 1;
+				continue;
+			}
+			out.push(sorted[idx]);
+			acc += weightOf(sorted[idx]);
+			idx += 1;
+			if (acc >= target) break;
+		}
+		if (s === shard) return out.splice(0);
+		out.length = 0;
+	}
+	return [];
+}
+
+/** Parse a '--shard=i/n' CLI arg; returns {shard, total} or undefined. */
+export function parseShardArg(arg) {
+	const m = /^--shard=(\d+)\/(\d+)$/.exec(String(arg));
+	if (!m) return undefined;
+	return { shard: Number(m[1]), total: Number(m[2]) };
+}
+
 const isEntryPoint = (() => {
 	const argv1 = process.argv[1];
 	if (!argv1) return false;
@@ -112,6 +230,11 @@ if (args.length === 0) {
 	process.exit(0);
 }
 
+// DP-03: --shard=i/n selects this job's deterministic slice of the expanded
+// file list (see partitionShard). Parsed BEFORE glob expansion so shards see
+// the SAME fully-expanded list that a non-sharded run sees.
+const shardSpec = args.map(parseShardArg).find((s) => s !== undefined);
+
 // Always inject --test-force-exit to guarantee child exits (prevents pi hang).
 // EXCEPT when --watch is passed: node forbids --watch + --test-force-exit.
 const watchMode = args.includes("--watch");
@@ -149,6 +272,17 @@ function expandRecursiveGlob(arg) {
 	return out.length ? out : [arg];
 }
 finalArgs = finalArgs.flatMap(expandRecursiveGlob);
+
+// DP-03: apply the shard slice AFTER glob expansion (the shard must see the
+// same recursive walk a full run sees, so union(shards) == full suite).
+if (shardSpec) {
+	const testFiles = finalArgs.filter((a) => !a.startsWith("--"));
+	// Keep every flag EXCEPT the --shard arg itself (node rejects unknown options).
+	const flags = finalArgs.filter((a) => a.startsWith("--") && parseShardArg(a) === undefined);
+	const slice = partitionShard(testFiles, shardSpec);
+	console.log(`[test-runner] shard ${shardSpec.shard}/${shardSpec.total}: ${slice.length}/${testFiles.length} files`);
+	finalArgs = [...flags, ...slice];
+}
 
 // CI reliability: node:test runs test FILES concurrently in one process
 // (--test-concurrency=N). On shared CI runners (GitHub Actions), high

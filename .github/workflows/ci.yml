@@ -10,6 +10,70 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # DP-03 (2026-09-22): the unit suite is sharded 4-way — each shard is its own
+  # job (own runner filesystem), so the per-FS contention that forced the
+  # --test-concurrency=2 clamp does not apply ACROSS jobs. Partition is
+  # deterministic (scripts/test-runner.mjs partitionShard) — a failure maps to
+  # exactly one shard. The `unit-tests` aggregate job below keeps ONE required
+  # check for branch protection.
+  # NOTE (clamp drift, found while sharding): the runner's concurrency clamp is
+  # UNCONDITIONAL — its comment claims "local dev unaffected" but any
+  # requested value >2 is clamped everywhere. Left as-is (out of DP-03 scope);
+  # shards pass 2 explicitly below so the workflow is self-documenting.
+  # OLD single-job definition (kept one release cycle for trivial revert):
+  #   - name: Test
+  #     run: npm test
+  unit:
+    name: unit ${{ matrix.shard }}/4 · ${{ matrix.os }} / Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        node-version:
+          - 22
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Lockfile sync
+        run: node scripts/check-lockfile-sync.mjs
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit tests (shard ${{ matrix.shard }}/4)
+        # --shard=i/4 selects this job's deterministic slice AFTER recursive
+        # glob expansion (union of shards == full suite, asserted by
+        # test/unit/scripts/shard-partition.test.ts). Concurrency 2 = the
+        # deliberate cross-platform clamp (see scripts/test-runner.mjs).
+        run: node scripts/test-runner.mjs --shard=${{ matrix.shard }}/4 --test-concurrency=2 'test/unit/**/*.test.ts'
+
+  # DP-03: single aggregate check for branch protection — replaces the old
+  # monolithic `test` job's unit portion as the required check. Runs even when
+  # a shard failed (if: always()) so a red shard turns THIS check red instead
+  # of leaving it neutral/skipped.
+  unit-tests:
+    name: unit-tests (aggregate)
+    needs: [unit]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any unit shard failed
+        if: needs.unit.result != 'success'
+        run: |
+          echo "unit matrix result: ${{ needs.unit.result }}"
+          exit 1
+      - name: All shards green
+        if: needs.unit.result == 'success'
+        run: echo "all 4 unit shards green on all OS matrices"
+
   test:
     name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     runs-on: ${{ matrix.os }}
@@ -100,8 +164,11 @@ jobs:
         # Exercises dist/index.mjs (the actual entry Pi loads), not just the
         # TypeScript source. Catches bundle-only regressions.
         run: npm run test:bundle
-      - name: Test
-        run: npm test
+      - name: Integration tests
+        # DP-03: unit tests moved to the sharded `unit` job above. This job keeps
+        # the build/lint/bundle gates + integration (different timeout profile:
+        # serial, long).
+        run: npm run test:integration
       - name: Pack dry run
         run: npm pack --dry-run
       - name: Install + load smoke test

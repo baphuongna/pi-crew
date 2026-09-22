@@ -28,6 +28,8 @@ Maps pi-crew behavior to proof. Every row must have real validation evidence.
 | Conflict detection | `docs/product/conflict-detect.md` | yes | no | yes 3/3 | implemented | conflict-detect.test.ts, delta-conflict.test.ts |
 | Crash recovery | `docs/product/crash-recovery.md` | yes | yes | yes 3/3 | implemented | recovery-recipes.test.ts, async-restart-recovery.test.ts |
 | Effectiveness guard | `docs/product/effectiveness.md` | yes | no | yes 3/3 | implemented | effectiveness-guard.test.ts |
+| Flake remediation (SR-03) | `docs/specs/SR-03.md` | yes | — | via DP-03 shards | done | root causes: missing user-root env isolation (session-summary-cov #11) + sequential-spawn stagger (Rule 3); 3/3 targeted 4-way loops green |
+| CI sharding (DP-03) | `docs/specs/DP-03.md` | yes (shard-partition.test.ts) | — | pending push | code-done | deterministic weighted partition, 4×~186s expected; CI green-run evidence awaits push |
 | Windows EBUSY | `docs/product/platform.md` | yes | yes | yes 3/3 | implemented | phase6-runtime-hardening.test.ts |
 | Depth guard | `docs/product/runtime-safety.md` | yes | no | yes 3/3 | implemented | subagent-depth.test.ts, completion-guard.test.ts |
 | Worker loadout full-session (D5) | `docs/superpowers/specs/2026-08-26-mux-surface-design.md` | yes | no | pending | implemented | pi-args-loadout.test.ts, pi-args.test.ts, pi-args-cov.test.ts |
@@ -81,7 +83,8 @@ Maps pi-crew behavior to proof. Every row must have real validation evidence.
 ## Validation Commands
 
 ```bash
-npm test                    # Run all unit + integration tests (6489 tests across 670 unit files + 29 integration files)
+npm test                    # Run all unit + integration tests (~8.1k tests; unit sharded in CI — DP-03)
+node scripts/test-runner.mjs --shard=0/4 'test/unit/**/*.test.ts'  # One CI shard locally (DP-03)
 npm run typecheck           # TypeScript check + strip-types import
 npm run check               # Biome lint + format
 npm run test:unit           # Unit tests only (fast, parallel)
