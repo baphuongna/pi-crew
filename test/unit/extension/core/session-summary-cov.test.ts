@@ -12,6 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it, test } from "node:test";
 import { notifyActiveRuns } from "../../../../src/extension/session-summary.ts";
+
 // SR-03 (2026-09-22) flake fix: notifyActiveRuns → listRuns UNIONS the project
 // and USER run roots (F-L1). Without pinning the user root away, the REAL user
 // root (or another concurrently-running test's writes to it) leaked active
@@ -33,6 +34,7 @@ test.afterEach(() => {
 		else process.env[key] = value;
 	}
 });
+
 import { recordFromTask, saveCrewAgents } from "../../../../src/runtime/crew-agent-records.ts";
 import { createRunManifest, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
