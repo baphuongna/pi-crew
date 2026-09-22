@@ -103,3 +103,5 @@ US-030 (security review) · US-031
 | 2026-09-22 | **CHECKPOINT: full unit after 13 specs** | pass | G6 ✓ | — | **8126 tests / 8123 pass / 0 fail / 3 skipped** — zero regressions |
 | 2026-09-22 | US-001 lock-scope reduction | done | G1-G5 ✓ | `d21ae445` | **mutation found a real clobber bug I introduced** → fixed with tail-splice; 2 false starts recorded |
 | 2026-09-22 | **14 specs done** | — | — | — | còn lại: US-003, US-020, US-021, US-030, US-031, DP-03, SR-02, SR-03 |
+| 2026-09-22 | US-021 run comparison (`action:'compare'`) | done | G1-G5 ✓ | `ca90c1e9` | self-diff zero-delta; byte-stable markdown; ownership check mirrors export; + `1ba2ade1` style: repo format debt (12 files) |
+| 2026-09-22 | US-003 dead-letter index + 2 retry bugs | done | G1-G6 ✓ | `1ffa6a87` | **retry-noop bug** (autoRetry silently single-attempt) + coalesced-path no-hooks; full unit 8143 (1 guard 55→56 updated) |

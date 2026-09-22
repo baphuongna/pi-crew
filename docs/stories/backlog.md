@@ -32,7 +32,7 @@ Kế hoạch: `docs/superpowers/plans/2026-09-17-review-remediation.md`.
 |----|-------|------|----------|--------|
 | [US-001](../specs/US-001.md) ✅ | Lock-free event log rotation (lock-scope reduction) | normal | P2 | planned (verify-close) |
 | [US-002](../specs/US-002.md) ✅ | Structured run-level lock cleanup | normal | P2 | planned |
-| [US-003](../specs/US-003.md) | Dead letter queue for permanently failed tasks | normal | P3 | planned |
+| [US-003](../specs/US-003.md) ✅ | Dead letter queue for permanently failed tasks | normal | P3 | planned |
 
 ## Epic: Performance
 
@@ -47,7 +47,7 @@ Kế hoạch: `docs/superpowers/plans/2026-09-17-review-remediation.md`.
 | ID | Title | Lane | Priority | Status |
 |----|-------|------|----------|--------|
 | [US-020](../specs/US-020.md) | Interactive run dashboard in TUI | normal | P2 | planned |
-| [US-021](../specs/US-021.md) | Run comparison (before/after) | normal | P3 | planned |
+| [US-021](../specs/US-021.md) ✅ | Run comparison (before/after) | normal | P3 | planned |
 | [US-022](../specs/US-022.md) | Export run report as markdown | tiny | P3 | closed (pinned exportedAt + Cost/model/duration) |
 
 ## Epic: Integration
