@@ -169,18 +169,83 @@ export interface CompactionResult {
  * 6. Return compaction stats
  */
 export function compactEventLog(eventsPath: string, config?: Partial<RotationConfig>): CompactionResult | undefined {
-	const prepared = prepareCompaction(eventsPath, config);
-	if (!prepared) return undefined;
-	// FIX: Wrap entire read-compact-write-recover sequence in lock to prevent
-	// event loss during compaction. Without lock, events can be appended between
-	// read and write, lost silently.
+	// US-001 (2026-09-22): lock-scope reduction. The expensive part is the READ +
+	// parse of the whole log (prepareCompaction). It is read-only, so it does NOT
+	// need the append lock: hold the lock ONLY for the write+recover phase
+	// (applyCompactionUnlocked), which is what must be atomic w.r.t. appends.
+	//
+	// Why this is safe: appenders take the SAME lock, so an append can only land
+	// before our prepareCompaction read or after our applyCompactionUnlocked
+	// write — never inside the write. applyCompactionUnlocked already re-reads
+	// after the write and splices back any events that arrived in the window
+	// (C2 recovery), so no event is lost; it only becomes slightly more likely to
+	// splice, which is exactly the case it was built for.
+	//
+	// No concurrent-rotator guard is needed: this function is fully SYNCHRONOUS
+	// (prepareCompaction and withEventLogLockSync both block), so two calls on the
+	// same path cannot interleave within a process. An in-flight flag was tried
+	// and removed — it was untestable dead code (mutation survived), and the
+	// synchronous execution already serializes rotators. Cross-process rotators
+	// are serialized by the on-disk lock in withEventLogLockSync.
 	//
 	// NOTE (Round 24 BUG 1): callers ALREADY holding the event-log lock (e.g.
-	// appendEventInsideLock in event-log.ts) must call applyCompactionUnlocked
+	// appendEventInsideLock in event-log.ts) must still call applyCompactionUnlocked
 	// directly — calling compactEventLog from inside the lock deadlocks (the
 	// mkdir lock is not re-entrant → 5s timeout → compaction never ran → the
 	// log grew unbounded until events were silently dropped past 50MB).
-	return withEventLogLockSync(eventsPath, () => applyCompactionUnlocked(eventsPath, prepared));
+	const prepared = prepareCompaction(eventsPath, config);
+	if (!prepared) return undefined;
+	return compactPreparedEventLog(eventsPath, prepared);
+}
+
+/**
+ * US-001 phase 3 — the LOCKED write phase, extracted so the read→write race is
+ * deterministically testable: a caller (test) can run prepareCompaction, append
+ * to the file (simulating another process landing events in the window), then
+ * call this and assert nothing was lost.
+ *
+ * prepareCompaction reads OUTSIDE the lock, so an appender may have added events
+ * between that read and this write. applyCompactionUnlocked writes exactly
+ * `prepared.lines` (the kept window from the snapshot), which would CLOBBER those
+ * newer events; its C2 recovery only re-splices events that were in `kept`, not
+ * ones it never saw. So under the lock we read the bytes appended after the
+ * snapshot offset and append them to the write. Appenders hold the same lock,
+ * so this read is a complete tail snapshot.
+ */
+export function compactPreparedEventLog(
+	eventsPath: string,
+	prepared: { lines: string; originalSize: number; originalCount: number; kept: TeamEvent[] },
+): CompactionResult | undefined {
+	return withEventLogLockSync(eventsPath, () => {
+		const merged = { ...prepared, lines: prepared.lines + readTailSince(eventsPath, prepared.originalSize) };
+		return applyCompactionUnlocked(eventsPath, merged);
+	});
+}
+
+/**
+ * US-001: return the raw text appended to `filePath` after `offset`, or "" when
+ * nothing was appended / the file was replaced by a smaller one (a foreign
+ * rotation — caller then proceeds without a splice, which is the pre-US-001
+ * behaviour). Must be called while holding the event-log lock.
+ */
+function readTailSince(filePath: string, offset: number): string {
+	try {
+		const size = fs.statSync(filePath).size;
+		if (size <= offset) return "";
+		const fd = fs.openSync(filePath, "r");
+		try {
+			const length = size - offset;
+			const buf = Buffer.alloc(length);
+			const read = fs.readSync(fd, buf, 0, length, offset);
+			const tail = buf.subarray(0, read).toString("utf-8");
+			// Only splice complete lines (a partial trailing write would corrupt JSONL).
+			return tail.endsWith("\n") ? tail : tail.slice(0, tail.lastIndexOf("\n") + 1);
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return "";
+	}
 }
 
 /** Round 24 (BUG 1): the lock-free pre-read for compaction. Safe to run
