@@ -23,7 +23,7 @@ import { effectiveRunConfig } from "../../extension/team-tool/config-patch.ts";
 import { appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { collectRunMetrics } from "../../state/stores/run-metrics.ts";
-import { createRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
+import { createRunManifest, loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import type { GoalLoopState, GoalLoopStatus, GoalVerdict, TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -39,6 +39,17 @@ import { GoalStore } from "./goal-state-store.ts";
 export interface GoalLoopRuntimeDeps {
 	/** Resolve the agent configs reachable from cwd (used for executeTeamRun's agents arg). */
 	discoverAgents: (cwd: string) => AgentConfig[];
+	/**
+	 * SR-01 test seam: override the per-turn config/runtime resolution. When
+	 * provided, it replaces the loadConfig/effectiveRunConfig/resolveCrewRuntime
+	 * chain — a test can throw here to exercise the pre-executeTeamRun failure
+	 * path deterministically (the alternative, monkey-patching modules, is
+	 * flaky). Production never sets it.
+	 */
+	resolveTurnConfig?: (cwd: string) => {
+		executedConfig: ReturnType<typeof effectiveRunConfig>;
+		runtime: Awaited<ReturnType<typeof resolveCrewRuntime>>;
+	};
 }
 
 export interface RunGoalLoopInput {
@@ -657,9 +668,17 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				// multi-step workflows (fast-fix, implementation) work correctly. Without these, the
 				// team-runner's DAG scheduler / runtime resolution can throw unhandled rejections on
 				// the second batch, which the background-runner's rejection guard catches → silent exit.
-				const turnConfig = loadConfig(goal.cwd);
-				const turnExecutedConfig = effectiveRunConfig(turnConfig.config, {});
-				const turnRuntime = await resolveCrewRuntime(turnExecutedConfig);
+				let turnExecutedConfig: ReturnType<typeof effectiveRunConfig>;
+				let turnRuntime: Awaited<ReturnType<typeof resolveCrewRuntime>>;
+				if (input.deps.resolveTurnConfig) {
+					const resolved = input.deps.resolveTurnConfig(goal.cwd);
+					turnExecutedConfig = resolved.executedConfig;
+					turnRuntime = resolved.runtime;
+				} else {
+					const turnConfig = loadConfig(goal.cwd);
+					turnExecutedConfig = effectiveRunConfig(turnConfig.config, {});
+					turnRuntime = await resolveCrewRuntime(turnExecutedConfig);
+				}
 				turnResult = await executeTeamRun({
 					manifest: created.manifest,
 					tasks: created.tasks,
@@ -674,6 +693,29 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 					workspaceId: goal.ownerSessionId ?? goal.cwd,
 					signal,
 				});
+			} catch (error) {
+				// SR-01 (GL-1b part C, 2026-09-22): a throw between turn creation and
+				// executeTeamRun's own try (config resolution, runtime resolution, or
+				// executeTeamRun's PRE-try section) escaped with the turn manifest stuck
+				// at "queued" — a turn that is long dead still reported as in-flight, so
+				// `team status <turnId>` lied and a resume could double-run it. Mark it
+				// failed before re-throwing; the outer catch (GL-1b part B) then persists
+				// lastTurnError at the goal level.
+				//
+				// Guarded on status === "queued" so we never overwrite a status the
+				// executor already set (executeTeamRunCore failures already write failed
+				// themselves — no double-write). Best-effort: a failure to persist must
+				// not mask the original error.
+				const message = error instanceof Error ? error.message : String(error);
+				try {
+					const loaded = loadRunManifestById(goal.cwd, created.manifest.runId);
+					if (loaded && loaded.manifest.status === "queued") {
+						updateRunStatus(loaded.manifest, "failed", `pre-execute failure: ${message}`);
+					}
+				} catch (persistError) {
+					logInternalError("goal-loop.markTurnFailed", persistError, `turnRunId=${created.manifest.runId}`);
+				}
+				throw error;
 			} finally {
 				unregisterActiveRun(created.manifest.runId);
 			}

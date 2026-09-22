@@ -219,3 +219,70 @@ test("GL-1b: a failing turn persists its reason at goal level (survives turn-dir
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
+
+test("SR-01 (GL-1b part C): a pre-executeTeamRun throw marks the turn manifest failed, not queued", async () => {
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goal-sr01-"));
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+	try {
+		const store = new GoalStore(cwd);
+		const goalState: GoalLoopState = {
+			goalId: store.createGoalId(),
+			ownerSessionId: "test-sr01",
+			objective: "force a pre-exec failure",
+			state: "running",
+			maxTurns: 2,
+			turnsUsed: 0,
+			budgetUsed: 0,
+			evaluatorModel: "stub",
+			cwd,
+			verdicts: [],
+			history: [],
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		};
+		store.save(goalState);
+		const outer = createRunManifest({
+			cwd,
+			team: { name: "default", description: "", source: "builtin", filePath: "x", roles: [{ name: "executor", agent: "executor" }] } as never,
+			workflow: { name: "default", description: "", source: "builtin", filePath: "x", steps: [{ id: "s1", role: "executor", task: "do" }] } as never,
+			goal: goalState.objective,
+			ownerSessionId: "test-sr01",
+			runKind: "goal-loop",
+		});
+		const controller = new AbortController();
+		const agents = allAgents(discoverAgents(cwd));
+		// The seam throws AFTER createRunManifest (turn dir exists) but BEFORE
+		// executeTeamRun — the exact SR-01 window that used to leave the turn
+		// manifest stuck at "queued".
+		const result = await runGoalLoop({
+			goalState,
+			manifest: outer.manifest,
+			signal: controller.signal,
+			deps: {
+				discoverAgents: () => agents,
+				resolveTurnConfig: () => {
+					throw new Error("SR-01 simulated config failure");
+				},
+			},
+		});
+		assert.equal(result.goalState.state, "blocked", "pre-exec failure must block the goal");
+		assert.ok(result.goalState.lastTurnError, "reason must persist at goal level (part B)");
+
+		// The turn manifest must be failed, NOT queued. The turn run is the only
+		// run under .crew/state/runs that is NOT the goal-loop run itself.
+		const runsRoot = path.join(cwd, ".crew", "state", "runs");
+		const turnDirs = fs
+			.readdirSync(runsRoot)
+			.filter((d) => d !== outer.manifest.runId && d.startsWith("team_"));
+		assert.equal(turnDirs.length, 1, `expected exactly one turn run dir, got ${turnDirs.join(",")}`);
+		const turnManifest = JSON.parse(
+			fs.readFileSync(path.join(runsRoot, turnDirs[0]!, "manifest.json"), "utf-8"),
+		) as { status: string; summary?: string };
+		assert.equal(turnManifest.status, "failed", "pre-exec throw must mark the turn failed, not queued");
+		assert.match(String(turnManifest.summary ?? ""), /pre-execute failure/);
+	} finally {
+		delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
