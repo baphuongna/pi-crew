@@ -20241,19 +20241,13 @@ var init_scheduler = __esm({
       arm(job) {
         if (this.timers.has(job.id)) return;
         if (job.scheduleType === "interval" && job.intervalMs) {
-          const t2 = setInterval(() => this.fire(job.id), job.intervalMs);
-          t2.unref();
-          this.timers.set(job.id, t2);
+          const targetMs = this.now().getTime() + job.intervalMs;
+          this.setCronTimeout(job.id, targetMs);
         } else if (job.scheduleType === "once") {
           const target = new Date(job.schedule).getTime();
           const delay = target - this.now().getTime();
           if (delay > 0) {
-            const t2 = setTimeout(() => {
-              this.fire(job.id);
-              this.update(job.id, { enabled: false });
-            }, delay);
-            t2.unref();
-            this.timers.set(job.id, t2);
+            this.setCronTimeout(job.id, target);
           } else {
             this.update(job.id, { enabled: false, lastStatus: "error" });
             this.emit?.({
@@ -20301,6 +20295,7 @@ var init_scheduler = __esm({
         }
         this.fire(jobId);
         this.advanceCronNextRun(jobId);
+        if (job.scheduleType === "once") this.update(jobId, { enabled: false });
       }
       /** After a cron fire, advance the persisted nextRun to the next occurrence
        * (or self-disable when no further occurrence is computable). */

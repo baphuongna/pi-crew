@@ -152,19 +152,29 @@ export class CrewScheduler {
 	private arm(job: ScheduledJob): void {
 		if (this.timers.has(job.id)) return;
 		if (job.scheduleType === "interval" && job.intervalMs) {
-			const t = setInterval(() => this.fire(job.id), job.intervalMs);
-			t.unref();
-			this.timers.set(job.id, t);
+			// 2026-09-22 spawn-storm root cause: this branch used
+			// setInterval(fire, intervalMs). Node timers are 32-bit — a LEGAL long
+			// interval (e.g. 90d = 7,776,000,000ms > 2^31-1) overflows and Node
+			// silently sets the delay to 1ms (TimeoutOverflowWarning): the job then
+			// fired every millisecond, and fire() has no in-flight guard, so each
+			// tick dispatched another run (measured live: ~104 garbage runs + 50+
+			// node processes from ONE registered 90-day interval job). armCron()
+			// already clamps its hops below the same ceiling — the interval branch
+			// was missed. Reuse the identical chained-hop treatment: schedule toward
+			// now+intervalMs, clamped; cronTick fires on arrival (its
+			// advanceCronNextRun is a cron-only no-op here), and fire()'s internal
+			// update() → disarm→arm lifecycle re-arms the next interval.
+			const targetMs = this.now().getTime() + job.intervalMs;
+			this.setCronTimeout(job.id, targetMs);
 		} else if (job.scheduleType === "once") {
 			const target = new Date(job.schedule).getTime();
 			const delay = target - this.now().getTime();
 			if (delay > 0) {
-				const t = setTimeout(() => {
-					this.fire(job.id);
-					this.update(job.id, { enabled: false });
-				}, delay);
-				t.unref();
-				this.timers.set(job.id, t);
+				// Same 32-bit ceiling as the interval branch above: a once job armed
+			// > 2^31-1 ms out (e.g. "+30d" — a LEGAL relative spec — or a far ISO
+			// timestamp) overflowed setTimeout to a 1ms PREMATURE fire. Chained hops
+			// instead; cronTick self-disables once-jobs on arrival (below).
+				this.setCronTimeout(job.id, target);
 			} else {
 				this.update(job.id, { enabled: false, lastStatus: "error" });
 				this.emit?.({
@@ -219,6 +229,9 @@ export class CrewScheduler {
 		// hop that just fired is dead, so no timer doubles up.
 		this.fire(jobId);
 		this.advanceCronNextRun(jobId);
+		// once-semantics (was inline in arm()'s removed setTimeout): consume the
+		// job after its single arrival fire so a re-arm cannot fire it again.
+		if (job.scheduleType === "once") this.update(jobId, { enabled: false });
 	}
 
 	/** After a cron fire, advance the persisted nextRun to the next occurrence

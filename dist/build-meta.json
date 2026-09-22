@@ -7520,7 +7520,7 @@
       "format": "esm"
     },
     "src/runtime/scheduling/scheduler.ts": {
-      "bytes": 17676,
+      "bytes": 18926,
       "imports": [],
       "format": "esm"
     },
@@ -21589,7 +21589,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8317899
+      "bytes": 8319085
     },
     "dist/index.mjs": {
       "imports": [
@@ -24439,7 +24439,7 @@
           "bytesInOutput": 16179
         },
         "src/runtime/scheduling/scheduler.ts": {
-          "bytesInOutput": 14814
+          "bytesInOutput": 14705
         },
         "src/runtime/settings-store.ts": {
           "bytesInOutput": 7777
@@ -25927,7 +25927,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3441968
+      "bytes": 3441859
     }
   }
 }
