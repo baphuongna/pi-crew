@@ -290,6 +290,59 @@ function timingSafeTokenMatch(a: string, b: string): boolean {
  * Symlink guard is preserved: if a symlink appeared since our writeLockFile, we
  * don't rm it (defense against attacker-planted symlinks).
  */
+/**
+ * US-002 (2026-09-22): structured, safe, idempotent sweep of stale run locks.
+ *
+ * Locks whose holder died without releasing (kill -9, crash) previously lingered
+ * until some future acquirer hit the stale-steal path. This gives the
+ * stale-reconciler an explicit pass.
+ *
+ * IMPORTANT — the sweep predicate is STRICTER than acquire-time `canSteal`:
+ * acquire steals on `stale OR holder-dead` (deliberate: a stale lock must not
+ * block a live run forever), but a SWEEP must only remove a lock whose holder is
+ * provably DEAD. Removing a stale-but-live holder's lock would let two processes
+ * enter the critical section. So: stale AND (no pid OR pid dead). A live pid is
+ * never swept, no matter how old.
+ *
+ * Returns the lock files it removed. Idempotent: a second sweep finds nothing.
+ */
+export function sweepStaleLocks(lockFiles: readonly string[], options: RunLockOptions = {}): { removed: string[] } {
+	const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
+	const removed: string[] = [];
+	for (const filePath of lockFiles) {
+		try {
+			if (!fs.existsSync(filePath)) continue;
+			if (!isLockStale(filePath, staleMs)) continue; // fresh → leave alone
+			// Stale. Remove ONLY when no live holder owns it.
+			if (isLockHolderAlive(filePath)) continue;
+			fs.rmSync(filePath, { force: true });
+			removed.push(filePath);
+		} catch (error) {
+			logInternalError("locks.sweep-stale", error, `path=${filePath}`);
+		}
+	}
+	return { removed };
+}
+
+/**
+ * US-002: discover every `run.lock` under a runs root
+ * (`<runsRoot>/<runId>/run.lock`), bounded, for sweepStaleLocks. Missing → empty.
+ */
+export function discoverRunLockFiles(runsRoot: string, maxDirs = 500): string[] {
+	try {
+		if (!fs.existsSync(runsRoot)) return [];
+		return fs
+			.readdirSync(runsRoot, { withFileTypes: true })
+			.filter((e) => e.isDirectory())
+			.slice(0, maxDirs)
+			.map((e) => path.join(runsRoot, e.name, "run.lock"))
+			.filter((p) => fs.existsSync(p));
+	} catch (error) {
+		logInternalError("locks.discover-run-locks", error, `runsRoot=${runsRoot}`);
+		return [];
+	}
+}
+
 export function releaseOwnLock(filePath: string, token: string): void {
 	try {
 		const stat = fs.lstatSync(filePath);

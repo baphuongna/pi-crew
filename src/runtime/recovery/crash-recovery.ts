@@ -1,9 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
-import { withRunLockSync } from "../../state/coordination/locks.ts";
+import { discoverRunLockFiles, sweepStaleLocks, withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendEvent, scanSequence } from "../../state/event-log/event-log.ts";
 import { readActiveRunRegistry, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
@@ -756,6 +757,29 @@ export function reconcileAllStaleRuns(
 				results.push(result);
 			}
 		});
+	}
+	// US-002 (2026-09-22): structured stale-lock sweep. Runs after reconciliation
+	// so locks whose holder died (kill -9 / crash) do not linger. The sweep is
+	// strictly safer than acquire-time steal (stale AND holder-dead only), so a
+	// live holder is never disturbed. Best-effort.
+	try {
+		const runsRoots = [
+			path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir),
+			path.join(userCrewRoot(), DEFAULT_PATHS.state.runsSubdir),
+		];
+		for (const runsRoot of runsRoots) {
+			const { removed } = sweepStaleLocks(discoverRunLockFiles(runsRoot));
+			if (removed.length > 0) {
+				logInternalError(
+					"crash-recovery.sweep-stale-locks",
+					new Error(`swept ${removed.length} stale run lock(s)`),
+					removed.join(", "),
+					"warn",
+				);
+			}
+		}
+	} catch (error) {
+		logInternalError("crash-recovery.sweep-stale-locks", error);
 	}
 	return results;
 }
