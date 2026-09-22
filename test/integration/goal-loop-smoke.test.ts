@@ -99,6 +99,16 @@ test("runGoalLoop (P1 real evaluator) exits blocked when judge is unreachable or
 		} else {
 			// No executor available → loop catches and goes blocked.
 			assert.equal(result.goalState.state, "blocked", "loop should go blocked when worker agent is unavailable");
+			// GL-1b (2026-09-22): the failure reason must ALSO live at goal level —
+			// turn-run dirs are pruned (keep=10 at session start), which previously
+			// made blocked goals undiagnosable after the fact.
+			assert.ok(result.goalState.lastTurnError, "blocked goal must persist lastTurnError");
+			assert.equal(result.goalState.currentRunId, undefined, "currentRunId must be cleared on terminal failure");
+			const events = fs.readFileSync(outer.manifest.eventsPath, "utf-8");
+			assert.ok(
+				events.includes("goal.loop_error") || events.includes('"reason"'),
+				"failure reason must be persisted in the goal event log",
+			);
 		}
 	} finally {
 		delete process.env.PI_TEAMS_MOCK_CHILD_PI;
@@ -146,6 +156,66 @@ test("deriveTranscriptPath uses the REAL task id (Fix P0-2 regression — was ha
 		assert.ok(derived!.includes("01_work"), "must use the real task id, not 'work'");
 		assert.ok(fs.existsSync(derived!), "derived path must exist on disk");
 	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("GL-1b: a failing turn persists its reason at goal level (survives turn-dir pruning)", async () => {
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "retryable-failure";
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goal-gl1b-"));
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+	try {
+		const agents = allAgents(discoverAgents(cwd));
+		const store = new GoalStore(cwd);
+		const goalState: GoalLoopState = {
+			goalId: store.createGoalId(),
+			ownerSessionId: "test-gl1b",
+			objective: "make the turn fail",
+			state: "running",
+			maxTurns: 2,
+			turnsUsed: 0,
+			budgetUsed: 0,
+			evaluatorModel: "stub",
+			cwd,
+			verdicts: [],
+			history: [],
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		};
+		store.save(goalState); // patch() loads from disk — goal must exist first
+		const outer = createRunManifest({
+			cwd,
+			team: { name: "default", description: "", source: "builtin", filePath: "x", roles: [{ name: "executor", agent: "executor" }] } as never,
+			workflow: { name: "default", description: "", source: "builtin", filePath: "x", steps: [{ id: "s1", role: "executor", task: "do" }] } as never,
+			goal: goalState.objective,
+			ownerSessionId: "test-gl1b",
+			runKind: "goal-loop",
+		});
+		const controller = new AbortController();
+		const result = await runGoalLoop({
+			goalState,
+			manifest: outer.manifest,
+			signal: controller.signal,
+			deps: { discoverAgents: () => agents },
+		});
+		assert.equal(result.goalState.state, "blocked", "failing turn must block the goal");
+		// GL-1b: reason persisted at goal level — the turn-run dir carries it in
+		// manifest.summary/run.failed, but auto-prune (keep=10) deletes turn dirs
+		// at the next session start; without this field blocked goals are
+		// undiagnosable after the fact (live incident goal_20260921111305).
+		assert.ok(result.goalState.lastTurnError, "failing turn must persist lastTurnError");
+		assert.equal(result.goalState.currentRunId, undefined, "currentRunId must be cleared on terminal failure");
+		// appendEventBuffered flushes asynchronously — give the buffer a beat.
+		await new Promise((r) => setTimeout(r, 200));
+		const events = fs.readFileSync(outer.manifest.eventsPath, "utf-8");
+		// Either failure route must leave a persisted trace: GL-1 turn-terminal
+		// (manifest-level failure) or the outer catch (executeTeamRun threw).
+		const traced =
+			events.split("\n").find((l) => l.includes("goal.turn_terminal_status") && l.includes('"reason"')) ??
+			events.split("\n").find((l) => l.includes("goal.loop_error"));
+		assert.ok(traced, "failure reason must reach the goal event log (turn_terminal_status.reason or loop_error)");
+	} finally {
+		delete process.env.PI_TEAMS_MOCK_CHILD_PI;
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });

@@ -689,6 +689,23 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 			// Previously the loop continued to evaluateGoal on blocked/failed turns, burning maxTurns.
 			const turnStatus = turnResult.manifest.status;
 			if (turnStatus === "blocked" || turnStatus === "failed") {
+				// GL-1b (2026-09-22 diagnosability): the failure reason previously lived
+				// ONLY inside the turn-run dir (manifest.summary + run.failed event) —
+				// auto-prune (keep=10, session start) deletes turn dirs, making blocked
+				// goals undiagnosable afterwards. Persist the reason into the goal state
+				// (never pruned), carry it on the terminal event, and clear the stale
+				// currentRunId — the turn is over.
+				const turnError = turnResult.manifest.summary ?? `turn ${turnIndex} ended ${turnStatus}`;
+				try {
+					goal =
+						store.patch(
+							goal.goalId,
+							{ lastTurnError: turnError, currentRunId: undefined },
+							eventsPath,
+						) ?? goal;
+				} catch (error) {
+					logInternalError("goal-loop.persistTurnError", error, `goalId=${goal.goalId}`);
+				}
 				goal = safeSetStatus(store, goal.goalId, "blocked", goal, eventsPath);
 				appendEventBuffered(eventsPath, {
 					type: "goal.turn_terminal_status",
@@ -698,6 +715,7 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 						turn: turnIndex,
 						turnRunId: created.manifest.runId,
 						turnStatus,
+						reason: turnError,
 					},
 				}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.turn_terminal_status"));
 				break;
@@ -805,6 +823,20 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 		}
 	} catch (error) {
 		logInternalError("goal-loop.run", error, `goalId=${goal.goalId}`);
+		// GL-1b: this catch previously only console-errored (logInternalError) —
+		// loop-level failures left NO persisted trace. Mirror the turn-level fix:
+		// persist the message into the goal state + event log.
+		const loopError = error instanceof Error ? error.message : String(error);
+		try {
+			goal = store.patch(goal.goalId, { lastTurnError: loopError, currentRunId: undefined }, eventsPath) ?? goal;
+		} catch {
+			/* best-effort — status transition below still runs */
+		}
+		appendEventBuffered(eventsPath, {
+			type: "goal.loop_error",
+			runId: manifest.runId,
+			data: { goalId: goal.goalId, error: loopError },
+		}).catch((e) => logInternalError("goal-loop.buffered", e, "type=goal.loop_error"));
 		goal = safeSetStatus(store, goal.goalId, "blocked", goal, eventsPath);
 	} finally {
 		// P1g: release the workspace lock (held since loop start).

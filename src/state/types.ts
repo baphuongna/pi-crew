@@ -543,6 +543,10 @@ export interface GoalLoopState {
 	nextTurnFeedback?: string;
 	/** The team-run of the current in-flight turn (for cancel/steer). */
 	currentRunId?: string;
+	/** GL-1b (2026-09-22): why the last turn (or the loop itself) failed —
+	 * persisted at goal level because turn-run dirs are pruned (keep=10 at
+	 * session start) and otherwise the reason becomes unrecoverable. */
+	lastTurnError?: string;
 	verdicts: GoalVerdict[];
 	history: {
 		runId: string;
