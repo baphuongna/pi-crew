@@ -90,3 +90,4 @@ US-030 (security review) · US-031
 | 2026-09-22 | US-022 export determinism + md sections | done | G1-G5 ✓ | `5e40d64e` | mutation red; export suites 6/6 |
 | 2026-09-22 | US-011 bounded-heap guard (AC-3) | done | G1-G5 ✓ | `22709f63` | mutation red @24.6MB vs 8MB ceiling |
 | 2026-09-22 | Wave 0 audits (US-011/US-022) | done | n/a | explorer run | residual lists recorded in specs |
+| 2026-09-22 | DP-02 dist slim (minify, drop map/meta) | done | G1,G2,G4,G7 ✓ | `de7b486c` | −52% (3.44MB→1.65MB); bundle 4/4; committed-hash MATCH |
