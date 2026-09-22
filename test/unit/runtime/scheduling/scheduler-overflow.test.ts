@@ -44,7 +44,18 @@ test("interval overflow: a 90-day interval job must NOT fire within a short wind
 test("normal short intervals still fire", async () => {
 	const s = new CrewScheduler();
 	let fires = 0;
-	s.start({ emit: () => undefined, executor: () => { fires++; return "agent-1"; }, finalizer: () => undefined });
+	// Emulate the real wiring (lifecycle-handlers): dispatch is sync, but the
+	// run completes asynchronously and only then resets lastStatus — required
+	// since the in-flight guard suppresses fires while lastStatus === "running".
+	s.start({
+		emit: () => undefined,
+		executor: () => {
+			fires++;
+			setImmediate(() => s.update("job-storm", { lastStatus: "success" }));
+			return "agent-1";
+		},
+		finalizer: () => undefined,
+	});
 	s.add(makeJob({ schedule: "30ms", intervalMs: 30 }));
 	await new Promise((r) => setTimeout(r, 120));
 	assert.ok(fires >= 2, `short interval should fire repeatedly, got ${fires}`);

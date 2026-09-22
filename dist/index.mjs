@@ -713,8 +713,8 @@ function sleepSync(ms) {
 }
 function sleep(ms, signal) {
   if (signal?.aborted) return Promise.reject(new Error("aborted"));
-  return new Promise((resolve26, reject) => {
-    const timer = setTimeout(resolve26, ms);
+  return new Promise((resolve27, reject) => {
+    const timer = setTimeout(resolve27, ms);
     signal?.addEventListener(
       "abort",
       () => {
@@ -759,9 +759,9 @@ function getWorker() {
   return worker;
 }
 function dispatch(kind, payload) {
-  return new Promise((resolve26, reject) => {
+  return new Promise((resolve27, reject) => {
     const id = nextRequestId++;
-    pending.set(id, { resolve: resolve26, reject });
+    pending.set(id, { resolve: resolve27, reject });
     try {
       getWorker().postMessage({ kind, id, ...payload });
     } catch (error) {
@@ -1033,7 +1033,7 @@ function isSymlinkSafeDirCached(filePath) {
   return verdict;
 }
 function sleep2(ms) {
-  return new Promise((resolve26) => setTimeout(resolve26, ms));
+  return new Promise((resolve27) => setTimeout(resolve27, ms));
 }
 function isRetryableRenameError(error) {
   return Boolean(
@@ -1879,7 +1879,7 @@ function acquireLockWithRetry(filePath, staleMs, kind = "file") {
   }
 }
 function sleep3(ms) {
-  return new Promise((resolve26) => setTimeout(resolve26, ms));
+  return new Promise((resolve27) => setTimeout(resolve27, ms));
 }
 async function acquireLockWithRetryAsync(filePath, staleMs, kind = "file") {
   let attempt = 0;
@@ -14276,7 +14276,7 @@ var init_cancellation_token = __esm({
       wait(ms) {
         this.throwIfCancelled();
         if (ms <= 0) return Promise.resolve();
-        return new Promise((resolve26, reject) => {
+        return new Promise((resolve27, reject) => {
           let timeout;
           const cleanup = () => {
             if (timeout) clearTimeout(timeout);
@@ -14288,7 +14288,7 @@ var init_cancellation_token = __esm({
           };
           timeout = setTimeout(() => {
             cleanup();
-            resolve26();
+            resolve27();
           }, ms);
           this.signal.addEventListener("abort", onAbort, { once: true });
         });
@@ -18110,9 +18110,9 @@ function appendEventBuffered(eventsPath, event, bufferMs = DEFAULT_BUFFER_MS) {
     const flushPromise = bufferedQueues.has(eventsPath) ? flushOneEventLogBuffer(eventsPath).catch(() => void 0) : Promise.resolve();
     return flushPromise.then(() => appendEvent(eventsPath, event));
   }
-  return new Promise((resolve26, reject) => {
+  return new Promise((resolve27, reject) => {
     const queue = bufferedQueues.get(eventsPath) ?? [];
-    queue.push({ event, resolve: resolve26, reject });
+    queue.push({ event, resolve: resolve27, reject });
     bufferedQueues.set(eventsPath, queue);
     if (!bufferedTimers.has(eventsPath)) {
       const timer = setTimeout(() => {
@@ -18633,19 +18633,24 @@ function resolveRunStateRoot(cwd, runId) {
   const now = Date.now();
   const cached2 = runStateRootCache.get(key);
   if (cached2 && cached2.expiresAt > now) return cached2.root;
-  const runsRoot = path22.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.runsSubdir);
-  const scopedPath = resolveContainedRelativePath(runsRoot, runId, "runId");
-  try {
-    resolveRealContainedPath(runsRoot, runId);
-  } catch {
-    return void 0;
+  const candidates = useProjectState(cwd) ? [projectCrewRoot(cwd), userCrewRoot()] : [userCrewRoot()];
+  for (const root of candidates) {
+    const runsRoot = path22.join(root, DEFAULT_PATHS.state.runsSubdir);
+    const scopedPath = resolveContainedRelativePath(runsRoot, runId, "runId");
+    if (!fs25.existsSync(path22.join(scopedPath, DEFAULT_PATHS.state.manifestFile))) continue;
+    try {
+      resolveRealContainedPath(runsRoot, runId);
+    } catch {
+      continue;
+    }
+    if (runStateRootCache.size >= RUN_STATE_ROOT_CACHE_MAX) {
+      const oldest = runStateRootCache.keys().next().value;
+      if (oldest !== void 0) runStateRootCache.delete(oldest);
+    }
+    runStateRootCache.set(key, { root: scopedPath, expiresAt: now + RUN_STATE_ROOT_TTL_MS });
+    return scopedPath;
   }
-  if (runStateRootCache.size >= RUN_STATE_ROOT_CACHE_MAX) {
-    const oldest = runStateRootCache.keys().next().value;
-    if (oldest !== void 0) runStateRootCache.delete(oldest);
-  }
-  runStateRootCache.set(key, { root: scopedPath, expiresAt: now + RUN_STATE_ROOT_TTL_MS });
-  return scopedPath;
+  return void 0;
 }
 function __test__artifactsVerdictCacheSize() {
   return artifactsVerdictCache.size;
@@ -18657,7 +18662,8 @@ function validateRunManifestPaths(cwd, runId, manifest, stateRoot, tasksPath) {
   if (!manifest.status || typeof manifest.status !== "string") return false;
   if (manifest.runId !== runId || manifest.stateRoot !== stateRoot || manifest.tasksPath !== tasksPath || manifest.eventsPath !== path22.join(stateRoot, "events.jsonl"))
     return false;
-  const artifactsParent = path22.join(scopeBaseRoot(cwd), DEFAULT_PATHS.state.artifactsSubdir);
+  const baseRoot = path22.resolve(stateRoot, "..", "..", "..");
+  const artifactsParent = path22.join(baseRoot, DEFAULT_PATHS.state.artifactsSubdir);
   const expectedArtifactsRoot = resolveContainedRelativePath(artifactsParent, runId, "runId");
   if (manifest.artifactsRoot !== expectedArtifactsRoot) return false;
   const verdictKey = `${cwd}\0${runId}`;
@@ -18763,8 +18769,8 @@ function createTasksFromWorkflow(runId, workflow, team, cwd, goal) {
   });
 }
 function createRunManifest(params) {
-  const paths = createRunPaths(params.cwd);
-  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const paths = createRunPaths(params.cwd, params.runId);
+  const now = (params.now ? params.now() : /* @__PURE__ */ new Date()).toISOString();
   const tasks = params.workflow ? createTasksFromWorkflow(paths.runId, params.workflow, params.team, params.cwd, params.goal) : [];
   const manifest = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -19936,7 +19942,7 @@ async function respondAsBackground(targetAgentId, fromId, message, opts) {
   return awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, opts?.signal);
 }
 function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
-  return new Promise((resolve26) => {
+  return new Promise((resolve27) => {
     const deadline = Date.now() + timeoutMs;
     let settled = false;
     let timer;
@@ -19950,7 +19956,7 @@ function awaitPendingReply(corrId, targetAgentId, fromId, timeoutMs, signal) {
       const set2 = pendingRepliesByTarget.get(targetAgentId);
       set2?.delete(corrId);
       if (set2 && set2.size === 0) pendingRepliesByTarget.delete(targetAgentId);
-      resolve26(result4);
+      resolve27(result4);
     };
     timer = setTimeout(() => finish({ ok: false, corrId, timedOut: true }), timeoutMs);
     if (signal) {
@@ -20336,6 +20342,10 @@ var init_scheduler = __esm({
         const job = this.jobs.get(id);
         if (!job || !this.executor) return;
         if (!job.enabled && !force) return;
+        if (job.lastStatus === "running" && !force) {
+          this.emit?.({ type: "skipped", jobId: id, reason: "previous dispatch still in flight" });
+          return;
+        }
         this.update(id, { lastStatus: "running" });
         let agentId;
         try {
@@ -21573,7 +21583,7 @@ function createHerdrProvider(deps = {}) {
   function call(method, params) {
     reqSeq += 1;
     const id = `req-${reqSeq}`;
-    return new Promise((resolve26, reject) => {
+    return new Promise((resolve27, reject) => {
       let socket;
       try {
         socket = connect(herdrSocketPath(env));
@@ -21603,7 +21613,7 @@ function createHerdrProvider(deps = {}) {
           reject(new Error(`${msg.error.code ?? "herdr_error"}: ${msg.error.message ?? "unknown error"}`));
           return;
         }
-        resolve26(msg.result);
+        resolve27(msg.result);
       });
       socket.write(JSON.stringify({ id, method, params }));
     });
@@ -21890,7 +21900,7 @@ function findPanePid(stdout, paneId) {
 function createTmuxProvider(deps = {}) {
   const tmux = deps.tmux ?? ((args) => execFileSync2("tmux", args, { encoding: "utf8" }));
   const env = deps.env ?? process.env;
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve27) => setTimeout(resolve27, ms)));
   const killTree = deps.killTree ?? ((pid) => process.kill(pid, "SIGTERM"));
   const hasCommand = deps.hasCommand ?? defaultHasCommand;
   const schedule = deps.schedule ?? defaultSchedule;
@@ -22839,7 +22849,10 @@ var init_rail = __esm({
 });
 
 // src/ui/spinner.ts
-function spinnerBucket(now = Date.now(), frameMs = SUBAGENT_SPINNER_FRAME_MS) {
+function spinnerClockNow() {
+  return spinnerClockSource();
+}
+function spinnerBucket(now = spinnerClockSource(), frameMs = SUBAGENT_SPINNER_FRAME_MS) {
   return Math.floor(now / Math.max(1, frameMs));
 }
 function hashKey(key) {
@@ -22847,16 +22860,17 @@ function hashKey(key) {
   for (let index = 0; index < key.length; index += 1) hash = hash * 31 + key.charCodeAt(index) >>> 0;
   return hash;
 }
-function spinnerFrame(key = "", now = Date.now()) {
+function spinnerFrame(key = "", now = spinnerClockSource()) {
   const offset = key ? hashKey(key) % SUBAGENT_SPINNER_FRAMES.length : 0;
   return SUBAGENT_SPINNER_FRAMES[(spinnerBucket(now) + offset) % SUBAGENT_SPINNER_FRAMES.length] ?? SUBAGENT_SPINNER_FRAMES[0];
 }
-var SUBAGENT_SPINNER_FRAMES, SUBAGENT_SPINNER_FRAME_MS;
+var SUBAGENT_SPINNER_FRAMES, SUBAGENT_SPINNER_FRAME_MS, spinnerClockSource;
 var init_spinner = __esm({
   "src/ui/spinner.ts"() {
     "use strict";
     SUBAGENT_SPINNER_FRAMES = ["\u280B", "\u2819", "\u2839", "\u2838", "\u283C", "\u2834", "\u2826", "\u2827", "\u2807", "\u280F"];
     SUBAGENT_SPINNER_FRAME_MS = 160;
+    spinnerClockSource = Date.now;
   }
 });
 
@@ -25204,11 +25218,13 @@ var init_live_conversation_overlay = __esm({
       unsubscribe;
       handle;
       theme;
-      constructor(handle, theme, columns = 80, rows = 24) {
+      nowMs;
+      constructor(handle, theme, columns = 80, rows = 24, nowMs3) {
         this.handle = handle;
         this.theme = theme;
         this.columns = columns;
         this.rows = rows;
+        this.nowMs = nowMs3 ?? Date.now;
         const session = handle.session;
         if (typeof session.subscribe === "function") {
           try {
@@ -25250,7 +25266,7 @@ var init_live_conversation_overlay = __esm({
       // zero-width space as summary sentinel
       refreshSummary() {
         const act = this.handle.activity;
-        const summary = `${_LiveConversationOverlay.SUMMARY_PREFIX}[${formatCount(act.turnCount ?? 0, "turn")} \xB7 ${formatCount(act.toolUses ?? 0, "tool")} \xB7 ${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s]`;
+        const summary = `${_LiveConversationOverlay.SUMMARY_PREFIX}[${formatCount(act.turnCount ?? 0, "turn")} \xB7 ${formatCount(act.toolUses ?? 0, "tool")} \xB7 ${(computeLiveDurationMs(act, this.nowMs()) / 1e3).toFixed(1)}s]`;
         const lastLine = this.cachedLines[this.cachedLines.length - 1];
         if (lastLine?.startsWith(_LiveConversationOverlay.SUMMARY_PREFIX)) {
           this.cachedLines[this.cachedLines.length - 1] = summary;
@@ -25382,7 +25398,7 @@ var init_live_conversation_overlay = __esm({
         if (act.maxTurns != null) parts.push(`turn ${act.turnCount ?? 0}/${act.maxTurns}`);
         else if ((act.turnCount ?? 0) > 0) parts.push(`turn ${act.turnCount}`);
         if ((act.toolUses ?? 0) > 0) parts.push(formatCount(act.toolUses ?? 0, "tool"));
-        parts.push(`${(computeLiveDurationMs(act) / 1e3).toFixed(1)}s`);
+        parts.push(`${(computeLiveDurationMs(act, this.nowMs()) / 1e3).toFixed(1)}s`);
         try {
           const ctxPct = this.handle.session.getSessionStats?.()?.contextUsage?.percent;
           if (ctxPct != null) {
@@ -28302,9 +28318,9 @@ async function isLiveSessionRuntimeAvailable(timeoutMs = 1500, env = process.env
   try {
     return await Promise.race([
       probe(),
-      new Promise((resolve26) => {
+      new Promise((resolve27) => {
         timer = setTimeout(
-          () => resolve26({
+          () => resolve27({
             available: false,
             reason: `Timed out probing optional Pi SDK live-session runtime after ${timeoutMs}ms.`
           }),
@@ -29513,13 +29529,13 @@ function registerRunPromise(runId) {
   const existing = activeRunPromises.get(runId);
   if (existing) return existing;
   detachRequests.delete(runId);
-  let resolve26;
+  let resolve27;
   let reject;
   const promise = new Promise((res, rej) => {
-    resolve26 = res;
+    resolve27 = res;
     reject = rej;
   });
-  const entry = { promise, resolve: resolve26, reject };
+  const entry = { promise, resolve: resolve27, reject };
   activeRunPromises.set(runId, entry);
   return entry;
 }
@@ -36284,7 +36300,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve26.call(this, root, ref);
+      let _sch = resolve27.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a = root.localRefs) === null || _a === void 0 ? void 0 : _a[ref];
         const { schemaId } = this.opts;
@@ -36311,7 +36327,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve26(root, ref) {
+    function resolve27(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -36942,7 +36958,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve26(baseURI, relativeURI, options) {
+    function resolve27(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const resolved = resolveComponent(parse4(baseURI, schemelessOptions), parse4(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
@@ -37200,7 +37216,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize: normalize2,
-      resolve: resolve26,
+      resolve: resolve27,
       resolveComponent,
       equal,
       serialize,
@@ -40843,7 +40859,7 @@ ${input.prompt}` : input.prompt;
             );
           } catch {
           }
-          await new Promise((resolve26) => setTimeout(resolve26, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
+          await new Promise((resolve27) => setTimeout(resolve27, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
           if (customToolYieldResolved && customToolYieldResult) {
             yieldResult = customToolYieldResult;
           } else if (collectedJsonEvents) {
@@ -40887,7 +40903,7 @@ ${input.prompt}` : input.prompt;
           }
         }
         const pollInterval = DEFAULT_LIVE_SESSION.yieldPollIntervalMs;
-        await new Promise((resolve26) => setTimeout(resolve26, pollInterval));
+        await new Promise((resolve27) => setTimeout(resolve27, pollInterval));
         if (customToolYieldResolved && customToolYieldResult) {
           yieldResult = customToolYieldResult;
           break;
@@ -43184,7 +43200,7 @@ function isSpawnFailLockout(consecutiveFails) {
   return consecutiveFails >= SURFACE_SPAWN_FAIL_LOCKOUT_THRESHOLD;
 }
 function makeTerminalEventProbe(deps) {
-  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve26) => setTimeout(resolve26, ms)));
+  const sleep4 = deps.sleep ?? ((ms) => new Promise((resolve27) => setTimeout(resolve27, ms)));
   const now = deps.now ?? Date.now;
   const step = Math.max(1, deps.pollMs ?? CLASSIFY_POLL_MS);
   let offset = 0;
@@ -43895,7 +43911,7 @@ async function waitForSurfaceExit(outcome, hooks = {}) {
       );
     }
   };
-  return await new Promise((resolve26) => {
+  return await new Promise((resolve27) => {
     let cancelledByAbort = hooks.signal?.aborted === true;
     let timedOut = false;
     let settled = false;
@@ -43904,7 +43920,7 @@ async function waitForSurfaceExit(outcome, hooks = {}) {
       if (settled) return;
       settled = true;
       if (synthTimer) clearTimeout(synthTimer);
-      resolve26(info2);
+      resolve27(info2);
     };
     const armSyntheticFallback = () => {
       if (settled || synthTimer) return;
@@ -44818,7 +44834,7 @@ async function runMockChildPi(input, effectiveTask, observe) {
   }
   if (mock === "json-slow-success") {
     const windowMs = Number(getCrewEnv("PI_TEAMS_MOCK_STEER_WINDOW_MS") ?? "1500");
-    await new Promise((resolve26) => setTimeout(resolve26, Math.min(windowMs, 5e3)));
+    await new Promise((resolve27) => setTimeout(resolve27, Math.min(windowMs, 5e3)));
     const text = `[MOCK] JSON success for ${input.agent.name}`;
     const stdout = `${JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text }] } })}
 ${JSON.stringify({ type: "message_end", usage: { input: 10, output: 5, cost: 1e-3, turns: 1 } })}
@@ -45399,7 +45415,7 @@ ${input.task}` : input.task;
   const surfaceResult = await trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir);
   if (surfaceResult) return surfaceResult;
   try {
-    return await new Promise((resolve26) => {
+    return await new Promise((resolve27) => {
       const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model);
       const child = spawn2(spawnSpec.command, spawnSpec.args, spawnOptions);
       if (child.pid) {
@@ -45540,7 +45556,7 @@ ${input.task}` : input.task;
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve26({
+            resolve27({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -45582,7 +45598,7 @@ ${input.task}` : input.task;
             cleanupErrors.push(error instanceof Error ? error.message : String(error));
           }
           try {
-            resolve26({
+            resolve27({
               ...result4,
               rawFinalText: lineObserver.getRawFinalText(),
               intermediateFindings: lineObserver.getIntermediateFindings(),
@@ -50130,10 +50146,10 @@ var init_coalesce_tasks = __esm({
 
 // src/runtime/scheduling/semaphore.ts
 function createWaiter(signal, onAbort) {
-  let resolve26;
+  let resolve27;
   let reject;
   const promise = new Promise((res, rej) => {
-    resolve26 = res;
+    resolve27 = res;
     reject = rej;
   });
   let isSettled = false;
@@ -50153,7 +50169,7 @@ function createWaiter(signal, onAbort) {
       isSettled = true;
       detachListener?.();
       detachListener = void 0;
-      if (kind === "granted") resolve26();
+      if (kind === "granted") resolve27();
       else reject(new SemaphoreAbortedError());
     }
   };
@@ -51055,8 +51071,8 @@ async function runCoalescedTaskGroup(input) {
     try {
       await Promise.race([
         pendingHeartbeat,
-        new Promise((resolve26) => {
-          drainTimeout = setTimeout(resolve26, 5e3);
+        new Promise((resolve27) => {
+          drainTimeout = setTimeout(resolve27, 5e3);
         })
       ]);
     } finally {
@@ -51696,7 +51712,7 @@ function storeDiscovered(cwd, files) {
 }
 async function detectRipgrep() {
   if (cachedRgCheck !== void 0) return cachedRgCheck;
-  return await new Promise((resolve26) => {
+  return await new Promise((resolve27) => {
     let settled = false;
     try {
       const child = spawn3("rg", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -51708,7 +51724,7 @@ async function detectRipgrep() {
         if (settled) return;
         settled = true;
         cachedRgCheck = { available: false };
-        resolve26(cachedRgCheck);
+        resolve27(cachedRgCheck);
       });
       child.on("close", (code) => {
         if (settled) return;
@@ -51718,13 +51734,13 @@ async function detectRipgrep() {
         } else {
           cachedRgCheck = { available: false };
         }
-        resolve26(cachedRgCheck);
+        resolve27(cachedRgCheck);
       });
     } catch {
       if (settled) return;
       settled = true;
       cachedRgCheck = { available: false };
-      resolve26(cachedRgCheck);
+      resolve27(cachedRgCheck);
     }
   });
 }
@@ -51741,7 +51757,7 @@ function reasonFor(file, keywords) {
   return `keyword match: ${hits.join(", ")}`;
 }
 function runRipgrep(args, cwd, opts = {}) {
-  return new Promise((resolve26, reject) => {
+  return new Promise((resolve27, reject) => {
     const command = opts.command ?? "rg";
     const timeoutMs = opts.timeoutMs ?? DEFAULT_RG_TIMEOUT_MS;
     const maxStdoutBytes = opts.maxStdoutBytes ?? DEFAULT_RG_MAX_STDOUT_BYTES;
@@ -51794,7 +51810,7 @@ function runRipgrep(args, cwd, opts = {}) {
       child.on("close", (code) => {
         settleOnce(() => {
           if (code === 0 || code === 1) {
-            resolve26(stdout);
+            resolve27(stdout);
           } else {
             reject(new Error(`rg exited ${code}: ${stderr.slice(0, 200)}`));
           }
@@ -55381,7 +55397,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
   const start = Date.now();
   let output = "";
   let exitCode = null;
-  return new Promise((resolve26) => {
+  return new Promise((resolve27) => {
     const shell = spawn4("sh", ["-c", command], {
       cwd,
       timeout: timeoutMs,
@@ -55401,7 +55417,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
       } catch {
         shell.kill("SIGKILL");
       }
-      resolve26({
+      resolve27({
         exitCode: -1,
         output: output + "\n[TIMEOUT: Command exceeded limit]",
         durationMs: Date.now() - start
@@ -55412,7 +55428,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     shell.on("close", (code) => {
       clearTimer();
       exitCode = code;
-      resolve26({
+      resolve27({
         exitCode,
         output: output.slice(-1e5),
         // Cap at 100KB
@@ -55421,7 +55437,7 @@ async function executeCommand(command, cwd, timeoutMs = 12e4) {
     });
     shell.on("error", (err2) => {
       clearTimer();
-      resolve26({
+      resolve27({
         exitCode: -1,
         output: `Execution error: ${err2.message}`,
         durationMs: Date.now() - start
@@ -55743,7 +55759,7 @@ async function runSpecCheck(check, options) {
     return { outcome: "launch-failed", durationMs: Date.now() - start, stderrLength: 0 };
   }
   const inner = `ulimit -v ${limits.addressSpaceKb}; ulimit -t ${limits.cpuSeconds}; exec sh -c "$0"`;
-  return await new Promise((resolve26) => {
+  return await new Promise((resolve27) => {
     const child = spawn5(wrapper, ["-rn", "sh", "-c", inner, check.command], {
       cwd: options.cwd,
       env: buildSpecSandboxEnv(),
@@ -55762,7 +55778,7 @@ async function runSpecCheck(check, options) {
       settled = true;
       if (termTimer) clearTimeout(termTimer);
       if (killTimer) clearTimeout(killTimer);
-      resolve26(outcome);
+      resolve27(outcome);
     };
     termTimer = setTimeout(() => {
       try {
@@ -62056,7 +62072,7 @@ function taskCounts(tasks) {
   return `${PROGRESS_FORMAT.tasksKey} ${completed}${PROGRESS_FORMAT.tallySeparator}${total} ${PROGRESS_FORMAT.doneWord} ${summary}`;
 }
 function formatCompactToolProgress(input) {
-  const elapsedSec = Math.max(0, Math.round((Date.now() - input.startedAt) / 1e3));
+  const elapsedSec = Math.max(0, Math.round((spinnerClockNow() - input.startedAt) / 1e3));
   const head = input.agentId ? `${PROGRESS_FORMAT.agentKey}=${input.agentId}` : PROGRESS_FORMAT.agentKey;
   const lines = [
     `${head} ${PROGRESS_FORMAT.statusKey}=${input.status} ${PROGRESS_FORMAT.elapsedKey}=${elapsedSec}${PROGRESS_FORMAT.elapsedUnit}`
@@ -62089,6 +62105,7 @@ var MAX_OUTPUT_LINE, PROGRESS_FORMAT, ELAPSED_RE, STATUS_RE, TALLY_RE, BUCKETS_R
 var init_tool_progress_formatter = __esm({
   "src/ui/tool-progress-formatter.ts"() {
     "use strict";
+    init_spinner();
     MAX_OUTPUT_LINE = 80;
     PROGRESS_FORMAT = {
       /** Header: `agent=<id> status=<status> elapsed=<n>s` (`agent` with no id). */
@@ -62215,7 +62232,7 @@ function computeTotalDuration(records) {
   for (const r of records) {
     if (r.startedAt) {
       const start = new Date(r.startedAt).getTime();
-      const end = r.completedAt ? new Date(r.completedAt).getTime() : Date.now();
+      const end = r.completedAt ? new Date(r.completedAt).getTime() : spinnerClockNow();
       if (Number.isFinite(start) && Number.isFinite(end)) total += Math.max(0, end - start);
     }
   }
@@ -62235,6 +62252,7 @@ var init_brief_mode = __esm({
   "src/ui/tool-renderers/brief-mode.ts"() {
     "use strict";
     init_format_helpers();
+    init_spinner();
     BRIEF_ENTRY_TYPE = "pi-crew.brief-state";
     briefEnabled = false;
   }
@@ -62287,7 +62305,7 @@ function renderTeamResult(result4, options, theme, ctx, w) {
   if (isPartial && !ctx.expanded) {
     const parsed = parseStreamingProgress(extractContentText(result4?.content));
     if (parsed) {
-      const spinner = theme.fg("accent", spinnerFrame(String(Date.now())));
+      const spinner = theme.fg("accent", spinnerFrame(String(spinnerClockNow())));
       const elapsed = theme.fg("dim", formatDuration(parsed.elapsedMs));
       const lines2 = [];
       if (parsed.completed != null && parsed.total != null && parsed.total > 0) {
@@ -62537,7 +62555,7 @@ function computeTotalDuration2(records) {
 function computeRecordDuration(r) {
   if (!r.startedAt) return 0;
   const start = new Date(r.startedAt).getTime();
-  const end = r.completedAt ? new Date(r.completedAt).getTime() : Date.now();
+  const end = r.completedAt ? new Date(r.completedAt).getTime() : spinnerClockNow();
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
   return Math.max(0, end - start);
 }
@@ -73968,8 +73986,14 @@ function locateRunCwd(runId, baseCwd) {
   runCwdCache.set(key, { cwd, expiresAt: Date.now() + RUN_CWD_TTL_MS });
   return cwd;
 }
+function runUnderPrimaryRoot(cwd, runId) {
+  const loaded = loadRunManifestById(cwd, runId);
+  if (!loaded) return false;
+  const primary = findRepoRoot(cwd) ? projectCrewRoot(cwd) : userCrewRoot();
+  return loaded.manifest.stateRoot === path88.join(primary, DEFAULT_PATHS.state.runsSubdir, runId);
+}
 function locateRunCwdUncached(runId, baseCwd) {
-  if (loadRunManifestById(baseCwd, runId)) {
+  if (runUnderPrimaryRoot(baseCwd, runId)) {
     return baseCwd;
   }
   try {
@@ -73982,7 +74006,7 @@ function locateRunCwdUncached(runId, baseCwd) {
         if (!entry.name.startsWith(".crew") && !entry.name.startsWith(".pi") && !entry.name.startsWith(".tmp-crew")) continue;
       }
       const candidate = path88.join(baseCwd, entry.name);
-      if (loadRunManifestById(candidate, runId)) {
+      if (runUnderPrimaryRoot(candidate, runId)) {
         return candidate;
       }
     }
@@ -74086,7 +74110,7 @@ function installCrewGlobalRegistry(deps) {
         if (!loaded) return true;
         return !loaded.tasks.some((t2) => t2.status === "running" || t2.status === "queued");
       };
-      while (!check()) await new Promise((resolve26) => setTimeout(resolve26, 500));
+      while (!check()) await new Promise((resolve27) => setTimeout(resolve27, 500));
     },
     hasRunning: (runId) => {
       if (!manifestCache2) return false;
@@ -74111,6 +74135,7 @@ var init_team_tool2 = __esm({
     "use strict";
     init_discover_agents();
     init_config();
+    init_defaults();
     init_env_vars();
     init_contracts();
     init_locks();
@@ -74120,6 +74145,7 @@ var init_team_tool2 = __esm({
     init_state_store();
     init_discover_teams();
     init_internal_error();
+    init_paths();
     init_safe_paths();
     init_discover_workflows();
     init_run_index();
@@ -74897,8 +74923,8 @@ function formatAge2(iso) {
   if (ms < 36e5) return `${Math.floor(ms / 6e4)}m`;
   return `${Math.floor(ms / 36e5)}h`;
 }
-function readProgressPreview(run, maxLines = 5, snapshotCache, resolve26) {
-  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
+function readProgressPreview(run, maxLines = 5, snapshotCache, resolve27) {
+  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
   if (snapshot?.recentOutputLines?.length) {
     return ["Progress:", ...snapshot.recentOutputLines.slice(0, maxLines)];
   }
@@ -74933,8 +74959,8 @@ function snapshotFor(run, snapshotCache) {
     return snapshotCache?.get(run.runId);
   }
 }
-function readRunTasks2(run, snapshotCache, resolve26) {
-  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
+function readRunTasks2(run, snapshotCache, resolve27) {
+  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.tasks;
   if (snapshotCache) return [];
   const parse4 = () => {
@@ -74981,11 +75007,11 @@ function agentPreviewLine(agent, task, options) {
     `Agent: ${icon} ${agent.taskId ?? "?"} ${agent.role ?? "?"}${ACTIVE}${agent.agent ?? "?"}${stats.length ? ` \xB7 ${stats.join(" \xB7 ")}` : ""}${recent ? ` \u23BF ${recent}` : ""}`
   );
 }
-function readAgentPreview(run, maxLines = 5, options = {}, resolve26) {
+function readAgentPreview(run, maxLines = 5, options = {}, resolve27) {
   try {
-    const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, options.snapshotCache);
+    const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, options.snapshotCache);
     const agents = snapshot?.agents ?? (options.snapshotCache ? [] : readCrewAgents(run));
-    const tasks = snapshot?.tasks ?? readRunTasks2(run, options.snapshotCache, resolve26);
+    const tasks = snapshot?.tasks ?? readRunTasks2(run, options.snapshotCache, resolve27);
     if (!agents.length) return ["Agents: (none)"];
     const totals = tasks.reduce(
       (acc, task) => {
@@ -75009,8 +75035,8 @@ function readAgentPreview(run, maxLines = 5, options = {}, resolve26) {
     return [`Agents: failed to read (${message})`];
   }
 }
-function agentsFor2(run, snapshotCache, resolve26) {
-  const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
+function agentsFor2(run, snapshotCache, resolve27) {
+  const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
   if (snapshot) return snapshot.agents;
   if (snapshotCache) return [];
   try {
@@ -75019,8 +75045,8 @@ function agentsFor2(run, snapshotCache, resolve26) {
     return [];
   }
 }
-function runLabel(run, selected, snapshotCache, maxW, resolve26) {
-  const agents = agentsFor2(run, snapshotCache, resolve26);
+function runLabel(run, selected, snapshotCache, maxW, resolve27) {
+  const agents = agentsFor2(run, snapshotCache, resolve27);
   const stale = isLikelyOrphanedActiveRun(run, agents);
   const running = agents.find((agent) => agent.status === "running");
   const queued = agents.find((agent) => agent.status === "queued");
@@ -75045,19 +75071,19 @@ function runLabel(run, selected, snapshotCache, maxW, resolve26) {
   }
   return sanitizeLine(truncate(head, maxW));
 }
-function resolveRuns(runs, snapshotCache, resolve26) {
+function resolveRuns(runs, snapshotCache, resolve27) {
   const map3 = /* @__PURE__ */ new Map();
   for (const run of runs) {
-    const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, snapshotCache);
-    const agents = snapshot?.agents ?? agentsFor2(run, snapshotCache, resolve26);
+    const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, snapshotCache);
+    const agents = snapshot?.agents ?? agentsFor2(run, snapshotCache, resolve27);
     const displayRun = snapshot?.manifest ?? run;
     const status = isLikelyOrphanedActiveRun(displayRun, agents) ? "stale" : displayRun.status;
     map3.set(run.runId, { manifest: run, snapshot, agents, status });
   }
   return map3;
 }
-function groupedRuns(runs, snapshotCache, resolve26) {
-  const resolved = resolveRuns(runs, snapshotCache, resolve26);
+function groupedRuns(runs, snapshotCache, resolve27) {
+  const resolved = resolveRuns(runs, snapshotCache, resolve27);
   const rows = [];
   const active = runs.filter(
     (run) => isDisplayActiveRun(resolved.get(run.runId)?.snapshot?.manifest ?? run, resolved.get(run.runId)?.agents ?? [])
@@ -75069,8 +75095,8 @@ function groupedRuns(runs, snapshotCache, resolve26) {
   if (rest.length) rows.push({ label: "Recent" }, ...rest.map((run) => ({ label: run.runId, run })));
   return rows;
 }
-function selectedRunFromGrouped(runs, selected, snapshotCache, resolve26) {
-  return groupedRuns(runs, snapshotCache, resolve26).filter((row) => row.run)[selected]?.run;
+function selectedRunFromGrouped(runs, selected, snapshotCache, resolve27) {
+  return groupedRuns(runs, snapshotCache, resolve27).filter((row) => row.run)[selected]?.run;
 }
 var lastActivePane, TASK_READ_TTL_MS2, SCHEDULE_JOBS_TTL_MS, SCHEDULES_PANE_MAX_LINES, RUN_LIST_MAX, SIGNATURE_CACHE_TTL_MS2, STALE_SNAPSHOT_MS, RunDashboard;
 var init_run_dashboard = __esm({
@@ -75198,14 +75224,14 @@ var init_run_dashboard = __esm({
         const rows = Number.isFinite(process.stdout?.rows) ? Number(process.stdout?.rows) : 30;
         return Math.max(12, Math.min(36, rows - 2));
       }
-      refreshRuns(resolve26) {
+      refreshRuns(resolve27) {
         if (!this.options.runProvider) return;
-        const selectedRunId = this.selectedRunId(resolve26);
+        const selectedRunId = this.selectedRunId(resolve27);
         const next = this.options.runProvider();
         const unfiltered = Array.isArray(next) ? next : this.runs;
         this.runs = this.options.workspaceId ? unfiltered.filter((run) => !run.ownerSessionId || run.ownerSessionId === this.options.workspaceId) : unfiltered;
         if (selectedRunId) {
-          const nextIndex = groupedRuns(this.runs, this.options.snapshotCache, resolve26).filter((row) => row.run).findIndex((row) => row.run?.runId === selectedRunId);
+          const nextIndex = groupedRuns(this.runs, this.options.snapshotCache, resolve27).filter((row) => row.run).findIndex((row) => row.run?.runId === selectedRunId);
           if (nextIndex >= 0) this.selected = nextIndex;
           else this.selected = 0;
         }
@@ -75233,16 +75259,16 @@ var init_run_dashboard = __esm({
           if (this.runScrollOffset === prev) break;
         }
       }
-      buildSignature(resolve26) {
+      buildSignature(resolve27) {
         const now = Date.now();
         if (this.cachedSignature && now - this.cachedSignatureAt < SIGNATURE_CACHE_TTL_MS2) {
           return this.cachedSignature;
         }
         let hasRunning = false;
         const statuses = this.runs.map((run) => {
-          const snapshot = resolve26 ? resolve26(run) : snapshotFor(run, this.options.snapshotCache);
+          const snapshot = resolve27 ? resolve27(run) : snapshotFor(run, this.options.snapshotCache);
           const displayRun = snapshot?.manifest ?? run;
-          const agents = snapshot?.agents ?? agentsFor2(run, this.options.snapshotCache, resolve26);
+          const agents = snapshot?.agents ?? agentsFor2(run, this.options.snapshotCache, resolve27);
           const stale = isLikelyOrphanedActiveRun(displayRun, agents);
           const status = stale ? "stale" : displayRun.status;
           if (status === "running" || agents.some((agent) => agent.status === "running")) hasRunning = true;
@@ -75265,8 +75291,8 @@ var init_run_dashboard = __esm({
         this.unsubscribeTheme();
         this.schedulerHandle?.dispose();
       }
-      selectedRunId(resolve26) {
-        return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve26)?.runId;
+      selectedRunId(resolve27) {
+        return selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache, resolve27)?.runId;
       }
       /** Tier A: scheduled jobs via the SINGLE source of truth (G17) — the
        *  extension-layer provider, TTL-cached so render ticks never hit disk
@@ -79718,7 +79744,7 @@ var init_subagent_manager = __esm({
             await record.promise.catch((error) => {
               logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
             });
-          else await new Promise((resolve26) => setTimeout(resolve26, 100));
+          else await new Promise((resolve27) => setTimeout(resolve27, 100));
         }
       }
       setMaxConcurrent(value) {
@@ -79830,7 +79856,7 @@ var init_subagent_manager = __esm({
           }
           const loaded = loadRunManifestById(cwd, record.runId);
           if (!loaded) {
-            await new Promise((resolve26) => setTimeout(resolve26, this.pollIntervalMs));
+            await new Promise((resolve27) => setTimeout(resolve27, this.pollIntervalMs));
             continue;
           }
           if (loaded.manifest.status === "completed") {
@@ -79863,7 +79889,7 @@ var init_subagent_manager = __esm({
             savePersistedSubagentRecord(cwd, record);
             return;
           }
-          await new Promise((resolve26) => setTimeout(resolve26, this.pollIntervalMs));
+          await new Promise((resolve27) => setTimeout(resolve27, this.pollIntervalMs));
         }
       }
       scheduleBlockedTerminalPoll(cwd, record) {
@@ -82230,10 +82256,10 @@ function createMetricFileSink(opts) {
       const target = ensureFd(date);
       const line3 = `${JSON.stringify({ exportedAt: now.toISOString(), snapshots: redacted })}
 `;
-      return new Promise((resolve26) => {
+      return new Promise((resolve27) => {
         fs122.write(target, line3, (err2) => {
           if (err2) logInternalError("metric-sink.asyncWrite", err2);
-          resolve26();
+          resolve27();
         });
       });
     } catch (error) {
@@ -86366,7 +86392,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
     throw e;
   }
   if (st.isSymbolicLink()) return "refused";
-  const live = await new Promise((resolve26) => {
+  const live = await new Promise((resolve27) => {
     let settled = false;
     const sock = net2.createConnection(sockPath);
     const finish = (v) => {
@@ -86376,7 +86402,7 @@ async function removeStaleBrokerSocket(sockPath, probeTimeoutMs = 250) {
         sock.destroy();
       } catch {
       }
-      resolve26(v);
+      resolve27(v);
     };
     sock.once("connect", () => finish(true));
     sock.once("error", () => finish(false));
@@ -87104,14 +87130,14 @@ var CrewBroker = class {
         );
       });
     });
-    await new Promise((resolve26, reject) => {
+    await new Promise((resolve27, reject) => {
       const onError = (err2) => {
         server.removeListener("listening", onListening);
         reject(err2);
       };
       const onListening = () => {
         server.removeListener("error", onError);
-        resolve26();
+        resolve27();
       };
       server.once("error", onError);
       server.once("listening", onListening);
@@ -87183,11 +87209,11 @@ var CrewBroker = class {
     }
     this.connections.clear();
     if (this.server) {
-      await new Promise((resolve26) => {
+      await new Promise((resolve27) => {
         const srv = this.server;
-        if (!srv) return resolve26();
-        srv.close(() => resolve26());
-        setTimeout(() => resolve26(), 250).unref();
+        if (!srv) return resolve27();
+        srv.close(() => resolve27());
+        setTimeout(() => resolve27(), 250).unref();
       });
       this.server = null;
     }
@@ -87793,45 +87819,45 @@ var CrewBroker = class {
     const isTerminal = (s) => s === "completed" || s === "failed" || s === "cancelled";
     const start = Date.now();
     const interval = 200;
-    const pollUntilDone = () => new Promise((resolve26) => {
+    const pollUntilDone = () => new Promise((resolve27) => {
       const tick = () => {
         if (conn.closed) {
           this.sendError(conn, id, "close", "connection closed during wait");
-          resolve26();
+          resolve27();
           return;
         }
         const connRunId = conn.runId;
         if (!connRunId) {
           this.sendError(conn, id, "auth", "not authed (post-narrow)");
-          resolve26();
+          resolve27();
           return;
         }
         if (Date.now() - start >= timeoutMs) {
           this.sendError(conn, id, "wait-timeout", `task did not reach '${targetStatus}' within ${timeoutMs}ms`);
-          resolve26();
+          resolve27();
           return;
         }
         try {
           const loaded = this.waitStatusCache.load(cwd, connRunId);
           if (!loaded) {
             this.sendError(conn, id, "no-manifest", `run '${conn.runId}' not found`);
-            resolve26();
+            resolve27();
             return;
           }
           const task = loaded.tasks.find((t2) => t2.id === targetTaskId);
           if (!task) {
             this.sendError(conn, id, "no-task", `task '${targetTaskId}' not found`);
-            resolve26();
+            resolve27();
             return;
           }
           if (task.status === targetStatus || isTerminal(targetStatus) && isTerminal(task.status)) {
             this.sendResult(conn, id, { taskId: task.id, status: task.status, waitedMs: Date.now() - start });
-            resolve26();
+            resolve27();
             return;
           }
         } catch (err2) {
           this.sendError(conn, id, "wait-failed", err2.message);
-          resolve26();
+          resolve27();
           return;
         }
         setTimeout(tick, interval);
@@ -91790,7 +91816,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
                   logInternalError("subagent-tools.identity-link", err2, `taskId=${taskId}, attempt=${attempt}`);
                 }
                 if (resolveEntryBySubagentId(loaded.manifest, spawnedRecord.id)?.taskId === taskId) break;
-                if (attempt < 4) await new Promise((resolve26) => setTimeout(resolve26, 50 * (attempt + 1)));
+                if (attempt < 4) await new Promise((resolve27) => setTimeout(resolve27, 50 * (attempt + 1)));
               }
             }
           }
@@ -91950,7 +91976,7 @@ function registerSubagentTools(pi, subagentManager, options = {}) {
               savePersistedSubagentRecord(ctx.cwd, current);
               break;
             }
-            await new Promise((resolve26) => setTimeout(resolve26, 1e3));
+            await new Promise((resolve27) => setTimeout(resolve27, 1e3));
             current = refreshPersistedSubagentRecord(ctx, current);
             if (!current.runId) break;
           }

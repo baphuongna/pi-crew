@@ -7283,7 +7283,7 @@
       "format": "esm"
     },
     "src/state/types.ts": {
-      "bytes": 27984,
+      "bytes": 28227,
       "imports": [],
       "format": "esm"
     },
@@ -7335,7 +7335,7 @@
       "format": "esm"
     },
     "src/state/stores/state-store.ts": {
-      "bytes": 55421,
+      "bytes": 57429,
       "imports": [
         {
           "path": "node:fs",
@@ -7520,7 +7520,7 @@
       "format": "esm"
     },
     "src/runtime/scheduling/scheduler.ts": {
-      "bytes": 18926,
+      "bytes": 19688,
       "imports": [],
       "format": "esm"
     },
@@ -7796,7 +7796,7 @@
       "format": "esm"
     },
     "src/ui/spinner.ts": {
-      "bytes": 757,
+      "bytes": 1885,
       "imports": [],
       "format": "esm"
     },
@@ -8265,7 +8265,7 @@
       "format": "esm"
     },
     "src/ui/live-conversation-overlay.ts": {
-      "bytes": 12079,
+      "bytes": 12203,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -15385,23 +15385,34 @@
       "format": "esm"
     },
     "src/ui/tool-progress-formatter.ts": {
-      "bytes": 8866,
-      "imports": [],
+      "bytes": 8921,
+      "imports": [
+        {
+          "path": "src/ui/spinner.ts",
+          "kind": "import-statement",
+          "original": "./spinner.ts"
+        }
+      ],
       "format": "esm"
     },
     "src/ui/tool-renderers/brief-mode.ts": {
-      "bytes": 6292,
+      "bytes": 6348,
       "imports": [
         {
           "path": "src/ui/format-helpers.ts",
           "kind": "import-statement",
           "original": "../format-helpers.ts"
+        },
+        {
+          "path": "src/ui/spinner.ts",
+          "kind": "import-statement",
+          "original": "../spinner.ts"
         }
       ],
       "format": "esm"
     },
     "src/ui/tool-renderers/index.ts": {
-      "bytes": 25327,
+      "bytes": 25358,
       "imports": [
         {
           "path": "@earendil-works/pi-tui",
@@ -17979,7 +17990,7 @@
       "format": "esm"
     },
     "src/extension/team-tool.ts": {
-      "bytes": 37910,
+      "bytes": 38728,
       "imports": [
         {
           "path": "node:fs",
@@ -18000,6 +18011,11 @@
           "path": "src/config/config.ts",
           "kind": "import-statement",
           "original": "../config/config.ts"
+        },
+        {
+          "path": "src/config/defaults.ts",
+          "kind": "import-statement",
+          "original": "../config/defaults.ts"
         },
         {
           "path": "src/config/env-vars.ts",
@@ -18045,6 +18061,11 @@
           "path": "src/utils/internal-error.ts",
           "kind": "import-statement",
           "original": "../utils/internal-error.ts"
+        },
+        {
+          "path": "src/utils/paths.ts",
+          "kind": "import-statement",
+          "original": "../utils/paths.ts"
         },
         {
           "path": "src/utils/safe-paths.ts",
@@ -21589,7 +21610,7 @@
       "imports": [],
       "exports": [],
       "inputs": {},
-      "bytes": 8319085
+      "bytes": 8325266
     },
     "dist/index.mjs": {
       "imports": [
@@ -24418,7 +24439,7 @@
           "bytesInOutput": 4462
         },
         "src/state/stores/state-store.ts": {
-          "bytesInOutput": 27560
+          "bytesInOutput": 27917
         },
         "src/ui/pi-ui-compat.ts": {
           "bytesInOutput": 988
@@ -24439,7 +24460,7 @@
           "bytesInOutput": 16179
         },
         "src/runtime/scheduling/scheduler.ts": {
-          "bytesInOutput": 14705
+          "bytesInOutput": 14887
         },
         "src/runtime/settings-store.ts": {
           "bytesInOutput": 7777
@@ -24493,7 +24514,7 @@
           "bytesInOutput": 6116
         },
         "src/ui/spinner.ts": {
-          "bytesInOutput": 850
+          "bytesInOutput": 987
         },
         "src/ui/status-colors.ts": {
           "bytesInOutput": 2289
@@ -24532,7 +24553,7 @@
           "bytesInOutput": 22766
         },
         "src/ui/live-conversation-overlay.ts": {
-          "bytesInOutput": 10340
+          "bytesInOutput": 10430
         },
         "src/ui/render-diff.ts": {
           "bytesInOutput": 4489
@@ -25375,13 +25396,13 @@
           "bytesInOutput": 1425
         },
         "src/ui/tool-progress-formatter.ts": {
-          "bytesInOutput": 6062
+          "bytesInOutput": 6089
         },
         "src/ui/tool-renderers/brief-mode.ts": {
-          "bytesInOutput": 4188
+          "bytesInOutput": 4215
         },
         "src/ui/tool-renderers/index.ts": {
-          "bytesInOutput": 16668
+          "bytesInOutput": 16682
         },
         "src/ui/layout-primitives.ts": {
           "bytesInOutput": 2240
@@ -25588,7 +25609,7 @@
           "bytesInOutput": 27860
         },
         "src/extension/team-tool.ts": {
-          "bytesInOutput": 27524
+          "bytesInOutput": 27864
         },
         "src/ui/run-action-dispatcher.ts": {
           "bytesInOutput": 4146
@@ -25927,7 +25948,7 @@
           "bytesInOutput": 81
         }
       },
-      "bytes": 3441859
+      "bytes": 3443033
     }
   }
 }

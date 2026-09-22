@@ -3,6 +3,7 @@ import * as path from "node:path";
 import type { AgentConfig } from "../agents/agent-config.ts";
 import { allAgents, discoverAgents, listDynamicAgents, registerDynamicAgent, unregisterDynamicAgent } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
+import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { getCrewEnv } from "../config/env-vars.ts";
 // Heavy runtime — lazy-loaded to avoid 1.4s import cost at extension registration.
 // executeTeamRun is only called when a team run actually executes.
@@ -17,6 +18,7 @@ import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatu
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import { allWorkflows, discoverWorkflows } from "../workflows/discover-workflows.ts";
 import { listRecentRuns } from "./run-index.ts";
@@ -652,9 +654,22 @@ export function locateRunCwd(runId: string, baseCwd: string): string | undefined
  * - Skips hidden entries (starting with `.`) unless they look like run directories
  *   (e.g. .crew, .pi, .tmp-crew-runs)
  */
+/**
+ * F-L1 companion: loadRunManifestById now resolves cross-root (status/prune/
+ * forget must see every listed run), but THIS module's contract is "the run's
+ * state is stored relative to cwd" — so a hit via the OTHER crew root must NOT
+ * count. True only when the resolved stateRoot sits under cwd's PRIMARY root.
+ */
+function runUnderPrimaryRoot(cwd: string, runId: string): boolean {
+	const loaded = loadRunManifestById(cwd, runId);
+	if (!loaded) return false;
+	const primary = findRepoRoot(cwd) ? projectCrewRoot(cwd) : userCrewRoot();
+	return loaded.manifest.stateRoot === path.join(primary, DEFAULT_PATHS.state.runsSubdir, runId);
+}
+
 export function locateRunCwdUncached(runId: string, baseCwd: string): string | undefined {
-	// Fast path: run is in the current CWD
-	if (loadRunManifestById(baseCwd, runId)) {
+	// Fast path: run is in the current CWD's primary scope (see helper note).
+	if (runUnderPrimaryRoot(baseCwd, runId)) {
 		return baseCwd;
 	}
 
@@ -670,7 +685,7 @@ export function locateRunCwdUncached(runId: string, baseCwd: string): string | u
 				if (!entry.name.startsWith(".crew") && !entry.name.startsWith(".pi") && !entry.name.startsWith(".tmp-crew")) continue;
 			}
 			const candidate = path.join(baseCwd, entry.name);
-			if (loadRunManifestById(candidate, runId)) {
+			if (runUnderPrimaryRoot(candidate, runId)) {
 				return candidate;
 			}
 		}
