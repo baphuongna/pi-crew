@@ -96,3 +96,4 @@ US-030 (security review) · US-031
 | 2026-09-22 | **Wave 0+1 CLOSED (7 specs)** | done | — | — | RM-01..04, US-011, US-022, DP-02 |
 | 2026-09-22 | DP-01 auto-prune retention guards | done | G1-G6,G8 ✓ | `e01ee7d7` | 3 mutations red; live probe 12/12 young protected |
 | 2026-09-22 | DP-04 small-goal routing hint | done | G1,G2,G4,G5 ✓ | (this) | mutation red; plan suites 38/38 |
+| 2026-09-22 | SR-01 GL-1b part C (pre-try turn marking) | done | G1,G2,G4,G5 ✓ | `dad41423` | mutation red; smoke 5/5 |
