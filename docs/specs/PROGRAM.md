@@ -94,3 +94,5 @@ US-030 (security review) · US-031
 | 2026-09-22 | RM-03 single-writer invariant (partial) | done | G1,G2,G4 ✓ | `9dd9d4d4` | 3/4 anchors not reproducible → recorded |
 | 2026-09-22 | RM-04 F05 mutation re-verified | done | G1,G2 ✓ | `8b72ffe5` | mutation → 6/13 RED incl. AC-1 e2e wrapper |
 | 2026-09-22 | **Wave 0+1 CLOSED (7 specs)** | done | — | — | RM-01..04, US-011, US-022, DP-02 |
+| 2026-09-22 | DP-01 auto-prune retention guards | done | G1-G6,G8 ✓ | `e01ee7d7` | 3 mutations red; live probe 12/12 young protected |
+| 2026-09-22 | DP-04 small-goal routing hint | done | G1,G2,G4,G5 ✓ | (this) | mutation red; plan suites 38/38 |
