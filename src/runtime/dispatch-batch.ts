@@ -793,8 +793,23 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 					// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
 					const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
 					const freshManifest = fresh?.manifest ?? ctx.manifest;
-					const freshTasks = fresh?.tasks ?? ctx.tasks;
-					const freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+					let freshTasks = fresh?.tasks ?? ctx.tasks;
+					let freshTask = freshTasks.find((item) => item.id === task.id) ?? task;
+					// US-003 (2026-09-22) — RETRY-NOOP BUG, found while wiring the dead-letter
+					// integration test: a retry (attempt > 1) only happens because OUR previous
+					// attempt THREW — i.e. we ourselves persisted the terminal failure (e.g.
+					// model-exhausted marks the task failed before the throw). The terminal-state
+					// early-return below then treated OUR OWN failure as "nothing to do" and
+					// returned it as SUCCESS: executeWithRetry never re-ran the task, never
+					// exhausted, and the onRetryGivenUp dead-letter never fired — autoRetry was
+					// silently a single attempt for every failure that persists task state.
+					// Fix: on a retry, re-queue OUR OWN terminal failure so the retry actually
+					// re-runs. Attempt 1 keeps the original guard (externally-terminal task =
+					// someone else's decision; external cancellation exits via the signal).
+					if (attempt > 1 && freshTask.status !== "queued" && freshTask.status !== "running") {
+						freshTask = { ...freshTask, status: "queued", error: undefined, finishedAt: undefined };
+						freshTasks = freshTasks.map((item) => (item.id === task.id ? freshTask : item));
+					}
 					if (freshTask.status !== "queued" && freshTask.status !== "running")
 						return {
 							manifest: freshManifest,
@@ -871,6 +886,15 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 					},
 					onRetryGivenUp: (attempts, error, info) => {
 						lastAttemptId = info.attemptId;
+						// US-003: aborts are NOT exhaustion — executeWithRetry also fires this
+						// hook on its cancelled exit, which previously deadlettered cancelled
+						// tasks as "max-retries" (false positive; keep the signal high).
+						if (runController.signal.aborted) return;
+						// US-003: richer entry (agent/role/modelAttempts/runStatus) so the
+						// project-level index is self-sufficient after the run dir is pruned.
+						// Prefer the FAILED attempt's final task state over the pre-run snapshot.
+						const failedTask = lastFailed?.tasks.find((item) => item.id === task.id);
+						const deadletterTask = failedTask ?? task;
 						appendDeadletter(ctx.manifest, {
 							runId: ctx.manifest.runId,
 							taskId: task.id,
@@ -879,6 +903,10 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 							attemptId: info.attemptId,
 							lastError: error.message,
 							timestamp: new Date().toISOString(),
+							agent: deadletterTask.agent,
+							role: deadletterTask.role,
+							modelAttempts: deadletterTask.modelAttempts?.length,
+							runStatus: ctx.manifest.status,
 						});
 						input.metricRegistry
 							?.counter("crew.task.deadletter_total", "Deadletter triggers by reason")

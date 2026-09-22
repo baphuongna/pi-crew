@@ -2,6 +2,7 @@ import { loadConfig } from "../../config/config.ts";
 import { applyAttentionState, formatActivityAge, resolveCrewControlConfig } from "../../runtime/agent-control.ts";
 import { extractCommandTrace } from "../../runtime/command-trace.ts";
 import { readCrewAgents } from "../../runtime/crew-agent-records.ts";
+import { deadletterStatusLine } from "../../runtime/deadletter.ts";
 import { evaluateRunEffectiveness } from "../../runtime/effectiveness.ts";
 import { computePhaseProgress } from "../../runtime/phase-progress.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
@@ -150,6 +151,7 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	}
 	const counts = new Map<string, number>();
 	for (const task of tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
+	const deadletterLine = deadletterStatusLine(manifest);
 	const phaseProgress = computePhaseProgress(tasks);
 	// PERF (2026-08-24): intentionally NOT passing `limit` here — readEventsCursor's
 	// limit is a HEAD cap (oldest-first slice for streaming pagination), not a tail
@@ -267,6 +269,8 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 				)
 			: ["- (none)"]),
 		`Task counts: ${[...counts.entries()].map(([status, count]) => `${status}=${count}`).join(", ") || "none"}`,
+		// US-003 AC-3: surface exhausted-retry failures — only when entries exist.
+		...(deadletterLine ? [deadletterLine] : []),
 		"Effectiveness:",
 		`- observable=${effectiveness.observable}/${Math.max(1, effectiveness.completed)} completed tasks`,
 		`- workerExecution=${effectiveness.workerExecution} guard=${effectiveness.guardMode} severity=${effectiveness.severity}`,

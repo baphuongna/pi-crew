@@ -5,6 +5,7 @@ import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunTasksAsync, updateRunStatus } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import type { WorkflowStep } from "../../workflows/workflow-config.ts";
+import { appendDeadletter } from "../deadletter.ts";
 import { createWorkerHeartbeat, touchWorkerHeartbeat } from "../heartbeat/worker-heartbeat.ts";
 import type { CrewRuntimeMode } from "../model/runtime-resolver.ts";
 import type { RetryPolicy } from "../recovery/retry-executor.ts";
@@ -196,7 +197,32 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 			}
 		};
 		try {
-			const result = useRetry ? await executeWithRetry(runOnce, policy, { signal }) : await runOnce();
+			const result = useRetry
+				? await executeWithRetry(runOnce, policy, {
+						signal,
+						// US-003 (2026-09-22): exhausted retries on the COALESCED path were never
+						// deadlettered — only the singleton path (dispatch-batch) wired
+						// onRetryGivenUp, so an M6 group that burned its whole retry budget left
+						// no post-mortem record once the run dir was pruned. The group shares ONE
+						// worker: the entry is recorded against the group's first task and names
+						// the whole group in the message. Aborts are NOT exhaustion — skip them
+						// (executeWithRetry also fires this hook on the cancelled exit).
+						onRetryGivenUp: (attempts, error) => {
+							if (signal?.aborted) return;
+							appendDeadletter(manifest, {
+								runId: manifest.runId,
+								taskId: firstTask.id,
+								reason: "max-retries",
+								attempts,
+								lastError: `coalesced group (${taskIds.length} task(s): ${taskIds.join(", ")}) — ${error.message}`,
+								timestamp: new Date().toISOString(),
+								agent: agent.name,
+								role: firstTask.role,
+								runStatus: manifest.status,
+							});
+						},
+					})
+				: await runOnce();
 			rawOutput = result.rawFinalText ?? result.stdout ?? "";
 			// RT-5 #1/#2: distinguish cancel from failure. Cancel = run-level
 			// signal aborted OR the child reports cooperative cancellation.

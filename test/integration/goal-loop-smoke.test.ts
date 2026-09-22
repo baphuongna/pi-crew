@@ -162,10 +162,26 @@ test("deriveTranscriptPath uses the REAL task id (Fix P0-2 regression — was ha
 
 test("GL-1b: a failing turn persists its reason at goal level (survives turn-dir pruning)", async () => {
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "retryable-failure";
+	process.env.PI_CREW_ALLOW_MOCK = "1"; // US-003: let the mock actually fail (parent-env only, per mock-fixtures security model)
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-goal-gl1b-"));
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	try {
-		const agents = allAgents(discoverAgents(cwd));
+		// US-003: the goal-turn step dispatches role "worker" — without a worker
+		// agent the turn fails at AGENT RESOLUTION (a pre-dispatch config error,
+		// correctly NOT deadlettered). Providing the agent routes the turn into the
+		// real dispatch → executeWithRetry → mock retryable-failure → exhausted
+		// retries — the route the retryable-failure mock was meant to exercise
+		// (before this fix the fixture silently failed at resolution instead).
+		const agents = [
+			...allAgents(discoverAgents(cwd)),
+			{
+				name: "worker",
+				description: "synthetic goal-turn worker",
+				source: "builtin" as const,
+				filePath: "<synthetic>",
+				systemPrompt: "worker",
+			},
+		];
 		const store = new GoalStore(cwd);
 		const goalState: GoalLoopState = {
 			goalId: store.createGoalId(),
@@ -226,8 +242,27 @@ test("GL-1b: a failing turn persists its reason at goal level (survives turn-dir
 			events.split("\n").find((l) => l.includes("goal.turn_terminal_status") && l.includes('"reason"')) ??
 			events.split("\n").find((l) => l.includes("goal.loop_error"));
 		assert.ok(traced, "failure reason must reach the goal event log (turn_terminal_status.reason or loop_error)");
+		// US-003 (spec integration row): the exhausted-retry failure must ALSO land
+		// in BOTH the run-local deadletter.jsonl and the project-level index —
+		// the index survives turn-dir pruning (same motivation as GL-1b).
+		const deadletterIndexDir = path.join(cwd, ".crew", "state", "deadletter");
+		assert.ok(fs.existsSync(deadletterIndexDir), "project dead-letter index dir must exist after exhausted retries");
+		const indexFiles = fs.readdirSync(deadletterIndexDir).filter((f) => f.endsWith(".jsonl"));
+		assert.ok(indexFiles.length >= 1, "one index file per failing run");
+		for (const file of indexFiles) {
+			const lines = fs.readFileSync(path.join(deadletterIndexDir, file), "utf-8").split("\n").filter(Boolean);
+			assert.ok(lines.length >= 1, `index ${file} must carry at least one entry`);
+			for (const line of lines) {
+				const parsed = JSON.parse(line) as Record<string, unknown>;
+				assert.ok(typeof parsed.taskId === "string", "entry carries taskId");
+				assert.ok(typeof parsed.runId === "string", "entry carries runId");
+				assert.ok(typeof parsed.timestamp === "string", "entry carries timestamp");
+				assert.equal(parsed.reason, "max-retries");
+			}
+		}
 	} finally {
 		delete process.env.PI_TEAMS_MOCK_CHILD_PI;
+		delete process.env.PI_CREW_ALLOW_MOCK;
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
