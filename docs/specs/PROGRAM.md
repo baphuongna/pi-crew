@@ -105,3 +105,6 @@ US-030 (security review) · US-031
 | 2026-09-22 | **14 specs done** | — | — | — | còn lại: US-003, US-020, US-021, US-030, US-031, DP-03, SR-02, SR-03 |
 | 2026-09-22 | US-021 run comparison (`action:'compare'`) | done | G1-G5 ✓ | `ca90c1e9` | self-diff zero-delta; byte-stable markdown; ownership check mirrors export; + `1ba2ade1` style: repo format debt (12 files) |
 | 2026-09-22 | US-003 dead-letter index + 2 retry bugs | done | G1-G6 ✓ | `1ffa6a87` | **retry-noop bug** (autoRetry silently single-attempt) + coalesced-path no-hooks; full unit 8143 (1 guard 55→56 updated) |
+| 2026-09-22 | SR-03 flake remediation | done | budget-guard | `b75659f8` | 2 root causes: user-root env leak + sequential-spawn stagger; 3/3 targeted loops green |
+| 2026-09-22 | DP-03 CI sharding | code-done | G1-G5 ✓ (CI runs = cần push) | `c5e8fe3c` | per-file dir-average weights; shards ≈186s; clamp drift documented |
+| 2026-09-22 | **18/22 specs** | — | — | — | còn: US-020 (live TUI), US-030 (security review), US-031 (PR thật), SR-02 (live quality) — đều cần môi trường ngoài |

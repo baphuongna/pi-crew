@@ -90,6 +90,6 @@ Nguồn: session phát triển + battery real-test + điều tra RCA. Spec:
 |----|-------|------|----------|--------|
 | [SR-01](../specs/SR-01.md) | GL-1b part C — pre-try failures mark turn manifest failed | normal | P2 | **done** (`dad41423`) |
 | [SR-02](../specs/SR-02.md) | Worker prompt diet (token/run −30%) | normal | P1 | planned |
-| [SR-03](../specs/SR-03.md) | Test-flake remediation (2 flakes) | normal | P2 | planned |
+| [SR-03](../specs/SR-03.md) ✅ | Test-flake remediation (2 flakes) | normal | P2 | planned |
 
 Create story packets from `docs/templates/story.md` when work is selected.
