@@ -1159,7 +1159,14 @@ export function hasPendingCoalescedWrite(filePath: string): boolean {
  * `entry.value` at flush time — callers must treat it as read-only.
  */
 export function peekPendingCoalescedWrite<T>(filePath: string): T | undefined {
-	return pendingAtomicWrites.get(filePath)?.value as T | undefined;
+	const value = pendingAtomicWrites.get(filePath)?.value;
+	if (value === undefined) return undefined;
+	// RM-01 (2026-09-22): return a DEEP COPY, not a reference. The flush path
+	// stringifies `entry.value` at flush time, so a caller mutating the returned
+	// object would corrupt the not-yet-flushed buffer (a write-then-flush
+	// alias bug). All in-tree payloads are JSON-shaped, so structuredClone is
+	// exact; the only caller is readCrewAgents (bounded per-run record list).
+	return structuredClone(value) as T;
 }
 
 /**
