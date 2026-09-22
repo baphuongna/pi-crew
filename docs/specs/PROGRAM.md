@@ -100,3 +100,4 @@ US-030 (security review) · US-031
 | 2026-09-22 | US-002 stale-lock sweep | done | G1-G5 ✓ | `01ada6e7` | mutation 3/3 red (safety cases); caught an OR-vs-AND bug in my own first cut |
 | 2026-09-22 | US-010 sleepSync → async (verify-close) | done | G1,G2,G4,G5 ✓ | `3aa8f3e5` | async paths already yield; 1 site documented; yield-contract test |
 | 2026-09-22 | US-012 model registry cache | done | G1,G2,G4,G5 ✓ | `c8bc84ed` | WeakMap+identity cache; mutation red; model suites green |
+| 2026-09-22 | **CHECKPOINT: full unit after 13 specs** | pass | G6 ✓ | — | **8126 tests / 8123 pass / 0 fail / 3 skipped** — zero regressions |
