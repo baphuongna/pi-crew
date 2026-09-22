@@ -51,7 +51,14 @@ const result = await build({
 	platform: "node",
 	target: "node22",
 	outfile: path.join(distDir, "index.mjs"),
-	sourcemap: true,
+	// DP-02 (2026-09-22): minify the shipped bundle. Measured on this repo:
+	// 3,443,033 B → 1,654,887 B (−52%) with the bundle-load / skill-resolution /
+	// deps-consistency suites all green. Worker boot pays bundle-parse cost
+	// (~55% of a 2.5 s boot per the 2026-09-18 b7 bench), so this is a direct
+	// startup win as well as a git/budget win. `sourcemap: false` — the map is
+	// opt-in via PI_CREW_BUNDLE_SOURCEMAP (see below) and no longer committed.
+	minify: true,
+	sourcemap: false,
 	logLevel: "info",
 	// Keep peer deps external so consumers' Pi versions resolve naturally.
 	external: [
@@ -107,7 +114,33 @@ const result = await build({
 	metafile: true,
 });
 
-fs.writeFileSync(path.join(distDir, "build-meta.json"), JSON.stringify(result.metafile, null, 2) + "\n", "utf-8");
+// DP-02 (2026-09-22): the sourcemap is NOT written to dist/ anymore. It was
+// ~8.3 MB committed to git while nobody consumed it from the repo (debug
+// metadata). Set PI_CREW_BUNDLE_SOURCEMAP=1 to emit it (release builds attach
+// it); the staleness gate treats an absent file on both sides as a match, so
+// dropping it does not break dist verification.
+if (process.env.PI_CREW_BUNDLE_SOURCEMAP === "1") {
+	const { build: buildMap } = await import("esbuild");
+	await buildMap({
+		entryPoints: [path.join(root, "index.bundle.ts")],
+		bundle: true,
+		format: "esm",
+		platform: "node",
+		target: "node22",
+		outfile: path.join(distDir, "index.mjs.map"),
+		sourcemap: true,
+		sourcesContent: false,
+		minify: false,
+		metafile: false,
+		logLevel: "silent",
+	});
+}
+
+// DP-02: build-meta.json is written ONLY when explicitly requested. It was
+// ~785 KB of esbuild metafile committed to git with no in-repo consumer.
+if (process.env.PI_CREW_BUNDLE_META === "1") {
+	fs.writeFileSync(path.join(distDir, "build-meta.json"), JSON.stringify(result.metafile, null, 2) + "\n", "utf-8");
+}
 const elapsedMs = Date.now() - start;
 const stat = fs.statSync(path.join(distDir, "index.mjs"));
 console.log(`[build-bundle] dist/index.mjs ${(stat.size / 1024).toFixed(1)} KB in ${elapsedMs} ms`);

@@ -1,5 +1,10 @@
 node_modules/
 dist/
+# DP-02: release/debug metadata — not tracked (dist/index.mjs IS tracked and
+# committed; the map and esbuild metafile are regenerable via
+# PI_CREW_BUNDLE_SOURCEMAP=1 / PI_CREW_BUNDLE_META=1 and attached to Releases).
+dist/index.mjs.map
+dist/build-meta.json
 coverage/
 # strip-types emits .js companions to every .ts file; never committed
 src/**/*.js
