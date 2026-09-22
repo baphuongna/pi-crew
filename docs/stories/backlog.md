@@ -39,7 +39,7 @@ Kế hoạch: `docs/superpowers/plans/2026-09-17-review-remediation.md`.
 | ID | Title | Lane | Priority | Status |
 |----|-------|------|----------|--------|
 | [US-010](../specs/US-010.md) | Replace sleepSync busy-wait with proper async | normal | P3 | planned |
-| [US-011](../specs/US-011.md) | Stream-based event log for large runs | normal | P3 | planned (ST-11 done; verify-close) |
+| [US-011](../specs/US-011.md) | Stream-based event log for large runs | normal | P3 | closed (ST-11 hot paths + bounded-heap guard; 3 cold residuals recorded) |
 | [US-012](../specs/US-012.md) | Cache available models across runs | tiny | P3 | planned |
 
 ## Epic: DX (Developer Experience)
@@ -48,7 +48,7 @@ Kế hoạch: `docs/superpowers/plans/2026-09-17-review-remediation.md`.
 |----|-------|------|----------|--------|
 | [US-020](../specs/US-020.md) | Interactive run dashboard in TUI | normal | P2 | planned |
 | [US-021](../specs/US-021.md) | Run comparison (before/after) | normal | P3 | planned |
-| [US-022](../specs/US-022.md) | Export run report as markdown | tiny | P3 | planned (exists; verify-close) |
+| [US-022](../specs/US-022.md) | Export run report as markdown | tiny | P3 | closed (pinned exportedAt + Cost/model/duration) |
 
 ## Epic: Integration
 
@@ -75,9 +75,9 @@ keep=10 ở mỗi extension load, xác nhận qua `prune.jsonl` 1.436 entries):
 Verdict FIX_THEN_SHIP; 2 MAJOR đã vá ngay (xem TEST_MATRIX 2 hàng "Review-round"). Còn lại ghi đây, xử lý theo lô sau:
 
 - [x] MINOR 1: shadow-task discriminator `agent === "delegate"` là heuristic — team user đặt role tên "delegate" sẽ bị loại khỏi DAG im lặng → **FIXED RR-020**: đổi sang discriminator cấu trúc `stepId === undefined` (`src/runtime/broker/delegate/shadow-lifecycle.ts`); shadow broker mint không có stepId, mọi task scheduler có. Không cần schema change.
-- [ ] **[RM-01](../specs/RM-01.md)** MINOR 2: `peekPendingCoalescedWrite` trả by-reference → shallow-copy lúc serve trong `readCrewAgents` (`src/state/atomic-write.ts:1161`, `src/runtime/crew-agent-records.ts:310`) — callers hiện tại thuần đọc, an toàn (chưa làm)
+- [x] **[RM-01](../specs/RM-01.md)** MINOR 2: `peekPendingCoalescedWrite` trả by-reference → **DONE** (`787eeda8`) → shallow-copy lúc serve trong `readCrewAgents` (`src/state/atomic-write.ts:1161`, `src/runtime/crew-agent-records.ts:310`) — callers hiện tại thuần đọc, an toàn (chưa làm)
 - [x] SEC LOW: pin `fallow@<x.y.z>` trong `.github/workflows/ci.yml` — **FIXED RR-020**: `fallow@3.27.0` qua env `FALLOW_VERSION`, inline (không thêm devDependency)
-- [ ] **[RM-02](../specs/RM-02.md)** MINOR 8: benchmark `parseAndValidateCommand` whitespace-split phá quoted args (`src/benchmark/benchmark-runner.ts`) — fixtures hiện không dùng quote (WIP khác đang đụng cùng file: `inconclusive` + siết allowlist)
+- [x] **[RM-02](../specs/RM-02.md)** MINOR 8: benchmark `parseAndValidateCommand` whitespace-split → **DONE** (`af65b95e`) phá quoted args (`src/benchmark/benchmark-runner.ts`) — fixtures hiện không dùng quote (WIP khác đang đụng cùng file: `inconclusive` + siết allowlist)
 - [ ] **[RM-03](../specs/RM-03.md)** MINOR 3/4/6/7: doc-notes (terminal durable-fsync trong coalesced path; lastWrittenStatus single-writer assumption; sweep-before-cap; semaphore dead comment) — gộp vào lần doc sweep kế tiếp
 - [ ] **[RM-04](../specs/RM-04.md)** F05 smoke "mutation-verified": reviewer chỉ đọc pattern, chưa tái tạo mutation — verify khi chạy smoke tuần tới
 
