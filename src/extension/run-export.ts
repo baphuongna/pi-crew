@@ -5,6 +5,8 @@ import * as path from "node:path";
 import { readEvents, type TeamEvent } from "../state/event-log/event-log.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
+import { aggregateUsage, formatCost, formatTokens } from "../state/usage.ts";
+import { formatDuration } from "../ui/format-helpers.ts";
 import { redactSecrets } from "../utils/redaction.ts";
 
 /** Replace absolute paths containing home directory with ~/ */
@@ -36,14 +38,30 @@ export interface ExportedRunBundle {
 	artifactPaths: string[];
 }
 
-export function exportRunBundle(manifest: TeamRunManifest, tasks: TeamTaskState[]): { jsonPath: string; markdownPath: string } {
+/**
+ * Export a run bundle (JSON + markdown report).
+ *
+ * US-022 (2026-09-22): `now` is injectable so repeated exports of the same run
+ * are byte-identical. `exportedAt` sits INSIDE the hashed payload, so a
+ * wall-clock stamp made both the JSON and its sha256 (and the markdown
+ * `Exported:` line) drift on every export — harmless for import (run-import
+ * recomputes the hash minus `sha256`) but fatal for byte-diffing and for
+ * reproducing a bundle in tests. Mirrors `createRunManifest`'s `now?: () => Date`.
+ */
+export function exportRunBundle(
+	manifest: TeamRunManifest,
+	tasks: TeamTaskState[],
+	now?: () => Date,
+): { jsonPath: string; markdownPath: string } {
 	const events = readEvents(manifest.eventsPath);
 	const safeManifest = redactHomePaths(manifest);
 	const safeTasks = redactHomePaths(tasks);
 	const safeEvents = redactHomePaths(events);
+	// US-022: aggregate usage once (tasks already in hand) for the Cost section.
+	const usageTotal = aggregateUsage(safeTasks as TeamTaskState[]);
 	const bundle: ExportedRunBundle = {
 		schemaVersion: 1,
-		exportedAt: new Date().toISOString(),
+		exportedAt: (now ? now() : new Date()).toISOString(),
 		manifest: safeManifest as TeamRunManifest,
 		tasks: safeTasks as TeamTaskState[],
 		events: safeEvents as TeamEvent[],
@@ -71,10 +89,24 @@ export function exportRunBundle(manifest: TeamRunManifest, tasks: TeamTaskState[
 			`Workflow: ${safeManifest.workflow ?? "(none)"}`,
 			`Goal: ${safeManifest.goal}`,
 			"",
+			"## Cost",
+			...(usageTotal
+				? [
+						`- tokens: ${formatTokens((usageTotal.input ?? 0) + (usageTotal.output ?? 0))} (in ${formatTokens(usageTotal.input ?? 0)} / out ${formatTokens(usageTotal.output ?? 0)})`,
+						`- cost: ${formatCost(usageTotal.cost)}`,
+					]
+				: ["- (no usage recorded)"]),
+			"",
 			"## Tasks",
-			...safeTasks.map(
-				(task) => `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.error ? ` - ${task.error}` : ""}`,
-			),
+			...safeTasks.map((task) => {
+				// US-022: surface model + duration inline (data was already in hand).
+				const duration =
+					task.startedAt && task.finishedAt
+						? ` [${formatDuration(new Date(task.finishedAt).getTime() - new Date(task.startedAt).getTime())}]`
+						: "";
+				const model = task.model ? ` <${task.model}>` : "";
+				return `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${model}${duration}${task.error ? ` - ${task.error}` : ""}`;
+			}),
 			"",
 			"## Artifacts",
 			...(safeManifest.artifacts.length
