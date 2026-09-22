@@ -5,6 +5,7 @@ import { allWorkflows, discoverWorkflows } from "../../workflows/discover-workfl
 import { validateWorkflowForTeam } from "../../workflows/validate-workflow.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
+import { resolveRoutingHint } from "./routing-hint.ts";
 
 export function handlePlan(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
 	const teamName = params.team ?? "default";
@@ -21,6 +22,12 @@ export function handlePlan(params: TeamToolParamsValue, ctx: TeamContext): PiTea
 			true,
 		);
 	const goal = params.goal ?? params.task ?? "(not provided)";
+	// DP-04: small-goal routing hint (suggest-only by default; never overrides
+	// an explicit team/workflow choice). See routing-hint.ts for the rationale.
+	const routingHint = resolveRoutingHint({
+		goal,
+		explicitOverride: params.team !== undefined || params.workflow !== undefined,
+	});
 	// ROADMAP T2.2: single-agent composition mode (cliff hedge).
 	if (params.singleAgent) {
 		const composed = composeSingleAgentPrompt(workflow, goal);
@@ -46,5 +53,8 @@ export function handlePlan(params: TeamToolParamsValue, ctx: TeamContext): PiTea
 				`${index + 1}. ${step.id} [${step.role}]${step.dependsOn?.length ? ` after ${step.dependsOn.join(", ")}` : ""}`,
 		),
 	];
+	if (routingHint.suggested && routingHint.message) {
+		lines.push("", routingHint.message);
+	}
 	return result(lines.join("\n"), { action: "plan", status: "ok" });
 }
