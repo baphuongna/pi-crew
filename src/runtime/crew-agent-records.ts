@@ -403,7 +403,28 @@ export async function readCrewAgentsAsync(manifest: TeamRunManifest): Promise<Cr
 // the coalesced best-effort path.
 // ---------------------------------------------------------------------------
 
-/** Last record content (redacted, JSON-serialized) written DURABLY per status path. */
+/**
+ * Last record content (redacted, JSON-serialized) written DURABLY per status
+ * path.
+ *
+ * INVARIANT (single-writer, RM-03 / review MINOR 4): this memo is a
+ * PROCESS-GLOBAL Map with no locking, and it is only correct because exactly
+ * ONE writer owns a given `statusPath` at a time. Two concurrent writers for
+ * the same path would each see a stale memo and could skip a durable write
+ * that the other expects to have happened. The single-writer property is
+ * provided by the run-lock / task-claim protocol (see
+ * src/state/coordination/locks.ts): a task is claimed by one agent, and only
+ * that agent calls saveCrewAgents for its statusPath.
+ *
+ * Do NOT add a second writer for the same statusPath without first replacing
+ * this memo with a lock-protected (or content-addressed) structure — and do
+ * NOT rely on the memo across processes (it is per-process; cross-process
+ * readers see the file, which is why needsDurableStatusWrite re-checks
+ * fs.existsSync rather than trusting the memo).
+ *
+ * Bounded by LAST_WRITTEN_STATUS_MAX_ENTRIES with FIFO eviction, so an evicted
+ * entry merely causes one redundant durable write (safe), never a skipped one.
+ */
 const lastWrittenStatus = new Map<string, string>();
 const LAST_WRITTEN_STATUS_MAX_ENTRIES = 2048;
 
