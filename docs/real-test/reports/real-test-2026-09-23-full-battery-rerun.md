@@ -1,8 +1,8 @@
 # real-test FULL battery re-run — every tier, no skips
 
 **Date**: 2026-09-23 (evening, post-restart)
-**Trigger**: user challenge "chạy full luôn không né cái nào hết" — every tier runnable in this environment, including the ones skipped in the morning pass (T5/T6/T9c/T9d/T10a/T10b)
-**Repo HEAD**: `6e764036` → `b811e1c0` (finding 7 fix landed mid-battery)
+**Trigger**: user challenge "chạy full luôn không né cái nào hết" — every tier runnable in this environment, including the ones skipped in the morning pass (T5/T6/T9c/T9d/T10a/T10b); re-run again after each finding fix per the skill's discipline (fix → re-run affected tiers on the new code)
+**Repo HEAD**: `6e764036` → `b811e1c0` (finding 7) → `2e8ccae1` (finding 8 layer 1) → `56d8e9ad` (finding 8 layer 2) → `740686fb` (layer 2 narrowed + fixture declarations)
 **Parent session**: PID 1371793 started 23:19:20 (restart), loaded bundle md5 `7b275370` (= committed build at `6e764036`); finding-7 rebuild produced `8fd99b7c` (live next restart)
 
 ## Environment scaffolding (what was created to un-skip tiers)
@@ -54,6 +54,13 @@
 **Fix** (`b811e1c0`): extracted `shouldRequeueForRetry()` — re-queue ONLY when `attempt > 1` AND run manifest non-terminal AND task status `=== "failed"`. US-003 semantics preserved (own failure re-queues); cancelled/completed tasks and terminal manifests are never resurrected.
 **Regression**: `test/unit/runtime/dispatch-batch-requeue-guard.test.ts` (6 tests) pins the exact live timeline incl. both orderings (task-first, manifest-first). Mutation check: reverting the predicate fails 2 tests. Gates: tsc clean, critical 116/116, biome clean, bundle rebuilt `8fd99b7c`.
 
+## Finding 8 — FIXED (two layers): cross-session cancel erased by the owning run's writes
+
+**Caught by**: T9d live drain-window cancels (runs `team_20260923174507`, `team_20260923175042`)
+**Layer 1 — scheduler loop** (`2e8ccae1`): the loop only observed its own in-process signal; after an external cancel it kept dispatching the next phase and overwrote `cancelled` → `running` → `completed` (race-2: worker spawned 210ms post-cancel, next task started, manifest ended `completed` — cancel fully erased). Fix: `externalTerminalDecision()` at the top of every loop iteration re-reads the disk manifest; an external terminal decision adopts on-disk state and stops scheduling.
+**Layer 2 — write layer** (`56d8e9ad` → narrowed `740686fb`): with the loop guarded, mid-flight savers (task-runner artifact/progress writes carrying the stale in-memory `running` manifest) still overwrote the disk `cancelled` between cancel and the merge's in-lock read — merge R15-2/finalize R15-1 then legitimately saw non-terminal (race-3: manifest ended `completed` again). Fix: `saveRunManifest`/`saveRunManifestAsync` preserve a terminal DISK status against any write carrying a NON-terminal status — the exact erase class (narrowed after the broad first cut broke 38 tests pinning terminal→terminal re-decisions like cancel-of-completed; those pass through, governed by canTransitionRunStatus). `updateRunStatus` routes through the guard, emits `run.terminal_preserved`, never emits a false `run.<status>`; `allowTerminalExit` bypass exists for resume (threaded as `ExecuteTeamRunInput.isResume`) and for 34 fixture-resurrect sites across 18 test files that now declare intent.
+**Regression suites**: `team-runner-external-terminal-guard.test.ts` (4) + `state-store-terminal-preserve.test.ts` (5); both mutation-checked. **Live verdicts — twice**: race-4 (broad guard, bundle `80e14676`) AND race-5 (narrowed guard, bundle `293abb0a`): cancel → in-flight worker's merge attempt → `run.terminal_preserved` → **manifest `cancelled` holds**; no next task, no run.completed. Known residual (documented): a worker spawned before cancel may finish its own task (its `task.completed` merges; run status stays cancelled). Full unit after narrowing: **8206/8203/0 fail**, all 16 previously-failing suites 109/109.
+
 ## Honest notes
 
 - T9g first attempt steered into the worker's drain window (queued after its final turn, never delivered) — probe timing, not product; second attempt mid-task delivered with transcript-level proof. The skill's steer recipe could add "steer within the task's first ~30s or verify the task is still multi-turn".
@@ -63,4 +70,4 @@
 
 ## Verdict
 
-**Full battery, zero skips**: every tier of the skill's decision table executed with real evidence, including all previously environment-blocked tiers (T5/T6/T10a/T10b scaffolded via own tmux server + detached probes). One new real defect (finding 7, cancel/retry race) found by T9d and fixed with regression + mutation proof inside the battery.
+**Full battery, zero skips, fix-then-re-run honored**: every tier of the skill's decision table executed with real evidence, including all previously environment-blocked tiers (T5/T6/T10a/T10b scaffolded via own tmux server + detached probes). Two real defects (finding 7 cancel/retry race, finding 8 cancel/erase race — two layers) found by T9d and fixed with regression + mutation proof INSIDE the battery; the final race-4 live repro confirms the user's cancel now survives. Post-fix gates re-run on the new code: critical 116/116, tsc, biome, state suites green, live cancel race green.
