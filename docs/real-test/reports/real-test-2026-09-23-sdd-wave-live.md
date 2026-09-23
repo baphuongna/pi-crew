@@ -50,6 +50,27 @@
 **Issue**: `makeRunFixture` used bare `mkdtempSync` (no project marker) → `createRunManifest` routed state to user crew root → teardown only removed the tmp cwd → every unit run leaked 2-3 finished/failed runs into `~/.pi/agent/extensions/pi-crew/state/runs/`. Health monitor then fired `crew.task.heartbeat_dead` on those zombies. 23 leaked runs found (25 at peak).
 **Fix**: fixture now creates a project marker (`.crew` dir) so state stays inside the rmSync'd tmpdir. 25 leaked runs cleaned. Committed in `e81d81a3`.
 
+## Findings noted but NOT fixed (pre-existing, out of battery scope)
+
+### 5. Health monitor false-positive "dead worker" for a task parked on ask
+**File**: `src/extension/registration/lifecycle-handlers.ts` (health tick) + `src/ui/heartbeat-aggregator.ts`
+**Issue**: a worker parked on `ask` emits no heartbeat. `isActiveTask` correctly skips
+`waiting` tasks, but the health tick reads task statuses from the **snapshotCache**, which
+can lag the on-disk `running → waiting` transition (GATE 1/2 re-verify only the MANIFEST
+status, not task statuses). In that window a genuinely-parked worker counts as
+active-without-heartbeat → `recovery_missing_heartbeat` / `recovery_dead_workers` fires.
+Observed live: run `team_20260923100114` fired "dead worker" while 01_explore was parked
+on ask (alive, later answered + resumed).
+**Candidate fix**: before `summarizeHeartbeats`, re-read tasks.json from disk (or extend
+GATE 1/2 to task statuses) and skip tasks whose fresh status is `waiting`/terminal.
+
+### 6. Ambient notification replay can re-deliver the same queued notification for hours
+**Issue**: after the leaked runs were deleted and the health monitor wrote `clear` entries
+(17:44:21), the SAME "missing heartbeat" ambient messages kept arriving at the parent
+conversation for ~5 hours. The notification log shows NO new fires — the deliveries were
+host-side ambient backlog replays at turn boundaries. Harmless but noisy; worth an
+ambient-dedup (a cleared notification id should not re-deliver).
+
 ## Verdict
 
 All applicable tiers pass with concrete evidence. Three real defects found and fixed by the live battery. One honest gap remains: interactive TUI keystroke proof (no tmux in this session — herdr only) and the parent session needs a restart to load the locateRunCwd fix. Ready for push decision.
