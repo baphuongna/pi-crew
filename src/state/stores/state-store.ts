@@ -508,7 +508,12 @@ export function createRunManifest(params: {
 	return { manifest, tasks, paths };
 }
 
-export function saveRunManifest(manifest: TeamRunManifest): void {
+export function saveRunManifest(manifest: TeamRunManifest, options?: { allowTerminalExit?: boolean }): TeamRunManifest {
+	// Finding 8 (2026-09-23): terminal-preserve at the WRITE layer. Mid-flight
+	// savers (task-runner artifact/progress writes carrying a stale in-memory
+	// "running" manifest) previously overwrote an externally-written terminal
+	// status; merge/finalize had their own guards but every other save site did
+	// not. Guard here so NO raw save can erase a terminal disk status.
 	// FIX: Capture the cached tasks array + mtime/size BEFORE we invalidate the
 	// cache. The previous implementation re-read tasks.json from disk after the
 	// manifest write (a JSON.parse + fs.readFileSync per call), which defeated
@@ -531,12 +536,13 @@ export function saveRunManifest(manifest: TeamRunManifest): void {
 	// which is always safe.
 	invalidateRunCache(manifest.stateRoot);
 	const manifestPath = path.join(manifest.stateRoot, "manifest.json");
+	const effective = preserveDiskTerminalStatus(manifest, options?.allowTerminalExit);
 	// REVIEW FIX (2026-09-10): reverted WI-2.2's coalesced conversion —
 	// saveRunManifest is a SYNCHRONOUS persist by name/contract (tests assert
 	// it, broker loadRunManifestById is a cross-process reader, and the
 	// statSync-based cache repopulation below needs the real post-write
 	// mtime/size). The 50ms coalesce window broke all three.
-	atomicWriteJson(manifestPath, manifest);
+	atomicWriteJson(manifestPath, effective);
 	// FIX: Re-populate cache with actual mtime/size so loadRunManifestById
 	// doesn't miss the cache on next read. Without this, every load until
 	// TTL expires would hit disk because cached 0 !== any real mtime.
@@ -545,16 +551,20 @@ export function saveRunManifest(manifest: TeamRunManifest): void {
 	// fresh tasks should call saveRunTasks or loadRunTasks separately.
 	const manifestStat = fs.statSync(manifestPath);
 	setManifestCache(manifest.stateRoot, {
-		manifest,
+		manifest: effective,
 		tasks: cachedTasks,
 		manifestMtimeMs: manifestStat.mtimeMs,
 		manifestSize: manifestStat.size,
 		tasksMtimeMs: cachedTasksMtimeMs,
 		tasksSize: cachedTasksSize,
 	});
+	return effective;
 }
 
-export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<void> {
+export async function saveRunManifestAsync(
+	manifest: TeamRunManifest,
+	options?: { allowTerminalExit?: boolean },
+): Promise<TeamRunManifest> {
 	// FIX: Capture cached tasks array + mtime/size BEFORE invalidating, same
 	// rationale as the sync saveRunManifest above. The async path previously
 	// always set tasks: [] with mtime/size 0, so any cache hit was guaranteed
@@ -567,7 +577,8 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<v
 	// after a crash. See saveRunManifest for full explanation.
 	invalidateRunCache(manifest.stateRoot);
 	const manifestPath = path.join(manifest.stateRoot, "manifest.json");
-	await atomicWriteJsonAsync(manifestPath, manifest);
+	const effective = preserveDiskTerminalStatus(manifest, options?.allowTerminalExit);
+	await atomicWriteJsonAsync(manifestPath, effective);
 	// FIX: Re-populate cache with actual mtime/size. See saveRunManifest.
 	// RACE GUARD: another concurrent async save (OPT-02) may unlink+rewrite
 	// manifest.json between our atomicWriteJsonAsync and this stat. If stat
@@ -582,13 +593,14 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest): Promise<v
 		manifestStat = { mtimeMs: 0, size: 0 };
 	}
 	setManifestCache(manifest.stateRoot, {
-		manifest,
+		manifest: effective,
 		tasks: cachedTasks,
 		manifestMtimeMs: manifestStat.mtimeMs,
 		manifestSize: manifestStat.size,
 		tasksMtimeMs: cachedTasksMtimeMs,
 		tasksSize: cachedTasksSize,
 	});
+	return effective;
 }
 
 /**
@@ -832,6 +844,39 @@ function saveManifestAndTasksAtomicSync(manifest: TeamRunManifest, tasks: TeamTa
 export interface UpdateRunStatusOptions {
 	data?: Record<string, unknown>;
 	metadata?: Parameters<typeof appendEvent>[1]["metadata"];
+	/** Finding 8 (2026-09-23): allow leaving a TERMINAL disk status (resume is the
+	 * only legitimate terminal-exit flow). Defaults to false — a raw save with an
+	 * in-memory "running" manifest must never erase an externally-written
+	 * cancelled/failed/completed status (live race team_20260923175042: cancel
+	 * 17:51:08 → intermediate task-runner save re-wrote "running" → finalize
+	 * completed — the cancel was fully erased). */
+	allowTerminalExit?: boolean;
+}
+
+/** Finding 8: statuses a disk write must never silently leave. Mirrors
+ * isRunTerminalPreserved (merge-loop.ts) — kept local to avoid a runtime dep
+ * from the store layer to the runtime layer. */
+const DISK_TERMINAL_STATUSES: ReadonlySet<TeamRunManifest["status"]> = new Set(["cancelled", "failed", "completed"]);
+
+/** Finding 8 write-layer guard: if the DISK manifest is terminal and the
+ * incoming write would leave/diverge from that terminal status, preserve the
+ * disk status/summary/updatedAt while keeping every other incoming field
+ * (artifacts, usage, surface…). Returns the effective manifest to persist. */
+function preserveDiskTerminalStatus(
+	manifest: TeamRunManifest,
+	allowTerminalExit: boolean | undefined,
+): TeamRunManifest {
+	if (allowTerminalExit) return manifest;
+	try {
+		const manifestPath = path.join(manifest.stateRoot, "manifest.json");
+		// Raw read (no cache): cross-process cancel writes must be seen NOW.
+		const raw = fs.readFileSync(manifestPath, "utf-8");
+		const disk = JSON.parse(raw) as TeamRunManifest;
+		if (!DISK_TERMINAL_STATUSES.has(disk.status) || disk.status === manifest.status) return manifest;
+		return { ...manifest, status: disk.status, summary: disk.summary, updatedAt: disk.updatedAt };
+	} catch {
+		return manifest; // no disk manifest yet (create) or unreadable — normal write
+	}
 }
 
 export function updateRunStatus(
@@ -849,7 +894,21 @@ export function updateRunStatus(
 		updatedAt: new Date().toISOString(),
 		summary: summary ?? manifest.summary,
 	};
-	saveRunManifest(updated);
+	// Finding 8 (2026-09-23): the write-layer guard may PRESERVE a terminal disk
+	// status (an external cancel/reconciler write the in-memory manifest never
+	// saw). In that case do NOT emit run.<status>, do NOT flip the manifest —
+	// record the refusal and return the preserved state. Resume passes
+	// allowTerminalExit for its legitimate cancelled→running transition.
+	const saved = saveRunManifest(updated, { allowTerminalExit: options.allowTerminalExit });
+	if (saved.status !== status) {
+		appendEvent(saved.eventsPath, {
+			type: "run.terminal_preserved",
+			runId: saved.runId,
+			message: `Preserved terminal status '${saved.status}'; refused in-memory transition to '${status}'.`,
+			data: { preserved: saved.status, refused: status },
+		});
+		return saved;
+	}
 	// Unregister from active-run-index when run reaches a terminal status.
 	// Without this, stale entries accumulate (e.g. integration tests in /tmp) and
 	// Pi UI shows ghost "queued" runs that are actually completed/failed/cancelled.

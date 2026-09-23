@@ -402,7 +402,10 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			data: { runtimeResolution, action: "resume" },
 		});
 		if (runtime.safety === "blocked") {
-			const runningManifest = updateRunStatus(runtimeManifest, "running", "Checking worker runtime availability before resume.");
+			const runningManifest = updateRunStatus(runtimeManifest, "running", "Checking worker runtime availability before resume.", {
+				// Resume is the ONE legitimate terminal-exit flow (finding 8 write guard).
+				allowTerminalExit: true,
+			});
 			const blocked = updateRunStatus(
 				runningManifest,
 				"blocked",
@@ -513,6 +516,8 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		reliability: decision.executedConfig.reliability,
 		metricRegistry: ctx.metricRegistry,
 		workspaceId: ctx.sessionId ?? ctx.cwd,
+		// Finding 8: resume is the legitimate terminal-exit flow.
+		isResume: true,
 	});
 	return result(
 		[

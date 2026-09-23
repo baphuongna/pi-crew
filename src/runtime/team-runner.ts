@@ -221,6 +221,10 @@ export interface ExecuteTeamRunInput {
 	metricRegistry?: MetricRegistry;
 	/** Skill override from the team tool. false disables skill injection for this run. */
 	skillOverride?: string[] | false;
+	/** Finding 8: true when RESUMING a terminal run — the wrapper's entry
+	 * cancelled→running transition is the one legitimate terminal exit and must
+	 * bypass the write-layer terminal-preserve guard. */
+	isResume?: boolean;
 	/** Optional callback for JSON events from child Pi. Used for overflow recovery tracking. */
 	onJsonEvent?: (taskId: string, runId: string, event: unknown) => void;
 	/** Workspace where this run was initiated — used for session-scoped live-agent visibility. */
@@ -373,6 +377,9 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		input.manifest,
 		"running",
 		input.executeWorkers ? "Executing team workflow." : "Creating workflow prompts and placeholder results.",
+		// Finding 8: resume legitimately exits a terminal status; every other
+		// caller enters from a non-terminal manifest (fresh run / re-dispatch).
+		{ allowTerminalExit: input.isResume === true },
 	);
 
 	// Persist budget fields on the manifest so all subsequent saveRunManifest
