@@ -339,8 +339,8 @@ test("async notifier wiring: terminal transition fires the webhook once (blocked
 	try {
 		const completed = createRunManifest({ cwd, team, workflow, goal: "wiring test completed" });
 		const blocked = createRunManifest({ cwd, team, workflow, goal: "wiring test blocked" });
-		saveRunManifest({ ...completed.manifest, status: "running" });
-		saveRunManifest({ ...blocked.manifest, status: "running" });
+		saveRunManifest({ ...completed.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...blocked.manifest, status: "running"  }, { allowTerminalExit: true });
 		startAsyncRunNotifier(
 			{
 				cwd,

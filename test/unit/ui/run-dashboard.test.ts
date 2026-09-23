@@ -217,7 +217,7 @@ test("RunDashboard switches live snapshot panes and shows mailbox badges", () =>
 			workflow,
 			goal: "panes",
 		});
-		saveRunManifest({ ...created.manifest, status: "running" });
+		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,

@@ -32,7 +32,7 @@ test("crew widget renders installed-style run and agent summary lines", async ()
 		);
 		assert.equal(run.isError, false);
 		const loaded = loadRunManifestById(cwd, run.details.runId!)!;
-		saveRunManifest({ ...loaded.manifest, status: "running" });
+		saveRunManifest({ ...loaded.manifest, status: "running"  }, { allowTerminalExit: true });
 		saveCrewAgents(loaded.manifest, [
 			{
 				id: `${loaded.manifest.runId}:01`,
@@ -193,7 +193,7 @@ test("crew widget keeps persistent component until placement changes and refresh
 			workflow,
 			goal: "persistent widget",
 		});
-		saveRunManifest({ ...created.manifest, status: "running" });
+		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -304,7 +304,7 @@ test("crew widget header spinner animates time-based across renders even when st
 			workflow,
 			goal: "spin smoke",
 		});
-		saveRunManifest({ ...created.manifest, status: "running" });
+		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -382,7 +382,7 @@ test("compact dock hint line never gets the legacy spinner-frame swap (pi-subtas
 			filePath: "builtin",
 		} as never;
 		const created = createRunManifest({ cwd, team, workflow, goal: "compact hint" });
-		saveRunManifest({ ...created.manifest, status: "running" });
+		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -497,7 +497,7 @@ test("C4: widget signature cache invalidates on write so genuine state changes t
 			filePath: "builtin",
 		} as never;
 		const created = createRunManifest({ cwd, team, workflow, goal: "c4 cache test" });
-		saveRunManifest({ ...created.manifest, status: "running" });
+		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,

@@ -53,7 +53,7 @@ function fixtures(cwd: string): {
 		workflow,
 		goal: "snapshot",
 	});
-	saveRunManifest({ ...created.manifest, status: "running" });
+	saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
 	saveCrewAgents(created.manifest, [
 		{
 			id: `${created.manifest.runId}:01`,

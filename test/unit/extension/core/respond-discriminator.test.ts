@@ -10,7 +10,7 @@ import { sweepExpiredWaitingTasks } from "../../../../src/runtime/dispatch-batch
 import type { WorkerHeartbeatState } from "../../../../src/runtime/heartbeat/worker-heartbeat.ts";
 import { clearLiveAgentsForTest, registerLiveAgent } from "../../../../src/runtime/live-session/live-agent-manager.ts";
 import { readMailbox } from "../../../../src/state/coordination/mailbox.ts";
-import { loadRunManifestById, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
+import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 import { sleepSync } from "../../../../src/utils/sleep.ts";
 
@@ -74,6 +74,13 @@ async function createParkedRun(heartbeat: WorkerHeartbeatState, deadlineOffsetMs
 	saveRunTasks(
 		loaded!.manifest,
 		loaded!.tasks.map((t) => (t.id === task.id ? parked : t)),
+	);
+	// Finding 8 write guard (2026-09-23): a REAL parked run has a non-terminal
+	// manifest (running/blocked). The scaffold fixture left it "completed" and
+	// previously rode the lax raw-write behavior; resurrect it explicitly.
+	saveRunManifest(
+		{ ...loaded!.manifest, status: "running", updatedAt: new Date().toISOString() },
+		{ allowTerminalExit: true },
 	);
 	return { cwd, runId: runId!, taskId: task.id, questionId };
 }

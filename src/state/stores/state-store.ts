@@ -859,14 +859,22 @@ export interface UpdateRunStatusOptions {
 const DISK_TERMINAL_STATUSES: ReadonlySet<TeamRunManifest["status"]> = new Set(["cancelled", "failed", "completed"]);
 
 /** Finding 8 write-layer guard: if the DISK manifest is terminal and the
- * incoming write would leave/diverge from that terminal status, preserve the
- * disk status/summary/updatedAt while keeping every other incoming field
- * (artifacts, usage, surface…). Returns the effective manifest to persist. */
+ * incoming write carries a NON-terminal status (the erase class — a mid-flight
+ * saver with a stale in-memory "running" manifest), preserve the disk
+ * status/summary/updatedAt while keeping every other incoming field (artifacts,
+ * usage, surface…). Terminal→terminal re-decisions (e.g. cancelling a run that
+ * just completed — pinned by resume-cancel.test.ts) are LEGITIMATE and pass
+ * through; they are governed by canTransitionRunStatus at the updateRunStatus
+ * layer. Returns the effective manifest to persist. */
 function preserveDiskTerminalStatus(
 	manifest: TeamRunManifest,
 	allowTerminalExit: boolean | undefined,
 ): TeamRunManifest {
 	if (allowTerminalExit) return manifest;
+	// Terminal→terminal re-decisions pass through (governed by
+	// canTransitionRunStatus at the updateRunStatus layer); the guard applies
+	// ONLY to the erase class: a NON-terminal incoming status over terminal disk.
+	if (DISK_TERMINAL_STATUSES.has(manifest.status)) return manifest;
 	try {
 		const manifestPath = path.join(manifest.stateRoot, "manifest.json");
 		// Raw read (no cache): cross-process cancel writes must be seen NOW.

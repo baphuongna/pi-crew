@@ -51,7 +51,7 @@ function makeCwd(): TeamRunManifest {
 		} as never,
 		goal: "plan ui",
 	});
-	saveRunManifest({ ...created.manifest, status: "running" });
+	saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
 	return created.manifest;
 }
 

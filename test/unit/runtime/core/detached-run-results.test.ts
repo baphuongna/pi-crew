@@ -35,7 +35,7 @@ function fixture(): { cwd: string; runId: string } {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "detached-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	const created = createRunManifest({ cwd, team, workflow, goal: "detach goal" });
-	saveRunManifest({ ...created.manifest, status: "running" as const });
+	saveRunManifest({ ...created.manifest, status: "running" as const  }, { allowTerminalExit: true });
 	return { cwd, runId: created.manifest.runId };
 }
 

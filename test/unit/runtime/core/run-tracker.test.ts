@@ -98,7 +98,7 @@ test("detach releases a POLLING waiter (promise not registered yet)", async () =
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "test" });
-		saveRunManifest({ ...created.manifest, status: "running" as const });
+		saveRunManifest({ ...created.manifest, status: "running" as const  }, { allowTerminalExit: true });
 		// No registerRunPromise: this is the race where the tool starts waiting
 		// before executeTeamRun registers its foreground promise.
 		const waiting = waitForRun(created.manifest.runId, cwd, { timeoutMs: 5000 });
@@ -120,7 +120,7 @@ test("detach requested before the waiter starts still releases it", async () => 
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "test" });
-		saveRunManifest({ ...created.manifest, status: "running" as const });
+		saveRunManifest({ ...created.manifest, status: "running" as const  }, { allowTerminalExit: true });
 		assert.equal(detachRunPromise(created.manifest.runId, cwd), true);
 		assert.equal(hasPendingRunDetach(created.manifest.runId), true);
 		const result = await waitForRun(created.manifest.runId, cwd, { timeoutMs: 5000 });
@@ -261,7 +261,7 @@ test("waitForRun honours user scope for markerless cwds (issue #54)", async () =
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "tracker-"));
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "user-scope run" });
-		saveRunManifest({ ...created.manifest, status: "running" as const });
+		saveRunManifest({ ...created.manifest, status: "running" as const  }, { allowTerminalExit: true });
 
 		// Flip the still-running run to terminal shortly after the poller starts;
 		// the waiter must poll through the user-scope dir and resolve (not throw).

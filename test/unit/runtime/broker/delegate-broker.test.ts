@@ -117,7 +117,7 @@ async function scaffoldRunningTask(prefix: string, role = "executor"): Promise<S
 	const now = new Date().toISOString();
 	const updatedTasks = loaded.tasks.map((t) => (t.id === task.id ? { ...t, status: "running" as const, startedAt: now, depth: 1 } : t));
 	saveRunTasks(loaded.manifest, updatedTasks);
-	saveRunManifest({ ...loaded.manifest, status: "running", updatedAt: now });
+	saveRunManifest({ ...loaded.manifest, status: "running", updatedAt: now  }, { allowTerminalExit: true });
 	return { cwd, runId, taskId: task.id, eventsPath: loaded.manifest.eventsPath };
 }
 
