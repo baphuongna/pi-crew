@@ -84,23 +84,68 @@ test("returns undefined for non-existent run", () => {
 	}
 });
 
-test("returns undefined when run is in sibling directory", () => {
-	const base = mkProjectDir("pi-crew-locate-sibling-");
-	// Create sibling as a non-project dir so its state is written to
-	// userCrewRoot() — outside the base tree — and locateRunCwd(base) can't
-	// reach it via the child-directory scan.
-	const sibling = mkNonProjectDir("pi-crew-sibling-nonproj-");
-	fs.renameSync(sibling, path.join(base, "sibling"));
+test("returns undefined for a cwd unrelated to the run's project root", () => {
+	// Isolation boundary that still holds: a run living under project A's root
+	// is NOT discoverable from an unrelated cwd B (no ancestor relationship, no
+	// user-root hit). The reverse case — a run in a CHILD project being found
+	// from the parent — is intended and pinned by "finds run in child directory
+	// CWD" above.
+	const projectA = mkProjectDir("pi-crew-locate-projA-");
+	const unrelated = mkProjectDir("pi-crew-locate-unrelated-");
 	try {
 		const { manifest } = createRunManifest({
-			cwd: sibling,
+			cwd: projectA,
 			team,
 			workflow,
-			goal: "sibling",
+			goal: "belongs to A",
 		});
-		// sibling's state is at userCrewRoot, not under base, so it won't be found
-		assert.equal(locateRunCwd(manifest.runId, base), undefined);
+		assert.equal(
+			manifest.stateRoot,
+			path.join(projectA, ".crew", "state", "runs", manifest.runId),
+			"precondition: the run lives under project A's own root",
+		);
+		assert.equal(locateRunCwd(manifest.runId, unrelated), undefined);
 	} finally {
-		fs.rmSync(base, { recursive: true, force: true });
+		fs.rmSync(projectA, { recursive: true, force: true });
+		fs.rmSync(unrelated, { recursive: true, force: true });
+	}
+});
+
+/**
+ * F-L1 completion (2026-09-23): `list` (run-index scopedRunRoots) UNIONS the
+ * user root and the project root, and `loadRunManifestById` resolves both —
+ * but locateRunCwd only accepted the candidate cwd's PRIMARY root, so every
+ * by-ID handler (status/events/summary/artifacts/worktrees/plans/respond/
+ * cancel) answered "Run not found" for runs that `list` had just shown.
+ *
+ * Measured live in the real session: `action='list'` returned 10 user-root
+ * runs and `action='status'` failed 10/10 of them.
+ */
+test("finds a run that lives under the USER root from a project cwd (list/status parity)", () => {
+	const prevHome = process.env.PI_CREW_HOME;
+	const prevTeams = process.env.PI_TEAMS_HOME;
+	const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-locate-userhome-"));
+	const cwd = mkProjectDir("pi-crew-locate-userroot-");
+	delete process.env.PI_TEAMS_HOME;
+	process.env.PI_CREW_HOME = fakeHome;
+	try {
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		// The run's own cwd is a NON-project dir → its state lands in userCrewRoot().
+		const nonProject = mkNonProjectDir("pi-crew-locate-nonproj-");
+		const { manifest } = createRunManifest({ cwd: nonProject, team, workflow, goal: "user-root run" });
+		assert.equal(
+			manifest.stateRoot,
+			path.join(fakeHome, ".pi", "agent", "extensions", "pi-crew", "state", "runs", manifest.runId),
+			"precondition: the run really lives under the user root",
+		);
+		// A project cwd must still resolve it (this is the regression).
+		assert.equal(locateRunCwd(manifest.runId, cwd), cwd);
+	} finally {
+		if (prevHome === undefined) delete process.env.PI_CREW_HOME;
+		else process.env.PI_CREW_HOME = prevHome;
+		if (prevTeams === undefined) delete process.env.PI_TEAMS_HOME;
+		else process.env.PI_TEAMS_HOME = prevTeams;
+		fs.rmSync(cwd, { recursive: true, force: true });
+		fs.rmSync(fakeHome, { recursive: true, force: true });
 	}
 });

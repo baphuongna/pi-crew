@@ -655,21 +655,47 @@ export function locateRunCwd(runId: string, baseCwd: string): string | undefined
  *   (e.g. .crew, .pi, .tmp-crew-runs)
  */
 /**
- * F-L1 companion: loadRunManifestById now resolves cross-root (status/prune/
- * forget must see every listed run), but THIS module's contract is "the run's
- * state is stored relative to cwd" — so a hit via the OTHER crew root must NOT
- * count. True only when the resolved stateRoot sits under cwd's PRIMARY root.
+ * F-L1 companion (2026-09-23 correction): a hit counts when the resolved
+ * stateRoot sits under EITHER root that `list` unions (run-index
+ * `scopedRunRoots` = userCrewRoot + projectCrewRoot), because this function
+ * answers "which cwd can read this run's state" — not "was it created here".
+ *
+ * History: the first F-L1 fix (5d3a3d0f) restricted hits to the candidate
+ * cwd's PRIMARY root. That kept `locateRunCwd` from claiming a run created in
+ * a sibling, but it also made every by-ID handler (status/events/summary/
+ * artifacts/worktrees/api/plans/respond/cancel) reject runs that `list` shows
+ * from the user root: `list` unions both roots, `loadRunManifestById` resolves
+ * both roots, yet `locateRunCwd` returned undefined → "Run not found" for
+ * runs the dashboard had just listed. Measured live: 10/10 user-root runs
+ * listed by `action='list'` failed `action='status'`.
+ *
+ * Sibling isolation is preserved WITHOUT the primary-only restriction: a run
+ * living under a sibling's PROJECT root (…/sibling/.crew/state/runs/<id>) is
+ * not under the candidate cwd's project root nor the user root, so it still
+ * does not match (pinned by locate-run-cwd.test.ts "sibling directory").
  */
-function runUnderPrimaryRoot(cwd: string, runId: string): boolean {
+function runUnderListedRoot(cwd: string, runId: string): boolean {
 	const loaded = loadRunManifestById(cwd, runId);
 	if (!loaded) return false;
-	const primary = findRepoRoot(cwd) ? projectCrewRoot(cwd) : userCrewRoot();
-	return loaded.manifest.stateRoot === path.join(primary, DEFAULT_PATHS.state.runsSubdir, runId);
+	const roots = findRepoRoot(cwd) ? [projectCrewRoot(cwd), userCrewRoot()] : [userCrewRoot()];
+	return roots.some((root) => loaded.manifest.stateRoot === path.join(root, DEFAULT_PATHS.state.runsSubdir, runId));
+}
+
+/**
+ * Scan-path variant: a CHILD directory may claim the run only when the run's
+ * state actually lives under that child's OWN crew root (the nested-child
+ * case this scan exists for). Without this, a shared user-root run would be
+ * "claimed" by whichever child happened to be scanned first.
+ */
+function runUnderOwnRoot(cwd: string, runId: string): boolean {
+	const loaded = loadRunManifestById(cwd, runId);
+	if (!loaded) return false;
+	return loaded.manifest.stateRoot === path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.runsSubdir, runId);
 }
 
 export function locateRunCwdUncached(runId: string, baseCwd: string): string | undefined {
-	// Fast path: run is in the current CWD's primary scope (see helper note).
-	if (runUnderPrimaryRoot(baseCwd, runId)) {
+	// Fast path: run resolves under one of the roots `list` shows (see helper note).
+	if (runUnderListedRoot(baseCwd, runId)) {
 		return baseCwd;
 	}
 
@@ -685,7 +711,7 @@ export function locateRunCwdUncached(runId: string, baseCwd: string): string | u
 				if (!entry.name.startsWith(".crew") && !entry.name.startsWith(".pi") && !entry.name.startsWith(".tmp-crew")) continue;
 			}
 			const candidate = path.join(baseCwd, entry.name);
-			if (runUnderPrimaryRoot(candidate, runId)) {
+			if (runUnderOwnRoot(candidate, runId)) {
 				return candidate;
 			}
 		}

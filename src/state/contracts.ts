@@ -142,6 +142,7 @@ export const TEAM_EVENT_TYPES = [
 	"goal.turn_evaluated",
 	"goal.budget_warning",
 	"goal.loop_end",
+	"goal.loop_error",
 	"goal.feedback_steered",
 	"goal.state_changed",
 	// Dynamic workflow events (P2) — script-driven orchestration.
