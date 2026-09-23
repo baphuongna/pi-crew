@@ -1,0 +1,57 @@
+/**
+ * US-030/US-031 example: run a pi-crew team headlessly in CI and post the
+ * exported run report as a PR comment (create-or-update, never spam).
+ *
+ * Copy-paste runnable. Required workflow permissions: `pull-requests: write`
+ * (comment create/update) + the default `contents: read`. GITHUB_TOKEN is
+ * provided by Actions; it is passed to scripts/gh-pr-comment.mjs via env and
+ * is never echoed (the script redacts Bearer/ghp_* defensively and uses the
+ * token only in the Authorization header).
+ *
+ * pi-crew runs its gates against the PR head; the report lands as ONE comment
+ * carrying the `<!-- pi-crew-report -->` marker (updated on re-runs).
+ */
+name: pi-crew report
+
+on:
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Run pi-crew team (headless)
+        # executeWorkers is enabled explicitly: CI runners have no TTY, so the
+        # child-process runtime is the only valid mode here.
+        env:
+          PI_CREW_EXECUTE_WORKERS: "1"
+        run: |
+          npx pi --print -p "Run the fast-fix team on the changed files in this PR: review the diff, apply only clearly-correct fixes, run the package gates, and report." \
+            || echo "pi run exit: $?"   # the REPORT is the deliverable — do not hard-fail the job on the run itself
+      - name: Locate the latest run report
+        id: report
+        run: |
+          file="$(ls -t .crew/artifacts/*/export/run-export.md 2>/dev/null | head -1)"
+          if [ -z "$file" ]; then echo "no run-export.md found — skipping"; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "path=$file" >> "$GITHUB_OUTPUT"
+      - name: Post report as PR comment (create-or-update)
+        if: steps.report.outputs.skip != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node scripts/gh-pr-comment.mjs --pr "$PR_NUMBER" --body-file "${{ steps.report.outputs.path }}"
