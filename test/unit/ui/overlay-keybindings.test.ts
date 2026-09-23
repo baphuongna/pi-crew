@@ -273,10 +273,12 @@ describe('M2-1 — keybindings["overlay:..."] override actually takes effect', (
 	});
 
 	it("an overlay override does not disturb dashboard keys", () => {
-		withConfigKeybindings({ "overlay:agent-picker:close": ["x"] }, () => {
-			assert.equal(overlayActionForKey("agent-picker", "x"), "close");
+		// US-020 note: "x" is now the dashboard's own cancel key, so the
+		// does-not-inherit example uses "z" (unbound everywhere by default).
+		withConfigKeybindings({ "overlay:agent-picker:close": ["z"] }, () => {
+			assert.equal(overlayActionForKey("agent-picker", "z"), "close");
 			assert.equal(dashboardActionForKey("q", undefined), "close", "dashboard 'q' untouched");
-			assert.equal(dashboardActionForKey("x", undefined), undefined, "dashboard does not inherit overlay keys");
+			assert.equal(dashboardActionForKey("z", undefined), undefined, "dashboard does not inherit overlay keys");
 		});
 	});
 });

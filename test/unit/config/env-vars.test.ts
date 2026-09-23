@@ -51,6 +51,8 @@ const SRC_READ_NAMES: readonly string[] = [
 	// singles read via process.env (dot)
 	"PI_CREW_ALLOW_MOCK",
 	"PI_CREW_ASYNC_EARLY_EXIT_GUARD",
+	"PI_CREW_PROMPT_BREAKDOWN",
+	"PI_CREW_PROMPT_SKILLS",
 	"PI_CREW_BACKGROUND_MODE",
 	"PI_CREW_BROKER",
 	"PI_CREW_DEBUG",

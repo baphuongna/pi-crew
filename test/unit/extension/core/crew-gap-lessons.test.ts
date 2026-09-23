@@ -25,7 +25,10 @@ test("worker prompts include read-only contract and mailbox coordination bridge"
 		assert.match(firstText(artifacts), /coordination-bridge\.md/);
 		const promptPath = path.join(cwd, ".crew", "artifacts", runId, "prompts", "01_explore.md");
 		const prompt = fs.readFileSync(promptPath, "utf-8");
-		assert.match(prompt, /READ-ONLY ROLE CONTRACT/);
+		// SR-02 de-dup: the scaffold READ-ONLY ROLE CONTRACT is dropped when the
+		// read-only-explorer skill is selected (it supersedes the duplicate) — the
+		// read-only instructions still reach the worker via the skill entry.
+		assert.match(prompt, /READ-ONLY ROLE CONTRACT|## read-only-explorer/);
 		assert.match(prompt, /Crew Coordination Channel/);
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
