@@ -21,6 +21,7 @@ import type {
 	CrewTelemetryConfig,
 	CrewToolsConfig,
 	CrewUiConfig,
+	CrewWebhookConfig,
 	CrewWorktreeConfig,
 	GoalWrapWorkflowConfig,
 	PersistenceConfig,
@@ -583,6 +584,19 @@ function parsePolicyConfig(value: unknown): CrewPolicyConfig | undefined {
 function parseNotificationsConfig(value: unknown): CrewNotificationsConfig | undefined {
 	const obj = asRecord(value);
 	if (!obj) return undefined;
+	// US-030: webhook block — field-wise parse mirroring the schema (url must
+	// be a non-empty string; an invalid/missing url parses to "" which the
+	// notifier treats as disabled — zero network). Sensitive: schema marks the
+	// block user-config-only; this parser stays shape-neutral.
+	const webhookObj = asRecord(obj.webhook);
+	const webhook: CrewWebhookConfig | undefined = webhookObj
+		? {
+				url: parseWithSchema(Type.String({ minLength: 1 }), webhookObj.url) ?? "",
+				enabled: parseWithSchema(Type.Boolean(), webhookObj.enabled),
+				secret: parseWithSchema(Type.String({ minLength: 1 }), webhookObj.secret),
+				allowLocalhost: parseWithSchema(Type.Boolean(), webhookObj.allowLocalhost),
+			}
+		: undefined;
 	const notifications: CrewNotificationsConfig = {
 		enabled: parseWithSchema(Type.Boolean(), obj.enabled),
 		severityFilter: parseWithSchema(
@@ -597,6 +611,7 @@ function parseNotificationsConfig(value: unknown): CrewNotificationsConfig | und
 		batchWindowMs: parseWithSchema(Type.Integer({ minimum: 0, maximum: 60_000 }), obj.batchWindowMs),
 		quietHours: parseWithSchema(Type.String({ pattern: "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$" }), obj.quietHours),
 		sinkRetentionDays: parsePositiveInteger(obj.sinkRetentionDays, 90),
+		webhook,
 	};
 	return Object.values(notifications).some((entry) => entry !== undefined) ? notifications : undefined;
 }

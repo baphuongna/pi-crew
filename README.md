@@ -133,11 +133,41 @@ Most-used keys (full set: [docs/usage.md](docs/usage.md) · [schema.json](schema
 | `agents.overrides` 🔒 | per-agent `model` / `skills` / `tools` override |
 | `reliability.autoRetry` | auto-retry failed tasks |
 | `broker.enabled` | inter-session message bus; default `true` (`PI_CREW_BROKER=0` always wins; auto-off on native Windows) |
+| `notifications.webhook` 🔒 | opt-in outbound webhook on run completion — one POST per terminal run, quiet-hours-aware, SSRF-guarded (see below) |
 
 🔒 = sensitive: settable in **user config only** — project config silently
 drops these keys with a warning, so untrusted repos can't escalate privileges.
 Environment variables (`PI_CREW_BROKER`, `PI_CREW_USE_BUNDLE`, …) are listed in
 [src/config/env-vars.ts](src/config/env-vars.ts).
+
+### Webhook notifications (US-030)
+
+Disabled by default — **no URL configured means zero network calls**. When a
+run reaches a terminal status (`completed` / `failed` / `cancelled`), and it
+is outside `notifications.quietHours`, pi-crew POSTs one JSON document to
+your URL (5 s timeout, exactly one retry on 5xx/network error, failures never
+affect the run):
+
+```json
+"notifications": {
+  "quietHours": "22:00-07:00",
+  "webhook": {
+    "url": "https://hooks.example.com/pi-crew",
+    "enabled": true,
+    "secret": "shared-secret",
+    "allowLocalhost": false
+  }
+}
+```
+
+Payload (PII-safe — no transcripts or events, goal is first-line only):
+`{ "event": "run.terminal", "runId": …, "status": …, "team": …, "goal": …,
+"durationMs": …, "cost": …, "tokens": …, "at": "<ISO>" }`. With `secret`
+set, every request carries `x-pi-crew-signature: sha256=<hmac-sha256(raw body,
+secret)>`. Non-http(s) URLs and loopback/link-local targets (`localhost`,
+`127.0.0.0/8`, `[::1]`, `fe80::/10`, `169.254.0.0/16`) are refused unless you
+set `allowLocalhost: true` explicitly. The whole `webhook` block is 🔒 — user
+config only, so an untrusted repo cannot point your runs at an attacker URL.
 
 ## Where things live
 

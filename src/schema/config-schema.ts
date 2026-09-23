@@ -231,6 +231,20 @@ export const PiTeamsNotificationsConfigSchema = Type.Object(
 		batchWindowMs: Type.Optional(Type.Integer({ minimum: 0 })),
 		quietHours: Type.Optional(Type.String({ pattern: "^\\d{2}:\\d{2}-\\d{2}:\\d{2}$" })),
 		sinkRetentionDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 90 })),
+		// US-030: whole block is `sensitive` (terminal mark) — project config drops
+		// it, so an untrusted repo cannot set a webhook URL or bypass the SSRF
+		// guard via `allowLocalhost`. User config only.
+		webhook: Type.Optional(
+			Type.Object(
+				{
+					url: Type.String({ minLength: 1, pattern: "^https?://" }),
+					enabled: Type.Optional(Type.Boolean()),
+					secret: Type.Optional(Type.String({ minLength: 1 })),
+					allowLocalhost: Type.Optional(Type.Boolean()),
+				},
+				{ additionalProperties: false, sensitive: true },
+			),
+		),
 	},
 	{ additionalProperties: false },
 );

@@ -22,6 +22,7 @@ import { projectCrewRoot } from "../../utils/paths.ts";
 import type { AsyncNotifierState } from "../async-notifier.ts";
 import type { NotificationDescriptor, NotificationRouter } from "../notification-router.ts";
 import type { NotificationSink } from "../notification-sink.ts";
+import { createWebhookNotifier } from "../webhook-notify.ts";
 
 /**
  * Mutable state owned by register.ts and read/written by this module.
@@ -59,6 +60,30 @@ export function startLifecycleWatchers(ctx: ExtensionContext, state: LifecycleSt
 	const loadedConfig = loadConfig(ctx.cwd);
 	state.notifierStarted = true;
 	try {
+		// US-030 (docs/specs/US-030.md): outbound webhook sink built from config.
+		// Gated on the notifications master switch (`notifications.enabled !== false`,
+		// same gate as configureNotifications), opt-in per `webhook.url`, and
+		// SSRF-guarded inside the factory. Inactive config → shared no-op
+		// singleton (zero network calls, zero hot-path allocation).
+		const notificationsConfig = loadedConfig.config.notifications;
+		const webhookNotifier =
+			notificationsConfig?.enabled === false
+				? undefined
+				: createWebhookNotifier(
+						{ webhook: notificationsConfig?.webhook, quietHours: notificationsConfig?.quietHours },
+						{
+							onFailure: (failure) => {
+								// Spec: failures surface as a `webhook.failed` event (crew.*-prefixed
+								// pi event, mirroring crew.run.completed / crew.task.overflow).
+								// logInternalError already fired inside the notifier.
+								deps.pi.events?.emit?.("crew.webhook.failed", {
+									runId: failure.runId,
+									attempts: failure.attempts,
+									error: failure.error,
+								});
+							},
+						},
+					);
 		// LAZY: async-notifier pulls in debounce + cron helpers — defer
 		// until the first lifecycle install (deferred import within module).
 		void import("../async-notifier.ts").then(({ startAsyncRunNotifier }) => {
@@ -66,6 +91,7 @@ export function startLifecycleWatchers(ctx: ExtensionContext, state: LifecycleSt
 			startAsyncRunNotifier(ctx, deps.notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs, {
 				generation: deps.ownerGeneration,
 				isCurrent: (generation) => generation === deps.ownerGeneration && deps.isContextCurrent(ctx, deps.ownerGeneration),
+				webhookNotifier,
 			});
 		});
 		return true;

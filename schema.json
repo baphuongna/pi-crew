@@ -519,6 +519,35 @@
           "minimum": 1,
           "maximum": 90,
           "default": 7
+        },
+        "webhook": {
+          "type": "object",
+          "additionalProperties": false,
+          "sensitive": true,
+          "description": "US-030: opt-in outbound webhook on run terminal transitions (completed/failed/cancelled). SENSITIVE — user config only; a project-level webhook URL would let an untrusted repo exfiltrate run metadata. Disabled by default (no URL = zero network calls).",
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^https?://",
+              "description": "Target URL. Must be http(s); localhost/127.0.0.0-8/[::1]/169.254.0.0-16/fe80::-10 targets are refused unless allowLocalhost is true."
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch. Defaults to true when url is set; false disables (zero network)."
+            },
+            "secret": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Shared secret — sets x-pi-crew-signature: sha256=<hmac-sha256(body, secret)> on every POST."
+            },
+            "allowLocalhost": {
+              "type": "boolean",
+              "description": "Explicit SSRF-guard bypass for loopback/link-local targets (e.g. a local test receiver). Default false.",
+              "default": false
+            }
+          },
+          "required": ["url"]
         }
       }
     },

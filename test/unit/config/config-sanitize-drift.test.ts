@@ -59,8 +59,8 @@ const OLD_HARDCODED_DROP_LIST = [
 ] as const;
 
 /** The exact inventory intended by ADR 2026-08-15 (old 21 + S-R5 policy.* +
- * S-R6 seedPaths + Wave 1A goalWrap/magicKeywords = 26 paths).
- * Order follows schema property declaration order. */
+ * S-R6 seedPaths + Wave 1A goalWrap/magicKeywords + US-030 notifications.webhook
+ * = 28 paths). Order follows schema property declaration order. */
 const EXPECTED_SENSITIVE_PATHS = [
 	"asyncByDefault",
 	"executeWorkers",
@@ -86,6 +86,7 @@ const EXPECTED_SENSITIVE_PATHS = [
 	"tools.terminateOnForeground",
 	"policy.requireIntentForDestructiveActions",
 	"policy.disabledCapabilities",
+	"notifications.webhook",
 	"otlp.endpoint",
 	"otlp.headers",
 	"nesting.enabled",

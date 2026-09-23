@@ -219,6 +219,23 @@ export interface CrewPolicyConfig {
 
 export type CrewNotificationSeverity = "info" | "warning" | "error" | "critical";
 
+/**
+ * US-030: opt-in outbound webhook on run terminal transitions.
+ * SENSITIVE (user config only — the schema marks this block `sensitive`):
+ * a project-level webhook URL would let an untrusted repo exfiltrate run
+ * metadata (incl. the goal first line) to an attacker-controlled endpoint.
+ */
+export interface CrewWebhookConfig {
+	/** Target URL. Must be http(s); localhost/loopback/link-local refused unless `allowLocalhost`. */
+	url: string;
+	/** Master switch. Absent + url set = enabled; `false` disables (zero network). */
+	enabled?: boolean;
+	/** Shared secret → `x-pi-crew-signature: sha256=<hmac-sha256(body, secret)>` header. */
+	secret?: string;
+	/** Explicit SSRF-guard bypass for localhost/127.0.0.0/8/[::1]/169.254.0.0/16 targets. */
+	allowLocalhost?: boolean;
+}
+
 export interface CrewNotificationsConfig {
 	enabled?: boolean;
 	severityFilter?: CrewNotificationSeverity[];
@@ -226,6 +243,8 @@ export interface CrewNotificationsConfig {
 	batchWindowMs?: number;
 	quietHours?: string;
 	sinkRetentionDays?: number;
+	/** US-030: outbound webhook on run terminal transitions. Opt-in only — no URL configured means disabled (zero network calls). */
+	webhook?: CrewWebhookConfig;
 }
 
 export interface CrewObservabilityConfig {

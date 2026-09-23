@@ -1,5 +1,6 @@
 import { loadConfig, updateConfig } from "../../config/config.ts";
 import { suggestConfigKey } from "../../config/suggestions.ts";
+import { collectSensitiveConfigPaths } from "../../schema/sensitive-config-paths.ts";
 import { discoverPiThemes, formatThemesListing, setPiTheme } from "../../ui/theme-discovery.ts";
 import { configPatchFromConfig } from "../team-tool/config-patch.ts";
 import type { TeamContext } from "../team-tool/context.ts";
@@ -214,6 +215,12 @@ const KNOWN_KEYS = new Set([
 	"notifications.enabled",
 	"notifications.severityFilter",
 	"notifications.dedupWindowMs",
+	"notifications.quietHours",
+	"notifications.webhook",
+	"notifications.webhook.url",
+	"notifications.webhook.enabled",
+	"notifications.webhook.secret",
+	"notifications.webhook.allowLocalhost",
 	"notifications.batchWindowMs",
 	"notifications.quietHours",
 	"notifications.sinkRetentionDays",
@@ -459,10 +466,19 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 			if (suggestion) note = `\n(did you mean '${suggestion}'?)`;
 			else note = "\n(unknown key — may not take effect)";
 		}
-		return result(`${key} = ${formatValue(value, key)}${note}`, {
+		// US-030 security review: a value whose dotted path is schema-marked
+		// sensitive (webhook.secret, otlp.headers, …) must not be echoed into
+		// the session transcript — any in-session agent can read tool output.
+		const sensitive = collectSensitiveConfigPaths().some((path) => key === path || key.startsWith(`${path}.`));
+		const rendered = sensitive
+			? value === undefined || value === null
+				? "<not set>"
+				: "***(redacted — sensitive)"
+			: formatValue(value, key);
+		return result(`${key} = ${rendered}${note}`, {
 			...OK,
 			key,
-			value,
+			value: sensitive ? undefined : value,
 		} as never);
 	}
 
@@ -516,6 +532,7 @@ export function handleSettings(params: { config?: Record<string, unknown> }, ctx
 			// Check if project config would sanitize this key
 			if (scope === "project") {
 				const sensitiveKeys = [
+					"notifications.webhook",
 					"executeWorkers",
 					"asyncByDefault",
 					"runtime.mode",

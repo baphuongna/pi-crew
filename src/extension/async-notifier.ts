@@ -8,6 +8,7 @@ import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { extractSessionId } from "../utils/session-utils.ts";
 import { listRuns } from "./run-index.ts";
+import type { WebhookNotifier } from "./webhook-notify.ts";
 
 export interface AsyncNotifierState {
 	seenFinishedRunIds: Set<string>;
@@ -20,6 +21,13 @@ export interface AsyncNotifierState {
 export interface AsyncNotifierOptions {
 	generation?: number;
 	isCurrent?: (generation: number) => boolean;
+	/**
+	 * US-030 (docs/specs/US-030.md): outbound webhook sink, invoked ONCE per
+	 * observed terminal transition — the same point (and dedupe memory) as the
+	 * completion toast below. The sink handles quiet-hours, SSRF, HMAC and
+	 * retry internally and NEVER throws. Optional — absent = disabled.
+	 */
+	webhookNotifier?: WebhookNotifier;
 }
 
 function isFinished(status: string): boolean {
@@ -177,6 +185,21 @@ export function startAsyncRunNotifier(
 				// alarming 'Error: pi-crew run failed' toast for an internal sub-run
 				// the user never started directly.
 				if (current.workflow === "goal-turn" && current.team.startsWith("goal-")) continue;
+				// US-030: outbound webhook on the terminal transition. Only the three
+				// spec statuses (completed/failed/cancelled) — "blocked" runs do not
+				// notify. Fire-and-forget: the sink is contractually non-throwing, the
+				// try/catch is belt-only so a webhook failure can NEVER suppress the
+				// local toast (or reach the run lifecycle path).
+				if (
+					options.webhookNotifier &&
+					(current.status === "completed" || current.status === "failed" || current.status === "cancelled")
+				) {
+					try {
+						options.webhookNotifier.notifyTerminalRun(current);
+					} catch (error) {
+						logInternalError("async-notifier.webhook", error, current.runId);
+					}
+				}
 				const level = current.status === "completed" ? "info" : current.status === "cancelled" ? "warning" : "error";
 				ctx.ui.notify(`pi-crew run ${current.status}: ${current.runId} (${current.team}/${current.workflow ?? "none"})`, level);
 			}
