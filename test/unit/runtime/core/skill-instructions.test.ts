@@ -113,25 +113,50 @@ test("normalizeSkillOverride accepts comma strings, arrays, true, and false", ()
 	assert.equal(normalizeSkillOverride(false), false);
 });
 
-test("renderSkillInstructions loads selected SKILL.md content for worker prompts", () => {
-	const rendered = renderSkillInstructions({
-		cwd: process.cwd(),
-		role: "verifier",
-		override: ["verification-before-done"],
-	});
-	assert.ok(rendered.names.includes("verification-before-done"));
-	assert.match(rendered.block, /# Applicable Skills/);
-	assert.match(rendered.block, /verification-before-done/);
-	assert.match(rendered.block, /evidence before claims/);
-	assert.match(rendered.block, /Source: (project|package):skills\/verification-before-done/);
-	assert.ok(rendered.paths.some((entry) => entry.endsWith(path.join("skills", "verification-before-done"))));
-	// Path: pointer (effective-html F6 audit): the skill DIRECTORY must be
-	// exposed so the agent can deterministically `ls <Path>/references/` and
-	// `read` a co-located reference corpus (the Agent Skills spec "small
-	// instruction + large local reference" pattern). The directory is a
-	// bounded, intentional pointer — not a free-form cwd leak.
-	assert.match(rendered.block, /Path: .+skills[\\/]verification-before-done/);
-});
+/** SR-02: force FULL inline mode (bodies in the block) around a test body. */
+function withFullSkills(run: () => void): void {
+	const prev = process.env.PI_CREW_PROMPT_SKILLS;
+	process.env.PI_CREW_PROMPT_SKILLS = "full";
+	try {
+		run();
+	} finally {
+		if (prev === undefined) delete process.env.PI_CREW_PROMPT_SKILLS;
+		else process.env.PI_CREW_PROMPT_SKILLS = prev;
+	}
+}
+
+/** SR-02: force INDEX mode explicitly (also the default). */
+function withIndexSkills(run: () => void): void {
+	const prev = process.env.PI_CREW_PROMPT_SKILLS;
+	delete process.env.PI_CREW_PROMPT_SKILLS;
+	try {
+		run();
+	} finally {
+		if (prev === undefined) delete process.env.PI_CREW_PROMPT_SKILLS;
+		else process.env.PI_CREW_PROMPT_SKILLS = prev;
+	}
+}
+
+test("renderSkillInstructions loads selected SKILL.md content for worker prompts", () =>
+	withFullSkills(() => {
+		const rendered = renderSkillInstructions({
+			cwd: process.cwd(),
+			role: "verifier",
+			override: ["verification-before-done"],
+		});
+		assert.ok(rendered.names.includes("verification-before-done"));
+		assert.match(rendered.block, /# Applicable Skills/);
+		assert.match(rendered.block, /verification-before-done/);
+		assert.match(rendered.block, /evidence before claims/);
+		assert.match(rendered.block, /Source: (project|package):skills\/verification-before-done/);
+		assert.ok(rendered.paths.some((entry) => entry.endsWith(path.join("skills", "verification-before-done"))));
+		// Path: pointer (effective-html F6 audit): the skill DIRECTORY must be
+		// exposed so the agent can deterministically `ls <Path>/references/` and
+		// `read` a co-located reference corpus (the Agent Skills spec "small
+		// instruction + large local reference" pattern). The directory is a
+		// bounded, intentional pointer — not a free-form cwd leak.
+		assert.match(rendered.block, /Path: .+skills[\\/]verification-before-done/);
+	}));
 
 test("renderSkillInstructions prefers package skills over project skills (SEC-003 CATASTROPHIC FIX)", () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-"));
@@ -170,30 +195,33 @@ test("renderSkillInstructions prefers package skills over project skills (SEC-00
 	}
 });
 
-test("renderSkillInstructions uses project skills when no package skill exists", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-"));
-	try {
-		// Create a project-only skill (no package equivalent)
-		const skillDir = path.join(cwd, "skills", "my-custom-skill");
-		fs.mkdirSync(skillDir, { recursive: true });
-		fs.writeFileSync(
-			path.join(skillDir, "SKILL.md"),
-			["---", "name: my-custom-skill", "description: Custom skill", "---", "", "# My Custom Skill", "", "Custom content."].join("\n"),
-		);
+test("renderSkillInstructions uses project skills when no package skill exists", () =>
+	withFullSkills(() => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-"));
+		try {
+			// Create a project-only skill (no package equivalent)
+			const skillDir = path.join(cwd, "skills", "my-custom-skill");
+			fs.mkdirSync(skillDir, { recursive: true });
+			fs.writeFileSync(
+				path.join(skillDir, "SKILL.md"),
+				["---", "name: my-custom-skill", "description: Custom skill", "---", "", "# My Custom Skill", "", "Custom content."].join(
+					"\n",
+				),
+			);
 
-		const rendered = renderSkillInstructions({
-			cwd,
-			role: "unknown",
-			override: ["my-custom-skill"],
-		});
+			const rendered = renderSkillInstructions({
+				cwd,
+				role: "unknown",
+				override: ["my-custom-skill"],
+			});
 
-		// Should use project skill since there's no package version
-		assert.match(rendered.block, /My Custom Skill/);
-		assert.match(rendered.block, /Source: project:skills/);
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
+			// Should use project skill since there's no package version
+			assert.match(rendered.block, /My Custom Skill/);
+			assert.match(rendered.block, /Source: project:skills/);
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	}));
 
 test("renderSkillInstructions reports missing safe skills without echoing unsafe names", () => {
 	const rendered = renderSkillInstructions({
@@ -214,21 +242,22 @@ function writeProjectSkill(cwd: string, name: string, body: string): void {
 	);
 }
 
-test("renderSkillInstructions truncates oversized individual skills", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-"));
-	try {
-		writeProjectSkill(cwd, "giant-skill", `# Giant\n\n${"A".repeat(5000)}\n\n## Verification\nshould be trimmed`);
-		const rendered = renderSkillInstructions({
-			cwd,
-			role: "unknown",
-			override: ["giant-skill"],
-		});
-		assert.match(rendered.block, /skill instructions truncated/);
-		assert.ok(rendered.block.length < 3500);
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
+test("renderSkillInstructions truncates oversized individual skills", () =>
+	withFullSkills(() => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-"));
+		try {
+			writeProjectSkill(cwd, "giant-skill", `# Giant\n\n${"A".repeat(5000)}\n\n## Verification\nshould be trimmed`);
+			const rendered = renderSkillInstructions({
+				cwd,
+				role: "unknown",
+				override: ["giant-skill"],
+			});
+			assert.match(rendered.block, /skill instructions truncated/);
+			assert.ok(rendered.block.length < 3500);
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	}));
 
 test("renderSkillInstructions caps selected skill count and missing-skill budget", () => {
 	const names = Array.from({ length: 100 }, (_, index) => `missing-${index}`);
@@ -242,52 +271,54 @@ test("renderSkillInstructions caps selected skill count and missing-skill budget
 	assert.ok(rendered.block.length < 7000);
 });
 
-test("renderSkillInstructions refreshes negative and stale cache entries", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-cache-"));
-	try {
-		clearSkillInstructionCache();
-		const missing = renderSkillInstructions({
-			cwd,
-			role: "unknown",
-			override: ["late-skill"],
-		});
-		assert.match(missing.block, /no SKILL\.md file was found/);
-		writeProjectSkill(cwd, "late-skill", "# Late\n\ncreated after missing lookup");
-		const created = renderSkillInstructions({
-			cwd,
-			role: "unknown",
-			override: ["late-skill"],
-		});
-		assert.match(created.block, /created after missing lookup/);
-		writeProjectSkill(cwd, "late-skill", "# Late\n\nupdated content");
-		const updated = renderSkillInstructions({
-			cwd,
-			role: "unknown",
-			override: ["late-skill"],
-		});
-		assert.match(updated.block, /updated content/);
-	} finally {
-		clearSkillInstructionCache();
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
+test("renderSkillInstructions refreshes negative and stale cache entries", () =>
+	withFullSkills(() => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-cache-"));
+		try {
+			clearSkillInstructionCache();
+			const missing = renderSkillInstructions({
+				cwd,
+				role: "unknown",
+				override: ["late-skill"],
+			});
+			assert.match(missing.block, /no SKILL\.md file was found/);
+			writeProjectSkill(cwd, "late-skill", "# Late\n\ncreated after missing lookup");
+			const created = renderSkillInstructions({
+				cwd,
+				role: "unknown",
+				override: ["late-skill"],
+			});
+			assert.match(created.block, /created after missing lookup/);
+			writeProjectSkill(cwd, "late-skill", "# Late\n\nupdated content");
+			const updated = renderSkillInstructions({
+				cwd,
+				role: "unknown",
+				override: ["late-skill"],
+			});
+			assert.match(updated.block, /updated content/);
+		} finally {
+			clearSkillInstructionCache();
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	}));
 
-test("renderSkillInstructions enforces total skill budget", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-"));
-	try {
-		const names = ["budget-a", "budget-b", "budget-c", "budget-d", "budget-e", "budget-f"];
-		for (const name of names) writeProjectSkill(cwd, name, `# ${name}\n\n${"B".repeat(5000)}`);
-		const rendered = renderSkillInstructions({
-			cwd,
-			role: "unknown",
-			override: names,
-		});
-		assert.match(rendered.block, /skill instruction budget exceeded/);
-		assert.ok(rendered.block.length < 13_000);
-	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
+test("renderSkillInstructions enforces total skill budget", () =>
+	withFullSkills(() => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-"));
+		try {
+			const names = ["budget-a", "budget-b", "budget-c", "budget-d", "budget-e", "budget-f"];
+			for (const name of names) writeProjectSkill(cwd, name, `# ${name}\n\n${"B".repeat(5000)}`);
+			const rendered = renderSkillInstructions({
+				cwd,
+				role: "unknown",
+				override: names,
+			});
+			assert.match(rendered.block, /skill instruction budget exceeded/);
+			assert.ok(rendered.block.length < 13_000);
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	}));
 
 test("renderTaskPrompt includes the selected skill instruction block", async () => {
 	const skillBlock = renderSkillInstructions({
@@ -301,17 +332,18 @@ test("renderTaskPrompt includes the selected skill instruction block", async () 
 	assert.match(promptResult.full, /# Task Packet|Task:/);
 });
 
-test("distilled awesome-agent-skills are available to default roles", () => {
-	const rendered = renderSkillInstructions({
-		cwd: process.cwd(),
-		role: "security-reviewer",
-	});
-	assert.match(rendered.block, /secure-agent-orchestration-review/);
-	assert.match(rendered.block, /prompt injection/);
-	// Path: pointer is intentional (effective-html F6 audit) — skill dir exposed
-	// for corpus access. See the "loads selected SKILL.md content" test.
-	assert.match(rendered.block, /Path: .+skills[\\/]secure-agent-orchestration-review/);
-});
+test("distilled awesome-agent-skills are available to default roles", () =>
+	withFullSkills(() => {
+		const rendered = renderSkillInstructions({
+			cwd: process.cwd(),
+			role: "security-reviewer",
+		});
+		assert.match(rendered.block, /secure-agent-orchestration-review/);
+		assert.match(rendered.block, /prompt injection/);
+		// Path: pointer is intentional (effective-html F6 audit) — skill dir exposed
+		// for corpus access. See the "loads selected SKILL.md content" test.
+		assert.match(rendered.block, /Path: .+skills[\\/]secure-agent-orchestration-review/);
+	}));
 
 test("renderSkillInstructions exposes skill directory via Path: pointer (effective-html F6 audit)", () => {
 	// Issue: skills following the Agent Skills spec "small instruction + large
@@ -454,52 +486,53 @@ test("skill cache evicts oldest entries when capacity is exceeded (LRU)", () => 
 	}
 });
 
-test("skill cache invalidation increments misses when file mtime changes", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-inval-"));
-	try {
-		clearSkillInstructionCache();
-		resetSkillCacheStats();
+test("skill cache invalidation increments misses when file mtime changes", () =>
+	withFullSkills(() => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-inval-"));
+		try {
+			clearSkillInstructionCache();
+			resetSkillCacheStats();
 
-		writeProjectSkill(cwd, "invalidate-me", "# V1\n\noriginal content");
+			writeProjectSkill(cwd, "invalidate-me", "# V1\n\noriginal content");
 
-		// First read: cold miss
-		const r1 = renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
-		assert.match(r1.block, /original content/);
-		const stats1 = getSkillCacheStats();
-		assert.equal(stats1.misses, 1);
-		assert.equal(stats1.hits, 0);
+			// First read: cold miss
+			const r1 = renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+			assert.match(r1.block, /original content/);
+			const stats1 = getSkillCacheStats();
+			assert.equal(stats1.misses, 1);
+			assert.equal(stats1.hits, 0);
 
-		// Second read: cache hit
-		renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
-		const stats2 = getSkillCacheStats();
-		assert.equal(stats2.hits, 1, "second read should be a cache hit");
-		assert.equal(stats2.misses, 1, "no new misses on cached read");
+			// Second read: cache hit
+			renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+			const stats2 = getSkillCacheStats();
+			assert.equal(stats2.hits, 1, "second read should be a cache hit");
+			assert.equal(stats2.misses, 1, "no new misses on cached read");
 
-		// Modify the file (update mtime + size + content)
-		writeProjectSkill(cwd, "invalidate-me", "# V2\n\nupdated content that is longer");
-		// Ensure mtime advances (some filesystems have coarse mtime granularity)
-		const skillFile = path.join(cwd, "skills", "invalidate-me", "SKILL.md");
-		const future = new Date(Date.now() + 2000);
-		fs.utimesSync(skillFile, future, future);
+			// Modify the file (update mtime + size + content)
+			writeProjectSkill(cwd, "invalidate-me", "# V2\n\nupdated content that is longer");
+			// Ensure mtime advances (some filesystems have coarse mtime granularity)
+			const skillFile = path.join(cwd, "skills", "invalidate-me", "SKILL.md");
+			const future = new Date(Date.now() + 2000);
+			fs.utimesSync(skillFile, future, future);
 
-		// Third read: should detect stale entry and re-read (miss)
-		const r3 = renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
-		assert.match(r3.block, /updated content/);
-		assert.doesNotMatch(r3.block, /original content/);
-		const stats3 = getSkillCacheStats();
-		assert.equal(stats3.misses, 2, "stale entry should produce a new miss");
-		assert.equal(stats3.hits, 1, "hit count unchanged after invalidation");
+			// Third read: should detect stale entry and re-read (miss)
+			const r3 = renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+			assert.match(r3.block, /updated content/);
+			assert.doesNotMatch(r3.block, /original content/);
+			const stats3 = getSkillCacheStats();
+			assert.equal(stats3.misses, 2, "stale entry should produce a new miss");
+			assert.equal(stats3.hits, 1, "hit count unchanged after invalidation");
 
-		// Fourth read: new entry cached, should hit
-		renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
-		const stats4 = getSkillCacheStats();
-		assert.equal(stats4.hits, 2, "re-cached entry should hit on subsequent read");
-	} finally {
-		clearSkillInstructionCache();
-		resetSkillCacheStats();
-		fs.rmSync(cwd, { recursive: true, force: true });
-	}
-});
+			// Fourth read: new entry cached, should hit
+			renderSkillInstructions({ cwd, role: "unknown", override: ["invalidate-me"] });
+			const stats4 = getSkillCacheStats();
+			assert.equal(stats4.hits, 2, "re-cached entry should hit on subsequent read");
+		} finally {
+			clearSkillInstructionCache();
+			resetSkillCacheStats();
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	}));
 
 test("getSkillCacheStats returns hitRate field", () => {
 	clearSkillInstructionCache();

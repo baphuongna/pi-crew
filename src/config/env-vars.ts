@@ -237,6 +237,15 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "boolean",
 		doc: "'1'/'true' allows PI_TEAMS_MOCK_CHILD_PI mock mode (mock-fixtures.ts:40)",
 	},
+	PI_CREW_PROMPT_BREAKDOWN: {
+		name: "PI_CREW_PROMPT_BREAKDOWN",
+		parser: "boolean",
+		doc: "'1' writes a per-section prompt token breakdown artifact metadata/<task>.prompt-breakdown.json (SR-02 phase 1, prompt-builder.ts)",
+	},
+	PI_CREW_PROMPT_SKILLS: {
+		name: "PI_CREW_PROMPT_SKILLS",
+		doc: "'full' inlines complete skill bodies in worker prompts (SR-02 escape hatch); default injects compact index entries (name+description+path, read-on-demand)",
+	},
 	PI_CREW_ASYNC_EARLY_EXIT_GUARD: {
 		name: "PI_CREW_ASYNC_EARLY_EXIT_GUARD",
 		doc: "'0' skips the async-run early-exit guard (team-tool/run.ts:103)",

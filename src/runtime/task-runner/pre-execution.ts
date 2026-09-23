@@ -38,7 +38,7 @@ import { buildTaskPacket } from "../task-packet.ts";
 // this module at runtime; we only need the TaskRunnerInput type here).
 import type { TaskRunnerInput } from "../task-runner.ts";
 import { DEFAULT_YIELD_CONFIG } from "../yield-handler.ts";
-import { coordinationBridgeInstructions, renderTaskPrompt } from "./prompt-builder.ts";
+import { coordinationBridgeInstructions, estimateTokens, promptBreakdownEnabled, renderTaskPrompt } from "./prompt-builder.ts";
 import { checkpointTask, persistSingleTaskUpdate, updateTask } from "./state-helpers.ts";
 
 /** The stream bridge handle created by registerStreamBridge. */
@@ -324,7 +324,7 @@ export async function prepareTaskExecutionContext(
 		}
 	}
 
-	const promptResult = await renderTaskPrompt(manifest, input.step, task, input.agent, skillBlock);
+	const promptResult = await renderTaskPrompt(manifest, input.step, task, input.agent, skillBlock, undefined, skillNames ?? []);
 	let prompt = promptResult.full;
 
 	// Inject deterministic pre-step output into prompt
@@ -340,6 +340,30 @@ export async function prepareTaskExecutionContext(
 		content: `${prompt}\n`,
 		producer: task.id,
 	});
+	// SR-02 phase 1: per-section breakdown artifact (opt-in via
+	// PI_CREW_PROMPT_BREAKDOWN=1). Adds the SYSTEM-side pieces the prompt
+	// builder cannot see (agent definition, skills, pre-step output).
+	if (promptBreakdownEnabled()) {
+		const sections: Record<string, number> = {
+			"system.agentDefinition": input.agent?.systemPrompt?.length ?? 0,
+			...(promptResult.sections ?? {}),
+			"dynamic.preStepOutput": preStepOutput?.length ?? 0,
+		};
+		writeArtifact(manifest.artifactsRoot, {
+			kind: "metadata",
+			relativePath: `metadata/${task.id}.prompt-breakdown.json`,
+			content: `${JSON.stringify(
+				Object.fromEntries(
+					Object.entries(sections)
+						.filter(([, chars]) => chars > 0)
+						.map(([name, chars]) => [name, { chars, estTokens: estimateTokens(chars) }]),
+				),
+				null,
+				2,
+			)}\n`,
+			producer: "prompt-breakdown",
+		});
+	}
 
 	const collectedJsonEvents: Record<string, unknown>[] | undefined = collectYieldEvents ? [] : undefined;
 

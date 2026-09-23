@@ -7,6 +7,7 @@ import { packageRoot } from "../utils/paths.ts";
 import { isSafePathId, resolveRealContainedPath } from "../utils/safe-paths.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
 import { CONFIDENCE_THRESHOLDS, getWeightedSkillsForRole, registerSkillEffectivenessHooks } from "./skill-effectiveness.ts";
+import { promptSkillMode } from "./task-runner/prompt-builder.ts";
 
 const PACKAGE_SKILLS_DIR = path.join(packageRoot(), "skills");
 
@@ -324,6 +325,10 @@ export function renderSkillInstructions(
 	const names = allNames.slice(0, MAX_SELECTED_SKILLS);
 	const overflowCount = Math.max(0, allNames.length - names.length);
 	if (names.length === 0) return { names, paths: [], block: "" };
+	// SR-02 phase 2: "index" mode (default) injects compact entries instead of
+	// full skill bodies — skills were 40-50% of measured worker prompts while a
+	// Path pointer + read tool gives the worker the SAME information on demand.
+	const mode = promptSkillMode();
 	const sections: string[] = [];
 	const skillPaths: string[] = [];
 	let total = 0;
@@ -379,6 +384,23 @@ export function renderSkillInstructions(
 		]
 			.filter(Boolean)
 			.join("\n");
+		if (mode === "index") {
+			// Index entry: the description (frontmatter) says WHEN the skill
+			// applies; the Path says WHERE to read it. The worker loads the full
+			// SKILL.md only when the task matches — same information, on demand.
+			const entry = [
+				`## ${safeName}`,
+				description ? `Description: ${description}${confidenceNote}` : undefined,
+				`Source: ${source}`,
+				`Path: ${path.dirname(loaded.path)}`,
+				// biome-ignore lint/suspicious/noTemplateCurlyInString: ${Path} refers to the Path field printed above, not a JS interpolation
+				"When this skill matches your task, FIRST read ${Path}/SKILL.md and follow it.",
+			]
+				.filter(Boolean)
+				.join("\n");
+			if (!pushSection(entry)) omittedCount += 1;
+			continue;
+		}
 		const rawContent = loaded.compacted;
 		// Wrap skill content with provenance markers to help LLMs distinguish skill instructions
 		const wrappedContent = `<!-- skill: ${safeName} -->\n${rawContent}\n<!-- end-skill: ${safeName} -->`;
