@@ -46,7 +46,7 @@ Kế hoạch: `docs/superpowers/plans/2026-09-17-review-remediation.md`.
 
 | ID | Title | Lane | Priority | Status |
 |----|-------|------|----------|--------|
-| [US-020](../specs/US-020.md) | Interactive run dashboard in TUI | normal | P2 | planned |
+| [US-020](../specs/US-020.md) ✅ | Interactive run dashboard in TUI | normal | P2 | planned |
 | [US-021](../specs/US-021.md) ✅ | Run comparison (before/after) | normal | P3 | planned |
 | [US-022](../specs/US-022.md) | Export run report as markdown | tiny | P3 | closed (pinned exportedAt + Cost/model/duration) |
 

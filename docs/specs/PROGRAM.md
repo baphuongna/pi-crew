@@ -112,3 +112,5 @@ US-030 (security review) · US-031
 | 2026-09-23 | US-031 gh-pr-comment | done | G1-G5 ✓ | `e755db81` | 7 tests; e2e PR proof chờ push |
 | 2026-09-23 | SR-02 prompt diet | done | G1-G5 + LIVE ✓ | `cacd36e3` | −33.7%/−37.1% (target 30%); live run fixed bug correctly |
 | 2026-09-23 | **21/22** | — | — | — | còn đúng 1: US-020 (interactive dashboard) |
+| 2026-09-23 | US-020 dashboard cancel+wrap+persistence | done | G1-G5 ✓ (T12 live = user session) | `43a6bbe0` | verify-close: dashboard đã interactive từ trước; 3 gap thật được đóng |
+| 2026-09-23 | **22/22 — BACKLOG COMPLETE** | — | — | — | SDD program đóng; 2 mục chờ môi trường: DP-03 CI runs + US-020 T12 (đều cần push/user-session, code đã land) |
