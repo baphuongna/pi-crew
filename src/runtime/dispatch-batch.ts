@@ -14,6 +14,7 @@ import { CrewError, ErrorCode } from "../errors.ts";
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import { childCorrelation, withCorrelation } from "../observability/correlation.ts";
 import { withRunLockSync } from "../state/coordination/locks.ts";
+import { TEAM_TERMINAL_RUN_STATUSES } from "../state/contracts.ts";
 import { appendEventAsync, appendEventBuffered } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -315,6 +316,26 @@ function retryPolicyFromConfig(config: CrewReliabilityConfig | undefined): Retry
  */
 export function shouldUseRetry(reliability: CrewReliabilityConfig | undefined): boolean {
 	return reliability?.autoRetry !== false;
+}
+
+/**
+ * T9d cancel-race fix (2026-09-23, live battery finding 7): a retry attempt must
+ * re-queue ONLY the task's OWN terminal failure (status "failed") while the run is
+ * still active. Previously ANY non-queued/running status was re-queued — including
+ * "cancelled", so a cross-session cancel landing between attempt 1's hard-kill and
+ * attempt 2's start (measured live: cancel 16:46:22.987 → task.started 16:46:23.948,
+ * replacement worker then ran 47s post-cancel) silently resurrected the task.
+ * External terminal decisions (task cancelled/completed, or a terminal RUN manifest)
+ * are respected. Exported for unit testing.
+ */
+export function shouldRequeueForRetry(input: {
+	attempt: number;
+	taskStatus: TeamTaskState["status"];
+	manifestStatus: TeamRunManifest["status"];
+}): boolean {
+	if (input.attempt <= 1) return false;
+	if (TEAM_TERMINAL_RUN_STATUSES.has(input.manifestStatus)) return false;
+	return input.taskStatus === "failed";
 }
 
 function failedTaskFrom(result: { tasks: TeamTaskState[] }, taskId: string): TeamTaskState | undefined {
@@ -806,7 +827,9 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 					// Fix: on a retry, re-queue OUR OWN terminal failure so the retry actually
 					// re-runs. Attempt 1 keeps the original guard (externally-terminal task =
 					// someone else's decision; external cancellation exits via the signal).
-					if (attempt > 1 && freshTask.status !== "queued" && freshTask.status !== "running") {
+					// 2026-09-23 (finding 7): re-queue ONLY own failures on an ACTIVE run —
+					// cancelled/completed tasks and terminal manifests must never resurrect.
+					if (shouldRequeueForRetry({ attempt, taskStatus: freshTask.status, manifestStatus: freshManifest.status })) {
 						freshTask = { ...freshTask, status: "queued", error: undefined, finishedAt: undefined };
 						freshTasks = freshTasks.map((item) => (item.id === task.id ? freshTask : item));
 					}
