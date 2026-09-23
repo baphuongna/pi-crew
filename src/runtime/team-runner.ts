@@ -7,7 +7,7 @@ import type { CrewLimitsConfig, CrewReliabilityConfig, CrewRuntimeConfig } from 
 import { appendHookEvent, executeHook } from "../hooks/registry.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
-import { canTransitionRunStatus } from "../state/contracts.ts";
+import { canTransitionRunStatus, TEAM_TERMINAL_RUN_STATUSES } from "../state/contracts.ts";
 import { appendEvent, appendEventAsync, appendEventBuffered, flushEventLogBuffer } from "../state/event-log/event-log.ts";
 import { hashArtifactContent as hashContent, writeArtifact } from "../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
@@ -643,6 +643,32 @@ export function batchSummarySlug(taskIds: string[]): string {
  * @param ctx  The scheduler context; `ctx.tasks` and `ctx.manifest` are
  *             mutated in-place to reflect the cancelled state.
  */
+/**
+ * Finding 8 (2026-09-23, live battery, run team_20260923174507_26deb085b15a0ebd):
+ * a cross-session cancel (force=true) writes terminal state to disk, but the
+ * scheduler loop only observed its own in-process signal — the loop kept
+ * dispatching the next phase and overwrote `cancelled` back to `running` and
+ * finally `completed` (measured: cancel 17:45:22.168 → worker.spawned 22.329
+ * → task.completed 39.882 → task.started 03_verify 40.043 → manifest
+ * "completed" 17:46:58 — the user's cancel was fully erased).
+ *
+ * Guard: at the top of every loop iteration, re-read the run manifest from
+ * disk. When an EXTERNAL decision made the run terminal, adopt the on-disk
+ * manifest/tasks as the truth (never overwrite them) and stop scheduling.
+ * The caller's finally block drains in-flight dispatch units (CORE-1), so
+ * pending workers are torn down on this early return. Normal completion is
+ * unaffected: our own writes keep the manifest non-terminal while the loop
+ * runs; `resume` re-marks the manifest running BEFORE re-entering the loop.
+ */
+export function externalTerminalDecision(ctx: SchedulerContext): SchedulerDecision | null {
+	const fresh = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+	if (!fresh) return null;
+	if (!TEAM_TERMINAL_RUN_STATUSES.has(fresh.manifest.status)) return null;
+	ctx.manifest = fresh.manifest;
+	ctx.tasks = fresh.tasks;
+	return { kind: "return", result: { manifest: ctx.manifest, tasks: ctx.tasks } };
+}
+
 async function cancelRunFromSignal(ctx: SchedulerContext): Promise<SchedulerDecision | null> {
 	if (!ctx.input.signal?.aborted) return null;
 
@@ -945,6 +971,10 @@ async function executeTeamRunCore(
 			ctx.queueIndex = queueIndex;
 			ctx.adaptivePlanInjected = adaptivePlanInjected;
 			ctx.adaptivePlanMissing = adaptivePlanMissing;
+			// Finding 8: external terminal decision (cross-session cancel) — adopt
+			// the on-disk terminal state and stop scheduling before anything else.
+			const externalDecision = externalTerminalDecision(ctx);
+			if (externalDecision?.kind === "return") return externalDecision.result;
 			// CORE-4 extraction 1: signal-abort cancellation. cancelRunFromSignal
 			// mutates ctx in-place and returns a SchedulerDecision.
 			const signalDecision = await cancelRunFromSignal(ctx);
