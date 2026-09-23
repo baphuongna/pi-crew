@@ -133,9 +133,23 @@ function makePendingUnit(
 	};
 }
 
-/** Real on-disk run fixture (for fs-touching targets). Caller rmSync's cwd. */
+/**
+ * Real on-disk run fixture (for fs-touching targets). Caller rmSync's cwd.
+ *
+ * LEAK GUARD (2026-09-23, found by the live real-test battery): the tmp cwd has
+ * no project marker, so `createRunManifest` routes state to `userCrewRoot()`
+ * (`~/.pi/agent/extensions/pi-crew/state/runs/`) — and the fixture cleanup only
+ * removes the tmp cwd. Every run of this file therefore left runs behind in the
+ * USER crew root; they showed up in `team action='list'`, in the health scan and
+ * in the heartbeat watchdog (`crew.task.heartbeat_dead` notifications for a run
+ * no one started). Measured: 23 leaked runs from ~7 suite runs in one day.
+ *
+ * Isolation follows the F-L1 test pattern: pin PI_CREW_HOME (and clear the
+ * higher-precedence PI_TEAMS_HOME) so the user root is a throwaway tmpdir.
+ */
 function makeRunFixture(prefix: string): { cwd: string; manifest: TeamRunManifest } {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `pi-crew-extr-${prefix}-`));
+	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	const team = {
 		name: "test-team",
 		description: "",

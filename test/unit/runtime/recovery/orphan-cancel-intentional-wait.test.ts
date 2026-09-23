@@ -25,6 +25,30 @@ import { cancelOrphanedRuns, detectInterruptedRuns } from "../../../../src/runti
 import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 
+/**
+ * LEAK GUARD (2026-09-23, found by the live real-test battery): these tmp cwds
+ * carry no project marker, so `createRunManifest` routes state to
+ * `userCrewRoot()` and the fixture cleanup (rmSync of the tmp cwd) leaves the
+ * runs behind in the USER crew root — they then surface in `team list`, the
+ * health scan and the heartbeat watchdog. Pin a throwaway user root instead.
+ */
+const envBackup = new Map<string, string | undefined>();
+test.beforeEach(() => {
+	envBackup.clear();
+	for (const key of Object.keys(process.env)) envBackup.set(key, process.env[key]);
+	delete process.env.PI_TEAMS_HOME;
+	process.env.PI_CREW_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-orphan-home-"));
+});
+test.afterEach(() => {
+	for (const key of Object.keys(process.env)) {
+		if (!envBackup.has(key)) delete process.env[key];
+	}
+	for (const [key, value] of envBackup) {
+		if (value === undefined) delete process.env[key];
+		else process.env[key] = value;
+	}
+});
+
 function scaffoldParkedRun(cwd: string, askedAt: Date): TeamRunManifest {
 	const created = createRunManifest({
 		cwd,
@@ -60,12 +84,19 @@ function scaffoldParkedRun(cwd: string, askedAt: Date): TeamRunManifest {
 	return manifest;
 }
 
+/** tmp cwd WITH a project marker so state stays inside the throwaway tree. */
+function mkProjectDir(prefix: string): string {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+	fs.mkdirSync(path.join(dir, ".crew"), { recursive: true });
+	return dir;
+}
+
 function fakeCache(manifests: TeamRunManifest[]): ManifestCache {
 	return { list: () => manifests } as unknown as ManifestCache;
 }
 
 test("orphan-cancel: run parked on a LIVE ask answer (within TTL) is SKIPPED even with a dead owner and no heartbeat", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-orphan-wait-"));
+	const cwd = mkProjectDir("pi-crew-orphan-wait-");
 	try {
 		const manifest = scaffoldParkedRun(cwd, new Date()); // asked just now
 		const res = cancelOrphanedRuns(cwd, fakeCache([manifest]), "session-THIRD", 300_000);
@@ -79,7 +110,7 @@ test("orphan-cancel: run parked on a LIVE ask answer (within TTL) is SKIPPED eve
 });
 
 test("orphan-cancel: parked run BEYOND the waiting TTL is cancelled AND waitState is cleared (leak fix)", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-orphan-ttl-"));
+	const cwd = mkProjectDir("pi-crew-orphan-ttl-");
 	try {
 		// 25h ago — beyond WAITING_TTL_MS (24h) and beyond the heartbeat threshold.
 		const manifest = scaffoldParkedRun(cwd, new Date(Date.now() - 25 * 60 * 60 * 1000));
@@ -102,7 +133,7 @@ test("orphan-cancel: parked run BEYOND the waiting TTL is cancelled AND waitStat
  * instant the user looked at it.
  */
 test("orphan-cancel: a young foreground run (fresh manifest, no heartbeat yet) is SKIPPED", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-orphan-young-"));
+	const cwd = mkProjectDir("pi-crew-orphan-young-");
 	try {
 		const created = createRunManifest({
 			cwd,
@@ -138,7 +169,7 @@ test("orphan-cancel: a young foreground run (fresh manifest, no heartbeat yet) i
 });
 
 test("orphan-cancel: a foreground run QUIET beyond the threshold is still cancelled", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-orphan-quiet-"));
+	const cwd = mkProjectDir("pi-crew-orphan-quiet-");
 	try {
 		const created = createRunManifest({
 			cwd,
@@ -167,7 +198,7 @@ test("orphan-cancel: a foreground run QUIET beyond the threshold is still cancel
 });
 
 test("detectInterruptedRuns: run parked on a live ask answer is NOT offered for auto-resume", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-orphan-detect-"));
+	const cwd = mkProjectDir("pi-crew-orphan-detect-");
 	try {
 		const manifest = scaffoldParkedRun(cwd, new Date());
 		const plans = detectInterruptedRuns(cwd, fakeCache([manifest]), 300_000, "session-THIRD");
