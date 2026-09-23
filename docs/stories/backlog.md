@@ -54,8 +54,8 @@ Kế hoạch: `docs/superpowers/plans/2026-09-17-review-remediation.md`.
 
 | ID | Title | Lane | Priority | Status |
 |----|-------|------|----------|--------|
-| [US-030](../specs/US-030.md) | Webhook notifications on run completion | normal | P3 | planned |
-| [US-031](../specs/US-031.md) | GitHub Actions integration (report results as PR comment) | normal | P3 | planned |
+| [US-030](../specs/US-030.md) ✅ | Webhook notifications on run completion | normal | P3 | planned |
+| [US-031](../specs/US-031.md) ✅ | GitHub Actions integration (report results as PR comment) | normal | P3 | planned |
 
 ## Deferred — performance deep-dive 2026-09-18 (auto-prune / bundle / CI)
 
@@ -89,7 +89,7 @@ Nguồn: session phát triển + battery real-test + điều tra RCA. Spec:
 | ID | Title | Lane | Priority | Status |
 |----|-------|------|----------|--------|
 | [SR-01](../specs/SR-01.md) | GL-1b part C — pre-try failures mark turn manifest failed | normal | P2 | **done** (`dad41423`) |
-| [SR-02](../specs/SR-02.md) | Worker prompt diet (token/run −30%) | normal | P1 | planned |
+| [SR-02](../specs/SR-02.md) ✅ | Worker prompt diet (token/run −30%) | normal | P1 | planned |
 | [SR-03](../specs/SR-03.md) ✅ | Test-flake remediation (2 flakes) | normal | P2 | planned |
 
 Create story packets from `docs/templates/story.md` when work is selected.

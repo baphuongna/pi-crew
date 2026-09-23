@@ -108,3 +108,7 @@ US-030 (security review) · US-031
 | 2026-09-22 | SR-03 flake remediation | done | budget-guard | `b75659f8` | 2 root causes: user-root env leak + sequential-spawn stagger; 3/3 targeted loops green |
 | 2026-09-22 | DP-03 CI sharding | code-done | G1-G5 ✓ (CI runs = cần push) | `c5e8fe3c` | per-file dir-average weights; shards ≈186s; clamp drift documented |
 | 2026-09-22 | **18/22 specs** | — | — | — | còn: US-020 (live TUI), US-030 (security review), US-031 (PR thật), SR-02 (live quality) — đều cần môi trường ngoài |
+| 2026-09-23 | US-030 webhook + security review | done | G1-G5 + sec ✓ | `be35c46d` | reviewer bắt HIGH redirect-bypass → fixed + 5 LOW; 19 tests |
+| 2026-09-23 | US-031 gh-pr-comment | done | G1-G5 ✓ | `e755db81` | 7 tests; e2e PR proof chờ push |
+| 2026-09-23 | SR-02 prompt diet | done | G1-G5 + LIVE ✓ | `cacd36e3` | −33.7%/−37.1% (target 30%); live run fixed bug correctly |
+| 2026-09-23 | **21/22** | — | — | — | còn đúng 1: US-020 (interactive dashboard) |
