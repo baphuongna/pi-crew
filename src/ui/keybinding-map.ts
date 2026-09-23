@@ -42,6 +42,8 @@ export const DASHBOARD_KEYS = {
 	help: ["?"],
 	root: {
 		summary: ["u"],
+		/** US-020: cancel the selected run (2-step confirm in the dashboard). */
+		cancel: ["x"],
 		artifacts: ["a"],
 		api: ["i"],
 		agents: ["d"],
@@ -113,6 +115,7 @@ export type DashboardKeyAction =
 	| "live-conversation"
 	| "reload"
 	| "browser"
+	| "cancel"
 	| "pane-agents"
 	| "pane-progress"
 	| "pane-mailbox"
@@ -257,6 +260,9 @@ const DEFAULT_BINDINGS: readonly KeyBinding[] = [
 	// safe; inside the browser overlay itself "p" is free because overlays
 	// are mutually exclusive (see keybinding-map.ts header note).
 	{ keys: DASHBOARD_KEYS.root.browser, action: "browser" },
+	// US-020: x → cancel the selected run (unscoped; the schedules pane's X
+	// delete is pane-scoped uppercase — pass-1 exact match keeps them distinct).
+	{ keys: DASHBOARD_KEYS.root.cancel, action: "cancel" },
 	{ keys: DASHBOARD_KEYS.pane.agents, action: "pane-agents" },
 	{ keys: DASHBOARD_KEYS.pane.progress, action: "pane-progress" },
 	{ keys: DASHBOARD_KEYS.pane.mailbox, action: "pane-mailbox" },
@@ -419,7 +425,10 @@ export type KeybindingOverride = Partial<Record<DashboardKeyAction | OverlayBind
 const KEYBINDINGS_ENV = "PI_CREW_KEYBINDINGS";
 
 /** Every dispatched action + every `overlay:*` binding is a valid override target. */
-const VALID_OVERRIDE_ACTIONS: ReadonlySet<string> = new Set<string>([...DEFAULT_BINDINGS.map((b) => b.action), ...OVERLAY_BINDING_KEYS]);
+export const VALID_OVERRIDE_ACTIONS: ReadonlySet<string> = new Set<string>([
+	...DEFAULT_BINDINGS.map((b) => b.action),
+	...OVERLAY_BINDING_KEYS,
+]);
 
 /** Coerce an unknown parsed value into a safe {@link KeybindingOverride}. */
 function parseKeybindingOverride(raw: unknown): KeybindingOverride {

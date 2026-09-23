@@ -109,7 +109,7 @@ describe("full-screen RAIL: run dashboard", () => {
 		const canopy = view(dashboard, 100)[0] ?? "";
 		dashboard.dispose();
 		assert.match(canopy, /^┏ DASHBOARD ▸ 2 runs/, `canopy missing: ${JSON.stringify(canopy)}`);
-		assert.match(canopy, /1-8 pane · ↑\/↓ move · Enter select · \? help/, `hint segment missing: ${JSON.stringify(canopy)}`);
+		assert.match(canopy, /1-8 pane · ↑\/↓ move · Enter select · X cancel · \? help/, `hint segment missing: ${JSON.stringify(canopy)}`);
 		// dot leaders connect the identity to the hint segment
 		assert.match(canopy, /····/, `canopy is not dot-led: ${JSON.stringify(canopy)}`);
 	});

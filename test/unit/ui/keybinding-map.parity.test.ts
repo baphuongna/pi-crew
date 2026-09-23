@@ -44,6 +44,9 @@ import {
 // regenerate with the snippet above if the dispatch contract intentionally
 // changes, and document WHY in the commit message.
 const GOLDEN: Record<string, string | null> = {
+	// Regenerated (US-020): added root key 'x' → "cancel" for every pane (the
+	// unscoped run-cancel binding; schedules-pane uppercase X keeps its
+	// pane-scoped delete). All pre-existing entries byte-identical.
 	// Regenerated (M1-7 / P1-5): removed the phantom `p` → "progressToggle"
 	// row. `progressToggle` was deleted from `DASHBOARD_KEYS.root`, the
 	// `DashboardKeyAction` union and `DEFAULT_BINDINGS` because the flag it
@@ -86,6 +89,7 @@ const GOLDEN: Record<string, string | null> = {
 	'agents|"\\u001b"': "close",
 	'agents|"a"': "artifacts",
 	'agents|"b"': "browser",
+	'agents|"x"': "cancel",
 	'agents|"d"': "agents",
 	'agents|"down"': "down",
 	'agents|"e"': "events",
@@ -131,6 +135,7 @@ const GOLDEN: Record<string, string | null> = {
 	'health|"\\u001b"': "close",
 	'health|"a"': "artifacts",
 	'health|"b"': "browser",
+	'health|"x"': "cancel",
 	'health|"d"': "agents",
 	'health|"down"': "down",
 	'health|"e"': "events",
@@ -176,6 +181,7 @@ const GOLDEN: Record<string, string | null> = {
 	'mailbox|"\\u001b"': "close",
 	'mailbox|"a"': "artifacts",
 	'mailbox|"b"': "browser",
+	'mailbox|"x"': "cancel",
 	'mailbox|"d"': "agents",
 	'mailbox|"down"': "down",
 	'mailbox|"e"': "events",
@@ -221,6 +227,7 @@ const GOLDEN: Record<string, string | null> = {
 	'metrics|"\\u001b"': "close",
 	'metrics|"a"': "artifacts",
 	'metrics|"b"': "browser",
+	'metrics|"x"': "cancel",
 	'metrics|"d"': "agents",
 	'metrics|"down"': "down",
 	'metrics|"e"': "events",
@@ -266,6 +273,7 @@ const GOLDEN: Record<string, string | null> = {
 	'output|"\\u001b"': "close",
 	'output|"a"': "artifacts",
 	'output|"b"': "browser",
+	'output|"x"': "cancel",
 	'output|"d"': "agents",
 	'output|"down"': "down",
 	'output|"e"': "events",
@@ -311,6 +319,7 @@ const GOLDEN: Record<string, string | null> = {
 	'plan|"\\u001b"': "close",
 	'plan|"a"': "artifacts",
 	'plan|"b"': "browser",
+	'plan|"x"': "cancel",
 	'plan|"d"': "agents",
 	'plan|"down"': "down",
 	'plan|"e"': "events",
@@ -356,6 +365,7 @@ const GOLDEN: Record<string, string | null> = {
 	'progress|"\\u001b"': "close",
 	'progress|"a"': "artifacts",
 	'progress|"b"': "browser",
+	'progress|"x"': "cancel",
 	'progress|"d"': "agents",
 	'progress|"down"': "down",
 	'progress|"e"': "events",
@@ -401,6 +411,7 @@ const GOLDEN: Record<string, string | null> = {
 	'schedules|"\\u001b"': "close",
 	'schedules|"a"': "artifacts",
 	'schedules|"b"': "browser",
+	'schedules|"x"': "cancel",
 	'schedules|"d"': "agents",
 	'schedules|"down"': "down",
 	'schedules|"e"': "events",
@@ -448,6 +459,7 @@ const GOLDEN: Record<string, string | null> = {
 	'undefined|"\\u001bOB"': "down",
 	'undefined|"a"': "artifacts",
 	'undefined|"b"': "browser",
+	'undefined|"x"': "cancel",
 	'undefined|"d"': "agents",
 	'undefined|"down"': "down",
 	'undefined|"e"': "events",

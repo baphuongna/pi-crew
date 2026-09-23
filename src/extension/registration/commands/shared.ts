@@ -576,6 +576,29 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 			deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
 			continue;
 		}
+		// US-020: dashboard `x` cancel — dispatches the EXISTING cancel channel
+		// (control-domain handleCancel). The 2-step dashboard gate is the user's
+		// explicit intent; `intent` satisfies requireIntentForDestructiveActions
+		// when that policy is on. Dashboard reopens on continue (selection kept).
+		if (selection.action === "cancel" && selection.runId) {
+			// F4 pattern: surface backend rejections at error level, truncate long text.
+			const cancelResult = await handleTeamTool(
+				{
+					action: "cancel",
+					runId: selection.runId,
+					config: { intent: "dashboard cancel keystroke (2-step confirm)" },
+				},
+				teamCommandContext(cmdCtx),
+			);
+			const cancelText = commandText(cancelResult);
+			depsNotify(
+				cmdCtx,
+				cancelText.length > 800 ? `${cancelText.slice(0, 797)}...` : cancelText,
+				cancelResult.isError ? "error" : "info",
+			);
+			deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);
+			continue;
+		}
 		if (selection.action === "plan-approve" || selection.action === "plan-deny") {
 			await handlePlanDashboardAction(cmdCtx, selection);
 			deps.getRunSnapshotCache?.(cmdCtx.cwd).invalidate(selection.runId);

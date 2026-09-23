@@ -63,7 +63,7 @@ test("RunDashboard renders the canonical canopy + key-hint rows", () => {
 		`canonical canopy missing (runs count not rendered): ${JSON.stringify(lines.slice(0, 3))}`,
 	);
 	assert.ok(
-		lines.some((line) => line.includes("1-8 pane · ↑/↓ move · Enter select · ? help")),
+		lines.some((line) => line.includes("1-8 pane · ↑/↓ move · Enter select · ? help")), // width 80: cancel hint budget-gated (US-020; rail test @100 covers it)
 		`header hint missing: ${JSON.stringify(lines.slice(0, 3))}`,
 	);
 	assert.ok(

@@ -10,7 +10,7 @@ import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import { getLiveAgentContextPercent } from "../runtime/live-session/live-agent-manager.ts";
 import { isPlanApprovalPending } from "../runtime/plan-approval.ts";
-import { isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
+import { isActiveRunStatus, isDisplayActiveRun, isLikelyOrphanedActiveRun } from "../runtime/process-status.ts";
 import type { ScheduledJob } from "../runtime/scheduling/scheduler.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../state/types.ts";
 import { aggregateUsage } from "../state/usage.ts";
@@ -94,6 +94,14 @@ export interface RunDashboardOptions {
  */
 let lastActivePane: "agents" | "progress" | "mailbox" | "output" | "health" | "metrics" | "plan" | "schedules" = "agents";
 
+/**
+ * US-020 AC-2: the selected run SURVIVES dashboard close/reopen (the shared.ts
+ * action loop re-creates RunDashboard after every done() selection — enter on
+ * a run opens its detail, escape returns, and the cursor is where it was).
+ * Persisted per-process like lastActivePane; restored by runId on construct.
+ */
+let lastSelectedRunId: string | undefined;
+
 export type RunDashboardAction =
 	| "status"
 	| "summary"
@@ -118,7 +126,8 @@ export type RunDashboardAction =
 	| "schedule-disable"
 	| "schedule-run-now"
 	| "schedule-remove"
-	| "notifications-dismiss";
+	| "notifications-dismiss"
+	| "cancel";
 export interface RunDashboardSelection {
 	runId: string;
 	action: RunDashboardAction;
@@ -496,6 +505,11 @@ export class RunDashboard implements DashboardComponent {
 	private scheduleSelected = 0;
 	private scheduleDetails = false;
 	private scheduleDeleteArmed = false;
+	/** US-020 (run cancel): 2-step confirm-gate + refusal status line —
+	 * mirrors the schedules delete gate (first x arms, second x dispatches,
+	 * any other key disarms; a non-running selection refuses with a line). */
+	private runCancelArmed = false;
+	private runCancelRefused = false;
 	private scheduleJobsCache: { at: number; jobs: ScheduledJob[]; hiddenCount: number } | undefined;
 	private runs: TeamRunManifest[];
 	private readonly done: (selection: RunDashboardSelection | undefined) => void;
@@ -523,6 +537,15 @@ export class RunDashboard implements DashboardComponent {
 			? runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === options.workspaceId)
 			: runs;
 		this.runs = filteredRuns;
+		// US-020 AC-2: restore the cursor to the previously selected run (if it
+		// is still in the list) so escape-return keeps the user's place.
+		if (lastSelectedRunId) {
+			// groupedRuns rows include GROUP LABELS ("Active"/"Recent") — index
+			// into the SELECTABLE rows only (the same projection navigation uses).
+			const selectable = groupedRuns(filteredRuns, options.snapshotCache).filter((rowItem) => rowItem.run);
+			const idx = selectable.findIndex((rowItem) => rowItem.run?.runId === lastSelectedRunId);
+			if (idx >= 0) this.selected = idx;
+		}
 		this.done = done;
 		this.theme = asCrewTheme(theme);
 		this.options = options;
@@ -814,16 +837,30 @@ export class RunDashboard implements DashboardComponent {
 					canopyLine({
 						word: "DASHBOARD",
 						subject: formatCount(this.runs.length, "run"),
+						// US-020: the cancel hint joins the canopy only when the budget
+						// has room — at narrow widths the canopy prefers the run-count
+						// subject over hints, and the 5th hint ellipsized it (regression
+						// caught by run-dashboard.test.ts's 80-col canonical canopy).
 						right: formatHint([
 							["1-8", "pane"],
 							[["up", "down"], "move"],
 							["enter", "select"],
+							...(budget >= 96 ? ([["x", "cancel"]] as const) : []),
 							["?", "help"],
 						]),
 						theme: this.theme,
 						budget,
 					}),
 				);
+				// US-020: run-cancel confirm gate / refusal status line —
+				// rendered right under the canopy so it is visible in EVERY pane
+				// (schedule-delete's warning is pane-8-only by design; run cancel
+				// is a root action).
+				if (this.runCancelArmed) {
+					lines.push(row(fg("warning", `⚠ x again to CANCEL '${this.selectedRunId() ?? "(none)"}' · any other key disarms`)));
+				} else if (this.runCancelRefused) {
+					lines.push(row(fg("dim", "nothing to cancel — the selected run is not active")));
+				}
 
 				if (this.runs.length === 0) {
 					// F-7: actionable empty state instead of a bare "No runs.".
@@ -1076,13 +1113,52 @@ export class RunDashboard implements DashboardComponent {
 			this.scheduleDeleteArmed = false;
 			this.invalidate();
 		}
+		// US-020: the run-cancel confirm gate disarms on any non-cancel key
+		// (schedule-delete precedent), and a stale refusal line clears.
+		if (this.runCancelArmed && action !== "cancel") {
+			this.runCancelArmed = false;
+			this.invalidate();
+		}
+		if (this.runCancelRefused && action !== "cancel") this.runCancelRefused = false;
 		const selectedRunId = this.selectedRunId();
+		// US-020 AC-2: keep the cursor across close/reopen cycles.
+		if (selectedRunId) lastSelectedRunId = selectedRunId;
 		if (action === "close") {
 			this.done(undefined);
 			return;
 		}
 		if (action === "select") {
 			this.done(selectedRunId ? { runId: selectedRunId, action: "status" } : undefined);
+			return;
+		}
+		// US-020: cancel the SELECTED run — dedicated branch (plan-approve
+		// precedent) so a stray keystroke can never close the dashboard via
+		// done(undefined). 2-step confirm gate: first x arms (render shows the
+		// warning line), second x dispatches the existing cancel channel; a
+		// non-running selection refuses with a status line (AC-3) — the guard
+		// mutation target.
+		if (action === "cancel") {
+			const run = selectedRunFromGrouped(this.runs, this.selected, this.options.snapshotCache);
+			const manifest = run ? (snapshotFor(run, this.options.snapshotCache)?.manifest ?? run) : undefined;
+			if (this.runCancelArmed) {
+				this.runCancelArmed = false;
+				if (manifest && isActiveRunStatus(manifest.status)) {
+					this.done({ runId: manifest.runId, action: "cancel" });
+				} else {
+					this.runCancelRefused = true;
+					this.invalidate();
+				}
+				return;
+			}
+			this.runCancelRefused = manifest ? !isActiveRunStatus(manifest.status) : false;
+			if (this.runCancelRefused) {
+				this.invalidate();
+				return;
+			}
+			if (manifest) {
+				this.runCancelArmed = true;
+				this.invalidate();
+			}
 			return;
 		}
 		// WP-3 (H4-subset): plan approval keys. Deliberately a DEDICATED branch
@@ -1177,10 +1253,14 @@ export class RunDashboard implements DashboardComponent {
 			this.planDiff = !this.planDiff;
 			this.invalidate();
 			return;
-		} else if (action === "up") this.selected = Math.max(0, this.selected - 1);
-		else if (action === "down") {
+		} else if (action === "up" || action === "down") {
+			// US-020 AC-1: WRAP at the list edges (was: hard clamp). An empty list
+			// must not divide by zero — stay at 0.
 			const selectableCount = groupedRuns(this.runs, this.options.snapshotCache).filter((row) => row.run).length;
-			this.selected = Math.min(Math.max(0, selectableCount - 1), this.selected + 1);
+			if (selectableCount > 0) {
+				this.selected =
+					action === "up" ? (this.selected - 1 + selectableCount) % selectableCount : (this.selected + 1) % selectableCount;
+			}
 		}
 		if (action) {
 			lastActivePane = this.activePane;
