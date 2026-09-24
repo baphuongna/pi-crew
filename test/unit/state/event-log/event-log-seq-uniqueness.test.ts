@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { appendEvent, appendEventAsync, appendEventBuffered } from "../../../../src/state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync, appendEventBuffered, flushEventLogBuffer } from "../../../../src/state/event-log/event-log.ts";
 
 function makeEvent(taskId: string) {
 	return { type: "task.progress" as const, runId: "b7-test", taskId, data: {} };
@@ -55,6 +55,11 @@ describe("B7: cross-path seq uniqueness", () => {
 				promises.push(appendEventBuffered(eventsPath, ev));
 			}
 		}
+		// The buffer's flush timer is unref'd — under a fast-draining event loop
+		// (CI runners) it can be cancelled by --test-force-exit before firing
+		// (live: cancelledByParent 'Promise resolution is still pending'). Drain
+		// the buffer deterministically instead of waiting on the timer.
+		await flushEventLogBuffer();
 		await Promise.all(promises);
 
 		// Parse all events and collect seqs.
@@ -92,6 +97,7 @@ describe("B7: cross-path seq uniqueness", () => {
 				promises.push(appendEventBuffered(eventsPath, ev));
 			}
 		}
+		await flushEventLogBuffer();
 		await Promise.all(promises);
 
 		const lines = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
