@@ -128,6 +128,17 @@ function fakeBinary(basename: string): string {
 
 const binDirsToClean: string[] = [];
 
+/**
+ * The resolve-path cases below need a live mux cell: `hasBinary()` probes via
+ * `sh -c "command -v <bin>"` and the fake tmux/herdr fixtures rely on the
+ * executable bit — Windows CI has neither, so resolution fails closed to
+ * headless (correct product behavior: tmux/herdr/bash are POSIX-only) and the
+ * assertions about a booted pane can never hold. The hard-gate cases (depth /
+ * pane-cap / mode-off / role-not-visible) and the pre-resolved `deps.provider`
+ * path stay enabled everywhere.
+ */
+const POSIX_MUX_SKIP = process.platform === "win32" ? "surface mux detection needs a POSIX shell + tmux/herdr" : false;
+
 let baseDir: string;
 
 test.before(() => {
@@ -184,7 +195,9 @@ function assertHeadless(
 
 // ── Flow chính ───────────────────────────────────────────────────────────
 
-test("happy path: resolves provider, splits pane WITHOUT command, builds script, then sends `bash <script>`", async () => {
+test("happy path: resolves provider, splits pane WITHOUT command, builds script, then sends `bash <script>`", {
+	skip: POSIX_MUX_SKIP,
+}, async () => {
 	const provider = fakeProvider();
 	launchScriptRegistry.clear();
 	const input = baseInput();
@@ -218,7 +231,9 @@ test("happy path: resolves provider, splits pane WITHOUT command, builds script,
 	launchScriptRegistry.clear();
 });
 
-test("prepareSurfaceSpawn truyền tabKey=runId (từ stateRoot) + splitIndex=livePaneCount cho provider", async () => {
+test("prepareSurfaceSpawn truyền tabKey=runId (từ stateRoot) + splitIndex=livePaneCount cho provider", {
+	skip: POSIX_MUX_SKIP,
+}, async () => {
 	launchScriptRegistry.clear();
 	const provider = fakeProvider();
 	const input = baseInput({ livePaneCount: 2, stateRoot: "/state/runs/team_20260827_runA" });
@@ -234,7 +249,9 @@ test("prepareSurfaceSpawn truyền tabKey=runId (từ stateRoot) + splitIndex=li
 	launchScriptRegistry.clear();
 });
 
-test("Task 5 (tab-layout): outcome surface mang tabKey/tabId từ handle — caller ghi manifest surface.tabs", async () => {
+test("Task 5 (tab-layout): outcome surface mang tabKey/tabId từ handle — caller ghi manifest surface.tabs", {
+	skip: POSIX_MUX_SKIP,
+}, async () => {
 	launchScriptRegistry.clear();
 	const provider = fakeProvider({ tabId: "@7" });
 	const input = baseInput({ stateRoot: "/state/runs/team_20260827_runA" });
@@ -265,7 +282,9 @@ test("pre-resolved deps.provider wins over resolveSurface (T11 dispatch owns res
 // file agent-view đọc (dashboard host tail vẫn khớp vì cùng công thức spawn,
 // nhưng agent-view trống).
 
-test("fix r1: taskId chứa ':' được sanitize như agentStateFile — eventsPath + env dùng phần sanitized", async () => {
+test("fix r1: taskId chứa ':' được sanitize như agentStateFile — eventsPath + env dùng phần sanitized", {
+	skip: POSIX_MUX_SKIP,
+}, async () => {
 	launchScriptRegistry.clear();
 	const provider = fakeProvider();
 	const input = baseInput({ taskId: "01_explore:extra" });
@@ -282,7 +301,7 @@ test("fix r1: taskId chứa ':' được sanitize như agentStateFile — events
 	launchScriptRegistry.clear();
 });
 
-test("fix r1: taskId không sanitize được (phần sau ':' unsafe) → fail-closed headless, không throw", async () => {
+test("fix r1: taskId không sanitize được (phần sau ':' unsafe) → fail-closed headless, không throw", { skip: POSIX_MUX_SKIP }, async () => {
 	launchScriptRegistry.clear();
 	const provider = fakeProvider();
 	const input = baseInput({ taskId: "01_explore:../escape" });
@@ -294,7 +313,9 @@ test("fix r1: taskId không sanitize được (phần sau ':' unsafe) → fail-c
 	launchScriptRegistry.clear();
 });
 
-test("script content carries REAL pane id + parent info + agent events path + TUI argv without --mode json", async () => {
+test("script content carries REAL pane id + parent info + agent events path + TUI argv without --mode json", {
+	skip: POSIX_MUX_SKIP,
+}, async () => {
 	launchScriptRegistry.clear();
 	const provider = fakeProvider({ paneId: "%77" });
 	const input = baseInput({
@@ -322,7 +343,7 @@ test("script content carries REAL pane id + parent info + agent events path + TU
 	rmSync(outcome.scriptPath, { force: true });
 });
 
-test("running the built script delivers the argv verbatim to the worker process (no expansion)", async () => {
+test("running the built script delivers the argv verbatim to the worker process (no expansion)", { skip: POSIX_MUX_SKIP }, async () => {
 	launchScriptRegistry.clear();
 	const evilTask = "it's a $(touch pwned-by-test) task with 'quotes'";
 	const provider = fakeProvider();
@@ -359,7 +380,7 @@ test("livePaneCount >= MAX_SURFACE_WORKERS → headless", async () => {
 	assert.equal(MAX_SURFACE_WORKERS, 6);
 });
 
-test("async run env → KHÔNG còn bị gate (env quyết; async không hard-headless)", async () => {
+test("async run env → KHÔNG còn bị gate (env quyết; async không hard-headless)", { skip: POSIX_MUX_SKIP }, async () => {
 	const provider = fakeProvider();
 	const input = baseInput({ env: { ...HOST_ENV, PI_CREW_ASYNC_RUN: "1" } });
 	input.deps!.resolve!.providers!.tmux = provider;
@@ -381,7 +402,7 @@ test("config mode off / role not visible → headless without creating panes", a
 	}
 });
 
-test("provider createSurface throws → headless fallback, error captured internally", async () => {
+test("provider createSurface throws → headless fallback, error captured internally", { skip: POSIX_MUX_SKIP }, async () => {
 	const provider = fakeProvider({ failCreate: new Error("split-window failed: no server") });
 	const input = baseInput();
 	input.deps!.resolve!.providers!.tmux = provider;
@@ -390,7 +411,7 @@ test("provider createSurface throws → headless fallback, error captured intern
 	assert.deepEqual(provider.closeCalls, [], "chưa có pane thì không có gì để đóng");
 });
 
-test("build failure AFTER createSurface closes the orphan pane immediately and falls back", async () => {
+test("build failure AFTER createSurface closes the orphan pane immediately and falls back", { skip: POSIX_MUX_SKIP }, async () => {
 	launchScriptRegistry.clear();
 	const provider = fakeProvider();
 	const input = baseInput({ taskId: "../evil" });
@@ -417,7 +438,7 @@ test("pre-resolved provider is STILL gated by host depth > 0 (no pane-in-pane)",
 	assert.deepEqual(provider.calls, []);
 });
 
-test("provider lacking sendCommand → headless fallback + orphan pane closed", async () => {
+test("provider lacking sendCommand → headless fallback + orphan pane closed", { skip: POSIX_MUX_SKIP }, async () => {
 	const provider = fakeProvider({ withoutSendCommand: true });
 	const input = baseInput();
 	input.deps!.resolve!.providers!.tmux = provider;
@@ -583,7 +604,9 @@ test("I-1: real onExit arriving after force-close still wins over the synthetic 
 // gate chi tiết để child-pi emit worker.surface_gate_blocked — phân biệt
 // "gate chặn" với "mux probe fail thật" (attempted).
 
-test("gate rejection đi theo outcome headless: resolve path + pre-resolved hard gate, KHÔNG attempted", async () => {
+test("gate rejection đi theo outcome headless: resolve path + pre-resolved hard gate, KHÔNG attempted", {
+	skip: POSIX_MUX_SKIP,
+}, async () => {
 	// resolve path — depth gate (không pre-resolved provider)
 	let input = baseInput({ env: { ...HOST_ENV, PI_CREW_DEPTH: "2" } });
 	input.deps!.resolve!.providers!.tmux = fakeProvider();

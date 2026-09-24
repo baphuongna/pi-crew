@@ -196,7 +196,9 @@ test("runChildPi boots the worker in a pane via launch script — no stdio proce
 		assert.match(scriptPath, /pi-crew-launch-01_explore-\d+\.sh$/);
 		// Worker giả chưa chạy (provider fake) → script vẫn còn trên đĩa để soát nội dung.
 		assert.ok(existsSync(scriptPath), "script phải nằm trên đĩa đúng path đã gửi");
-		assert.equal(statSync(scriptPath).mode & 0o777, 0o600);
+		// Windows has no POSIX permission bits (statSync reports 0o666) — mode là
+		// assert POSIX-only; phần còn lại của test vẫn chạy trên mọi platform.
+		if (process.platform !== "win32") assert.equal(statSync(scriptPath).mode & 0o777, 0o600);
 		const content = readFileSync(scriptPath, "utf8");
 		// Env contract của spawn surface (spec §5.2/§13.1).
 		assert.match(content, /export PI_CREW_SURFACE_PANE='%7'/);

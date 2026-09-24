@@ -14,6 +14,7 @@
  */
 
 import assert from "node:assert/strict";
+import * as path from "node:path";
 import test from "node:test";
 import { createHerdrProvider, type HerdrProviderDeps, type HerdrSocket } from "../../../../src/runtime/surface/herdr-provider.ts";
 import type { SurfaceExitReason, SurfaceHandle, SurfaceProvider } from "../../../../src/runtime/surface/surface-provider.ts";
@@ -180,11 +181,13 @@ test("socket path được resolve: HERDR_SOCKET_PATH → HERDR_SESSION → defa
 
 	const withSession = makeWithEnv({ HERDR_SESSION: "work" });
 	await createHerdrProvider(withSession.deps).createSurface("t1", { cwd: "/tmp", command: "bash x.sh" });
-	assert.ok(withSession.paths[0].endsWith("sessions/work/herdr.sock"), withSession.paths[0]);
+	// herdrSocketPath joins with path.join → platform separators, so the expected
+	// suffix must be built with path.join too (a hardcoded "a/b" fails on Windows).
+	assert.ok(withSession.paths[0].endsWith(path.join("sessions", "work", "herdr.sock")), withSession.paths[0]);
 
 	const defaults = makeWithEnv({});
 	await createHerdrProvider(defaults.deps).createSurface("t1", { cwd: "/tmp", command: "bash x.sh" });
-	assert.ok(defaults.paths[0].endsWith(".config/herdr/herdr.sock"), defaults.paths[0]);
+	assert.ok(defaults.paths[0].endsWith(path.join(".config", "herdr", "herdr.sock")), defaults.paths[0]);
 });
 
 test("createSurface: env HERDR_PANE_ID ưu tiên làm pane cha — không gọi pane.current, split target_pane_id = HERDR_PANE_ID", async () => {

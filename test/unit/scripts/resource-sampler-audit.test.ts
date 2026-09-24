@@ -11,11 +11,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const SAMPLER = new URL("../../../scripts/resource-sampler.mjs", import.meta.url);
+// fileURLToPath (not URL.pathname): Windows pathname = "/D:/a/..." → spawn ENOENT.
+const SAMPLER = fileURLToPath(new URL("../../../scripts/resource-sampler.mjs", import.meta.url));
 
 function runSamplerSync(args: string[], opts: { cwd?: string; timeout?: number } = {}) {
-	return spawnSync(process.execPath, ["--experimental-strip-types", SAMPLER.pathname, ...args], {
+	return spawnSync(process.execPath, ["--experimental-strip-types", SAMPLER, ...args], {
 		encoding: "utf-8",
 		cwd: opts.cwd,
 		timeout: opts.timeout ?? 15_000,

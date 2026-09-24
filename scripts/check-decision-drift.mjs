@@ -25,7 +25,6 @@
  *   0 — every ADR env-var token is present in src/
  *   1 — at least one token has drifted (with file:line listing)
  */
-import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,20 +44,42 @@ function listDecisionFiles() {
 	}
 }
 
-function grepSrc(token) {
-	// rg returns 0 with matches, 1 with no matches. We treat either as
-	// non-fatal and only inspect stdout.
+// Node-native src/ scan (no external binary). The original implementation
+// shelled out to `rg -l`, which is NOT installed on the GitHub runners — every
+// token then reported drift (27 lines on the 2026-09-24 CI run) while local
+// machines with ripgrep passed. fs.readdirSync keeps the gate hermetic.
+const SRC_DIR = join(ROOT, "src");
+let srcFileCache; // Map<absPath, content>, built lazily once
+function listSrcFiles(dir = SRC_DIR, acc = []) {
+	let entries;
 	try {
-		const out = execSync(`rg -l --null -e "${token}" src/ 2>/dev/null`, {
-			cwd: ROOT,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			maxBuffer: 1 << 20,
-		});
-		return out.length > 0;
+		entries = readdirSync(dir, { withFileTypes: true });
 	} catch {
-		return false;
+		return acc;
 	}
+	for (const entry of entries) {
+		const full = join(dir, entry.name);
+		if (entry.isDirectory()) listSrcFiles(full, acc);
+		else if (entry.isFile()) acc.push(full);
+	}
+	return acc;
+}
+
+function grepSrc(token) {
+	if (!srcFileCache) {
+		srcFileCache = new Map();
+		for (const file of listSrcFiles()) {
+			try {
+				srcFileCache.set(file, readFileSync(file, "utf8"));
+			} catch {
+				// unreadable (binary/permission) — skip
+			}
+		}
+	}
+	for (const content of srcFileCache.values()) {
+		if (content.includes(token)) return true;
+	}
+	return false;
 }
 
 const drift = [];

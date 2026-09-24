@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { ROLE_TOOL_CONFIGS } from "../../src/config/role-tools.ts";
 
 // Quick Win 17 (Pattern 17 — schema-driven docs): the builtin `agents/*.md`
@@ -16,7 +17,8 @@ import { ROLE_TOOL_CONFIGS } from "../../src/config/role-tools.ts";
 //    back to frontmatter): set(frontmatter) ∩ set(config.excludeTools) === ∅
 //    (a frontmatter tool may not be on the role's own denylist).
 
-const AGENTS_DIR = path.resolve(new URL("../../agents", import.meta.url).pathname);
+// fileURLToPath (not URL.pathname): Windows pathname = "/D:/a/..." → bad dir.
+const AGENTS_DIR = fileURLToPath(new URL("../../agents", import.meta.url));
 
 interface ParsedFrontmatter {
 	tools: string[];

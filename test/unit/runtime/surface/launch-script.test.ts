@@ -29,6 +29,13 @@ import {
 
 let baseDir: string;
 
+/**
+ * POSIX-only cases: 0600 modes do not exist on Windows (statSync reports 0o666),
+ * and the two "verified by running the script" cases exec `bash <script>` on a
+ * `#!/bin/bash` file. Windows CI has neither, so those cannot hold there.
+ */
+const POSIX_ONLY_SKIP = process.platform === "win32" ? "POSIX file modes + bash execution are unavailable on Windows" : false;
+
 test.before(() => {
 	baseDir = mkdtempSync(join(tmpdir(), "launch-script-test-"));
 });
@@ -56,7 +63,7 @@ function surfaceEnv(): Record<string, string> {
 	};
 }
 
-test("buildLaunchScript writes 0600 script at {baseDir}/pi-crew-launch-{taskId}-{pid}.sh", () => {
+test("buildLaunchScript writes 0600 script at {baseDir}/pi-crew-launch-{taskId}-{pid}.sh", { skip: POSIX_ONLY_SKIP }, () => {
 	const scriptPath = buildLaunchScript({
 		taskId: "03_implement",
 		env: surfaceEnv(),
@@ -131,7 +138,9 @@ test("depth 0 / absent env builds fine (guard chỉ chặn worker lồng)", () =
 	}
 });
 
-test("shell-escapes hostile values (single quote, $, backtick) in env and cwd — verified by running the script", (t) => {
+test("shell-escapes hostile values (single quote, $, backtick) in env and cwd — verified by running the script", {
+	skip: POSIX_ONLY_SKIP,
+}, (t) => {
 	const workDir = mkdtempSync(join(tmpdir(), "launch-script-run-"));
 	t.after(() => rmSync(workDir, { recursive: true, force: true }));
 	const evil = 'it\'s $(echo pwned) `echo pwned` "dq" $HOME';
@@ -178,7 +187,7 @@ test("F3: script deletes itself BEFORE running the command (bash keeps the fd op
 	assert.equal(lines[lines.length - 2], 'rm -f -- "$0"', 'dòng cuối (trước \\n kết file) phải là rm -f -- "$0"');
 });
 
-test("F3: script with early self-delete still runs correctly to completion", (t) => {
+test("F3: script with early self-delete still runs correctly to completion", { skip: POSIX_ONLY_SKIP }, (t) => {
 	const workDir = mkdtempSync(join(tmpdir(), "launch-script-earlyrm-"));
 	t.after(() => rmSync(workDir, { recursive: true, force: true }));
 	const resultPath = join(workDir, "result.txt");

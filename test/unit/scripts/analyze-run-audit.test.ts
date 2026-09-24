@@ -20,8 +20,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
-const ANALYZE = new URL("../../../scripts/analyze-run.mjs", import.meta.url);
+// fileURLToPath (not URL.pathname): on Windows pathname yields "/D:/a/..." which
+// spawnSync rejects — this file failed 26 tests on the Windows CI shard.
+const ANALYZE = fileURLToPath(new URL("../../../scripts/analyze-run.mjs", import.meta.url));
 
 /** Build a minimal fixture .crew state dir for runId `r`. */
 function buildFixtureCrew() {
@@ -259,7 +262,7 @@ function buildMultiCrew(tasks: { id: string; status: string; exitCode: number }[
 }
 
 function runAnalyzer(runId: string, crewRoot: string, workCwd: string, resourcesPath?: string, events = false) {
-	const cmd = ["--experimental-strip-types", ANALYZE.pathname, runId, "--crew-root", crewRoot];
+	const cmd = ["--experimental-strip-types", ANALYZE, runId, "--crew-root", crewRoot];
 	if (resourcesPath) cmd.push("--resources", resourcesPath);
 	if (events) cmd.push("--events");
 	const res = spawnSync(process.execPath, cmd, { encoding: "utf-8", cwd: workCwd, timeout: 30_000 });
@@ -739,7 +742,7 @@ test("--agents: writes one detail file per subagent", () => {
 		// Re-run with both via direct spawn to exercise --agents.
 		const res2 = spawnSync(
 			process.execPath,
-			["--experimental-strip-types", ANALYZE.pathname, "r", "--crew-root", crew, "--agents", "--events"],
+			["--experimental-strip-types", ANALYZE, "r", "--crew-root", crew, "--agents", "--events"],
 			{ encoding: "utf-8", cwd: work, timeout: 30_000 },
 		);
 		assert.equal(res2.status, 0, `analyzer failed: ${res2.stderr}`);
