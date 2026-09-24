@@ -10,11 +10,34 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { TeamEvent } from "../../../../src/state/event-log/event-log.ts";
-import { appendEventAsync, appendEventBuffered, flushEventLogBuffer } from "../../../../src/state/event-log/event-log.ts";
+import {
+	appendEventAsync,
+	appendEventBuffered,
+	flushEventLogBuffer,
+} from "../../../../src/state/event-log/event-log.ts";
 
 async function makeTmp(): Promise<string> {
 	const dir = await fs.mkdtemp(path.join(os.tmpdir(), "event-log-leak-"));
 	return path.join(dir, "events.jsonl");
+}
+
+/** Windows CI teardown hardening: drain the event-log buffer (in-flight
+ * buffered appends hold the .alock handle), then retry the recursive remove —
+ * a handle released a tick after the test body resolves makes the first rm
+ * EPERM on win32 (live flake: 'EPERM ... events.jsonl.alock'). */
+async function rmWithLockDrain(dir: string): Promise<void> {
+	await flushEventLogBuffer();
+	await new Promise((resolve) => setImmediate(resolve));
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		try {
+			await rmWithLockDrain(dir);
+			return;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if ((code !== "EPERM" && code !== "EBUSY" && code !== "ENOTEMPTY") || attempt === 4) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	}
 }
 
 test("H1: asyncQueues does not leak entries on success", async () => {
@@ -35,7 +58,7 @@ test("H1: asyncQueues does not leak entries on success", async () => {
 		} as unknown as TeamEvent);
 		assert.equal(result.type, "test.event");
 	} finally {
-		await fs.rm(path.dirname(eventsPath), { recursive: true, force: true });
+		await rmWithLockDrain(path.dirname(eventsPath));
 	}
 });
 
@@ -67,6 +90,6 @@ test("H3: dropped buffered events are rejected (not hanging)", async () => {
 		const sample = rejected[0] as Error;
 		assert.match(sample.message, /buffer overflow|dropped/i, `rejection should mention overflow/dropped; got: ${sample.message}`);
 	} finally {
-		await fs.rm(path.dirname(eventsPath), { recursive: true, force: true });
+		await rmWithLockDrain(path.dirname(eventsPath));
 	}
 });
