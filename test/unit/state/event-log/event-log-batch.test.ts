@@ -148,10 +148,16 @@ test("appendEventFireAndForget routes non-terminal events through buffer", async
 		const { appendEventFireAndForget } = await import("../../../../src/state/event-log/event-log.ts");
 		appendEventFireAndForget(eventsPath, { type: "task.progress", runId: "r1", taskId: "t1", data: { x: 1 } });
 
-		// Wait for buffer to flush (20ms default + margin)
-		await new Promise((r) => setTimeout(r, 100));
-
-		const events = readEvents(eventsPath);
+		// Wait for buffer to flush (20ms default). A fixed 100ms sleep flaked on
+		// windows-latest CI (slow disk under shard contention: 0 events at the
+		// deadline, run 36029346975) — same class as event-log-async's fire-and-
+		// forget test. Bounded 2s poll keeps the assertion timing-independent.
+		let events: ReturnType<typeof readEvents> = [];
+		for (let waited = 0; waited < 2000; waited += 25) {
+			events = readEvents(eventsPath);
+			if (events.length >= 1) break;
+			await new Promise((r) => setTimeout(r, 25));
+		}
 		assert.equal(events.length, 1, "event written via fire-and-forget through buffer");
 		assert.equal(events[0].type, "task.progress");
 	} finally {
