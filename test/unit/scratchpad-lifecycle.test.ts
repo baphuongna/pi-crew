@@ -113,6 +113,33 @@ afterEach(() => {
 	cancelScratchpadSnapshot();
 });
 
+// Hosted Windows runners stall fire-and-forget event flushes for hundreds of
+// ms (CI run 36041250855: ENOENT at the fixed 200ms deadline). Poll until the
+// expected events land — bounded, exits as soon as the predicate holds.
+async function readEventsWhenReady(
+	eventsPath: string,
+	type: string,
+	expected: number,
+	deadlineMs = 5000,
+): Promise<Array<Record<string, any>>> {
+	for (let waited = 0; ; waited += 25) {
+		try {
+			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
+			const events = raw.map((l) => JSON.parse(l)).filter((e) => e.type === type);
+			if (events.length >= expected) return events;
+		} catch {
+			/* file not created yet — keep polling */
+		}
+		if (waited >= deadlineMs) {
+			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
+			const events = raw.map((l) => JSON.parse(l)).filter((e) => e.type === type);
+			assert.equal(events.length, expected, `expected ${expected} ${type} event(s) within ${deadlineMs}ms`);
+			return events;
+		}
+		await new Promise((r) => setTimeout(r, 25));
+	}
+}
+
 describe("scratchpad doctrine truthfulness (plan I1/I2 — no absent tools advertised)", () => {
 	it("I1: doctrine does not advertise a tools bridge that does not exist (no 'await expressions' tool-call claim)", () => {
 		for (const line of SCRATCHPAD_DOCTRINE) {
@@ -160,10 +187,8 @@ describe("scratchpad I5 — adoption/value metric events", () => {
 		try {
 			await tool.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
 			await tool.execute("c2", { code: "2+2" }, undefined, undefined, {} as never);
-			// Fire-and-forget — give the async append a moment to flush.
-			await new Promise((r) => setTimeout(r, 200));
-			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
-			const cells = raw.map((l) => JSON.parse(l)).filter((e) => e.type === "scratchpad.cell");
+			// Fire-and-forget — poll until both cell events flush (bounded).
+			const cells = await readEventsWhenReady(eventsPath, "scratchpad.cell", 2);
 			assert.equal(cells.length, 2, "exactly one scratchpad.cell per cell");
 			assert.equal(cells[0].runId, "run-1");
 			assert.equal(cells[0].taskId, "task-1");
@@ -220,9 +245,7 @@ describe("scratchpad I5 — adoption/value metric events", () => {
 		try {
 			assert.ok(tool, "tool must be registered");
 			await tool!.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
-			await new Promise((r) => setTimeout(r, 200));
-			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
-			const restored = raw.map((l) => JSON.parse(l)).filter((e) => e.type === "scratchpad.restored");
+			const restored = await readEventsWhenReady(eventsPath, "scratchpad.restored", 1);
 			assert.equal(restored.length, 1, "one scratchpad.restored on restore branch");
 			assert.equal(restored[0].data.restoredCount, 1);
 			assert.equal(restored[0].data.attempt, 1);
@@ -288,9 +311,7 @@ describe("scratchpad I5 — adoption/value metric events", () => {
 		try {
 			assert.ok(tool, "tool must be registered");
 			await tool!.execute("c1", { code: "1+1" }, undefined, undefined, {} as never);
-			await new Promise((r) => setTimeout(r, 200));
-			const raw = fs.readFileSync(eventsPath, "utf8").trim().split("\n").filter(Boolean);
-			const restored = raw.map((l) => JSON.parse(l)).filter((e) => e.type === "scratchpad.restored");
+			const restored = await readEventsWhenReady(eventsPath, "scratchpad.restored", 1);
 			assert.equal(restored.length, 1, "one scratchpad.restored even on restore failure");
 			assert.equal(restored[0].data.status, "failed");
 			assert.equal(restored[0].data.restoredCount, 0);
