@@ -289,8 +289,12 @@ test("team discovery round-trips role metadata", () => {
 			"utf-8",
 		);
 		const team = allTeams(discoverTeams(cwd)).find((candidate) => candidate.name === "metadata-team");
-		assert.equal(team?.roles[0]?.model, "openai/gpt-5");
-		assert.deepEqual(team?.roles[0]?.skills, ["safe-bash", "verify-evidence"]);
+		assert.equal(team?.roles[0]?.model, "openai/gpt-5", `roles: ${JSON.stringify(team?.roles)}`);
+		assert.deepEqual(
+			team?.roles[0]?.skills,
+			["safe-bash", "verify-evidence"],
+			`skills dropped — roles: ${JSON.stringify(team?.roles)} | file: ${fs.readFileSync(path.join(teamsDir, "metadata.team.md"), "utf-8")}`,
+		);
 		assert.equal(team?.roles[0]?.maxConcurrency, 2);
 		assert.equal(team?.roles[0]?.description, "implement safely");
 		assert.equal(team?.roles[1]?.skills, false);
