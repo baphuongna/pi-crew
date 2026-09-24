@@ -65,7 +65,13 @@ function sleep(ms: number): Promise<void> {
 test("staleMs steal of a live in-process holder logs locks.steal-live-holder (warn)", async () => {
 	const stateRoot = fs.mkdtempSync(path.join(os.tmpdir(), "steal-live-warn-"));
 	const manifest = mkManifest(stateRoot);
-	const staleMs = 60;
+	// 150ms (was 60): the async retry deadline is staleMs*2 and the backoff
+	// series is 25/50/100 — with 60ms the steal attempt landed at t≈75-100ms
+	// against a 120ms deadline, and one or two ~40ms fs stalls on a loaded
+	// Windows runner pushed it past the deadline → 'locked by another
+	// operation' (live flake, DP-03 rerun #2). At 150ms the steal lands at
+	// t≈175ms against a 300ms deadline — ~125ms of stall headroom.
+	const staleMs = 150;
 
 	const captured: string[] = [];
 	const originalError = console.error;
