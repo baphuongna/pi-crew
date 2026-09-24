@@ -22,6 +22,8 @@ import test from "node:test";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
 import { invalidateConfigCache } from "../../../../src/config/config.ts";
 import { runTeamTask } from "../../../../src/runtime/task-runner.ts";
+import { flushPendingAtomicWrites } from "../../../../src/state/atomic-write.ts";
+import { flushEventLogBuffer } from "../../../../src/state/event-log/event-log.ts";
 import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
@@ -132,6 +134,13 @@ test("bug-026 B: ENOSPC in child stderr → task record carries failureCause=eno
 		});
 	} finally {
 		invalidateConfigCache();
+		// Fire-and-forget saves/recovery mkdirs can still be in flight when the
+		// assertions finish; tearing the tmpdir down underneath them surfaces as
+		// an unhandledRejection AFTER the test (live CI ubuntu: mkdir ENOENT).
+		// Drain everything first, then yield one macro-task turn.
+		await flushEventLogBuffer();
+		flushPendingAtomicWrites();
+		await new Promise((resolve) => setImmediate(resolve));
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
@@ -157,6 +166,13 @@ test("bug-026 B: failureCause survives the E2 modelExhausted rewrite", async () 
 		});
 	} finally {
 		invalidateConfigCache();
+		// Fire-and-forget saves/recovery mkdirs can still be in flight when the
+		// assertions finish; tearing the tmpdir down underneath them surfaces as
+		// an unhandledRejection AFTER the test (live CI ubuntu: mkdir ENOENT).
+		// Drain everything first, then yield one macro-task turn.
+		await flushEventLogBuffer();
+		flushPendingAtomicWrites();
+		await new Promise((resolve) => setImmediate(resolve));
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
@@ -177,6 +193,13 @@ test("bug-026 B: non-fs mock failure → no failureCause on the task record", as
 		});
 	} finally {
 		invalidateConfigCache();
+		// Fire-and-forget saves/recovery mkdirs can still be in flight when the
+		// assertions finish; tearing the tmpdir down underneath them surfaces as
+		// an unhandledRejection AFTER the test (live CI ubuntu: mkdir ENOENT).
+		// Drain everything first, then yield one macro-task turn.
+		await flushEventLogBuffer();
+		flushPendingAtomicWrites();
+		await new Promise((resolve) => setImmediate(resolve));
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
