@@ -467,19 +467,20 @@ function readAllInboxMessages(manifest: TeamRunManifest): MailboxMessage[] {
 // FIND-01: in-process delivery cache to avoid O(N²) re-reads on every append.
 // Keyed by delivery file path; invalidated by mtime check on read + updated on
 // write. Team-runner is single-process so in-process caching is sufficient.
-const deliveryCache = new Map<string, { mtimeMs: number; state: MailboxDeliveryState }>();
+const deliveryCache = new Map<string, { mtimeMs: number; size: number; state: MailboxDeliveryState }>();
 const MAX_DELIVERY_CACHE_ENTRIES = 256;
 // R1 review fix: setDeliveryCacheEntry stores an immutable snapshot (deep
 // copy of `messages`) so callers mutating the returned state cannot corrupt
 // the cache (TOCTOU race), and bounds the map size with FIFO eviction to
 // prevent unbounded growth across runs.
-function setDeliveryCacheEntry(filePath: string, entry: { mtimeMs: number; state: MailboxDeliveryState }): void {
+function setDeliveryCacheEntry(filePath: string, entry: { mtimeMs: number; size: number; state: MailboxDeliveryState }): void {
 	if (deliveryCache.size >= MAX_DELIVERY_CACHE_ENTRIES) {
 		const oldest = deliveryCache.keys().next().value;
 		if (oldest !== undefined) deliveryCache.delete(oldest);
 	}
 	deliveryCache.set(filePath, {
 		mtimeMs: entry.mtimeMs,
+		size: entry.size,
 		state: { ...entry.state, messages: { ...entry.state.messages } },
 	});
 }
@@ -497,7 +498,7 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 		return { messages: {}, updatedAt: new Date().toISOString() };
 	}
 	const cached = deliveryCache.get(filePath);
-	if (cached && cached.mtimeMs === stat.mtimeMs) {
+	if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
 		// R2 review fix: return a copy so callers mutating the result cannot
 		// leak into the cached snapshot (residual TOCTOU: the cache holds the
 		// snapshot until the next write replaces it; without this copy, a
@@ -517,7 +518,7 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 			messages,
 			updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : new Date().toISOString(),
 		};
-		setDeliveryCacheEntry(filePath, { mtimeMs: stat.mtimeMs, state });
+		setDeliveryCacheEntry(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, state });
 		return state;
 	} catch (error) {
 		// NEW-R4: a corrupt delivery.json was previously swallowed silently, returning
@@ -696,7 +697,7 @@ function writeDeliveryState(
 		// setDeliveryCacheEntry stores an immutable snapshot (deep copy of
 		// messages) so subsequent read-modify-write callers mutating the
 		// returned state cannot corrupt the cache.
-		setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, state });
+		setDeliveryCacheEntry(filePath, { mtimeMs: postStat.mtimeMs, size: postStat.size, state });
 	} catch {
 		deliveryCache.delete(filePath);
 	}
