@@ -26,18 +26,27 @@ import {
 import type { SpecRecord, TeamRunManifest } from "../../../../src/state/types.ts";
 
 const REAL_HOME = process.env.HOME;
+const REAL_USERPROFILE = process.env.USERPROFILE;
 
 function makeCwd(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-spec-"));
 	fs.mkdirSync(path.join(dir, ".git")); // project-scoped root (bug-029 lesson)
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-spec-home-"));
-	process.env.HOME = home; // isolate the USER store (os.homedir reads $HOME)
+	// Isolate the USER store. `userSpecsDir` resolves via os.homedir(), which
+	// reads $HOME on POSIX but $USERPROFILE on Windows — setting only HOME left
+	// the product writing into the real user profile while this test read the
+	// sandbox, so the sidecar lookup hit ENOENT (Windows CI: "scandir '…\\
+	// pi-crew-spec-home-XXX\\.pi\\agent\\specs'"). Both names must be pinned.
+	process.env.HOME = home;
+	process.env.USERPROFILE = home;
 	return dir;
 }
 
 function cleanup(cwd: string): void {
 	if (REAL_HOME === undefined) delete process.env.HOME;
 	else process.env.HOME = REAL_HOME;
+	if (REAL_USERPROFILE === undefined) delete process.env.USERPROFILE;
+	else process.env.USERPROFILE = REAL_USERPROFILE;
 	fs.rmSync(cwd, { recursive: true, force: true });
 }
 

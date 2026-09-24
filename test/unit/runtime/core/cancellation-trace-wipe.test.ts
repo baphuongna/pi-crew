@@ -26,6 +26,7 @@ import {
 } from "../../../../src/runtime/subagent-manager.ts";
 import { flushPendingAtomicWrites } from "../../../../src/state/atomic-write.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
+import { resolveCanonicalDir } from "../../../fixtures/test-tempdir.ts";
 
 // `persistedSubagentPath` is module-private. Reconstruct its layout for tests:
 // <cwd>/.crew/state/subagents/<id>.json  (no prefix — id IS the full filename stem)
@@ -130,7 +131,7 @@ test("shouldDeleteOnTerminalStatus: error → false (audit value)", () => {
 });
 
 test("removePersistedSubagentRecord: deletes the file", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-test-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-test-")));
 	try {
 		const record = makeRecord();
 		savePersistedSubagentRecord(cwd, record as never);
@@ -144,7 +145,7 @@ test("removePersistedSubagentRecord: deletes the file", () => {
 });
 
 test("removePersistedSubagentRecord: safe-fail when file does not exist", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-noexist-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-noexist-")));
 	try {
 		const removed = removePersistedSubagentRecord(cwd, "nonexistent_id");
 		assert.equal(removed, false); // ENOENT returns false (no actual deletion happened)
@@ -164,7 +165,7 @@ test("shouldDeleteCrewAgentOnTerminalStatus: failed/completed → false", () => 
 });
 
 test("removeCrewAgent: removes from agents.json index", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-crew-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-crew-")));
 	try {
 		const manifest = makeManifest(cwd);
 		const a = makeCrewRecord({ id: "a", taskId: "01_a" });
@@ -182,7 +183,7 @@ test("removeCrewAgent: removes from agents.json index", () => {
 });
 
 test("removeCrewAgent: removes per-task status.json", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-status-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-status-")));
 	try {
 		const manifest = makeManifest(cwd);
 		// H2 (2026-08-10): non-terminal records get best-effort coalesced (debounced)
@@ -201,7 +202,7 @@ test("removeCrewAgent: removes per-task status.json", () => {
 });
 
 test("upsertCrewAgent: cancelled status triggers removal (no save)", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-upsert-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-upsert-")));
 	try {
 		const manifest = makeManifest(cwd);
 		// First: agent is running
@@ -227,7 +228,7 @@ test("upsertCrewAgent: cancelled status triggers removal (no save)", () => {
 });
 
 test("upsertCrewAgent: completed status keeps audit trail", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-completed-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-completed-")));
 	try {
 		const manifest = makeManifest(cwd);
 		const completed = makeCrewRecord({
@@ -243,7 +244,7 @@ test("upsertCrewAgent: completed status keeps audit trail", () => {
 });
 
 test("upsertCrewAgent: failed status keeps audit trail", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-failed-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-failed-")));
 	try {
 		const manifest = makeManifest(cwd);
 		const failed = makeCrewRecord({
@@ -275,7 +276,7 @@ test("upsertCrewAgent: failed status keeps audit trail", () => {
 // ---------------------------------------------------------------------------
 
 test("F10: cancelled agent's status.json does not reappear after the atomic drain", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-drain-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-drain-")));
 	try {
 		const manifest = makeManifest(cwd);
 		const statusPath = agentStatusPath(manifest, "c1");
@@ -298,7 +299,7 @@ test("F10: cancelled agent's status.json does not reappear after the atomic drai
 });
 
 test("F10: removeCrewAgent also survives a drain when the record was already flushed", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-drain2-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-wipe-drain2-")));
 	try {
 		const manifest = makeManifest(cwd);
 		const statusPath = agentStatusPath(manifest, "c1");

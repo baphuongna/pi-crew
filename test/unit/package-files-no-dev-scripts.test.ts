@@ -26,13 +26,21 @@ function npmPackDryRun(root: string): string {
 	// npm writes the `npm notice` tarball-contents listing to STDERR, so both
 	// streams are captured and merged. status is asserted so a pack failure
 	// surfaces as a clear error rather than a misleading assertion failure.
+	//
+	// WINDOWS: npm is `npm.cmd`, which a bare spawnSync("npm", …) cannot find —
+	// child_process does not do PATHEXT resolution without a shell, and Node >= 20
+	// refuses to spawn .cmd/.bat without one (CVE-2024-27980). The CI failure was
+	// `exit null` (spawn error, stderr undefined). Running through cmd.exe via
+	// shell:true resolves npm.cmd and behaves identically on POSIX.
 	const res = spawnSync("npm", ["pack", "--dry-run", "--ignore-scripts"], {
 		cwd: root,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
 		timeout: 100_000,
+		shell: process.platform === "win32",
 	});
-	assert.equal(res.status, 0, `npm pack --dry-run failed (exit ${res.status}): ${res.stderr}`);
+	const detail = res.stderr ?? res.error?.message ?? "";
+	assert.equal(res.status, 0, `npm pack --dry-run failed (exit ${res.status}): ${detail}`);
 	return `${res.stdout ?? ""}${res.stderr ?? ""}`;
 }
 

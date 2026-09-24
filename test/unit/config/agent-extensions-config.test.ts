@@ -49,6 +49,12 @@ test("parseConfig: agentExtensions survives schema validation (additionalPropert
 
 // ─── runtime.agentExtensions — discoverAgents wiring ───────────────────────
 
+// Portable absolute path: discover-agents normalizes via path.resolve(), so a
+// hard-coded "/tmp/..." fixture becomes "D:\\tmp\\..." on Windows. Derive the
+// fixture from os.tmpdir() and compare against its resolved form.
+const GLOBAL_EXT = path.join(os.tmpdir(), "pi-crew-global-provider.ts");
+const GLOBAL_EXT_RESOLVED = path.resolve(GLOBAL_EXT);
+
 function withTempConfig(
 	config: Record<string, unknown>,
 	fn: () => void,
@@ -82,7 +88,7 @@ function withTempConfig(
 test("discoverAgents: global agentExtensions are merged into builtin+user agents", () => {
 	withTempConfig({
 		runtime: {
-			agentExtensions: ["/tmp/global-provider.ts"],
+			agentExtensions: [GLOBAL_EXT],
 		},
 	}, () => {
 		const found = discoverAgents(process.cwd());
@@ -90,7 +96,7 @@ test("discoverAgents: global agentExtensions are merged into builtin+user agents
 			const agent = agents[0];
 			assert.ok(agent, `${label}: expected at least one agent`);
 			assert.ok(
-				agent.extensions?.includes("/tmp/global-provider.ts"),
+				agent.extensions?.includes(GLOBAL_EXT_RESOLVED),
 				`${label}: expected global extension merged, got ${JSON.stringify(agent.extensions)}`,
 			);
 		};
@@ -109,14 +115,14 @@ test("discoverAgents: project agents do NOT receive global agentExtensions (SEC-
 	withTempConfig(
 		{
 			runtime: {
-				agentExtensions: ["/tmp/global-provider.ts"],
+				agentExtensions: [GLOBAL_EXT],
 			},
 		},
 		() => {
 			const found = discoverAgents(process.cwd());
 			for (const agent of [...(found.project ?? []), ...(found.projectPi ?? [])]) {
 				assert.ok(
-					!agent.extensions?.includes("/tmp/global-provider.ts"),
+					!agent.extensions?.includes(GLOBAL_EXT_RESOLVED),
 					`project agent "${agent.name}" must NOT get global extensions (SEC-1), got ${JSON.stringify(agent.extensions)}`,
 				);
 			}

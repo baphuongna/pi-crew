@@ -79,7 +79,9 @@ test("discoverProviderExtensions: resolves local-path packages relative to setti
 		const result = discoverProviderExtensions(settingsPath);
 		assert.equal(result.length, 1, "local-path spec should resolve");
 		assert.equal(result[0].spec, "../local-prov-ext");
-		assert.ok(result[0].entryPath.endsWith("local-prov-ext/index.ts"));
+		// Build the expectation with path.join: a hardcoded "a/b" literal never
+		// matches on Windows, where the resolved entryPath uses "\\" separators.
+		assert.ok(result[0].entryPath.endsWith(path.join("local-prov-ext", "index.ts")));
 	} finally {
 		cleanup();
 	}

@@ -23,6 +23,7 @@ import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import { clearProjectRootCache } from "../../../../src/utils/paths.ts";
 import { sharedScanCache } from "../../../../src/utils/scan-cache.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
+import { resolveCanonicalDir } from "../../../fixtures/test-tempdir.ts";
 
 // ── Shared fixtures ──────────────────────────────────────────────────
 
@@ -48,7 +49,7 @@ const workflow: WorkflowConfig = {
  */
 function withIsolatedHome<T>(fn: () => T): T {
 	const previousHome = process.env.PI_TEAMS_HOME;
-	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-health-home-"));
+	const home = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-health-home-")));
 	process.env.PI_TEAMS_HOME = home;
 	clearProjectRootCache();
 	sharedScanCache.clear();
@@ -69,14 +70,14 @@ function withIsolatedHome<T>(fn: () => T): T {
 function createProjectCwd(tmpDir?: string): string {
 	const base = tmpDir ?? os.tmpdir();
 	// Use a prefix that does NOT start with "pi-crew-" so zombie scanners don't match.
-	const cwd = fs.mkdtempSync(path.join(base, "hc-cwd-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(base, "hc-cwd-")));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	return cwd;
 }
 
 /** Create an isolated tmpDir for zombie/temp workspace scanning. */
 function createIsolatedTmpDir(): string {
-	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-health-tmp-"));
+	return resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-health-tmp-")));
 }
 
 /** Extract report text from the health-monitor tool result. */
@@ -100,7 +101,7 @@ test("should detect ghost run when manifest cwd no longer exists but registry en
 		const isolatedTmp = createIsolatedTmpDir();
 		const projectCwd = createProjectCwd(isolatedTmp);
 		// realDir stays alive — it is the cwd registered in the active-run index.
-		const realDir = fs.mkdtempSync(path.join(isolatedTmp, "hc-realdir-"));
+		const realDir = resolveCanonicalDir(fs.mkdtempSync(path.join(isolatedTmp, "hc-realdir-")));
 		fs.mkdirSync(path.join(realDir, ".crew"));
 
 		try {
@@ -152,7 +153,7 @@ test("should not crash when ghost run is fully deleted (cwd gone, registry filte
 	withIsolatedHome(() => {
 		const isolatedTmp = createIsolatedTmpDir();
 		const projectCwd = createProjectCwd(isolatedTmp);
-		const ghostCwd = fs.mkdtempSync(path.join(isolatedTmp, "pi-crew-health-ghost-"));
+		const ghostCwd = resolveCanonicalDir(fs.mkdtempSync(path.join(isolatedTmp, "pi-crew-health-ghost-")));
 
 		try {
 			// Create a run, register it, then delete the cwd entirely.
@@ -434,7 +435,7 @@ test("should scan both project and user level runs", () => {
 
 			// User-level run: use a cwd WITHOUT .crew so it falls back to user scope.
 			// The run's state ends up under PI_TEAMS_HOME/.pi/agent/extensions/pi-crew/.
-			const userCwd = fs.mkdtempSync(path.join(isolatedTmp, "hc-user-"));
+			const userCwd = resolveCanonicalDir(fs.mkdtempSync(path.join(isolatedTmp, "hc-user-")));
 			try {
 				const userRun = createRunManifest({
 					cwd: userCwd,

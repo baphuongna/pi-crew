@@ -17,6 +17,7 @@ import { createRunManifest, saveRunManifest, saveRunTasks } from "../../../src/s
 import type { TeamRunManifest } from "../../../src/state/types.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../src/workflows/workflow-config.ts";
+import { resolveCanonicalDir } from "../../fixtures/test-tempdir.ts";
 
 /**
  * US-003 (2026-09-22): dead-letter queue for exhausted-retry failures.
@@ -91,8 +92,18 @@ test("US-003: appendDeadletter writes run-local file AND project index with the 
 		assert.equal(local[0].modelAttempts, 2);
 		assert.equal(local[0].runStatus, "failed");
 		// Project index exists OUTSIDE the run dir and carries the same entry.
+		// Compare CANONICAL forms: deadletterIndexPath → projectCrewRoot(), which
+		// canonicalizes an EXISTING .crew/ via realpathSync.native — on macOS
+		// os.tmpdir() is a symlink (/var → /private/var) and on Windows the path
+		// comes back in long-name form (runneradmin vs RUNNER~1). Both spellings
+		// denote the same file, so raw-string equality is a platform-dependent
+		// assertion (macOS + Windows CI failures).
 		const indexPath = deadletterIndexPath(manifest);
-		assert.equal(indexPath, path.join(cwd, ".crew", "state", "deadletter", "team_us003_deadletter01.jsonl"));
+		assert.equal(
+			path.resolve(indexPath),
+			path.resolve(resolveCanonicalDir(cwd), ".crew", "state", "deadletter", "team_us003_deadletter01.jsonl"),
+			"project index must live under the project's .crew/state/deadletter",
+		);
 		assert.equal(fs.existsSync(indexPath), true, "project-level index must be written");
 		const indexed = fs
 			.readFileSync(indexPath, "utf-8")

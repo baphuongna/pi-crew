@@ -7,6 +7,7 @@ import { runCompareBundle } from "../../../src/extension/run-compare.ts";
 import type { TeamContext } from "../../../src/extension/team-tool/context.ts";
 import { handleCompare } from "../../../src/extension/team-tool/lifecycle-actions.ts";
 import type { TeamRunManifest, TeamTaskState, UsageState } from "../../../src/state/types.ts";
+import { resolveCanonicalDir } from "../../fixtures/test-tempdir.ts";
 
 /**
  * US-021 (2026-09-22): run comparison.
@@ -81,7 +82,7 @@ function task(id: string, status: string, usage: UsageState | undefined, duratio
 }
 
 function fixtures(): { cwd: string; a: RunFixture; b: RunFixture } {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "us021-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "us021-")));
 	const a = writeRun(cwd, "team_us021_base", {
 		status: "failed",
 		tasks: [

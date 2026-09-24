@@ -5,15 +5,25 @@ import * as path from "node:path";
 import test from "node:test";
 import { initializeProject } from "../../../../src/extension/project-init.ts";
 import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import { resolveCanonicalDir } from "../../../fixtures/test-tempdir.ts";
 import { firstText } from "../../../fixtures/tool-result-helpers.ts";
 
 function withIsolatedHome(fn: () => Promise<void> | void): () => Promise<void> {
 	return async () => {
-		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-init-test-"));
+		const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-init-test-")));
 		const previousHome = process.env.PI_TEAMS_HOME;
 		const previousSkipCheck = process.env.PI_CREW_SKIP_HOME_CHECK;
+		// Sandbox the PROCESS home too (HOME on POSIX, USERPROFILE on win32): the
+		// isolated home IS the project here, so the marker walk stops at the
+		// boundary and projectCrewRoot(cwd) resolves to <cwd>/.crew everywhere.
+		// Without this the walk can escape to the machine's real home on Windows
+		// (its ~/.pi is a project marker) and initializeProject writes elsewhere.
+		const previousOsHome = process.env.HOME;
+		const previousUserProfile = process.env.USERPROFILE;
 		process.env.PI_TEAMS_HOME = cwd;
 		process.env.PI_CREW_SKIP_HOME_CHECK = "1";
+		process.env.HOME = cwd;
+		process.env.USERPROFILE = cwd;
 		try {
 			await fn();
 		} finally {
@@ -21,6 +31,10 @@ function withIsolatedHome(fn: () => Promise<void> | void): () => Promise<void> {
 			else process.env.PI_TEAMS_HOME = previousHome;
 			if (previousSkipCheck === undefined) delete process.env.PI_CREW_SKIP_HOME_CHECK;
 			else process.env.PI_CREW_SKIP_HOME_CHECK = previousSkipCheck;
+			if (previousOsHome === undefined) delete process.env.HOME;
+			else process.env.HOME = previousOsHome;
+			if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+			else process.env.USERPROFILE = previousUserProfile;
 			fs.rmSync(cwd, { recursive: true, force: true });
 		}
 	};

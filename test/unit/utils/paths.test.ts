@@ -95,24 +95,34 @@ test("findRepoRoot stops at a symlinked tmpdir boundary (bug-029: macOS /var -> 
 	// latching onto an unrelated ancestor marker (GH macOS runners have one;
 	// seen live as the run-cache CI failure). Layout: base/ has a marker, the
 	// temp root is reached via a symlink so lexical != real, start dir is clean.
+	//
+	// os.tmpdir() reads TMPDIR on POSIX but TEMP/TMP on win32 — set the
+	// platform-appropriate name(s) so the mutation is observed everywhere.
 	const base = makeTempDir();
-	const origTmp = process.env.TMPDIR;
+	const tmpEnvKeys = process.platform === "win32" ? ["TEMP", "TMP"] : ["TMPDIR"];
+	const origTmpEnv = new Map(tmpEnvKeys.map((k) => [k, process.env[k]]));
 	try {
 		fs.writeFileSync(path.join(base, "package.json"), "{}"); // marker an ancestor level above the temp root
 		const realT = path.join(base, "real-T");
 		fs.mkdirSync(path.join(realT, "proj"), { recursive: true });
 		fs.symlinkSync(realT, path.join(base, "tmplink"));
-		process.env.TMPDIR = path.join(base, "tmplink");
+		for (const key of tmpEnvKeys) process.env[key] = path.join(base, "tmplink");
 		// Guard: os.tmpdir() must observe the mutation (no process-level cache on
 		// the Node versions we support); otherwise this test would pass vacuously.
-		assert.equal(fs.realpathSync(os.tmpdir()), realT, "TMPDIR mutation must be observed by os.tmpdir()");
+		assert.equal(
+			fs.realpathSync(os.tmpdir()),
+			realT,
+			`temp-dir env mutation (${tmpEnvKeys.join("/")}) must be observed by os.tmpdir()`,
+		);
 		clearProjectRootCache();
 		// Must NOT return base (marker above the boundary) — the walk has to stop
 		// at the canonicalized temp root real-T.
 		assert.equal(findRepoRoot(path.join(realT, "proj")), undefined);
 	} finally {
-		if (origTmp === undefined) delete process.env.TMPDIR;
-		else process.env.TMPDIR = origTmp;
+		for (const [key, value] of origTmpEnv) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
 		clearProjectRootCache();
 		fs.rmSync(base, { recursive: true, force: true });
 	}

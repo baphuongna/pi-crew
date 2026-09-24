@@ -38,8 +38,8 @@ function mkProjectDir(prefix: string): string {
  * Needed for tests where a sibling's state must NOT be reachable
  * from the base directory via locateRunCwd's child-directory scan.
  */
-function mkNonProjectDir(prefix: string): string {
-	return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+function mkNonProjectDir(prefix: string, base?: string): string {
+	return fs.mkdtempSync(path.join(base ?? os.tmpdir(), prefix));
 }
 
 test("finds run in same CWD", () => {
@@ -124,14 +124,22 @@ test("returns undefined for a cwd unrelated to the run's project root", () => {
 test("finds a run that lives under the USER root from a project cwd (list/status parity)", () => {
 	const prevHome = process.env.PI_CREW_HOME;
 	const prevTeams = process.env.PI_TEAMS_HOME;
+	const prevOsHome = process.env.HOME;
+	const prevUserProfile = process.env.USERPROFILE;
 	const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-locate-userhome-"));
 	const cwd = mkProjectDir("pi-crew-locate-userroot-");
 	delete process.env.PI_TEAMS_HOME;
 	process.env.PI_CREW_HOME = fakeHome;
+	// Sandbox the PROCESS home too: on win32 os.homedir() reads USERPROFILE (not
+	// HOME), so without this the marker walk's home boundary is the machine's real
+	// home and the non-project cwd below can be claimed by the real ~/.pi marker.
+	process.env.HOME = fakeHome;
+	process.env.USERPROFILE = fakeHome;
 	try {
 		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 		// The run's own cwd is a NON-project dir → its state lands in userCrewRoot().
-		const nonProject = mkNonProjectDir("pi-crew-locate-nonproj-");
+		// Keep it INSIDE the sandboxed home so the home boundary also stops the walk.
+		const nonProject = mkNonProjectDir("pi-crew-locate-nonproj-", fakeHome);
 		const { manifest } = createRunManifest({ cwd: nonProject, team, workflow, goal: "user-root run" });
 		assert.equal(
 			manifest.stateRoot,
@@ -145,6 +153,10 @@ test("finds a run that lives under the USER root from a project cwd (list/status
 		else process.env.PI_CREW_HOME = prevHome;
 		if (prevTeams === undefined) delete process.env.PI_TEAMS_HOME;
 		else process.env.PI_TEAMS_HOME = prevTeams;
+		if (prevOsHome === undefined) delete process.env.HOME;
+		else process.env.HOME = prevOsHome;
+		if (prevUserProfile === undefined) delete process.env.USERPROFILE;
+		else process.env.USERPROFILE = prevUserProfile;
 		fs.rmSync(cwd, { recursive: true, force: true });
 		fs.rmSync(fakeHome, { recursive: true, force: true });
 	}

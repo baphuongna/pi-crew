@@ -183,7 +183,8 @@ describe("buildSchedulesLogText", () => {
 			assert.equal(byName.isError, false);
 			assert.equal(byId.text, byName.text, "id and name resolution must land on the same job");
 			assert.match(byId.text, /Scheduled job 'nightly build' — latest run run_new/);
-			assert.match(byId.text, /results\/task-1\.md/);
+			// Separator-agnostic: the artifact path is resolved via path.join → backslashes on Windows.
+			assert.match(byId.text, /results[\\/]task-1\.md/);
 			assert.match(byId.text, /latest task output/);
 			assert.doesNotMatch(byId.text, /summary output/);
 		} finally {

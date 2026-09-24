@@ -46,18 +46,25 @@ const skipIfNoUserns = (t: { skip: (msg: string) => void }) => {
 	if (!SANDBOX_EXEC_OK) t.skip("unshare -rn unavailable on this host — strict checks fail closed here by design (B4-g)");
 };
 const REAL_HOME = process.env.HOME;
+const REAL_USERPROFILE = process.env.USERPROFILE;
 
 function makeCwd(): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-specstrict-"));
 	fs.mkdirSync(path.join(dir, ".git")); // project-scoped root (bug-029 lesson)
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-spec-home-"));
 	process.env.HOME = home; // isolate the USER store
+	// win32: os.homedir() reads USERPROFILE, NOT HOME — without this the store
+	// below resolves to the machine's real ~/.pi/agent/specs (the isolation this
+	// file depends on), so set both spellings.
+	process.env.USERPROFILE = home;
 	return dir;
 }
 
 function cleanup(cwd: string): void {
 	if (REAL_HOME === undefined) delete process.env.HOME;
 	else process.env.HOME = REAL_HOME;
+	if (REAL_USERPROFILE === undefined) delete process.env.USERPROFILE;
+	else process.env.USERPROFILE = REAL_USERPROFILE;
 	fs.rmSync(cwd, { recursive: true, force: true });
 }
 
@@ -113,14 +120,26 @@ test("sandbox env: BASE_ALLOWLIST pattern MINUS credential keys — no provider 
 });
 
 test("sandbox env: result key-set is EXACTLY the non-credential selection + FORCE_COLOR (no resurrection, round-2)", () => {
-	const env = buildSpecSandboxEnv({ ...process.env, ANTHROPIC_API_KEY: "x", X_AUTHORIZATION: "y" } as unknown as NodeJS.ProcessEnv);
+	// Derive the expectation from the SAME env object the scrubber receives (not
+	// the ambient process.env): the selection is defined by that object's keys, so
+	// reading process.env made the two sides drift wherever the platform spells
+	// or provides vars differently (Windows: APPDATA/LOCALAPPDATA/ComSpec/
+	// SystemRoot/TEMP/TMP are real env vars; key CASE can differ from the
+	// allowlist spelling). Self-consistency keeps the assertion exact — it still
+	// forbids ANY key outside the scrubbed selection from appearing.
+	const input = { ...process.env, ANTHROPIC_API_KEY: "x", X_AUTHORIZATION: "y" } as unknown as NodeJS.ProcessEnv;
+	const env = buildSpecSandboxEnv(input);
 	const expected = new Set<string>();
 	for (const key of BASE_ALLOWLIST) {
 		if (/(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|_BEARER|^PI_CREW_BROKER)/i.test(key)) continue;
-		if (process.env[key] !== undefined) expected.add(key);
+		if (input[key] !== undefined) expected.add(key);
 	}
 	expected.add("FORCE_COLOR");
 	assert.deepEqual(new Set(Object.keys(env)), expected, "no key outside the scrubbed selection can ever appear");
+	// Security invariant, platform-independent: the two planted secrets never
+	// survive the scrub even though they were present in the input.
+	assert.equal(env.ANTHROPIC_API_KEY, undefined);
+	assert.equal(env.X_AUTHORIZATION, undefined);
 });
 
 test("sandbox env: scrubber RESULT is authoritative (round-1: merge-back resurrected scrubbed keys)", () => {

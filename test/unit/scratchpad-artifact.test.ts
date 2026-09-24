@@ -150,7 +150,12 @@ describe("scratchpad-artifact (T7 §10.3 / plan T7)", () => {
 			};
 			await flushScratchpadSnapshot(makeDeps(engine, ctx, { writeArtifact: spy }));
 			assert.equal(modeAtWriteTime.length, 1);
-			assert.equal(modeAtWriteTime[0], 0o600, "raw temp file must be owner-only before leaving tempDir");
+			// Windows has no POSIX permission bits (statSync reports 0o666 = 438, the
+			// CI failure) — the 0600 contract is POSIX-only. Guard only that
+			// assertion; the mode read + unlink assertions still run everywhere.
+			// Same precedent as test/unit/runtime/child-pi/child-pi-surface.test.ts.
+			if (process.platform !== "win32")
+				assert.equal(modeAtWriteTime[0], 0o600, "raw temp file must be owner-only before leaving tempDir");
 			assert.equal(fs.existsSync(ctx.snapshotPath), false);
 		} finally {
 			ctx.cleanup();

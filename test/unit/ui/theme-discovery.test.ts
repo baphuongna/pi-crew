@@ -44,6 +44,25 @@ function settingsFile(): string {
 	return path.join(tmpHome, ".pi", "agent", "settings.json");
 }
 
+/**
+ * Canonical comparison form for paths.
+ *
+ * theme-discovery builds paths by string concatenation (`${home}/.pi/...`),
+ * so on Windows they carry forward slashes while `path.join()` yields
+ * backslashes — and `os.tmpdir()`/HOME may be reported through the 8.3 short
+ * name (`C:\Users\RUNNER~1\...`) instead of the long name. realpath + separator
+ * folding makes both sides comparable without weakening the assertion.
+ */
+function normPath(p: string): string {
+	let out = p;
+	try {
+		out = fs.realpathSync(p);
+	} catch {
+		out = path.resolve(p);
+	}
+	return out.replace(/\\/g, "/");
+}
+
 function readSettings(): Record<string, unknown> {
 	return JSON.parse(fs.readFileSync(settingsFile(), "utf8")) as Record<string, unknown>;
 }
@@ -101,7 +120,7 @@ describe("M1-1 P0-1: theme discovery works under ESM", () => {
 			assert.ok(info, `${name} was not discovered`);
 			assert.equal(info.source, "custom", `${name} must be reported as a custom theme`);
 			assert.ok(
-				info.path?.startsWith(path.join(tmpHome, ".pi", "agent", "themes")),
+				info.path !== undefined && normPath(info.path).startsWith(normPath(path.join(tmpHome, ".pi", "agent", "themes"))),
 				`${name} path must live under the sandboxed HOME, got ${info.path}`,
 			);
 			assert.ok(info.mode === "dark" || info.mode === "light", `${name} mode must be derived from vars.bg`);
@@ -129,7 +148,7 @@ describe("M1-1 P0-1: theme discovery works under ESM", () => {
 	it("setPiTheme() writes settings.json inside the sandbox and does not throw", () => {
 		const written = setPiTheme("crew-tokyo-night");
 		assert.ok(written.startsWith(tmpHome), `setPiTheme() must write into the sandboxed HOME, got ${written} (tmpHome=${tmpHome})`);
-		assert.equal(written, settingsFile());
+		assert.equal(normPath(written), normPath(settingsFile()));
 		assert.ok(fs.existsSync(written), `settings.json was not created at ${written}`);
 		assert.equal(readSettings().theme, "crew-tokyo-night", "the theme key must be persisted");
 		// Merge, not clobber: unrelated settings survive the write.

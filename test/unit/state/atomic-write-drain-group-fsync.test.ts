@@ -112,11 +112,28 @@ function makeTempDir(label: string): string {
 	return fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), `pi-crew-t8-${label}-`));
 }
 
+/**
+ * Every test here asserts a PARENT-DIR fsync COUNT (0 before the drain, exactly
+ * 1 grouped after it). That contract is inexpressible on Windows:
+ *   - the product deliberately skips the parent-dir fsync there
+ *     (src/state/atomic-write.ts `fsyncPendingParentDirs` early-returns on
+ *     win32, and `fsyncParentDirImmediate` swallows the EPERM from
+ *     openSync(dir, "r")), and
+ *   - Windows cannot open a directory for fsync at all (EPERM/EISDIR).
+ * So the count is structurally 0 on win32: asserting "grouped to exactly one"
+ * against a 0-vs-0 comparison would pass vacuously. Skip with the reason
+ * instead (Linux + macOS still run and count, as before).
+ */
+const dirFsyncCountSkip =
+	process.platform === "win32"
+		? "parent-dir fsync is not expressible on Windows: the product skips it (src/state/atomic-write.ts fsyncPendingParentDirs early-returns on win32) and a directory cannot be opened for fsync there (EPERM/EISDIR), so the dir-fsync counts this file asserts are structurally 0"
+		: false;
+
 // ---------------------------------------------------------------------------
 // (a) THE grouping case: 4 coalesced files, one dir, one global drain
 // ---------------------------------------------------------------------------
 
-test("coalesced drain of 4 files in one dir → ONE parent-dir fsync, 4 data fsyncs, all content lands", () => {
+test("coalesced drain of 4 files in one dir → ONE parent-dir fsync, 4 data fsyncs, all content lands", { skip: dirFsyncCountSkip }, () => {
 	const stateDir = makeTempDir("drain");
 	const files = ["tasks.json", "manifest.json", "graph.json", "budget.json"].map((name) => path.join(stateDir, name));
 	const spy = makeDirFsyncSpy([stateDir]);
@@ -147,7 +164,7 @@ test("coalesced drain of 4 files in one dir → ONE parent-dir fsync, 4 data fsy
 // (b) single direct write — immediate dir fsync unchanged (no deferral leak)
 // ---------------------------------------------------------------------------
 
-test("direct atomicWriteJson keeps the immediate per-write parent-dir fsync", () => {
+test("direct atomicWriteJson keeps the immediate per-write parent-dir fsync", { skip: dirFsyncCountSkip }, () => {
 	const stateDir = makeTempDir("direct");
 	const spy = makeDirFsyncSpy([stateDir]);
 	try {
@@ -165,7 +182,7 @@ test("direct atomicWriteJson keeps the immediate per-write parent-dir fsync", ()
 // (c) two distinct dirs → one dir fsync PER DIR
 // ---------------------------------------------------------------------------
 
-test("coalesced drain across TWO dirs → one parent-dir fsync per distinct dir", () => {
+test("coalesced drain across TWO dirs → one parent-dir fsync per distinct dir", { skip: dirFsyncCountSkip }, () => {
 	const dirA = makeTempDir("two-a");
 	const dirB = makeTempDir("two-b");
 	const spy = makeDirFsyncSpy([dirA, dirB]);
@@ -194,7 +211,7 @@ test("coalesced drain across TWO dirs → one parent-dir fsync per distinct dir"
 // (d) liveness / no-leak guards
 // ---------------------------------------------------------------------------
 
-test("empty drain is a no-op; scoped flush stays immediate; post-drain writes are immediate again", () => {
+test("empty drain is a no-op; scoped flush stays immediate; post-drain writes are immediate again", { skip: dirFsyncCountSkip }, () => {
 	const stateDir = makeTempDir("liveness");
 	const spy = makeDirFsyncSpy([stateDir]);
 	try {
@@ -228,7 +245,7 @@ test("empty drain is a no-op; scoped flush stays immediate; post-drain writes ar
 // (e) mid-drain failure → the trailing dir fsync must not be skipped
 // ---------------------------------------------------------------------------
 
-test("a failed flush mid-drain does not skip the trailing dir fsync for already-renamed files", () => {
+test("a failed flush mid-drain does not skip the trailing dir fsync for already-renamed files", { skip: dirFsyncCountSkip }, () => {
 	const stateDir = makeTempDir("failure");
 	const good1 = path.join(stateDir, "good1.json");
 	const poison = path.join(stateDir, "poison.json");
@@ -286,7 +303,9 @@ test("a failed flush mid-drain does not skip the trailing dir fsync for already-
 	}
 });
 
-test("a contained write failure mid-drain still groups: other files land and the dir fsyncs exactly once", () => {
+test("a contained write failure mid-drain still groups: other files land and the dir fsyncs exactly once", {
+	skip: dirFsyncCountSkip,
+}, () => {
 	const stateDir = makeTempDir("contained");
 	const files = ["good1.json", "poison.json", "good2.json", "good3.json"].map((name) => path.join(stateDir, name));
 	const poison = files[1];

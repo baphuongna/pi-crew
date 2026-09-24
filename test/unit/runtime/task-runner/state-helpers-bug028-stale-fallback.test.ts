@@ -31,6 +31,7 @@ import { createRunManifest, loadRunManifestById, saveRunTasks } from "../../../.
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
+import { resolveCanonicalDir } from "../../../fixtures/test-tempdir.ts";
 
 const team: TeamConfig = {
 	name: "default",
@@ -51,7 +52,17 @@ const workflow: WorkflowConfig = {
 function makeTempDir(prefix: string): string {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 	fs.mkdirSync(path.join(dir, ".git"), { recursive: true });
-	return dir;
+	// Canonicalize to long-name form (realpathSync.native), the same thing
+	// createTrackedTempDir/resolveCanonicalDir do for exactly this reason: on
+	// Windows os.tmpdir() is the 8.3 SHORT path (…\RUNNER~1\…), and
+	// projectCrewRoot() returns an UNCANONICALIZED root while .crew/ is missing
+	// but a CANONICALIZED one once it exists — so a short-name cwd makes
+	// createRunManifest's stored stateRoot/tasksPath diverge from every later
+	// loadRunManifestById resolution and validateRunManifestPaths rejects the
+	// run (Windows CI: "tasks.json must exist after persist"). Using a canonical
+	// cwd keeps run identity stable, which is the precondition this test needs
+	// to exercise the bug-028 contract at all.
+	return resolveCanonicalDir(dir);
 }
 
 function withIsolatedHome<T>(fn: () => T): T {

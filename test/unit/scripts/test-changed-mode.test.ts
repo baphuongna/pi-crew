@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -136,6 +136,22 @@ function stubArgs(stdout: string): string[] | null {
 	return line ? (JSON.parse(line.slice("STUB-RUNNER-ARGS:".length)) as string[]) : null;
 }
 
+/**
+ * Repo-relative, forward-slash form of a selected test path.
+ *
+ * `path.join`/`path.relative` are separator- and form-aware, unlike a literal
+ * `${dir}/` prefix strip (which never matches on Windows: `\` separators, and
+ * os.tmpdir() may report the 8.3 short name while the script resolves the long
+ * name). Normalizing both sides keeps the assertion about WHICH test was
+ * selected, not about path spelling.
+ */
+function relTests(args: string[], dir: string): string[] {
+	return args
+		.filter((a) => a.endsWith(".test.ts"))
+		.map((a) => (isAbsolute(a) ? relative(dir, a) : a).split(sep).join("/"))
+		.sort();
+}
+
 // ---------------------------------------------------------------------------
 // Local mode — staged / unstaged / untracked must be VISIBLE
 // ---------------------------------------------------------------------------
@@ -148,7 +164,7 @@ test("F18/AC-8: local mode sees an UNSTAGED src edit and runs its mapped test", 
 	assert.doesNotMatch(res.stdout, /none \(clean tree\?\)/, `an unstaged edit must not read as a clean tree. stdout: ${res.stdout}`);
 	const args = stubArgs(res.stdout);
 	assert.ok(args, `the wrapper must have run. stdout: ${res.stdout}`);
-	const files = args.filter((a) => a.endsWith(".test.ts")).map((a) => a.replace(`${dir}/`, ""));
+	const files = relTests(args, dir);
 	assert.ok(files.includes("test/unit/foo.test.ts"), `must run the test mapped from src/foo.ts. Got: ${JSON.stringify(files)}`);
 });
 
@@ -161,7 +177,7 @@ test("F18/AC-9: local mode sees a STAGED src edit and runs its mapped test", () 
 	assert.doesNotMatch(res.stdout, /none \(clean tree\?\)/, `a staged edit must not read as a clean tree. stdout: ${res.stdout}`);
 	const args = stubArgs(res.stdout);
 	assert.ok(args, `the wrapper must have run. stdout: ${res.stdout}`);
-	const files = args.filter((a) => a.endsWith(".test.ts")).map((a) => a.replace(`${dir}/`, ""));
+	const files = relTests(args, dir);
 	assert.ok(files.includes("test/unit/bar.test.ts"), `must run the test mapped from src/bar.ts. Got: ${JSON.stringify(files)}`);
 });
 
@@ -173,7 +189,7 @@ test("F18/AC-10: local mode runs a brand-NEW (untracked) test file directly", ()
 	const res = runScript(dir);
 	const args = stubArgs(res.stdout);
 	assert.ok(args, `the wrapper must have run. stdout: ${res.stdout}`);
-	const files = args.filter((a) => a.endsWith(".test.ts")).map((a) => a.replace(`${dir}/`, ""));
+	const files = relTests(args, dir);
 	assert.ok(
 		files.includes("test/unit/brand-new.test.ts"),
 		`an untracked test file must be run because it CHANGED. Got: ${JSON.stringify(files)}`,
@@ -189,7 +205,7 @@ test("F18/AC-11: local mode runs a CHANGED test file directly (was: no test ran 
 	const res = runScript(dir);
 	const args = stubArgs(res.stdout);
 	assert.ok(args, `the wrapper must have run. stdout: ${res.stdout}`);
-	const files = args.filter((a) => a.endsWith(".test.ts")).map((a) => a.replace(`${dir}/`, ""));
+	const files = relTests(args, dir);
 	assert.ok(files.includes("test/unit/foo.test.ts"), `the changed test file must run. Got: ${JSON.stringify(files)}`);
 	assert.ok(
 		!files.includes("test/unit/critical-a.test.ts"),
@@ -213,7 +229,7 @@ test("F18/AC-12: branch/CI mode still uses the committed range (merge-base..HEAD
 	const res = runScript(dir, { CI: "true" });
 	const args = stubArgs(res.stdout);
 	assert.ok(args, `the wrapper must have run. stdout: ${res.stdout}`);
-	const files = args.filter((a) => a.endsWith(".test.ts")).map((a) => a.replace(`${dir}/`, ""));
+	const files = relTests(args, dir);
 	assert.ok(files.includes("test/unit/foo.test.ts"), `committed change must be selected. Got: ${JSON.stringify(files)}`);
 	// Branch mode deliberately ignores the working tree: the uncommitted bar edit
 	// must NOT pull in bar.test.ts. (That is the documented branch-mode contract.)
@@ -229,7 +245,7 @@ test("F18: TEST_CHANGED_REF keeps working as an explicit diff base", () => {
 	const res = runScript(dir, { TEST_CHANGED_REF: "HEAD~1" });
 	const args = stubArgs(res.stdout);
 	assert.ok(args, `the wrapper must have run. stdout: ${res.stdout}`);
-	const files = args.filter((a) => a.endsWith(".test.ts")).map((a) => a.replace(`${dir}/`, ""));
+	const files = relTests(args, dir);
 	assert.ok(files.includes("test/unit/foo.test.ts"), `TEST_CHANGED_REF=HEAD~1 must see the commit. Got: ${JSON.stringify(files)}`);
 });
 
@@ -248,7 +264,7 @@ test("F18/AC-13: the fallback runs the REAL test:critical gate, not 3 hand-copie
 	// The fixture's test:critical lists 3 files; the pre-fix fallback hard-coded a
 	// DIFFERENT 3 broker paths that do not exist here. Assert the selected set is
 	// exactly what package.json declares.
-	const files = args.filter((a) => a.endsWith(".test.ts")).map((a) => a.replace(`${dir}/`, ""));
+	const files = relTests(args, dir);
 	assert.deepEqual(
 		files.sort(),
 		["test/unit/critical-a.test.ts", "test/unit/critical-b.test.ts", "test/unit/critical-c.test.ts"],

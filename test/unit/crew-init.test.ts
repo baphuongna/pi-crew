@@ -370,7 +370,10 @@ test("ensureCrewDirectory survives a corrupted `path` namespace binding (issue #
 	);
 	// Use a real temp directory; with the inline helpers, the stub `path`
 	// should never be called and the loop should walk up to the .git marker.
-	const realProject = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-jiti-race-test-"));
+	// Canonicalize the expectation: findProjectRoot realpaths the start before
+	// walking (RR-020 boundary parity), so on macOS `/var/folders/...` comes back
+	// as `/private/var/folders/...` and the lexical mkdtemp path never matches.
+	const realProject = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-jiti-race-test-")));
 	fs.mkdirSync(path.join(realProject, ".git"), { recursive: true });
 	const nested = path.join(realProject, "a", "b", "c", "d");
 	fs.mkdirSync(nested, { recursive: true });

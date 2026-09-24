@@ -31,6 +31,7 @@ import { __test__setHandleTeamTool, registerTeamCommands } from "../../../../../
 import { createRunManifest } from "../../../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../../../../src/workflows/workflow-config.ts";
+import { resolveCanonicalDir } from "../../../../fixtures/test-tempdir.ts";
 
 type Handler = (args: string, ctx: never) => Promise<void>;
 
@@ -84,7 +85,11 @@ function stubTeamToolText(text: string): void {
 
 /** Temp dir with a `.git` marker so createRunManifest keeps state inside <dir>/.crew (project scope). */
 function makeProjectDir(): string {
-	const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "pi-crew-command-hints-"));
+	// Canonical long-name form (see resolveCanonicalDir): projectCrewRoot()
+	// returns an uncanonicalized root while .crew is missing but a canonicalized
+	// one once it exists, so a short-name/lexical cwd makes the manifest's stored
+	// stateRoot diverge from every later loadRunManifestById resolution.
+	const dir = resolveCanonicalDir(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "pi-crew-command-hints-")));
 	fs.mkdirSync(path.join(dir, ".git"), { recursive: true });
 	return dir;
 }

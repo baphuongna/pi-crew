@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildTeamDoctorReport } from "../../../../src/extension/team-tool/doctor.ts";
+import { resolveCanonicalDir } from "../../../fixtures/test-tempdir.ts";
 
 interface FixtureTask {
 	id: string;
@@ -27,7 +28,7 @@ function writeFixtureRun(cwd: string, runId: string, tasks: FixtureTask[]): void
 }
 
 test("doctor Filesystem section reports fs failureCause count + last occurrence", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-fs-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-fs-")));
 	try {
 		writeFixtureRun(cwd, "team_fixture_older", [
 			{ id: "t1", status: "completed" },
@@ -57,7 +58,7 @@ test("doctor Filesystem section reports fs failureCause count + last occurrence"
 });
 
 test("doctor fs failure causes line reports none when no fixture failures exist", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-fs-none-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-fs-none-")));
 	try {
 		writeFixtureRun(cwd, "team_fixture_clean", [{ id: "t1", status: "completed" }]);
 		const report = buildTeamDoctorReport({
@@ -77,8 +78,13 @@ test("doctor fs failure causes line reports none when no fixture failures exist"
 });
 
 test("doctor fs failure causes line tolerates a missing runs root", () => {
-	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-fs-missing-"));
+	const cwd = resolveCanonicalDir(fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-doctor-fs-missing-")));
 	try {
+		// A project marker so projectCrewRoot(cwd) resolves to <cwd>/.crew on EVERY
+		// platform. Without it the resolver falls back to the user root, which is
+		// machine-dependent (on Windows the home/temp boundary stop can be bypassed
+		// and the real ~/.pi/teams is scanned instead — see the report).
+		fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
 		const report = buildTeamDoctorReport({
 			cwd,
 			configPath: path.join(cwd, "pi-crew-config.json"),

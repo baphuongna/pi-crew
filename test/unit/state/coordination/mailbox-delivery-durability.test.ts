@@ -107,11 +107,24 @@ function spyFsyncsUnder(underDir: string): { fsyncs(): number; restore(): void }
 	};
 }
 
+/**
+ * The spy resolves an fsync fd back to a path via `/proc/self/fd` — a
+ * Linux-only pseudo-filesystem (macOS exposes `/dev/fd`, Windows neither).
+ * Every lookup throws there, the counter stays 0 and the liveness guard fires
+ * (`afterInit > 0` / `afterAck > afterAppend`) — observed on BOTH the macOS CI
+ * runner (CI 33463597499) and Windows (CI job 107534097638). Skipping is
+ * honest: the durability CONTRACT is platform-independent, only this
+ * instrument is not. A portable fd→path attribution (the `openSync` tracking
+ * used by atomic-write-drain-group-fsync.test.ts) would let these run
+ * everywhere — that is a bigger change than this portability fix.
+ */
+const fsyncSpySkip =
+	process.platform === "linux"
+		? false
+		: `spy resolves fsync fds via /proc/self/fd (Linux-only; ${process.platform} has no /proc), so the fd→path attribution always fails, the counter stays 0 and the liveness guard fires. Needs a portable instrumentation before this can assert on ${process.platform}.`;
+
 test("appendMailboxMessage delivery write is best-effort by default (0 fsyncs on a pure delivery append)", {
-	skip:
-		process.platform === "darwin"
-			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
-			: undefined,
+	skip: fsyncSpySkip,
 }, (t) => {
 	const { dir, manifest } = setupMailboxWorkspace();
 	const deliveryFile = deliveryFileOf(manifest);
@@ -154,10 +167,7 @@ test("appendMailboxMessage delivery write is best-effort by default (0 fsyncs on
 });
 
 test("explicit full durability stays full — the terminal acknowledge path keeps its fsyncs", {
-	skip:
-		process.platform === "darwin"
-			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
-			: undefined,
+	skip: fsyncSpySkip,
 }, (t) => {
 	const { dir, manifest } = setupMailboxWorkspace();
 	const deliveryFile = deliveryFileOf(manifest);
@@ -194,10 +204,7 @@ test("explicit full durability stays full — the terminal acknowledge path keep
 });
 
 test("appendMailboxMessageAsync delivery write is best-effort too (mirror of the sync twin)", {
-	skip:
-		process.platform === "darwin"
-			? "spy instrument (CJS-default-swap + module.syncBuiltinESMExports) counts 0 on the macOS CI runner (same Node v22.23.1 passes on Linux/Windows — CI 33463597499); the liveness guard fires. Needs a portable instrumentation before this can assert on darwin."
-			: undefined,
+	skip: fsyncSpySkip,
 }, async () => {
 	const { dir, manifest } = setupMailboxWorkspace();
 	const spy = spyFsyncsUnder(manifest.stateRoot);

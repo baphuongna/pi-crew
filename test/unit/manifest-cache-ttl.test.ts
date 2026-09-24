@@ -198,23 +198,38 @@ function spyFsForRoots(roots: string[]): FsSpy {
 	// macOS: os.tmpdir() is /var/folders/… but realpath (and the cache, which
 	// canonicalizes via realpathSync.native — same helper it uses for run-root
 	// identity, manifest-cache.ts:91) resolves to /private/var/folders/….
-	// A spy matching only the raw tmpdir prefix sees ZERO stats on macOS CI
-	// and the liveness assertion fires ("warm scan must stat each manifest
-	// got 0" — run 33462332100). Match BOTH spellings of each root.
-	// Roots may not exist yet when the spy is installed (runs dir is created
-	// lazily by the first createRunManifest) — realpath the EXISTING ancestor
-	// (.crew always exists — makeTempProject mkdirs it) and re-join the missing
-	// tail, giving the canonical spelling the cache will use once the dir
-	// appears. Falls back to the raw root when even the parent is missing.
-	const realRoots = roots.map((r) => {
-		const parent = path.dirname(r);
-		const tail = path.basename(r);
-		try {
-			return path.join(fsDefault.realpathSync.native(parent), tail);
-		} catch {
-			return r;
+	// Windows: os.tmpdir() is the 8.3 SHORT name (…\RUNNER~1\AppData\Local\Temp)
+	// while realpathSync.native returns the LONG name (…\runneradmin\…), so the
+	// cache stats/readdirs long-name paths.
+	// A spy matching only the raw tmpdir prefix sees ZERO stats on those runners
+	// (macOS CI run 33462332100 "warm scan must stat each manifest got 0"; Windows
+	// CI job 107534097661 the same) — the liveness assertion fires.
+	// Match BOTH spellings of each root. Roots may not exist yet when the spy is
+	// installed (the runs dir is created lazily by the first createRunManifest),
+	// so canonicalize the DEEPEST EXISTING ancestor (cwd/.crew always exists —
+	// makeTempProject mkdirs it) and re-join the missing tail; realpathing the
+	// immediate parent alone throws and silently falls back to the raw root,
+	// which is exactly the bug. Falls back to the raw root when nothing exists.
+	const canonicalizeRoot = (target: string): string => {
+		const missingTail: string[] = [];
+		let probe = target;
+		for (;;) {
+			try {
+				const real = fsDefault.realpathSync.native(probe);
+				// realpathSync.native returns the \\?\ extended-length prefix on
+				// Windows; the product strips it (paths.ts canonicalizePath), so the
+				// cache's root never carries it — strip it here to match.
+				const clean = real.startsWith("\\\\?\\") ? real.slice(4) : real;
+				return missingTail.length > 0 ? path.join(clean, ...missingTail.reverse()) : clean;
+			} catch {
+				const parent = path.dirname(probe);
+				if (parent === probe) return target;
+				missingTail.push(path.basename(probe));
+				probe = parent;
+			}
 		}
-	});
+	};
+	const realRoots = roots.map(canonicalizeRoot);
 	const allRoots = [...new Set([...roots, ...realRoots])];
 	const underRoots = (p: string) => allRoots.some((root) => p === root || p.startsWith(`${root}${path.sep}`));
 	fsDefault.statSync = (...args: unknown[]) => {

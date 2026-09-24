@@ -491,7 +491,12 @@ test("F07: inode replacement (rotation) is detected even when the size grows bac
 		seedEvents(manifest, "task-1", 100);
 		const primed = readCrewAgentEventsCursor(manifest, "task-1", { sinceSeq: 100 });
 		assert.deepEqual(primed.events, []);
-		const primedState = __test__agentEventsCursorState(eventsPath);
+		// The cache is keyed by the CANONICAL file path the reader resolved
+		// (safeExistingAgentFile → realpath), not the raw stateRoot-joined path. On
+		// macOS os.tmpdir() is a symlink (/var → /private/var) so the two differ and
+		// a raw-path lookup finds nothing (macOS CI: "the watermark is cached").
+		// primed.path is exactly the key the reader used — no re-derivation needed.
+		const primedState = __test__agentEventsCursorState(primed.path);
 		assert.ok(primedState, "the watermark is cached");
 
 		// Replace the file: write a NEW, longer history to a temp path and rename

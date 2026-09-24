@@ -2,17 +2,21 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 // @ts-nocheck — runtime-only test loading the untyped shipped bundle (dist/index.mjs).
 
+// NOTE: must be a file:// URL — on Windows a bare `D:\...` path is parsed as
+// protocol `d:` and rejected by the ESM loader.
 const BUNDLE = path.resolve(process.cwd(), "dist/index.mjs");
+const BUNDLE_URL = pathToFileURL(BUNDLE).href;
 
 test("shipped bundle resolves default skills correctly", async () => {
 	if (!fs.existsSync(BUNDLE)) {
 		assert.fail(`${BUNDLE} not built — run \`npm run build:bundle\` first`);
 	}
 
-	const mod = (await import(BUNDLE)) as Record<string, unknown>;
+	const mod = (await import(BUNDLE_URL)) as Record<string, unknown>;
 	const checkFn = mod.runPostInitSkillCheck as (
 		cwd: string,
 	) => Promise<{ total: number; resolved: number; missing: string[]; severity: string; message: string }>;

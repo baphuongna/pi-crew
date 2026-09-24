@@ -159,7 +159,9 @@ test("boundary: a MARKERLESS cwd under $HOME must not resolve to $HOME (bug-029 
 		fs.mkdirSync(ws, { recursive: true });
 
 		const prevHome = process.env.HOME;
+		const prevProfile = process.env.USERPROFILE;
 		process.env.HOME = realHome; // POSIX os.homedir() honours $HOME
+		process.env.USERPROFILE = realHome; // win32 os.homedir() honours USERPROFILE
 		try {
 			clearProjectRootCache();
 			// paths.ts: boundary stop ⇒ no repo root ⇒ cwd fallback ⇒ <ws>/.crew
@@ -174,6 +176,8 @@ test("boundary: a MARKERLESS cwd under $HOME must not resolve to $HOME (bug-029 
 		} finally {
 			if (prevHome === undefined) delete process.env.HOME;
 			else process.env.HOME = prevHome;
+			if (prevProfile === undefined) delete process.env.USERPROFILE;
+			else process.env.USERPROFILE = prevProfile;
 		}
 	} finally {
 		fs.rmSync(parent, { recursive: true, force: true });
@@ -190,7 +194,9 @@ test("boundary: markers BELOW $HOME still win (boundary stops the walk, not legi
 		fs.mkdirSync(path.join(proj, ".git"));
 
 		const prevHome = process.env.HOME;
+		const prevProfile = process.env.USERPROFILE;
 		process.env.HOME = realHome;
+		process.env.USERPROFILE = realHome; // win32 os.homedir() honours USERPROFILE
 		try {
 			clearProjectRootCache();
 			assert.equal(findProjectRoot(proj), proj, "repo root found below $HOME");
@@ -198,6 +204,8 @@ test("boundary: markers BELOW $HOME still win (boundary stops the walk, not legi
 		} finally {
 			if (prevHome === undefined) delete process.env.HOME;
 			else process.env.HOME = prevHome;
+			if (prevProfile === undefined) delete process.env.USERPROFILE;
+			else process.env.USERPROFILE = prevProfile;
 		}
 	} finally {
 		fs.rmSync(parent, { recursive: true, force: true });
