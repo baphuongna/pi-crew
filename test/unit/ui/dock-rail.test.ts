@@ -379,7 +379,7 @@ function sidebarRun(records: (manifest: ReturnType<typeof createRunManifest>["ma
 	const cwd = createTrackedTempDir("pi-crew-dock-rail-sidebar-");
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	const { manifest, tasks } = createRunManifest({ cwd, team: sidebarTeam, workflow: sidebarWorkflow, goal: "sidebar rail" });
-	saveRunManifest({ ...manifest, status: "running"  }, { allowTerminalExit: true });
+	saveRunManifest({ ...manifest, status: "running" }, { allowTerminalExit: true });
 	const updated = tasks.map((task) =>
 		task.id === "01_explore"
 			? { ...task, status: "running" as const, startedAt: T0.toISOString(), usage: { input: 10, output: 5 } }

@@ -290,6 +290,7 @@ export function createWebhookNotifier(options: WebhookNotifyOptions, deps: Webho
 				// Always release the body — undici pins the socket until the body
 				// is drained/cancelled (default bodyTimeout ~300s), which a
 				// slow-trickle endpoint would exploit across fire-and-forget calls.
+				// biome-ignore lint/suspicious/noEmptyBlockStatements: intentional fire-and-forget — the cancel() rejection has nothing left to act on.
 				void response.body?.cancel?.().catch(() => {});
 				if (response.ok) return;
 				// 3xx under redirect:"manual" = a redirect we REFUSE to follow

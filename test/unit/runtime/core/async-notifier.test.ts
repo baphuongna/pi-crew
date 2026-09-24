@@ -47,7 +47,7 @@ test("async notifier reports pre-existing active runs that finish after notifier
 			workflow,
 			goal: "pre-existing",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		startAsyncRunNotifier(
 			{
 				cwd,
@@ -88,7 +88,7 @@ test("async notifier reports run completed across session restart", async () => 
 			workflow,
 			goal: "compaction restart",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		startAsyncRunNotifier(
 			{
 				cwd,
@@ -284,7 +284,7 @@ test("async notifier still toasts runs owned by the current session", async () =
 	const state: AsyncNotifierState = { seenFinishedRunIds: new Set() };
 	try {
 		const created = createRunManifest({ cwd, team, workflow, goal: "own session" });
-		saveRunManifest({ ...created.manifest, status: "running", ownerSessionId: "session-B"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running", ownerSessionId: "session-B" }, { allowTerminalExit: true });
 		startAsyncRunNotifier(
 			{
 				cwd,

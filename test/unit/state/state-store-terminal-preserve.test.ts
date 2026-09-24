@@ -28,7 +28,13 @@ function fixture(prefix: string) {
 }
 
 function makeTeam() {
-	return { name: "fast-fix", description: "", roles: [{ name: "executor", agent: "executor" }], source: "test", filePath: "builtin" } as never;
+	return {
+		name: "fast-fix",
+		description: "",
+		roles: [{ name: "executor", agent: "executor" }],
+		source: "test",
+		filePath: "builtin",
+	} as never;
 }
 function makeWorkflow() {
 	return { name: "fast-fix", description: "", source: "test", filePath: "builtin", steps: [] } as never;

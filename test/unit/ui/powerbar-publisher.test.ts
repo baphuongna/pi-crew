@@ -44,7 +44,7 @@ test("powerbar publisher registers and updates active crew segments", () => {
 			workflow,
 			goal: "powerbar",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -106,7 +106,7 @@ test("powerbar progress uses task totals and respects model/token visibility", (
 			workflow,
 			goal: "powerbar",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		const tasks = created.tasks.map(
 			(task, index): TeamTaskState => ({
 				...task,
@@ -203,7 +203,7 @@ test("powerbar mirrors status when no powerbar consumer is registered", () => {
 			workflow,
 			goal: "powerbar fallback",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -272,7 +272,7 @@ test("powerbar skips status fallback when a powerbar consumer is registered", ()
 			workflow,
 			goal: "powerbar consumer",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -334,7 +334,7 @@ test("powerbar active segment includes notification badge", () => {
 			workflow,
 			goal: "powerbar badge",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,
@@ -578,7 +578,7 @@ test("powerbar dedups per-segment when payload unchanged across renders (1.8)", 
 			workflow,
 			goal: "powerbar dedup",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		const tasks = created.tasks.map(
 			(t, idx): TeamTaskState => ({
 				...t,
@@ -679,7 +679,7 @@ test("powerbar plan segment shows plan:pending only while approval is pending (W
 			workflow,
 			goal: "powerbar plan",
 		});
-		saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 		saveCrewAgents(created.manifest, [
 			{
 				id: `${created.manifest.runId}:01`,

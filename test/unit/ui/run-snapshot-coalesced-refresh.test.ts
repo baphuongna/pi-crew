@@ -73,7 +73,7 @@ function fixtures(cwd: string): {
 		workflow,
 		goal: "coalesced-refresh",
 	});
-	saveRunManifest({ ...created.manifest, status: "running"  }, { allowTerminalExit: true });
+	saveRunManifest({ ...created.manifest, status: "running" }, { allowTerminalExit: true });
 	saveCrewAgents(created.manifest, [
 		{
 			id: `${created.manifest.runId}:01`,

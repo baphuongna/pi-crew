@@ -3,13 +3,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { createRunManifest, saveRunManifest, saveRunTasks, updateRunStatus } from "../../../src/state/stores/state-store.ts";
 import { externalTerminalDecision } from "../../../src/runtime/team-runner.ts";
+import { createRunManifest, saveRunManifest, saveRunTasks, updateRunStatus } from "../../../src/state/stores/state-store.ts";
 
 type SchedulerCtx = Parameters<typeof externalTerminalDecision>[0];
 
 function makeTeam() {
-	return { name: "fast-fix", description: "", roles: [{ name: "executor", agent: "executor" }], source: "test", filePath: "builtin" } as never;
+	return {
+		name: "fast-fix",
+		description: "",
+		roles: [{ name: "executor", agent: "executor" }],
+		source: "test",
+		filePath: "builtin",
+	} as never;
 }
 function makeWorkflow() {
 	return { name: "fast-fix", description: "", source: "test", filePath: "builtin", steps: [] } as never;
@@ -92,7 +98,10 @@ describe("externalTerminalDecision (finding 8: external cancel vs scheduler loop
 			const staleTasks = tasks.map((t) => ({ ...t, status: "queued" as const }));
 			const decision = externalTerminalDecision(makeCtx(cwd, manifest, staleTasks));
 			assert.ok(decision && decision.kind === "return");
-			assert.ok(decision.result.tasks.every((t) => t.status === "cancelled"), "on-disk cancelled tasks win over stale queued view");
+			assert.ok(
+				decision.result.tasks.every((t) => t.status === "cancelled"),
+				"on-disk cancelled tasks win over stale queued view",
+			);
 		} finally {
 			fs.rmSync(cwd, { recursive: true, force: true });
 		}
@@ -104,9 +113,9 @@ describe("externalTerminalDecision (finding 8: external cancel vs scheduler loop
 			try {
 				fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 				const { manifest } = createRunManifest({ cwd, team: makeTeam(), workflow: makeWorkflow(), goal: `f8 ${status}` });
-			// updateRunStatus's state machine refuses running→completed/failed here —
-			// but an EXTERNAL writer can put ANY status on disk; simulate that directly.
-			saveRunManifest({ ...manifest, status });
+				// updateRunStatus's state machine refuses running→completed/failed here —
+				// but an EXTERNAL writer can put ANY status on disk; simulate that directly.
+				saveRunManifest({ ...manifest, status });
 				const decision = externalTerminalDecision(makeCtx(cwd, manifest, []));
 				assert.ok(decision && decision.kind === "return", `${status} must stop the loop`);
 			} finally {

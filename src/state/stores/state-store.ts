@@ -561,10 +561,7 @@ export function saveRunManifest(manifest: TeamRunManifest, options?: { allowTerm
 	return effective;
 }
 
-export async function saveRunManifestAsync(
-	manifest: TeamRunManifest,
-	options?: { allowTerminalExit?: boolean },
-): Promise<TeamRunManifest> {
+export async function saveRunManifestAsync(manifest: TeamRunManifest, options?: { allowTerminalExit?: boolean }): Promise<TeamRunManifest> {
 	// FIX: Capture cached tasks array + mtime/size BEFORE invalidating, same
 	// rationale as the sync saveRunManifest above. The async path previously
 	// always set tasks: [] with mtime/size 0, so any cache hit was guaranteed
@@ -866,10 +863,7 @@ const DISK_TERMINAL_STATUSES: ReadonlySet<TeamRunManifest["status"]> = new Set([
  * just completed — pinned by resume-cancel.test.ts) are LEGITIMATE and pass
  * through; they are governed by canTransitionRunStatus at the updateRunStatus
  * layer. Returns the effective manifest to persist. */
-function preserveDiskTerminalStatus(
-	manifest: TeamRunManifest,
-	allowTerminalExit: boolean | undefined,
-): TeamRunManifest {
+function preserveDiskTerminalStatus(manifest: TeamRunManifest, allowTerminalExit: boolean | undefined): TeamRunManifest {
 	if (allowTerminalExit) return manifest;
 	// Terminal→terminal re-decisions pass through (governed by
 	// canTransitionRunStatus at the updateRunStatus layer); the guard applies

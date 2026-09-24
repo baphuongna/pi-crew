@@ -78,10 +78,7 @@ async function createParkedRun(heartbeat: WorkerHeartbeatState, deadlineOffsetMs
 	// Finding 8 write guard (2026-09-23): a REAL parked run has a non-terminal
 	// manifest (running/blocked). The scaffold fixture left it "completed" and
 	// previously rode the lax raw-write behavior; resurrect it explicitly.
-	saveRunManifest(
-		{ ...loaded!.manifest, status: "running", updatedAt: new Date().toISOString() },
-		{ allowTerminalExit: true },
-	);
+	saveRunManifest({ ...loaded!.manifest, status: "running", updatedAt: new Date().toISOString() }, { allowTerminalExit: true });
 	return { cwd, runId: runId!, taskId: task.id, questionId };
 }
 

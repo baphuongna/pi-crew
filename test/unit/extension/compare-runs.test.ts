@@ -179,7 +179,7 @@ test("US-021 AC-4/AC-5: handleCompare — missing id errors with no partial arti
 	try {
 		const missing = handleCompare({ action: "compare", runIds: [a.manifest.runId, "team_us021_missing"] }, ctx);
 		assert.equal(missing.isError, true);
-		const missingText = missing.content && missing.content[0];
+		const missingText = missing.content?.[0];
 		assert.match((missingText as { text?: string } | undefined)?.text ?? "", /team_us021_missing' not found/);
 		assert.equal(fs.existsSync(path.join(a.manifest.artifactsRoot, "compare")), false, "no partial artifact on missing id");
 

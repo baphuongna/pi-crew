@@ -339,8 +339,8 @@ test("async notifier wiring: terminal transition fires the webhook once (blocked
 	try {
 		const completed = createRunManifest({ cwd, team, workflow, goal: "wiring test completed" });
 		const blocked = createRunManifest({ cwd, team, workflow, goal: "wiring test blocked" });
-		saveRunManifest({ ...completed.manifest, status: "running"  }, { allowTerminalExit: true });
-		saveRunManifest({ ...blocked.manifest, status: "running"  }, { allowTerminalExit: true });
+		saveRunManifest({ ...completed.manifest, status: "running" }, { allowTerminalExit: true });
+		saveRunManifest({ ...blocked.manifest, status: "running" }, { allowTerminalExit: true });
 		startAsyncRunNotifier(
 			{
 				cwd,
@@ -443,7 +443,7 @@ test("SECURITY LOW: team-settings get never echoes webhook secret (sensitive-pat
 			"../../../src/extension/team-tool/handle-settings.ts"
 		)) as typeof import("../../../src/extension/team-tool/handle-settings.ts");
 		const get = handleSettings({ config: { args: "get notifications.webhook.secret" } }, { cwd: home });
-		const text = (get.content?.[0] as { text?: string }).text ?? "";
+		const text = ((get.content ?? [])[0] as { text?: string } | undefined)?.text ?? "";
 		assert.ok(text.includes("***(redacted"), `secret must be redacted, got: ${text}`);
 		assert.ok(!text.includes("supersecret"), "the secret value must never appear in tool output");
 	} finally {

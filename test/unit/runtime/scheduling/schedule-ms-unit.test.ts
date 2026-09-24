@@ -13,6 +13,7 @@ import { CrewScheduler, nextRunTime, parseSchedule } from "../../../../src/runti
  * ms number).
  */
 
+// biome-ignore lint/suspicious/noTemplateCurlyInString: the `${interval}ms` is documentation of the format under test, not an interpolation
 test("parseSchedule accepts the ms unit (handle-schedule's `${interval}ms` round-trip)", () => {
 	const r = parseSchedule("3600000ms");
 	assert.ok(!("error" in r), `must parse, got error: ${("error" in r && r.error) || ""}`);
