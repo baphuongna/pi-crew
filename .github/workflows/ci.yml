@@ -53,6 +53,12 @@ jobs:
         # glob expansion (union of shards == full suite, asserted by
         # test/unit/scripts/shard-partition.test.ts). Concurrency 2 = the
         # deliberate cross-platform clamp (see scripts/test-runner.mjs).
+        # Spawn budget 1800s (25→30 min, 2026-09-24): a starved windows-latest
+        # runner hit the 1500s ETIMEDOUT with zero test failures (run 36026082690,
+        # 111 ok then spawn wall). 30 min + ~3 min setup still fits the 40-min
+        # job timeout.
+        env:
+          PI_CREW_TEST_RUNNER_TIMEOUT_MS: 1800000
         run: node scripts/test-runner.mjs --shard=${{ matrix.shard }}/4 --test-concurrency=2 'test/unit/**/*.test.ts'
 
   # DP-03: single aggregate check for branch protection — replaces the old
