@@ -60,8 +60,17 @@ test("loadConfig accepts taskTimeoutMs up to 24h and drops beyond (RT-NEW-1)", (
 		assert.equal(loaded.config.runtime?.taskTimeoutMs, 300_000, "5-minute taskTimeoutMs must parse (RT-NEW-1)");
 
 		// Values above the 24h ceiling are still dropped (sanity guard preserved).
-		fs.writeFileSync(filePath, JSON.stringify({ runtime: { taskTimeoutMs: 25 * 60 * 60 * 1000 } }, null, 2), "utf-8");
+		// Use a FRESH home for the over-ceiling probe: rewriting the same file
+		// immediately can hit the config cache's mtime granularity on Windows
+		// (live CI: the second load saw the first config) — different home,
+		// different cache key, no race.
+		const home2 = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-tasktimeout-over-"));
+		process.env.PI_TEAMS_HOME = home2;
+		const filePath2 = configPath();
+		fs.mkdirSync(path.dirname(filePath2), { recursive: true });
+		fs.writeFileSync(filePath2, JSON.stringify({ runtime: { taskTimeoutMs: 25 * 60 * 60 * 1000 } }, null, 2), "utf-8");
 		const overCeiling = loadConfig();
+		fs.rmSync(home2, { recursive: true, force: true });
 		assert.equal(overCeiling.config.runtime?.taskTimeoutMs, undefined, "taskTimeoutMs above 24h ceiling must be dropped");
 	} finally {
 		if (previousHome === undefined) delete process.env.PI_TEAMS_HOME;

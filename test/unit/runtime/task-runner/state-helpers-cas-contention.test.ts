@@ -229,7 +229,21 @@ test("T-6 (b): sustained lock-free writer pressure — no convergence error, mer
 		const childExited = new Promise<void>((resolve) => {
 			child!.on("close", () => resolve());
 		});
-		sleepSync(60); // let the storm reach steady state before the persist
+		// Wait for the storm to actually START WRITING (a tick-bearing B on disk),
+		// not a fixed sleep: on Windows CI the child's cold start (node + Defender
+		// scan) can exceed the old 60ms, so the "during the storm" persist ran
+		// before any live write and B only ever landed via the primed template
+		// flush — no tick marker (live CI: diskB.tick undefined on win32).
+		const stormLive = Date.now() + 5_000;
+		while (Date.now() < stormLive) {
+			try {
+				const probe = JSON.parse(fs.readFileSync(created.manifest.tasksPath, "utf-8")) as Array<{ id: string; tick?: number }>;
+				if (probe.some((t) => t.id === taskB.id && typeof t.tick === "number" && t.tick >= 1)) break;
+			} catch {
+				/* mid-swap read — retry */
+			}
+			sleepSync(10);
+		}
 
 		// Prime the F4 seam as well: guarantees ≥1 CAS retry (attempt 0's
 		// flush lands this write mid-CAS) even if a storm write were to miss

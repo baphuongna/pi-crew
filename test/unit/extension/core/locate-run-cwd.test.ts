@@ -101,7 +101,10 @@ test("returns undefined for a cwd unrelated to the run's project root", () => {
 		});
 		assert.equal(
 			manifest.stateRoot,
-			path.join(projectA, ".crew", "state", "runs", manifest.runId),
+			// paths.ts canonicalizes the repo-root walk natively (win32 8.3 → long
+			// name) — build the expectation from the same form or the lexical
+			// mkdtemp path never matches on Windows CI.
+			path.join(fs.realpathSync.native(projectA), ".crew", "state", "runs", manifest.runId),
 			"precondition: the run lives under project A's own root",
 		);
 		assert.equal(locateRunCwd(manifest.runId, unrelated), undefined);

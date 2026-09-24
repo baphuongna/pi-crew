@@ -37,7 +37,7 @@ import {
 } from "../../../src/runtime/team-runner.ts";
 import { mergeArtifacts } from "../../../src/runtime/team-runner-artifacts.ts";
 import type { WorkflowStateMachine } from "../../../src/runtime/workflow-state.ts";
-import { readEvents } from "../../../src/state/event-log/event-log.ts";
+import { flushEventLogBuffer, readEvents } from "../../../src/state/event-log/event-log.ts";
 import { createRunManifest, loadRunManifestById, saveRunTasks, updateRunStatus } from "../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 import type { TeamConfig } from "../../../src/teams/team-config.ts";
@@ -541,11 +541,16 @@ test("finalizeRun: phantom 'running' with empty pendingUnits heals from disk ter
 
 		// Without the heal this derived "blocked: Task 'b' is still running."
 		assert.equal(result.manifest.status, "completed", "phantom running must heal from disk terminal → completed");
-		const events = readEvents(manifest.eventsPath);
-		assert.ok(
-			events.some((e) => e.type === "task.reconciled_from_disk"),
-			"task.reconciled_from_disk event must be appended for the heal",
-		);
+		// The heal event is appendEventFireAndForget (async) — on Windows CI the
+		// flush can lag the immediately-following read (live: event missing on
+		// win32). Flush the buffer, then bounded-poll for durability.
+		await flushEventLogBuffer();
+		let healedEvent = false;
+		for (let i = 0; i < 50 && !healedEvent; i++) {
+			healedEvent = readEvents(manifest.eventsPath).some((e) => e.type === "task.reconciled_from_disk");
+			if (!healedEvent) await new Promise((r) => setTimeout(r, 20));
+		}
+		assert.ok(healedEvent, "task.reconciled_from_disk event must be appended for the heal");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
