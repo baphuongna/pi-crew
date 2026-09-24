@@ -628,7 +628,7 @@ test("Rule 2: notify still fires when leader does NOT pre-consume (case 1 sanity
 			ctx,
 		);
 		// Leader does NOT call get_subagent_result — waits for notify instead.
-		const deadline = Date.now() + 30_000;
+		const deadline = Date.now() + 180_000; // hosted-runner spawn stalls: see Rule-1 batch note above
 		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
 		assert.equal(fake.sentUserMessages.length, 1, "legitimate completion notify still fires when leader has not consumed");
 		assert.match(fake.sentUserMessages[0]!.content, /background subagent changed state/);
@@ -776,8 +776,11 @@ test("Rule 1: batch coalesces completion into a single notification (no wait)", 
 			ctx,
 		);
 		// Wait for the consolidated notification. The barrier emits exactly ONE
-		// wake-up only after all 3 reach terminal.
-		const deadline = Date.now() + 30_000;
+		// wake-up only after all 3 reach terminal. 180s deadline: hosted
+		// Windows runners stall mock-child spawns for minutes (same class as
+		// the wakeup test; live flake run 36035765665 not-ok 113 at 30s). Poll
+		// exits on arrival — only the failing case lengthens.
+		const deadline = Date.now() + 180_000;
 		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
 		// Allow a grace window to detect any stray second notification.
 		const graceDeadline = Date.now() + 2000;
@@ -833,7 +836,7 @@ test("Rule 1: no batch_id preserves individual notification (default behavior)",
 			undefined,
 			ctx,
 		);
-		const deadline = Date.now() + 30_000;
+		const deadline = Date.now() + 180_000; // hosted-runner spawn stalls: see Rule-1 batch note above
 		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
 		assert.equal(fake.sentUserMessages.length, 1);
 		assert.match(fake.sentUserMessages[0]!.content, /background subagent changed state/);
@@ -913,7 +916,7 @@ test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
 		// fast and slow systems without flakiness. settleCapMs cap keeps CI
 		// fast on real failures.
 		const waitForFirstNotify = async (): Promise<void> => {
-			const deadline = Date.now() + 30_000;
+			const deadline = Date.now() + 180_000; // hosted-runner spawn stalls: see Rule-1 batch note above
 			while (Date.now() < deadline && fake!.sentUserMessages.length === 0) {
 				await new Promise((resolve) => setTimeout(resolve, 100));
 			}
