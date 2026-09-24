@@ -324,21 +324,63 @@ if (watchMode) {
 		else process.exit(code ?? 0);
 	});
 } else {
-	const result = spawnSync(process.execPath, [...nodeFlags, ...testArgs], {
-		stdio: "inherit",
-		env: buildChildEnv(),
-		// 2026-07-01: bumped from 600s → 900s after atomic-write.ts added
-		// fs.fsyncSync for the mailbox-replay flake fix. fsync adds ~5-10ms
-		// per atomic-write, which compounded across 5800 tests pushed
-		// Windows CI just over the 10-minute budget.
-		// 2026-09-17: bumped 900s → 1500s. The suite is now ~7900 tests (~737s
-		// observed on idle Linux), leaving only ~20% headroom at 900s — and the
-		// F05 fail-closed fix (correctly) turns a budget overrun into a red
-		// build instead of the old silent exit-0. 25 min bounds a genuinely
-		// hung coordinator while giving the grown suite + slower CI runners
-		// room. Override with PI_CREW_TEST_RUNNER_TIMEOUT_MS if needed.
-		timeout: Number(process.env.PI_CREW_TEST_RUNNER_TIMEOUT_MS ?? 1_500_000),
-	});
+	// 2026-09-24: shard runs are executed in BATCHES of ~20 files per spawn.
+	// Two windows-latest CI runs (36026082690, 36030292059) stalled mid-shard
+	// with ZERO failing tests: the child produced no output for the full
+	// spawn budget (ETIMEDOUT) — consistent with a hosted-runner grandchild
+	// spawn stall (Defender real-time scan / runner starvation), not test
+	// code. One-spawn-per-shard turns such a stall into a total loss; batches
+	// bound the damage to one batch, which is retried ONCE (stalls are
+	// transient and stateless — files are independent).
+	const perSpawnTimeoutMs = Number(process.env.PI_CREW_TEST_RUNNER_TIMEOUT_MS ?? 1_500_000);
+	const batchSize = Number(process.env.PI_CREW_TEST_BATCH_SIZE ?? 20);
+	const files = testArgs.filter((a) => !a.startsWith("--"));
+	const flags = testArgs.filter((a) => a.startsWith("--"));
+
+	const runSpawn = (args) =>
+		spawnSync(process.execPath, [...nodeFlags, ...args], {
+			stdio: "inherit",
+			env: buildChildEnv(),
+			// 2026-07-01: bumped from 600s → 900s after atomic-write.ts added
+			// fs.fsyncSync for the mailbox-replay flake fix. fsync adds ~5-10ms
+			// per atomic-write, which compounded across 5800 tests pushed
+			// Windows CI just over the 10-minute budget.
+			// 2026-09-17: bumped 900s → 1500s (per-spawn budget; with batching a
+			// normal batch is 1–3 min, so the default only matters for
+			// non-sharded whole-suite runs). Fail-closed per F05 below.
+			timeout: perSpawnTimeoutMs,
+		});
+
+	if (shardSpec && files.length > batchSize) {
+		const batchCount = Math.ceil(files.length / batchSize);
+		let shardFailed = false;
+		for (let b = 0; b < batchCount; b += 1) {
+			const batch = files.slice(b * batchSize, (b + 1) * batchSize);
+			const label = `batch ${b + 1}/${batchCount} (${batch.length} files)`;
+			let result = runSpawn([...flags, ...batch]);
+			let diagnostic = describeExitOutcome(result);
+			// Transient-stall retry: only for spawn-level anomalies (timeout /
+			// signal / spawn error), NEVER for a genuine nonzero test-failure
+			// status — real test failures speak for themselves and retrying
+			// would just double the cycle time.
+			if (diagnostic) {
+				console.error(`\n[test-runner] ${label}: ${diagnostic} — retrying this batch ONCE (transient stall policy).`);
+				result = runSpawn([...flags, ...batch]);
+				diagnostic = describeExitOutcome(result);
+			}
+			if (diagnostic || resolveExitCode(result) !== 0) {
+				console.error(`\n[test-runner] ${label}: FAIL (inconclusive): ${diagnostic ?? "test failures"}.`);
+				console.error("[test-runner] Treating this as a test FAILURE (fail closed) — exit code will be non-zero.");
+				if (result.error) console.error("[test-runner] cause:", result.error.message);
+				shardFailed = true;
+				break; // fail fast: remaining batches don't change the verdict
+			}
+			console.log(`[test-runner] ${label}: OK`);
+		}
+		process.exit(shardFailed ? 1 : 0);
+	}
+
+	const result = runSpawn(testArgs);
 
 	// F05: fail closed. `status === null` means the child died by SIGNAL (or the
 	// spawn itself failed) — the old `result.status ?? 0` turned that into a
