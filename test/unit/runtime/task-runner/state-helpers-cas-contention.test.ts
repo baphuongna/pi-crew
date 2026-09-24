@@ -267,6 +267,12 @@ test("T-6 (b): sustained lock-free writer pressure — no convergence error, mer
 		// fallback, as the caller contract requires) converges on the first
 		// attempt and durably lands the merge.
 		await childExited;
+		// The primed saveRunTasksCoalesced(stormTemplate) rides a 50ms coalesce
+		// timer — on Windows it can drain AFTER the child exits, overwriting the
+		// tick-bearing file the storm left and erasing diskB.tick. Flush every
+		// pending coalesced write NOW so the template write can never land after
+		// the settled persist (which is the last, synchronous write).
+		flushPendingAtomicWrites();
 		const fresh = loadRunManifestById(cwd, created.manifest.runId)?.tasks ?? [];
 		const settled = persistSingleTaskUpdate(created.manifest, fresh, updated, undefined, true);
 		assert.equal(settled.find((t) => t.id === taskA.id)?.status, "completed");
