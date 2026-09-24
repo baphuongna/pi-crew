@@ -71,3 +71,31 @@
 ## Verdict
 
 **Full battery, zero skips, fix-then-re-run honored**: every tier of the skill's decision table executed with real evidence, including all previously environment-blocked tiers (T5/T6/T10a/T10b scaffolded via own tmux server + detached probes). Two real defects (finding 7 cancel/retry race, finding 8 cancel/erase race — two layers) found by T9d and fixed with regression + mutation proof INSIDE the battery; the final race-4 live repro confirms the user's cancel now survives. Post-fix gates re-run on the new code: critical 116/116, tsc, biome, state suites green, live cancel race green.
+
+---
+
+## Phụ lục (2026-09-24): chiến dịch CI xanh — "theo dõi fix đến khi xanh hết"
+
+**Kết quả DP-03 AC-5**: run `36036720378` trên commit `3949dc26` — **3 attempt liên tiếp xanh, 17/17 jobs mỗi attempt** (3 OS build ×3, unit 4-shard ×3 OS = 12, aggregate, fallow audit).
+
+### Chuỗi commit sửa lỗi (mỗi đỏ đều root-cause từ log CI thật)
+
+| Commit | Nguyên nhân gốc → sửa |
+|---|---|
+| `8c139094` | Regex fs.rm→rmWithLockDrain trong `6bbb197d` viết lại cả lệnh gọi BÊN TRONG helper → tự đệ quy vô hạn → node:test harness `RangeError: Map maximum size exceeded` (80s). Hoàn tác về `fs.rm`; kỷ luật gate-local-trước-commit bị bỏ qua ở commit trước được ghi nhận thẳng thắn. |
+| `850be750` | (a) biome `organizeImports` đỏ 3 build job — import `node:module` sai thứ tự; (b) discovery role-metadata fail win lần 2 → thêm diagnostic in roles + file content vào assertion (ground-truth thay vì đoán). |
+| `d13db34b` | **Sửa sản phẩm**: Windows `openSync(O_EXCL)` trả EPERM/EACCES khi handle khác giữ lock (không phải EEXIST) → 3 site throw ngay: `withRegistryLock`, `claimLock`, crew-agents lock. Chuẩn hóa theo `isLockContention()` (EEXIST\|EPERM\|EACCES\|EBUSY) — bounded retry. Regression test mock `openSync` qua CJS-exports patch + `syncBuiltinESMExports` (namespace ESM read-only). |
+| `6fb4da02` | E2 modelExhausted path enqueue **thế hệ write cộng gộp THỨ HAI** (timer 50ms) do chính lệnh drain flush đánh thức → mkdir sau khi tmpdir bị xóa (unhandledRejection ENOENT sau khi test kết thúc). Thêm vòng lặp ổn định `drainPendingWrites()` (≤3 vòng, dừng khi map pending trống) + export `pendingCoalescedWriteCount()`. |
+| `644b54d7` | (a) Helper bị python chèn GIỮA block import → lint đỏ; (b) `appendEventFireAndForget` fail win: sleep 100ms không đủ → poll có giới hạn 2s. |
+| `3c1ed6c0` | `npm run format` lỗi trước khi ghi file + chuỗi `;` không gate → format đỏ vẫn push (lần 2 cùng một lớp sai lầm — đã chuyển hẳn sang chuỗi `&&`). |
+| `9906ac89` | dist cũ — gate committed-hash đỏ đúng vai trò của nó. Rebuild + `git add -f dist/`. |
+| `ae431c88` | windows shard spawn ETIMEDOUT **0 test fail** (run `36026082690`, 111 ok rồi tường) → nới budget 1800s (bước đệm, bị vượt qua bởi cái dưới). |
+| `c5d8ae42` | **Phân tích nguyên nhân chính**: 2 run (`36026082690`, `36030292059`) treo đúng chỗ, zero output đến giờ spawn-wall — runner Windows lưu trữ làm đình trệ **spawn của tiến trình con** (Defender/runner starvation), không phải test code. **Sửa cấu trúc**: test-runner chạy shard theo **batch ~20 file/spawn**, stall chỉ mất 1 batch, retry đúng batch đó 1 lần (chỉ stall, không retry test-fail thật), fail-closed F05 giữ nguyên mỗi batch, fail-fast dừng batch còn lại. ci.yml: budget 900s/spawn. |
+| `636a94ca` | Cùng lớp stall đánh trúng **deadline nội bộ test**: "wakes the parent" fail đúng 90s → deadline 180s (poll exit-on-arrival, chỉ kéo dài case fail). |
+| `3949dc26` | 3 poll họ notification còn lại (Rule 1/2/3) cùng tường 30s → 180s hết. |
+
+### Bài học (commit vào knowledge)
+1. **Lớp stall spawn trên hosted Windows runner là thật và có tính tập trung**: đánh cả coordinator spawn (ETIMEDOUT toàn shard) lẫn spawn mock-child bên trong test (deadline nội bộ). Giải pháp đúng là bounding thiệt hại + retry tại đúng tầng stall, KHÔNG phải nới deadline vô hạn.
+2. **Kỷ luật gate**: `;` chain đã 2 lần để lọt commit đỏ (test fail local, format đỏ). Luôn `&&`, luôn chạy đủ format+lint+tsc+test TRƯỚC git add.
+3. **Mock `node:fs` namespace ESM**: `t.mock.method(fs,…)` fail (`Cannot redefine property`) — pattern chuẩn repo: `createRequire` → patch exports CJS → `syncBuiltinESMExports()`.
+4. Regex-rewrite hàng loạt (`fs.rm` → helper) phải loại trừ phần thân helper — nếu không sẽ tự đệ quy.
