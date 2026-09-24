@@ -308,9 +308,20 @@ test("background subagent completion wakes the parent agent to join results", as
 		);
 		const agentId = firstText(launched).match(/Agent ID: (\S+)/)?.[1];
 		assert.ok(agentId);
-		const deadline = Date.now() + 30_000;
+		// 90s deadline: the mock child exits immediately, but under a fully
+		// loaded CI matrix (12 unit shards × concurrency 2) the Windows runner
+		// can starve the spawn→exit→notify chain past the old 30s (live flake:
+		// run #3 of the DP-03 triple, 0 !== 1 after exactly 30s). The poll
+		// still exits as soon as the wake arrives — a longer deadline only
+		// lengthens the FAILING case, and the diagnostic below says which link
+		// was slow.
+		const deadline = Date.now() + 90_000;
 		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
-		assert.equal(fake.sentUserMessages.length, 1);
+		assert.equal(
+			fake.sentUserMessages.length,
+			1,
+			`wake not delivered in 90s (agentId=${agentId}) — spawn→exit→notify starved on this runner`,
+		);
 		assert.match(fake.sentUserMessages[0]!.content, /background subagent changed state/);
 		assert.match(fake.sentUserMessages[0]!.content, new RegExp(`"id": "${agentId}"`));
 		assert.match(fake.sentUserMessages[0]!.content, /"status": "completed"/);
