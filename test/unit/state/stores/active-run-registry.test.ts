@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";

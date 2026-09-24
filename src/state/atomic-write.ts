@@ -1141,7 +1141,13 @@ export function cancelPendingCoalescedWriteForPath(filePath: string): boolean {
 
 /** @internal Test/diagnostic hook: is a coalesced write pending for this exact path? */
 export function hasPendingCoalescedWrite(filePath: string): boolean {
+	// (kept adjacent for discoverability; pendingCoalescedWriteCount below serves teardown drains)
 	return pendingAtomicWrites.has(filePath);
+}
+
+/** Number of coalesced writes currently pending (test teardown quiesce loops). */
+export function pendingCoalescedWriteCount(): number {
+	return pendingAtomicWrites.size;
 }
 
 /**

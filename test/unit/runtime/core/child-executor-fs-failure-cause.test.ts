@@ -22,7 +22,26 @@ import test from "node:test";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
 import { invalidateConfigCache } from "../../../../src/config/config.ts";
 import { runTeamTask } from "../../../../src/runtime/task-runner.ts";
-import { flushPendingAtomicWrites } from "../../../../src/state/atomic-write.ts";
+import { flushPendingAtomicWrites,
+	pendingCoalescedWriteCount } from "../../../../src/state/atomic-write.ts";
+// Quiesce loop: a flush can itself wake producers that enqueue NEW coalesced
+// writes (50ms timers) — e.g. the E2 modelExhausted path re-persisting task
+// state after the drained save. One flush + one macro-turn leaves that second
+// generation in flight; its timer then mkdirs under a tmpdir the test already
+// deleted (CI ubuntu: unhandledRejection ENOENT after test end). Flush until
+// the pending-write map stops changing, bounded to 3 rounds.
+async function drainPendingWrites(): Promise<void> {
+	let lastPending = -1;
+	for (let round = 0; round < 3; round += 1) {
+		await flushEventLogBuffer();
+		flushPendingAtomicWrites();
+		await new Promise((resolve) => setImmediate(resolve));
+		const stillPending = pendingCoalescedWriteCount();
+		if (stillPending === 0 && lastPending === 0) return;
+		lastPending = stillPending;
+	}
+}
+
 import { flushEventLogBuffer } from "../../../../src/state/event-log/event-log.ts";
 import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
@@ -137,10 +156,8 @@ test("bug-026 B: ENOSPC in child stderr → task record carries failureCause=eno
 		// Fire-and-forget saves/recovery mkdirs can still be in flight when the
 		// assertions finish; tearing the tmpdir down underneath them surfaces as
 		// an unhandledRejection AFTER the test (live CI ubuntu: mkdir ENOENT).
-		// Drain everything first, then yield one macro-task turn.
-		await flushEventLogBuffer();
-		flushPendingAtomicWrites();
-		await new Promise((resolve) => setImmediate(resolve));
+		// Quiesce: flush until no NEW coalesced write appears (see helper).
+		await drainPendingWrites();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
@@ -169,10 +186,8 @@ test("bug-026 B: failureCause survives the E2 modelExhausted rewrite", async () 
 		// Fire-and-forget saves/recovery mkdirs can still be in flight when the
 		// assertions finish; tearing the tmpdir down underneath them surfaces as
 		// an unhandledRejection AFTER the test (live CI ubuntu: mkdir ENOENT).
-		// Drain everything first, then yield one macro-task turn.
-		await flushEventLogBuffer();
-		flushPendingAtomicWrites();
-		await new Promise((resolve) => setImmediate(resolve));
+		// Quiesce: flush until no NEW coalesced write appears (see helper).
+		await drainPendingWrites();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
@@ -196,10 +211,8 @@ test("bug-026 B: non-fs mock failure → no failureCause on the task record", as
 		// Fire-and-forget saves/recovery mkdirs can still be in flight when the
 		// assertions finish; tearing the tmpdir down underneath them surfaces as
 		// an unhandledRejection AFTER the test (live CI ubuntu: mkdir ENOENT).
-		// Drain everything first, then yield one macro-task turn.
-		await flushEventLogBuffer();
-		flushPendingAtomicWrites();
-		await new Promise((resolve) => setImmediate(resolve));
+		// Quiesce: flush until no NEW coalesced write appears (see helper).
+		await drainPendingWrites();
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 });
