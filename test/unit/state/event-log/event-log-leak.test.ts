@@ -30,7 +30,7 @@ async function rmWithLockDrain(dir: string): Promise<void> {
 	await new Promise((resolve) => setImmediate(resolve));
 	for (let attempt = 0; attempt < 5; attempt += 1) {
 		try {
-			await rmWithLockDrain(dir);
+			await fs.rm(dir, { recursive: true, force: true });
 			return;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
