@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -205,6 +206,47 @@ test("register recovers stale active-run registry lock", () => {
 			assert.equal(readActiveRunRegistry().length, 1);
 			assert.equal(fs.existsSync(lockFile), false);
 		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+});
+
+test("register retries on Windows EPERM lock contention instead of aborting", (t) => {
+	// Regression (2026-09-24, CI run 36019884258): on Windows, openSync(O_EXCL)
+	// surfaces EPERM (not EEXIST) while another handle holds the lock open —
+	// cross-process contention. The registry must treat it like EEXIST: bounded
+	// retry, not an immediate throw.
+	withIsolatedHome(() => {
+		const cwd = fs.mkdtempSync(path.join(realTmp, "pi-crew-active-eperm-"));
+		fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
+		const realOpenSync = fs.openSync;
+		let lockAttempts = 0;
+		// node:fs ESM namespace properties are read-only — patch the CJS exports
+		// object and syncBuiltinESMExports() (repo pattern, manifest-cache-ttl.test.ts).
+		const nodeRequire = createRequire(import.meta.url);
+		const fsDefault = nodeRequire("node:fs") as { openSync: typeof fs.openSync };
+		const nodeModule = nodeRequire("node:module") as { syncBuiltinESMExports(): void };
+		fsDefault.openSync = ((...args: Parameters<typeof fs.openSync>) => {
+			const target = String(args[0]);
+			if (target.endsWith(".lock")) {
+				lockAttempts += 1;
+				if (lockAttempts === 1) {
+					const eperm = new Error(`EPERM: operation not permitted, open '${target}'`) as NodeJS.ErrnoException;
+				eperm.code = "EPERM";
+				throw eperm;
+				}
+			}
+			return realOpenSync(...args);
+		}) as typeof fs.openSync;
+		nodeModule.syncBuiltinESMExports();
+		try {
+			const created = createRunManifest({ cwd, team, workflow, goal: "eperm contention" });
+			registerActiveRun(created.manifest);
+			assert.equal(readActiveRunRegistry().length, 1);
+			assert.ok(lockAttempts >= 2, `expected retry after EPERM, attempts=${lockAttempts}`);
+		} finally {
+			fsDefault.openSync = realOpenSync;
+			nodeModule.syncBuiltinESMExports();
 			fs.rmSync(cwd, { recursive: true, force: true });
 		}
 	});

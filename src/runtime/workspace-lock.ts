@@ -187,7 +187,10 @@ function claimLock(lockPath: string, contents: WorkspaceLockContents, staleRecla
 			return true;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== "EEXIST") throw error;
+			// EEXIST → held. Windows contention can surface as EPERM/EACCES/EBUSY
+			// while another handle has the lock open — same meaning here: not acquired
+			// (caller backs off / queues), never an abort.
+			if (code !== "EEXIST" && code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") throw error;
 			return false;
 		}
 	};

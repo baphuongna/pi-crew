@@ -92,7 +92,11 @@ function withRegistryLock<T>(fn: () => T): T {
 			break;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== "EEXIST") throw error;
+			// Windows lock contention surfaces as EPERM/EACCES/EBUSY (not EEXIST) while
+			// another handle holds the lock file open — cross-process contention in
+			// CI (run 36019884258). Treat as contention: bounded retry via the 10s
+			// deadline below, mirroring isLockContention() in coordination/locks.ts.
+			if (code !== "EEXIST" && code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") throw error;
 			if (!removeStaleRegistryLock(filePath, staleMs) && Date.now() > deadline)
 				throw new Error("Active-run registry is locked by another operation.");
 			sleepSync(Math.min(250, 25 * 2 ** attempt));
