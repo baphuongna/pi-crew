@@ -23,7 +23,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { after, test } from "node:test";
@@ -146,9 +146,13 @@ function stubArgs(stdout: string): string[] | null {
  * selected, not about path spelling.
  */
 function relTests(args: string[], dir: string): string[] {
+	// realpath BOTH sides: on macOS the script's reported paths are canonical
+	// (/var → /private/var) while the fixture dir is lexical, so a bare
+	// relative() yields ../../-prefixed escapes instead of the mapped path.
+	const base = realpathSync(dir);
 	return args
 		.filter((a) => a.endsWith(".test.ts"))
-		.map((a) => (isAbsolute(a) ? relative(dir, a) : a).split(sep).join("/"))
+		.map((a) => (isAbsolute(a) ? relative(base, realpathSync(a)) : a).split(sep).join("/"))
 		.sort();
 }
 

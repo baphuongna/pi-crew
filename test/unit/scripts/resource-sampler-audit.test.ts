@@ -32,7 +32,12 @@ function readSamples(outPath: string) {
 		.map((l) => JSON.parse(l));
 }
 
-test("schema: --wrap produces valid resources.jsonl with required fields", () => {
+test("schema: --wrap produces valid resources.jsonl with required fields", {
+	skip:
+		process.platform === "win32"
+			? "resource-sampler shells out to `ps` on non-Linux — no ps on Windows, so the sampler never writes output there"
+			: false,
+}, () => {
 	const work = mkdtempSync(join(tmpdir(), "sampler-schema-"));
 	const out = join(work, "out.resources.jsonl");
 	try {
@@ -52,7 +57,12 @@ test("schema: --wrap produces valid resources.jsonl with required fields", () =>
 	}
 });
 
-test("R3: child-discovery — sampler catches descendants of wrapped process", () => {
+test("R3: child-discovery — sampler catches descendants of wrapped process", {
+	skip:
+		process.platform === "win32"
+			? "resource-sampler shells out to `ps` on non-Linux — no ps on Windows, so the sampler never writes output there"
+			: false,
+}, () => {
 	const work = mkdtempSync(join(tmpdir(), "sampler-child-"));
 	const out = join(work, "out.resources.jsonl");
 	// helper spawner: spawns 1 child that lives ~1.5s, parent lives ~2s
@@ -177,7 +187,12 @@ test("live-warn: --no-live-warn suppresses ⚠️ stderr warnings", () => {
 	}
 });
 
-test("live-warn: rss_jump emits ⚠️ LIVE when RSS jumps >200MB between samples", () => {
+test("live-warn: rss_jump emits ⚠️ LIVE when RSS jumps >200MB between samples", {
+	skip:
+		process.platform === "win32"
+			? "resource-sampler shells out to `ps` on non-Linux — no ps on Windows, so the sampler never writes output there"
+			: false,
+}, () => {
 	const work = mkdtempSync(join(tmpdir(), "sampler-rssjump-"));
 	const out = join(work, "out.resources.jsonl");
 	try {
@@ -233,7 +248,12 @@ test("live-warn: proc_died emits ⚠️ when watched process dies (--watch-run)"
 	}
 });
 
-test("live-warn: rss_leak emits ⚠️ on SUSTAINED monotonic RSS growth (warmup must NOT fire)", () => {
+test("live-warn: rss_leak emits ⚠️ on SUSTAINED monotonic RSS growth (warmup must NOT fire)", {
+	skip:
+		process.platform === "win32"
+			? "resource-sampler shells out to `ps` on non-Linux — no ps on Windows, so the sampler never writes output there"
+			: false,
+}, () => {
 	const work = mkdtempSync(join(tmpdir(), "sampler-rssleak-"));
 	const out = join(work, "out.resources.jsonl");
 	try {

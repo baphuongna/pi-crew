@@ -206,7 +206,16 @@ test("F05/AC-1: wrapper exits non-zero when the coordinator is SIGKILL'd (was 0)
 	}
 });
 
-test("F05/AC-5: the spawn-error branch fails closed (covered at the decision layer, see note)", () => {
+test("F05/AC-5: the spawn-error branch fails closed (covered at the decision layer, see note)", (t) => {
+	// Platform gate: macOS ARG_MAX is far larger than Linux's — a 400 KiB argv
+	// does NOT trigger E2BIG there, so the precondition (spawnSync reports an
+	// error) is un-reproducible on darwin. The decision layer itself is covered
+	// by the resolveExitCode unit tests on every platform.
+	const realE2bigProbe = spawnSync(process.execPath, ["-e", "1", "x".repeat(400_000)]);
+	if (!realE2bigProbe.error) {
+		t.skip("E2BIG is not reproducible on this platform (ARG_MAX too large — macOS)");
+		return;
+	}
 	// LIMITATION (documented, not worked around): the wrapper's spawn-error
 	// branch cannot be exercised end-to-end from a test process, because the
 	// kernel limit that makes the INNER spawn fail (MAX_ARG_STRLEN = 128 KiB per

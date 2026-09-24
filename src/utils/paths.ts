@@ -173,7 +173,14 @@ export function findRepoRoot(cwd: string): string | undefined {
 	// newly-created test directories and shouldn't propagate as a crash.
 	let startKey: string;
 	try {
-		startKey = fs.realpathSync(cwd);
+		// Canonicalize with .native (long-name form on Windows). The home/temp
+		// boundaries in computeRepoRoot are canonicalized with realpathSync.native
+		// too — a non-native start preserves 8.3 short names (RUNNER~1) on win32,
+		// so the walk chain NEVER textually matches the long-name boundary and
+		// escapes the sandbox, latching onto an ancestor marker (live CI: runs
+		// created under a sandboxed home landed in the REAL home's .pi/teams).
+		// On Linux/macOS native and non-native resolve identically.
+		startKey = fs.realpathSync.native(cwd);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			startKey = path.resolve(cwd);
