@@ -22,8 +22,13 @@ import test from "node:test";
 import type { AgentConfig } from "../../../../src/agents/agent-config.ts";
 import { invalidateConfigCache } from "../../../../src/config/config.ts";
 import { runTeamTask } from "../../../../src/runtime/task-runner.ts";
-import { flushPendingAtomicWrites,
-	pendingCoalescedWriteCount } from "../../../../src/state/atomic-write.ts";
+import { flushPendingAtomicWrites, pendingCoalescedWriteCount } from "../../../../src/state/atomic-write.ts";
+import { flushEventLogBuffer } from "../../../../src/state/event-log/event-log.ts";
+import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
+import type { TeamTaskState } from "../../../../src/state/types.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
+
 // Quiesce loop: a flush can itself wake producers that enqueue NEW coalesced
 // writes (50ms timers) — e.g. the E2 modelExhausted path re-persisting task
 // state after the drained save. One flush + one macro-turn leaves that second
@@ -41,12 +46,6 @@ async function drainPendingWrites(): Promise<void> {
 		lastPending = stillPending;
 	}
 }
-
-import { flushEventLogBuffer } from "../../../../src/state/event-log/event-log.ts";
-import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
-import type { TeamTaskState } from "../../../../src/state/types.ts";
-import type { TeamConfig } from "../../../../src/teams/team-config.ts";
-import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 
 const team = {
 	name: "t",

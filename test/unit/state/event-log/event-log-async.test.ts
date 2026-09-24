@@ -141,10 +141,16 @@ test("appendEventFireAndForget uses async path", async () => {
 			data: { info: "test" },
 		});
 
-		// Wait for the async write to complete
-		await new Promise((resolve) => setTimeout(resolve, 100));
-
-		const events = readEvents(eventsPath);
+		// Wait for the async write to complete. A fixed 100ms sleep flaked on
+		// windows-latest CI (slow disk under shard contention: 0 events at the
+		// deadline). Poll instead — bounded at 2s — the assertion's meaning
+		// ("the fire-and-forget write lands") is preserved without timing luck.
+		let events: ReturnType<typeof readEvents> = [];
+		for (let waited = 0; waited < 2000; waited += 25) {
+			events = readEvents(eventsPath);
+			if (events.length >= 1) break;
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
 		assert.equal(events.length, 1, "event should be written via async path");
 		assert.equal(events[0].type, "task.progress");
 		assert.equal(events[0].runId, "run-1");
