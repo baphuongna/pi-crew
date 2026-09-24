@@ -247,8 +247,7 @@ function withAgentsLock<T>(manifest: TeamRunManifest, fn: () => T): T {
 			const code = (error as NodeJS.ErrnoException).code;
 			// EPERM/EACCES/EBUSY: Windows cross-process contention (another handle
 			// holds the lock open) — retry like EEXIST, bounded by the deadline.
-			if (code !== "EEXIST" && code !== "EISDIR" && code !== "EPERM" && code !== "EACCES" && code !== "EBUSY")
-				throw error;
+			if (code !== "EEXIST" && code !== "EISDIR" && code !== "EPERM" && code !== "EACCES" && code !== "EBUSY") throw error;
 			if (code === "EISDIR") {
 				try {
 					fs.rmSync(filePath, { recursive: true, force: true });

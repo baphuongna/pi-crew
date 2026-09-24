@@ -232,8 +232,8 @@ test("register retries on Windows EPERM lock contention instead of aborting", (t
 				lockAttempts += 1;
 				if (lockAttempts === 1) {
 					const eperm = new Error(`EPERM: operation not permitted, open '${target}'`) as NodeJS.ErrnoException;
-				eperm.code = "EPERM";
-				throw eperm;
+					eperm.code = "EPERM";
+					throw eperm;
 				}
 			}
 			return realOpenSync(...args);
