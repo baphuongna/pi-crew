@@ -29,7 +29,7 @@ import { DASHBOARD_KEYS } from "../../src/ui/keybinding-map.ts";
 import { LiveConversationOverlay } from "../../src/ui/live-conversation-overlay.ts";
 import { LiveRunSidebar } from "../../src/ui/live-run-sidebar.ts";
 import { HelpOverlay } from "../../src/ui/overlays/help-overlay.ts";
-import { RunDashboard } from "../../src/ui/run-dashboard.ts";
+import { __test__resetDashboardState, RunDashboard } from "../../src/ui/run-dashboard.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "../../src/ui/status-colors.ts";
 import type { CrewTheme } from "../../src/ui/theme-adapter.ts";
 import { pad, truncate, visibleWidth } from "../../src/utils/visual.ts";
@@ -308,6 +308,10 @@ describe("E2E: F-1/F-2/V-3 — shared glyph colorizer covers the previously-unco
 
 describe("E2E: L-1 — RunDashboard selection stays visible after scrolling past the 8-row window", () => {
 	function dashboard(runs: TeamRunManifest[]): RunDashboard {
+		// US-020's cursor persistence is module-level state — reset it so a fresh
+		// dashboard starts at selection 0 (otherwise the previous test's cursor
+		// leaks in and wrap-nav drives the selection somewhere else).
+		__test__resetDashboardState();
 		return new RunDashboard(runs, () => undefined, flatTheme(), {});
 	}
 

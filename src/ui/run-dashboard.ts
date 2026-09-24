@@ -102,6 +102,19 @@ let lastActivePane: "agents" | "progress" | "mailbox" | "output" | "health" | "m
  */
 let lastSelectedRunId: string | undefined;
 
+/** @internal — test isolation hook. US-020 AC-2 persists the cursor in
+ * module-level state (lastSelectedRunId) so it survives close/reopen cycles,
+ * but that state ALSO leaks across RunDashboard instances within one process:
+ * an E2E brute-force that constructs a fresh dashboard per iteration inherits
+ * the previous iteration's cursor, and with wrap-navigation the driven
+ * selection lands somewhere else entirely (measured: count=9 offset=8 restored
+ * run-007 → 8 'j' wraps to run-006, not run-008). Tests that need a clean
+ * cursor call this before constructing. */
+export function __test__resetDashboardState(): void {
+	lastSelectedRunId = undefined;
+	lastActivePane = "agents";
+}
+
 export type RunDashboardAction =
 	| "status"
 	| "summary"
