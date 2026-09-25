@@ -836,8 +836,43 @@ test("Rule 1: no batch_id preserves individual notification (default behavior)",
 			undefined,
 			ctx,
 		);
-		const deadline = Date.now() + 180_000; // hosted-runner spawn stalls: see Rule-1 batch note above
-		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
+		// 300s deadline + gap diagnostics: two CI runs starved past 90s/180s
+		// here with the IN-PROCESS mock (no real spawn). If the poll loop's
+		// max iteration gap is huge, the EVENT LOOP was blocked (neighbor-file
+		// sleepSync lock retries under slow-FS); if gaps are ~100ms, the
+		// completion chain itself never reached the emit. Dump the chain
+		// state on failure so the next CI hit yields ground truth.
+		const startedAt = Date.now();
+		let lastIter = Date.now();
+		let maxGap = 0;
+		const deadline = Date.now() + 300_000;
+		while (Date.now() < deadline && fake.sentUserMessages.length === 0) {
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			const t = Date.now();
+			maxGap = Math.max(maxGap, t - lastIter);
+			lastIter = t;
+		}
+		if (fake.sentUserMessages.length === 0) {
+			const records = fs.existsSync(path.join(cwd, ".crew", "state", "subagents"))
+				? fs.readdirSync(path.join(cwd, ".crew", "state", "subagents")).join(",")
+				: "(no subagents dir)";
+			let taskDump = "(missing)";
+			try {
+				const tasksFile = fs.readdirSync(path.join(cwd, ".crew", "state", "runs")).find((f) => f.includes("team_"));
+				if (tasksFile) {
+					const runDir = path.join(path.join(cwd, ".crew", "state", "runs"), tasksFile);
+					taskDump = fs.existsSync(path.join(runDir, "tasks.json"))
+						? fs.readFileSync(path.join(runDir, "tasks.json"), "utf-8").slice(0, 800)
+						: "(no tasks.json)";
+				}
+			} catch {
+				/* best-effort dump */
+			}
+			assert.fail(
+				`no notification in 300s | maxPollGap=${maxGap}ms (huge => event loop blocked by neighbor-file sync retries; ~100 => chain never emitted) | ` +
+					`elapsed=${Date.now() - startedAt}ms | subagentRecords=${records} | tasks=${taskDump}`,
+			);
+		}
 		assert.equal(fake.sentUserMessages.length, 1);
 		assert.match(fake.sentUserMessages[0]!.content, /background subagent changed state/);
 		assert.doesNotMatch(fake.sentUserMessages[0]!.content, /batch/);
