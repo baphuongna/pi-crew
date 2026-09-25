@@ -2,6 +2,46 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Windows Defender real-time scan stalls the FIRST spawn of a freshly
+// checked-out script (per-file-hash cache): the async background-runner
+// spawn inside these tests stalled >300s with the task left "queued"
+// (CI ground truth, run 36093514388 attempt 3: status=queued, maxPollGap
+// 773ms — event loop healthy, runner process never came up). Warm the
+// exact spawn shape ONCE at module load, before any timed section: the
+// scan cost lands in file setup instead of inside a test deadline.
+// Best-effort — never fails the file.
+const { spawn: spawnWarm } = await import("node:child_process");
+await new Promise<void>((resolveWarm) => {
+	try {
+		const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+		const runnerPath = path.join(projectRoot, "src", "runtime", "background-runner.ts");
+		const warm = spawnWarm(process.execPath, ["--experimental-strip-types", "--no-warnings", runnerPath], {
+			stdio: "ignore",
+		});
+		let warmResolved = false;
+		const warmDone = (reason: string): void => {
+			if (warmResolved) return;
+			warmResolved = true;
+			resolveWarm();
+			process.stderr.write(`[warm-up] background-runner spawn warmed (${reason})\n`);
+		};
+		warm.on("exit", (code) => warmDone(`exit ${code}`));
+		warm.on("error", () => warmDone("error"));
+		setTimeout(() => {
+			try {
+				warm.kill();
+			} catch {
+				/* already gone */
+			}
+			warmDone("timeout");
+		}, 60_000).unref();
+	} catch {
+		resolveWarm();
+	}
+});
+
 import test from "node:test";
 import { registerPiTeams } from "../../../../src/extension/register.ts";
 import { registerSubagentTools } from "../../../../src/extension/registration/subagent-tools.ts";
