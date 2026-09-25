@@ -7,10 +7,33 @@ import { allAgents, discoverAgents } from "../../../../src/agents/discover-agent
 import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
 import type { PiTeamsToolResult } from "../../../../src/extension/tool-result.ts";
 import { __test__parseAdaptivePlan, __test__repairAdaptivePlan, executeTeamRun } from "../../../../src/runtime/team-runner.ts";
-import { readEvents } from "../../../../src/state/event-log/event-log.ts";
+import { flushPendingAtomicWrites } from "../../../../src/state/atomic-write.ts";
+import { flushEventLogBuffer, readEvents } from "../../../../src/state/event-log/event-log.ts";
 import { unregisterActiveRun } from "../../../../src/state/stores/active-run-registry.ts";
 import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import { allTeams, discoverTeams } from "../../../../src/teams/discover-teams.ts";
+
+// macOS /var/folders rimraf race (CI 36091885921): a coalesced-write timer or
+// in-flight artifact write can (re)create entries under .crew/artifacts during
+// the recursive delete → ENOTEMPTY. Drain the event-log/atomic-write queues
+// first, then retry the rm bounded (same pattern as event-log-leak's
+// rmWithLockDrain).
+async function rmAfterDrain(dir: string): Promise<void> {
+	await flushEventLogBuffer();
+	flushPendingAtomicWrites();
+	await new Promise((resolve) => setImmediate(resolve));
+	for (let attempt = 0; attempt < 5; attempt += 1) {
+		try {
+			fs.rmSync(dir, { recursive: true, force: true });
+			return;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if ((code !== "ENOTEMPTY" && code !== "EBUSY" && code !== "EPERM") || attempt === 4) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	}
+}
+
 import { allWorkflows, discoverWorkflows } from "../../../../src/workflows/discover-workflows.ts";
 
 const roles = [
@@ -157,7 +180,7 @@ test("implementation workflow produces runnable result with mock child-pi", asyn
 		if (run) unregisterActiveRun(run.details.runId!);
 		restoreEnv("PI_TEAMS_EXECUTE_WORKERS", previousExecute);
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
-		fs.rmSync(cwd, { recursive: true, force: true });
+		await rmAfterDrain(cwd);
 	}
 });
 
@@ -188,7 +211,7 @@ test("implementation workflow with PI_CREW_ADAPTIVE_REPAIR=0 behaves consistentl
 		restoreEnv("PI_TEAMS_EXECUTE_WORKERS", previousExecute);
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
 		restoreEnv("PI_CREW_ADAPTIVE_REPAIR", previousRepair);
-		fs.rmSync(cwd, { recursive: true, force: true });
+		await rmAfterDrain(cwd);
 	}
 });
 
@@ -238,7 +261,7 @@ test("implementation blocks when completed assess artifact is unreadable", async
 		});
 		assert.equal(result.manifest.status, "blocked");
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		await rmAfterDrain(cwd);
 	}
 });
 
@@ -360,7 +383,7 @@ test("requirePlanApproval blocks mutating adaptive tasks until approved", async 
 		restoreEnv("PI_TEAMS_EXECUTE_WORKERS", previousExecute);
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
 		restoreEnv("PI_CREW_ROLE", previousRole);
-		fs.rmSync(cwd, { recursive: true, force: true });
+		await rmAfterDrain(cwd);
 	}
 });
 
@@ -447,7 +470,7 @@ test("requirePlanApproval gates persisted adaptive tasks on resume", async () =>
 		assert.equal(result.manifest.planApproval?.status, "pending");
 		assert.equal(result.tasks.find((task) => task.id === "adaptive-01-executor")?.status, "queued");
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		await rmAfterDrain(cwd);
 	}
 });
 
@@ -541,6 +564,6 @@ test("adaptive workflow steps reconstruct from persisted tasks on resume", async
 	} finally {
 		restoreEnv("PI_TEAMS_EXECUTE_WORKERS", previousExecute);
 		restoreEnv("PI_TEAMS_MOCK_CHILD_PI", previousMock);
-		fs.rmSync(cwd, { recursive: true, force: true });
+		await rmAfterDrain(cwd);
 	}
 });
