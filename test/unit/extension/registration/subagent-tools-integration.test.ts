@@ -668,7 +668,7 @@ test("Rule 2: notify still fires when leader does NOT pre-consume (case 1 sanity
 			ctx,
 		);
 		// Leader does NOT call get_subagent_result — waits for notify instead.
-		const deadline = Date.now() + 180_000; // hosted-runner spawn stalls: see Rule-1 batch note above
+		const deadline = Date.now() + 300_000; // slow-runner process pile-up: see Rule-1 no-batch diagnostic note
 		while (Date.now() < deadline && fake.sentUserMessages.length === 0) await new Promise((resolve) => setTimeout(resolve, 100));
 		assert.equal(fake.sentUserMessages.length, 1, "legitimate completion notify still fires when leader has not consumed");
 		assert.match(fake.sentUserMessages[0]!.content, /background subagent changed state/);
