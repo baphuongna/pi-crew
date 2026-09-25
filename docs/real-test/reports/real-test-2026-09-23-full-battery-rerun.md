@@ -99,3 +99,28 @@
 2. **Kỷ luật gate**: `;` chain đã 2 lần để lọt commit đỏ (test fail local, format đỏ). Luôn `&&`, luôn chạy đủ format+lint+tsc+test TRƯỚC git add.
 3. **Mock `node:fs` namespace ESM**: `t.mock.method(fs,…)` fail (`Cannot redefine property`) — pattern chuẩn repo: `createRequire` → patch exports CJS → `syncBuiltinESMExports()`.
 4. Regex-rewrite hàng loạt (`fs.rm` → helper) phải loại trừ phần thân helper — nếu không sẽ tự đệ quy.
+
+---
+
+## Phụ lục (2026-09-25): sửa Finding 5 + Finding 6
+
+### Finding 5 — Health false-positive "dead worker" khi task parked-on-ask
+**Bằng chứng live**: run `team_20260923100114` fired "dead worker" khi `01_explore` đang parked-on-ask (còn sống, sau đó được trả lời + resume).
+**Root cause**: GATE 1/2 của health tick chỉ verify **manifest** status (chạy/terminal), không verify **task** statuses. Worker parked-on-ask ghi `running → waiting` vào tasks.json ngay lập tức, nhưng snapshotCache có thể lag; trong cửa sổ đó worker "running + không heartbeat" → đếm là missing/dead.
+**Fix** (`d656f30e`):
+- `overlayFreshTaskStatuses()` (heartbeat-aggregator): overlay status/heartbeat FRESH từ đĩa lên snapshot cache — identity-preserving khi không phân kỳ (không invalidation thừa).
+- GATE 3 mới trong lifecycle-handlers: `loadTasksWithRecovery()` trước `summarizeHeartbeats()`; phân kỳ → invalidate snapshot entry.
+**Regression** (`heartbeat-overlay.test.ts`, 5 test): parked worker không bị đếm dead; worker chạy thật không heartbeat vẫn fire; no-mutation snapshot gốc.
+
+### Finding 6 — Ambient replaystorm (5h "missing heartbeat" lặp lại sau clear)
+**Root cause (2 lớp)**:
+1. Cooldown 5 phút re-arm **vô hạn** cho run chết dai dẳng → mỗi lần fire xếp 1 follow-up message vào host queue; host drain follow-up **1 message/turn-boundary** (`followUpMode: "one-at-a-time"` — xác nhận trong agent-session source) → backlog bản sao trùng nhỏ dần trong nhiều giờ.
+2. Clear chỉ reset trạng thái pi-crew; các bản copy ĐÃ xếp hàng ở host không thể bị thu hồi trên pi 0.87.0 (chưa có `clearQueuedUserMessagesMatching` — đã có trong fork source mới hơn).
+**Fix** (`d656f30e`):
+- `health-notify-policy.ts` (mới): bounded re-fire ≤3/lần per **fingerprint** không đổi (dead/missing/task-count shape — tình huống MỚI re-arm); giữ cooldown 5 phút + LRU eviction; reset-on-clear cho recurrence thật.
+- `clearHealthNotifications`: reset budget + `purgeQueuedAmbientNotifications()` (feature-detected `clearQueuedUserMessagesMatching` — no-op an toàn trên host cũ; fire-cap giới hạn backlog trên MỌI host).
+**Regression**: `health-notify-policy.test.ts` (7 test: cap, cooldown, fingerprint re-arm, reset-on-clear, LRU) + `purge-queued-ambient.test.ts` (5 test: purge qua cả 2 surface, no-op host cũ, throw-safe).
+
+### Flakes CI vặt trong đợt này (cùng kỷ luật root-cause)
+- `36091156910` (win): "Rule 1: no batch_id" starve >180s — mock child là **in-process** (bác lý thuyết spawn-stall cho file này) → thêm **gap-tracking diagnostic** (maxPollGap phân biệt event-loop-blocked vs chain-never-emitted) + dump records/tasks + deadline 300s (`95fd3e50`) — chờ lần fail kế tiếp cho ground truth.
+- `36091885921` (mac): `adaptive-implementation` teardown ENOTEMPTY (rimraf race trên /var/folders) → `rmAfterDrain()` (flush + ≤5 retry) tại 6 teardown sites (`a2ce24cc`).
