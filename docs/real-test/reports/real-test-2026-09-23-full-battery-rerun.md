@@ -124,3 +124,19 @@
 ### Flakes CI vặt trong đợt này (cùng kỷ luật root-cause)
 - `36091156910` (win): "Rule 1: no batch_id" starve >180s — mock child là **in-process** (bác lý thuyết spawn-stall cho file này) → thêm **gap-tracking diagnostic** (maxPollGap phân biệt event-loop-blocked vs chain-never-emitted) + dump records/tasks + deadline 300s (`95fd3e50`) — chờ lần fail kế tiếp cho ground truth.
 - `36091885921` (mac): `adaptive-implementation` teardown ENOTEMPTY (rimraf race trên /var/folders) → `rmAfterDrain()` (flush + ≤5 retry) tại 6 teardown sites (`a2ce24cc`).
+
+### Vòng đấu CI sau findings 5+6 (mỗi đỏ một root-cause)
+| Commit | Nội dung |
+|---|---|
+| `d656f30e` | Findings 5+6 (xanh) |
+| `95fd3e50` | Diagnostic gap-tracking cho notification-starvation (ground truth đã về: task kẹt `queued`, event-loop khỏe → **process background-runner không lên** — Defender/slow-runner stall) |
+| `a2d9f896` | interrupt-guard-ack: harness drain buffered events trước khi đọc (guard ĐÃ fire — ack sync là bằng chứng; chỉ race flush) |
+| `d983ad87` | Pre-warm spawn background-runner tại module-load (chuyển first-scan cost ra khỏi deadline) |
+| `a07fcbf6` | Rule-1 batch deadline 300s nhất quán |
+| `cb0bd8ab` | **Class-fix teardown**: `test/helpers/rm-retry.ts` dùng chung (settle + ≤8 retry EBUSY/EPERM/ENOTEMPTY, không busy-wait) — chuyển 22 site bare rmSync của họ worktree |
+
+**Chuỗi 3 xanh liên tiếp cuối: run `36098838230` trên `cb0bd8ab`, attempts 4-5-6, mỗi attempt 17/17 jobs.**
+
+### Follow-up ghi nhận (không chặn)
+1. **subagent-tools-integration capacity flake (tiền tồn tại)**: file spawn ~15+ detached background-runner process; trên Windows runner chậm, process mới chờ CPU nhiều phút → task kẹt `queued` → notification trễ vượt mọi deadline (đã lên 30→90→180→300s). Đã giảm bằng warm-up + 300s; cách dứt điểm là **test seam inline-async** (chạy executeTeamRun in-process khi `PI_CREW_TEST_ASYNC_INLINE=1` + ALLOW_MOCK) hoặc **product startup-watchdog + respawn** trong async-runner — riêng biệt về hồ sơ rủi ro, nên tách work item.
+2. **Product startup-watchdog** cho `spawnBackgroundTeamRun`: phát hiện runner không lên trong N giây → kill + respawn 1 lần (sống sót stall thật ngoài môi trường test).
