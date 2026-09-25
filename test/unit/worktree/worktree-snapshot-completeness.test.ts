@@ -11,6 +11,7 @@ import {
 	snapshotDirtyWorktree,
 	type WorktreeSnapshotResult,
 } from "../../../src/worktree/worktree-manager.ts";
+import { removeDirWithRetry } from "../../helpers/rm-retry.ts";
 
 /**
  * RR-010 / F01 — snapshot completeness contract (pure parts).
@@ -35,7 +36,7 @@ test("F01 AC4: shouldDiscardDirtyWorktree — incomplete snapshot blocks discard
 	assert.equal(shouldDiscardDirtyWorktree(completeResult(), false), true, "complete snapshot ⇒ discard allowed without force");
 });
 
-test("F01 AC4: every incompleteness dimension blocks discard without force", () => {
+test("F01 AC4: every incompleteness dimension blocks discard without force", async () => {
 	const cases: Array<{ name: string; result: WorktreeSnapshotResult }> = [
 		{ name: "skipped entry", result: { complete: false, truncated: [], skipped: [{ path: "secret.txt", reason: "EACCES" }] } },
 		{
@@ -55,7 +56,7 @@ test("F01 AC4: every incompleteness dimension blocks discard without force", () 
 	assert.equal(complete.writeError, undefined);
 });
 
-test("F01 AC5: readFileCappedForSnapshot never reads/allocates more than the cap (64 MiB sparse file)", () => {
+test("F01 AC5: readFileCappedForSnapshot never reads/allocates more than the cap (64 MiB sparse file)", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-f01-cap-"));
 	try {
 		const sparsePath = path.join(dir, "sparse-64m.bin");
@@ -72,11 +73,11 @@ test("F01 AC5: readFileCappedForSnapshot never reads/allocates more than the cap
 		assert.equal(data.byteLength, SNAPSHOT_MAX_FILE_BYTES, "the capped read should fill up to exactly the cap for a larger file");
 		assert.equal(truncated, true, "over-cap file must be flagged truncated");
 	} finally {
-		fs.rmSync(dir, { recursive: true, force: true });
+		await removeDirWithRetry(dir);
 	}
 });
 
-test("F01 AC5: readFileCappedForSnapshot reads small files fully and does not flag truncation", () => {
+test("F01 AC5: readFileCappedForSnapshot reads small files fully and does not flag truncation", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-f01-small-"));
 	try {
 		const smallPath = path.join(dir, "small.txt");
@@ -88,11 +89,11 @@ test("F01 AC5: readFileCappedForSnapshot reads small files fully and does not fl
 		assert.ok(data.equals(payload), "small file must be read fully, byte-identical");
 		assert.equal(truncated, false);
 	} finally {
-		fs.rmSync(dir, { recursive: true, force: true });
+		await removeDirWithRetry(dir);
 	}
 });
 
-test("F01 AC6: failed tracked-diff capture makes the snapshot incomplete (empty ≠ failed)", () => {
+test("F01 AC6: failed tracked-diff capture makes the snapshot incomplete (empty ≠ failed)", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-f01-diff-"));
 	const artifactsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-f01-diffart-"));
 	try {
@@ -142,7 +143,7 @@ test("F01 AC6: failed tracked-diff capture makes the snapshot incomplete (empty 
 		assert.equal(shouldDiscardDirtyWorktree(result, true), true, "force must override the diff failure");
 		assert.ok(result.writeError === undefined, "artifact write must still succeed");
 	} finally {
-		fs.rmSync(dir, { recursive: true, force: true });
-		fs.rmSync(artifactsRoot, { recursive: true, force: true });
+		await removeDirWithRetry(dir);
+		await removeDirWithRetry(artifactsRoot);
 	}
 });

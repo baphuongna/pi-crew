@@ -28,6 +28,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import { clearGitRootCache, findGitRoot, findGitRootAsync } from "../../../src/worktree/worktree-manager.ts";
+import { removeDirWithRetry } from "../../helpers/rm-retry.ts";
 
 function makeRepoTemp(prefix: string): string {
 	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
@@ -56,7 +57,7 @@ describe("WI-4.3 contract: findGitRoot ≡ findGitRootAsync", () => {
 			const asyncRoot = await findGitRootAsync(repo);
 			assert.equal(syncRoot, asyncRoot, "sync and async must resolve to the same root");
 		} finally {
-			fs.rmSync(repo, { recursive: true, force: true });
+			await removeDirWithRetry(repo);
 		}
 	});
 
@@ -72,7 +73,7 @@ describe("WI-4.3 contract: findGitRoot ≡ findGitRootAsync", () => {
 			const asyncRoot = await findGitRootAsync(sub);
 			assert.equal(syncRoot, asyncRoot, "sync and async must resolve subdirs identically");
 		} finally {
-			fs.rmSync(repo, { recursive: true, force: true });
+			await removeDirWithRetry(repo);
 		}
 	});
 
@@ -83,11 +84,11 @@ describe("WI-4.3 contract: findGitRoot ≡ findGitRootAsync", () => {
 			clearGitRootCache();
 			await assert.rejects(findGitRootAsync(noGit), /not a git repository|fatal: not a git repository/i);
 		} finally {
-			fs.rmSync(noGit, { recursive: true, force: true });
+			await removeDirWithRetry(noGit);
 		}
 	});
 
-	it("async cache and sync cache are independent (clearing async does not affect sync)", () => {
+	it("async cache and sync cache are independent (clearing async does not affect sync)", async () => {
 		const repo = makeRepoTemp("pi-crew-twin-");
 		try {
 			initGitRepo(repo);
@@ -99,7 +100,7 @@ describe("WI-4.3 contract: findGitRoot ≡ findGitRootAsync", () => {
 			// served the cached value, not re-probed.
 			assert.equal(syncRoot1, syncRoot2);
 		} finally {
-			fs.rmSync(repo, { recursive: true, force: true });
+			await removeDirWithRetry(repo);
 		}
 	});
 });

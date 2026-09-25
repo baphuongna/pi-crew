@@ -7,6 +7,7 @@ import test from "node:test";
 import type { TeamRunManifest, TeamTaskState } from "../../../src/state/types.ts";
 import { cleanupRunWorktrees } from "../../../src/worktree/cleanup.ts";
 import { assertCleanLeader, prepareTaskWorkspace } from "../../../src/worktree/worktree-manager.ts";
+import { removeDirWithRetry } from "../../helpers/rm-retry.ts";
 
 function makeRepoTemp(prefix: string): string {
 	let dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -58,7 +59,7 @@ function minimalTask(id: string, cwd: string): TeamTaskState {
 	};
 }
 
-test("prepareTaskWorkspace recovers when branch exists but worktree dir is gone", () => {
+test("prepareTaskWorkspace recovers when branch exists but worktree dir is gone", async () => {
 	const repo = makeRepoTemp("pi-crew-wt-");
 	initGitRepo(repo);
 	// Pre-create the branch (simulating leftover from crashed run)
@@ -69,10 +70,10 @@ test("prepareTaskWorkspace recovers when branch exists but worktree dir is gone"
 	assert.ok(result.worktreePath);
 	assert.equal(result.branch, "pi-crew/run1/task1");
 	// Cleanup
-	fs.rmSync(repo, { recursive: true, force: true });
+	await removeDirWithRetry(repo);
 });
 
-test("prepareTaskWorkspace reuses existing valid worktree", () => {
+test("prepareTaskWorkspace reuses existing valid worktree", async () => {
 	const repo = makeRepoTemp("pi-crew-wt-");
 	initGitRepo(repo);
 	const manifest = minimalManifest(repo, "run2");
@@ -84,10 +85,10 @@ test("prepareTaskWorkspace reuses existing valid worktree", () => {
 	assert.equal(second.reused, true);
 	assert.equal(second.worktreePath, first.worktreePath);
 	// Cleanup
-	fs.rmSync(repo, { recursive: true, force: true });
+	await removeDirWithRetry(repo);
 });
 
-test("prepareTaskWorkspace skips linkNodeModules when source is a file", () => {
+test("prepareTaskWorkspace skips linkNodeModules when source is a file", async () => {
 	const repo = makeRepoTemp("pi-crew-wt-fn-");
 	initGitRepo(repo);
 	// Place a FILE at node_modules instead of a directory, then commit it so repo is clean
@@ -108,10 +109,10 @@ test("prepareTaskWorkspace skips linkNodeModules when source is a file", () => {
 	const task = minimalTask("task-fn", repo);
 	const result = prepareTaskWorkspace(manifest, task);
 	assert.equal(result.nodeModulesLinked, false);
-	fs.rmSync(repo, { recursive: true, force: true });
+	await removeDirWithRetry(repo);
 });
 
-test("assertCleanLeader throws when repo has uncommitted TRACKED changes", () => {
+test("assertCleanLeader throws when repo has uncommitted TRACKED changes", async () => {
 	const repo = makeRepoTemp("pi-crew-wt-");
 	initGitRepo(repo);
 	// First commit a tracked file, then modify it. Untracked files don't block
@@ -122,17 +123,17 @@ test("assertCleanLeader throws when repo has uncommitted TRACKED changes", () =>
 	fs.writeFileSync(path.join(repo, "f.txt"), "modified", "utf-8");
 	assert.throws(() => assertCleanLeader(repo), /clean leader/);
 	// Cleanup
-	fs.rmSync(repo, { recursive: true, force: true });
+	await removeDirWithRetry(repo);
 });
 
-test("assertCleanLeader does NOT throw on untracked files (regression for pi-crew's own .gitignore)", () => {
+test("assertCleanLeader does NOT throw on untracked files (regression for pi-crew's own .gitignore)", async () => {
 	const repo = makeRepoTemp("pi-crew-wt-untracked-");
 	initGitRepo(repo);
 	fs.writeFileSync(path.join(repo, "untracked.txt"), "x", "utf-8");
 	// Untracked files should NOT block worktree mode (they are either ignored or user-managed).
 	assert.doesNotThrow(() => assertCleanLeader(repo), /clean leader/);
 	// Cleanup
-	fs.rmSync(repo, { recursive: true, force: true });
+	await removeDirWithRetry(repo);
 });
 
 test("setupHook never uses shell:true regardless of platform (C3 security fix)", async () => {
@@ -174,7 +175,7 @@ test("setupHook never uses shell:true regardless of platform (C3 security fix)",
 	assert.ok(hookSection.includes("process.execPath"), "Node hook handling via process.execPath is preserved");
 });
 
-test("prepareTaskWorkspace cleans up worktree+branch when a post-creation step fails (C5 regression)", () => {
+test("prepareTaskWorkspace cleans up worktree+branch when a post-creation step fails (C5 regression)", async () => {
 	const repo = makeRepoTemp("pi-crew-wt-c5-");
 	initGitRepo(repo);
 	const manifest = minimalManifest(repo, "run-c5");
@@ -192,10 +193,10 @@ test("prepareTaskWorkspace cleans up worktree+branch when a post-creation step f
 	// No orphaned worktree entry should remain.
 	const worktrees = execFileSync("git", ["worktree", "list"], { cwd: repo, encoding: "utf-8" });
 	assert.ok(!worktrees.includes("task-c5"), "orphaned worktree must be cleaned up after post-creation failure");
-	fs.rmSync(repo, { recursive: true, force: true });
+	await removeDirWithRetry(repo);
 });
 
-test("cleanupRunWorktrees preserves a dirty worktree without force, commits+removes with force (C9)", () => {
+test("cleanupRunWorktrees preserves a dirty worktree without force, commits+removes with force (C9)", async () => {
 	const repo = makeRepoTemp("pi-crew-c9-");
 	initGitRepo(repo);
 	// Configure repo-local git identity so cleanup's auto-commit succeeds.
@@ -223,5 +224,5 @@ test("cleanupRunWorktrees preserves a dirty worktree without force, commits+remo
 	// pre-existing atomicity-check bug (out of C9 scope) so we only assert the
 	// non-force preserve behavior here.
 
-	fs.rmSync(repo, { recursive: true, force: true });
+	await removeDirWithRetry(repo);
 });

@@ -11,6 +11,7 @@ import {
 	findGitRootAsync,
 	prepareTaskWorkspaceAsync,
 } from "../../../src/worktree/worktree-manager.ts";
+import { removeDirWithRetry } from "../../helpers/rm-retry.ts";
 
 function makeRepoTemp(prefix: string): string {
 	let dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -74,7 +75,7 @@ test("prepareTaskWorkspaceAsync returns correct worktree path", async () => {
 		assert.equal(result.reused, false, "first call should not be reused");
 		assert.match(result.branch!, /pi-crew\/async-run1\/async-task1/);
 	} finally {
-		fs.rmSync(repo, { recursive: true, force: true });
+		await removeDirWithRetry(repo);
 	}
 });
 
@@ -91,7 +92,7 @@ test("prepareTaskWorkspaceAsync reuses existing worktree", async () => {
 		assert.equal(second.reused, true);
 		assert.equal(second.worktreePath, first.worktreePath);
 	} finally {
-		fs.rmSync(repo, { recursive: true, force: true });
+		await removeDirWithRetry(repo);
 	}
 });
 
@@ -105,7 +106,7 @@ test("prepareTaskWorkspaceAsync returns cwd when workspaceMode is single", async
 		assert.equal(result.cwd, cwd);
 		assert.equal(result.worktreePath, undefined);
 	} finally {
-		fs.rmSync(cwd, { recursive: true, force: true });
+		await removeDirWithRetry(cwd);
 	}
 });
 
@@ -139,7 +140,7 @@ test("concurrent workspace preparation works without blocking", async () => {
 		// 3 git operations in parallel should take ~1-3s, not 6-9s
 		assert.ok(elapsed < 15000, `Concurrent execution took too long: ${elapsed}ms`);
 	} finally {
-		fs.rmSync(repo, { recursive: true, force: true });
+		await removeDirWithRetry(repo);
 	}
 });
 
@@ -159,7 +160,7 @@ test("findGitRootAsync is cached within a run", async () => {
 		assert.equal(root1, root3);
 	} finally {
 		clearGitRootCache();
-		fs.rmSync(repo, { recursive: true, force: true });
+		await removeDirWithRetry(repo);
 	}
 });
 
@@ -168,7 +169,7 @@ test("findGitRootAsync throws for non-git directory", async () => {
 	try {
 		await assert.rejects(() => findGitRootAsync(tmp), /not a git repository/);
 	} finally {
-		fs.rmSync(tmp, { recursive: true, force: true });
+		await removeDirWithRetry(tmp);
 	}
 });
 
@@ -181,6 +182,6 @@ test("clearCleanLeaderCache resets assertion cache", async () => {
 		assert.equal(typeof clearCleanLeaderCache, "function");
 		clearCleanLeaderCache();
 	} finally {
-		fs.rmSync(repo, { recursive: true, force: true });
+		await removeDirWithRetry(repo);
 	}
 });
