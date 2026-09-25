@@ -116,6 +116,17 @@ if (mode === "gate-only") {
 
 stopGuard();
 
+// Drain the BUFFERED event append before reading events.jsonl. The guard's
+// appendEventBuffered("async.interrupt_detected") is coalesced-buffered; on
+// slow CI disks it can still be in the buffer when the harness reads the
+// file → "fires exactly once (got 0)" flakes (CI 36092997952, win+ubuntu).
+// The ack in stderr ("Ignoring unknown ... interrupt" on later ticks) proves
+// the body DID fire — only the read raced the flush.
+const { flushEventLogBuffer } = await import(
+	pathToFileURL(path.join(projectRoot, "src/state/event-log/event-log.ts")).href
+);
+await flushEventLogBuffer();
+
 // ── Collect results ─────────────────────────────────────────────────────
 let acknowledged = null;
 try {
