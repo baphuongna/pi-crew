@@ -37,12 +37,14 @@ export type AbortControllerMap = Map<AbortKey, AbortController>;
 /**
  * Single auto-recovery cooldown gate entry. Tracked by the render-tick
  * health notifier so the same warning doesn't fire repeatedly within a
- * 5-minute cooldown. Uses LRU-like semantics — see register.ts.
+ * 5-minute cooldown, and (FINDING 6) at most MAX_HEALTH_NOTIFY_FIRES times
+ * per unchanged fingerprint. LRU-like semantics — see register.ts and
+ * health-notify-policy.ts (the authoritative definition; re-exported here
+ * so existing imports keep working).
  */
-export interface AutoRecoveryEntry {
-	insertedAt: number;
-	lastAccessAt: number;
-}
+export type { AutoRecoveryEntry } from "./health-notify-policy.ts";
+
+import type { AutoRecoveryEntry } from "./health-notify-policy.ts";
 
 /**
  * Mutable context bag passed from the orchestrator to every

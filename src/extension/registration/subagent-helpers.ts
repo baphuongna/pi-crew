@@ -123,3 +123,41 @@ export function __test__subagentSpawnParams(params: Record<string, unknown>, ctx
 		batchId: typeof params.batch_id === "string" && params.batch_id.trim() ? params.batch_id.trim() : undefined,
 	};
 }
+
+/**
+ * FINDING 6 (2026-09-23 battery): when a notification is cleared (e.g. the
+ * health monitor resolved a false/stale alert), copies of the ORIGINAL
+ * warning may still sit in the host session's follow-up queue — the host
+ * drains queued follow-ups one per turn boundary, so stale copies kept
+ * dripping into the parent conversation for hours after the clear.
+ *
+ * Feature-detected purge: newer pi runtimes expose
+ * `clearQueuedUserMessagesMatching(predicate)` (agent-session), which removes
+ * still-QUEUED messages whose text matches. Duck-typed here because the
+ * installed runtime surface (0.87.0) does not export it yet — on such hosts
+ * this is a documented no-op (returns false); the fire-cap policy in
+ * health-notify-policy.ts is the defense that works on all hosts.
+ */
+interface QueuePurgeCapablePi {
+	clearQueuedUserMessagesMatching?: (predicate: (text: string) => boolean) => { steering: string[]; followUp: string[] };
+	session?: {
+		clearQueuedUserMessagesMatching?: (predicate: (text: string) => boolean) => { steering: string[]; followUp: string[] };
+	};
+}
+
+export function purgeQueuedAmbientNotifications(pi: ExtensionAPI, match: (text: string) => boolean): boolean {
+	const api = pi as unknown as QueuePurgeCapablePi;
+	const surface =
+		typeof api.clearQueuedUserMessagesMatching === "function"
+			? api.clearQueuedUserMessagesMatching
+			: typeof api.session?.clearQueuedUserMessagesMatching === "function"
+				? api.session.clearQueuedUserMessagesMatching
+				: undefined;
+	if (!surface) return false;
+	try {
+		const removed = surface.call(api.session ?? api, match);
+		return (removed?.followUp?.length ?? 0) + (removed?.steering?.length ?? 0) > 0;
+	} catch {
+		return false;
+	}
+}

@@ -42,9 +42,10 @@ import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/sched
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers, scheduledJobsHiddenCountOf } from "../../runtime/settings-store.ts";
+import { loadTasksWithRecovery } from "../../state/stores/manifest-io.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
-import { summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
+import { overlayFreshTaskStatuses, summarizeHeartbeats } from "../../ui/heartbeat-aggregator.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
 import { clearSessionSwitchInFlight, markSessionSwitchInFlight } from "../../ui/inline-panel/view-session-store.ts";
 import { requestRender, setExtensionWidget, toPiWidgetPlacement } from "../../ui/pi-ui-compat.ts";
@@ -69,8 +70,10 @@ import { notifyActiveRuns } from "../session-summary.ts";
 import { persistScheduledJobUpdate, registerCrewScheduler, stashScheduledJobsHiddenCount } from "../team-tool/handle-schedule.ts";
 import { handleTeamTool } from "../team-tool.ts";
 import { runArtifactCleanup } from "./artifact-cleanup.ts";
+import { healthNotifyFingerprint, recordHealthNotifyDecision, resetHealthNotifyEntry } from "./health-notify-policy.ts";
 import type { RegistrationContext } from "./registration-types.ts";
 import { createScheduleEventNotifier } from "./schedule-toast-bridge.ts";
+import { purgeQueuedAmbientNotifications } from "./subagent-helpers.ts";
 import { refreshCrossExtensionWiringForSession } from "./wire-cross-extension.ts";
 
 /**
@@ -841,7 +844,16 @@ function setupRenderLoop(
 		const clearHealthNotifications = (runId: string): void => {
 			for (const kind of ["recovery_dead_workers", "recovery_missing_heartbeat"]) {
 				const key = `${kind}_${runId}`;
-				ctx.autoRecoveryLast.delete(key);
+				// FINDING 6: reset the fire budget (a genuine recurrence after
+				// this clear re-notifies) AND opportunistically purge
+				// still-QUEUED host follow-up copies of the original warning —
+				// the host drains the queue one message per turn boundary, so
+				// stale copies otherwise drip in for hours after the clear
+				// (live: 5h of "missing heartbeat" replays after the 2026-09-23
+				// zombie cleanup). The purge is feature-detected: hosts without
+				// clearQueuedUserMessagesMatching (e.g. 0.87.0) no-op here; the
+				// fire-cap policy bounds the backlog on every host.
+				resetHealthNotifyEntry({ entries: ctx.autoRecoveryLast, maxEntries: ctx.AUTO_RECOVERY_LAST_MAX_ENTRIES }, key);
 				ctx.notifyOperator({
 					id: key,
 					clear: true,
@@ -850,6 +862,10 @@ function setupRenderLoop(
 					runId,
 					title: `Cleared ${kind} for ${runId}`,
 				});
+				purgeQueuedAmbientNotifications(
+					pi,
+					(text) => text.includes(runId) && (text.includes("dead worker") || text.includes("missing heartbeat")),
+				);
 			}
 		};
 		for (const run of sessionManifests) {
@@ -883,29 +899,29 @@ function setupRenderLoop(
 					clearHealthNotifications(run.runId);
 					continue;
 				}
-				const summary = summarizeHeartbeats(snapshot, { now });
+				// GATE 3 (FINDING 5) — task-status truth lives on DISK, not in the
+				// snapshot cache. A worker parked on `ask` writes running → waiting
+				// to tasks.json immediately, but the cached snapshot can lag that
+				// transition; in the window a parked (alive, silent-by-design)
+				// worker counted as active-without-heartbeat and fired a false
+				// "dead worker" (live: team_20260923100114, 01_explore parked on
+				// ask). Overlay FRESH statuses before summarizing; divergence also
+				// invalidates the stale cache entry so the next tick rebuilds it.
+				const freshTasks = loadTasksWithRecovery(freshManifest.tasksPath, freshManifest.eventsPath, run.runId);
+				const overlaid = overlayFreshTaskStatuses(snapshot, freshTasks);
+				if (overlaid !== snapshot) snapshotCache.invalidate(run.runId);
+				const summary = summarizeHeartbeats(overlaid, { now });
+				const fingerprint = healthNotifyFingerprint(summary, overlaid.tasks.length);
 				const maybeNotifyHealth = (kind: string, count: number, title: string, body: string): void => {
 					if (count <= 0) return;
 					const key = `${kind}_${run.runId}`;
-					const previous = ctx.autoRecoveryLast.get(key);
-					if (previous !== undefined && now - previous.lastAccessAt < 5 * 60_000) return;
-					// Defensive cap: evict entry with oldest lastAccessAt before inserting/updating.
-					while (ctx.autoRecoveryLast.size >= ctx.AUTO_RECOVERY_LAST_MAX_ENTRIES) {
-						let oldestKey: string | undefined;
-						let oldestAccess = Infinity;
-						for (const [k, v] of ctx.autoRecoveryLast) {
-							if (v.lastAccessAt < oldestAccess) {
-								oldestAccess = v.lastAccessAt;
-								oldestKey = k;
-							}
-						}
-						if (oldestKey === undefined) break;
-						ctx.autoRecoveryLast.delete(oldestKey);
-					}
-					ctx.autoRecoveryLast.set(key, {
-						insertedAt: now,
-						lastAccessAt: now,
-					});
+					// FINDING 6: bounded re-fire — ≤ MAX_HEALTH_NOTIFY_FIRES per
+					// UNCHANGED fingerprint (5-min cooldown between fires). The
+					// old forever-re-arming cooldown fed the host follow-up queue
+					// duplicates that drained one-per-turn-boundary for hours.
+					// Policy detail + LRU eviction: health-notify-policy.ts.
+					const state = { entries: ctx.autoRecoveryLast, maxEntries: ctx.AUTO_RECOVERY_LAST_MAX_ENTRIES };
+					if (!recordHealthNotifyDecision(state, key, fingerprint, now)) return;
 					ctx.notifyOperator({
 						id: key,
 						severity: "warning",

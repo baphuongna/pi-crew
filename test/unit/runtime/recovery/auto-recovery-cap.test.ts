@@ -33,12 +33,24 @@ test("register.ts implements an autoRecoveryLast defensive cap (Round 22)", () =
 		/AUTO_RECOVERY_LAST_MAX_ENTRIES\s*:\s*\d+/,
 		"context-builder.ts should declare AUTO_RECOVERY_LAST_MAX_ENTRIES cap constant",
 	);
+	// v0.9.x FINDING 6 refactor: the eviction loop moved into
+	// health-notify-policy.ts (recordHealthNotifyDecision) — lifecycle-handlers
+	// delegates with { entries: ctx.autoRecoveryLast, maxEntries:
+	// ctx.AUTO_RECOVERY_LAST_MAX_ENTRIES }. Assert the delegation AND the
+	// policy module's cap loop (behavioral coverage: health-notify-policy.test.ts).
+	const policyPath = path.resolve(here, "..", "..", "..", "..", "src", "extension", "registration", "health-notify-policy.ts");
+	const policySource = fs.readFileSync(policyPath, "utf-8");
 	assert.match(
 		lifecycleSource,
-		/while\s*\(\s*ctx\.autoRecoveryLast\.size\s*>=\s*ctx\.AUTO_RECOVERY_LAST_MAX_ENTRIES\s*\)/,
-		"lifecycle-handlers.ts should evict oldest entries when the cap is reached",
+		/entries:\s*ctx\.autoRecoveryLast,\s*maxEntries:\s*ctx\.AUTO_RECOVERY_LAST_MAX_ENTRIES/,
+		"lifecycle-handlers.ts should delegate the map + cap to the notify policy",
 	);
-	assert.match(lifecycleSource, /lastAccessAt/, "lifecycle-handlers.ts should reference lastAccessAt for LRU-style eviction");
+	assert.match(
+		policySource,
+		/while\s*\(\s*state\.entries\.size\s*>=\s*state\.maxEntries\s*\)/,
+		"health-notify-policy.ts should evict oldest entries when the cap is reached",
+	);
+	assert.match(policySource, /lastAccessAt/, "health-notify-policy.ts should reference lastAccessAt for LRU-style eviction");
 });
 
 test("crew-agent-records.ts implements an agentEventSeqCache defensive cap (Round 22)", () => {

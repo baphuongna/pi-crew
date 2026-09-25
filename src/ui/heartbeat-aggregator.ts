@@ -32,6 +32,32 @@ function isActiveTask(task: TeamTaskState): boolean {
 	return task.status === "running";
 }
 
+/**
+ * FINDING 5 (2026-09-23 battery): health ticks must count task statuses from
+ * DISK truth, not the (possibly lagging) snapshot cache. A worker parked on
+ * `ask` transitions running → waiting on disk while the cached snapshot can
+ * still show `running` — in that window the parked worker counted as
+ * active-without-heartbeat and fired a false "dead worker" notification (live:
+ * run team_20260923100114, 01_explore parked on ask, later answered+resumed).
+ *
+ * Overlay FRESH task statuses (and heartbeats) from disk onto the cached
+ * snapshot before summarizing. Returns the ORIGINAL snapshot object when
+ * nothing diverged (cheap identity check — callers use it to decide cache
+ * invalidation), or a shallow copy with the diverging tasks replaced.
+ */
+export function overlayFreshTaskStatuses(snapshot: RunUiSnapshot, freshTasks: TeamTaskState[]): RunUiSnapshot {
+	if (freshTasks.length === 0) return snapshot;
+	const freshById = new Map(freshTasks.map((task) => [task.id, task]));
+	let diverged = false;
+	const tasks = snapshot.tasks.map((task) => {
+		const fresh = freshById.get(task.id);
+		if (!fresh || (fresh.status === task.status && fresh.heartbeat === task.heartbeat)) return task;
+		diverged = true;
+		return { ...task, status: fresh.status, heartbeat: fresh.heartbeat };
+	});
+	return diverged ? { ...snapshot, tasks } : snapshot;
+}
+
 export function summarizeHeartbeats(snapshot: RunUiSnapshot, opts: HeartbeatSummaryOptions = {}): HeartbeatSummary {
 	const staleMs = opts.staleMs ?? 60_000;
 	const deadMs = opts.deadMs ?? 5 * 60_000;
