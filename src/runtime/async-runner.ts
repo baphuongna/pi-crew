@@ -306,9 +306,9 @@ async function runInlineBackgroundTeamRun(manifest: TeamRunManifest, logPath: st
 		try {
 			// LAZY: defer the core import — background-runner must not load in the
 			// normal spawn path (and its module-scope main() is entry-guarded).
-			const { executeBackgroundRun } = await import("./background-runner.ts");
-			const { loadRunManifestById } = await import("../state/stores/state-store.ts");
-			const { withRunLockSync } = await import("../state/coordination/locks.ts");
+			const { executeBackgroundRun } = await import("./background-runner.ts"); // LAZY: defer the core import — background-runner must not load in the normal spawn path
+			const { loadRunManifestById } = await import("../state/stores/state-store.ts"); // LAZY: state-store pulls the whole stores chain
+			const { withRunLockSync } = await import("../state/coordination/locks.ts"); // LAZY: coordination locks only needed on the inline path
 			const loaded = withRunLockSync(manifest, () => loadRunManifestById(manifest.cwd, manifest.runId), { staleMs: 30_000 });
 			const effectiveManifest = loaded?.manifest ?? manifest;
 			const tasks = loaded?.tasks ?? [];
@@ -317,7 +317,7 @@ async function runInlineBackgroundTeamRun(manifest: TeamRunManifest, logPath: st
 			const message = error instanceof Error ? error.message : String(error);
 			log(`[pi-crew] inline test seam run ${manifest.runId} FAILED: ${message}`);
 			try {
-				const { loadRunManifestByIdAsync: reload, updateRunStatus } = await import("../state/stores/state-store.ts");
+				const { loadRunManifestByIdAsync: reload, updateRunStatus } = await import("../state/stores/state-store.ts"); // LAZY: failure-path imports only
 				const fresh = (await reload(manifest.cwd, manifest.runId))?.manifest;
 				if (fresh) updateRunStatus(fresh, "failed", `inline test seam: ${message}`);
 				else
