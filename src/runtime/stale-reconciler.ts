@@ -14,6 +14,11 @@ import { checkProcessLiveness } from "./process-status.ts";
 
 /** Age threshold for orphaned temp directory cleanup: 1 hour. */
 const ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS = 60 * 60 * 1000;
+/** A `.cleanup-in-progress` sentinel older than this is abandoned — its owner
+ * died mid-cleanup (session kill between sentinel-create and dir-delete) and
+ * without reclamation the workspace is frozen out of the cleanup cycle
+ * FOREVER (EEXIST → skip, no TTL). Live 2026-09-26: 42 frozen workspaces. */
+const SENTINEL_STALE_RECLAIM_MS = 10 * 60 * 1000;
 /** Defense-in-depth: cap the number of /tmp/pi-crew-* entries processed per
  * reconcile tick. With a few thousand accumulated dirs, processing them all
  * synchronously can block the main thread for many seconds, causing the
@@ -710,8 +715,34 @@ export function reconcileOrphanedTempWorkspaces(
 					fs.closeSync(sentinelFd);
 					atomicWriteFile(sentinelPath, JSON.stringify({ startedAt: now }));
 				} catch {
-					// Sentinel already exists (another cleanup in progress) — skip
-					canCleanup = false;
+					// Sentinel already exists. Either another cleanup is genuinely in
+					// progress (it holds the sentinel for seconds at most) OR a previous
+					// process died mid-cleanup and ABANDONED it — the frozen-workspace
+					// bug (no TTL on the skip). Reclaim sentinels older than
+					// SENTINEL_STALE_RECLAIM_MS and retry the exclusive create once;
+					// losing the retry race means someone else reclaimed first — skip.
+					let sentinelAgeMs = Number.NaN;
+					try {
+						sentinelAgeMs = now - fs.statSync(sentinelPath).mtimeMs;
+					} catch {
+						/* sentinel vanished — retry create below */
+					}
+					if (Number.isFinite(sentinelAgeMs) && sentinelAgeMs <= SENTINEL_STALE_RECLAIM_MS) {
+						canCleanup = false; // fresh sentinel — a live cleanup owns it
+					} else {
+						try {
+							fs.unlinkSync(sentinelPath); // stale/absent — reclaim
+						} catch {
+							/* already gone */
+						}
+						try {
+							const retryFd = fs.openSync(sentinelPath, "wx");
+							fs.closeSync(retryFd);
+							atomicWriteFile(sentinelPath, JSON.stringify({ startedAt: now, reclaimedFromStale: true }));
+						} catch {
+							canCleanup = false; // lost the reclaim race — skip
+						}
+					}
 				}
 			}
 			if (canCleanup) {

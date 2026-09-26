@@ -77,3 +77,15 @@ Legend: ✅ pass with evidence · ❌ fail · ⏭️ skipped (justified)
 Related open item: the effectiveness-guard gc-* false-positive (battery Finding 2) shares the same root shape (guest tasks invisible to per-task observability) but is a separate code path (`effectiveness.ts`) — still open.
 
 **Addendum 2** — ambient thứ hai cùng run ("1 worker(s) missing heartbeat", ~04:25Z): cùng gốc rễ gc- ở lớp `summarizeHeartbeats` (`src/ui/heartbeat-aggregator.ts`) — guest task không kênh heartbeat bị đếm là missing worker MỖI health tick khi run còn sống → fire ≤3 (cap Finding-6 giữ đúng) → host 0.87.0 không có `clearQueuedUserMessagesMatching` nên purge no-op → các bản queued drain 1/turn-boundary. **Fixed**: skip `agent==="delegate"` trong vòng đếm (đã có sẵn `runTerminal` + isActiveTask gates). Regression: 2 test mới trong `heartbeat-overlay.test.ts` — mutation-checked (bỏ skip → 2/2 đỏ). 7/7 suite xanh, critical 116/116, bundle `3d47ea28…`. Người dùng có thể còn thấy ≤ vài bản queued cũ drain ở các turn tới (bounded, vô hại); trên host có API purge chúng sẽ bị thu hồi.
+
+**Addendum 3 — health-noise root-cause + fix (2026-09-26 ~04:5xZ)**
+
+Sau restart, health còn `running=144 / zombie=201 / corrupted=7`. Truy vết:
+
+- **144 "running" + đa số corrupted nằm TRONG 201 zombie /tmp workspace** (mỗi tmpdir test chứa manifest không bao giờ terminal — `collectTempWorkspaceRuns` merge chúng vào báo cáo). Trên đĩa thật: project root 12 runs, 0 running.
+- **Bug A (fixed)**: 42 sentinel `.cleanup-in-progress` bị BỎ DỠ lúc 04:44:45 (session cũ bị kill giữa sentinel-create và dir-delete) — EEXIST → skip **mãi mãi, không TTL** (`stale-reconciler.ts`). Fix: reclaim sentinel cũ >10 phút (unlink + retry exclusive-create; thua race thì skip như cũ). Regression `stale-reconciler-sentinel-reclaim.test.ts` ×2 (stale → cleaned, fresh → preserved), mutation-checked (revert catch → đỏ).
+- **Bug B (documented, chưa fix)**: batch scan 50-dir/tick theo alphabet trên ~3400 tmpdir → starvation khi có dir không được dọn (kẹt bởi Bug A / running-classified). Hướng fix: rotate điểm bắt đầu quét hoặc ưu tiên theo tuổi.
+- **Dọn dữ liệu**: rm 3374 tmpdir `pi-crew-*` tuổi >3 phút (0 test đang chạy) + 6 zombie còn lại sau khi reconciler session mới repair xong; forget `goal_20260921111305` (corrupted thật); `team_20260925034743` là scan-cache ghost (dir không tồn tại — tự biến mất). Sau dọn: health = **19 scanned / running=0 / zombie=0 / corrupted≤1(tự biến mất) / ghost=0 / stuck=0**.
+- Session mới (pid 3559229) tự dọn nốt ~22 dir `agent-picker-*` còn lại qua các tick reconciler.
+
+Gates: tsc/lint/format OK, critical 116/116, stale-reconciler suites 28/28, bundle 1637.3KB `ffa905ff…`.
