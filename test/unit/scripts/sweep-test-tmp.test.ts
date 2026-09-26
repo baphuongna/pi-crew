@@ -3,9 +3,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-// @ts-expect-error TS7016 — scripts/sweep-test-tmp.mjs ships no .d.mts (dev-only
-// script, same convention as test-runner.mjs in test-runner-exit.test.ts).
-import { sweepStaleTestTmpdirs } from "../../../scripts/sweep-test-tmp.mjs";
+// @ts-expect-error TS7016 — scripts/test-runner.mjs ships no .d.mts (it is a
+// dev-only script excluded from the published tarball; same convention as
+// test-runner-exit.test.ts). The implementation lives in the runner so a
+// copied runner stays self-contained (test-changed-mode copies it bare).
+import { sweepStaleTestTmpdirs } from "../../../scripts/test-runner.mjs";
 
 /**
  * Post-suite tmp sweep (2026-09-26 zombie-noise root-cause): the runner calls

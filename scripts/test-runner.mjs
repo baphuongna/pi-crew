@@ -23,11 +23,11 @@
  * Usage: node scripts/test-runner.mjs [tsx test args...]
  */
 import { spawnSync } from "node:child_process";
-import { readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { sweepStaleTestTmpdirs } from "./sweep-test-tmp.mjs";
 
 /**
  * Decide the wrapper's exit code from a `spawnSync` result. PURE + exported so
@@ -202,6 +202,46 @@ const isEntryPoint = (() => {
  * must not hand the marker to its child. Node sets the variable for the child
  * it spawns itself, so removing it here only prevents the accidental nesting.
  */
+/**
+ * Remove `pi-crew-*` directories under `tmpDir` whose mtime is older than
+ * `thresholdMs` (post-suite debris sweep — see the header of the suiteStartMs
+ * capture below). Exported for unit tests. SELF-CONTAINED on purpose: tests
+ * copy this runner into bare fixture dirs (test-changed-mode.test.ts), so a
+ * sibling-module import would crash the copy.
+ *
+ * Safety: real directories only (lstat — a pi-crew-* symlink is skipped, never
+ * followed or removed); best-effort per entry; never throws.
+ */
+export function sweepStaleTestTmpdirs(options = {}) {
+	const tmpDir = options.tmpDir ?? tmpdir();
+	const thresholdMs = options.thresholdMs ?? Date.now() - 30 * 60 * 1000;
+	let removed = 0;
+	let skipped = 0;
+	let errors = 0;
+	let entries;
+	try {
+		entries = readdirSync(tmpDir, { withFileTypes: true });
+	} catch {
+		return { removed, skipped, errors };
+	}
+	for (const entry of entries) {
+		if (!entry.name.startsWith("pi-crew-")) continue;
+		const full = path.join(tmpDir, entry.name);
+		try {
+			const st = lstatSync(full);
+			if (!st.isDirectory() || st.mtimeMs >= thresholdMs) {
+				skipped++;
+				continue;
+			}
+			rmSync(full, { recursive: true, force: true });
+			removed++;
+		} catch {
+			errors++;
+		}
+	}
+	return { removed, skipped, errors };
+}
+
 /** Best-effort post-suite sweep — never throws, never changes the exit code. */
 function runTmpSweep(suiteStartMs) {
 	if (process.env.PI_CREW_TEST_NO_TMP_SWEEP === "1") return;
