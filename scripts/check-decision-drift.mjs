@@ -49,6 +49,10 @@ function listDecisionFiles() {
 // token then reported drift (27 lines on the 2026-09-24 CI run) while local
 // machines with ripgrep passed. fs.readdirSync keeps the gate hermetic.
 const SRC_DIR = join(ROOT, "src");
+// ADRs legitimately name dev-script env vars too (e.g. PI_CREW_TEST_NO_TMP_SWEEP
+// read in scripts/test-runner.mjs, 2026-09-26) — scan scripts/ alongside src/
+// so those reference real repo code instead of reporting drift.
+const SCRIPTS_DIR = join(ROOT, "scripts");
 let srcFileCache; // Map<absPath, content>, built lazily once
 function listSrcFiles(dir = SRC_DIR, acc = []) {
 	let entries;
@@ -64,11 +68,14 @@ function listSrcFiles(dir = SRC_DIR, acc = []) {
 	}
 	return acc;
 }
+function listRepoCodeFiles() {
+	return [...listSrcFiles(), ...listSrcFiles(SCRIPTS_DIR)];
+}
 
 function grepSrc(token) {
 	if (!srcFileCache) {
 		srcFileCache = new Map();
-		for (const file of listSrcFiles()) {
+		for (const file of listRepoCodeFiles()) {
 			try {
 				srcFileCache.set(file, readFileSync(file, "utf8"));
 			} catch {

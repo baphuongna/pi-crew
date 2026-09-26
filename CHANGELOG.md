@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### runtime: ambient-noise + temp-workspace hygiene + in-process async test seam
+
+- **Ambient notification false-positives (guest `gc-*` subagents)**: the heartbeat watcher and the UI heartbeat aggregator no longer treat delegate-owned guest tasks as worker heartbeats — guests have no heartbeat channel (their lifecycle is `delegate.requested/admitted/completed`); fires were observed 52ms after admit. Skipped at both independent layers (`heartbeat-watcher.ts`, `heartbeat-aggregator.ts`), each with a guard-test proving a genuinely-missing real worker is still flagged.
+- **Temp-workspace hygiene** (live triage: health `running=144`, ~3.4k `pi-crew-*` tmpdirs, frozen reconciler): the orphan sweep batch now rotates statelessly (`floor(now/60s) % batches`) so an alphabetically-first stuck cluster can no longer starve the dirs behind it; abandoned `.cleanup-in-progress` sentinels older than 10 minutes are reclaimed; the test runner sweeps pre-existing `pi-crew-*` debris (mtime < suiteStart−30min) after every suite — one choke point covering ~320 mkdtemp-using test files (opt-out `PI_CREW_TEST_NO_TMP_SWEEP=1`).
+- **In-process async test seam**: `PI_CREW_TEST_ASYNC_INLINE=1` + `PI_CREW_ALLOW_MOCK=1` (double gate; production sets neither) executes async runs in-process instead of spawning a detached background-runner — the run logic is now an exported `executeBackgroundRun()` core shared verbatim by the detached runner and the seam, and `main()` is entry-guarded (`PI_CREW_BACKGROUND_RUNNER_ENTRY` or argv entry check) so importing the module runs nothing. Kills the Windows Defender first-spawn stall (`subagent-tools-integration`: 5+min stall-prone → 14/14 in 37s) and the orphan-runner tmpdir leak (in-process runs die with the test process). See `docs/decisions/2026-09-26-inline-async-test-seam.md`.
+
 ### slash-commands usability fixes
 
 - `/team-respond` now guards its arguments (`<runId> <taskId|--all> <message>`) with a usage message instead of surfacing an opaque tool error.

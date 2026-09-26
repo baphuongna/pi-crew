@@ -35,7 +35,7 @@ State layer
 | `src/runtime/team-runner.ts` | Workflow scheduler, task graph, concurrency control |
 | `src/runtime/task-runner.ts` | Task execution, workspace/worktree context, model selection |
 | `src/runtime/child-pi.ts` | Child Pi process runner — spawns real `pi` workers |
-| `src/runtime/async-runner.ts` | Detached background run spawner |
+| `src/runtime/async-runner.ts` | Detached background run spawner + double-gated in-process test seam (`PI_CREW_TEST_ASYNC_INLINE=1` + `PI_CREW_ALLOW_MOCK=1`) |
 | `src/state/` | Durable state/event/artifact store |
 | `src/worktree/` | Worktree creation and cleanup |
 | `src/config/` | Runtime config, resource discovery |
@@ -156,6 +156,11 @@ npm run ci
 
 # Run a single test file
 node --experimental-strip-types --test --test-concurrency=1 --test-timeout=120000 test/unit/your-test.test.ts
+
+# Heavy async tests: run in-process instead of spawning a detached
+# background-runner (kills AV spawn-stalls + orphan tmpdirs — see
+# docs/decisions/2026-09-26-inline-async-test-seam.md):
+#   PI_CREW_TEST_ASYNC_INLINE=1 PI_CREW_ALLOW_MOCK=1 PI_TEAMS_MOCK_CHILD_PI=json-success
 
 # Smoke test local pi install
 npm run smoke:pi

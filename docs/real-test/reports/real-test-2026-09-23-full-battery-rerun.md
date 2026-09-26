@@ -139,4 +139,5 @@
 
 ### Follow-up ghi nhận (không chặn)
 1. **subagent-tools-integration capacity flake (tiền tồn tại)**: file spawn ~15+ detached background-runner process; trên Windows runner chậm, process mới chờ CPU nhiều phút → task kẹt `queued` → notification trễ vượt mọi deadline (đã lên 30→90→180→300s). Đã giảm bằng warm-up + 300s; cách dứt điểm là **test seam inline-async** (chạy executeTeamRun in-process khi `PI_CREW_TEST_ASYNC_INLINE=1` + ALLOW_MOCK) hoặc **product startup-watchdog + respawn** trong async-runner — riêng biệt về hồ sơ rủi ro, nên tách work item.
+  - **→ RESOLVED 2026-09-26**: seam landed (commit `effecf18`, ADR `2026-09-26-inline-async-test-seam.md`) — file chạy 14/14 trong 37s, 0 detached runner; watchdog product giữ nguyên là không cần.
 2. **Product startup-watchdog** cho `spawnBackgroundTeamRun`: phát hiện runner không lên trong N giây → kill + respawn 1 lần (sống sót stall thật ngoài môi trường test).

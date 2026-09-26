@@ -29,3 +29,5 @@ Current decisions derived from 9 review rounds and 13 bug fixes.
 | 2026-09-17-delegation-execution-cwd-shadow-lifecycle | Delegate grandchild execution cwd + broker-owned shadow lifecycle | Accepted |
 | 2026-09-17-execution-result-preservation | Forward `surfaceLost`/`rawFinalText` across the task-runner boundary | Accepted |
 | 2026-09-17-semaphore-signal-aware-acquire | Signal-aware `Semaphore.acquire` — aborted waiters leave the queue eagerly | Accepted |
+| 2026-09-26-temp-workspace-hygiene | Rotating sweep batches + sentinel reclaim TTL + post-suite test sweep | Accepted |
+| 2026-09-26-inline-async-test-seam | In-process async test seam (double-gated), shared execution core, entry-guarded runner | Accepted |
