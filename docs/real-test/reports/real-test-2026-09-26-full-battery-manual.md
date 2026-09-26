@@ -63,3 +63,15 @@ Legend: ✅ pass with evidence · ❌ fail · ⏭️ skipped (justified)
 
 ## Verdict
 **13/13 tiers executed live with per-row evidence — full battery PASS** (T6 by-design substitute T5; 4 justified ⏭️ sub-probes inside 9b/9b-W/13). Three product findings filed for follow-up (cancel-kill gap, effectiveness-guard gc false-positive, retry stale-state cascade); 8 behavioral observations incl. 3 stale-skill-text notes (async blocking, search scope, checkpoint semantics). Repo clean at `0ca2816b`; bundle `5572bc50…` consistent disk/committed/build/session. Scratch evidence root: `/home/bom/source/my_pi/pc-battery-scratch/.crew/` (safe to delete).
+
+## Addendum (post-report, live follow-up — 2026-09-26 ~04:15Z)
+
+**Ambient "[team_202] Task gc-c7006dc3… heartbeat dead / Background watcher detected a stuck worker"** arrived ~38 min after the run finished. Verified BEFORE acting (per skill):
+
+- `manifest.status = completed` (updatedAt 03:43:41), task `gc-c7006dc3` = `completed` at 03:37:57 — no live process, nothing stuck.
+- Event timeline (smoking gun): `delegate.admitted` 03:37:47.599 → `crew.task.heartbeat_dead` **03:37:47.651 — 52ms after admit**, then a second fire 5s later. Same pattern for all 3 guest children (each ran ~8–10s and completed fine).
+- Root cause: guest-child tasks (`agent:"delegate"`, `depth:2`) have **no heartbeat channel** — `heartbeatAgeMs(undefined) → Infinity` → instant "dead" on the first watcher poll. The late ambient arrival is the by-design one-message-per-turn-boundary host-queue drain (Finding-6 mechanics), not a replay bug.
+
+**Fixed in this commit** (`src/runtime/heartbeat/heartbeat-watcher.ts`): the watcher task loop now skips `agent === "delegate"` guest tasks — their lifecycle is owned by `delegate.requested/admitted/completed` broker events, not the heartbeat channel. Regression `test/unit/runtime/heartbeat/heartbeat-watcher-guest-skip.test.ts` (2 tests): guest-with-no-heartbeat never classified dead + guest skip does NOT suppress dead detection for a real sibling. **Mutation-checked**: removing the skip → 2/2 red; restoring → 2/2 green. Watcher suites 15/15, critical 116/116, tsc/lint/format green, bundle rebuilt (1637.1 KB, md5 `69b36e09…`).
+
+Related open item: the effectiveness-guard gc-* false-positive (battery Finding 2) shares the same root shape (guest tasks invisible to per-task observability) but is a separate code path (`effectiveness.ts`) — still open.

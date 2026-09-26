@@ -98,6 +98,13 @@ export class HeartbeatWatcher {
 			if (loaded.manifest.status !== "running") continue;
 			for (const task of loaded.tasks) {
 				if (task.status !== "running") continue;
+				// Guest-child tasks (delegate subagents, agent === "delegate") have NO
+				// heartbeat channel: they never write task.heartbeat/agentProgress —
+				// their lifecycle is tracked by delegate.requested/admitted/completed
+				// broker events. Watching them here classified every guest as "dead"
+				// within one poll (52ms after admit, run team_20260926033657_2b6c6d2610b26d9d,
+				// 2026-09-26 battery) and enqueued false "stuck worker" ambients.
+				if (task.agent === "delegate") continue;
 				const key = `${run.runId}:${task.id}`;
 				activeKeys.add(key);
 				this.lastSeen.set(key, now);
