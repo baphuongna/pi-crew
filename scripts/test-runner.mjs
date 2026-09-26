@@ -27,6 +27,7 @@ import { readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { sweepStaleTestTmpdirs } from "./sweep-test-tmp.mjs";
 
 /**
  * Decide the wrapper's exit code from a `spawnSync` result. PURE + exported so
@@ -201,6 +202,19 @@ const isEntryPoint = (() => {
  * must not hand the marker to its child. Node sets the variable for the child
  * it spawns itself, so removing it here only prevents the accidental nesting.
  */
+/** Best-effort post-suite sweep — never throws, never changes the exit code. */
+function runTmpSweep(suiteStartMs) {
+	if (process.env.PI_CREW_TEST_NO_TMP_SWEEP === "1") return;
+	try {
+		const out = sweepStaleTestTmpdirs({ thresholdMs: suiteStartMs - 30 * 60 * 1000 });
+		if (out.removed > 0 || out.errors > 0) {
+			console.log(`[test-runner] tmp-sweep: removed=${out.removed} skipped=${out.skipped} errors=${out.errors} (pre-existing pi-crew-* debris older than suite start − 30min)`);
+		}
+	} catch {
+		/* sweep must never affect the test verdict */
+	}
+}
+
 function buildChildEnv() {
 	const env = {
 		...process.env,
@@ -229,6 +243,12 @@ if (args.length === 0) {
 	console.log("skip: no test files specified");
 	process.exit(0);
 }
+
+// Post-suite tmp sweep threshold: debris created/touched ≥30min BEFORE this
+// suite started. Anything younger — including dirs from a CONCURRENT suite —
+// is left alone (see sweep-test-tmp.mjs for the safety rules). Escapable via
+// PI_CREW_TEST_NO_TMP_SWEEP=1.
+const suiteStartMs = Date.now();
 
 // DP-03: --shard=i/n selects this job's deterministic slice of the expanded
 // file list (see partitionShard). Parsed BEFORE glob expansion so shards see
@@ -377,6 +397,8 @@ if (watchMode) {
 			}
 			console.log(`[test-runner] ${label}: OK`);
 		}
+		// Post-suite sweep of pre-existing leaked test tmpdirs (best-effort).
+		runTmpSweep(suiteStartMs);
 		process.exit(shardFailed ? 1 : 0);
 	}
 
@@ -391,6 +413,7 @@ if (watchMode) {
 		console.error("[test-runner] Treating this as a test FAILURE (fail closed) — exit code will be non-zero.");
 		if (result.error) console.error("[test-runner] cause:", result.error.message);
 	}
+	runTmpSweep(suiteStartMs);
 	process.exit(resolveExitCode(result));
 }
 

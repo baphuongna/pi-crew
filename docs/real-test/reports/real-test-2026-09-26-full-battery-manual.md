@@ -89,3 +89,12 @@ Sau restart, health còn `running=144 / zombie=201 / corrupted=7`. Truy vết:
 - Session mới (pid 3559229) tự dọn nốt ~22 dir `agent-picker-*` còn lại qua các tick reconciler.
 
 Gates: tsc/lint/format OK, critical 116/116, stale-reconciler suites 28/28, bundle 1637.3KB `ffa905ff…`.
+
+**Addendum 4 — triệt để noise (Bug B + tầng nguồn, ~05:2xZ)**
+
+- **Bug B FIXED** (`stale-reconciler.ts`): batch quét 50-dir/tick giờ **quay vòng stateless** — `batchIdx = floor(now/60s) % sốBatch`, mỗi tick lấy slice kế tiếp → cluster kẹt (sentinel đóng băng / fresh sentinel / run waiting) không còn starve ~3.4k dir phía sau. Regression `stale-reconciler-rotation.test.ts`: 50 dir stuck alphabet-head + 5 dir sạch — tick lẻ phải dọn được batch sau; **mutation-checked** (pin batchIdx=0 → đỏ, tái hiện đúng starvation).
+- **Tầng NGUỒN FIXED**: `scripts/sweep-test-tmp.mjs` — sau mỗi suite, test-runner quét rác `pi-crew-*` **tồn tại trước khi suite bắt đầu** (mtime < suiteStart−30phút; chỉ dir thật qua lstat — symlink skip; best-effort, không đổi exit code; opt-out `PI_CREW_TEST_NO_TMP_SWEEP=1`). Một chỗ cover rò rỉ của 320 test file thay vì sửa từng file. Unit `sweep-test-tmp.test.ts` ×2.
+- Ghi chú test-hygiene: fixture rotation test lần đầu fail vì dir thiếu prefix `pi-crew-` (candidates filter) — bài học nhỏ về matching đúng filter thật.
+- Còn mở (spec sẵn trong follow-up): **inline-async test seam** (`PI_CREW_TEST_ASYNC_INLINE` + ALLOW_MOCK) — diệt hẳn runner-mồ-côi (nguồn rò rỉ thật sự + flake Windows CI của subagent-tools-integration).
+
+Gates: tsc/lint/format OK · critical 116/116 · stale-reconciler suites 31/31 · sweep 2/2 · bundle 1637.4KB `a0c09bed…`.

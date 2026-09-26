@@ -19,6 +19,11 @@ const ORPHAN_TEMP_DIR_AGE_THRESHOLD_MS = 60 * 60 * 1000;
  * without reclamation the workspace is frozen out of the cleanup cycle
  * FOREVER (EEXIST → skip, no TTL). Live 2026-09-26: 42 frozen workspaces. */
 const SENTINEL_STALE_RECLAIM_MS = 10 * 60 * 1000;
+/** Assumed production cadence of the temp-workspace reconcile tick (60s —
+ * see observability.ts tempReconcileTimer). Only used to derive the
+ * stateless round-robin batch index; a different real cadence still cycles
+ * through every batch, just with different pacing. */
+const ORPHAN_RECONCILE_TICK_MS = 60_000;
 /** Defense-in-depth: cap the number of /tmp/pi-crew-* entries processed per
  * reconcile tick. With a few thousand accumulated dirs, processing them all
  * synchronously can block the main thread for many seconds, causing the
@@ -575,9 +580,21 @@ export function reconcileOrphanedTempWorkspaces(
 		const scanBatch = options?.scanBatchSize ?? ORPHAN_TEMP_SCAN_BATCH_SIZE;
 		const candidates = entries
 			.filter((e) => e.isDirectory() && e.name.startsWith("pi-crew-"))
-			.sort((a, b) => a.name.localeCompare(b.name))
-			.slice(0, scanBatch);
-		for (const entry of candidates) {
+			.sort((a, b) => a.name.localeCompare(b.name));
+		// STATELESS ROUND-ROBIN across ticks (Bug B, live 2026-09-26): the old
+		// `slice(0, scanBatch)` visited only the alphabetically-first batch, so a
+		// cluster of uncleanable dirs (frozen sentinels / fresh sentinels /
+		// waiting runs) starved everything behind it — 42 frozen sentinels in the
+		// `agent-stale-wakeup-test-*` cluster (alphabetically first) blocked ~3.4k
+		// dirs from EVER being scanned. Each tick now takes the NEXT slice,
+		// derived deterministically from `now` (production cadence is 60s/tick —
+		// see observability.ts tempReconcileTimer), so every batch is visited
+		// within `batches` ticks without any persisted state. Deterministic under
+		// the injected `now` that tests already use.
+		const batches = Math.max(1, Math.ceil(candidates.length / scanBatch));
+		const batchIdx = Math.floor(now / ORPHAN_RECONCILE_TICK_MS) % batches;
+		const selected = candidates.slice(batchIdx * scanBatch, batchIdx * scanBatch + scanBatch);
+		for (const entry of selected) {
 			if (!entry.isDirectory() || !entry.name.startsWith("pi-crew-")) continue;
 			const workspaceDir = path.join(tmpDir, entry.name);
 			// RR-020 Fix 3: accept BOTH supported run-state layouts — `<dir>/.crew/
