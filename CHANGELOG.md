@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.11.2] — runtime hygiene, in-process async test seam, slash-command fixes (2026-09-26)
+
 ### runtime: ambient-noise + temp-workspace hygiene + in-process async test seam
 
 - **Ambient notification false-positives (guest `gc-*` subagents)**: the heartbeat watcher and the UI heartbeat aggregator no longer treat delegate-owned guest tasks as worker heartbeats — guests have no heartbeat channel (their lifecycle is `delegate.requested/admitted/completed`); fires were observed 52ms after admit. Skipped at both independent layers (`heartbeat-watcher.ts`, `heartbeat-aggregator.ts`), each with a guard-test proving a genuinely-missing real worker is still flagged.
