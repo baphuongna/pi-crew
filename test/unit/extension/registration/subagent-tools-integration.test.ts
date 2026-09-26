@@ -2,45 +2,11 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 
-// Windows Defender real-time scan stalls the FIRST spawn of a freshly
-// checked-out script (per-file-hash cache): the async background-runner
-// spawn inside these tests stalled >300s with the task left "queued"
-// (CI ground truth, run 36093514388 attempt 3: status=queued, maxPollGap
-// 773ms — event loop healthy, runner process never came up). Warm the
-// exact spawn shape ONCE at module load, before any timed section: the
-// scan cost lands in file setup instead of inside a test deadline.
-// Best-effort — never fails the file.
-const { spawn: spawnWarm } = await import("node:child_process");
-await new Promise<void>((resolveWarm) => {
-	try {
-		const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-		const runnerPath = path.join(projectRoot, "src", "runtime", "background-runner.ts");
-		const warm = spawnWarm(process.execPath, ["--experimental-strip-types", "--no-warnings", runnerPath], {
-			stdio: "ignore",
-		});
-		let warmResolved = false;
-		const warmDone = (reason: string): void => {
-			if (warmResolved) return;
-			warmResolved = true;
-			resolveWarm();
-			process.stderr.write(`[warm-up] background-runner spawn warmed (${reason})\n`);
-		};
-		warm.on("exit", (code) => warmDone(`exit ${code}`));
-		warm.on("error", () => warmDone("error"));
-		setTimeout(() => {
-			try {
-				warm.kill();
-			} catch {
-				/* already gone */
-			}
-			warmDone("timeout");
-		}, 60_000).unref();
-	} catch {
-		resolveWarm();
-	}
-});
+// NOTE (2026-09-26): this file previously warmed a background-runner spawn at
+// module load (Windows Defender per-file-hash stall). The async test seam
+// (PI_CREW_TEST_ASYNC_INLINE=1, set per-test below) removed the detached
+// runner spawn entirely, so the warm-up is dead weight — removed.
 
 import test from "node:test";
 import { registerPiTeams } from "../../../../src/extension/register.ts";
@@ -233,10 +199,12 @@ test("registered Agent tool can run a background subagent and join its result", 
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -308,6 +276,8 @@ test("registered Agent tool can run a background subagent and join its result", 
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -322,10 +292,12 @@ test("background subagent completion wakes the parent agent to join results", as
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -380,6 +352,8 @@ test("background subagent completion wakes the parent agent to join results", as
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -394,10 +368,12 @@ test("background subagent completion does not wake a newer session", async () =>
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -435,6 +411,8 @@ test("background subagent completion does not wake a newer session", async () =>
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -449,10 +427,12 @@ test("session_before_switch suppresses pending background subagent wakeup", asyn
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -486,6 +466,8 @@ test("session_before_switch suppresses pending background subagent wakeup", asyn
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -643,10 +625,12 @@ test("Rule 2: notify still fires when leader does NOT pre-consume (case 1 sanity
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -680,6 +664,8 @@ test("Rule 2: notify still fires when leader does NOT pre-consume (case 1 sanity
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -694,10 +680,12 @@ test("Rule 2: notify is suppressed when leader pre-consumes via wait:true (case 
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -749,6 +737,8 @@ test("Rule 2: notify is suppressed when leader pre-consumes via wait:true (case 
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -763,10 +753,12 @@ test("Rule 1: batch coalesces completion into a single notification (no wait)", 
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -837,6 +829,8 @@ test("Rule 1: batch coalesces completion into a single notification (no wait)", 
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -851,10 +845,12 @@ test("Rule 1: no batch_id preserves individual notification (default behavior)",
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -924,6 +920,8 @@ test("Rule 1: no batch_id preserves individual notification (default behavior)",
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;
@@ -938,10 +936,12 @@ test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
 	const previousExecute = process.env.PI_TEAMS_EXECUTE_WORKERS;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;
 	const previousAllowMock = process.env.PI_CREW_ALLOW_MOCK;
+	const previousInlineSeam = process.env.PI_CREW_TEST_ASYNC_INLINE;
 	const previousCrewRole = process.env.PI_CREW_ROLE;
 	const previousTeamsRole = process.env.PI_TEAMS_ROLE;
 	process.env.PI_TEAMS_EXECUTE_WORKERS = "1";
 	process.env.PI_CREW_ALLOW_MOCK = "1";
+	process.env.PI_CREW_TEST_ASYNC_INLINE = "1"; // in-process seam — no detached runner (kills the Defender spawn-stall + orphan tmpdirs)
 	process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
 	delete process.env.PI_CREW_ROLE;
 	delete process.env.PI_TEAMS_ROLE;
@@ -1057,6 +1057,8 @@ test("Rule 3: non-batch completions coalesce into fewer wake-ups", async () => {
 		else process.env.PI_TEAMS_MOCK_CHILD_PI = previousMock;
 		if (previousAllowMock === undefined) delete process.env.PI_CREW_ALLOW_MOCK;
 		else process.env.PI_CREW_ALLOW_MOCK = previousAllowMock;
+		if (previousInlineSeam === undefined) delete process.env.PI_CREW_TEST_ASYNC_INLINE;
+		else process.env.PI_CREW_TEST_ASYNC_INLINE = previousInlineSeam;
 		if (previousCrewRole === undefined) delete process.env.PI_CREW_ROLE;
 		else process.env.PI_CREW_ROLE = previousCrewRole;
 		if (previousTeamsRole === undefined) delete process.env.PI_TEAMS_ROLE;

@@ -209,6 +209,9 @@ export const BACKGROUND_RUNNER_ENV_ALLOWLIST: string[] = [
 	"PI_TEAMS_PI_BIN",
 	"PI_TEAMS_MOCK_CHILD_PI",
 	"PI_CREW_ALLOW_MOCK",
+	// Entry guard for the detached runner main() (background-runner.ts skips main()
+	// on plain imports — the inline async test seam lazy-imports it).
+	"PI_CREW_BACKGROUND_RUNNER_ENTRY",
 	// Phase 1.5: worker-thread atomic writer opt-in (RFC 15).
 	"PI_CREW_WORKER_ATOMIC_WRITER",
 	"PI_TEAMS_WORKER_ATOMIC_WRITER",
@@ -262,7 +265,87 @@ export function buildBrokerStdinLine(runId: string, socketPath: string, tasks: R
 	return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
 }
 
+/**
+ * IN-PROCESS ASYNC TEST SEAM (kills two classes of test pain):
+ *  1. Windows Defender first-spawn stall — CI ground truth (run 36093514388
+ *     attempt 3): the detached background-runner spawn stalled >300s with the
+ *     task left "queued" while the event loop stayed healthy. No second
+ *     process to come up = no per-file-hash AV scan inside a test deadline.
+ *  2. Orphan-tmpdir leak — a detached runner survives the test's rmSync and
+ *     keeps writing run state into a deleted tree (source of the ~3.4k
+ *     pi-crew-* debris, 2026-09-26 triage). In-process, the run dies with the
+ *     test process.
+ *
+ * Gated by BOTH PI_CREW_TEST_ASYNC_INLINE=1 AND the existing test-fixture
+ * gate PI_CREW_ALLOW_MOCK=1 (defense-in-depth: production never sets either).
+ * The inline host reuses background-runner's executeBackgroundRun core —
+ * same code path as the detached runner, no drift.
+ */
+export function isInlineAsyncTestSeamActive(): boolean {
+	return getCrewEnv("PI_CREW_TEST_ASYNC_INLINE") === "1" && getCrewEnv("PI_CREW_ALLOW_MOCK") === "1";
+}
+
+async function runInlineBackgroundTeamRun(manifest: TeamRunManifest, logPath: string): Promise<SpawnBackgroundTeamRunResult> {
+	const log = (message: string): void => {
+		try {
+			fs.appendFileSync(logPath, `${message}\n`, "utf-8");
+		} catch {
+			/* best-effort */
+		}
+	};
+	log(`[pi-crew] inline test seam: executing run ${manifest.runId} in-process (no detached runner) pid=${process.pid}`);
+	await appendEventAsync(manifest.eventsPath, {
+		type: "async.spawned",
+		runId: manifest.runId,
+		data: { pid: process.pid, logPath, inline: true },
+	});
+	// Fire-and-forget — spawn() semantics: the caller must NOT await the run.
+	// Catch-all: a late rejection after the test ended must not become an
+	// unhandledRejection that fails the whole file.
+	void (async () => {
+		try {
+			// LAZY: defer the core import — background-runner must not load in the
+			// normal spawn path (and its module-scope main() is entry-guarded).
+			const { executeBackgroundRun } = await import("./background-runner.ts");
+			const { loadRunManifestById } = await import("../state/stores/state-store.ts");
+			const { withRunLockSync } = await import("../state/coordination/locks.ts");
+			const loaded = withRunLockSync(manifest, () => loadRunManifestById(manifest.cwd, manifest.runId), { staleMs: 30_000 });
+			const effectiveManifest = loaded?.manifest ?? manifest;
+			const tasks = loaded?.tasks ?? [];
+			await executeBackgroundRun({ manifest: effectiveManifest, tasks }, { log: (message) => log(`[inline] ${message}`) });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			log(`[pi-crew] inline test seam run ${manifest.runId} FAILED: ${message}`);
+			try {
+				const { loadRunManifestByIdAsync: reload, updateRunStatus } = await import("../state/stores/state-store.ts");
+				const fresh = (await reload(manifest.cwd, manifest.runId))?.manifest;
+				if (fresh) updateRunStatus(fresh, "failed", `inline test seam: ${message}`);
+				else
+					await appendEventAsync(manifest.eventsPath, {
+						type: "async.failed",
+						runId: manifest.runId,
+						message: `inline test seam: ${message}`,
+					});
+				if (fresh)
+					await appendEventAsync(fresh.eventsPath, {
+						type: "async.failed",
+						runId: fresh.runId,
+						message: `inline test seam: ${message}`,
+					});
+			} catch {
+				/* best-effort */
+			}
+		}
+	})();
+	return { pid: process.pid, logPath };
+}
+
 export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise<SpawnBackgroundTeamRunResult> {
+	if (isInlineAsyncTestSeamActive()) {
+		const logPath = path.join(manifest.stateRoot, "background.log");
+		fs.mkdirSync(manifest.stateRoot, { recursive: true });
+		return runInlineBackgroundTeamRun(manifest, logPath);
+	}
 	// FIX (2026-07-02, perf review F-critical): use packageRoot() instead of
 	// import.meta.url-relative path. The previous path.resolve walks
 	// <bundleDir>/background-runner.ts, which is correct in src/ but BROKEN
@@ -291,7 +374,10 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 	// `npm root -g` probe. No-op when pi-crew and pi are co-located. See
 	// src/runtime/peer-dep.ts.
 	const peerDepDir = resolvePeerDepDir();
-	const childEnv = buildBackgroundRunnerEnv(peerDepDir ? { ...filteredEnv, [PEER_DEP_DIR_ENV]: peerDepDir } : filteredEnv);
+	const childEnv = buildBackgroundRunnerEnv({
+		...(peerDepDir ? { ...filteredEnv, [PEER_DEP_DIR_ENV]: peerDepDir } : filteredEnv),
+		PI_CREW_BACKGROUND_RUNNER_ENTRY: "1",
+	});
 
 	const loader = resolveTypeScriptLoader();
 	if (!loader) {

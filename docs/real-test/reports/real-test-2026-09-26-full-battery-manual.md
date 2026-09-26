@@ -98,3 +98,12 @@ Gates: tsc/lint/format OK, critical 116/116, stale-reconciler suites 28/28, bund
 - Còn mở (spec sẵn trong follow-up): **inline-async test seam** (`PI_CREW_TEST_ASYNC_INLINE` + ALLOW_MOCK) — diệt hẳn runner-mồ-côi (nguồn rò rỉ thật sự + flake Windows CI của subagent-tools-integration).
 
 Gates: tsc/lint/format OK · critical 116/116 · stale-reconciler suites 31/31 · sweep 2/2 · bundle 1637.4KB `a0c09bed…`.
+
+**Addendum 5 — inline-async test seam (tầng cuối, ~06:0xZ)**
+
+- **Seam landed**: `PI_CREW_TEST_ASYNC_INLINE=1` + `PI_CREW_ALLOW_MOCK=1` (double gate — production never sets either) → `spawnBackgroundTeamRun` executes the run **in-process** instead of spawning a detached background-runner.
+- **Architecture**: execution core `executeBackgroundRun(manifest, tasks, opts)` extracted from `background-runner.ts` main() — no process side effects (no console redirect/signals/watchdog/exit codes); shared verbatim by the detached runner (main passes signal + markBackgroundMode) and the seam (fire-and-forget, never rejects). `main()` itself is now **entry-guarded** (env `PI_CREW_BACKGROUND_RUNNER_ENTRY=1` set by the spawn, or classic argv[1] entry check) so importing the module — as the seam does — runs nothing. Direct CLI spawns in integration tests keep working via the argv check.
+- **Kills**: (1) Windows Defender first-spawn stall — `subagent-tools-integration.test.ts` went from 5+min stall-prone to **14/14 in 37s**, module-load warm-up removed; (2) orphan-tmpdir leak — in-process runs die with the test process, nothing detached survives the test's rmSync (mutation run proved the inverse: pinned-off seam left a real orphan writing into a deleted cwd).
+- **Regressions**: `async-runner-inline-seam.test.ts` (gate combos ×4 + e2e inline probe asserting `pid === process.pid`, async.spawned inline marker, async.failed terminal) — **mutation-checked** (gate pinned false → 2/2 red; the e2e would spawn a real child → pid assertion red).
+- Gates: tsc/lint/format OK · critical 116/116 · **full `npm test` EXIT=0 (unit+integration, 14m08s)** · seam+subagent+async-runner+watchdog re-verified post-guard 35/35 · env-vars registry + snapshot updated · allowlist test 42/42.
+- Bonus quan sát: tmp-sweep (addendum 4) tự dọn 22 dir pre-existing trong chính run này (`removed=22 skipped=455 errors=0`).

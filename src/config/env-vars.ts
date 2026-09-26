@@ -237,6 +237,16 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "boolean",
 		doc: "'1'/'true' allows PI_TEAMS_MOCK_CHILD_PI mock mode (mock-fixtures.ts:40)",
 	},
+	PI_CREW_TEST_ASYNC_INLINE: {
+		name: "PI_CREW_TEST_ASYNC_INLINE",
+		parser: "boolean",
+		doc: "'1' runs async team runs IN-PROCESS instead of spawning a detached background-runner (test seam; requires PI_CREW_ALLOW_MOCK=1 — see async-runner.ts spawnBackgroundTeamRun)",
+	},
+	PI_CREW_BACKGROUND_RUNNER_ENTRY: {
+		name: "PI_CREW_BACKGROUND_RUNNER_ENTRY",
+		parser: "boolean",
+		doc: "'1' marks this process as a directly-invoked background-runner entry (set by async-runner spawn; module import without it skips main() — background-runner.ts entry guard)",
+	},
 	PI_CREW_PROMPT_BREAKDOWN: {
 		name: "PI_CREW_PROMPT_BREAKDOWN",
 		parser: "boolean",

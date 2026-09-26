@@ -50,6 +50,8 @@ const SRC_READ_NAMES: readonly string[] = [
 	"PI_TEAMS_WORKER_ATOMIC_WRITER",
 	// singles read via process.env (dot)
 	"PI_CREW_ALLOW_MOCK",
+	"PI_CREW_TEST_ASYNC_INLINE",
+	"PI_CREW_BACKGROUND_RUNNER_ENTRY",
 	"PI_CREW_ASYNC_EARLY_EXIT_GUARD",
 	"PI_CREW_PROMPT_BREAKDOWN",
 	"PI_CREW_PROMPT_SKILLS",
@@ -116,6 +118,8 @@ const SRC_READ_NAMES: readonly string[] = [
 /** Snapshot of the full registry key set (catches accidental drops/renames). */
 const REGISTRY_SNAPSHOT: readonly string[] = [
 	...SRC_READ_NAMES,
+	"PI_CREW_TEST_ASYNC_INLINE",
+	"PI_CREW_BACKGROUND_RUNNER_ENTRY",
 	// docs/tests-only names (best-effort, non-src reads)
 	"PI_CREW_USE_BUNDLE",
 	"PI_CREW_SMOKE",

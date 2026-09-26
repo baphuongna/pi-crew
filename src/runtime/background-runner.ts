@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { allAgents, discoverAgents } from "../agents/discover-agents.ts";
 import { loadConfig } from "../config/config.ts";
 import { getCrewEnv } from "../config/env-vars.ts";
@@ -419,6 +420,251 @@ function runCleanup(
 // Used by the module-level catch to signal that finally should call process.exit(1).
 let exitDueToRejection = false;
 
+export interface ExecuteBackgroundRunOptions {
+	/** Abort signal — the detached runner passes its controller's signal (SIGINT/SIGTERM/watchdog); the inline test seam passes none. */
+	signal?: AbortSignal;
+	/**
+	 * Set PI_CREW_BACKGROUND_MODE=1 (detached-runner observability marker).
+	 * SKIPPED by the in-process test seam: it must not pollute the host test
+	 * process env (task-runner routes events by this flag).
+	 */
+	markBackgroundMode?: boolean;
+	/**
+	 * Progress log sink. Defaults to console.log — the detached runner's
+	 * console is redirected to background.log by main(); the inline test seam
+	 * appends to background.log directly.
+	 */
+	log?: (message: string) => void;
+}
+
+/**
+ * The background-run EXECUTION CORE shared by two hosts:
+ *  1. the detached runner process (main() below), and
+ *  2. the in-process async test seam (async-runner.ts spawnBackgroundTeamRun
+ *     with PI_CREW_TEST_ASYNC_INLINE=1 + PI_CREW_ALLOW_MOCK=1).
+ *
+ * Contains NO process-level side effects beyond the run itself: no console
+ * redirect, no signal handlers, no watchdog/keepalive/parent-guard, no exit
+ * codes. Hosts own those. This is why the seam kills the Windows Defender
+ * first-spawn stall (no second process to come up inside a test deadline)
+ * and the orphan-tmpdir leak (the run dies with the test process — nothing
+ * detached survives to write state after the test's rmSync).
+ */
+export async function executeBackgroundRun(
+	input: { manifest: TeamRunManifest; tasks: TeamTaskState[] },
+	opts: ExecuteBackgroundRunOptions = {},
+): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+	const log = opts.log ?? ((message: string) => console.log(message));
+	let manifest = input.manifest;
+	let tasks = input.tasks;
+	const cwd = manifest.cwd;
+	// Inline seam passes no signal — a never-aborted dummy is behaviorally
+	// identical ("no cancellation source") for the goal-loop/dwf/team-run
+	// inputs below that require a non-optional AbortSignal.
+	const signal: AbortSignal = opts.signal ?? new AbortController().signal;
+	debugLog(`[background-runner] about to call discoverAgents`);
+	const agents = allAgents(discoverAgents(cwd));
+	debugLog(`[background-runner] discoverAgents done, ${agents.length} agents`);
+	// Round 27 (BUG 2): openSync returned an fd that was never closed → FD
+	// leak per background runner startup. Close it in a finally (matches the
+	// canonical pattern in checkpoint.ts:83 and event-log.ts:582).
+	try {
+		const fd = fs.openSync(manifest.eventsPath, "a");
+		try {
+			fs.fsyncSync(fd);
+		} finally {
+			try {
+				fs.closeSync(fd);
+			} catch {
+				/* best-effort */
+			}
+		}
+	} catch {
+		/* best-effort */
+	} // FORCE flush so we see this before death
+	// Fix round-4 CRITICAL: goal-loop and dynamic-workflow manifests use SYNTHETIC
+	// team/workflow names not in discoverTeams/discoverWorkflows. The team+workflow
+	// lookup below would throw "Team not found" BEFORE the runKind switch, making the
+	// goal feature unreachable from background. Short-circuit the new runKinds here.
+	if (opts.markBackgroundMode) process.env.PI_CREW_BACKGROUND_MODE = "1";
+	let earlyResult: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
+	let result: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
+	if (manifest.runKind === "goal-loop" || manifest.runKind === "dynamic-workflow") {
+		debugLog(`[background-runner] short-circuiting ${manifest.runKind} (synthetic team/workflow)`);
+		if (manifest.runKind === "goal-loop") {
+			// LAZY: defer dynamic import of ./goal-loop-runner.ts to its call site.
+			const { runGoalLoop } = await import("./goal-workflow/goal-loop-runner.ts");
+			// LAZY: defer dynamic import of ./goal-state-store.ts to its call site.
+			const { GoalStore } = await import("./goal-workflow/goal-state-store.ts");
+			// LAZY: defer dynamic import of ../agents/discover-agents.ts to its call site.
+			const { discoverAgents, allAgents } = await import("../agents/discover-agents.ts");
+			const store = new GoalStore(manifest.cwd);
+			const goalState = store.load(manifest.runId);
+			if (!goalState) throw new Error(`runKind="goal-loop" but GoalLoopState '${manifest.runId}' not found (cwd=${manifest.cwd})`);
+			const goalResult = await runGoalLoop({
+				goalState,
+				manifest,
+				signal,
+				deps: {
+					discoverAgents: (c: string) => allAgents(discoverAgents(c)),
+				},
+			});
+			// Fix P1-1 + round-6 #5: persist terminal status reflecting the goal's actual outcome,
+			// not a blanket 'completed'. Map goal state → manifest status.
+			const goalStatusToRunStatus: Record<string, TeamRunManifest["status"]> = {
+				achieved: "completed",
+				max_turns: "completed",
+				budget_exceeded: "completed",
+				blocked: "blocked",
+				cancelled: "cancelled",
+				paused: "blocked",
+				running: "running",
+			};
+			const runStatus = goalStatusToRunStatus[goalResult.goalState.state] ?? "completed";
+			const finalGoalManifest: TeamRunManifest = {
+				...goalResult.manifest,
+				status: runStatus,
+				updatedAt: new Date().toISOString(),
+			};
+			await saveRunManifestAsync(finalGoalManifest);
+			earlyResult = {
+				manifest: finalGoalManifest,
+				tasks: goalResult.tasks,
+			};
+		} else {
+			// LAZY: defer dynamic import of ./dynamic-workflow-runner.ts to its call site.
+			const { runDynamicWorkflow } = await import("./goal-workflow/dynamic-workflow-runner.ts");
+			// LAZY: defer dynamic import of ../workflows/discover-workflows.ts to its call site.
+			const { allWorkflows, discoverWorkflows } = await import("../workflows/discover-workflows.ts");
+			const wf = allWorkflows(discoverWorkflows(manifest.cwd)).find((w) => w.name === manifest.workflow);
+			if (wf?.runtime !== "dynamic" || !wf.dynamicScript)
+				throw new Error(`runKind="dynamic-workflow" but workflow '${manifest.workflow}' is not dynamic (runId=${manifest.runId})`);
+			const dwfResult = await runDynamicWorkflow({
+				manifest,
+				workflow: wf as import("../workflows/workflow-config.ts").DynamicWorkflowConfig,
+				signal,
+				tokenBudget: wf.maxTokenBudget,
+			});
+			await saveRunManifestAsync(dwfResult.manifest);
+			earlyResult = dwfResult;
+		}
+		log(`[background-runner] ${manifest.runKind} returned, status=${earlyResult.manifest.status}`);
+		result = earlyResult;
+	}
+	if (!earlyResult) {
+		debugLog(`[background-runner] calling directTeamAndWorkflowFromRun`);
+		const direct = directTeamAndWorkflowFromRun(manifest, tasks, agents);
+		debugLog(`[background-runner] direct done, finding team`);
+		const team = direct?.team ?? allTeams(discoverTeams(cwd)).find((candidate) => candidate.name === manifest.team);
+		if (!team) throw new Error(`Team '${manifest.team}' not found.`);
+		debugLog(`[background-runner] team=${team.name}, finding workflow`);
+		const baseWorkflow =
+			direct?.workflow ?? allWorkflows(discoverWorkflows(cwd)).find((candidate) => candidate.name === manifest.workflow);
+		if (!baseWorkflow) throw new Error(`Workflow '${manifest.workflow ?? ""}' not found.`);
+		debugLog(`[background-runner] workflow=${baseWorkflow.name}`);
+		const workflow = expandParallelResearchWorkflow(baseWorkflow, cwd);
+		debugLog(`[background-runner] loading config`);
+		const loadedConfig = loadConfig(cwd);
+		const runConfig =
+			manifest.runConfig && typeof manifest.runConfig === "object" && !Array.isArray(manifest.runConfig)
+				? (manifest.runConfig as typeof loadedConfig.config)
+				: loadedConfig.config;
+		const runtime = manifest.runtimeResolution
+			? {
+					kind: manifest.runtimeResolution.kind,
+					requestedMode: manifest.runtimeResolution.requestedMode,
+					available: manifest.runtimeResolution.available,
+					fallback: manifest.runtimeResolution.fallback,
+					steer: manifest.runtimeResolution.kind === "live-session",
+					resume: manifest.runtimeResolution.kind === "live-session",
+					liveToolActivity: manifest.runtimeResolution.kind === "live-session",
+					transcript: manifest.runtimeResolution.kind !== "scaffold",
+					reason: manifest.runtimeResolution.reason,
+					safety: manifest.runtimeResolution.safety,
+				}
+			: await resolveCrewRuntime(runConfig);
+		const runtimeResolution = manifest.runtimeResolution ?? runtimeResolutionState(runtime);
+		manifest = {
+			...manifest,
+			runtimeResolution,
+			runConfig,
+			updatedAt: new Date().toISOString(),
+		};
+		await saveRunManifestAsync(manifest);
+		appendEventBuffered(manifest.eventsPath, {
+			type: "runtime.resolved",
+			runId: manifest.runId,
+			message: `Runtime resolved: ${runtime.kind} safety=${runtime.safety}`,
+			data: { runtimeResolution, async: true },
+		}).catch((e) => logInternalError("background-runner.buffered", e, "type=runtime.resolved"));
+		if (runtime.safety === "blocked")
+			throw new Error(runtime.reason ?? "Child worker execution is disabled; refusing to create no-op scaffold subagents.");
+		const executeWorkers = runtime.kind !== "scaffold";
+		// Use ownerSessionId for workspaceId to ensure agents are only visible to the session that spawned them.
+		// manifest.cwd would cause cross-session visibility since all sessions share the same project directory.
+		// Mark this as background mode so task-runner writes events to background.log for debugging.
+		if (opts.markBackgroundMode) process.env.PI_CREW_BACKGROUND_MODE = "1";
+		// BUG #17: Keep-alive interval (NOT unref'd) prevents event loop from exiting
+		// during jiti compilation of team-runner.ts. Without this, the event loop
+		// can drain when import() blocks, causing the process to exit prematurely.
+		// NOTE: abortController is already created above (before heartbeat/interrupt guard start)
+		// so it is available here and its signal is passed through to executeTeamRun → child-pi.
+
+		debugLog(`[background-runner] dispatching runKind=${manifest.runKind ?? "team-run"}`);
+		try {
+			// Fix round-4: goal-loop/dynamic-workflow handled by the short-circuit above.
+			// This switch now only carries the traditional team-run path.
+			switch (manifest.runKind ?? "team-run") {
+				default: {
+					// Existing "team-run" path — unchanged behavior.
+					// Forward budget fields from manifest (set by team-tool/run.ts
+					// from params.budgetTotal/etc.) so the team-runner's
+					// checkPerTaskBudget guard actually arms.
+					result = await executeTeamRun({
+						manifest,
+						tasks,
+						team,
+						workflow,
+						agents,
+						executeWorkers,
+						limits: runConfig.limits,
+						runtime,
+						runtimeConfig: runConfig.runtime,
+						skillOverride: manifest.skillOverride,
+						// Restore the caller's model routing inputs (see RunModelContext):
+						// this process has no ExtensionContext, so without these the
+						// `model=` override and the inherited session model are lost and
+						// every worker falls back to the first models.json entry.
+						...restoredModelRouting(manifest),
+						reliability: runConfig.reliability,
+						workspaceId: manifest.ownerSessionId ?? manifest.cwd,
+						signal: opts.signal,
+						...(manifest.budgetTotal !== undefined ? { budgetTotal: manifest.budgetTotal } : {}),
+						...(manifest.budgetWarning !== undefined ? { budgetWarning: manifest.budgetWarning } : {}),
+						...(manifest.budgetAbort !== undefined ? { budgetAbort: manifest.budgetAbort } : {}),
+						...(manifest.budgetUnlimited !== undefined ? { budgetUnlimited: manifest.budgetUnlimited } : {}),
+					});
+					break;
+				}
+			}
+			log(`[background-runner] executeTeamRun returned, status=${result.manifest.status}`);
+		} catch (execError) {
+			log(`[background-runner] executeTeamRun THREW: ${errorMessage(execError)}`);
+			log(`[background-runner] stack: ${execError instanceof Error ? execError.stack : "N/A"}`);
+			throw execError;
+		}
+	} // close if (!earlyResult) — team-run setup+execute done; earlyResult path skips to here
+	manifest = result!.manifest;
+	tasks = result!.tasks;
+	appendEventBuffered(manifest.eventsPath, {
+		type: "async.completed",
+		runId: manifest.runId,
+		data: { status: manifest.status, tasks: tasks.length },
+	}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.completed"));
+	log(`[background-runner] async.completed written, status=${manifest.status}`);
+	return { manifest, tasks };
+}
+
 async function main(): Promise<void> {
 	// FIX: Store logFd so it can be closed on exit to prevent file descriptor leak
 	let logFd: number | undefined;
@@ -754,209 +1000,9 @@ async function main(): Promise<void> {
 	}, MAX_BACKGROUND_RUN_MS);
 
 	try {
-		debugLog(`[background-runner] about to call discoverAgents`);
-		const agents = allAgents(discoverAgents(cwd));
-		debugLog(`[background-runner] discoverAgents done, ${agents.length} agents`);
-		// Round 27 (BUG 2): openSync returned an fd that was never closed → FD
-		// leak per background runner startup. Close it in a finally (matches the
-		// canonical pattern in checkpoint.ts:83 and event-log.ts:582).
-		try {
-			const fd = fs.openSync(manifest.eventsPath, "a");
-			try {
-				fs.fsyncSync(fd);
-			} finally {
-				try {
-					fs.closeSync(fd);
-				} catch {
-					/* best-effort */
-				}
-			}
-		} catch {
-			/* best-effort */
-		} // FORCE flush so we see this before death
-		// Fix round-4 CRITICAL: goal-loop and dynamic-workflow manifests use SYNTHETIC
-		// team/workflow names not in discoverTeams/discoverWorkflows. The team+workflow
-		// lookup below would throw "Team not found" BEFORE the runKind switch, making the
-		// goal feature unreachable from background. Short-circuit the new runKinds here.
-		process.env.PI_CREW_BACKGROUND_MODE = "1";
-		let earlyResult: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
-		let result: { manifest: TeamRunManifest; tasks: TeamTaskState[] } | undefined;
-		if (manifest.runKind === "goal-loop" || manifest.runKind === "dynamic-workflow") {
-			debugLog(`[background-runner] short-circuiting ${manifest.runKind} (synthetic team/workflow)`);
-			if (manifest.runKind === "goal-loop") {
-				// LAZY: defer dynamic import of ./goal-loop-runner.ts to its call site.
-				const { runGoalLoop } = await import("./goal-workflow/goal-loop-runner.ts");
-				// LAZY: defer dynamic import of ./goal-state-store.ts to its call site.
-				const { GoalStore } = await import("./goal-workflow/goal-state-store.ts");
-				// LAZY: defer dynamic import of ../agents/discover-agents.ts to its call site.
-				const { discoverAgents, allAgents } = await import("../agents/discover-agents.ts");
-				const store = new GoalStore(manifest.cwd);
-				const goalState = store.load(manifest.runId);
-				if (!goalState)
-					throw new Error(`runKind="goal-loop" but GoalLoopState '${manifest.runId}' not found (cwd=${manifest.cwd})`);
-				const goalResult = await runGoalLoop({
-					goalState,
-					manifest,
-					signal: abortController.signal,
-					deps: {
-						discoverAgents: (c: string) => allAgents(discoverAgents(c)),
-					},
-				});
-				// Fix P1-1 + round-6 #5: persist terminal status reflecting the goal's actual outcome,
-				// not a blanket 'completed'. Map goal state → manifest status.
-				const goalStatusToRunStatus: Record<string, TeamRunManifest["status"]> = {
-					achieved: "completed",
-					max_turns: "completed",
-					budget_exceeded: "completed",
-					blocked: "blocked",
-					cancelled: "cancelled",
-					paused: "blocked",
-					running: "running",
-				};
-				const runStatus = goalStatusToRunStatus[goalResult.goalState.state] ?? "completed";
-				const finalGoalManifest: TeamRunManifest = {
-					...goalResult.manifest,
-					status: runStatus,
-					updatedAt: new Date().toISOString(),
-				};
-				await saveRunManifestAsync(finalGoalManifest);
-				earlyResult = {
-					manifest: finalGoalManifest,
-					tasks: goalResult.tasks,
-				};
-			} else {
-				// LAZY: defer dynamic import of ./dynamic-workflow-runner.ts to its call site.
-				const { runDynamicWorkflow } = await import("./goal-workflow/dynamic-workflow-runner.ts");
-				// LAZY: defer dynamic import of ../workflows/discover-workflows.ts to its call site.
-				const { allWorkflows, discoverWorkflows } = await import("../workflows/discover-workflows.ts");
-				const wf = allWorkflows(discoverWorkflows(manifest.cwd)).find((w) => w.name === manifest.workflow);
-				if (wf?.runtime !== "dynamic" || !wf.dynamicScript)
-					throw new Error(
-						`runKind="dynamic-workflow" but workflow '${manifest.workflow}' is not dynamic (runId=${manifest.runId})`,
-					);
-				const dwfResult = await runDynamicWorkflow({
-					manifest,
-					workflow: wf as import("../workflows/workflow-config.ts").DynamicWorkflowConfig,
-					signal: abortController.signal,
-					tokenBudget: wf.maxTokenBudget,
-				});
-				await saveRunManifestAsync(dwfResult.manifest);
-				earlyResult = dwfResult;
-			}
-			console.log(`[background-runner] ${manifest.runKind} returned, status=${earlyResult.manifest.status}`);
-			result = earlyResult;
-		}
-		if (!earlyResult) {
-			debugLog(`[background-runner] calling directTeamAndWorkflowFromRun`);
-			const direct = directTeamAndWorkflowFromRun(manifest, tasks, agents);
-			debugLog(`[background-runner] direct done, finding team`);
-			const team = direct?.team ?? allTeams(discoverTeams(cwd)).find((candidate) => candidate.name === manifest.team);
-			if (!team) throw new Error(`Team '${manifest.team}' not found.`);
-			debugLog(`[background-runner] team=${team.name}, finding workflow`);
-			const baseWorkflow =
-				direct?.workflow ?? allWorkflows(discoverWorkflows(cwd)).find((candidate) => candidate.name === manifest.workflow);
-			if (!baseWorkflow) throw new Error(`Workflow '${manifest.workflow ?? ""}' not found.`);
-			debugLog(`[background-runner] workflow=${baseWorkflow.name}`);
-			const workflow = expandParallelResearchWorkflow(baseWorkflow, cwd);
-			debugLog(`[background-runner] loading config`);
-			const loadedConfig = loadConfig(cwd);
-			const runConfig =
-				manifest.runConfig && typeof manifest.runConfig === "object" && !Array.isArray(manifest.runConfig)
-					? (manifest.runConfig as typeof loadedConfig.config)
-					: loadedConfig.config;
-			const runtime = manifest.runtimeResolution
-				? {
-						kind: manifest.runtimeResolution.kind,
-						requestedMode: manifest.runtimeResolution.requestedMode,
-						available: manifest.runtimeResolution.available,
-						fallback: manifest.runtimeResolution.fallback,
-						steer: manifest.runtimeResolution.kind === "live-session",
-						resume: manifest.runtimeResolution.kind === "live-session",
-						liveToolActivity: manifest.runtimeResolution.kind === "live-session",
-						transcript: manifest.runtimeResolution.kind !== "scaffold",
-						reason: manifest.runtimeResolution.reason,
-						safety: manifest.runtimeResolution.safety,
-					}
-				: await resolveCrewRuntime(runConfig);
-			const runtimeResolution = manifest.runtimeResolution ?? runtimeResolutionState(runtime);
-			manifest = {
-				...manifest,
-				runtimeResolution,
-				runConfig,
-				updatedAt: new Date().toISOString(),
-			};
-			await saveRunManifestAsync(manifest);
-			appendEventBuffered(manifest.eventsPath, {
-				type: "runtime.resolved",
-				runId: manifest.runId,
-				message: `Runtime resolved: ${runtime.kind} safety=${runtime.safety}`,
-				data: { runtimeResolution, async: true },
-			}).catch((e) => logInternalError("background-runner.buffered", e, "type=runtime.resolved"));
-			if (runtime.safety === "blocked")
-				throw new Error(runtime.reason ?? "Child worker execution is disabled; refusing to create no-op scaffold subagents.");
-			const executeWorkers = runtime.kind !== "scaffold";
-			// Use ownerSessionId for workspaceId to ensure agents are only visible to the session that spawned them.
-			// manifest.cwd would cause cross-session visibility since all sessions share the same project directory.
-			// Mark this as background mode so task-runner writes events to background.log for debugging.
-			process.env.PI_CREW_BACKGROUND_MODE = "1";
-			// BUG #17: Keep-alive interval (NOT unref'd) prevents event loop from exiting
-			// during jiti compilation of team-runner.ts. Without this, the event loop
-			// can drain when import() blocks, causing the process to exit prematurely.
-			// NOTE: abortController is already created above (before heartbeat/interrupt guard start)
-			// so it is available here and its signal is passed through to executeTeamRun → child-pi.
-
-			debugLog(`[background-runner] dispatching runKind=${manifest.runKind ?? "team-run"}`);
-			try {
-				// Fix round-4: goal-loop/dynamic-workflow handled by the short-circuit above.
-				// This switch now only carries the traditional team-run path.
-				switch (manifest.runKind ?? "team-run") {
-					default: {
-						// Existing "team-run" path — unchanged behavior.
-						// Forward budget fields from manifest (set by team-tool/run.ts
-						// from params.budgetTotal/etc.) so the team-runner's
-						// checkPerTaskBudget guard actually arms.
-						result = await executeTeamRun({
-							manifest,
-							tasks,
-							team,
-							workflow,
-							agents,
-							executeWorkers,
-							limits: runConfig.limits,
-							runtime,
-							runtimeConfig: runConfig.runtime,
-							skillOverride: manifest.skillOverride,
-							// Restore the caller's model routing inputs (see RunModelContext):
-							// this process has no ExtensionContext, so without these the
-							// `model=` override and the inherited session model are lost and
-							// every worker falls back to the first models.json entry.
-							...restoredModelRouting(manifest),
-							reliability: runConfig.reliability,
-							workspaceId: manifest.ownerSessionId ?? manifest.cwd,
-							signal: abortController.signal,
-							...(manifest.budgetTotal !== undefined ? { budgetTotal: manifest.budgetTotal } : {}),
-							...(manifest.budgetWarning !== undefined ? { budgetWarning: manifest.budgetWarning } : {}),
-							...(manifest.budgetAbort !== undefined ? { budgetAbort: manifest.budgetAbort } : {}),
-							...(manifest.budgetUnlimited !== undefined ? { budgetUnlimited: manifest.budgetUnlimited } : {}),
-						});
-						break;
-					}
-				}
-				console.log(`[background-runner] executeTeamRun returned, status=${result.manifest.status}`);
-			} catch (execError) {
-				console.log(`[background-runner] executeTeamRun THREW: ${errorMessage(execError)}`);
-				console.log(`[background-runner] stack: ${execError instanceof Error ? execError.stack : "N/A"}`);
-				throw execError;
-			}
-		} // close if (!earlyResult) — team-run setup+execute done; earlyResult path skips to here
-		manifest = result!.manifest;
-		tasks = result!.tasks;
-		appendEventBuffered(manifest.eventsPath, {
-			type: "async.completed",
-			runId: manifest.runId,
-			data: { status: manifest.status, tasks: tasks.length },
-		}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.completed"));
-		console.log(`[background-runner] async.completed written, status=${manifest.status}`);
+		const executed = await executeBackgroundRun({ manifest, tasks }, { signal: abortController.signal });
+		manifest = executed.manifest;
+		tasks = executed.tasks;
 		if (manifest.status === "failed" || manifest.status === "cancelled" || manifest.status === "blocked") process.exitCode = 1;
 	} catch (error) {
 		// Terminate live agents on failure too — agents are done when the run fails
@@ -1030,39 +1076,72 @@ async function main(): Promise<void> {
 // guard didn't fire), .catch() ran instead of the finally block doing the exit.
 // New pattern: move await main() inside main() itself, wrapped in try/catch that
 // sets exitDueToRejection so the finally block exits with code 1 after cleanup.
-try {
-	await main();
-} catch (err) {
-	console.error(`[background-runner] DEBUG: main() uncaught: ${errorMessage(err)}`);
-	// FIX Issue #1: Set the flag so the finally block's runCleanup() call
-	// will trigger process.exit(1) after cleanup completes. Previously this
-	// called process.exit(1) directly, bypassing the finally block and leaving
-	// orphaned child processes.
-	exitDueToRejection = true;
-	// RT-3 FIX: Startup failures (lock-fail, missing manifest, pre-try throws)
-	// previously wrote NO event and left exitCode at 0. The run stayed 'queued'
-	// until the stale reconciler reaped it. Now write async.failed so the
-	// notifier/foreground detects the failure immediately, and set exitCode=1
-	// so the process exits non-zero.
+/**
+ * Entry-point guard: run main() ONLY when this module is the process entry
+ * (detached runner spawned by async-runner, or direct CLI invocation by
+ * integration tests). A plain import — notably the IN-PROCESS async test seam
+ * (async-runner.ts lazy-imports executeBackgroundRun) — must not run a team.
+ * Belt-and-braces: the explicit PI_CREW_BACKGROUND_RUNNER_ENTRY env marker
+ * (set by the async-runner spawn, allowlisted) OR the classic argv[1] check
+ * (keeps direct `node background-runner.ts --cwd ... --run-id ...` spawns in
+ * tests working without the env).
+ */
+function shouldRunMainAsEntry(): boolean {
+	if (getCrewEnv("PI_CREW_BACKGROUND_RUNNER_ENTRY") === "1") return true;
 	try {
-		const mCwd = argValue("--cwd");
-		const mRunId = argValue("--run-id");
-		if (mCwd && mRunId) {
-			const mEventsPath = createRunPaths(mCwd, mRunId).eventsPath;
-			appendEventBuffered(mEventsPath, {
-				type: "async.failed",
-				runId: mRunId,
-				message: errorMessage(err),
-				data: { stack: err instanceof Error ? err.stack : undefined },
-			}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.failed source=catch"));
+		const argv1 = process.argv[1];
+		if (!argv1) return false;
+		const a = path.resolve(argv1);
+		const b = path.resolve(fileURLToPath(import.meta.url));
+		const eq = (x: string, y: string): boolean => (process.platform === "win32" ? x.toLowerCase() === y.toLowerCase() : x === b);
+		if (eq(a, b)) return true;
+		try {
+			const ra = fs.realpathSync(a);
+			const rb = fs.realpathSync(b);
+			return process.platform === "win32" ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
+		} catch {
+			return false;
 		}
 	} catch {
-		/* best-effort — don't let event-write failure mask the original error */
+		return false;
 	}
-	process.exitCode = 1;
-	// FIX: Call stopParentGuard directly here as a safety net in case the
-	// finally block (which calls runCleanup→stopParentGuard) does not complete.
-	// This ensures the parent guard is stopped in ALL exit paths: normal
-	// completion, unhandled rejection, and fatal errors.
-	stopParentGuard();
+}
+
+if (shouldRunMainAsEntry()) {
+	try {
+		await main();
+	} catch (err) {
+		console.error(`[background-runner] DEBUG: main() uncaught: ${errorMessage(err)}`);
+		// FIX Issue #1: Set the flag so the finally block's runCleanup() call
+		// will trigger process.exit(1) after cleanup completes. Previously this
+		// called process.exit(1) directly, bypassing the finally block and leaving
+		// orphaned child processes.
+		exitDueToRejection = true;
+		// RT-3 FIX: Startup failures (lock-fail, missing manifest, pre-try throws)
+		// previously wrote NO event and left exitCode at 0. The run stayed 'queued'
+		// until the stale reconciler reaped it. Now write async.failed so the
+		// notifier/foreground detects the failure immediately, and set exitCode=1
+		// so the process exits non-zero.
+		try {
+			const mCwd = argValue("--cwd");
+			const mRunId = argValue("--run-id");
+			if (mCwd && mRunId) {
+				const mEventsPath = createRunPaths(mCwd, mRunId).eventsPath;
+				appendEventBuffered(mEventsPath, {
+					type: "async.failed",
+					runId: mRunId,
+					message: errorMessage(err),
+					data: { stack: err instanceof Error ? err.stack : undefined },
+				}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.failed source=catch"));
+			}
+		} catch {
+			/* best-effort — don't let event-write failure mask the original error */
+		}
+		process.exitCode = 1;
+		// FIX: Call stopParentGuard directly here as a safety net in case the
+		// finally block (which calls runCleanup→stopParentGuard) does not complete.
+		// This ensures the parent guard is stopped in ALL exit paths: normal
+		// completion, unhandled rejection, and fatal errors.
+		stopParentGuard();
+	}
 }
