@@ -81,6 +81,14 @@ export function summarizeHeartbeats(snapshot: RunUiSnapshot, opts: HeartbeatSumm
 	const runTerminal = isTerminalRunStatus(snapshot.manifest.status);
 	for (const task of snapshot.tasks) {
 		if (runTerminal || !isActiveTask(task)) continue;
+		// Guest-child tasks (delegate subagents, agent === "delegate") have no
+		// heartbeat channel — they never write task.heartbeat and complete in
+		// seconds; their lifecycle is owned by delegate.requested/admitted/
+		// completed broker events. Counting them here fired a false "N worker(s)
+		// missing heartbeat" ambient for every delegate-using run (live:
+		// team_20260926033657_2b6c6d2610b26d9d, 2026-09-26 battery — same
+		// gc-blindness root shape as the heartbeat-watcher fix).
+		if (task.agent === "delegate") continue;
 		const heartbeat = task.heartbeat;
 		if (!heartbeat) {
 			summary.missing += 1;

@@ -84,3 +84,32 @@ test("F5: genuinely-running worker without heartbeat still fires", () => {
 	const after = summarizeHeartbeats(overlaid, { now: Date.now() });
 	assert.equal(after.missing, 1, "real missing heartbeat still detected");
 });
+
+/**
+ * 2026-09-26 battery follow-up (live: team_20260926033657_2b6c6d2610b26d9d):
+ * guest-child tasks (agent="delegate") never write task.heartbeat — while the
+ * parent run is live, summarizeHeartbeats counted every guest as a "missing
+ * heartbeat" worker and fired the "N worker(s) missing heartbeat" ambient.
+ */
+const guestNoHeartbeat: TeamTaskState = {
+	id: "gc-c7006dc3-probe",
+	status: "running",
+	agent: "delegate",
+	depth: 2,
+	title: "delegate: probe",
+} as unknown as TeamTaskState;
+
+test("guest child (agent=delegate) is NOT counted as missing heartbeat", () => {
+	const snapshot = snapshotOf([guestNoHeartbeat]);
+	const summary = summarizeHeartbeats(snapshot, { now: Date.now() });
+	assert.equal(summary.missing, 0, "guest task has no heartbeat channel by design");
+	assert.equal(summary.dead, 0);
+	assert.equal(summary.gradient.dead, 0);
+});
+
+test("guest skip does NOT hide a genuinely missing real worker", () => {
+	const snapshot = snapshotOf([runningNoHeartbeat, guestNoHeartbeat]);
+	const summary = summarizeHeartbeats(snapshot, { now: Date.now() });
+	assert.equal(summary.missing, 1, "the real worker still counts");
+	assert.equal(summary.totalTasks, 2);
+});
