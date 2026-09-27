@@ -85,6 +85,12 @@ const result = await build({
 		"diff",
 		"jiti",
 		"acorn",
+		// RR-021 WI-2.2: ajv stays external — regular dependency (always installed
+		// next to the package), only used on schema-validation paths, and bundling
+		// it just bloats the bundle (parse cost on every worker boot). NOTE: yaml
+		// is intentionally NOT externalized — its bundled CJS-shim is by design
+		// (see banner below); externalizing yaml is a separate story.
+		"ajv",
 		// esbuild must stay external: its CJS source references __filename/__dirname
 		// (CJS globals) for self-location. Bundling it into the ESM .mjs makes those
 		// undefined at runtime → "__filename is not defined" when the dynamic-workflow
