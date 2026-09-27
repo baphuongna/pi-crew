@@ -3,7 +3,6 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 import { Text } from "@earendil-works/pi-tui";
 import type { TObject } from "@sinclair/typebox";
 import { TypeCompiler } from "@sinclair/typebox/compiler";
-import { Value } from "@sinclair/typebox/value";
 import { loadConfig } from "../../config/config.ts";
 import { findClosestKey } from "../../config/suggestions.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
@@ -35,13 +34,13 @@ import { formatCompactToolProgress } from "../../ui/tool-progress-formatter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { withSessionId } from "../team-tool/context.ts";
 import { formatTeamToolParamError } from "../team-tool/param-error.ts";
+import { toolResult } from "../tool-result.ts";
 
 // RR-021 WI-4.3g: compile the team-tool schema ONCE. Value.Check re-walks the
 // whole (large) schema object on every tool call; TypeCompiler.Compile (STATIC
 // method on @sinclair/typebox/compiler) builds a specialized checker at module
 // load. The error formatter keeps using the schema + Value.Errors (cold path).
 const compiledTeamToolParams = TypeCompiler.Compile(TeamToolParams);
-import { toolResult } from "../tool-result.ts";
 
 /**
  * Normalize model-generated tool params before schema validation.

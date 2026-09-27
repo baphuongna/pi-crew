@@ -1,6 +1,6 @@
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { randomUUID } from "node:crypto";
 import { DEFAULT_MAILBOX } from "../../config/defaults.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";

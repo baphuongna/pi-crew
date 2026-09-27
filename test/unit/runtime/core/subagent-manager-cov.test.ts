@@ -194,7 +194,7 @@ describe("subagent-manager", () => {
 		it("RR-021 WI-4.3i: waitForRecord deadline expiry returns the CURRENT (still-running) record, not undefined", async () => {
 			const tmpDir = createTrackedTempDir("pi-crew-subagent-");
 			const mgr = new SubagentManager(4);
-			let release: () => void = () => {};
+			let release: () => void = () => undefined;
 			const gate = new Promise<void>((resolve) => {
 				release = resolve;
 			});
