@@ -221,7 +221,7 @@ test("M3-G: detectRipgrep handles a missing rg binary gracefully (no throw)", as
 	}
 });
 
-test("RR-021 WI-1.3: wedged rg → 3s SIGKILL deadline + in-flight memoization", { skip: process.platform === "win32" }, async () => {
+test("RR-021 WI-1.3: wedged rg → 3s SIGKILL deadline + in-flight memoization", { skip: process.platform === "win32", timeout: 20_000 }, async () => {
 	// A fake rg that spawns, marks its launch, and then never exits.
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rg-wedge-"));
 	const marker = path.join(tmp, "spawns.txt");
@@ -254,7 +254,7 @@ setInterval(() => {}, 1000);
 		__test_resetRipgrepCache();
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
-}, 20_000);
+});
 
 test("M3-H: runRetrievalCycle is safe with a non-existent cwd (no throw, empty result)", async () => {
 	const cwd = path.join(os.tmpdir(), "pi-crew-m3-nonexistent-", String(Date.now()));
