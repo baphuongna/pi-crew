@@ -720,57 +720,65 @@ export async function reconcileAllStaleRuns(
 	// input (snapshot) order — mapConcurrent indexes by item — and per-run
 	// semantics (re-read inside lock, plan-approval re-check) are unchanged.
 	const perRun = await mapConcurrent(runIds, 4, async (runId): Promise<ReconcileResult[]> => {
-		const cached = manifestCache.get(runId);
-		if (!cached) return [];
-		const loaded = await loadRunManifestByIdAsync(cwd, runId); // NOTE: best-effort only; concurrent writes may cause inconsistency
-		if (!loaded) return [];
-		const out: ReconcileResult[] = [];
-		// Use lock to prevent race with cancel/status handlers modifying the same run.
-		// Same v0.9.26 lock family as the old sync acquisition — interop-safe.
-		await withRunLock(loaded.manifest, async () => {
-			// Re-read inside lock to get freshest data
-			const fresh = await loadRunManifestByIdAsync(cwd, runId); // NOTE: inside withRunLock - consistent read
-			if (!fresh || (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked")) return;
-			// Belt-and-suspenders: reconcileStaleRun itself guards this, but the run
-			// may have flipped to blocked+plan-approval between cache-list and lock
-			// acquisition — re-check the freshest manifest under the lock.
-			if (isPlanApprovalPendingEffective(fresh.manifest)) {
-				out.push({
-					runId,
-					verdict: "blocked_awaiting_approval",
-					repaired: false,
-					detail: "Plan approval is pending; stale reconciliation skipped",
-				});
-				return;
-			}
-			const result = reconcileStaleRun(fresh.manifest, fresh.tasks, now);
-			if (result.repaired || result.verdict === "result_exists") {
-				if (result.repairedTasks) {
-					saveRunTasks(fresh.manifest, result.repairedTasks);
-					for (const task of result.repairedTasks) {
-						try {
-							upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
-						} catch {
-							/* non-critical */
+		// RR-021 review remediation: per-run error isolation — one corrupt run
+		// must not reject the whole sweep (serial baseline threw too, but the
+		// SPEC's "independent per-run" intent requires continue-on-error).
+		try {
+			const cached = manifestCache.get(runId);
+			if (!cached) return [];
+			const loaded = await loadRunManifestByIdAsync(cwd, runId); // NOTE: best-effort only; concurrent writes may cause inconsistency
+			if (!loaded) return [];
+			const out: ReconcileResult[] = [];
+			// Use lock to prevent race with cancel/status handlers modifying the same run.
+			// Same v0.9.26 lock family as the old sync acquisition — interop-safe.
+			await withRunLock(loaded.manifest, async () => {
+				// Re-read inside lock to get freshest data
+				const fresh = await loadRunManifestByIdAsync(cwd, runId); // NOTE: inside withRunLock - consistent read
+				if (!fresh || (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked")) return;
+				// Belt-and-suspenders: reconcileStaleRun itself guards this, but the run
+				// may have flipped to blocked+plan-approval between cache-list and lock
+				// acquisition — re-check the freshest manifest under the lock.
+				if (isPlanApprovalPendingEffective(fresh.manifest)) {
+					out.push({
+						runId,
+						verdict: "blocked_awaiting_approval",
+						repaired: false,
+						detail: "Plan approval is pending; stale reconciliation skipped",
+					});
+					return;
+				}
+				const result = reconcileStaleRun(fresh.manifest, fresh.tasks, now);
+				if (result.repaired || result.verdict === "result_exists") {
+					if (result.repairedTasks) {
+						saveRunTasks(fresh.manifest, result.repairedTasks);
+						for (const task of result.repairedTasks) {
+							try {
+								upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+							} catch {
+								/* non-critical */
+							}
 						}
 					}
+					updateRunStatus(fresh.manifest, "failed", `Stale run reconciled: ${result.detail}`);
+					void terminateLiveAgentsForRun(fresh.manifest.runId, "failed", appendEvent, fresh.manifest.eventsPath).catch((error) =>
+						logInternalError("crash-recovery.reconcile.terminate", error, `runId=${fresh.manifest.runId}`, "warn"),
+					);
+					appendEvent(fresh.manifest.eventsPath, {
+						type: "crew.run.reconciled_stale",
+						runId,
+						message: result.detail,
+						data: { verdict: result.verdict },
+					});
 				}
-				updateRunStatus(fresh.manifest, "failed", `Stale run reconciled: ${result.detail}`);
-				void terminateLiveAgentsForRun(fresh.manifest.runId, "failed", appendEvent, fresh.manifest.eventsPath).catch((error) =>
-					logInternalError("crash-recovery.reconcile.terminate", error, `runId=${fresh.manifest.runId}`, "warn"),
-				);
-				appendEvent(fresh.manifest.eventsPath, {
-					type: "crew.run.reconciled_stale",
-					runId,
-					message: result.detail,
-					data: { verdict: result.verdict },
-				});
-			}
-			if (result.verdict !== "healthy") {
-				out.push(result);
-			}
-		});
-		return out;
+				if (result.verdict !== "healthy") {
+					out.push(result);
+				}
+			});
+			return out;
+		} catch (error) {
+			logInternalError("crash-recovery.reconcileStaleRuns", error, `runId=${runId}`, "warn");
+			return [];
+		}
 	});
 	const results = perRun.flat();
 	// US-002 (2026-09-22): structured stale-lock sweep. Runs after reconciliation
