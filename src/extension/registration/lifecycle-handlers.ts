@@ -456,17 +456,23 @@ async function runDeferredSessionCleanup(
 
 	// Reconcile stale runs found on disk
 	try {
-		const staleResults =
-			reconcileAllStaleRuns(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd), Date.now(), currentSessionId) ?? [];
-		if (staleResults.length > 0) {
+		// RR-021 WI-1.5: reconcile is async (mapConcurrent bound 4) — keep this
+		// session_start callback synchronous; notify when the result lands.
+		void reconcileAllStaleRuns(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd), Date.now(), currentSessionId)
+			.then((staleResults) => {
+			if ((staleResults ?? []).length > 0) {
 			ctx.notifyOperator({
 				id: "stale_reconcile",
 				severity: "info",
 				source: "crash-recovery",
 				title: `Reconciled ${staleResults.length} stale run(s)`,
 				body: `Found and repaired ghost runs from previous sessions: ${staleResults.map((r) => r.runId).join(", ")}`,
+				});
+			}
+			})
+			.catch((error) => {
+				logInternalError("register.sessionStart.reconcileStale", error);
 			});
-		}
 	} catch (error) {
 		logInternalError("register.sessionStart.reconcileStale", error);
 	}

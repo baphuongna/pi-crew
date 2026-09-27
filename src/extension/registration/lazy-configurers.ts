@@ -67,7 +67,10 @@ function installTurnReconcileHook(pi: ExtensionAPI, ctx: RegistrationContext): v
 			const current = ctx.currentCtx;
 			if (!current || ctx.cleanedUp) return;
 			try {
-				reconcileAllStaleRuns(current.cwd, ctx.getManifestCache(current.cwd), undefined, extractSessionId(current));
+				// RR-021 WI-1.5: async reconcile — fire-and-forget from the sync hook.
+				void reconcileAllStaleRuns(current.cwd, ctx.getManifestCache(current.cwd), undefined, extractSessionId(current)).catch(
+					(error) => logInternalError("register.autoRepair.turnHook", error),
+				);
 			} catch (error) {
 				logInternalError("register.autoRepair.turnHook", error);
 			}

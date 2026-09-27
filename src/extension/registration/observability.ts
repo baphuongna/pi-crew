@@ -71,7 +71,9 @@ export interface ObservabilityDeps {
 	 * newer session. Reuse this counter — do not invent a parallel one.
 	 */
 	getSessionGeneration: () => number;
-	reconcileStaleRuns: (cwd: string, cache: ReturnType<ObservabilityDeps["getManifestCache"]>, currentSessionId?: string) => unknown[];
+	reconcileStaleRuns: (cwd: string, cache: ReturnType<ObservabilityDeps["getManifestCache"]>, currentSessionId?: string) =>
+		| unknown[]
+		| Promise<unknown[] | undefined>;
 	reconcileOrphanedTempWorkspaces: (now: number, opts: { cleanupOrphanedTempDirs?: boolean }) => unknown;
 	cleanupOrphanTempDirs: () => { cleaned: number; scanned: number; failed: number };
 	cleanupLegacyOrphanTempDirs: () => { cleaned: number; scanned: number; failed: number };
@@ -253,26 +255,31 @@ async function configureObservabilityInternal(ctx: ExtensionContext, state: Obse
 	if (autoRepairIntervalMs > 0) {
 		state.autoRepairTimer = setInterval(() => {
 			if (deps.isCleanedUp()) return;
-			try {
-				const staleResults = deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd), extractSessionId(ctx));
-				if (Array.isArray(staleResults) && staleResults.length > 0) {
-					for (const result of staleResults) {
-						const repaired = (result as { repaired?: boolean }).repaired;
-						if (repaired) {
-							deps.notifyOperator({
-								id: `auto_repair_${(result as { runId: string }).runId}`,
-								severity: "info",
-								source: "auto-repair",
-								runId: (result as { runId: string }).runId,
-								title: `Auto-repaired stale run`,
-								body: (result as { detail?: string }).detail ?? "",
-							});
+			// RR-021 WI-1.5: reconcileStaleRuns may be async (mapConcurrent) —
+			// settle the result before inspecting, keep errors inside the log.
+			void (async () => {
+				try {
+					const settled = await deps.reconcileStaleRuns(ctx.cwd, deps.getManifestCache(ctx.cwd), extractSessionId(ctx));
+					const staleResults = Array.isArray(settled) ? settled : [];
+					if (staleResults.length > 0) {
+						for (const result of staleResults) {
+							const repaired = (result as { repaired?: boolean }).repaired;
+							if (repaired) {
+								deps.notifyOperator({
+									id: `auto_repair_${(result as { runId: string }).runId}`,
+									severity: "info",
+									source: "auto-repair",
+									runId: (result as { runId: string }).runId,
+									title: `Auto-repaired stale run`,
+									body: (result as { detail?: string }).detail ?? "",
+								});
+							}
 						}
 					}
+				} catch (error) {
+					logInternalError("register.autoRepair", error);
 				}
-			} catch (error) {
-				logInternalError("register.autoRepair", error);
-			}
+			})();
 		}, autoRepairIntervalMs);
 		state.autoRepairTimer.unref();
 

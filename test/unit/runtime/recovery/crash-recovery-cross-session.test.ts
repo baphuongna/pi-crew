@@ -167,7 +167,7 @@ test("reconcileAllStaleRuns: self-own stale run is SKIPPED when currentSessionId
 
 		// currentSessionId = "A" === ownerSessionId → skip-own → NOT reconciled
 		const cache = makeStubCache([manifest]);
-		const results = reconcileAllStaleRuns(dir, cache, Date.now(), "A");
+		const results = await reconcileAllStaleRuns(dir, cache, Date.now(), "A");
 
 		assert.equal(results.length, 0, "self-own stale run must NOT be reconciled when currentSessionId matches");
 
@@ -191,7 +191,7 @@ test("reconcileAllStaleRuns: cross-session stale run IS reconciled when currentS
 
 		// currentSessionId = "B" !== ownerSessionId "A" → NOT skipped → IS reconciled
 		const cache = makeStubCache([manifest]);
-		const results = reconcileAllStaleRuns(dir, cache, Date.now(), "B");
+		const results = await reconcileAllStaleRuns(dir, cache, Date.now(), "B");
 
 		assert.ok(results.length > 0, "cross-session stale run must be reconciled");
 		assert.ok(
@@ -219,7 +219,7 @@ test("reconcileAllStaleRuns: back-compat (no currentSessionId) → stale run IS 
 
 		// No currentSessionId → back-compat → IS reconciled
 		const cache = makeStubCache([manifest]);
-		const results = reconcileAllStaleRuns(dir, cache, Date.now());
+		const results = await reconcileAllStaleRuns(dir, cache, Date.now());
 
 		assert.ok(results.length > 0, "back-compat: stale run must be reconciled");
 		assert.ok(
@@ -243,7 +243,7 @@ test("reconcileAllStaleRuns: cross-session alive run (fresh heartbeat) is NOT re
 
 		// currentSessionId = "B" — alive run should NOT be repaired
 		const cache = makeStubCache([manifest]);
-		const results = reconcileAllStaleRuns(dir, cache, Date.now(), "B");
+		const results = await reconcileAllStaleRuns(dir, cache, Date.now(), "B");
 
 		// The run may appear in results with a non-repaired verdict (diagnostic),
 		// but it must NOT be repaired (no status change, no task cancellation).

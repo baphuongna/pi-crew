@@ -4,10 +4,10 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
-import { discoverRunLockFiles, sweepStaleLocks, withRunLockSync } from "../../state/coordination/locks.ts";
+import { discoverRunLockFiles, sweepStaleLocks, withRunLock, withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendEvent, scanSequence } from "../../state/event-log/event-log.ts";
 import { readActiveRunRegistry, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
-import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
+import { loadRunManifestById, loadRunManifestByIdAsync, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import type { TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
@@ -18,6 +18,7 @@ import { isWorkerHeartbeatStale } from "../heartbeat/worker-heartbeat.ts";
 import { terminateLiveAgentsForRun } from "../live-session/live-agent-manager.ts";
 import type { ManifestCache } from "../manifest-cache.ts";
 import { checkProcessLiveness } from "../process-status.ts";
+import { mapConcurrent } from "../scheduling/parallel-utils.ts";
 import { isIntentionalWait, isPlanApprovalPendingEffective, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
 
 export interface RecoveryPlan {
@@ -690,13 +691,12 @@ export function purgeStaleActiveRunIndex(
 	return { purged, kept };
 }
 
-export function reconcileAllStaleRuns(
+export async function reconcileAllStaleRuns(
 	cwd: string,
 	manifestCache: ManifestCache,
 	now = Date.now(),
 	currentSessionId?: string,
-): ReconcileResult[] {
-	const results: ReconcileResult[] = [];
+): Promise<ReconcileResult[]> {
 	// Capture runIds to reconcile BEFORE acquiring locks — avoids TOCTOU between cache iteration and lock acquisition.
 	const runIds = manifestCache
 		.list(50)
@@ -708,21 +708,28 @@ export function reconcileAllStaleRuns(
 			return true;
 		})
 		.map((m) => m.runId);
-	for (const runId of runIds) {
+	// RR-021 WI-1.5 (audit C3): serial reconcile → mapConcurrent bound 4.
+	// Each runId acquires its OWN run lock file (lockPath() is per-run), so the
+	// acquisitions are independent; bound 4 caps fs/CPU contention. Results keep
+	// input (snapshot) order — mapConcurrent indexes by item — and per-run
+	// semantics (re-read inside lock, plan-approval re-check) are unchanged.
+	const perRun = await mapConcurrent(runIds, 4, async (runId): Promise<ReconcileResult[]> => {
 		const cached = manifestCache.get(runId);
-		if (!cached) continue;
-		const loaded = loadRunManifestById(cwd, runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
-		if (!loaded) continue;
-		// Use lock to prevent race with cancel/status handlers modifying the same run
-		withRunLockSync(loaded.manifest, () => {
+		if (!cached) return [];
+		const loaded = await loadRunManifestByIdAsync(cwd, runId); // NOTE: best-effort only; concurrent writes may cause inconsistency
+		if (!loaded) return [];
+		const out: ReconcileResult[] = [];
+		// Use lock to prevent race with cancel/status handlers modifying the same run.
+		// Same v0.9.26 lock family as the old sync acquisition — interop-safe.
+		await withRunLock(loaded.manifest, async () => {
 			// Re-read inside lock to get freshest data
-			const fresh = loadRunManifestById(cwd, runId); // NOTE: inside withRunLockSync - consistent read
+			const fresh = await loadRunManifestByIdAsync(cwd, runId); // NOTE: inside withRunLock - consistent read
 			if (!fresh || (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked")) return;
 			// Belt-and-suspenders: reconcileStaleRun itself guards this, but the run
 			// may have flipped to blocked+plan-approval between cache-list and lock
 			// acquisition — re-check the freshest manifest under the lock.
 			if (isPlanApprovalPendingEffective(fresh.manifest)) {
-				results.push({
+				out.push({
 					runId,
 					verdict: "blocked_awaiting_approval",
 					repaired: false,
@@ -736,7 +743,7 @@ export function reconcileAllStaleRuns(
 					saveRunTasks(fresh.manifest, result.repairedTasks);
 					for (const task of result.repairedTasks) {
 						try {
-							upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+						upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
 						} catch {
 							/* non-critical */
 						}
@@ -754,10 +761,12 @@ export function reconcileAllStaleRuns(
 				});
 			}
 			if (result.verdict !== "healthy") {
-				results.push(result);
+				out.push(result);
 			}
 		});
-	}
+		return out;
+	});
+	const results = perRun.flat();
 	// US-002 (2026-09-22): structured stale-lock sweep. Runs after reconciliation
 	// so locks whose holder died (kill -9 / crash) do not linger. The sweep is
 	// strictly safer than acquire-time steal (stale AND holder-dead only), so a

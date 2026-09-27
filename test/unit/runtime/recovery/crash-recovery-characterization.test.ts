@@ -257,7 +257,7 @@ test("reconcileAllStaleRuns: a running run with a dead worker PID is reconciled 
 
 		// Build a stub cache that returns the running manifest.
 		const stubCache = makeStubCache([running]);
-		const results = reconcileAllStaleRuns(dir, stubCache, Date.now());
+		const results = await reconcileAllStaleRuns(dir, stubCache, Date.now());
 
 		// The run must have been reconciled (repaired).
 		assert.ok(results.length > 0, "reconcileAllStaleRuns must return a result for the stale run");
