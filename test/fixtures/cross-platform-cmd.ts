@@ -23,8 +23,9 @@
  *   const cmd = pickCmd(OK_CMD);
  *   // → "echo ok" on POSIX,  "node -e \"process.stdout.write('ok\\n')\"" on win32
  *
- * Scope: TEST FIXTURES ONLY. Production code (`validateGateCommand`,
- * `validateCommand` in benchmark-runner) is intentionally NOT relaxed here.
+ * Scope: TEST FIXTURES ONLY. Production command validation is stricter than
+ * this fixture (RR-021 WI-4.2: the benchmark-runner reference was removed with
+ * its dead module).
  */
 
 const IS_WIN32 = process.platform === "win32";

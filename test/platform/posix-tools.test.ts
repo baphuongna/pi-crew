@@ -17,19 +17,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { resolveShellForScript } from "../../src/utils/resolve-shell.ts";
 
 const isWindows = process.platform === "win32";
 
-test("HB-002 POSIX: resolveShellForScript returns a POSIX shell on this OS", {
-	skip: isWindows ? "POSIX-only; run on ubuntu/macos CI" : false,
-}, () => {
-	const { command } = resolveShellForScript("echo");
-	assert.ok(command && command.length > 0, "resolveShellForScript must return a non-empty command");
-	// The resolved command is a POSIX shell — may be a bare name ("bash",
-	// "sh") or a full path. Either is acceptable on POSIX.
-	assert.ok(/sh$|bash$|zsh$/.test(command), `resolved command "${command}" should be a POSIX shell (sh/bash/zsh)`);
-});
+// RR-021 WI-4.2: the resolveShellForScript test was removed with its dead
+// module (src/utils/resolve-shell.ts — 0 production consumers). The remaining
+// checks below are pure POSIX-toolchain probes with no pi-crew dependency.
 
 test("HB-002 POSIX: `grep` is callable without GNU-only assumptions", {
 	skip: isWindows ? "POSIX-only; run on ubuntu/macos CI" : false,
