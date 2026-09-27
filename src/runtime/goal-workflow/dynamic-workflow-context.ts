@@ -906,67 +906,87 @@ function describeSchemaShape(schema: unknown, depth: number): string {
  * reject is checked first because a review can mention both "correctly" (describing existing code)
  * AND "critical bug" (the verdict) — the verdict signal must win.
  */
+// Precompiled review-outcome signals (module scope — compiled once, not per call).
+// RR-021 WI-1.1: these were previously string literals like "\baccept\b" compiled
+// per call — and "\b" in a TS string literal is a BACKSPACE character (U+0008),
+// so those two signals never matched anything. Regex literals here give real word
+// boundaries. No /g flags → no shared lastIndex state across .test() calls.
+const REJECT_SIGNAL_REGEXES: readonly RegExp[] = [
+	/\breject\b/,
+	/fundamentally/,
+	/completely broken/,
+	/totally broken/,
+	/critical bug/,
+	/critical issue/,
+	/critical flaw/,
+	/security vulnerability/,
+	/does not work/,
+	/doesn't work/,
+	/will not work/,
+	/fails to/,
+	/unacceptable/,
+	/must not be merged/,
+	/do not merge/,
+	/wrong approach/,
+	/logically incorrect/,
+	/incorrectly implements/,
+	/returns the opposite/,
+	/subtraction instead of addition/,
+	/opposite of its intended/,
+];
+const ACCEPT_SIGNAL_REGEXES: readonly RegExp[] = [
+	/\baccept\b/,
+	/looks good/,
+	/well done/,
+	/no issues/,
+	/no real issues/,
+	/no problems/,
+	/no concerns/,
+	/nothing to change/,
+	/ready to merge/,
+	/lgtm/,
+	/ship it/,
+	/correctly implements/,
+	/correctly returns/,
+	/works as expected/,
+	/works correctly/,
+	/no bugs/,
+	/no defects/,
+	/meets all requirements/,
+	/all requirements met/,
+	/passes all/,
+	/is correct/,
+	/are correct/,
+	/no changes needed/,
+	/no changes required/,
+	/no further changes/,
+	/nothing more to/,
+	/complete and correct/,
+	/sound implementation/,
+];
+// RR-021 WI-1.1 negation guard: phrases that NEGATE the bare "accept" signal.
+// "I cannot accept this" is a complaint, not approval — the accept hit must be
+// discarded so the outcome falls through to changes_requested (or reject if a
+// reject signal is also present).
+const NEGATED_ACCEPT_REGEXES: readonly RegExp[] = [
+	/\bcannot\s+accept\b/,
+	/\bcan'?t\s+accept\b/,
+	/\bdon'?t\s+accept\b/,
+	/\bwon'?t\s+accept\b/,
+	/\bdo\s+not\s+accept\b/,
+	/\bwill\s+not\s+accept\b/,
+	/\bunable\s+to\s+accept\b/,
+	/\bnot\s+accept(?:ed|ing|able)?\b/,
+];
+
 export function classifyReviewOutcome(prose: string): "accept" | "reject" | "changes_requested" {
 	const text = prose.toLowerCase();
-	// Strong negative signals → reject. These indicate fundamental/critical problems.
-	const rejectSignals = [
-		"\breject\b",
-		"fundamentally",
-		"completely broken",
-		"totally broken",
-		"critical bug",
-		"critical issue",
-		"critical flaw",
-		"security vulnerability",
-		"does not work",
-		"doesn't work",
-		"will not work",
-		"fails to",
-		"unacceptable",
-		"must not be merged",
-		"do not merge",
-		"wrong approach",
-		"logically incorrect",
-		"incorrectly implements",
-		"returns the opposite",
-		"subtraction instead of addition",
-		"opposite of its intended",
-	];
-	// Acceptance signals → accept. These indicate explicit approval with no real issues.
-	const acceptSignals = [
-		"\baccept\b",
-		"looks good",
-		"well done",
-		"no issues",
-		"no real issues",
-		"no problems",
-		"no concerns",
-		"nothing to change",
-		"ready to merge",
-		"lgtm",
-		"ship it",
-		"correctly implements",
-		"correctly returns",
-		"works as expected",
-		"works correctly",
-		"no bugs",
-		"no defects",
-		"meets all requirements",
-		"all requirements met",
-		"passes all",
-		"is correct",
-		"are correct",
-		"no changes needed",
-		"no changes required",
-		"no further changes",
-		"nothing more to",
-		"complete and correct",
-		"sound implementation",
-	];
-	const hasReject = rejectSignals.some((sig) => new RegExp(sig).test(text));
-	const hasAccept = acceptSignals.some((sig) => new RegExp(sig).test(text));
+	// Reject-first precedence: a review can mention both "correctly" (describing
+	// existing code) AND "critical bug" (the verdict) — the verdict signal must win.
+	const hasReject = REJECT_SIGNAL_REGEXES.some((re) => re.test(text));
 	if (hasReject) return "reject";
-	if (hasAccept) return "accept";
+	const hasAccept = ACCEPT_SIGNAL_REGEXES.some((re) => re.test(text));
+	if (hasAccept && !NEGATED_ACCEPT_REGEXES.some((re) => re.test(text))) return "accept";
 	return "changes_requested";
 }
 

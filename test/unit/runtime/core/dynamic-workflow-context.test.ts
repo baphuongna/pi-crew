@@ -188,6 +188,28 @@ test("classifyReviewOutcome: REGRESSION — real MiniMax-M3 correct-code review 
 	assert.equal(classifyReviewOutcome(realProse), "accept", "correct-code review must be classified accept");
 });
 
+// --- RR-021 WI-1.1: word-boundary escape bug + negation guard ---
+// Before WI-1.1 the signals were string literals like "\baccept\b" — "\b" in a
+// TS string literal is a BACKSPACE char (U+0008), so bare "accept"/"reject" words
+// never matched. The signals are now precompiled module-scope regex literals.
+
+test("classifyReviewOutcome: RR-021 WI-1.1 — bare word-boundary signals actually match", () => {
+	assert.equal(classifyReviewOutcome("I accept this."), "accept", "bare 'accept' must match the accept signal");
+	assert.equal(classifyReviewOutcome("I reject this."), "reject", "bare 'reject' must match the reject signal");
+	// Whole-word only: 'rejected'/'acceptable' must not trigger the boundary signal.
+	assert.equal(classifyReviewOutcome("This is acceptable."), "changes_requested");
+});
+
+test("classifyReviewOutcome: RR-021 WI-1.1 — negated accept phrases are NOT approval", () => {
+	assert.equal(classifyReviewOutcome("I cannot accept this."), "changes_requested");
+	assert.equal(classifyReviewOutcome("I can't accept this."), "changes_requested");
+	assert.equal(classifyReviewOutcome("I don't accept this conclusion."), "changes_requested");
+	// Negation must not block genuine approval phrasing.
+	assert.equal(classifyReviewOutcome("I accept this. Looks good."), "accept");
+	// Reject-first precedence still wins when both signals are present.
+	assert.equal(classifyReviewOutcome("I cannot accept this — critical bug in the logic."), "reject");
+});
+
 test("review(): returns verdict directly when reviewer emits JSON (1-step)", async () => {
 	const cwd = tmpCwd();
 	try {
