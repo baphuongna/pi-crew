@@ -67,6 +67,10 @@ if (bad.length > 0) {
 // minified bundle means someone reintroduced an eager import — this is the
 // C1/H1 regression gate. Dynamic (`import("pkg")`) and require()-shim forms
 // are fine and do not match. dist/ is committed, so this runs even pre-build.
+// KNOWN GAP (RR-021 review): only the `from"pkg"` specifier form is matched —
+// a bare side-effect `import"pkg"` or inline array form would escape. Acceptable
+// as a regression gate (esbuild emits `from`-form for named/default imports);
+// tighten here if a new hoisting shape appears.
 const HEAVY_PKGS = ["esbuild", "acorn", "diff", "jiti", "cli-highlight", "yaml", "ajv"];
 const distPath = path.resolve(import.meta.dirname, "../dist/index.mjs");
 if (existsSync(distPath)) {
