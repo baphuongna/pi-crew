@@ -35,8 +35,12 @@ for (const line of out.split("\n").filter(Boolean)) {
 	const [, file, lineNum] = m;
 	if (!fileCache.has(file)) fileCache.set(file, readFileSync(file, "utf-8").split(/\r?\n/));
 	const lines = fileCache.get(file);
-	const prevLine = lines[Number(lineNum) - 2] ?? "";
-	if (prevLine.includes("// LAZY:")) continue;
+	const idx = Number(lineNum) - 1;
+	const prevLine = lines[idx - 1] ?? "";
+	// Biome's formatter hoists trailing comments on block-opening lines into
+	// the block body (first statement line) — accept a marker there too.
+	const nextLine = lines[idx + 1] ?? "";
+	if (prevLine.includes("// LAZY:") || nextLine.includes("// LAZY:")) continue;
 	// Skip type-only declarations (`type X = import("...").T` is erased).
 	const content = lines[Number(lineNum) - 1] ?? "";
 	const stripped = content.trimStart();
