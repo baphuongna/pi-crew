@@ -103,7 +103,7 @@ function startForegroundRunImpl(
 		extensionCtx.ui.setWorkingMessage(runId ? `pi-crew foreground run ${runId}...` : "pi-crew foreground run...");
 	}
 	if (runId) {
-		void import("../../runtime/foreground-watchdog.ts")
+		void import("../../runtime/foreground-watchdog.ts") // LAZY: defer watchdog module until first foreground run
 			.then(({ startForegroundWatchdog }) => {
 				startForegroundWatchdog({ pi, cwd: extensionCtx.cwd, runId });
 			})
@@ -139,7 +139,7 @@ function startForegroundRunImpl(
 			.finally(() => {
 				ctx.foregroundTeamRunControllers.delete(key);
 				if (runId) {
-					void import("../../runtime/foreground-watchdog.ts")
+					void import("../../runtime/foreground-watchdog.ts") // LAZY: defer watchdog module until first foreground run
 						.then(({ stopWatchdog }) => {
 							stopWatchdog(runId);
 						})

@@ -124,6 +124,7 @@ export function startRuntimeWarmup(): void {
 		for (const spec of HOT_MODULE_SPECIFIERS) {
 			imports.push(
 				import(new URL(spec, import.meta.url).href).catch(() => {
+					// LAZY: best-effort warmup import, failures tolerated
 					// swallow — never block registration on a warmup failure
 				}),
 			);
@@ -131,6 +132,7 @@ export function startRuntimeWarmup(): void {
 		for (const dep of HOT_PEER_DEPS) {
 			imports.push(
 				import(dep).catch(() => {
+					// LAZY: best-effort warmup import, failures tolerated
 					// peer dep may be absent (optional dep) — swallow
 				}),
 			);

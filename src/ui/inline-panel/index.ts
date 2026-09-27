@@ -277,7 +277,7 @@ export function installInlinePanel(pi: ExtensionAPI, ctx: ExtensionContext, uiCo
 					// (lazy import: viewers.ts pulls the state-store chain and must stay
 					// off this module's startup path — AGENTS.md lazy boundary).
 					onOpenBrowser: () => {
-						void import("../../extension/registration/viewers.ts").then((m) => m.openAgentsJobsBrowser(ctx));
+						void import("../../extension/registration/viewers.ts").then((m) => m.openAgentsJobsBrowser(ctx)); // LAZY: defer agents-jobs browser until opened
 					},
 				});
 			});

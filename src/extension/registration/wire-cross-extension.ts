@@ -28,6 +28,7 @@ export function installCrossExtensionWiring(pi: ExtensionAPI, ctx: RegistrationC
 	// in the entire runtime chain) out of the cold-start module graph. EXT-9:
 	// the registry now lives in module-scoped state, not globalThis.
 	void import("../team-tool.ts").then(({ installCrewGlobalRegistry }) => {
+		// LAZY: defer team-tool until cross-extension wiring fires
 		const manifestCacheForRegistry = ctx.getManifestCache(ctx.currentCtx?.cwd ?? process.cwd());
 		installCrewGlobalRegistry({
 			manifestCache: manifestCacheForRegistry,
@@ -57,6 +58,7 @@ export function refreshCrossExtensionWiringForSession(pi: ExtensionAPI, ctx: Reg
 		return;
 	}
 	void import("../team-tool.ts").then(({ installCrewGlobalRegistry }) => {
+		// LAZY: defer team-tool until cross-extension wiring fires
 		installCrewGlobalRegistry({
 			manifestCache: ctx.getManifestCache(ctx.currentCtx?.cwd ?? process.cwd()),
 			cwdProvider: () => ctx.currentCtx?.cwd ?? process.cwd(),

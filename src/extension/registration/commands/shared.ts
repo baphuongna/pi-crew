@@ -46,6 +46,7 @@ export async function handleTeamTool(
 	if (!_cachedHandleTeamTool) {
 		if (!_handleTeamToolPromise) {
 			_handleTeamToolPromise = import("../../team-tool.ts").then((mod) => {
+				// LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
 				_cachedHandleTeamTool = mod.handleTeamTool;
 				return mod.handleTeamTool;
 			});
@@ -109,13 +110,13 @@ export async function ui(): Promise<NonNullable<typeof _uiCache>> {
 		if (!_uiCachePromise) {
 			_uiCachePromise = (async () => {
 				const [rd, tv, co, md, mc, ap, ma] = await Promise.all([
-					import("../../../ui/run-dashboard.ts"),
-					import("../../../ui/transcript-viewer.ts"),
-					import("../../../ui/overlays/confirm-overlay.ts"),
-					import("../../../ui/overlays/mailbox-detail-overlay.ts"),
-					import("../../../ui/overlays/mailbox-compose-overlay.ts"),
-					import("../../../ui/overlays/agent-picker-overlay.ts"),
-					import("../../../ui/mascot.ts"),
+					import("../../../ui/run-dashboard.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+					import("../../../ui/transcript-viewer.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+					import("../../../ui/overlays/confirm-overlay.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+					import("../../../ui/overlays/mailbox-detail-overlay.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+					import("../../../ui/overlays/mailbox-compose-overlay.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+					import("../../../ui/overlays/agent-picker-overlay.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+					import("../../../ui/mascot.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
 				]);
 				const cache = {
 					RunDashboard: rd.RunDashboard,
@@ -249,9 +250,9 @@ export function teamCommandContext(ctx: ExtensionCommandContext): ExtensionComma
 export async function openTeamSettingsOverlay(ctx: ExtensionContext): Promise<void> {
 	if (!ctx.hasUI) return;
 	const [{ updateConfig, parseConfig }, { asCrewTheme }, { createSettingsOverlay }] = await Promise.all([
-		import("../../../config/config.ts"),
-		import("../../../ui/theme-adapter.ts"),
-		import("../../../ui/settings-overlay.ts"),
+		import("../../../config/config.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+		import("../../../ui/theme-adapter.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
+		import("../../../ui/settings-overlay.ts"), // LAZY: defer heavy command/UI chain until first slash-command (blind-spot #2)
 	]);
 	const loaded = loadConfig(ctx.cwd);
 	const config = loaded.config as Record<string, unknown>;

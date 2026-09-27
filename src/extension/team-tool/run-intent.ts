@@ -73,7 +73,7 @@ const MAX_ANALYSIS_BYTES = 100_000;
 var crewInitPromise: Promise<typeof import("../../state/crew-init.ts")> | undefined;
 function loadCrewInit(): Promise<typeof import("../../state/crew-init.ts")> {
 	if (!crewInitPromise) {
-		crewInitPromise = import("../../state/crew-init.ts");
+		crewInitPromise = import("../../state/crew-init.ts"); // LAZY: defer crew-init until first run intent
 	}
 	return crewInitPromise;
 }

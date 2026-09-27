@@ -96,7 +96,7 @@ let liveSessionModulePromise: Promise<LiveSessionModule> | undefined;
 let experimentalWarned = false;
 function loadLiveSessionModule(): Promise<LiveSessionModule> {
 	if (!liveSessionModulePromise) {
-		liveSessionModulePromise = import("@earendil-works/pi-coding-agent") as unknown as Promise<LiveSessionModule>;
+		liveSessionModulePromise = import("@earendil-works/pi-coding-agent") as unknown as Promise<LiveSessionModule>; // LAZY: defer pi-coding-agent live-session module until first use
 	}
 	return liveSessionModulePromise;
 }

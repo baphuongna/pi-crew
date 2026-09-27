@@ -87,6 +87,7 @@ export function startLifecycleWatchers(ctx: ExtensionContext, state: LifecycleSt
 		// LAZY: async-notifier pulls in debounce + cron helpers — defer
 		// until the first lifecycle install (deferred import within module).
 		void import("../async-notifier.ts").then(({ startAsyncRunNotifier }) => {
+			// LAZY: defer async-notifier until the lifecycle event fires
 			if (deps.isCleanedUp()) return;
 			startAsyncRunNotifier(ctx, deps.notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs, {
 				generation: deps.ownerGeneration,
@@ -110,6 +111,7 @@ export function stopLifecycleWatchers(state: LifecycleState, deps: LifecycleDeps
 	state.notifierStarted = false;
 	try {
 		void import("../async-notifier.ts").then(({ stopAsyncRunNotifier }) => {
+			// LAZY: defer async-notifier until the lifecycle event fires
 			stopAsyncRunNotifier(deps.notifierState);
 		});
 	} catch (error) {
