@@ -124,7 +124,7 @@ test("async notifier reports run completed across session restart", async () => 
 	}
 });
 
-test("async notifier marks quiet dead background runner as failed", () => {
+test("async notifier marks quiet dead background runner as failed", async () => {
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-notifier-dead-"));
 	fs.mkdirSync(path.join(cwd, ".crew"));
 	try {
@@ -161,7 +161,7 @@ test("async notifier marks quiet dead background runner as failed", () => {
 			manifest,
 			runningTasks.map((task) => recordFromTask(manifest, task, "live-session")),
 		);
-		const marked = markDeadAsyncRunIfNeeded(manifest, Date.now() + 60_000, 30_000);
+		const marked = await markDeadAsyncRunIfNeeded(manifest, Date.now() + 60_000, 30_000);
 		assert.ok(marked);
 		assert.equal(marked.status, "failed");
 		assert.equal(

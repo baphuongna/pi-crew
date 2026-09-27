@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readCrewAgents, saveCrewAgents } from "../runtime/crew-agent-records.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../runtime/process-status.ts";
-import { withRunLockSync } from "../state/coordination/locks.ts";
+import { withRunLock } from "../state/coordination/locks.ts";
 import { appendEvent, readEventsCursor, type TeamEvent } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -107,7 +107,11 @@ function markActiveTasksAndAgentsFailed(run: TeamRunManifest, message: string): 
 	}
 }
 
-export function markDeadAsyncRunIfNeeded(run: TeamRunManifest, now = Date.now(), quietMs = 30_000): TeamRunManifest | undefined {
+export async function markDeadAsyncRunIfNeeded(
+	run: TeamRunManifest,
+	now = Date.now(),
+	quietMs = 30_000,
+): Promise<TeamRunManifest | undefined> {
 	if (!run.async || !isActiveRunStatus(run.status)) return undefined;
 	const liveness = checkProcessLiveness(run.async.pid);
 	if (liveness.alive) return undefined;
@@ -116,8 +120,13 @@ export function markDeadAsyncRunIfNeeded(run: TeamRunManifest, now = Date.now(),
 	if (latestEventAgeMs(events, now) < quietMs) return undefined;
 	const asyncPid = run.async.pid;
 	const message = `Background runner died unexpectedly; check background.log (${liveness.detail}).`;
-	return withRunLockSync(run, () => {
-		const fresh = loadRunManifestById(run.cwd, run.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency;
+	// RR-021 WI-1.4: rerouted to the async run-lock (same v0.9.26 lock family as
+	// the sync helper — sync and async acquisitions interoperate via live-token
+	// registration, RR-011 F02). The notifier tick is async, so we must not hold
+	// the event loop with a blocking sync acquisition while other async contenders
+	// (background runner, stale reconciler) wait.
+	return withRunLock(run, async () => {
+		const fresh = loadRunManifestById(run.cwd, run.runId); // NOTE: best-effort only inside the lock; concurrent writes may cause inconsistency;
 		if (!fresh || !isActiveRunStatus(fresh.manifest.status)) return undefined;
 		const failed = updateRunStatus(fresh.manifest, "failed", message);
 		markActiveTasksAndAgentsFailed(failed, message);
@@ -163,7 +172,13 @@ export function startAsyncRunNotifier(
 		if (isFinished(run.status) && updatedAtMs < staleBeforeMs) addSeenFinishedRunId(state, run.runId);
 	}
 	let cachedRuns: TeamRunManifest[] | undefined;
-	state.interval = setInterval(() => {
+	// RR-021 WI-1.4: the tick is async now (markDeadAsyncRunIfNeeded awaits the
+	// run-lock). `ticking` preserves the old no-overlap semantics — setInterval
+	// must not re-enter a tick that is still awaiting a lock.
+	let ticking = false;
+	const tick = async (): Promise<void> => {
+		if (ticking) return;
+		ticking = true;
 		try {
 			if (options.isCurrent && !options.isCurrent(generation)) return;
 			const nowMs = Date.now();
@@ -172,7 +187,7 @@ export function startAsyncRunNotifier(
 				state.lastListRunsMs = nowMs;
 			}
 			for (const run of cachedRuns) {
-				const current = markDeadAsyncRunIfNeeded(run) ?? run;
+				const current = (await markDeadAsyncRunIfNeeded(run)) ?? run;
 				if (!isFinished(current.status) || state.seenFinishedRunIds.has(current.runId)) continue;
 				addSeenFinishedRunId(state, current.runId);
 				// Suppress notifications for INTERNAL goal-loop sub-runs.
@@ -213,7 +228,13 @@ export function startAsyncRunNotifier(
 				return;
 			}
 			logInternalError("async-notifier", error, `interval=${intervalMs}`);
+		} finally {
+			ticking = false;
 		}
+	};
+	state.interval = setInterval(() => {
+		// tick() never rejects (it catches internally) — void is safe.
+		void tick();
 	}, intervalMs);
 	// Defense-in-depth: never let the notifier timer keep the event loop alive.
 	// If stopAsyncRunNotifier is missed (session switch race), the next run of
