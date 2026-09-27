@@ -1,6 +1,19 @@
-import * as Diff from "diff";
+import { createRequire } from "node:module";
+import type { Change } from "diff";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { asCrewTheme } from "./theme-adapter.ts";
+
+// RR-021 WI-2.1: the `diff` package was eagerly imported module-scope with a
+// wildcard (pulling the whole namespace into every UI load). Only diffWords is
+// used at runtime — lazy sync accessor on first use (model: ui/syntax-highlight.ts).
+// `Change` is a type-only import (erased at compile time, zero runtime cost).
+const require = createRequire(import.meta.url);
+type DiffModule = typeof import("diff");
+let cachedDiff: DiffModule | undefined;
+function diffModule(): DiffModule {
+	if (!cachedDiff) cachedDiff = require("diff") as DiffModule;
+	return cachedDiff;
+}
 
 interface ParsedDiffLine {
 	prefix: string;
@@ -36,8 +49,8 @@ const WORD_DIFF_MIN_SIM = 0.15;
  * characters relative to the longer of the two strings, using word-level
  * diff to identify the common (unchanged) parts. Returns a value in [0, 1].
  */
-function computeSimilarity(oldContent: string, newContent: string, wordDiff?: Diff.Change[]): number {
-	const parts = wordDiff ?? Diff.diffWords(oldContent, newContent);
+function computeSimilarity(oldContent: string, newContent: string, wordDiff?: Change[]): number {
+	const parts = wordDiff ?? diffModule().diffWords(oldContent, newContent);
 	let commonChars = 0;
 	for (const part of parts) {
 		if (!part.removed && !part.added) {
@@ -53,9 +66,9 @@ function renderIntraLineDiff(
 	theme: CrewTheme,
 	oldContent: string,
 	newContent: string,
-	wordDiff?: Diff.Change[],
+	wordDiff?: Change[],
 ): { removedLine: string; addedLine: string } {
-	const parts = wordDiff ?? Diff.diffWords(oldContent, newContent);
+	const parts = wordDiff ?? diffModule().diffWords(oldContent, newContent);
 	let removedLine = "";
 	let addedLine = "";
 	let isFirstRemoved = true;
@@ -137,7 +150,7 @@ export function renderDiff(diffText: string, options: RenderDiffOptions = {}): s
 				const newContent = replaceTabs(addedLines[0]!.content);
 				// PERF (2026-08-24): diffWords is the expensive call and was run
 				// TWICE on identical inputs (similarity + render). One pass, shared.
-				const wordDiff = Diff.diffWords(oldContent, newContent);
+				const wordDiff = diffModule().diffWords(oldContent, newContent);
 				const similarity = computeSimilarity(oldContent, newContent, wordDiff);
 				if (similarity >= WORD_DIFF_MIN_SIM) {
 					const { removedLine, addedLine } = renderIntraLineDiff(theme, oldContent, newContent, wordDiff);

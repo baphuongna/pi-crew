@@ -17,8 +17,20 @@
  * parse error downstream. We don't double-report parse errors.
  */
 
-import { parse } from "acorn";
+import { createRequire } from "node:module";
 import { getCrewEnv } from "../config/env-vars.ts";
+
+// RR-021 WI-2.1: acorn parses ONLY when the determinism check actually runs —
+// every dynamic-workflow-runner import was paying acorn's load cost up front.
+// Lazy sync accessor (model: ui/syntax-highlight.ts); acorn stays external in
+// the bundle and resolves through this shim on first use.
+const require = createRequire(import.meta.url);
+type AcornModule = typeof import("acorn");
+let cachedAcorn: AcornModule | undefined;
+function acorn(): AcornModule {
+	if (!cachedAcorn) cachedAcorn = require("acorn") as AcornModule;
+	return cachedAcorn;
+}
 
 const NONDETERMINISM_ERROR =
 	"Workflow scripts must be deterministic: Date.now()/Math.random()/new Date() are unavailable. These introduce non-reproducible behavior across runs. Use ctx.vars for cached state, or pass a fixed seed via ctx.setArgs(). To bypass this check (escape hatch), set PI_CREW_DWF_SKIP_DETERMINISM_CHECK=1.";
@@ -38,7 +50,7 @@ export class DeterminismError extends Error {
 export function assertDeterministicScript(script: string): void {
 	let ast: AstNode;
 	try {
-		ast = parse(script, {
+		ast = acorn().parse(script, {
 			ecmaVersion: "latest",
 			sourceType: "module",
 			allowAwaitOutsideFunction: true,

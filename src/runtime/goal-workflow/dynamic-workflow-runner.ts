@@ -18,8 +18,8 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
-import { transformSync } from "esbuild";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
@@ -32,6 +32,18 @@ import type { DynamicWorkflowConfig } from "../../workflows/workflow-config.ts";
 import { assertDeterministicScript, isDeterminismCheckEnabled } from "../deterministic-ast.ts";
 import { DwfStore } from "../dwf-state-store.ts";
 import { getWorkflowFinalResult, getWorkflowPhaseState, makeWorkflowCtx } from "./dynamic-workflow-context.ts";
+
+// RR-021 WI-2.1: esbuild is a heavy native dep (~35ms+ cold load) but is only
+// needed when a .dwf.ts script actually executes. Lazy-load via a synchronous
+// createRequire shim on first use (model: ui/syntax-highlight.ts) — call sites
+// stay sync. esbuild remains external in the bundle and resolves through here.
+const nodeRequire = createRequire(import.meta.url);
+type EsbuildModule = typeof import("esbuild");
+let cachedEsbuild: EsbuildModule | undefined;
+function esbuild(): EsbuildModule {
+	if (!cachedEsbuild) cachedEsbuild = nodeRequire("esbuild") as EsbuildModule;
+	return cachedEsbuild;
+}
 
 export interface RunDynamicWorkflowInput {
 	manifest: TeamRunManifest;
@@ -119,7 +131,7 @@ async function loadWorkflowModule(scriptPath: string): Promise<DynamicWorkflowSc
 		// DISC-1: acorn can only parse JavaScript, not TypeScript. Real .dwf.ts files
 		// contain type annotations/imports that cause a silent parse error, so the
 		// determinism check never runs. Transpile to JS via esbuild first.
-		const js = transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
+		const js = esbuild().transformSync(scriptSource, { loader: "ts", format: "esm" }).code;
 		assertDeterministicScript(js);
 	}
 	// jiti is the same loader async-runner.ts uses (resolveTypeScriptLoader). We require it
