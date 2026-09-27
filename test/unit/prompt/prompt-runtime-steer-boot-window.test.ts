@@ -103,6 +103,29 @@ async function waitFor(predicate: () => boolean, deadlineMs: number): Promise<bo
 	return predicate();
 }
 
+// RR-021 WI-3.2: quiet-window wait for NEGATIVE assertions ("no more deliveries
+// happen"). Polls the sample; returns true once it has stayed unchanged for
+// stableMs (>= 2x the ~500ms poll tick), false if it kept changing through the
+// deadline. Replaces fixed `sleep(1200); assert count` — same detection power,
+// adaptive on slow machines, and a duplicate arriving late resets the window
+// so the follow-up count assert catches it.
+async function waitForQuiet(sample: () => unknown, stableMs: number): Promise<boolean> {
+	const start = Date.now();
+	const deadline = start + stableMs + 500;
+	let last = sample();
+	let lastChange = start;
+	while (Date.now() < deadline) {
+		await sleep(25);
+		const current = sample();
+		if (!Object.is(current, last)) {
+			last = current;
+			lastChange = Date.now();
+		}
+		if (Date.now() - lastChange >= stableMs) return true;
+	}
+	return Date.now() - lastChange >= stableMs;
+}
+
 test("F-L2: id-less steer written pre-bind (sendMessage throws once) is re-delivered on the next tick, not lost", async (t) => {
 	const steeringFile = setupSteeringLayout(t);
 	// Steer already in the file BEFORE the poll's first tick — the boot-window case.
@@ -120,7 +143,8 @@ test("F-L2: id-less steer written pre-bind (sendMessage throws once) is re-deliv
 	assert.equal(harness.sent[0]?.content, "BOOT_WINDOW_STEER");
 
 	// Exactly once — the rewind must not cause duplicate delivery.
-	await sleep(1200);
+	const quiet1 = await waitForQuiet(() => harness.sent.length, 1200);
+	assert.ok(quiet1, "delivery stream must go quiet (no duplicate delivery)");
 	assert.equal(harness.sent.length, 1);
 });
 
@@ -137,7 +161,8 @@ test("F-L2: id-bearing steer survives a pre-bind throw via dedup unmark (no sile
 	assert.equal(delivered, true, "id-bearing steer must be delivered after the pre-bind throw");
 	assert.equal(harness.sent[0]?.content, "ID_BEARING_STEER");
 
-	await sleep(1200);
+	const quiet2 = await waitForQuiet(() => harness.sent.length, 1200);
+	assert.ok(quiet2, "delivery stream must go quiet (dedup unmark must not duplicate)");
 	assert.equal(harness.sent.length, 1);
 });
 
@@ -159,7 +184,8 @@ test("F-L2: persistent pre-bind failure keeps retrying (offset never advances pa
 	assert.equal(delivered, true);
 	assert.equal(harness.sent[0]?.content, "PERSISTENT_STEER");
 
-	await sleep(1200);
+	const quiet3 = await waitForQuiet(() => harness.sent.length, 1200);
+	assert.ok(quiet3, "delivery stream must go quiet after persistent-failure recovery");
 	assert.equal(harness.sent.length, 1);
 });
 
@@ -205,6 +231,7 @@ test("F-L2: multiple entries — a pre-bind failure rewinds to the failing line,
 		"delivery order preserved, SECOND retried (not skipped, not duplicated)",
 	);
 
-	await sleep(1200);
+	const quiet4 = await waitForQuiet(() => sent.length, 1200);
+	assert.ok(quiet4, "delivery stream must go quiet after the rewind retry");
 	assert.equal(sent.length, 3);
 });

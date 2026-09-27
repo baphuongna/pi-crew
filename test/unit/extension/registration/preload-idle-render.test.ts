@@ -79,6 +79,36 @@ function createFakePi(events: ReturnType<typeof createEventBus>) {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+// RR-021 WI-3.2: poll-based waits instead of fixed sleeps (25ms poll; same
+// timers under test). Deadline >= 2x worst case; quiet-window variant for the
+// "render loop must be STOPPED" negative assertions (flushes stable for
+// >= 2x the 250ms refresh period proves the idle-stop engaged).
+async function waitFor(predicate: () => boolean, deadlineMs: number): Promise<boolean> {
+	const deadline = Date.now() + deadlineMs;
+	while (Date.now() < deadline) {
+		if (predicate()) return true;
+		await sleep(25);
+	}
+	return predicate();
+}
+
+async function waitForQuiet(sample: () => unknown, stableMs: number, deadlineMs = stableMs + 500): Promise<boolean> {
+	const start = Date.now();
+	const deadline = start + deadlineMs;
+	let last = sample();
+	let lastChange = start;
+	while (Date.now() < deadline) {
+		await sleep(25);
+		const current = sample();
+		if (!Object.is(current, last)) {
+			last = current;
+			lastChange = Date.now();
+		}
+		if (Date.now() - lastChange >= stableMs) return true;
+	}
+	return Date.now() - lastChange >= stableMs;
+}
+
 test("F14: unchanged preload data stops rendering after the idle allowance; a changed frame re-triggers", async () => {
 	const home = fs.mkdtempSync(path.join(os.tmpdir(), "f14-idle-home-"));
 	const cwd = createTrackedTempDir("f14-idle-cwd-");
@@ -121,8 +151,9 @@ test("F14: unchanged preload data stops rendering after the idle allowance; a ch
 			},
 		};
 		pi.emitLifecycle("session_start", sessionCtx);
-		await sleep(300);
-		assert.ok(ctx.renderScheduler, "session_start must install a render scheduler");
+		// Worst case: a few config/registration ticks → deadline 600 (2x).
+		const installed = await waitFor(() => ctx.renderScheduler !== undefined, 600);
+		assert.ok(installed && ctx.renderScheduler, "session_start must install a render scheduler");
 
 		// Count renders: every render goes through flush() (debounce drain +
 		// fallback loop both call it). Shadow the instance method.
@@ -134,16 +165,21 @@ test("F14: unchanged preload data stops rendering after the idle allowance; a ch
 			originalFlush();
 		};
 
-		// Idle window 1: maxIdleFallbackRenders=8 renders at fallbackMs=250 →
-		// the fallback loop stops re-arming around t≈2.3s. Sample well past it.
-		await sleep(2900);
+		// Idle window 1: maxIdleFallbackRenders=8 renders at fallbackMs=250 → the
+		// fallback loop stops re-arming around t≈2.4s (measured: renders 1→9 over
+		// 250ms..2.4s, gaps ≤260ms). A flush count stable for 1000ms (~4x the max
+		// observed gap) proves the idle-stop engaged; deadline 4000ms = full 2.4s
+		// rampup + 1.0s stable window + margin (old fixed sleeps: 2900+1500=4.4s).
+		const idleStopped = await waitForQuiet(() => flushes, 1000, 4000);
+		assert.ok(idleStopped, "render loop must reach a quiet state while data is unchanged");
 		const afterIdle = flushes;
 		assert.ok(afterIdle >= 1, `expected at least the initial render, got ${afterIdle}`);
 		assert.ok(
 			afterIdle <= 13,
 			`unchanged data must stop rendering near the idle allowance (maxIdleFallbackRenders=8 + first render); got ${afterIdle}`,
 		);
-		await sleep(1500);
+		const stillQuiet = await waitForQuiet(() => flushes, 1000);
+		assert.ok(stillQuiet, "flush count must be stable while idle");
 		assert.equal(flushes, afterIdle, `render loop must be STOPPED while idle (grew from ${afterIdle} to ${flushes})`);
 
 		// A genuinely changed frame (new run appears on disk) must re-trigger.
@@ -171,11 +207,14 @@ test("F14: unchanged preload data stops rendering after the idle allowance; a ch
 			}),
 			"utf-8",
 		);
-		await sleep(2000);
-		assert.ok(flushes > afterIdle, `a changed frame must re-trigger rendering (still ${flushes} after change)`);
+		// Worst case: debounce + fallback re-arm ≈ 1s → deadline 2000 (2x).
+		const retriggered = await waitFor(() => flushes > afterIdle, 2000);
+		assert.ok(retriggered && flushes > afterIdle, `a changed frame must re-trigger rendering (still ${flushes} after change)`);
 
 		pi.emitLifecycle("session_shutdown", sessionCtx, { reason: "quit" });
-		await sleep(100);
+		// No observable to poll post-shutdown — single poll-tick yield for the
+		// sync emit to settle before the finally-block cleanup.
+		await sleep(25);
 	} finally {
 		if (prevHome === undefined) delete process.env.PI_CREW_HOME;
 		else process.env.PI_CREW_HOME = prevHome;

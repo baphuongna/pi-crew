@@ -25,6 +25,19 @@ function sleep(ms: number): Promise<void> {
 	});
 }
 
+// RR-021 WI-3.2: poll-based wait (25ms) instead of fixed sleeps — same timers
+// under test, but the test no longer fails when the machine is slow (the sleep
+// was sized for the happy path) nor wastes wall-time when the event lands early.
+// Deadline is >= 2x the worst-case timer being waited on.
+async function waitFor(predicate: () => boolean, deadlineMs: number): Promise<boolean> {
+	const deadline = Date.now() + deadlineMs;
+	while (Date.now() < deadline) {
+		if (predicate()) return true;
+		await sleep(25);
+	}
+	return predicate();
+}
+
 test("trySignalChild reports whether a termination signal was actually delivered", () => {
 	assert.equal(trySignalChild({ kill: () => true }, "SIGTERM"), true);
 	assert.equal(trySignalChild({ kill: () => false }, "SIGTERM"), false);
@@ -48,7 +61,9 @@ test("idle timer closes post-exit silent streams", async () => {
 		hardMs: 8000,
 	});
 	child.emit("exit", 0, null);
-	await sleep(2200);
+	// Worst case = idleMs 1500 → deadline 3000 (2x).
+	const closed = await waitFor(() => child.stdout.destroyed && child.stderr.destroyed, 3000);
+	assert.ok(closed, "idle timer must close silent streams within 2x idleMs");
 	assert.ok(child.stdout.destroyed);
 	assert.ok(child.stderr.destroyed);
 });
@@ -66,9 +81,12 @@ test("hard timer closes chatty streams", async () => {
 		child.stdout.write("tick\n");
 		child.stderr.write("tick\n");
 	}, 200);
-	await sleep(5000);
+	// Worst case = hardMs 2000 → deadline 4000 (2x). The spam keeps the idle
+	// timer re-arming, so only the hard timer can close the streams.
+	const closed = await waitFor(() => child.stdout.destroyed && child.stderr.destroyed, 4000);
 	clearInterval(spamInterval);
 
+	assert.ok(closed, "hard timer must close chatty streams within 2x hardMs");
 	assert.ok(Date.now() - start >= 2000 - 500);
 	assert.ok(child.stdout.destroyed);
 	assert.ok(child.stderr.destroyed);
@@ -86,7 +104,9 @@ test("arms immediately when attached AFTER exit (regression: in-exit-handler att
 		hardMs: 8000,
 	});
 	// Intentionally do NOT emit "exit" — production cannot either.
-	await sleep(600);
+	// Worst case = idleMs 200 → deadline 400 (2x).
+	const closed = await waitFor(() => child.stdout.destroyed && child.stderr.destroyed, 400);
+	assert.ok(closed, "guard must arm immediately when attached post-exit");
 	assert.ok(child.stdout.destroyed, "guard must arm immediately when attached post-exit");
 	assert.ok(child.stderr.destroyed);
 });
