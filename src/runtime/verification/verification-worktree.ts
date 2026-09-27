@@ -66,6 +66,7 @@ export function checkWorktreeSandboxAvailable(cwd: string): { available: true; c
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 			encoding: "utf-8",
+			timeout: 5000,
 		}).trim();
 		if (!toplevel)
 			return {
@@ -77,6 +78,7 @@ export function checkWorktreeSandboxAvailable(cwd: string): { available: true; c
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 			encoding: "utf-8",
+			timeout: 5000,
 		}).trim();
 		if (!commitSha)
 			return {
@@ -92,6 +94,7 @@ export function checkWorktreeSandboxAvailable(cwd: string): { available: true; c
 			cwd,
 			stdio: ["ignore", "pipe", "pipe"],
 			encoding: "utf-8",
+			timeout: 5000,
 		}).trim();
 		if (status.length > 0)
 			return {
