@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [0.11.3] — optimization audit fixes: correctness, hang-risks, bundle, DX, dead code (2026-09-27)
+
+### fix: correctness + hang-risks (RR-021 M1)
+
+- **`classifyReviewOutcome` word-boundary bug**: the `"\baccept\b"`/`"\breject\b"` signals were TS string literals — `\b` is a BACKSPACE char there, so the two strongest verdict signals never matched anything. All 49 signals are now precompiled module-scope regex literals, and a negation guard stops "I cannot accept this" counting as approval. Reject-first precedence unchanged.
+- **Git precondition probes** (`rev-parse`/`status` in the verification worktree sandbox) gained a 5s timeout — a wedged git no longer blocks the extension forever; the existing catch degrades to `available:false`.
+- **`detectRipgrep` hardening**: a spawned-but-wedged `rg --version` is SIGKILLed by an unref'd 3s timer (defaults to unavailable); concurrent first calls share ONE in-flight detection promise instead of spawning one rg per caller.
+- **`markDeadAsyncRunIfNeeded`** reroutes to the async `withRunLock` (same v0.9.26 lock family — live-token interop); the 5s notifier tick no longer holds the event loop on a sync acquisition. The notifier tick keeps no-overlap semantics. `async-runner.ts`'s in-process test seam keeps its one-shot sync lock by design.
+- **`reconcileAllStaleRuns`** is async and reconciles runs with `mapConcurrent` bound 4 (per-run lock files are independent); results keep snapshot order, plan-approval re-check and re-read-inside-lock semantics unchanged.
+
+### perf: bundle + startup hygiene (RR-021 M2)
+
+- esbuild/acorn/diff load lazily through sync `createRequire` shims (model: `syntax-highlight.ts`) — three eager module-scope imports no longer paid on every extension load; `diff` wildcard import narrowed to `diffWords` (+ type-only `Change`).
+- `ajv` marked external (it is only reached via a lazy `await import`) — the bundle shrank 1.65 MB → 1.53 MB and skips parse cost for a rarely-taken path.
+- `check:lazy-imports` now catches EVERY runtime `import()` position (the old `await import(` regex let `Promise.all([import(...)])` escape — audit blind-spot #2) and asserts the committed `dist/index.mjs` contains no module-scope hoisted import of esbuild/acorn/diff/jiti/cli-highlight/yaml/ajv. 23 runtime import sites across 9 files gained `// LAZY:` markers.
+
+### perf(dx): incremental typecheck + flake-resistant waits (RR-021 M3)
+
+- `tsconfig.json` enables `incremental` + a cached `tsBuildInfoFile` (gitignored) — measured with TS 7.0.2: cold 4.10s → warm 1.41s.
+- Three flake-prone suites (`post-exit-stdio-guard`, `preload-idle-render`, `prompt-runtime-steer-boot-window`) replace fixed sleeps with poll-based `waitFor`/`waitForQuiet` (25ms poll, deadlines sized ≥2× the worst-case timer, quiet windows derived from a measured render timeline). Each file verified ×3 consecutive runs with zero flakes.
+
+### perf: scale + hygiene (RR-021 M4)
+
+- The notifier tick and run picker read a bounded `listRecentRuns` window (40→20 after the session filter) instead of scanning the full run index every debounce window; the startup seed keeps its full scan by design.
+- Dead code deleted (−1.6k lines, all verified 0-production-consumer): `src/benchmark/` + its two test files, `ui/card-colors.ts`, `utils/completion-dedupe.ts`, `utils/resolve-shell.ts` + their tests; the affected suites were trimmed to their live checks.
+- Eleven drive-by fixes: Set/Map lookups for hot `includes`/`find` loops (settled batch filter, task-list dependency labels, agents-pane first-wins live-handle map, group-join task resolution), allocation-free reverse scans replacing `[...arr].reverse().find()` copies (×3), a 256-entry cap for `stableComponentCache`, `TypeCompiler.Compile(TeamToolParams)` compiled once (STATIC) instead of per-call `Value.Check` schema walks, a 30-min WALL-CLOCK poll deadline (the old 1800-poll cap silently assumed a 1s configurable interval), a bounded `waitForRecord` (300s deadline racing wedged promises; expiry returns the current record — never undefined), collision-free `msg_<randomUUID>` mailbox ids, and module-scope precompiled regexes for the crew-input router + implicit-tag detector.
+- Spinner isolation (`run-dashboard` `spinnerBucket`/`metricsSig`) deferred to a follow-up — needs a live TUI profile first.
+
 ## [0.11.2] — runtime hygiene, in-process async test seam, slash-command fixes (2026-09-26)
 
 ### runtime: ambient-noise + temp-workspace hygiene + in-process async test seam
