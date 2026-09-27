@@ -55,3 +55,6 @@ bench/results/
 # superpowers SDD workspaces
 .superpowers/
 docs/archive/perf-report-team/
+
+# RR-021 WI-3.1: incremental tsc build-info cache (cold ~5s -> warm ~1.7s)
+node_modules/.cache/pi-crew/
