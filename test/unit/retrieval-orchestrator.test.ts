@@ -221,6 +221,41 @@ test("M3-G: detectRipgrep handles a missing rg binary gracefully (no throw)", as
 	}
 });
 
+test("RR-021 WI-1.3: wedged rg → 3s SIGKILL deadline + in-flight memoization", { skip: process.platform === "win32" }, async () => {
+	// A fake rg that spawns, marks its launch, and then never exits.
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rg-wedge-"));
+	const marker = path.join(tmp, "spawns.txt");
+	const fakeRg = path.join(tmp, "rg");
+	fs.writeFileSync(
+		fakeRg,
+		`#!/usr/bin/env node
+require("fs").appendFileSync(${JSON.stringify(marker)}, "1\\n");
+setInterval(() => {}, 1000);
+`,
+	);
+	fs.chmodSync(fakeRg, 0o755);
+	const prevPath = process.env.PATH;
+	try {
+		process.env.PATH = `${tmp}${path.delimiter}${prevPath ?? ""}`;
+		__test_resetRipgrepCache();
+		const start = Date.now();
+		// Two concurrent first calls must share ONE in-flight detection.
+		const [a, b] = await Promise.all([detectRipgrep(), detectRipgrep()]);
+		const elapsed = Date.now() - start;
+		assert.equal(a.available, false, "wedged rg must default to unavailable at the deadline");
+		assert.equal(b.available, false);
+		assert.ok(elapsed >= 2500, `deadline not applied? resolved after ${elapsed}ms`);
+		assert.ok(elapsed < 10_000, `detection must resolve near the 3s deadline, took ${elapsed}ms`);
+		// In-flight memoization: exactly ONE rg spawn served both callers.
+		const spawnCount = fs.existsSync(marker) ? fs.readFileSync(marker, "utf-8").trim().length : 0;
+		assert.equal(spawnCount, 1, `concurrent first calls must spawn rg once, saw ${spawnCount}`);
+	} finally {
+		process.env.PATH = prevPath;
+		__test_resetRipgrepCache();
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+}, 20_000);
+
 test("M3-H: runRetrievalCycle is safe with a non-existent cwd (no throw, empty result)", async () => {
 	const cwd = path.join(os.tmpdir(), "pi-crew-m3-nonexistent-", String(Date.now()));
 	__test_resetRipgrepCache();

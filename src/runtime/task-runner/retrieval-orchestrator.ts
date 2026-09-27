@@ -160,6 +160,9 @@ interface RipgrepAvailable {
 }
 
 let cachedRgCheck: RipgrepAvailable | undefined;
+/** RR-021 WI-1.3: memoize the in-flight detection so concurrent first calls
+ * spawn rg at most once instead of one process per caller. */
+let inFlightRgCheck: Promise<RipgrepAvailable> | undefined;
 
 /**
  * PERF round 3: per-cwd cache of the rg discovery result (relative paths,
@@ -196,45 +199,64 @@ function storeDiscovered(cwd: string, files: string[]): void {
  * Detect ripgrep availability once per process. Uses `rg --version` and
  * catches ENOENT or non-zero exit. Cached so the cost (one spawn) is
  * paid only on the first retrieval cycle.
+ *
+ * RR-021 WI-1.3 hardening: a spawned-but-wedged rg no longer hangs detection
+ * forever — a 3s unref'd SIGKILL timer defaults to `{ available: false }`.
  */
 export async function detectRipgrep(): Promise<RipgrepAvailable> {
 	if (cachedRgCheck !== undefined) return cachedRgCheck;
-	return await new Promise<RipgrepAvailable>((resolve) => {
+	if (inFlightRgCheck !== undefined) return inFlightRgCheck;
+	inFlightRgCheck = new Promise<RipgrepAvailable>((resolve) => {
 		let settled = false;
+		let killTimer: NodeJS.Timeout | undefined;
+		const settle = (result: RipgrepAvailable): void => {
+			if (settled) return;
+			settled = true;
+			if (killTimer !== undefined) clearTimeout(killTimer);
+			cachedRgCheck = result;
+			resolve(result);
+		};
 		try {
 			const child = spawn("rg", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+			// 3s hard deadline. unref'd so the timer never holds the event loop open.
+			killTimer = setTimeout(() => {
+				try {
+					child.kill("SIGKILL");
+				} catch {
+					// already dead — the close handler settles the result
+				}
+				settle({ available: false });
+			}, 3000);
+			killTimer.unref();
 			let stdout = "";
 			child.stdout?.on("data", (chunk) => {
 				stdout += chunk.toString("utf-8");
 			});
 			child.on("error", () => {
-				if (settled) return;
-				settled = true;
-				cachedRgCheck = { available: false };
-				resolve(cachedRgCheck);
+				settle({ available: false });
 			});
 			child.on("close", (code) => {
-				if (settled) return;
-				settled = true;
 				if (code === 0) {
-					cachedRgCheck = { available: true, version: stdout.split("\n")[0] ?? undefined };
+					settle({ available: true, version: stdout.split("\n")[0] ?? undefined });
 				} else {
-					cachedRgCheck = { available: false };
+					settle({ available: false });
 				}
-				resolve(cachedRgCheck);
 			});
 		} catch {
-			if (settled) return;
-			settled = true;
-			cachedRgCheck = { available: false };
-			resolve(cachedRgCheck);
+			settle({ available: false });
 		}
 	});
+	try {
+		return await inFlightRgCheck;
+	} finally {
+		inFlightRgCheck = undefined;
+	}
 }
 
 /** @internal Test-only: reset the ripgrep detection cache. */
 export function __test_resetRipgrepCache(): void {
 	cachedRgCheck = undefined;
+	inFlightRgCheck = undefined;
 }
 
 /** @internal Test-only: reset the discovery cache. */
