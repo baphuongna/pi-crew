@@ -364,9 +364,13 @@ export class SubagentManager {
 						record.promise.catch((error) => {
 							logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
 						}),
+						// RR-021 review remediation: this timer MUST stay ref'd. unref() let the
+						// event loop drain before the deadline fired (node:test then cancels the
+						// awaiting test — "Promise resolution is still pending but the event loop
+						// has already resolved"). Always clearTimeout'd in the finally below, so
+						// ref'ing cannot leak (knowledge.md OwnedProcess timer guidance).
 						new Promise<void>((resolve) => {
 							timer = setTimeout(resolve, remaining);
-							timer.unref();
 						}),
 					]);
 				} finally {
