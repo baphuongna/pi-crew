@@ -70,7 +70,20 @@ export async function ensurePlanApprovalRequested(manifest: TeamRunManifest, tas
 	const assessTask = tasks.find((task) => task.stepId === "assess" && task.status === "completed");
 	// ROADMAP T1.2: for non-adaptive workflows, fall back to the most recent
 	// completed read-only (planning) task as the plan reference.
-	const planTask = assessTask ?? [...tasks].reverse().find((t) => t.status === "completed" && !isMutatingTask(t));
+	// RR-021 WI-4.3e: allocation-free reverse scan — the old
+	// [...tasks].reverse().find() copied the whole array per call.
+	// (findLast needs an ES2023 lib bump, which breaks tsgo's RequestInfo
+	// ambient resolution — see WI-4.3 evidence note.)
+	let planTask = assessTask;
+	if (!planTask) {
+		for (let i = tasks.length - 1; i >= 0; i--) {
+			const t = tasks[i];
+			if (t?.status === "completed" && !isMutatingTask(t)) {
+				planTask = t;
+				break;
+			}
+		}
+	}
 	const now = new Date().toISOString();
 
 	// T2/R4 (ADR-4 §6 producer 3 + §8 dual-write): make sure a PlanRecord

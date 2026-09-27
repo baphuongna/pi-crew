@@ -692,9 +692,15 @@ async function mailboxFromAsync(manifest: TeamRunManifest, agents: CrewAgentReco
 }
 
 function cancellationReasonFromEvents(events: TeamEvent[]): string | undefined {
-	return [...events].reverse().find((event) => event.type === "run.cancelled" && typeof event.data?.reason === "string")?.data?.reason as
-		| string
-		| undefined;
+	// RR-021 WI-4.3e: allocation-free reverse scan — the old
+	// [...events].reverse().find() copied the whole array on every call.
+	// (findLast needs an ES2023 lib bump, which breaks tsgo's RequestInfo
+	// ambient resolution — see WI-4.3 evidence note.)
+	for (let i = events.length - 1; i >= 0; i--) {
+		const event = events[i];
+		if (event?.type === "run.cancelled" && typeof event.data?.reason === "string") return event.data.reason;
+	}
+	return undefined;
 }
 
 type SliceSignatures = NonNullable<RunUiSnapshot["sliceSignatures"]>;

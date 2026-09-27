@@ -190,5 +190,36 @@ describe("subagent-manager", () => {
 			mgr.abortAll();
 			removeTrackedTempDir(tmpDir);
 		});
+
+		it("RR-021 WI-4.3i: waitForRecord deadline expiry returns the CURRENT (still-running) record, not undefined", async () => {
+			const tmpDir = createTrackedTempDir("pi-crew-subagent-");
+			const mgr = new SubagentManager(4);
+			let release: () => void = () => {};
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			// Runner whose promise never settles until released — pins the
+			// wedged-promise path (the deadline race must not block on it).
+			const runner = async () => {
+				await gate;
+				return makeResult();
+			};
+			const record = mgr.spawn(makeSpawnOptions(tmpDir, { background: true }), runner);
+			const waited = await mgr.waitForRecord(record.id, 300);
+			assert.ok(waited, "deadline expiry must return the record — never undefined (ambiguous with no-such-record)");
+			assert.equal(waited.id, record.id);
+			assert.equal(waited.status, "running", "record is still running at expiry; callers inspect status");
+			release();
+			await mgr.waitForAll();
+			removeTrackedTempDir(tmpDir);
+		});
+
+		it("RR-021 WI-4.3i: waitForRecord returns undefined ONLY for an unknown id", async () => {
+			const tmpDir = createTrackedTempDir("pi-crew-subagent-");
+			const mgr = new SubagentManager(4);
+			const waited = await mgr.waitForRecord("no_such_record", 100);
+			assert.equal(waited, undefined);
+			removeTrackedTempDir(tmpDir);
+		});
 	});
 });

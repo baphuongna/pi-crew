@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { randomUUID } from "node:crypto";
 import { DEFAULT_MAILBOX } from "../../config/defaults.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";
@@ -726,7 +727,9 @@ export function appendMailboxMessage(
 	else ensureRunMailbox(manifest);
 	const createdAt = new Date().toISOString();
 	const complete: MailboxMessage = {
-		id: message.id ?? `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+		// RR-021 WI-4.3j: randomUUID instead of Date.now()+Math.random() —
+		// collision-free under the msg_ prefix, no clock-ordering leakage.
+		id: message.id ?? `msg_${randomUUID()}`,
 		runId: manifest.runId,
 		direction: message.direction,
 		from: message.from,
@@ -854,7 +857,9 @@ export async function appendMailboxMessageAsync(
 	else ensureRunMailbox(manifest);
 	const createdAt = new Date().toISOString();
 	const complete: MailboxMessage = {
-		id: message.id ?? `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+		// RR-021 WI-4.3j: randomUUID instead of Date.now()+Math.random() —
+		// collision-free under the msg_ prefix, no clock-ordering leakage.
+		id: message.id ?? `msg_${randomUUID()}`,
 		runId: manifest.runId,
 		direction: message.direction,
 		from: message.from,

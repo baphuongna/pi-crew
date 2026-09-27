@@ -97,6 +97,8 @@ describe("appendMailboxMessageAsync produces identical results to sync", () => {
 		}
 	});
 
+	// RR-021 WI-4.3j: ids are now msg_<randomUUID> (collision-free, no
+	// clock-ordering leakage) instead of msg_<date36>_<rand>.
 	it("auto-generated id matches the msg_ format", async () => {
 		const ws = setupWorkspace("idfmt");
 		try {
@@ -106,7 +108,7 @@ describe("appendMailboxMessageAsync produces identical results to sync", () => {
 				to: "b",
 				body: "test",
 			});
-			assert.match(msg.id, /^msg_[a-z0-9]+_[a-z0-9]+$/);
+			assert.match(msg.id, /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 		} finally {
 			removeTrackedTempDir(ws.dir);
 		}

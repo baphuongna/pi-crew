@@ -116,13 +116,16 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 	// One pinned clock (D6-T4) for the whole pane render.
 	const nowMs = options.nowMs ?? Date.now();
 
-	const realAgents = snapshot.agents.filter((a) =>
-		isRealAgent(
-			a,
-			liveForRun.find((h) => h.taskId === a.taskId),
-			nowMs,
-		),
-	);
+	// RR-021 WI-4.3c: first-wins Map keyed by taskId — the two `.find` sites
+	// below (real-agent filter + per-agent handle) must keep seeing the SAME
+	// (first) matching handle, so the build guards with has() instead of set()
+	// overwriting later duplicates.
+	const liveByTaskId = new Map<string, (typeof liveForRun)[number]>();
+	for (const handle of liveForRun) {
+		if (!liveByTaskId.has(handle.taskId)) liveByTaskId.set(handle.taskId, handle);
+	}
+
+	const realAgents = snapshot.agents.filter((a) => isRealAgent(a, liveByTaskId.get(a.taskId), nowMs));
 	const lineCount = Math.min(realAgents.length, 12);
 	const label =
 		realAgents.length !== snapshot.agents.length
@@ -135,7 +138,7 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 	lines.push(`${completed}/${total} tasks · ${label}`);
 
 	for (const agent of realAgents.slice(0, 12)) {
-		const liveHandle = liveForRun.find((h) => h.taskId === agent.taskId);
+		const liveHandle = liveByTaskId.get(agent.taskId);
 		const icon = agentGlyph(agent.status, agent.taskId);
 		const role = `${agent.role ?? "?"}`;
 

@@ -342,16 +342,39 @@ export class SubagentManager {
 		}
 	}
 
-	async waitForRecord(id: string): Promise<SubagentRecord | undefined> {
+	async waitForRecord(id: string, timeoutMs = 300_000): Promise<SubagentRecord | undefined> {
+		// RR-021 WI-4.3i: bounded wait. A record with no promise whose status
+		// stays running/blocked used to spin forever (100ms sleep loop). On
+		// deadline expiry we return the CURRENT record — never undefined, which
+		// would be ambiguous with 'no such record'. Callers can inspect
+		// record.status to see the wait timed out on a still-active record.
+		const deadline = Date.now() + timeoutMs;
 		while (true) {
 			const record = this.records.get(id);
 			if (!record) return undefined;
 			if (record.status !== "running" && record.status !== "queued") return record;
-			if (record.promise)
-				await record.promise.catch((error) => {
-					logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
-				});
-			else await new Promise((resolve) => setTimeout(resolve, 100));
+			if (Date.now() > deadline) return record;
+			if (record.promise) {
+				// Race the run promise against the remaining deadline — a wedged
+				// promise must not block the deadline check.
+				const remaining = deadline - Date.now();
+				let timer: NodeJS.Timeout | undefined;
+				try {
+					await Promise.race([
+						record.promise.catch((error) => {
+							logInternalError("subagent-manager.waitForRecord", error, `id=${id}`);
+						}),
+						new Promise<void>((resolve) => {
+							timer = setTimeout(resolve, remaining);
+							timer.unref();
+						}),
+					]);
+				} finally {
+					if (timer !== undefined) clearTimeout(timer);
+				}
+			} else {
+				await new Promise((resolve) => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
+			}
 		}
 	}
 
@@ -477,19 +500,22 @@ export class SubagentManager {
 	}
 
 	private async pollRunToTerminal(cwd: string, record: SubagentRecord): Promise<void> {
-		// Safety: max 30 minutes (1800 polls at 1s interval) to prevent infinite
-		// polling if manifest file is deleted or run state becomes unrecoverable.
-		const MAX_POLL_COUNT = 1800;
-		let pollCount = 0;
+		// Safety: max 30 minutes of WALL-CLOCK polling to prevent infinite
+		// polling if the manifest file is deleted or run state becomes unrecoverable.
+		// (RR-021 WI-4.3h: was MAX_POLL_COUNT=1800, which silently assumed a 1s
+		// pollIntervalMs — but the interval is configurable, so a 5s interval
+		// polled for 2.5h while a 200ms interval timed out after 6 minutes.)
+		const POLL_DEADLINE_MS = 30 * 60 * 1000;
+		const pollDeadline = Date.now() + POLL_DEADLINE_MS;
 		while (record.runId && (record.status === "running" || record.status === "blocked")) {
-			if (++pollCount > MAX_POLL_COUNT) {
+			if (Date.now() > pollDeadline) {
 				logInternalError(
 					"subagent-manager.poll-timeout",
-					new Error(`pollRunToTerminal exceeded ${MAX_POLL_COUNT} polls for runId=${record.runId}`),
+					new Error(`pollRunToTerminal exceeded ${POLL_DEADLINE_MS}ms wall-clock for runId=${record.runId}`),
 					`id=${record.id}`,
 				);
 				record.status = "error";
-				record.error = `Poll timeout: run did not reach terminal state after ${MAX_POLL_COUNT} seconds`;
+				record.error = `Poll timeout: run did not reach terminal state after ${POLL_DEADLINE_MS}ms (wall-clock)`;
 				record.completedAt = Date.now();
 				savePersistedSubagentRecord(cwd, record);
 				return;

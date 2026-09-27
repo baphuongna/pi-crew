@@ -59,9 +59,17 @@ export function deliverGroupJoin(input: {
 }): CrewGroupJoinDelivery | undefined {
 	if (!shouldGroupJoin(input.mode, input.batch)) return undefined;
 	const taskIds = input.batch.map((task) => task.id);
-	const latest = taskIds
-		.map((id) => input.allTasks.find((task) => task.id === id))
-		.filter((task): task is TeamTaskState => Boolean(task));
+	// RR-021 WI-4.3d: first-wins Map — the old taskIds.map(id => allTasks.find())
+	// was O(batch×allTasks). NOT a raw input.batch pass-through: callers may
+	// hold stale batch snapshots, and the only audited production caller
+	// (team-runner closeout) passes fresh references — but the Map keeps the
+	// exact `.find` first-match semantics for every caller (incl. tests) while
+	// staying O(n+m). Batch order is preserved (map follows taskIds).
+	const taskById = new Map<string, TeamTaskState>();
+	for (const task of input.allTasks) {
+		if (!taskById.has(task.id)) taskById.set(task.id, task);
+	}
+	const latest = taskIds.map((id) => taskById.get(id)).filter((task): task is TeamTaskState => Boolean(task));
 	const completed = statusList(latest, "completed");
 	const failed = statusList(latest, "failed");
 	const skipped = statusList(latest, "skipped");

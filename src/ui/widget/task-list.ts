@@ -126,10 +126,12 @@ function runningSuffix(task: TeamTaskState): string {
 
 /** `› blocked by #2, #3` for queued tasks — open (non-completed)
  *  dependencies only, named by task number (pi-tasks display rule). */
-function blockedSuffix(task: TeamTaskState, tasks: readonly TeamTaskState[], numberById: Map<string, number>): string {
+function blockedSuffix(task: TeamTaskState, taskById: Map<string, TeamTaskState>, numberById: Map<string, number>): string {
 	if (task.status !== "queued") return "";
+	// RR-021 WI-4.3b: Map lookup — tasks.find() per dependency was O(deps×tasks)
+	// on every queued row render.
 	const openDeps = (task.dependsOn ?? [])
-		.map((depId) => tasks.find((entry) => entry.id === depId))
+		.map((depId) => taskById.get(depId))
 		.filter((dep): dep is TeamTaskState => dep !== undefined && dep.status !== "completed");
 	if (openDeps.length === 0) return "";
 	const labels = openDeps.map((dep) => `#${numberById.get(dep.id) ?? "?"}`);
@@ -139,9 +141,9 @@ function blockedSuffix(task: TeamTaskState, tasks: readonly TeamTaskState[], num
 /** One line per task: `#n title` behind its status glyph — pi-tasks style.
  *  Completed titles are dimmed and struck through. Returns the ROW CONTENT:
  *  the rail glyph (`┃ `) is owned by `railLine`. */
-function taskRow(task: TeamTaskState, taskNumber: number, tasks: readonly TeamTaskState[], numberById: Map<string, number>): string {
+function taskRow(task: TeamTaskState, taskNumber: number, taskById: Map<string, TeamTaskState>, numberById: Map<string, number>): string {
 	const title = taskTitle(task);
-	const suffix = task.status === "running" ? runningSuffix(task) : blockedSuffix(task, tasks, numberById);
+	const suffix = task.status === "running" ? runningSuffix(task) : blockedSuffix(task, taskById, numberById);
 	if (task.status === "completed") {
 		const struck = `${STRIKE_ON}${DIM_ON}#${taskNumber} ${title}${DIM_OFF}${STRIKE_OFF}`;
 		return `${taskStatusIcon(task)} ${struck}`;
@@ -182,6 +184,7 @@ export function buildTaskListLines(runs: readonly WidgetRun[], width: number, th
 
 	const budget = Math.max(8, width - 2);
 	const numberById = new Map(tasks.map((task, index) => [task.id, index + 1]));
+	const taskById = new Map(tasks.map((task) => [task.id, task]));
 	const done = tasks.filter((task) => task.status === "completed").length;
 	const dead = tasks.filter((task) => isDoneStatus(task.status) && task.status !== "completed").length;
 	const inProgress = tasks.filter(
@@ -211,7 +214,7 @@ export function buildTaskListLines(runs: readonly WidgetRun[], width: number, th
 
 	const visible = visibleTasks(tasks);
 	for (const task of visible) {
-		lines.push(railLine(RAIL.body, "border", taskRow(task, numberById.get(task.id) ?? 0, tasks, numberById), theme, budget));
+		lines.push(railLine(RAIL.body, "border", taskRow(task, numberById.get(task.id) ?? 0, taskById, numberById), theme, budget));
 	}
 	const hidden = tasks.length - visible.length;
 	if (hidden > 0) {

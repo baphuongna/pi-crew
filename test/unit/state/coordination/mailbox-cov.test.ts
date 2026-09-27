@@ -101,6 +101,29 @@ describe("appendMailboxMessage preserves explicit id", () => {
 	});
 });
 
+describe("RR-021 WI-4.3j: auto-generated mailbox ids use randomUUID under the msg_ prefix", () => {
+	it("generated ids match msg_<uuid> and are collision-free across many appends", () => {
+		const { dir, manifest } = setupMailboxWorkspace();
+		try {
+			const UUID_RE = /^msg_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+			const seen = new Set<string>();
+			for (let i = 0; i < 50; i++) {
+				const msg = appendMailboxMessage(manifest, {
+					direction: "outbox",
+					from: "leader",
+					to: `worker-${i}`,
+					body: `msg ${i}`,
+				});
+				assert.match(msg.id, UUID_RE, `id must keep the msg_ prefix + uuid v4 shape, got ${msg.id}`);
+				assert.ok(!seen.has(msg.id), "ids must not collide");
+				seen.add(msg.id);
+			}
+		} finally {
+			removeTrackedTempDir(dir);
+		}
+	});
+});
+
 describe("appendMailboxMessage sets status to delivered when provided", () => {
 	it("honors explicit status field", () => {
 		const { dir, manifest } = setupMailboxWorkspace();

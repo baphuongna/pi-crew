@@ -183,11 +183,27 @@ export function parsePlanDocumentSimple(planPath: string): OrchestratedStep[] {
 /**
  * Detect implicit tag from content keywords when no explicit tag is present.
  */
+// RR-021 WI-4.3k: precompiled word-boundary regexes — hasWord used to compile
+// a fresh RegExp for every word on every call.
+const WORD_MATCHERS: Readonly<Record<string, RegExp>> = {
+	design: /\bdesign\b/,
+	architecture: /\barchitecture\b/,
+	implement: /\bimplement\b/,
+	coding: /\bcoding\b/,
+	security: /\bsecurity\b/,
+	audit: /\baudit\b/,
+	build: /\bbuild\b/,
+	compile: /\bcompile\b/,
+	test: /\btest\b/,
+	verify: /\bverify\b/,
+	review: /\breview\b/,
+	feedback: /\bfeedback\b/,
+};
 function detectImplicitTag(content: string): string | undefined {
 	const lowerContent = content.toLowerCase();
-	// Use word-boundary regex to avoid substring false matches.
-	// E.g., "implementation" must NOT trigger "impl" — only the word "implement" should.
-	const hasWord = (word: string): boolean => new RegExp(`\\b${word}\\b`).test(lowerContent);
+	// Word-boundary match avoids substring false matches: "implementation"
+	// must NOT trigger "impl" — only the word "implement" should.
+	const hasWord = (word: keyof typeof WORD_MATCHERS): boolean => WORD_MATCHERS[word].test(lowerContent);
 
 	if (hasWord("design") || hasWord("architecture")) return "design";
 	if (hasWord("implement") || hasWord("coding")) return "impl";

@@ -1170,7 +1170,10 @@ async function executeTeamRunCore(
 			// sync spin-lock (Atomics.wait) doesn't block the event loop every batch.
 			// The terminal saveCrewAgents at closeout remains durable + flushes this.
 			saveCrewAgentsCoalesced(manifest, recordsForMaterializedTasks(manifest, tasks, runtimeKind));
-			const completedBatch = tasks.filter((t) => settledTaskIds.includes(t.id));
+			// RR-021 WI-4.3a: Set lookup — settledTaskIds.includes() inside filter is
+			// O(n*m) on every settled batch.
+			const settledSet = new Set(settledTaskIds);
+			const completedBatch = tasks.filter((t) => settledSet.has(t.id));
 			const batchArtifact = writeArtifact(manifest.artifactsRoot, {
 				kind: "summary",
 				relativePath: `batches/${batchSummarySlug(settledTaskIds)}.md`,

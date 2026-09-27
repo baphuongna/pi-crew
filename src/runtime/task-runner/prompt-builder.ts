@@ -248,6 +248,14 @@ export async function computeStablePrefixComponents(
 
 	const components: StableComponents = { treeBlock, suggestedFilesBlock, knowledgeFragment };
 	stableComponentCache.set(cacheKey, components);
+	// RR-021 WI-4.3f: same insertion-order eviction cap as the stableIOCache
+	// sibling below — stableComponentCache had NO cap (unbounded across a
+	// long session with many distinct runIds: the key includes runId).
+	while (stableComponentCache.size > 256) {
+		const oldest = stableComponentCache.keys().next().value;
+		if (oldest === undefined) break;
+		stableComponentCache.delete(oldest);
+	}
 	// Populate the cross-run cache. Clamp size to avoid unbounded growth across
 	// long sessions with many distinct (cwd, step) combos.
 	stableIOCache.set(ioKey, { ...components, at: now });

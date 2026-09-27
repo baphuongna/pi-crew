@@ -55,6 +55,13 @@ function phraseToRegex(phrase: string): RegExp {
 	return new RegExp(`^${escaped}\\b`, "i");
 }
 
+// RR-021 WI-4.3k: precompile the per-phrase regexes ONCE — the router used to
+// rebuild every phrase regex on every routed input line.
+const CREW_PHRASE_MATCHERS: ReadonlyArray<{ command: string; regex: RegExp }> = CREW_PHRASES.map((entry) => ({
+	command: entry.command,
+	regex: phraseToRegex(entry.phrase),
+}));
+
 /**
  * Try to rewrite a natural-language crew phrase into a slash command.
  * Returns the rewritten command string, or `null` if no rule matches.
@@ -67,8 +74,8 @@ export function rewriteCrewInput(text: string): string | null {
 	// Never transform explicit slash commands or inputs that don't start with
 	// a crew/team keyword phrase.
 	if (trimmed.startsWith("/")) return null;
-	for (const entry of CREW_PHRASES) {
-		const match = trimmed.match(phraseToRegex(entry.phrase));
+	for (const entry of CREW_PHRASE_MATCHERS) {
+		const match = trimmed.match(entry.regex);
 		if (!match) continue;
 		// Carry any remaining args after the matched phrase forward.
 		const rest = trimmed.slice(match[0].length).trim();

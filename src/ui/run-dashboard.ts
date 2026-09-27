@@ -248,7 +248,17 @@ function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?:
 	if (snapshotCache) return ["Progress: (loading…)"];
 	// Legacy fallback: tests/dev paths without a snapshot cache still read the
 	// progress artifact directly so existing assertions keep working.
-	const progress = [...run.artifacts].reverse().find((artifact) => artifact.kind === "progress");
+	// RR-021 WI-4.3e: allocation-free reverse scan — the old
+	// [...run.artifacts].reverse().find() copied the whole array per render.
+	// (findLast needs an ES2023 lib bump, which breaks tsgo's RequestInfo
+	// ambient resolution — see WI-4.3 evidence note.)
+	let progress: (typeof run.artifacts)[number] | undefined;
+	for (let i = run.artifacts.length - 1; i >= 0; i--) {
+		if (run.artifacts[i]?.kind === "progress") {
+			progress = run.artifacts[i];
+			break;
+		}
+	}
 	if (!progress) return ["Progress: (none)"];
 	try {
 		const progressPath = resolveRealContainedPath(run.artifactsRoot, progress.path);
