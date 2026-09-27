@@ -71,9 +71,11 @@ export interface ObservabilityDeps {
 	 * newer session. Reuse this counter — do not invent a parallel one.
 	 */
 	getSessionGeneration: () => number;
-	reconcileStaleRuns: (cwd: string, cache: ReturnType<ObservabilityDeps["getManifestCache"]>, currentSessionId?: string) =>
-		| unknown[]
-		| Promise<unknown[] | undefined>;
+	reconcileStaleRuns: (
+		cwd: string,
+		cache: ReturnType<ObservabilityDeps["getManifestCache"]>,
+		currentSessionId?: string,
+	) => unknown[] | Promise<unknown[] | undefined>;
 	reconcileOrphanedTempWorkspaces: (now: number, opts: { cleanupOrphanedTempDirs?: boolean }) => unknown;
 	cleanupOrphanTempDirs: () => { cleaned: number; scanned: number; failed: number };
 	cleanupLegacyOrphanTempDirs: () => { cleaned: number; scanned: number; failed: number };

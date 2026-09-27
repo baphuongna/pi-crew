@@ -7,7 +7,13 @@ import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { discoverRunLockFiles, sweepStaleLocks, withRunLock, withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendEvent, scanSequence } from "../../state/event-log/event-log.ts";
 import { readActiveRunRegistry, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
-import { loadRunManifestById, loadRunManifestByIdAsync, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
+import {
+	loadRunManifestById,
+	loadRunManifestByIdAsync,
+	saveRunManifest,
+	saveRunTasks,
+	updateRunStatus,
+} from "../../state/stores/state-store.ts";
 import type { TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
@@ -743,7 +749,7 @@ export async function reconcileAllStaleRuns(
 					saveRunTasks(fresh.manifest, result.repairedTasks);
 					for (const task of result.repairedTasks) {
 						try {
-						upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
+							upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));
 						} catch {
 							/* non-critical */
 						}

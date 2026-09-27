@@ -45,13 +45,13 @@ export function activeWidgetRuns(
 	const now = Date.now();
 	if (now - lastStaleReconcileAt > STALE_RECONCILE_INTERVAL_MS && manifestCache) {
 		lastStaleReconcileAt = now;
-			try {
-				void reconcileAllStaleRuns(cwd, manifestCache, Date.now(), workspaceId).catch(() => {
-					/* non-critical */
-				});
-			} catch {
+		try {
+			void reconcileAllStaleRuns(cwd, manifestCache, Date.now(), workspaceId).catch(() => {
 				/* non-critical */
-			}
+			});
+		} catch {
+			/* non-critical */
+		}
 	}
 
 	let runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));

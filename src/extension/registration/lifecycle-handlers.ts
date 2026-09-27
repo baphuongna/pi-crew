@@ -460,15 +460,15 @@ async function runDeferredSessionCleanup(
 		// session_start callback synchronous; notify when the result lands.
 		void reconcileAllStaleRuns(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd), Date.now(), currentSessionId)
 			.then((staleResults) => {
-			if ((staleResults ?? []).length > 0) {
-			ctx.notifyOperator({
-				id: "stale_reconcile",
-				severity: "info",
-				source: "crash-recovery",
-				title: `Reconciled ${staleResults.length} stale run(s)`,
-				body: `Found and repaired ghost runs from previous sessions: ${staleResults.map((r) => r.runId).join(", ")}`,
-				});
-			}
+				if ((staleResults ?? []).length > 0) {
+					ctx.notifyOperator({
+						id: "stale_reconcile",
+						severity: "info",
+						source: "crash-recovery",
+						title: `Reconciled ${staleResults.length} stale run(s)`,
+						body: `Found and repaired ghost runs from previous sessions: ${staleResults.map((r) => r.runId).join(", ")}`,
+					});
+				}
 			})
 			.catch((error) => {
 				logInternalError("register.sessionStart.reconcileStale", error);
