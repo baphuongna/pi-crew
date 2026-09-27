@@ -7,7 +7,7 @@ import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/sto
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { extractSessionId } from "../utils/session-utils.ts";
-import { listRuns } from "./run-index.ts";
+import { listRecentRuns, listRuns } from "./run-index.ts";
 import type { WebhookNotifier } from "./webhook-notify.ts";
 
 export interface AsyncNotifierState {
@@ -183,7 +183,10 @@ export function startAsyncRunNotifier(
 			if (options.isCurrent && !options.isCurrent(generation)) return;
 			const nowMs = Date.now();
 			if (cachedRuns === undefined || nowMs - (state.lastListRunsMs ?? 0) > LIST_RUNS_DEBOUNCE_MS) {
-				cachedRuns = listRuns(ctx.cwd).filter(ownsRun).slice(0, 20);
+				// RR-021 WI-4.1: bounded recent-runs read (40 = 2x the 20 we keep) instead
+				// of a full listRuns() index scan on every debounce window — the 2x bound
+				// survives the ownsRun filter still yielding 20 owned runs.
+				cachedRuns = listRecentRuns(ctx.cwd, 40).filter(ownsRun).slice(0, 20);
 				state.lastListRunsMs = nowMs;
 			}
 			for (const run of cachedRuns) {

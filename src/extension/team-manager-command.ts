@@ -1,5 +1,5 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { listRuns } from "./run-index.ts";
+import { listRecentRuns } from "./run-index.ts";
 // Lazy-loaded: team-tool.ts pulls in entire runtime chain.
 import type { handleTeamTool as HandleTeamToolFn } from "./team-tool.ts";
 
@@ -122,7 +122,8 @@ export async function handleTeamManagerCommand(_args: string, ctx: ExtensionComm
 		return;
 	}
 
-	const runs = listRuns(ctx.cwd).slice(0, 20);
+	// RR-021 WI-4.1: bounded recent-runs read instead of a full index scan.
+	const runs = listRecentRuns(ctx.cwd, 20);
 	if (runs.length === 0) {
 		ctx.ui.notify("No pi-crew runs found.", "info");
 		return;
