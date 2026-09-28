@@ -23,7 +23,7 @@
  * Usage: node scripts/test-runner.mjs [tsx test args...]
  */
 import { spawnSync } from "node:child_process";
-import { lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -420,6 +420,22 @@ if (watchMode) {
 	const batchSize = Number(process.env.PI_CREW_TEST_BATCH_SIZE ?? 20);
 	const files = testArgs.filter((a) => !a.startsWith("--"));
 	const flags = testArgs.filter((a) => a.startsWith("--"));
+
+	// RR-021 round-3 (B1): node:test v22 silently SKIPS a non-existent file when
+	// other files still run — and exits 0 (a missing file alone does fail). A
+	// renamed/deleted test file would therefore silently drop out of an
+	// explicit-list gate (test:critical & friends) forever. Fail loudly here.
+	// Glob-shaped args (test:unit) are left to node:test's own expansion; watch
+	// mode is dev-only and unchecked.
+	const missing = files.filter((f) => !/[*?\[\]]/.test(f) && !existsSync(f));
+	if (missing.length > 0) {
+		console.error(
+			`[test-runner] FAIL: ${missing.length} explicitly-listed test file(s) do not exist:` +
+				missing.map((f) => `\n  - ${f}`).join("") +
+				"\nUpdate the invoking script/command — a silently skipped test file is a silent false-green (RR-021 round-3 B1).",
+		);
+		process.exit(1);
+	}
 
 	// RR-021 round-2: dual reporter so `# cancelled N` is scrapable WITHOUT
 	// changing stdout UX. Reporter #1 replicates node:test's default stream

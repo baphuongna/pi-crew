@@ -26,7 +26,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -224,6 +224,68 @@ test("RR-021 round-2: wrapper source wires the cancelled guard into BOTH exit pa
 	assert.match(code, /cleanTapDir\(\);/, "both exit paths must clean up the tap dir");
 	const cancelledChecks = [...code.matchAll(/cancelledCount \?\? 0\) > 0/g)];
 	assert.equal(cancelledChecks.length, 2, "single-run and batch paths must both check cancelledCount");
+});
+
+test("RR-021 round-3 B1: wrapper FAILS when an explicitly-listed file does not exist (mixed with a real one)", () => {
+	// node:test v22 silently skips a missing file when other files still run and
+	// exits 0 — the exact silent false-green class this runner exists to kill
+	// (found by round-3 review; the leader's own verify command tripped it live
+	// with a never-existing path). A renamed/deleted test file must fail loudly.
+	const real = fixture("pass.mjs", 'import test from "node:test";\ntest("ok", () => {});\n');
+	const ghost = real.replace(/pass\.mjs$/, "never-existed.test.ts");
+	const res = runWrapper(real, [ghost]);
+	assert.notEqual(res.status, 0, `a missing listed file must never exit 0 (stdout: ${res.stdout.slice(0, 200)})`);
+	assert.match(
+		res.stderr,
+		/do not exist[\s\S]*never-existed\.test\.ts/,
+		`the wrapper must name the missing path. stderr: ${res.stderr.slice(0, 400)}`,
+	);
+});
+
+test("RR-021 round-3 B1: glob-shaped args are NOT pre-checked (node:test expands them)", () => {
+	// test:unit passes a glob; a glob that matches nothing is node:test's own
+	// (accepted, documented) behavior — the runner must not reject glob args.
+	const res = runWrapper("**/no-such-*.test.ts");
+	assert.doesNotMatch(res.stderr, /do not exist/, "glob args must bypass the missing-file pre-check");
+});
+
+test("RR-021 round-3: the BATCH path also fails cancelled tests (empirical shard run)", () => {
+	// Round-2 covered the single-run path empirically and the batch path only
+	// via source-wiring assertions. This exercises the real batch dispatch:
+	// --shard + PI_CREW_TEST_BATCH_SIZE=1 → one file per spawn; the cancelled
+	// fixture's batch must FAIL loudly (verified manually before codifying).
+	const dir = mkdtempSync(join(tmpdir(), "test-runner-batch-cancel-"));
+	tmpDirs.push(dir);
+	const scriptsDir = join(dir, "test", "unit", "scripts");
+	mkdirSync(scriptsDir, { recursive: true });
+	writeFileSync(join(scriptsDir, "pass.mjs"), 'import test from "node:test";\ntest("passes", () => {});\n', "utf-8");
+	writeFileSync(
+		join(scriptsDir, "cancel.mjs"),
+		[
+			'import test from "node:test";',
+			'test("passes", () => {});',
+			"test('drain one', async () => {",
+			"	await Promise.race([new Promise((r) => setTimeout(r, 200).unref()), new Promise(() => {})]);",
+			"});",
+			"test('drain two', async () => {",
+			"	await new Promise((r) => setTimeout(r, 300).unref());",
+			"});",
+		].join("\n"),
+		"utf-8",
+	);
+	const res = spawnSync(process.execPath, [WRAPPER, "--shard=0/1", join(scriptsDir, "pass.mjs"), join(scriptsDir, "cancel.mjs")], {
+		cwd: ROOT,
+		env: { ...process.env, PI_CREW_TEST_BATCH_SIZE: "1" },
+		encoding: "utf-8",
+		timeout: 120_000,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	assert.notEqual(res.status, 0, `a cancelled batch must never exit 0 (stdout: ${res.stdout?.slice(0, 200)})`);
+	assert.match(
+		res.stderr ?? "",
+		/batch \d+\/\d+ \([^)]*\): FAIL: 2 cancelled test\(s\)/,
+		`the failing batch must be named (diagnostic is console.error → stderr). stderr: ${res.stderr?.slice(0, 400)}`,
+	);
 });
 
 // ---------------------------------------------------------------------------
