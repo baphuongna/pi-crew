@@ -93,7 +93,7 @@
 		"test:functional": "node scripts/test-runner.mjs --test-concurrency=1 --test-timeout=120000 test/functional/pi-crew-functional.test.ts",
 		"test:platform": "node scripts/test-runner.mjs --test-concurrency=1 --test-timeout=60000 test/platform/*.test.ts",
 		"build:bundle": "node scripts/build-bundle.mjs",
-		"test:bundle": "node --experimental-strip-types --test --test-force-exit test/unit/bundle-load.test.ts",
+		"test:bundle": "node scripts/test-runner.mjs --test-timeout=60000 --test-force-exit test/unit/bundle-load.test.ts",
 		"watch:bundle": "node scripts/watch-bundle.mjs",
 		"build:bundle:once": "node scripts/watch-bundle.mjs --once",
 		"dev": "node scripts/dev-runner.mjs",
