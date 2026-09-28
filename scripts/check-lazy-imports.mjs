@@ -17,7 +17,7 @@ const RUNTIME_IMPORT_PATTERNS = [
 	"\\? import\\(", // ternary branch
 	"&& import\\(", // short-circuit branch
 	"\\|\\| import\\(", // short-circuit branch
-	"[(,{\\[]\\s*import\\(", // call/array/object-argument (RR-021 round-2: `foo(import())`, `Promise.allSettled([import()])`, `[import()]` escaped the line-start rule). Known remaining gap: ternary ELSE-branch `x ? y : import(...)` is not matched — a direct `: import\(` rule would collide with legitimate type annotations (`const c: import("./t.ts").T = ...`).
+	"[(,{\\[]\\s*import\\(", // call/array/object-argument (RR-021 round-2: `foo(import())`, `Promise.allSettled([import()])`, `[import()]` escaped the line-start rule). KNOWN GAPS (RR-021 round-3, accepted): ternary-else `x ? y : import(...)`, object-property values `{ foo: import(...) }`, case/label positions `case 1: import(...)` — closing them needs a `:\s*import\(` rule that would false-flag return-type annotations.
 	">\\s*import\\(", // arrow body (RR-021 round-2: `arr.map((m) => import(m))` escaped every prior rule)
 ];
 const GREP_ARGS = RUNTIME_IMPORT_PATTERNS.map((p) => `-e "${p}"`).join(" ");
@@ -67,9 +67,13 @@ for (const line of out.split("\n").filter(Boolean)) {
 	// is erased at compile time. The `[(,]\s*import\(` pattern needed for
 	// `Promise.allSettled([import()])` also matches the generic's comma, so
 	// recognize the annotation shape: colon + identifier + no `=`/`(` until the
-	// import. A ternary `x ? y : import(...)` does NOT match (no identifier
-	// between `:` and `import(`), so runtime positions stay flagged.
-	if (/:\s*\w+[^=(]*import\(/.test(content)) continue;
+	// import, AND require a member-access suffix `import("...").T` (RR-021
+	// round-3: type annotations always access a member; runtime arg positions
+	// like `Promise.all([cond ? a : b, await import("./x")])` are terminal, so
+	// the compound-colon shape no longer false-skips them). A bare ternary
+	// `x ? y : import(...)` still does not match (no identifier between `:` and
+	// `import(`), so runtime positions stay flagged.
+	if (/:\s*\w+[^=(]*import\(/.test(content) && /import\(["'][^"']*["']\)\s*\./.test(content)) continue;
 	bad.push(line);
 }
 
