@@ -10,20 +10,29 @@ import path from "node:path";
 // positive runtime-pattern list plus declaration/comment skips.
 const RUNTIME_IMPORT_PATTERNS = [
 	"await import\\(", // explicit await (original rule)
-	"= import\\(", // assignment / type-alias-free assignment
+	"=\\s*import\\(", // assignment (space optional — `=import(` escaped the `= import\(` form)
 	"void import\\(", // fire-and-forget
 	"return import\\(", // return position
 	"^\\s*import\\(", // expression/statement start (Promise.all arrays, warmup)
 	"\\? import\\(", // ternary branch
 	"&& import\\(", // short-circuit branch
 	"\\|\\| import\\(", // short-circuit branch
+	"[(,{\\[]\\s*import\\(", // call/array/object-argument (RR-021 round-2: `foo(import())`, `Promise.allSettled([import()])`, `[import()]` escaped the line-start rule). Known remaining gap: ternary ELSE-branch `x ? y : import(...)` is not matched — a direct `: import\(` rule would collide with legitimate type annotations (`const c: import("./t.ts").T = ...`).
+	">\\s*import\\(", // arrow body (RR-021 round-2: `arr.map((m) => import(m))` escaped every prior rule)
 ];
 const GREP_ARGS = RUNTIME_IMPORT_PATTERNS.map((p) => `-e "${p}"`).join(" ");
 
-const out = execSync(
-	`git grep -nE ${GREP_ARGS} -- "src/**/*.ts"`,
-	{ encoding: "utf-8" },
-);
+// RR-021 round-2 review: `git grep` exits 1 (and execSync therefore throws)
+// when there are ZERO matches — i.e. on a fully-clean src/. Treat status 1 as
+// "no matches" instead of crashing the gate on a clean tree (fail-closed only
+// for real anomalies: any other non-zero status still propagates).
+let out = "";
+try {
+	out = execSync(`git grep -nE ${GREP_ARGS} -- "src/**/*.ts"`, { encoding: "utf-8" });
+} catch (err) {
+	if (err?.status !== 1) throw err;
+	out = err?.stdout?.toString() ?? "";
+}
 
 const bad = [];
 const fileCache = new Map();
@@ -53,6 +62,14 @@ for (const line of out.split("\n").filter(Boolean)) {
 		stripped.startsWith("declare ")
 	)
 		continue;
+	// Skip type-ANNOTATION positions (RR-021 round-2): a generic inside a
+	// variable's type annotation — `const X: Record<string, import("./f.ts").T>` —
+	// is erased at compile time. The `[(,]\s*import\(` pattern needed for
+	// `Promise.allSettled([import()])` also matches the generic's comma, so
+	// recognize the annotation shape: colon + identifier + no `=`/`(` until the
+	// import. A ternary `x ? y : import(...)` does NOT match (no identifier
+	// between `:` and `import(`), so runtime positions stay flagged.
+	if (/:\s*\w+[^=(]*import\(/.test(content)) continue;
 	bad.push(line);
 }
 
@@ -77,7 +94,7 @@ if (existsSync(distPath)) {
 	const dist = readFileSync(distPath, "utf-8");
 	const hoisted = [];
 	for (const pkg of HEAVY_PKGS) {
-		const re = new RegExp(`from["']${pkg}["']`);
+		const re = new RegExp(`from\\s*["']${pkg}["']`);
 		if (re.test(dist)) hoisted.push(pkg);
 	}
 	if (hoisted.length > 0) {
