@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 // dev-only script excluded from the published tarball; see
 // test/unit/package-files-no-dev-scripts.test.ts). The runtime import is what
 // matters here: these are the REAL decision functions used by `npm test`.
-import { describeExitOutcome, resolveExitCode } from "../../../scripts/test-runner.mjs";
+import { describeExitOutcome, parseCancelledCount, resolveExitCode } from "../../../scripts/test-runner.mjs";
 
 const WRAPPER = fileURLToPath(new URL("../../../scripts/test-runner.mjs", import.meta.url));
 const ROOT = fileURLToPath(new URL("../../..", import.meta.url));
@@ -163,6 +163,67 @@ test("F05: describeExitOutcome — explains every non-plain-failure outcome", ()
 	assert.match(describeExitOutcome({ status: null, signal: "SIGKILL" }) ?? "", /SIGKILL/);
 	assert.match(describeExitOutcome({ status: null, signal: null }) ?? "", /without a status code/);
 	assert.match(describeExitOutcome({ status: null, signal: null, error: new Error("E2BIG boom") }) ?? "", /E2BIG boom/);
+});
+
+// ---------------------------------------------------------------------------
+// RR-021 round-2 — cancelled-test guard (`parseCancelledCount` + wiring)
+// ---------------------------------------------------------------------------
+
+test("RR-021 round-2: parseCancelledCount — scrapes the TAP summary", () => {
+	const tap = ["TAP version 13", "1..3", "# tests 3", "# pass 1", "# fail 0", "# cancelled 2"].join("\n");
+	assert.equal(parseCancelledCount(tap), 2, "the summary count must be scraped");
+});
+
+test("RR-021 round-2: parseCancelledCount — zero, absent, and unparseable shapes", () => {
+	assert.equal(parseCancelledCount("# cancelled 0\n"), 0, "explicit zero stays zero");
+	assert.equal(parseCancelledCount("# pass 3\n# fail 0\n"), 0, "no cancelled line means zero");
+	assert.equal(parseCancelledCount(""), 0, "empty stream means zero");
+	assert.equal(parseCancelledCount("# cancelled abc"), 0, "garbage count parses as zero");
+	assert.equal(parseCancelledCount(null as unknown as string), 0, "null input fails safe at zero");
+	assert.equal(parseCancelledCount(undefined as unknown as string), 0, "undefined input fails safe at zero");
+});
+
+test("RR-021 round-2: parseCancelledCount — mid-line matches ignored, last summary wins", () => {
+	assert.equal(parseCancelledCount("ok 1 - x # cancelled 5\n# cancelled 0"), 0, "mid-line match must not count (anchored)");
+	assert.equal(parseCancelledCount("# cancelled 1\n# cancelled 3"), 3, "last summary is authoritative");
+});
+
+test("RR-021 round-2: wrapper FAILS a suite with cancelled tests (the round-1 unref shape)", () => {
+	// Reproduces the RR-021 round-1 incident shape: unref'd timers drain the
+	// child's event loop while two tests are pending → node:test cancels them.
+	// node:test v22 already exits non-zero for this, but that mapping is
+	// implicit — the wrapper must also name the cancelled count explicitly,
+	// scraped from the TAP file, independent of the child's exit code.
+	const file = fixture(
+		"cancel.mjs",
+		[
+			'import test from "node:test";',
+			'test("passes", () => {});',
+			"test('drain one', async () => {",
+			"	await Promise.race([new Promise((r) => setTimeout(r, 200).unref()), new Promise(() => {})]);",
+			"});",
+			"test('drain two', async () => {",
+			"	await new Promise((r) => setTimeout(r, 300).unref());",
+			"});",
+		].join("\n"),
+	);
+	const res = runWrapper(file);
+	assert.notEqual(res.status, 0, `a cancelled suite must never exit 0 (stdout: ${res.stdout.slice(0, 200)})`);
+	assert.match(
+		res.stderr,
+		/cancelled test\(s\)/,
+		`the wrapper must name the cancelled count explicitly. stderr: ${res.stderr.slice(0, 400)}`,
+	);
+});
+
+test("RR-021 round-2: wrapper source wires the cancelled guard into BOTH exit paths", () => {
+	// Source-level regression pin (same philosophy as the `status ?? 0` guard):
+	// the scrape must flow into the single-run path AND the batch path.
+	const code = readFileSync(WRAPPER, "utf-8");
+	assert.match(code, /parseCancelledCount\(readFileSync\(tapFile/, "runSpawn must scrape the tap file");
+	assert.match(code, /cleanTapDir\(\);/, "both exit paths must clean up the tap dir");
+	const cancelledChecks = [...code.matchAll(/cancelledCount \?\? 0\) > 0/g)];
+	assert.equal(cancelledChecks.length, 2, "single-run and batch paths must both check cancelledCount");
 });
 
 // ---------------------------------------------------------------------------

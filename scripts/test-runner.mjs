@@ -23,7 +23,7 @@
  * Usage: node scripts/test-runner.mjs [tsx test args...]
  */
 import { spawnSync } from "node:child_process";
-import { lstatSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -56,6 +56,30 @@ export function describeExitOutcome(result) {
 	if (result?.signal) return `test process was terminated by signal ${result.signal}`;
 	if (result && typeof result.status !== "number") return "test process exited without a status code (unknown outcome)";
 	return undefined;
+}
+
+/**
+ * RR-021 round-2 review — count cancelled tests from a TAP summary stream.
+ *
+ * node:test v22 happens to exit non-zero when tests are cancelled, but that
+ * mapping is implicit and version-dependent. Cancelled tests are NEVER
+ * acceptable evidence — the RR-021 round-1 incident shipped a green suite
+ * with 2 cancelled tests (unref'd race timer drained the event loop before
+ * the deadline fired; node:test cancelled the awaiting tests and the harness
+ * still reported success). The wrapper therefore writes a full TAP stream to
+ * a file (dual reporter, stdout UX unchanged) and fails LOUDLY on any
+ * cancelled count, independent of the child's exit code.
+ *
+ * PURE + exported so the scraping semantics are unit-testable.
+ *
+ * @param {string} tapText full TAP output of one `node --test` process
+ * @returns {number} cancelled test count (0 when absent or unparseable)
+ */
+export function parseCancelledCount(tapText) {
+	if (typeof tapText !== "string" || tapText.length === 0) return 0;
+	let last = 0;
+	for (const m of tapText.matchAll(/^# cancelled (\d+)$/gm)) last = Number(m[1]) || 0;
+	return last;
 }
 
 // ─── DP-03 (2026-09-22): CI test sharding ─────────────────────────────────────
@@ -397,8 +421,30 @@ if (watchMode) {
 	const files = testArgs.filter((a) => !a.startsWith("--"));
 	const flags = testArgs.filter((a) => a.startsWith("--"));
 
-	const runSpawn = (args) =>
-		spawnSync(process.execPath, [...nodeFlags, ...args], {
+	// RR-021 round-2: dual reporter so `# cancelled N` is scrapable WITHOUT
+	// changing stdout UX. Reporter #1 replicates node:test's default stream
+	// (spec under a TTY, TAP otherwise — specifying any reporter would
+	// otherwise override it); reporter #2 always writes full TAP to a file.
+	const stdoutReporter = process.stdout.isTTY ? "spec" : "tap";
+	const tapDir = mkdtempSync(path.join(tmpdir(), "pi-crew-test-tap-"));
+	let tapSeq = 0;
+	const reporterFlags = (tapFile) => [
+		`--test-reporter=${stdoutReporter}`,
+		"--test-reporter-destination=stdout",
+		"--test-reporter=tap",
+		`--test-reporter-destination=${tapFile}`,
+	];
+	const cleanTapDir = () => {
+		try {
+			rmSync(tapDir, { recursive: true, force: true });
+		} catch {
+			/* best-effort */
+		}
+	};
+
+	const runSpawn = (args) => {
+		const tapFile = path.join(tapDir, `tap-${(tapSeq += 1)}.tap`);
+		const res = spawnSync(process.execPath, [...nodeFlags, ...reporterFlags(tapFile), ...args], {
 			stdio: "inherit",
 			env: buildChildEnv(),
 			// 2026-07-01: bumped from 600s → 900s after atomic-write.ts added
@@ -410,6 +456,22 @@ if (watchMode) {
 			// non-sharded whole-suite runs). Fail-closed per F05 below.
 			timeout: perSpawnTimeoutMs,
 		});
+		// RR-021 round-2: scrape the TAP summary. A missing/unreadable tap file
+		// (killed child, spawn error) yields 0 — those shapes already fail
+		// closed through resolveExitCode/describeExitOutcome.
+		let cancelledCount = 0;
+		try {
+			cancelledCount = parseCancelledCount(readFileSync(tapFile, "utf-8"));
+		} catch {
+			/* killed/failed spawn — exit-code path handles it */
+		}
+		try {
+			rmSync(tapFile, { force: true });
+		} catch {
+			/* best-effort */
+		}
+		return { ...res, cancelledCount };
+	};
 
 	if (shardSpec && files.length > batchSize) {
 		const batchCount = Math.ceil(files.length / batchSize);
@@ -428,6 +490,17 @@ if (watchMode) {
 				result = runSpawn([...flags, ...batch]);
 				diagnostic = describeExitOutcome(result);
 			}
+			if ((result.cancelledCount ?? 0) > 0) {
+				// Genuine test failure — NOT retried (transient-stall policy covers
+				// spawn anomalies only).
+				console.error(
+					`\n[test-runner] ${label}: FAIL: ${result.cancelledCount} cancelled test(s). ` +
+						"Cancelled tests are never acceptable evidence (RR-021 round-1 unref incident) — " +
+						"fix the test; do not ignore.",
+				);
+				shardFailed = true;
+				break; // fail fast: remaining batches don't change the verdict
+			}
 			if (diagnostic || resolveExitCode(result) !== 0) {
 				console.error(`\n[test-runner] ${label}: FAIL (inconclusive): ${diagnostic ?? "test failures"}.`);
 				console.error("[test-runner] Treating this as a test FAILURE (fail closed) — exit code will be non-zero.");
@@ -439,6 +512,7 @@ if (watchMode) {
 		}
 		// Post-suite sweep of pre-existing leaked test tmpdirs (best-effort).
 		runTmpSweep(suiteStartMs);
+		cleanTapDir();
 		process.exit(shardFailed ? 1 : 0);
 	}
 
@@ -453,7 +527,21 @@ if (watchMode) {
 		console.error("[test-runner] Treating this as a test FAILURE (fail closed) — exit code will be non-zero.");
 		if (result.error) console.error("[test-runner] cause:", result.error.message);
 	}
+	// RR-021 round-2: belt-and-suspenders on top of the child's exit code —
+	// cancelled tests must fail the run even if node:test's exit-code mapping
+	// ever changes (or a pipe swallows the status upstream).
+	if ((result.cancelledCount ?? 0) > 0) {
+		console.error(
+			`\n[test-runner] FAIL: ${result.cancelledCount} cancelled test(s). ` +
+				"Cancelled tests are never acceptable evidence (RR-021 round-1 unref incident) — " +
+				"fix the test; do not ignore.",
+		);
+		runTmpSweep(suiteStartMs);
+		cleanTapDir();
+		process.exit(1);
+	}
 	runTmpSweep(suiteStartMs);
+	cleanTapDir();
 	process.exit(resolveExitCode(result));
 }
 
