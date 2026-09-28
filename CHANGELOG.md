@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### fix: test-gate integrity (RR-021 review rounds 2-3)
+
+- **Test runner cancelled-test guard** (`scripts/test-runner.mjs`): a dual reporter keeps stdout UX unchanged (spec under TTY, TAP otherwise) while a full TAP stream is written to a temp file; `# cancelled N > 0` now fails the run loudly in BOTH the single-run and batch paths — independent of node:test's exit-code mapping. Belt-and-suspenders against the round-1 incident class (unref'd-race-timer tests cancelled while the harness reported green).
+- **Test runner missing-file pre-check** (round-3 B1): node:test v22 silently skips an explicitly-listed file that does not exist (when other files still run) and exits 0 — a renamed/deleted test file would silently drop out of `test:critical`-style gates forever. The runner now refuses to spawn and names the missing paths; glob-shaped args are left to node:test's own expansion.
+- **`test:bundle` now routes through the guarded runner** (was a bare `node --test` bypass — the only CI gate without the cancelled/missing-file/fail-closed wrappers).
+- **`check:lazy-imports` hardened**: composite `import()` forms that escaped every earlier rule are now caught (`[(,\[\{]\s*import(`, `>\s*import(`, `=\s*import(`); a zero-match `git grep` (fully-clean `src/`) no longer crashes the gate; the type-annotation skip now requires a member-access suffix `import("...").T` so compound runtime forms are never false-skipped; dist-side regex is whitespace-proof. Remaining gaps (ternary-else, object-property, case/label) are documented in the script.
+
 ## [0.11.3] — optimization audit fixes: correctness, hang-risks, bundle, DX, dead code (2026-09-27)
 
 ### fix: correctness + hang-risks (RR-021 M1)
@@ -16,7 +23,7 @@
 
 - esbuild/acorn/diff load lazily through sync `createRequire` shims (model: `syntax-highlight.ts`) — three eager module-scope imports no longer paid on every extension load; `diff` wildcard import narrowed to `diffWords` (+ type-only `Change`).
 - `ajv` marked external (it is only reached via a lazy `await import`) — the bundle shrank 1.65 MB → 1.53 MB and skips parse cost for a rarely-taken path.
-- `check:lazy-imports` now catches EVERY runtime `import()` position (the old `await import(` regex let `Promise.all([import(...)])` escape — audit blind-spot #2) and asserts the committed `dist/index.mjs` contains no module-scope hoisted import of esbuild/acorn/diff/jiti/cli-highlight/yaml/ajv. 23 runtime import sites across 9 files gained `// LAZY:` markers.
+- `check:lazy-imports` catches the common runtime `import()` positions (the old gate matched only `await import(` — audit blind-spot #2) and asserts the committed `dist/index.mjs` contains no module-scope hoisted import of esbuild/acorn/diff/jiti/cli-highlight/yaml/ajv. 23 runtime import sites across 9 files gained `// LAZY:` markers. (Wording corrected post-0.11.3: exotic positions — ternary-else, object-property, case/label — remain documented gaps; see Unreleased.)
 
 ### perf(dx): incremental typecheck + flake-resistant waits (RR-021 M3)
 
