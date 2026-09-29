@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.4] — test-gate hardening + RR-023 battery fixes (2026-09-29)
 
 ### fix: grandchild relay empty — inherit the parent task's model on model-less delegate (RR-023, 2026-09-29 battery finding #3)
 
