@@ -29,6 +29,7 @@ import type { TeamConfig } from "../../teams/team-config.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
 import { resolveCrewRuntime } from "../model/runtime-resolver.ts";
+import { registryFromModelContext } from "../model/session-model.ts";
 import { executeTeamRun } from "../team-runner.ts";
 import { compareSnapshot, snapshotManifests } from "../verification/verification-integrity.ts";
 import { acquireWorkspaceLock, type WorkspaceLockHandle } from "../workspace-lock.ts";
@@ -63,6 +64,29 @@ export interface RunGoalLoopResult {
 	manifest: TeamRunManifest;
 	tasks: TeamTaskState[];
 	goalState: GoalLoopState;
+}
+
+/**
+ * Finding #1 (battery 2026-09-29): re-hydrate the model routing inputs the
+ * OUTER goal-loop manifest persisted at dispatch time (captureRunModelContext
+ * in goal.ts / goal-wrap.ts). The detached goal-loop runs in the background
+ * runner with no ExtensionContext — without this, every turn's executeTeamRun
+ * resolves the DEFAULT chain (live: minimax/MiniMax-M3 402 while the parent
+ * session ran zai/glm-5.3). Mirrors background-runner's restoredModelRouting().
+ */
+function restoredTurnModelRouting(manifest: TeamRunManifest): {
+	modelOverride?: string;
+	parentModel?: string;
+	modelRegistry?: { getAvailable: () => unknown[] };
+} {
+	const context = manifest.modelContext;
+	if (!context) return {};
+	const modelRegistry = registryFromModelContext(context);
+	return {
+		...(context.override ? { modelOverride: context.override } : {}),
+		...(context.parentModel ? { parentModel: context.parentModel } : {}),
+		...(modelRegistry ? { modelRegistry } : {}),
+	};
 }
 
 /**
@@ -630,6 +654,10 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				workspaceMode: "single",
 				ownerSessionId: goal.ownerSessionId,
 				runKind: "team-run", // §0a v2 note: turns are normal team-runs; the OUTER loop is goal-loop
+				// Finding #1: turns execute in the detached process — carry the outer
+				// manifest's model routing snapshot onto each turn manifest too, so
+				// status/resume paths see the same routing the turn was dispatched with.
+				...(manifest.modelContext ? { modelContext: manifest.modelContext } : {}),
 			});
 			goal =
 				store.patch(
@@ -689,6 +717,10 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 					limits: turnExecutedConfig.limits,
 					runtime: turnRuntime,
 					runtimeConfig: turnExecutedConfig.runtime,
+					// Finding #1: restore the dispatch-time model routing (see
+					// restoredTurnModelRouting) — executeTeamRun in THIS process has no
+					// ExtensionContext to inherit the session model from.
+					...restoredTurnModelRouting(manifest),
 					reliability: turnExecutedConfig.reliability,
 					workspaceId: goal.ownerSessionId ?? goal.cwd,
 					signal,

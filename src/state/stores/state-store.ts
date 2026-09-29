@@ -21,7 +21,7 @@ import {
 import { canTransitionRunStatus } from "../contracts.ts";
 import { withRunLock, withRunLockSync } from "../coordination/locks.ts";
 import { appendEvent } from "../event-log/event-log.ts";
-import type { TeamRunManifest, TeamTaskState } from "../types.ts";
+import type { RunModelContext, TeamRunManifest, TeamTaskState } from "../types.ts";
 import { CURRENT_SCHEMA_VERSION } from "../types.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
 import { extractTaskArray, loadTasksWithRecovery, loadTasksWithRecoveryAsync, quarantineCorruptFile } from "./manifest-io.ts";
@@ -438,6 +438,12 @@ export function createRunManifest(params: {
 	 * Defaults preserve current behavior (generated id, wall clock). */
 	runId?: string;
 	now?: () => Date;
+	/** Model routing snapshot (Finding #1, battery 2026-09-29): detached runs
+	 * re-enter through background-runner with no ExtensionContext, so the
+	 * caller's model override / inherited session model / auth-filtered
+	 * catalogue must be persisted on the manifest at creation time.
+	 * Omitted when undefined so old manifests stay byte-identical. */
+	modelContext?: RunModelContext;
 }): { manifest: TeamRunManifest; tasks: TeamTaskState[]; paths: RunPaths } {
 	const paths = createRunPaths(params.cwd, params.runId);
 	const now = (params.now ? params.now() : new Date()).toISOString();
@@ -462,6 +468,7 @@ export function createRunManifest(params: {
 		...(params.ownerSessionId ? { ownerSessionId: params.ownerSessionId } : {}),
 		runKind: params.runKind ?? "team-run",
 		...(params.args !== undefined ? { args: params.args } : {}),
+		...(params.modelContext ? { modelContext: params.modelContext } : {}),
 	};
 	fs.mkdirSync(paths.stateRoot, { recursive: true });
 	fs.mkdirSync(paths.artifactsRoot, { recursive: true });

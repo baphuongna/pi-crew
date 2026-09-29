@@ -5,11 +5,14 @@ import test from "node:test";
 import {
 	BACKGROUND_RUNNER_ENV_ALLOWLIST,
 	buildBackgroundRunnerEnv,
+	forwardModelControlEnv,
 	getBackgroundRunnerCommand,
 	nodeSupportsStripTypes,
 	resolveJitiRegisterPath,
 	resolveTypeScriptLoader,
 } from "../../../../src/runtime/async-runner.ts";
+import { sanitizeEnvSecrets } from "../../../../src/utils/env-filter.ts";
+import { isSecretKey } from "../../../../src/utils/redaction.ts";
 
 // ── MuxSurface async surface policy (2026-08-30): async KHÔNG force headless ──
 // PI_CREW_ASYNC_RUN chỉ là telemetry — surface theo env + runtime.surface.*
@@ -40,6 +43,49 @@ test("background-runner allowlist forwards mux env so async runs can engage surf
 	for (const key of MUX_ENV_KEYS) {
 		assert.ok(BACKGROUND_RUNNER_ENV_ALLOWLIST.includes(key), `allowlist phải giữ ${key} để async surface detect được mux`);
 	}
+});
+
+test("background-runner allowlist forwards model-selection env so detached runs keep parent routing", () => {
+	// Finding #1 (full battery 2026-09-29): runs dispatched via
+	// spawnBackgroundTeamRun (action='parallel', async goal-loops, resume)
+	// resolve subagent model routing from these env vars when the manifest
+	// carries no modelContext (older manifests) — stripping them made every
+	// detached run silently fall back to the DEFAULT chain (live: 3 parallel
+	// runs died on minimax/MiniMax-M3 402 while the parent session ran zai).
+	const MODEL_ENV_KEYS = [
+		"PI_CREW_MODEL", // resolveDefaultSubagentModel (model-fallback.ts:584)
+		"PI_CREW_MODEL_FALLBACK_ORDER", // resolveModelFallbackPolicy order
+	];
+	for (const key of MODEL_ENV_KEYS) {
+		assert.ok(
+			BACKGROUND_RUNNER_ENV_ALLOWLIST.includes(key),
+			`allowlist phải giữ ${key} để detached runner resolve được model routing của parent session`,
+		);
+	}
+});
+
+test("PI_CREW_MODEL_REQUIRE_CREDENTIALS is forwarded explicitly, NOT via the allowlist (isSecretKey false-positive)", () => {
+	// "…_CREDENTIALS" matches the "credential" keyword in isSecretKey. If this
+	// entry sat on BACKGROUND_RUNNER_ENV_ALLOWLIST, sanitizeEnvSecrets would
+	// THROW ("looks like a secret key") for every spawn where the flag is UNSET —
+	// breaking ALL async runs. Pin both sides of the contract:
+	assert.equal(
+		isSecretKey("PI_CREW_MODEL_REQUIRE_CREDENTIALS"),
+		true,
+		"precondition: the var name must still trip isSecretKey, else it can rejoin the allowlist",
+	);
+	assert.ok(
+		!BACKGROUND_RUNNER_ENV_ALLOWLIST.includes("PI_CREW_MODEL_REQUIRE_CREDENTIALS"),
+		"allowlisting a secret-LOOKING name that is usually unset would throw inside sanitizeEnvSecrets for every spawn",
+	);
+	// The current allowlist must stay validator-clean with an empty env
+	// (every entry survives the isSecretKey check when absent from env).
+	assert.doesNotThrow(() => sanitizeEnvSecrets({}, { allowList: BACKGROUND_RUNNER_ENV_ALLOWLIST }));
+	// And the flag still reaches the detached runner when actually set:
+	assert.deepEqual(forwardModelControlEnv({ PI_CREW_MODEL_REQUIRE_CREDENTIALS: "1" }), {
+		PI_CREW_MODEL_REQUIRE_CREDENTIALS: "1",
+	});
+	assert.deepEqual(forwardModelControlEnv({}), {});
 });
 
 test("background runner uses the jiti runtime loader for installed TypeScript", () => {

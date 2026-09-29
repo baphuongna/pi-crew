@@ -10,6 +10,7 @@ import { discoverAgents } from "../../agents/discover-agents.ts";
 import { loadConfig } from "../../config/config.ts";
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { resolveCrewRuntime } from "../../runtime/model/runtime-resolver.ts";
+import { captureRunModelContext } from "../../runtime/model/session-model.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { createRunManifest } from "../../state/stores/state-store.ts";
@@ -66,13 +67,23 @@ export async function handleParallel(params: TeamToolParamsValue, ctx: TeamConte
 
 	const runtime = await resolveCrewRuntime(config.config);
 
+	// Finding #1 (full battery 2026-09-29): parallel-dispatched runs re-enter
+	// through the detached background-runner, which has no ExtensionContext.
+	// Without a persisted modelContext, restoredModelRouting() returns {} and
+	// every worker silently falls back to the DEFAULT chain (live: 3 runs died
+	// on minimax/MiniMax-M3 402 while the parent session ran zai/glm-5.3).
+	// Captured ONCE here (in the parent session's process) so resolveParentModel()
+	// sees the live session model; undefined when nothing is worth persisting
+	// (older manifests stay byte-identical).
+	const modelContext = captureRunModelContext(ctx, typeof params.model === "string" ? params.model : undefined);
+
 	const launched: Array<{ runId: string; goal: string; agent: string }> = [];
 	const errors: Array<{ goal: string; error: string }> = [];
 
 	// C1: Enforce concurrency limit with batched spawning
 	for (let batchStart = 0; batchStart < tasksParam.length; batchStart += concurrency) {
 		const batch = tasksParam.slice(batchStart, batchStart + concurrency);
-		const batchPromises = batch.map((task) => spawnSingleTask(task, ctx, allAgentsList, team, workflow, runtime));
+		const batchPromises = batch.map((task) => spawnSingleTask(task, ctx, allAgentsList, team, workflow, runtime, modelContext));
 		const batchResults = await Promise.allSettled(batchPromises);
 		for (const res of batchResults) {
 			if (res.status === "fulfilled" && res.value.ok) {
@@ -121,6 +132,7 @@ async function spawnSingleTask(
 	team: TeamConfig,
 	workflow: WorkflowConfig,
 	runtime: { available: boolean; kind: string },
+	modelContext: ReturnType<typeof captureRunModelContext>,
 ): Promise<SpawnResult> {
 	try {
 		const taskRec = task as Record<string, unknown>;
@@ -163,6 +175,9 @@ async function spawnSingleTask(
 			// skipped and any session can cancel/retry parallel-dispatched runs.
 			ownerSessionId: ctx.sessionId,
 			runKind: "team-run",
+			// Finding #1: persist the parent session's model routing so the detached
+			// runner restores it instead of default-chaining (see handleParallel).
+			modelContext,
 		});
 
 		await appendEventAsync(created.manifest.eventsPath, {

@@ -240,6 +240,16 @@ export const BACKGROUND_RUNNER_ENV_ALLOWLIST: string[] = [
 	"HERDR_SOCKET_PATH",
 	"HERDR_WORKSPACE_ID",
 	"HERDR_PING_TIMEOUT_MS",
+	// Model-selection control vars (Finding #1, full battery 2026-09-29): the
+	// detached runner resolves subagent model routing from env (PI_CREW_MODEL →
+	// resolveDefaultSubagentModel; PI_CREW_MODEL_FALLBACK_ORDER →
+	// resolveModelFallbackPolicy) for manifests without a persisted modelContext
+	// (older manifests) and as a user override channel. Stripping them made
+	// every async run silently fall back to the DEFAULT chain (live: 3 parallel
+	// runs died on minimax/MiniMax-M3 402 while the parent ran zai/glm-5.3).
+	// PI_CREW_MODEL_REQUIRE_CREDENTIALS is NOT here — see forwardModelControlEnv.
+	"PI_CREW_MODEL",
+	"PI_CREW_MODEL_FALLBACK_ORDER",
 ];
 
 /**
@@ -254,6 +264,29 @@ export const BACKGROUND_RUNNER_ENV_ALLOWLIST: string[] = [
  */
 export function buildBackgroundRunnerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	return { ...env, PI_CREW_ASYNC_RUN: "1" };
+}
+
+/**
+ * Model-selection control vars that CANNOT live on
+ * {@link BACKGROUND_RUNNER_ENV_ALLOWLIST}: isSecretKey() matches the
+ * "_CREDENTIALS" suffix of PI_CREW_MODEL_REQUIRE_CREDENTIALS (keyword
+ * "credential"), and sanitizeEnvSecrets THROWS on secret-looking allowlist
+ * entries that are absent from the spawning env — so allowlisting it would
+ * break EVERY async spawn whenever the flag is unset. It is a declared
+ * control flag (config/env-vars.ts, read by resolveModelFallbackPolicy),
+ * never a secret, so we forward it explicitly when set instead.
+ * Exported pure so tests pin the contract (async-runner.test.ts).
+ */
+export const MODEL_CONTROL_ENV_EXPLICIT: readonly string[] = ["PI_CREW_MODEL_REQUIRE_CREDENTIALS"];
+
+/** Copy the explicitly-forwarded model control vars (set ones only). */
+export function forwardModelControlEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const forwarded: NodeJS.ProcessEnv = {};
+	for (const key of MODEL_CONTROL_ENV_EXPLICIT) {
+		const value = env[key];
+		if (value !== undefined) forwarded[key] = value;
+	}
+	return forwarded;
 }
 
 /** F4 v2: the ONE line written to the background-runner's stdin carrying
@@ -377,6 +410,9 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 	const childEnv = buildBackgroundRunnerEnv({
 		...(peerDepDir ? { ...filteredEnv, [PEER_DEP_DIR_ENV]: peerDepDir } : filteredEnv),
 		PI_CREW_BACKGROUND_RUNNER_ENTRY: "1",
+		// Finding #1: model control vars that cannot ride the allowlist (see
+		// forwardModelControlEnv). Copied from the ORIGINAL env, post-sanitize.
+		...forwardModelControlEnv(process.env),
 	});
 
 	const loader = resolveTypeScriptLoader();

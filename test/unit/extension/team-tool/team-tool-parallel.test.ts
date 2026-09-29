@@ -8,6 +8,8 @@
  */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { after, before, describe, it } from "node:test";
 import type { TeamContext } from "../../../../src/extension/team-tool/context.ts";
 import { handleParallel } from "../../../../src/extension/team-tool/parallel-dispatch.ts";
@@ -131,6 +133,43 @@ describe("handleParallel", () => {
 			assert.ok(text.includes("nonexistent-agent-xyz"), `expected agent-not-found in result: ${text}`);
 			assert.ok(text.includes("not found"), `expected "not found" marker: ${text}`);
 		} finally {
+			removeTrackedTempDir(tmp);
+		}
+	});
+
+	it("persists modelContext on dispatched run manifests (Finding #1: detached runs lost parent model)", async () => {
+		const tmp = createTrackedTempDir("parallel-modelctx-");
+		// Block worker execution so spawnBackgroundTeamRun is skipped (kind=scaffold
+		// is not "child-process") while createRunManifest still runs — mirrors the
+		// no-spawn discipline of the test above. Restored in finally.
+		const savedExecuteWorkers = process.env.PI_CREW_EXECUTE_WORKERS;
+		process.env.PI_CREW_EXECUTE_WORKERS = "0";
+		try {
+			const res = await handleParallel(
+				makeParams({ config: { tasks: [{ goal: "capture model ctx", agent: "explorer" }] } }),
+				// TeamContext.model (pi's saved-session Model object) flows into
+				// captureRunModelContext → resolveParentModel → parentModel.
+				{
+					cwd: tmp,
+					model: { provider: "zai", id: "glm-5.3" } as unknown as NonNullable<TeamContext["model"]>,
+				},
+			);
+			const text = textFromToolResult(res);
+			const runId = /✅\s+(\S+)/.exec(text ?? "")?.[1];
+			assert.ok(runId, `expected a launched runId in result: ${text}`);
+			const manifestPath = path.join(tmp, ".crew", "state", "runs", runId, "manifest.json");
+			assert.ok(fs.existsSync(manifestPath), `manifest not found at ${manifestPath}`);
+			const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as {
+				modelContext?: { parentModel?: string; override?: string };
+			};
+			assert.equal(
+				manifest.modelContext?.parentModel,
+				"zai/glm-5.3",
+				"detached run manifest phải persist modelContext.parentModel để background-runner restoredModelRouting() không rơi về default chain",
+			);
+		} finally {
+			if (savedExecuteWorkers === undefined) delete process.env.PI_CREW_EXECUTE_WORKERS;
+			else process.env.PI_CREW_EXECUTE_WORKERS = savedExecuteWorkers;
 			removeTrackedTempDir(tmp);
 		}
 	});

@@ -21,6 +21,7 @@ import { loadConfig } from "../../config/config.ts";
 import type { GoalWrapWorkflowConfig } from "../../config/types.ts";
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { GoalStore } from "../../runtime/goal-workflow/goal-state-store.ts";
+import { captureRunModelContext } from "../../runtime/model/session-model.ts";
 import { snapshotManifests } from "../../runtime/verification/verification-integrity.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
@@ -248,6 +249,11 @@ export async function startGoalWrappedRun(
 		store.save(goalState);
 
 		const paths = createRunPaths(cwd, goalId);
+		// Finding #1 (battery 2026-09-29): persist the parent session's model
+		// routing on the goal-loop manifest — the DETACHED runner re-loads this
+		// manifest and has no ExtensionContext to re-resolve it. Without it,
+		// goal-wrap turns silently default-chain (minimax 402 family).
+		const modelContext = captureRunModelContext(ctx, typeof params.model === "string" ? params.model : undefined);
 		const goalLoopManifest: TeamRunManifest = {
 			schemaVersion: 1,
 			runId: goalId,
@@ -267,6 +273,7 @@ export async function startGoalWrappedRun(
 			artifacts: [],
 			ownerSessionId,
 			runKind: "goal-loop",
+			...(modelContext ? { modelContext } : {}),
 		};
 		await saveRunManifestAsync(goalLoopManifest);
 		await appendEventAsync(paths.eventsPath, {

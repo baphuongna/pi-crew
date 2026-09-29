@@ -16,6 +16,7 @@
 
 import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { GoalStore } from "../../runtime/goal-workflow/goal-state-store.ts";
+import { captureRunModelContext } from "../../runtime/model/session-model.ts";
 import { snapshotManifests } from "../../runtime/verification/verification-integrity.ts";
 import { isWorkspaceBusy } from "../../runtime/workspace-lock.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
@@ -173,6 +174,12 @@ async function handleStart(input: GoalSubActionInput): Promise<ReturnType<typeof
 		// runs/<goalId>/ → "Run not found" → silent death. (Review #2 F1.)
 		const paths = createRunPaths(cwd, goalId);
 		const now2 = new Date().toISOString();
+		// Finding #1 (battery 2026-09-29): the goal-loop manifest is loaded by the
+		// DETACHED background-runner (no ExtensionContext). Persist the parent
+		// session's model routing so goal-loop turns restore it instead of falling
+		// back to the default chain (minimax 402 incident family). goalState keeps
+		// workerModel/evaluatorModel as the explicit per-role picks.
+		const modelContext = captureRunModelContext(ctx, typeof params.model === "string" ? params.model : undefined);
 		const goalLoopManifest: TeamRunManifest = {
 			schemaVersion: 1,
 			runId: goalId, // paths.runId === goalId by construction
@@ -192,6 +199,7 @@ async function handleStart(input: GoalSubActionInput): Promise<ReturnType<typeof
 			artifacts: [],
 			ownerSessionId,
 			runKind: "goal-loop",
+			...(modelContext ? { modelContext } : {}),
 		};
 		await saveRunManifestAsync(goalLoopManifest);
 		await appendEventAsync(paths.eventsPath, {
@@ -449,6 +457,9 @@ async function handleResume(input: GoalSubActionInput): Promise<ReturnType<typeo
 	// Re-spawn the background loop. The loop checks goal.state === "running" before each
 	// turn; since we just set it to running, it proceeds.
 	try {
+		// Finding #1: re-capture at resume time (same battery) — the resuming
+		// session's live model is authoritative for subsequent turns.
+		const modelContext = captureRunModelContext(ctx, typeof params.model === "string" ? params.model : undefined);
 		const manifest: TeamRunManifest = {
 			schemaVersion: 1,
 			runId: goalId,
@@ -468,6 +479,7 @@ async function handleResume(input: GoalSubActionInput): Promise<ReturnType<typeo
 			artifacts: [],
 			ownerSessionId: existing.ownerSessionId,
 			runKind: "goal-loop",
+			...(modelContext ? { modelContext } : {}),
 		};
 		const spawned = await spawnBackgroundTeamRun(manifest);
 		return result(
