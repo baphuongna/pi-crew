@@ -36,6 +36,7 @@ jobs:
           - macos-latest
         node-version:
           - 22
+          - 24
         shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v5
@@ -93,6 +94,7 @@ jobs:
           - macos-latest
         node-version:
           - 22
+          - 24
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

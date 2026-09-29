@@ -12,7 +12,7 @@
  * pathological multi-GB runs, which pi-crew does not produce.
  *
  * Output:
- *   docs/perf-report-<runId>.md   — báo cáo tiếng Việt, bảng + 🔴 highlight
+ *   docs/perf/perf-report-<runId>.md — báo cáo tiếng Việt, bảng + 🔴 highlight
  *   bench/results/<runId>.json    — structured JSON
  */
 
@@ -706,7 +706,7 @@ async function main() {
 
 	// F1 (audit): validate runId to prevent path injection — runId flows into
 	// join(crewRoot, "state", "runs", runId) AND into output filenames
-	// (docs/perf-report-<runId>.md, bench/results/<runId>.json). Without this,
+	// (docs/perf/perf-report-<runId>.md, bench/results/<runId>.json). Without this,
 	// runId="../../tmp/x" would read/write outside the intended dirs.
 	if (!/^[A-Za-z0-9_.-]+$/.test(runId)) {
 		process.stderr.write(`Error: invalid runId (must be alphanumeric/_/./-): ${runId}\n`);
@@ -939,7 +939,10 @@ async function main() {
 
 	const resultsDir = join(process.cwd(), "bench", "results");
 	mkdirSync(resultsDir, { recursive: true });
-	const docsDir = join(process.cwd(), "docs");
+	// Perf reports write to docs/perf/ (runtime output, gitignored via the
+	// narrow `docs/perf/perf-report-team_*` pattern — curated perf docs in
+	// docs/perf/ stay tracked). Legacy location was docs/ top level.
+	const docsDir = join(process.cwd(), "docs", "perf");
 	mkdirSync(docsDir, { recursive: true });
 	const jsonPath = join(resultsDir, `${runId}.json`);
 	writeFileSync(jsonPath, JSON.stringify(report, null, 2));

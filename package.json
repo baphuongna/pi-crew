@@ -1,6 +1,6 @@
 {
 	"name": "pi-crew",
-	"version": "0.11.4",
+	"version": "0.11.5",
 	"description": "Pi extension for coordinated AI teams, workflows, worktrees, and async task orchestration",
 	"author": "baphuongna",
 	"license": "MIT",
@@ -136,23 +136,23 @@
 		"@earendil-works/pi-tui": "*"
 	},
 	"dependencies": {
-		"@sinclair/typebox": "^0.34.50",
-		"acorn": "^8.17.0",
+		"@sinclair/typebox": "^0.34.52",
+		"acorn": "^8.18.0",
 		"ajv": "^8.20.0",
 		"cli-highlight": "^2.1.11",
 		"diff": "^5.2.0",
-		"esbuild": "^0.28.1",
+		"esbuild": "^0.28.2",
 		"jiti": "^2.7.0",
-		"yaml": "^2.9.0"
+		"yaml": "^2.9.1"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.5.3",
+		"@biomejs/biome": "^2.5.14",
 		"@earendil-works/pi-agent-core": "^0.84.0",
 		"@earendil-works/pi-ai": "^0.84.0",
 		"@earendil-works/pi-coding-agent": "^0.84.0",
 		"@earendil-works/pi-tui": "^0.84.0",
-		"@types/node": "^25.9.5",
-		"tsx": "^4.23.0",
+		"@types/node": "^25.9.8",
+		"tsx": "^4.23.15",
 		"typescript": "^7.0.2"
 	},
 	"peerDependenciesMeta": {

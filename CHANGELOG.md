@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.5] — Phase A quick wins from the 2026-09-29 upgrade plan (2026-09-29)
+
+### ci: Node 24 added to the test matrices
+
+- `.github/workflows/ci.yml`: both matrix jobs (`unit`, `test`) now run `[22, 24]` — Node 24 (LTS since 2025-10) gets first-class coverage while engines stay `>=22.0.0` and `.nvmrc` stays `22`. Nightly/smoke/weekly pins intentionally untouched. Opens the door for the strip-types-flag removal and tsconfig ES2023 bump once the ≥22.18 floor decision lands (upgrade plan §5 Q3).
+
+### chore(deps): semver-in-range batch
+
+- In-range bumps only: `@biomejs/biome` 2.5.3→2.5.14, `@sinclair/typebox` 0.34.50→0.34.52, `acorn` 8.17.0→8.18.0, `esbuild` 0.28.1→0.28.2, `yaml` 2.9.0→2.9.1, `tsx` 4.23.0→4.23.15, `@types/node` 25.9.5→25.9.8. Deliberately NOT bumped (per plan): `diff` (P1-4), `@earendil-works/*` (Phase D), `@types/node` 26 (floor decision). `test:critical` 116/116 green under the new deps.
+
+### docs: action-count truth-sync + drift gate
+
+- The repo carried five different action totals (53/54/55/56, and "28 total" in CLAUDE.md). Verified programmatically via `allActionLiterals.length === 56` (10 run + 16 status + 7 control + 17 manage + 6 automate, incl. `compare`), then synced the header comment in `src/schema/team-tool-schema.ts`, `README.md`, `CLAUDE.md`, `docs/actions-reference.md`, and `skills/real-test-pi-crew/SKILL.md`; fixed the `child-pi.ts`→`child-pi/` reference drift and backfilled the missing `compare` row in the actions reference.
+- New gate `test/unit/schema/team-tool-docs-sync.test.ts` (precedent: `config-schema-sync.test.ts`) fails when docs drift from `allActionLiterals` again — negative-tested before landing.
+
+### chore(perf): perf-report runtime writes leave `docs/` root
+
+- `scripts/analyze-run.mjs` now writes runtime perf reports to `docs/perf/` (existed, now the default write target) with a narrow `.gitignore` pattern (`docs/perf/perf-report-team_*`) so curated `docs/perf/` content stays tracked. Verified 0 runtime perf-report files tracked; audit suite 28/28 + live smoke confirm the new path.
+
 ## [0.11.4] — test-gate hardening + RR-023 battery fixes (2026-09-29)
 
 ### fix: grandchild relay empty — inherit the parent task's model on model-less delegate (RR-023, 2026-09-29 battery finding #3)

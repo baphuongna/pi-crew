@@ -1290,7 +1290,7 @@ Use this to answer "đủ full tính năng chưa?" without re-deriving. Every us
 
 | Feature | Code entry | Verify via |
 |---|---|---|
-| Team tool — 55 actions / 5 domains | `src/schema/team-tool-schema.ts:391-437`, dispatch in `src/extension/team-tool/` | 9a (read-only) + 9b/9c/9d/9e/9f theo domain |
+| Team tool — 56 actions / 5 domains | `src/schema/team-tool-schema.ts:391-437`, dispatch in `src/extension/team-tool/` | 9a (read-only) + 9b/9c/9d/9e/9f theo domain |
 | Runtime mode `child-process` (default) | `src/runtime/child-pi/` | 9b sync run + T7 |
 | Runtime mode `scaffold` (dry-run) | `src/runtime/task-runner/pre-execution.ts:176` | 9b `action='plan'`/`'plans'` (preview không spawn) hoặc run với `runtime.mode='scaffold'` |
 | Runtime mode `live-session` (experimental) | `src/runtime/live-session/` | Run với `runtime.mode='live-session'` + irc tool xuất hiện trong worker (`src/runtime/custom-tools/irc-tool.ts`) |

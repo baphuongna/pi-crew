@@ -77,6 +77,7 @@ Reads the versioned `PlanRecord` list at `<stateRoot>/plans/plans.json` (ADR-4).
 | **`workflow-list`** | **v0.9.0** List static + dynamic workflows | Discover workflows |
 | **`workflow-save`** | **v0.9.0** Overwrite `.dwf.ts` source (requires `confirm:true`) | Update dynamic workflow |
 | **`workflow-delete`** | **v0.9.0** Delete a `.dwf.ts` (requires `confirm:true`) | Remove dynamic workflow |
+| `compare` | Compare two runs side by side (US-021) | Diff before/after a fix, or two attempts at one goal |
 | `help` | Display help text | Help |
 
 ---

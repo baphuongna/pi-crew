@@ -31,45 +31,31 @@ State layer
 
 | Path | Purpose |
 |------|---------|
-| `src/extension/team-tool.ts` | Main tool — 54 schema actions across 5 domain dispatchers (run/status/control/manage/automate); see `src/schema/team-tool-schema.ts:381-432` |
+| `src/extension/team-tool.ts` | Main tool — 56 schema actions across 5 domain dispatchers (run/status/control/manage/automate); see `src/schema/team-tool-schema.ts:401-453` |
 | `src/runtime/team-runner.ts` | Workflow scheduler, task graph, concurrency control |
 | `src/runtime/task-runner.ts` | Task execution, workspace/worktree context, model selection |
-| `src/runtime/child-pi.ts` | Child Pi process runner — spawns real `pi` workers |
+| `src/runtime/child-pi/` | Child Pi process runtime — spawns real `pi` workers (spawn/streams/kill/steering/timers/transcript modules) |
 | `src/runtime/async-runner.ts` | Detached background run spawner + double-gated in-process test seam (`PI_CREW_TEST_ASYNC_INLINE=1` + `PI_CREW_ALLOW_MOCK=1`) |
 | `src/state/` | Durable state/event/artifact store |
 | `src/worktree/` | Worktree creation and cleanup |
 | `src/config/` | Runtime config, resource discovery |
 | `agents/`, `teams/`, `workflows/` | Builtin resources |
 
-### Tool Actions (28 total)
+### Tool Actions (56 total)
 
-| Action | Purpose |
-|--------|---------|
-| `recommend` | Suggest team/workflow for a goal |
-| `run` | Execute workflow (foreground or async) |
-| `plan` | Preview workflow without executing |
-| `status` | Read run/task status |
-| `summary` | Read/write run summary artifact |
-| `cancel` | Cancel queued/running work |
-| `resume` | Re-queue failed/cancelled/skipped tasks |
-| `list` | List teams, agents, workflows, runs |
-| `get` | Inspect resource details |
-| `events` | Read event log (append-only) |
-| `artifacts` | List run output artifacts |
-| `worktrees` | List run worktree metadata |
-| `cleanup` | Delete run worktrees |
-| `forget` | Delete run state + artifacts |
-| `prune` | Delete multiple old finished runs |
-| `export` | Export portable run bundle |
-| `import` / `imports` | Import/store run bundles |
-| `create` / `update` / `delete` | Manage agents/teams/workflows |
-| `validate` | Validate resources |
-| `doctor` | Environment diagnostics |
-| `config` | Show/update configuration |
-| `init` | Initialize project layout |
-| `autonomy` | Delegation policy management |
-| `api` | State interop for advanced integration |
-| `help` | Display help text |
+The `team` tool exposes 56 schema actions across 5 domains. The canonical
+per-action listing (syntax, examples, when to use) is
+[`docs/actions-reference.md`](docs/actions-reference.md); the machine-checked
+source of truth is `allActionLiterals` in `src/schema/team-tool-schema.ts`
+(gated by `test/unit/schema/team-tool-docs-sync.test.ts`).
+
+| Domain | Count | Actions |
+|--------|-------|---------|
+| run | 10 | run, parallel, plan, plans, orchestrate, resume, retry, wait, steer, goal |
+| status | 16 | status, list, get, events, artifacts, summary, graph, search, health, worktrees, checkpoint, cache, explain, onboard, recommend, help |
+| control | 7 | cancel, invalidate, respond, cleanup, prune, forget, doctor |
+| manage | 17 | create, update, delete, init, config, validate, autonomy, settings, workflow-create, workflow-get, workflow-list, workflow-save, workflow-delete, import, imports, export, compare |
+| automate | 6 | schedule, scheduled, anchor, auto-summarize, auto_boomerang, api |
 
 ### Runtime Modes
 
