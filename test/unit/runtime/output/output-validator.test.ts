@@ -169,6 +169,38 @@ describe("output-validator", () => {
 			assert.equal(isStderrOnlyResult("[pi-qwen-mm] disposed 1 MCP client(s)\nFound 3 sites, see above."), false);
 		});
 
+		it("matches colon-bearing extension tags ([pi-crew:*]) — 2026-09-29 battery breaker lines", () => {
+			assert.equal(
+				isStderrOnlyResult(
+					"[pi-crew:crew-vibes.publish-quota-status] This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession().",
+				),
+				true,
+			);
+		});
+
+		it("matches camelCase colon tags ([pi-crew:crash-recovery.reconcileStaleRuns]) — lock-contention breaker", () => {
+			// Verbatim from run team_20260929040600_cb1a5998f7a50751 results/01_explore.txt:
+			// this single line made the whole-artifact classifier miss, so a
+			// 100%-noise artifact completed the task (Finding #2, 2026-09-29).
+			assert.equal(
+				isStderrOnlyResult(
+					"[pi-crew:crash-recovery.reconcileStaleRuns] Run 'run.lock' is locked by another operation.: runId=team_20260929040601_333e8afceb45b614",
+				),
+				true,
+			);
+		});
+
+		it("still rejects capitalized bracketed prose when the tag allows inner capitals", () => {
+			// The leading char stays lowercase-only — [Note: ...] style prose must NOT be noise.
+			assert.equal(isStderrOnlyResult("[Note: this is important] real worker result"), false);
+			assert.equal(isStderrOnlyResult("[TODO: follow up] real worker result"), false);
+		});
+
+		it("still rejects prose with spaces inside brackets", () => {
+			assert.equal(isStderrOnlyResult("[see below] for the real findings"), false);
+			assert.equal(isStderrOnlyResult("[final answer] 42"), false);
+		});
+
 		it("returns false for capitalized bracketed prose (bracket-tag must be a lowercase identifier)", () => {
 			assert.equal(isStderrOnlyResult("[Note] this is important context for downstream tasks"), false);
 			assert.equal(isStderrOnlyResult("[TODO] finish the remaining sweep"), false);

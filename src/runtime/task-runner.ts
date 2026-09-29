@@ -147,6 +147,11 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		// branch. Leaving them undefined preserves those branches' behavior.
 		let surfaceLost: TaskExecutionResult["surfaceLost"];
 		let rawFinalText: string | undefined;
+		// Finding #2 (2026-09-29 battery): result-artifact provenance tag from the
+		// child-executor fallback chain — MUST be forwarded like surfaceLost/
+		// rawFinalText above, or finalizeTaskResult's deterministic
+		// stderr/none-source gate silently degrades to classifier-only.
+		let resultSource: TaskExecutionResult["resultSource"];
 		if (runtimeKind === "child-process") {
 			// CORE-5 extraction 4: the entire child-process branch (model routing +
 			// model-fallback attempt loop, runWorker callbacks, R3 listener-leak
@@ -169,6 +174,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			startupEvidence = child.startupEvidence;
 			surfaceLost = child.surfaceLost;
 			rawFinalText = child.rawFinalText;
+			resultSource = child.resultSource;
 		} else if (runtimeKind === "live-session") {
 			// LAZY: live-executor is only needed for live-session runtime branches.
 			const { runLiveTask } = await import("./task-runner/live-executor.ts");
@@ -237,6 +243,7 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 			startupEvidence,
 			surfaceLost,
 			rawFinalText,
+			resultSource,
 		};
 		return await finalizeTaskResult(ctx, execResult);
 	} finally {

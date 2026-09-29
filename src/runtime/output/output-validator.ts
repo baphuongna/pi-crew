@@ -123,10 +123,15 @@ export function validateWorkerOutput(role: string, output: string): OutputValida
  *
  * A trimmed non-empty line counts as log noise ONLY if it matches one of:
  *  1. a bracket-tag extension log line: `[oc-go] ...`, `[pi-qwen-mm] ...`,
- *     `[pi-qwen-mm] [core] [stderr] ...` — the leading tag is a lowercase
- *     identifier (deliberately excludes capitalized bracketed prose like
- *     `[Note] ...`), optionally followed by known sub-tags
- *     (core/mcp/stderr/stdout/warn/info/error/debug);
+ *     `[pi-qwen-mm] [core] [stderr] ...`, and — Finding #2 (2026-09-29
+ *     battery) — colon-bearing extension tags like
+ *     `[pi-crew:crash-recovery.reconcileStaleRuns] ...` or
+ *     `[pi-crew:crew-vibes.publish-quota-status] ...`. The leading tag
+ *     starts with a lowercase char (deliberately excludes capitalized
+ *     bracketed prose like `[Note] ...` / `[Note: ...]`); the rest of the tag
+ *     may carry `:`, `-`, `_`, `.`, digits, and inner capitals (extension
+ *     subsystem names are camelCase, e.g. `reconcileStaleRuns`), optionally
+ *     followed by known sub-tags (core/mcp/stderr/stdout/warn/info/error/debug);
  *  2. a Python `warnings.warn(` line (deprecation-warning continuation);
  *  3. a timestamped logging line: `2026-08-15 21:49:02,986 WARNING ...`.
  *
@@ -137,7 +142,7 @@ export function validateWorkerOutput(role: string, output: string): OutputValida
  * (post-execution.ts) applies the two-gate rule (authoritative output
  * sources empty AND artifact log-noise-only) before failing a task.
  */
-const BRACKET_TAG_LOG_LINE = /^\[[a-z0-9][a-z0-9_.-]*\](?:\s*\[(?:core|mcp|stderr|stdout|warn|info|error|debug)\])*(?:\s.*)?$/;
+const BRACKET_TAG_LOG_LINE = /^\[[a-z0-9][a-zA-Z0-9_.:\-]*\](?:\s*\[(?:core|mcp|stderr|stdout|warn|info|error|debug)\])*(?:\s.*)?$/;
 const PYTHON_WARNING_LINE = /(?:^|\s)warnings\.warn\(/;
 const TIMESTAMPED_LOG_LINE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?\s+[A-Za-z]+\b/;
 

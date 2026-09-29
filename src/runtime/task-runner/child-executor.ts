@@ -68,7 +68,7 @@ import { DEFAULT_RETRY_POLICY } from "../recovery/retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
 import { parseSessionUsage } from "../session-usage.ts";
 import { recordSupervisorContact, supervisorContactFromEvent } from "../supervisor-contact.ts";
-import type { TaskExecutionResult } from "./post-execution.ts";
+import type { ResultSource, TaskExecutionResult } from "./post-execution.ts";
 import type { StreamBridgeHandle, TaskExecutionContext } from "./pre-execution.ts";
 import { applyAgentProgressEvent, applyUsageToProgress, progressEventSummary, shouldFlushProgressEvent } from "./progress.ts";
 import { cleanResultText, isFinalChildEvent } from "./result-utils.ts";
@@ -987,6 +987,20 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			});
 		}
 	}
+	// Finding #2 (2026-09-29 battery): tag WHICH fallback branch produced the
+	// artifact so post-execution can fail stderr/none-sourced results
+	// deterministically — the noise classifier alone is not a verdict oracle.
+	// Order/semantics are identical to the previous `??` chain: first branch
+	// whose cleaned text is non-empty wins; otherwise the placeholder ("none").
+	const resultCandidates: ReadonlyArray<{ source: ResultSource; text: string | undefined }> = [
+		{ source: "rawFinalText", text: cleanResultText(rawFinalText) },
+		{ source: "finalText", text: cleanResultText(parsedOutput?.finalText) },
+		{ source: "stdout", text: cleanResultText(finalStdout) },
+		{ source: "stderr", text: cleanResultText(finalStderr) },
+		{ source: "findings", text: cleanResultText(intermediateFindings) },
+	];
+	const usedResult = resultCandidates.find((candidate) => candidate.text);
+	const resultSource: ResultSource = usedResult?.source ?? "none";
 	const resultArtifact = writeArtifact(manifest.artifactsRoot, {
 		kind: "result",
 		relativePath: `results/${task.id}.txt`,
@@ -995,14 +1009,10 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			// transcript's 16K compaction — this is the authoritative worker output.
 			// Fall back to transcript-derived finalText, then stdout/stderr, so a
 			// missing raw capture (mock/error path) never yields empty/garbage.
-			cleanResultText(rawFinalText) ??
-			cleanResultText(parsedOutput?.finalText) ??
-			cleanResultText(finalStdout) ??
-			cleanResultText(finalStderr) ??
+			usedResult?.text ??
 			// #7 hardening: if all real output paths are empty (worker exhausted
 			// budget on tool calls, no assistant text), use intermediate findings.
 			// intermediateFindings captures the last N tool-result display lines.
-			cleanResultText(intermediateFindings) ??
 			"(no output)",
 		producer: task.id,
 	});
@@ -1094,6 +1104,7 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		parsedOutput,
 		finalStdout,
 		rawFinalText,
+		resultSource,
 		transcriptPath,
 		terminalEvidence,
 		startupEvidence,

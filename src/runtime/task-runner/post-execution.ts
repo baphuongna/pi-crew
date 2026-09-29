@@ -85,7 +85,17 @@ export interface TaskExecutionResult {
 	transcriptPath: string | undefined;
 	terminalEvidence: OperationTerminalEvidence[];
 	startupEvidence: import("../heartbeat/worker-startup.ts").WorkerStartupEvidence;
+	/** Which child-executor fallback branch produced the result artifact
+	 *  content (rawFinalText → finalText → stdout → stderr → findings →
+	 *  "(no output)"). Finding #2 (2026-09-29 battery): "stderr"/"none" mean
+	 *  every authoritative worker output source was empty — finalizeTaskResult
+	 *  fails those DETERMINISTICALLY; the stderr-noise classifier stays a
+	 *  defense layer, never the verdict oracle. */
+	resultSource?: ResultSource;
 }
+
+/** Result-artifact provenance tags (see {@link TaskExecutionResult.resultSource}). */
+export type ResultSource = "rawFinalText" | "finalText" | "stdout" | "stderr" | "findings" | "none";
 
 /** Final persisted task state returned by finalizeTaskResult. */
 export interface FinalTaskResult {
@@ -328,24 +338,39 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 	//            result ALWAYS surfaces in at least one authoritative source);
 	//   gate 2 — the persisted artifact is empty/'(no output)'/whitespace OR
 	//            isStderrOnlyResult says every line is strict log noise.
-	// A read error on the artifact is NOT a failure (conservative). Mirrors the
-	// mutation-guard fail-mode precedent: error marker + exitCode bump + last
-	// modelAttempt success:false → status flips to "failed" (retryable).
+	// Finding #2 (2026-09-29 battery): gate 2 alone is not a verdict oracle —
+	// the strict-noise classifier missed colon-bearing/camelCase extension
+	// tags (`[pi-crew:crash-recovery.reconcileStaleRuns]`, lock-contention
+	// noise about a SIBLING run), so attempts whose stderr carried them
+	// completed tasks with 100%-noise artifacts while sibling attempts on the
+	// same runs failed — verdict divergence depended on per-attempt stderr
+	// composition. The child-executor fallback chain now tags the winning
+	// branch (resultSource); "stderr"/"none"-sourced artifacts fail
+	// UNCONDITIONALLY (classifier-independent), making empty/stderr-only
+	// results never complete a task, uniformly across roles.
+	// A read error on the artifact is NOT a failure (conservative) — unless
+	// the source tag already proves the artifact is stderr/none-sourced.
+	// Mirrors the mutation-guard fail-mode precedent: error marker + exitCode
+	// bump + last modelAttempt success:false → status flips to "failed" (retryable).
 	if (!error) {
 		const finalTextEmpty = !parsedOutput?.finalText?.trim();
 		const finalStdoutEmpty = !finalStdout?.trim();
-		if (finalTextEmpty && finalStdoutEmpty && resultArtifact?.path) {
+		const resultSource = execResult.resultSource;
+		const degradedResultSource = resultSource === "stderr" || resultSource === "none";
+		if (finalTextEmpty && finalStdoutEmpty && (resultArtifact?.path || degradedResultSource)) {
 			let artifactContent: string | undefined;
-			try {
-				artifactContent = readFileSync(resultArtifact.path, "utf8");
-			} catch {
-				artifactContent = undefined; // unreadable artifact — do not fail on read errors
+			if (resultArtifact?.path) {
+				try {
+					artifactContent = readFileSync(resultArtifact.path, "utf8");
+				} catch {
+					artifactContent = undefined; // unreadable artifact — do not fail on read errors
+				}
 			}
-			if (artifactContent !== undefined) {
-				const trimmedArtifact = artifactContent.trim();
+			if (artifactContent !== undefined || degradedResultSource) {
+				const trimmedArtifact = (artifactContent ?? "").trim();
 				const emptyArtifact = trimmedArtifact === "" || trimmedArtifact === "(no output)";
-				const stderrOnlyArtifact = !emptyArtifact && isStderrOnlyResult(artifactContent);
-				if (emptyArtifact || stderrOnlyArtifact) {
+				const stderrOnlyArtifact = !emptyArtifact && isStderrOnlyResult(artifactContent ?? "");
+				if (degradedResultSource || emptyArtifact || stderrOnlyArtifact) {
 					error = "Result artifact is empty or stderr-only (failureCause: empty-or-stderr-only-result)";
 					exitCode = exitCode === 0 ? 1 : exitCode;
 					if (modelAttempts?.length) {
@@ -359,7 +384,11 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 						structurePreserved: false,
 						issues: [
 							`empty-or-stderr-only-result: ${
-								emptyArtifact ? "result artifact is empty" : "result artifact contains only stderr/session-log noise"
+								degradedResultSource && !emptyArtifact && !stderrOnlyArtifact
+									? `result artifact was sourced from the ${resultSource} fallback (no authoritative worker output)`
+									: emptyArtifact
+										? "result artifact is empty"
+										: "result artifact contains only stderr/session-log noise"
 							}`,
 						],
 					};
@@ -373,7 +402,8 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 							structurePreserved: false,
 							issues: outputValidation.issues,
 							failureCause: "empty-or-stderr-only-result",
-							resultPath: resultArtifact.path,
+							...(resultSource ? { resultSource } : {}),
+							resultPath: resultArtifact?.path,
 						},
 					});
 				}

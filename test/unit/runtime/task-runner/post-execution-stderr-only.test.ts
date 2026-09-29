@@ -69,6 +69,23 @@ const EVIDENCE_STDERR_NOISE = [
 	"[pi-qwen-mm] disposed 1 MCP client(s)",
 ].join("\n");
 
+/**
+ * Finding #2 (2026-09-29 full battery): colon-bearing extension log tags —
+ * verbatim from run team_20260929040600_cb1a5998f7a50751 results/01_explore.txt.
+ * `reconcileStaleRuns` logs lock-contention noise about a SIBLING run, and
+ * `publish-quota-status` logs extension-lifecycle noise — neither is worker
+ * output, yet the strict-noise classifier missed both shapes (colon + inner
+ * capitals), so attempts carrying them completed with 100%-noise artifacts.
+ */
+const COLON_TAG_STDERR_NOISE = [
+	"[pi-crew:crash-recovery.reconcileStaleRuns] Run 'run.lock' is locked by another operation.: runId=team_20260929040601_333e8afceb45b614",
+	"[pi-crew:crash-recovery.reconcileStaleRuns] Run 'run.lock' is locked by another operation.: runId=team_20260929040601_333e8afceb45b614",
+	"[pi-qwen-mm] capability 'core' unavailable: McpStdioClient disposed (pending request 1 aborted) (uvx cold-start? raise PI_QWEN_MM_TIMEOUT_MS)",
+	"[pi-crew:crew-vibes.publish-quota-status] This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
+	"[pi-crew] Session shutdown - cleaning up resources",
+	"[pi-crew] Cleanup complete",
+].join("\n");
+
 function makeFixture() {
 	const cwd = createTrackedTempDir("pi-crew-bug026a-");
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
@@ -142,6 +159,8 @@ interface ExecOpts {
 	skipArtifactWrite?: boolean;
 	finalText?: string;
 	finalStdout?: string;
+	/** Which child-executor fallback branch produced the artifact (Finding #2 leg 2). */
+	resultSource?: TaskExecutionResult["resultSource"];
 }
 
 function makeExecResult(manifest: TeamRunManifest, taskId: string, opts: ExecOpts): TaskExecutionResult {
@@ -167,6 +186,7 @@ function makeExecResult(manifest: TeamRunManifest, taskId: string, opts: ExecOpt
 		modelAttempts: [{ model: "test/model", success: true, exitCode: 0 }],
 		parsedOutput: { jsonEvents: 0, textEvents: [], finalText: opts.finalText ?? "" },
 		finalStdout: opts.finalStdout ?? "",
+		...(opts.resultSource ? { resultSource: opts.resultSource } : {}),
 		transcriptPath: undefined,
 		terminalEvidence: [],
 		startupEvidence: createStartupEvidence({
@@ -302,6 +322,87 @@ describe("finalizeTaskResult — stderr-only result gate (bug-026 A)", () => {
 			);
 			const t = result.tasks.find((x) => x.id === taskId)!;
 			assert.equal(t.status, "completed", "non-empty stdout is an authoritative source — gate 1 must block auto-fail");
+			assert.equal(t.error, undefined);
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("7. Finding #2: colon-tag stderr noise (2026-09-29 battery shape) + empty finalText/stdout → failed, never completed", async () => {
+		// Pre-fix (red): the strict-noise classifier missed [pi-crew:*] colon
+		// tags → gate 2 missed → task.completed with a 100%-noise artifact
+		// (runs team_20260929040600_cb1a5998f7a50751, team_20260929040601_333e8afceb45b614).
+		const { cwd, created } = makeFixture();
+		try {
+			const ctx = buildCtx(cwd, created);
+			const taskId = created.tasks[0]!.id;
+			const result = await finalizeTaskResult(
+				ctx,
+				makeExecResult(created.manifest, taskId, {
+					resultContent: COLON_TAG_STDERR_NOISE,
+					resultSource: "stderr",
+				}),
+			);
+			const t = result.tasks.find((x) => x.id === taskId)!;
+			assert.equal(t.status, "failed", "colon-tag stderr noise must fail the task — verdict must not depend on the noise classifier");
+			assert.match(t.error ?? "", /empty-or-stderr-only-result/);
+			assert.equal(t.exitCode, 1);
+			assert.equal(t.modelAttempts?.at(-1)?.success, false);
+			const events = readEvents(created.manifest.eventsPath);
+			assert.ok(!events.some((e) => e.type === "task.completed"), "must NOT emit task.completed");
+			assert.ok(
+				events.some((e) => e.type === "task.failed"),
+				"must emit task.failed",
+			);
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("8. Finding #2 leg 2: resultSource='stderr' with NON-noise stderr prose → failed deterministically (classifier-independent)", async () => {
+		// Prose stderr (e.g. a raw transport error) can NEVER match the strict
+		// noise whitelist — only the source tag makes the verdict deterministic.
+		const { cwd, created } = makeFixture();
+		try {
+			const ctx = buildCtx(cwd, created);
+			const taskId = created.tasks[0]!.id;
+			const result = await finalizeTaskResult(
+				ctx,
+				makeExecResult(created.manifest, taskId, {
+					resultContent: "Error: ECONNRESET while streaming response\nfetch failed",
+					resultSource: "stderr",
+				}),
+			);
+			const t = result.tasks.find((x) => x.id === taskId)!;
+			assert.equal(t.status, "failed", "stderr-sourced artifact must fail even when the classifier can never match its shape");
+			assert.match(t.error ?? "", /empty-or-stderr-only-result/);
+			const events = readEvents(created.manifest.eventsPath);
+			assert.ok(!events.some((e) => e.type === "task.completed"));
+			const ov = events.filter((e) => e.type === "task.output_validation");
+			assert.ok(ov.length >= 1, "must emit task.output_validation");
+			assert.equal(ov.at(-1)!.data?.failureCause, "empty-or-stderr-only-result");
+			assert.equal(ov.at(-1)!.data?.resultSource, "stderr", "event must record the degraded result source");
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("9. Finding #2 safety: resultSource='findings' artifact (tool-result tail) with empty finalText/stdout → completed", async () => {
+		// intermediateFindings is the #7 hardening branch — real tool-result
+		// display lines are usable content; only 'stderr'/'none' degrade.
+		const { cwd, created } = makeFixture();
+		try {
+			const ctx = buildCtx(cwd, created);
+			const taskId = created.tasks[0]!.id;
+			const result = await finalizeTaskResult(
+				ctx,
+				makeExecResult(created.manifest, taskId, {
+					resultContent: "## Handoff\n\n### Summary\n- read 3 files, found the retry-accept branch",
+					resultSource: "findings",
+				}),
+			);
+			const t = result.tasks.find((x) => x.id === taskId)!;
+			assert.equal(t.status, "completed", "findings-sourced artifact is NOT a degraded source");
 			assert.equal(t.error, undefined);
 		} finally {
 			fs.rmSync(cwd, { recursive: true, force: true });
