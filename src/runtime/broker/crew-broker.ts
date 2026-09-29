@@ -1547,7 +1547,8 @@ export class CrewBroker {
 					startedAt: new Date().toISOString(),
 				} satisfies TeamTaskState,
 			]);
-			return { code: "ok" as const, decision, reserved, executionCwd };
+			// RR-023 F3: thread the parent's model out of the locked read (gc fallback).
+			return { code: "ok" as const, decision, reserved, executionCwd, parentModel: task.model };
 		});
 		// RR-023 F4 (finding #4): run.lock held by a live cross-process holder —
 		// degrade to a typed busy frame AND a delegate.rejected event (never
@@ -1562,7 +1563,7 @@ export class CrewBroker {
 			this.sendError(conn, id, admissionOutcome.code, admissionOutcome.message);
 			return;
 		}
-		const { decision, reserved, executionCwd } = admissionOutcome;
+		const { decision, reserved, executionCwd, parentModel } = admissionOutcome;
 		this.recordDelegateEvent(loaded.manifest, "delegate.admitted", parentTaskId, {
 			subId,
 			childDepth: decision.childDepth,
@@ -1578,6 +1579,9 @@ export class CrewBroker {
 				: undefined;
 		// Return IMMEDIATELY (principle 7): the tool self-polls the mailbox.
 		this.sendResult(conn, id, { ok: true, grandchildTaskRef: subId, childDepth: decision.childDepth, timeoutSec: decision.timeoutSec });
+		// RR-023 F3 (finding #3, run team_20260929041427): model-less gc spawn fell
+		// through to the pi GLOBAL default — inherit the parent task's model.
+		const gcModel = requested.model ?? parentModel;
 		// Background grandchild lifecycle (ADR-5 §1/§6).
 		const spawner = this.options.grandchildSpawner ?? spawnDelegateGrandchild;
 		void (async () => {
@@ -1592,7 +1596,7 @@ export class CrewBroker {
 					eventsPath: loaded.manifest.eventsPath,
 					role: requested.role ?? "explorer",
 					...(grandchildCreds ? { brokerSpawn: grandchildCreds } : {}),
-					...(requested.model !== undefined ? { model: requested.model } : {}),
+					...(gcModel !== undefined ? { model: gcModel } : {}),
 					...(requested.maxTurns !== undefined ? { maxTurns: requested.maxTurns } : {}),
 					timeoutSec: decision.timeoutSec ?? 900,
 					depthOverride: decision.childDepth ?? 2,

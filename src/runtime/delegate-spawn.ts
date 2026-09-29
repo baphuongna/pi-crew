@@ -95,6 +95,21 @@ export function grandchildArtifactsRoot(cwd: string, runId: string, parentTaskId
 	return path.join(cwd, ".crew", "artifacts", runId, parentTaskId, "nested", subId);
 }
 
+/** RR-023 F3 (2026-09-29 battery finding #3): derive the relayed grandchild
+ *  result text from a ChildPiRunResult — pure so it is unit-testable without
+ *  spawning. Same precedence as the original inline expression at the capture
+ *  site: rawFinalText → stdout → stderr (failure only).
+ *  Diagnosability guard: exit 0 with ZERO assistant text (run
+ *  team_20260929041427: the model-less gc fell through to the pi global default
+ *  and returned empty completions) used to fence an EMPTY mailbox body —
+ *  indistinguishable from a relay bug. An explicit marker keeps the relay
+ *  honest; the real fix (parent-model inheritance) lives in the broker. */
+export function grandchildResultText(result: ChildPiRunResult): string {
+	const ok = result.exitCode === 0;
+	const text = (result.rawFinalText ?? result.stdout ?? "").trim() || (ok ? "" : result.stderr.trim());
+	return ok && text === "" ? "[grandchild exited 0 with no assistant output]" : text;
+}
+
 export async function spawnDelegateGrandchild(input: GrandchildSpawnInput): Promise<GrandchildSpawnResult> {
 	// RR-012 F03: single artifacts formula — grandchildArtifactsRoot(input.cwd, …).
 	// input.cwd is the PARENT TASK cwd threaded by the broker (the admitted
@@ -137,8 +152,7 @@ export async function spawnDelegateGrandchild(input: GrandchildSpawnInput): Prom
 			onSpawn: input.onSpawn,
 		});
 		const ok = result.exitCode === 0;
-		const text = (result.rawFinalText ?? result.stdout ?? "").trim() || (ok ? "" : result.stderr.trim());
-		return { ok, resultText: text, ...(usageTokens !== undefined ? { usageTokens } : {}) };
+		return { ok, resultText: grandchildResultText(result), ...(usageTokens !== undefined ? { usageTokens } : {}) };
 	} catch (error) {
 		const timedOut = abort.signal.aborted;
 		return {
