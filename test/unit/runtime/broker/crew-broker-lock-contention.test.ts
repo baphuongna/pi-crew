@@ -145,10 +145,7 @@ async function scaffoldRunningTask(prefix: string): Promise<ScaffoldRun> {
 function holdRunLock(stateRoot: string): string {
 	const lockPath = path.join(stateRoot, "run.lock");
 	fs.mkdirSync(stateRoot, { recursive: true });
-	fs.writeFileSync(
-		lockPath,
-		JSON.stringify({ kind: "run", pid: process.pid, createdAt: new Date().toISOString(), token: randomUUID() }),
-	);
+	fs.writeFileSync(lockPath, JSON.stringify({ kind: "run", pid: process.pid, createdAt: new Date().toISOString(), token: randomUUID() }));
 	return lockPath;
 }
 
@@ -188,12 +185,7 @@ interface ResponseFrame {
 	error?: { code: string; message: string };
 }
 
-async function request(
-	client: RawClient,
-	method: string,
-	params: Record<string, unknown>,
-	id: string,
-): Promise<ResponseFrame | undefined> {
+async function request(client: RawClient, method: string, params: Record<string, unknown>, id: string): Promise<ResponseFrame | undefined> {
 	client.socket.write(encodeBrokerFrame({ id, method, params }));
 	return (await client.waitForFrame((f) => (f as { id?: string })?.id === id)) as ResponseFrame | undefined;
 }
