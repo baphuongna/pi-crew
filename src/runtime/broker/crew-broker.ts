@@ -28,7 +28,7 @@ import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendMailboxMessageAsync, type MailboxMessage, registerMailboxAppendObserver } from "../../state/coordination/mailbox.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
-import type { TeamTaskState } from "../../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { runEventBus } from "../../ui/run-event-bus.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { BrokerError, encodeBrokerFrame, MAX_BROKER_FRAME_BYTES, NdjsonDecoder } from "../../utils/ndjson.ts";
@@ -40,11 +40,12 @@ import { resolveCrewMaxDepth } from "../model/pi-args.ts";
 import { NestedSlotBudget } from "../scheduling/nested-slots.ts";
 import { evaluateDelegateAdmission } from "../spawn-policy.ts";
 import { type BrokerToken, BrokerTokenRegistry } from "./crew-broker-tokens.ts";
-import { recordDelegateEvent } from "./delegate/delegate-event.ts";
+import { type DelegateEventTarget, type DelegateEventType, recordDelegateEvent } from "./delegate/delegate-event.ts";
 import { promoteShadowToRunning } from "./delegate/shadow-lifecycle.ts";
 import { fanoutMailboxMessage } from "./mailbox-observer/mailbox-fanout.ts";
 import type { CrewBrokerOptions, ServerConnection } from "./protocol/connection-state.ts";
 import { handleEventsSince } from "./protocol/events-replay.ts";
+import { DEFAULT_LOCK_BUSY_RETRY_DELAYS_MS, type LockBusyOutcome, withRunLockBusyRetry } from "./protocol/lock-busy.ts";
 import { loadRunForHello } from "./protocol/manifest-loader.ts";
 import { handleMsgInbox } from "./protocol/msg-inbox.ts";
 import {
@@ -104,6 +105,7 @@ export class CrewBroker {
 			| "grandchildSpawner"
 			| "modelCatalog"
 			| "serializeOnPathOverlap"
+			| "lockBusyRetryDelaysMs"
 		>;
 	private readonly tokens = new BrokerTokenRegistry();
 	/** Task 10 (mux-surface A1 §5.2): taskId → the compound token most
@@ -1332,28 +1334,31 @@ export class CrewBroker {
 	}
 
 	// WP-2/R2: wait.request / wait.resolve (ADR-0 2026-08-17-waiting-producer-ask)
+	// waitAuthError: imported directly from protocol/wait-auth.ts (M4/WI-4.1).
 
-	// waitAuthError: protocol/wait-auth.ts (M4/WI-4.1).
-	private waitAuthError(conn: ServerConnection): { code: string; message: string } | null {
-		return waitAuthError(conn);
-	}
-
-	// (The "ADR item 7" doc that used to dangle here documents
-	// recordWaitPolicyRejection — see wait-auth.ts, where it belongs.
-	// Removed 2026-09-10, review F6.)
 	// T3/R5 (ADR-5): delegate.request — governed-nesting admission + background
 	// grandchild spawn with durable mailbox delivery (WP-5 step 5).
-	// getDelegateNestedSlots: inlined at 4 call sites (5-line method; M4/WI-4.1).
+
+	/** ADR-5 §5: lazy singleton for the nested-slot budget — first use
+	 *  constructs it from the broker options (4 call sites previously
+	 *  inlined this IIFE). */
+	private nestedSlotBudget(): NestedSlotBudget {
+		if (!this.nestedSlots)
+			this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
+		return this.nestedSlots;
+	}
+
+	/** RR-023 F4: bounded busy-retry around a run-locked RMW (see
+	 *  protocol/lock-busy.ts) — options override or the default schedule.
+	 *  A busy-exhausted result is the handler's cue to answer a typed `busy`
+	 *  frame (connection survives) instead of letting the throw kill it. */
+	private runLockBusyRetry<T>(manifest: TeamRunManifest, fn: () => T): Promise<LockBusyOutcome<T>> {
+		return withRunLockBusyRetry(manifest, this.options.lockBusyRetryDelaysMs ?? DEFAULT_LOCK_BUSY_RETRY_DELAYS_MS, fn);
+	}
 
 	private recordDelegateEvent(
-		manifest: { eventsPath: string; runId: string },
-		type:
-			| "delegate.requested"
-			| "delegate.admitted"
-			| "delegate.rejected"
-			| "delegate.completed"
-			| "delegate.timed_out"
-			| "delegate.rolled_up",
+		manifest: DelegateEventTarget,
+		type: DelegateEventType,
 		taskId: string,
 		data: Record<string, unknown>,
 	): void {
@@ -1434,7 +1439,8 @@ export class CrewBroker {
 		this.recordDelegateEvent(loaded.manifest, "delegate.requested", parentTaskId, { subId, role: requested.role ?? "explorer" });
 		// Admission: full spawn-policy matrix (ADR-5 §2-§7), parent state from
 		// the RECORD under the run lock — never the worker's env/self-report.
-		const admissionOutcome = withRunLockSync(loaded.manifest, () => {
+		// RR-023 F4: run-locked via bounded busy-retry (protocol/lock-busy.ts).
+		const admissionAttempt = await this.runLockBusyRetry(loaded.manifest, () => {
 			const fresh = loadRunManifestById(loaded.manifest.cwd, runId);
 			if (!fresh) return { code: "no-manifest" as const, message: `run '${runId}' not found` };
 			const task = fresh.tasks.find((t) => t.id === parentTaskId);
@@ -1474,11 +1480,7 @@ export class CrewBroker {
 					...(task.depth !== undefined ? { depth: task.depth } : {}),
 					...(task.allocation !== undefined ? { allocation: task.allocation } : {}),
 				},
-				slots: (() => {
-					if (!this.nestedSlots)
-						this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
-					return this.nestedSlots;
-				})().snapshot(),
+				slots: this.nestedSlotBudget().snapshot(),
 				requested,
 				...(effectiveCatalog !== undefined ? { modelCatalog: effectiveCatalog } : {}),
 				// ADR-5 §12: the delegate surface is an escalation — trusted only by the
@@ -1498,28 +1500,11 @@ export class CrewBroker {
 				return { code: "policy-denied" as const, message: decision.message ?? decision.reason ?? "delegate denied" };
 			}
 			// Slot acquisition INSIDE the lock (no reserve-then-race refund window).
-			if (
-				!(() => {
-					if (!this.nestedSlots)
-						this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
-					return this.nestedSlots;
-				})().tryAcquire(subId)
-			) {
+			if (!this.nestedSlotBudget().tryAcquire(subId)) {
 				this.recordDelegateEvent(fresh.manifest, "delegate.rejected", parentTaskId, { subId, reason: "slots-exhausted" });
 				return {
 					code: "policy-denied" as const,
-					message: `delegate rejected: nested spawn budget exhausted; ${
-						(
-							() => {
-								if (!this.nestedSlots)
-									this.nestedSlots = new NestedSlotBudget(
-										this.options.globalWorkerSemaphore ?? 4,
-										this.options.nestingMaxSlots,
-									);
-								return this.nestedSlots;
-							}
-						)().statusLine
-					}`,
+					message: `delegate rejected: nested spawn budget exhausted; ${this.nestedSlotBudget().statusLine}`,
 				};
 			}
 			// Reserve the requested budget pessimistically (ADR-5 §5): tokensSpent
@@ -1564,6 +1549,15 @@ export class CrewBroker {
 			]);
 			return { code: "ok" as const, decision, reserved, executionCwd };
 		});
+		// RR-023 F4 (finding #4): run.lock held by a live cross-process holder —
+		// degrade to a typed busy frame AND a delegate.rejected event (never
+		// silent); the connection survives (ping still answers).
+		if (!admissionAttempt.ok) {
+			this.recordDelegateEvent(loaded.manifest, "delegate.rejected", parentTaskId, { subId, reason: "run-lock-busy" });
+			this.sendError(conn, id, "busy", admissionAttempt.message);
+			return;
+		}
+		const admissionOutcome = admissionAttempt.value;
 		if (admissionOutcome.code !== "ok") {
 			this.sendError(conn, id, admissionOutcome.code, admissionOutcome.message);
 			return;
@@ -1711,11 +1705,7 @@ export class CrewBroker {
 					}
 				}
 			} finally {
-				(() => {
-					if (!this.nestedSlots)
-						this.nestedSlots = new NestedSlotBudget(this.options.globalWorkerSemaphore ?? 4, this.options.nestingMaxSlots);
-					return this.nestedSlots;
-				})().release(subId);
+				this.nestedSlotBudget().release(subId);
 			}
 			this.recordDelegateEvent(loaded.manifest, outcome.timedOut ? "delegate.timed_out" : "delegate.completed", parentTaskId, {
 				subId,
@@ -1724,9 +1714,7 @@ export class CrewBroker {
 		})();
 	}
 
-	private recordWaitPolicyRejection(manifest: { eventsPath: string; runId: string }, taskId: string, method: string): void {
-		recordWaitPolicyRejection(manifest, taskId, method);
-	}
+	// recordWaitPolicyRejection: imported directly from protocol/wait-auth.ts.
 
 	/** WP-2/R2 step 4: park the calling task while its `ask` tool awaits a
 	 *  leader answer. Park = task.status "waiting" + task.waiting marker +
@@ -1741,7 +1729,7 @@ export class CrewBroker {
 			this.sendError(conn, id, "auth", "not authed");
 			return;
 		}
-		const authErr = this.waitAuthError(conn);
+		const authErr = waitAuthError(conn);
 		if (authErr) {
 			this.sendError(conn, id, authErr.code, authErr.message);
 			return;
@@ -1778,7 +1766,7 @@ export class CrewBroker {
 		// Capability gate (ADR item 7): fail-closed, NEVER silent — every
 		// rejection leaves a policy.action trace in the run's events.jsonl.
 		if (this.options.waitMethodsEnabled !== true) {
-			this.recordWaitPolicyRejection(loaded.manifest, conn.taskId, "wait.request");
+			recordWaitPolicyRejection(loaded.manifest, conn.taskId, "wait.request");
 			this.sendError(
 				conn,
 				id,
@@ -1796,7 +1784,8 @@ export class CrewBroker {
 		const deadline = Date.now() + clampSec * 1000;
 		const runId = conn.runId;
 		const taskId = conn.taskId;
-		const outcome = withRunLockSync(loaded.manifest, () => {
+		// RR-023 F4: run-locked via bounded busy-retry (protocol/lock-busy.ts).
+		const outcome = await this.runLockBusyRetry(loaded.manifest, () => {
 			// Fresh reload INSIDE the lock (respond.ts:42-43 discipline).
 			const fresh = loadRunManifestById(loaded.manifest.cwd, runId);
 			if (!fresh) return { code: "no-manifest" as const, message: `run '${runId}' not found` };
@@ -1829,8 +1818,14 @@ export class CrewBroker {
 			saveRunManifest(updatedManifest);
 			return { code: "ok" as const, message: "" };
 		});
-		if (outcome.code !== "ok") {
-			this.sendError(conn, id, outcome.code, outcome.message);
+		// RR-023 F4 (finding #4): run.lock held by a live cross-process holder
+		// (e.g. the detached runner) — typed busy frame, connection survives.
+		if (!outcome.ok) {
+			this.sendError(conn, id, "busy", outcome.message);
+			return;
+		}
+		if (outcome.value.code !== "ok") {
+			this.sendError(conn, id, outcome.value.code, outcome.value.message);
 			return;
 		}
 		// Events AFTER the run lock is released (the event-log lock is a
@@ -1895,7 +1890,7 @@ export class CrewBroker {
 			this.sendError(conn, id, "auth", "not authed");
 			return;
 		}
-		const authErr = this.waitAuthError(conn);
+		const authErr = waitAuthError(conn);
 		if (authErr) {
 			this.sendError(conn, id, authErr.code, authErr.message);
 			return;
@@ -1928,7 +1923,7 @@ export class CrewBroker {
 			return;
 		}
 		if (this.options.waitMethodsEnabled !== true) {
-			this.recordWaitPolicyRejection(loaded.manifest, conn.taskId, "wait.resolve");
+			recordWaitPolicyRejection(loaded.manifest, conn.taskId, "wait.resolve");
 			this.sendError(
 				conn,
 				id,

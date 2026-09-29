@@ -55,6 +55,16 @@ export interface CrewBrokerOptions {
 	nestingTrustedEscalation?: boolean;
 	/** Global worker semaphore size, used to size the nested-slot budget. */
 	globalWorkerSemaphore?: number;
+	/** RR-023 F4 (2026-09-29 battery, finding #4): bounded retry schedule
+	 *  (ms) for run.lock contention in the wait.request / delegate.request
+	 *  handlers. A live cross-process holder (e.g. the detached runner
+	 *  persisting task state) makes acquireLockWithRetry throw; instead of
+	 *  letting that escape handleData → closeConnection, the handler retries
+	 *  on this schedule and then answers a typed `busy` error frame with the
+	 *  connection SURVIVING (plus a delegate.rejected event on the delegate
+	 *  path — never silent). Default DEFAULT_LOCK_BUSY_RETRY_DELAYS_MS
+	 *  (50/100/200/400/800). See protocol/lock-busy.ts. */
+	lockBusyRetryDelaysMs?: readonly number[];
 	/** Test seam / alternative spawner for delegate grandchildren. Production
 	 *  uses spawnDelegateGrandchild (direct runChildPi call-site, ADR-5 §2). */
 	grandchildSpawner?: (input: GrandchildSpawnInput) => Promise<GrandchildSpawnResult>;

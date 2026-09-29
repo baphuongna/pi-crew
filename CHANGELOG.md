@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### fix: broker run.lock contention — typed busy frame instead of connection kill (RR-023, 2026-09-29 battery finding #4)
+
+- **`wait.request`/`delegate.request` busy degradation**: both handlers ran their state RMW inside `withRunLockSync`; a live cross-process run.lock holder (e.g. the detached runner persisting task state) made `acquireLockWithRetry` throw immediately and the throw escaped `handleData` → `closeConnection` — direct-async workers saw an untyped `code=close` socket death within ~5ms (evidence: `team_20260929041005` ask-probe / `team_20260929041020` delegate-probe; the sync foreground run was the zero-contention control). New `protocol/lock-busy.ts` classifies the lock-busy throw by its exported message identity, retries on a bounded async-back-off schedule (new `CrewBrokerOptions.lockBusyRetryDelaysMs`, default 50/100/200/400/800ms), then answers a typed `busy` error frame with the connection SURVIVING (ping still answers); the delegate path additionally records `delegate.rejected(reason=run-lock-busy)` in events.jsonl — never silent. `locks.ts` steal semantics untouched (lock family v0.9.26 invariant). Pinned by `test/unit/runtime/broker/crew-broker-lock-contention.test.ts` (3 tests incl. the default-schedule retry-absorbs-transient-hold case).
+
 ### fix: test-gate integrity (RR-021 review rounds 2-3)
 
 - **Test runner cancelled-test guard** (`scripts/test-runner.mjs`): a dual reporter keeps stdout UX unchanged (spec under TTY, TAP otherwise) while a full TAP stream is written to a temp file; `# cancelled N > 0` now fails the run loudly in BOTH the single-run and batch paths — independent of node:test's exit-code mapping. Belt-and-suspenders against the round-1 incident class (unref'd-race-timer tests cancelled while the harness reported green).

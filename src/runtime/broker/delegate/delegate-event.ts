@@ -13,15 +13,19 @@ import { logInternalError } from "../../../utils/internal-error.ts";
 /** Fire-and-forget async append; an append failure is logged, never thrown
  *  (broker handlers must not block the event loop on the sync event-log lock).
  *  See `crew-broker.delegate.event` event scope conventions in ADR-5 §10. */
+export type DelegateEventType =
+	| "delegate.requested"
+	| "delegate.admitted"
+	| "delegate.rejected"
+	| "delegate.completed"
+	| "delegate.timed_out"
+	| "delegate.rolled_up";
+
+export type DelegateEventTarget = { eventsPath: string; runId: string };
+
 export function recordDelegateEvent(
-	manifest: { eventsPath: string; runId: string },
-	type:
-		| "delegate.requested"
-		| "delegate.admitted"
-		| "delegate.rejected"
-		| "delegate.completed"
-		| "delegate.timed_out"
-		| "delegate.rolled_up",
+	manifest: DelegateEventTarget,
+	type: DelegateEventType,
 	taskId: string,
 	data: Record<string, unknown>,
 ): void {
