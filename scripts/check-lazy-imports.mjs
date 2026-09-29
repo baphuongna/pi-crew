@@ -17,7 +17,7 @@ const RUNTIME_IMPORT_PATTERNS = [
 	"\\? import\\(", // ternary branch
 	"&& import\\(", // short-circuit branch
 	"\\|\\| import\\(", // short-circuit branch
-	"[(,{\\[]\\s*import\\(", // call/array/object-argument (RR-021 round-2: `foo(import())`, `Promise.allSettled([import()])`, `[import()]` escaped the line-start rule). KNOWN GAPS (RR-021 round-3, accepted): ternary-else `x ? y : import(...)`, object-property values `{ foo: import(...) }`, case/label positions `case 1: import(...)` — closing them needs a `:\s*import\(` rule that would false-flag return-type annotations.
+	"[(,{\\[]\\s*import\\(", // call/array/object-argument (RR-021 round-2: `foo(import())`, `Promise.allSettled([import()])`, `[import()]` escaped the line-start rule). KNOWN GAPS (RR-021 round-3, accepted): ternary-else `x ? y : import(...)`, object-property values `{ foo: import(...) }`, case/label positions `case 1: import(...)` RESIDUAL FALSE-SKIP (round-4, accepted): a RUNTIME member-access form `import("./x").then(...)` on a line that also has an earlier `: identifier` colon-shape satisfies both skip conditions and escapes — closing it needs AST parsing or a narrower skip rule. — closing them needs a `:\s*import\(` rule that would false-flag return-type annotations.
 	">\\s*import\\(", // arrow body (RR-021 round-2: `arr.map((m) => import(m))` escaped every prior rule)
 ];
 const GREP_ARGS = RUNTIME_IMPORT_PATTERNS.map((p) => `-e "${p}"`).join(" ");
