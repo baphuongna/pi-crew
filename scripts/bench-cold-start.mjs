@@ -5,7 +5,8 @@
  * Compares two entry paths from a fresh node process:
  *   - STRIP-TYPES: node --experimental-strip-types loads src/extension/register.ts
  *                   (or src/extension/index.ts via the package entry)
- *   - BUNDLE:      node loads dist/index.mjs (esbuild-bundled 2.9MB single file)
+ *   - BUNDLE:      node loads dist/index.mjs (esbuild-bundled 1.6MB single file;
+ *                  numbers re-measured 2026-09-30)
  *
  * For each path we spawn N child node processes and measure:
  *   - totalMs: time from process spawn to its exit
@@ -200,8 +201,8 @@ const printPath = (label, data) => {
 	console.log("");
 };
 
-printPath("STRIP-TYPES (--experimental-strip-types + 1100 .ts files)", summary.strip);
-printPath("BUNDLE      (dist/index.mjs, 2.9MB single file)", summary.bundle);
+printPath("STRIP-TYPES (--experimental-strip-types + 520 .ts files)", summary.strip);
+printPath("BUNDLE      (dist/index.mjs, 1.6MB single file)", summary.bundle);
 
 console.log(`  Speedup (bundle vs strip-types, p50):`);
 console.log(`    total:        ${summary.speedup.total >= 0 ? "FASTER" : "SLOWER"} by ${Math.abs(summary.speedup.total).toFixed(1)}ms (${summary.speedup.totalPct}%)`);

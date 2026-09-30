@@ -4,7 +4,10 @@
  * Resolution order:
  *   1. dist/index.mjs (bundle) when present AND not explicitly disabled.
  *      Default since v0.9.17 close-out — benchmarks show bundle is
- *      ~19% faster total cold-start (post-fsync) than strip-types.
+ *      ~19% faster cold-start on a cold Node cache; with a warm
+ *      NODE_COMPILE_CACHE the gap shrinks to ~2%. The bundle's primary
+ *      value is correctness (vendored typebox) and deterministic startup,
+ *      not raw speed.
  *      See `scripts/bench-cold-start.mjs` for reproducible numbers.
  *   2. Inline strip-types loading — fallback when bundle is missing
  *      (e.g. dev clone without `npm run build:bundle`) OR when
@@ -52,9 +55,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 // IMPORTANT: src/ imports here MUST be dynamic (lazy `import()`), never
-// top-level static imports. Published npm packages ship only dist/index.mjs
-// in the tarball (src/ is excluded by the package.json "files" field — keeps
-// the package ~5MB instead of ~16MB). A top-level static
+// top-level static imports. The npm tarball ships dist/index.mjs as the
+// entry and ALSO includes src/ (see "files" in package.json) for source
+// maps of future tooling. dist/index.mjs is ~1.6MB. A top-level static
 // `import { x } from "./src/..."` is resolved by the module loader BEFORE
 // this file's code runs, so it would break every fresh `npm install`
 // (Cannot find module './src/...'). Dynamic import() defers src/ resolution
@@ -105,7 +108,8 @@ if (!envForceOff) {
 // Lazy src/ fallback — only resolved when the bundle is unavailable
 // (dev clones without a built dist/). NEVER imported in published
 // installs, where the bundle always ships + loads above. This dynamic
-// import() is what lets us exclude src/ from the npm tarball.
+// import() keeps startup lazy so the bundle loads only when the extension
+// actually activates.
 let srcRegister:
 	| typeof import("./src/extension/register.ts").registerPiTeams
 	| undefined;
