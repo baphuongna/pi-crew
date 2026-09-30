@@ -188,23 +188,25 @@ test("RR-021 round-2: parseCancelledCount — mid-line matches ignored, last sum
 	assert.equal(parseCancelledCount("# cancelled 1\n# cancelled 3"), 3, "last summary is authoritative");
 });
 
-test("RR-021 round-2: wrapper FAILS a suite with cancelled tests (the round-1 unref shape)", () => {
-	// Reproduces the RR-021 round-1 incident shape: unref'd timers drain the
-	// child's event loop while two tests are pending → node:test cancels them.
-	// node:test v22 already exits non-zero for this, but that mapping is
-	// implicit — the wrapper must also name the cancelled count explicitly,
-	// scraped from the TAP file, independent of the child's exit code.
+test("RR-021 round-2: wrapper FAILS a suite with cancelled tests (cross-version signal-abort shape)", () => {
+	// Reproduces the RR-021 round-1 incident CLASS: tests still pending when the
+	// harness gives up → node:test cancels them → the wrapper must fail closed.
+	// Originally pinned via the unref'd-timer loop-drain shape; Node 24 changed
+	// node:test to hold event-loop refs while subtests are pending, so the loop
+	// never drains and that shape now PASSES on Node 24 (verified: v24.21.0
+	// `cancelled 0`, v22 cancelled 2). The AbortSignal-abort shape produces
+	// `# cancelled 2` deterministically on BOTH Node 22 and Node 24 — the
+	// wrapper behavior under test (TAP scrape + fail-closed) is mechanism-
+	// agnostic.
 	const file = fixture(
 		"cancel.mjs",
 		[
 			'import test from "node:test";',
 			'test("passes", () => {});',
-			"test('drain one', async () => {",
-			"	await Promise.race([new Promise((r) => setTimeout(r, 200).unref()), new Promise(() => {})]);",
-			"});",
-			"test('drain two', async () => {",
-			"	await new Promise((r) => setTimeout(r, 300).unref());",
-			"});",
+			"const ac = new AbortController();",
+			'setTimeout(() => ac.abort(new Error("drain")), 50).unref();',
+			"test('cancelled one', { signal: ac.signal }, () => new Promise(() => {}));",
+			"test('cancelled two', { signal: ac.signal }, () => new Promise(() => {}));",
 		].join("\n"),
 	);
 	const res = runWrapper(file);
@@ -264,12 +266,10 @@ test("RR-021 round-3: the BATCH path also fails cancelled tests (empirical shard
 		[
 			'import test from "node:test";',
 			'test("passes", () => {});',
-			"test('drain one', async () => {",
-			"	await Promise.race([new Promise((r) => setTimeout(r, 200).unref()), new Promise(() => {})]);",
-			"});",
-			"test('drain two', async () => {",
-			"	await new Promise((r) => setTimeout(r, 300).unref());",
-			"});",
+			"const ac = new AbortController();",
+			'setTimeout(() => ac.abort(new Error("drain")), 50).unref();',
+			"test('cancelled one', { signal: ac.signal }, () => new Promise(() => {}));",
+			"test('cancelled two', { signal: ac.signal }, () => new Promise(() => {}));",
 		].join("\n"),
 		"utf-8",
 	);
