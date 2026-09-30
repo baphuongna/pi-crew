@@ -48,6 +48,7 @@ Reads the versioned `PlanRecord` list at `<stateRoot>/plans/plans.json` (ADR-4).
 | `search` | BM25-ranked agent/team discovery | Smart search |
 | `events` | Read the event log | Debug/audit |
 | `artifacts` | List run artifacts | View outputs |
+| `breakdown` | Read per-task prompt-token breakdown artifacts | Debug prompt bloat (requires `PI_CREW_PROMPT_BREAKDOWN=1`) |
 | `worktrees` | List run worktree metadata | Inspect worktrees |
 | `graph` | Load/save/list run graphs | Visualization |
 | `explain` | Explain a run or task structure | Understand a run |
@@ -418,6 +419,26 @@ Append-only JSONL events: task.started, task.completed, run.blocked, etc.
   "runId": "team_..."
 }
 ```
+
+---
+
+### `breakdown` — Per-task prompt-token breakdown
+
+G18 (opt-in measurement surface): reads the per-task
+`metadata/<taskId>.prompt-breakdown.json` artifacts and aggregates per-task
+`estTokens` totals plus the top-5 largest prompt sections. Artifacts are
+recorded only when the host Pi session is started with
+`PI_CREW_PROMPT_BREAKDOWN=1` (default off — zero cost when off).
+
+```json
+{
+  "action": "breakdown",
+  "runId": "team_...",
+  "taskId": "01_plan"
+}
+```
+
+`taskId` is optional — omit it to aggregate every task with a breakdown.
 
 ---
 

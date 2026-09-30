@@ -7,8 +7,8 @@
  *
  * 54→5 mapping:
  *   run     (9):  run, parallel, plan, orchestrate, resume, retry, wait, steer, goal
- *   status  (16): status, list, get, events, artifacts, summary, graph, search,
- *                 health, worktrees, checkpoint, cache, explain, onboard, recommend, help
+ *   status  (17): status, list, get, events, artifacts, breakdown, summary, graph,
+ *                 search, health, worktrees, checkpoint, cache, explain, onboard, recommend, help
  *   control (7):  cancel, invalidate, respond, cleanup, prune, forget, doctor
  *   manage  (17): create, update, delete, init, config, validate, autonomy, settings,
  *                 workflow-create/get/list/save/delete, import, imports, export, compare
@@ -36,12 +36,13 @@ const ACTION_TO_DOMAIN: Record<string, TeamDomain> = {
 	steer: "run",
 	goal: "run",
 
-	// status domain (16)
+	// status domain (17)
 	status: "status",
 	list: "status",
 	get: "status",
 	events: "status",
 	artifacts: "status",
+	breakdown: "status",
 	summary: "status",
 	graph: "status",
 	search: "status",

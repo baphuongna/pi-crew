@@ -1,8 +1,9 @@
 /**
  * API-5 facade dispatch — Status domain router.
  *
- * Actions: status, list, get, events, artifacts, summary, graph, search,
- * health, worktrees, checkpoint, cache, explain, onboard, recommend, help.
+ * Actions: status, list, get, events, artifacts, breakdown, summary, graph,
+ * search, health, worktrees, checkpoint, cache, explain, onboard, recommend,
+ * help.
  *
  * Inline cases (graph, search, onboard, explain, cache, checkpoint, recommend,
  * help) are moved verbatim from the former handleTeamTool switch.
@@ -28,7 +29,7 @@ import type { PiTeamsToolResult } from "../../tool-result.ts";
 import { result, type TeamContext } from "../context.ts";
 import { handleExplain } from "../explain.ts";
 import { handleHealthMonitor } from "../health-monitor.ts";
-import { handleArtifacts, handleEvents, handleSummary } from "../inspect.ts";
+import { handleArtifacts, handleBreakdown, handleEvents, handleSummary } from "../inspect.ts";
 import { handleWorktrees } from "../lifecycle-actions.ts";
 import { handleStatus } from "../status.ts";
 
@@ -45,6 +46,7 @@ export const STATUS_DOMAIN_ACTIONS = [
 	"get",
 	"events",
 	"artifacts",
+	"breakdown",
 	"summary",
 	"graph",
 	"search",
@@ -73,6 +75,8 @@ export async function handleStatusDomain(params: TeamToolParamsValue, ctx: TeamC
 			return handleEvents(params, ctx);
 		case "artifacts":
 			return handleArtifacts(params, ctx);
+		case "breakdown":
+			return handleBreakdown(params, ctx);
 		case "worktrees":
 			return handleWorktrees(params, ctx);
 		case "summary":

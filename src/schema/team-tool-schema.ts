@@ -398,7 +398,7 @@ const sharedFields = {
 	),
 };
 
-// ─── Domain action unions (10+16+7+17+6 = 56 actions) ──────────────────────
+// ─── Domain action unions (10+17+7+17+6 = 57 actions) ──────────────────────
 
 const ACTION_DESCRIPTION = "Team action. Defaults to 'list' when omitted.";
 
@@ -411,6 +411,7 @@ const STATUS_ACTIONS = [
 	"get",
 	"events",
 	"artifacts",
+	"breakdown",
 	"summary",
 	"graph",
 	"search",

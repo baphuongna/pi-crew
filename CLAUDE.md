@@ -31,7 +31,7 @@ State layer
 
 | Path | Purpose |
 |------|---------|
-| `src/extension/team-tool.ts` | Main tool — 56 schema actions across 5 domain dispatchers (run/status/control/manage/automate); see `src/schema/team-tool-schema.ts:401-453` |
+| `src/extension/team-tool.ts` | Main tool — 57 schema actions across 5 domain dispatchers (run/status/control/manage/automate); see `src/schema/team-tool-schema.ts:401-453` |
 | `src/runtime/team-runner.ts` | Workflow scheduler, task graph, concurrency control |
 | `src/runtime/task-runner.ts` | Task execution, workspace/worktree context, model selection |
 | `src/runtime/child-pi/` | Child Pi process runtime — spawns real `pi` workers (spawn/streams/kill/steering/timers/transcript modules) |
@@ -41,9 +41,9 @@ State layer
 | `src/config/` | Runtime config, resource discovery |
 | `agents/`, `teams/`, `workflows/` | Builtin resources |
 
-### Tool Actions (56 total)
+### Tool Actions (57 total)
 
-The `team` tool exposes 56 schema actions across 5 domains. The canonical
+The `team` tool exposes 57 schema actions across 5 domains. The canonical
 per-action listing (syntax, examples, when to use) is
 [`docs/actions-reference.md`](docs/actions-reference.md); the machine-checked
 source of truth is `allActionLiterals` in `src/schema/team-tool-schema.ts`
@@ -52,7 +52,7 @@ source of truth is `allActionLiterals` in `src/schema/team-tool-schema.ts`
 | Domain | Count | Actions |
 |--------|-------|---------|
 | run | 10 | run, parallel, plan, plans, orchestrate, resume, retry, wait, steer, goal |
-| status | 16 | status, list, get, events, artifacts, summary, graph, search, health, worktrees, checkpoint, cache, explain, onboard, recommend, help |
+| status | 17 | status, list, get, events, artifacts, breakdown, summary, graph, search, health, worktrees, checkpoint, cache, explain, onboard, recommend, help |
 | control | 7 | cancel, invalidate, respond, cleanup, prune, forget, doctor |
 | manage | 17 | create, update, delete, init, config, validate, autonomy, settings, workflow-create, workflow-get, workflow-list, workflow-save, workflow-delete, import, imports, export, compare |
 | automate | 6 | schedule, scheduled, anchor, auto-summarize, auto_boomerang, api |

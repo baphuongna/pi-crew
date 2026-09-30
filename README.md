@@ -34,7 +34,7 @@ repo:  https://github.com/baphuongna/pi-crew
 
 ## Features
 
-- **One `team` tool, 56 actions** — run, monitor, steer, schedule, and manage agents/teams/workflows ([actions reference](docs/actions-reference.md)).
+- **One `team` tool, 57 actions** — run, monitor, steer, schedule, and manage agents/teams/workflows ([actions reference](docs/actions-reference.md)).
 - **Real child Pi workers** — each task spawns an isolated `pi` process; `runtime.mode: "scaffold"` gives a dry-run with prompts only.
 - **Built-in teams & adaptive planning** — 6 teams and 11 workflows ship in the box; the `default` and `implementation` workflows let a planner agent pick the smallest effective crew.
 - **Parallel execution + worktree isolation** — tasks in the same phase run concurrently; `workspaceMode: "worktree"` gives each task its own git worktree for safe parallel edits.
