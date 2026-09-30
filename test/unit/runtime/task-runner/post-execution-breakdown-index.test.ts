@@ -99,9 +99,7 @@ function buildCtx(
 		skillPaths: undefined,
 		prompt: "regression prompt",
 		promptArtifact: stubArtifact("prompt", `prompts/${baseTask.id}.md`),
-		...(withBreakdown
-			? { breakdownArtifact: stubArtifact("metadata", `metadata/${baseTask.id}.prompt-breakdown.json`) }
-			: {}),
+		...(withBreakdown ? { breakdownArtifact: stubArtifact("metadata", `metadata/${baseTask.id}.prompt-breakdown.json`) } : {}),
 		inputsArtifact: stubArtifact("metadata", `metadata/${baseTask.id}.inputs.json`),
 		skillArtifact: undefined,
 		coordinationArtifact: stubArtifact("metadata", `metadata/${baseTask.id}.coordination-bridge.md`),

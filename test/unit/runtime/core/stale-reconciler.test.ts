@@ -647,8 +647,14 @@ describe("NEW-1 persistTasks (individual-stale repair)", () => {
 		assert.equal(stalePersisted?.status, "cancelled", "stale task must be cancelled by the repair");
 		assert.match(stalePersisted?.error ?? "", /no_pid_individual_stale_task/);
 		// Healthy + terminal tasks survive field-for-field.
-		assert.deepEqual(result.persistTasks?.find((t) => t.id === "t-done"), tDoneSnapshot);
-		assert.deepEqual(result.persistTasks?.find((t) => t.id === "t-fail"), tFailSnapshot);
+		assert.deepEqual(
+			result.persistTasks?.find((t) => t.id === "t-done"),
+			tDoneSnapshot,
+		);
+		assert.deepEqual(
+			result.persistTasks?.find((t) => t.id === "t-fail"),
+			tFailSnapshot,
+		);
 		// repairedTasks = what was actually repaired: only the stale subset.
 		assert.equal(result.repairedTasks?.length, 1);
 		assert.equal(result.repairedTasks?.[0]?.id, "t-stale");
@@ -704,7 +710,11 @@ describe("NEW-1 persistTasks (individual-stale repair)", () => {
 			assert.ok(reloaded, "manifest reloadable after reconcile");
 			// THE data-loss assertion: tasks.json must still contain every task.
 			const ids = reloaded.tasks.map((t) => t.id).sort();
-			assert.deepEqual(ids, ["t-done", "t-fail", "t-new", "t-stale"], "tasks.json must keep the FULL task array after individual-stale repair");
+			assert.deepEqual(
+				ids,
+				["t-done", "t-fail", "t-new", "t-stale"],
+				"tasks.json must keep the FULL task array after individual-stale repair",
+			);
 			assert.equal(reloaded.tasks.find((t) => t.id === "t-stale")?.status, "cancelled");
 			// NOTE: repairStaleRun cancels every non-terminal task in the array it is
 			// handed (the healthy sibling included) — NEW-1 fixes PRESENCE on disk, not

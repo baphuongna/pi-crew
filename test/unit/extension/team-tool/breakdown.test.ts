@@ -52,9 +52,10 @@ function breakdownContent(sections: Record<string, { chars: number; estTokens: n
 /** Create a real run in a tmp cwd and register breakdown artifacts in the
  *  manifest artifacts index (exactly what a PI_CREW_PROMPT_BREAKDOWN=1 run
  *  exposes to the handler). */
-function makeRunWithBreakdowns(
-	breakdowns: Record<string, Record<string, { chars: number; estTokens: number }>>,
-): { cwd: string; runId: string } {
+function makeRunWithBreakdowns(breakdowns: Record<string, Record<string, { chars: number; estTokens: number }>>): {
+	cwd: string;
+	runId: string;
+} {
 	let cwd = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "pi-crew-breakdown-"));
 	try {
 		const real = fs.realpathSync.native(cwd);
@@ -65,7 +66,7 @@ function makeRunWithBreakdowns(
 	fs.mkdirSync(path.join(cwd, ".git"), { recursive: true });
 	fs.mkdirSync(path.join(cwd, ".crew"), { recursive: true });
 	const { manifest } = createRunManifest({ cwd, team: fixtureTeam, workflow: fixtureWorkflow, goal: "breakdown surface" });
-	let updated: TeamRunManifest = { ...manifest, artifacts: [...manifest.artifacts] };
+	const updated: TeamRunManifest = { ...manifest, artifacts: [...manifest.artifacts] };
 	for (const [taskId, sections] of Object.entries(bdownEntries(breakdowns))) {
 		const relativePath = `metadata/${taskId}.prompt-breakdown.json`;
 		const filePath = path.join(manifest.artifactsRoot, relativePath);
@@ -103,7 +104,10 @@ describe("handleBreakdown", () => {
 	it("lists every task that has a breakdown, with per-task totals and the run total", () => {
 		const { cwd, runId } = makeRunWithBreakdowns({
 			"01_plan": { "system.agentDefinition": { chars: 1000, estTokens: 250 }, "prompt.task": { chars: 400, estTokens: 100 } },
-			"02_execute": { "system.agentDefinition": { chars: 2000, estTokens: 500 }, "dynamic.preStepOutput": { chars: 800, estTokens: 200 } },
+			"02_execute": {
+				"system.agentDefinition": { chars: 2000, estTokens: 500 },
+				"dynamic.preStepOutput": { chars: 800, estTokens: 200 },
+			},
 		});
 		try {
 			const res = handleBreakdown(makeParams({ runId }), makeCtx({ cwd }));

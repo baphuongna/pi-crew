@@ -151,7 +151,11 @@ export function handleBreakdown(params: TeamToolParamsValue, ctx: TeamContext): 
 	const breakdownArtifacts = loaded.manifest.artifacts.filter(
 		(artifact) => artifact.kind === "metadata" && path.basename(artifact.path).endsWith(BREAKDOWN_FILE_SUFFIX),
 	);
-	const perTask: Array<{ taskId: string; totalEstTokens: number; topSections: Array<{ section: string; estTokens: number; chars: number }> }> = [];
+	const perTask: Array<{
+		taskId: string;
+		totalEstTokens: number;
+		topSections: Array<{ section: string; estTokens: number; chars: number }>;
+	}> = [];
 	for (const artifact of breakdownArtifacts) {
 		const taskId = path.basename(artifact.path).slice(0, -BREAKDOWN_FILE_SUFFIX.length);
 		if (params.taskId && taskId !== params.taskId) continue;
