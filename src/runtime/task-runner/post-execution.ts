@@ -131,6 +131,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 	const skillNames = ctx.skillNames;
 	const skillPaths = ctx.skillPaths;
 	const promptArtifact = ctx.promptArtifact;
+	const breakdownArtifact = ctx.breakdownArtifact;
 	const inputsArtifact = ctx.inputsArtifact;
 	const skillArtifact = ctx.skillArtifact;
 	const coordinationArtifact = ctx.coordinationArtifact;
@@ -623,6 +624,7 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		artifacts: [
 			...manifest.artifacts,
 			promptArtifact,
+			...(breakdownArtifact ? [breakdownArtifact] : []),
 			...(resultArtifact ? [resultArtifact] : []),
 			inputsArtifact,
 			coordinationArtifact,

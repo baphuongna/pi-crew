@@ -71,6 +71,8 @@ export interface TaskExecutionContext {
 	skillPaths: string[] | undefined;
 	prompt: string;
 	promptArtifact: ArtifactDescriptor;
+	/** G18: prompt-breakdown artifact descriptor (undefined when PI_CREW_PROMPT_BREAKDOWN off). */
+	breakdownArtifact?: ArtifactDescriptor;
 	inputsArtifact: ArtifactDescriptor;
 	skillArtifact: ArtifactDescriptor | undefined;
 	coordinationArtifact: ArtifactDescriptor;
@@ -343,27 +345,32 @@ export async function prepareTaskExecutionContext(
 	// SR-02 phase 1: per-section breakdown artifact (opt-in via
 	// PI_CREW_PROMPT_BREAKDOWN=1). Adds the SYSTEM-side pieces the prompt
 	// builder cannot see (agent definition, skills, pre-step output).
-	if (promptBreakdownEnabled()) {
-		const sections: Record<string, number> = {
-			"system.agentDefinition": input.agent?.systemPrompt?.length ?? 0,
-			...(promptResult.sections ?? {}),
-			"dynamic.preStepOutput": preStepOutput?.length ?? 0,
-		};
-		writeArtifact(manifest.artifactsRoot, {
-			kind: "metadata",
-			relativePath: `metadata/${task.id}.prompt-breakdown.json`,
-			content: `${JSON.stringify(
-				Object.fromEntries(
-					Object.entries(sections)
-						.filter(([, chars]) => chars > 0)
-						.map(([name, chars]) => [name, { chars, estTokens: estimateTokens(chars) }]),
-				),
-				null,
-				2,
-			)}\n`,
-			producer: "prompt-breakdown",
-		});
-	}
+	// G18 (SDD Buổi-1 WI-3 follow-up): capture the descriptor so it flows
+	// through ctx into the manifest artifacts index — otherwise the
+	// `breakdown` team-tool action cannot find it on real runs.
+	const breakdownArtifact: ArtifactDescriptor | undefined = promptBreakdownEnabled()
+		? (() => {
+				const sections: Record<string, number> = {
+					"system.agentDefinition": input.agent?.systemPrompt?.length ?? 0,
+					...(promptResult.sections ?? {}),
+					"dynamic.preStepOutput": preStepOutput?.length ?? 0,
+				};
+				return writeArtifact(manifest.artifactsRoot, {
+					kind: "metadata",
+					relativePath: `metadata/${task.id}.prompt-breakdown.json`,
+					content: `${JSON.stringify(
+						Object.fromEntries(
+							Object.entries(sections)
+								.filter(([, chars]) => chars > 0)
+								.map(([name, chars]) => [name, { chars, estTokens: estimateTokens(chars) }]),
+						),
+						null,
+						2,
+					)}\n`,
+					producer: "prompt-breakdown",
+				});
+			})()
+		: undefined;
 
 	const collectedJsonEvents: Record<string, unknown>[] | undefined = collectYieldEvents ? [] : undefined;
 
@@ -415,6 +422,7 @@ export async function prepareTaskExecutionContext(
 			skillPaths,
 			prompt,
 			promptArtifact,
+			breakdownArtifact,
 			inputsArtifact,
 			skillArtifact,
 			coordinationArtifact,
