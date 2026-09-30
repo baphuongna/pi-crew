@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — Buổi 1 quick wins: G1 fence, NEW-1 data-loss, G18 breakdown (2026-09-30)
+
+> Version bump & release do user quyết định — các thay đổi dưới đây đang nằm trên main sau v0.11.5, chưa release.
+
+### fix(security): G1 — sanitize the dependency-output fence body (mirror ADR-5 seams)
+
+- `renderDependencyOutputContext` (`src/runtime/task-output-context.ts`) inlined worker-controlled text (dependency `resultSummary`, `structuredResults` JSON, sharedRead content) into the next worker's prompt with only a `.trim()` — the last of the 4 prompt seams without the trust fence. A malicious/compromised dependency could smuggle a literal `</dependency-context>` to close the fence early and promote its payload to the instruction channel, or smuggle control chars. Now a local `sanitizeFencedBody()` (mirroring `renderAskAnswer`/`renderDelegateResult` in `src/prompt/prompt-runtime.ts`) strips control chars and neutralizes the closing-tag literal, applied once at the return so future fields are covered automatically. Pinned RED-first by `test/unit/runtime/core/task-output-context-fence.test.ts` (6 cases: 3 smuggling sinks, control-char strip, benign-unchanged snapshot, wrapper-opens/closes-once).
+
+### fix(state): NEW-1 — persist the FULL task array on individual-stale repair (data-loss)
+
+- The individual-stale branch of `reconcileStaleRun` returned `repairedTasks` already FILTERED to the stale subset, and the crash-recovery caller full-overwrote `tasks.json` with it — every healthy task silently vanished from disk until the parent merged (permanent loss if the parent crashed in that window; the 12m27s heartbeat-freeze trigger was observed live). New `persistTasks` field (option A2): the individual-stale branch also returns the full mutated array, the caller persists `persistTasks ?? repairedTasks`, while `repairedTasks` keeps its exact meaning (what was repaired — the upsert/detail loop is untouched). Pinned RED-first by 3 new cases in `test/unit/runtime/core/stale-reconciler.test.ts` (full-shape, caller-persists-all-4-tasks via `reconcileAllStaleRuns`, regression guard that the other 4 branches leave `persistTasks` unset).
+
+### feat(inspect): G18 — `breakdown` action reads per-task prompt-breakdown artifacts
+
+- New status-domain action `{ action: 'breakdown', runId, taskId? }` (57th schema action) surfaces the opt-in `metadata/<taskId>.prompt-breakdown.json` artifacts (recorded when the host session starts with `PI_CREW_PROMPT_BREAKDOWN=1`): per-task `estTokens` totals, top-5 largest sections, run total — text table + structured `data.perTask`/`data.runTotal` for the leader prompt and W-F token decisions. Runs without breakdowns get a pointer to the env gate instead of an error. Schema/dispatch/docs synced in one commit: `STATUS_ACTIONS` + `STATUS_DOMAIN_ACTIONS` + `domainForAction`, `docs/actions-reference.md` Quick Reference + section, CLAUDE.md domain table (status 16→17), README count, `team-tool-schema-actions.test.ts` 56→57 derivation guard. Follow-up fix in this release: `pre-execution.ts` used to discard the breakdown `writeArtifact` descriptor, so live-run manifests never indexed it — the descriptor now flows through `ctx.breakdownArtifact` into the manifest merge (pinned by `post-execution-breakdown-index.test.ts`, 2 cases).
+
+### docs: correct stale bundle comments
+
+- `index.ts` + `scripts/bench-cold-start.mjs` carried 2025-era numbers: "2.9MB single file", "1100 .ts files", "src/ is excluded by the files field, ~5MB instead of ~16MB", "~19% faster total cold-start". Re-measured 2026-09-30 at this commit: `dist/index.mjs` = 1,614,662 B ≈ 1.6MB, `src/` = 520 `.ts` files, and the `files` field DOES include `src/`. Comments now state the tarball ships the bundle as entry AND includes src/, and the bundle's value is correctness + deterministic startup (warm `NODE_COMPILE_CACHE` shrinks the speed gap to ~2%).
+
 ## [0.11.5] — Phase A quick wins from the 2026-09-29 upgrade plan (2026-09-29)
 
 ### ci: Node 24 added to the test matrices
