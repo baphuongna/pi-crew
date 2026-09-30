@@ -1,8 +1,6 @@
 # Changelog
 
-## [Unreleased] — Buổi 1 quick wins: G1 fence, NEW-1 data-loss, G18 breakdown (2026-09-30)
-
-> Version bump & release do user quyết định — các thay đổi dưới đây đang nằm trên main sau v0.11.5, chưa release.
+## [0.11.5] — Phase A + Buổi 1 quick wins: G1 fence, NEW-1 data-loss, G18 breakdown, Node-24 matrix (2026-09-30)
 
 ### fix(security): G1 — sanitize the dependency-output fence body (mirror ADR-5 seams)
 
@@ -20,7 +18,9 @@
 
 - `index.ts` + `scripts/bench-cold-start.mjs` carried 2025-era numbers: "2.9MB single file", "1100 .ts files", "src/ is excluded by the files field, ~5MB instead of ~16MB", "~19% faster total cold-start". Re-measured 2026-09-30 at this commit: `dist/index.mjs` = 1,614,662 B ≈ 1.6MB, `src/` = 520 `.ts` files, and the `files` field DOES include `src/`. Comments now state the tarball ships the bundle as entry AND includes src/, and the bundle's value is correctness + deterministic startup (warm `NODE_COMPILE_CACHE` shrinks the speed gap to ~2%).
 
-## [0.11.5] — Phase A quick wins from the 2026-09-29 upgrade plan (2026-09-29)
+### fix(test): Node-24 compatible cancelled-suite fixtures
+
+- Node 24 changed `node:test` to hold event-loop refs while subtests are pending, so the RR-021 unref'd-timer loop-drain fixtures no longer produced cancelled tests (verified: v24.21.0 `cancelled 0` vs v22 `cancelled 2`) — caught by the first-ever Node-24 CI run of the matrix added earlier in this release. The two empirical cancelled-suite cases in `test-runner-exit.test.ts` now use the AbortSignal-abort shape, which yields `# cancelled 2` deterministically on BOTH Node 22 and Node 24 (21/21 on both locally; CI 33/33 green).
 
 ### ci: Node 24 added to the test matrices
 
