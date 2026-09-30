@@ -526,6 +526,16 @@ export function collectDependencyOutputContext(
 	return { dependencies: trimmedDependencies, sharedReads };
 }
 
+// ADR-5 §trust-fence: dependency output is DATA, never instructions. Mirror the
+// ask/delegate seams in src/prompt/prompt-runtime.ts (:323, :426, :589): strip
+// control chars and neutralize a smuggled closing fence tag so worker-controlled
+// content can never close the <dependency-context> fence early (see SDD 2026-09-30 WI-1).
+const DEPENDENCY_CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g;
+
+function sanitizeFencedBody(body: string): string {
+	return body.replace(DEPENDENCY_CONTROL_CHAR_PATTERN, "").replace(/<\/dependency-context/g, "&lt;/dependency-context");
+}
+
 export function renderDependencyOutputContext(context: DependencyOutputContext): string {
 	const parts: string[] = [];
 	if (context.dependencies.length) {
@@ -565,7 +575,7 @@ export function renderDependencyOutputContext(context: DependencyOutputContext):
 			parts.push("", read.content.trim(), "");
 		}
 	}
-	return parts.join("\n").trim();
+	return sanitizeFencedBody(parts.join("\n").trim());
 }
 
 export function writeTaskSharedOutput(manifest: TeamRunManifest, step: WorkflowStep, task: TeamTaskState): ArtifactDescriptor | undefined {
