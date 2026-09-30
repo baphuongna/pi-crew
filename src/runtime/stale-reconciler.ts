@@ -44,6 +44,13 @@ export interface ReconcileResult {
 	detail: string;
 	/** Repaired task state, returned to a locked caller for persistence. */
 	repairedTasks?: TeamTaskState[];
+	/** NEW-1 (SDD 2026-09-30 WI-2): what the caller should PERSIST — the FULL
+	 *  task array, including tasks the repair did not touch. Only the
+	 *  individual-stale branch sets it (its `repairedTasks` is filtered down to
+	 *  the stale subset, which must NOT be full-overwrite-persisted or healthy
+	 *  tasks vanish from tasks.json). Callers fall back to `repairedTasks`
+	 *  when absent — every other branch already returns the full array there. */
+	persistTasks?: TeamTaskState[];
 }
 
 /**
@@ -490,6 +497,7 @@ export function reconcileStaleRun(manifest: TeamRunManifest, tasks: TeamTaskStat
 				repaired: true,
 				detail: `No PID; ${staleTaskIds.length} individually stale task(s) repaired: ${staleTaskIds.join(", ")}`,
 				repairedTasks: repaired.filter((t) => staleTaskIds.includes(t.id)),
+				persistTasks: repaired, // NEW-1: persist FULL array (data-loss fix — SDD WI-2)
 			};
 		}
 		// Fall through: no recent activity but not all tasks stale enough yet.

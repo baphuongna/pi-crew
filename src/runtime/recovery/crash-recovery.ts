@@ -750,7 +750,12 @@ export async function reconcileAllStaleRuns(
 				const result = reconcileStaleRun(fresh.manifest, fresh.tasks, now);
 				if (result.repaired || result.verdict === "result_exists") {
 					if (result.repairedTasks) {
-						saveRunTasks(fresh.manifest, result.repairedTasks);
+						// NEW-1 (SDD 2026-09-30 WI-2): persist the FULL task array — the
+						// individual-stale branch filters `repairedTasks` down to the stale
+						// subset, and saveRunTasks full-overwrites tasks.json, which used to
+						// drop every healthy task from disk. `persistTasks` carries the full
+						// array; every other branch leaves it unset and falls back here.
+						saveRunTasks(fresh.manifest, result.persistTasks ?? result.repairedTasks);
 						for (const task of result.repairedTasks) {
 							try {
 								upsertCrewAgent(fresh.manifest, recordFromTask(fresh.manifest, task, "scaffold"));

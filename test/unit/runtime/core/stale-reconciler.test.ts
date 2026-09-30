@@ -3,8 +3,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import type { ManifestCache } from "../../../../src/runtime/manifest-cache.ts";
+import { reconcileAllStaleRuns } from "../../../../src/runtime/recovery/crash-recovery.ts";
 import { isPlanApprovalPending, reconcileOrphanedTempWorkspaces, reconcileStaleRun } from "../../../../src/runtime/stale-reconciler.ts";
+import { createRunManifest, loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
+import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 const baseManifest: TeamRunManifest = {
 	schemaVersion: 1,
@@ -586,5 +592,179 @@ describe("reconcileOrphanedTempWorkspaces", () => {
 			corrupt.some((f) => f.startsWith("manifest.json.corrupt-")),
 			`NEW-R1: corrupt manifest quarantined: ${corrupt.join(", ")}`,
 		);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// NEW-1 (SDD 2026-09-30 WI-2): persistTasks — individual-stale repair must
+// return the FULL task array for persistence; repairedTasks stays the
+// filtered "what was repaired" list. Before NEW-1 the individual-stale
+// branch returned only the stale subset and crash-recovery persisted it with
+// a full-overwrite saveRunTasks — healthy tasks silently vanished from
+// tasks.json (permanent loss if the parent crashed before merging).
+// ---------------------------------------------------------------------------
+
+describe("NEW-1 persistTasks (individual-stale repair)", () => {
+	const tenMinutesAgo = () => new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+	/** Fixture that reaches the individual-stale branch: one zombie running
+	 * task (heartbeat frozen >5min) + one healthy sibling running task with no
+	 * heartbeat yet (indeterminate → protected from allStale), plus terminal
+	 * tasks that must survive the repair untouched. */
+	function individualStaleTasks(runId: string, cwd: string): TeamTaskState[] {
+		return [
+			{
+				...runningTask,
+				id: "t-stale",
+				runId,
+				cwd,
+				heartbeat: { workerId: "t-stale", lastSeenAt: tenMinutesAgo(), alive: true },
+			},
+			{ ...runningTask, id: "t-new", runId, cwd },
+			{ ...completedTask, id: "t-done", runId, cwd },
+			{
+				...runningTask,
+				id: "t-fail",
+				runId,
+				cwd,
+				status: "failed",
+				finishedAt: new Date().toISOString(),
+			},
+		];
+	}
+
+	it("individual-stale returns full persistTasks alongside filtered repairedTasks", () => {
+		const tasks = individualStaleTasks(baseManifest.runId, "/tmp");
+		const tDoneSnapshot = structuredClone(tasks[2]);
+		const tFailSnapshot = structuredClone(tasks[3]);
+		const result = reconcileStaleRun(baseManifest, tasks, Date.now());
+
+		assert.equal(result.repaired, true);
+		assert.match(result.detail, /individually stale task/);
+		// persistTasks = what the caller must write to disk: the FULL array.
+		assert.equal(result.persistTasks?.length, 4, "persistTasks must contain every task (data-loss fix)");
+		const stalePersisted = result.persistTasks?.find((t) => t.id === "t-stale");
+		assert.equal(stalePersisted?.status, "cancelled", "stale task must be cancelled by the repair");
+		assert.match(stalePersisted?.error ?? "", /no_pid_individual_stale_task/);
+		// Healthy + terminal tasks survive field-for-field.
+		assert.deepEqual(result.persistTasks?.find((t) => t.id === "t-done"), tDoneSnapshot);
+		assert.deepEqual(result.persistTasks?.find((t) => t.id === "t-fail"), tFailSnapshot);
+		// repairedTasks = what was actually repaired: only the stale subset.
+		assert.equal(result.repairedTasks?.length, 1);
+		assert.equal(result.repairedTasks?.[0]?.id, "t-stale");
+	});
+
+	it("caller reconcileAllStaleRuns persists the FULL task array to tasks.json", async () => {
+		const dir = createTrackedTempDir("pi-crew-new1-persist-");
+		try {
+			const team: TeamConfig = {
+				name: "new1",
+				description: "new1",
+				source: "builtin",
+				filePath: "new1.team.md",
+				roles: [{ name: "explorer", agent: "explorer" }],
+			};
+			const workflow: WorkflowConfig = {
+				name: "new1",
+				description: "new1",
+				source: "builtin",
+				filePath: "new1.workflow.md",
+				steps: [{ id: "explore", role: "explorer", task: "Explore" }],
+			};
+			const created = createRunManifest({ cwd: dir, team, workflow, goal: "NEW-1 persist" });
+			const running: TeamRunManifest = {
+				...created.manifest,
+				status: "running",
+				// No async PID → no-PID path → individual-stale branch.
+			};
+			saveRunManifest(running);
+			const tasks = individualStaleTasks(running.runId, dir);
+			saveRunTasks(running, tasks);
+
+			const byId = new Map([[running.runId, running]]);
+			const stubCache: ManifestCache = {
+				list: () => [running],
+				listActive: (limit: number) => [running].filter((m) => m.status === "running").slice(0, limit),
+				get: (runId: string) => byId.get(runId),
+				clear: () => {
+					/* no-op */
+				},
+				dispose: () => {
+					/* no-op */
+				},
+			};
+
+			const results = await reconcileAllStaleRuns(dir, stubCache, Date.now());
+			assert.ok(
+				results.some((r) => r.runId === running.runId && r.repaired),
+				`individual-stale run must be repaired (verdicts: ${results.map((r) => r.verdict).join(", ")})`,
+			);
+
+			const reloaded = loadRunManifestById(dir, running.runId);
+			assert.ok(reloaded, "manifest reloadable after reconcile");
+			// THE data-loss assertion: tasks.json must still contain every task.
+			const ids = reloaded.tasks.map((t) => t.id).sort();
+			assert.deepEqual(ids, ["t-done", "t-fail", "t-new", "t-stale"], "tasks.json must keep the FULL task array after individual-stale repair");
+			assert.equal(reloaded.tasks.find((t) => t.id === "t-stale")?.status, "cancelled");
+			// NOTE: repairStaleRun cancels every non-terminal task in the array it is
+			// handed (the healthy sibling included) — NEW-1 fixes PRESENCE on disk, not
+			// the repair-cancel rule, so t-new survives as cancelled rather than
+			// being deleted from tasks.json entirely.
+			assert.equal(reloaded.tasks.find((t) => t.id === "t-new")?.status, "cancelled");
+			assert.equal(reloaded.tasks.find((t) => t.id === "t-done")?.status, "completed");
+			assert.equal(reloaded.tasks.find((t) => t.id === "t-fail")?.status, "failed");
+		} finally {
+			removeTrackedTempDir(dir);
+		}
+	});
+
+	it("regression guard: other repair branches have NO persistTasks (caller falls back to repairedTasks)", () => {
+		// Branch 1 — no_pid_heartbeat_stale (ALL running tasks stale).
+		const allStaleResult = reconcileStaleRun(
+			{ ...baseManifest, updatedAt: tenMinutesAgo() },
+			[{ ...runningTask, heartbeat: { workerId: "task-1", lastSeenAt: tenMinutesAgo(), alive: true } }],
+			Date.now(),
+		);
+		assert.equal(allStaleResult.repaired, true);
+		assert.match(allStaleResult.detail, /all running task heartbeats stale/);
+		assert.match(allStaleResult.repairedTasks?.[0]?.error ?? "", /no_pid_heartbeat_stale/, "task error carries the reason");
+		assert.equal(allStaleResult.persistTasks, undefined, "allStale branch must not set persistTasks");
+		assert.equal(allStaleResult.repairedTasks?.length, 1, "allStale repairedTasks is already the full array");
+
+		// Branch 2 — no_pid_stale (updatedAt beyond STALE_ALIVE_PID_MS, no heartbeat evidence).
+		const noPidStaleResult = reconcileStaleRun(
+			{ ...baseManifest, updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() },
+			[runningTask],
+			Date.now(),
+		);
+		assert.equal(noPidStaleResult.repaired, true);
+		assert.match(noPidStaleResult.detail, /No PID; stale/);
+		assert.equal(noPidStaleResult.persistTasks, undefined, "no_pid_stale branch must not set persistTasks");
+
+		// Branch 3 — pid_dead.
+		const pidDeadResult = reconcileStaleRun(
+			{
+				...baseManifest,
+				async: { pid: 99999123, logPath: "/tmp/log", spawnedAt: new Date().toISOString() },
+			},
+			[runningTask, completedTask],
+			Date.now(),
+		);
+		assert.equal(pidDeadResult.verdict, "pid_dead");
+		assert.equal(pidDeadResult.persistTasks, undefined, "pid_dead branch must not set persistTasks");
+		assert.equal(pidDeadResult.repairedTasks?.length, 2, "pid_dead repairedTasks is already the full array");
+
+		// Branch 4 — pid_alive_stale (>24h since update, PID still alive).
+		const pidAliveStaleResult = reconcileStaleRun(
+			{
+				...baseManifest,
+				updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+				async: { pid: process.pid, logPath: "/tmp/log", spawnedAt: new Date().toISOString() },
+			},
+			[runningTask],
+			Date.now(),
+		);
+		assert.equal(pidAliveStaleResult.verdict, "pid_alive_stale");
+		assert.equal(pidAliveStaleResult.persistTasks, undefined, "pid_alive_stale branch must not set persistTasks");
 	});
 });
