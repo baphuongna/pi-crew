@@ -12,7 +12,7 @@ import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
-import { mcpPermittedForRole, stripMcpExtensions } from "../mcp-proxy.ts";
+import { g2EnforcementDegradationReason, mcpPermittedForRole, stripMcpExtensions } from "../mcp-proxy.ts";
 import {
 	availableModelInfosFromRegistry,
 	buildConfiguredModelRouting,
@@ -732,6 +732,27 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				...(mcpPermitted ? {} : { extensionsOverride: stripMcpExtensions }),
 			});
 			await (resourceLoader as { reload?: () => Promise<void> }).reload?.();
+		}
+		// G2 degraded-enforcement warning (security-review follow-up): if the
+		// role is NOT MCP-permitted but the strip above could not be armed (SDK
+		// stopped exporting DefaultResourceLoader, or agentDir unresolvable),
+		// enforcement silently degrades to fail-open — surface it instead of
+		// letting a version drift quietly re-expose the parent's MCP servers.
+		const g2DegradationReason = g2EnforcementDegradationReason({
+			mcpPermitted,
+			resourceLoaderAvailable: Boolean(mod.DefaultResourceLoader && agentDir),
+		});
+		if (g2DegradationReason) {
+			appendEventFireAndForget(input.manifest.eventsPath, {
+				type: "task.mcp_enforcement_degraded",
+				runId: input.manifest.runId,
+				taskId: input.task.id,
+				message: `G2 MCP policy NOT enforced for role "${input.task.role ?? "unknown"}": pi SDK resource loader unavailable (${g2DegradationReason}) — this worker may inherit the parent's MCP servers.`,
+				data: {
+					role: input.task.role ?? null,
+					reason: g2DegradationReason,
+				},
+			});
 		}
 		const effectiveParentModel = resolveParentModelFromRegistry(input.modelRegistry, input.parentModel);
 		const modelRouting = buildConfiguredModelRouting({

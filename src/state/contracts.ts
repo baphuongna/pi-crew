@@ -249,6 +249,7 @@ export const TEAM_EVENT_TYPES = [
 	"task.retry_attempt",
 	"task.budget_fair_share",
 	"task.model_dropped",
+	"task.mcp_enforcement_degraded",
 	"task.output_validation",
 	"task.steer_queued",
 	"task.steer_dropped",

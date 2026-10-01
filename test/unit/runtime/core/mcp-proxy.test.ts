@@ -10,6 +10,10 @@
  * current implementation, which the config tests assert: when parent MCP tools
  * exist, the proxy falls back to letting the child self-discover MCP
  * (enableMcp: true) while still recording the discovered tool names.
+ *
+ * SDD-2 remediation round: `shareMcp` must now be EXPLICITLY `true` to
+ * enable anything — `undefined` denies (least-privilege hardening of the
+ * previously permissive dead-API default; see the "defaults" tests below).
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -17,6 +21,7 @@ import {
 	buildMcpProxyConfig,
 	buildMcpProxyFromSession,
 	discoverMcpToolNames,
+	g2EnforcementDegradationReason,
 	isMcpExtensionPath,
 	mcpPermittedForRole,
 	stripMcpExtensions,
@@ -45,9 +50,9 @@ test("discoverMcpToolNames: empty input yields empty output", () => {
 	assert.deepEqual(discoverMcpToolNames([]), []);
 });
 
-test("buildMcpProxyConfig: no parent tools → enableMcp true with empty proxies", () => {
-	const cfg = buildMcpProxyConfig({ parentMcpTools: [] });
-	assert.equal(cfg.enableMcp, true, "child self-discovers MCP when parent has none");
+test("buildMcpProxyConfig: no parent tools + explicit shareMcp → enableMcp true with empty proxies", () => {
+	const cfg = buildMcpProxyConfig({ parentMcpTools: [], shareMcp: true });
+	assert.equal(cfg.enableMcp, true, "opted-in child self-discovers MCP when parent has none");
 	assert.deepEqual(cfg.proxyTools, []);
 	assert.deepEqual(cfg.proxyToolNames, []);
 });
@@ -56,7 +61,7 @@ test("buildMcpProxyConfig: parent tools present → records names but defers dis
 	// Because createMcpProxyTools is a stub (returns []), the module keeps
 	// enableMcp: true so the child does not lose MCP access, while still
 	// surfacing the discovered parent tool names for metadata/tracking.
-	const cfg = buildMcpProxyConfig({ parentMcpTools: ["mcp__fs__read", "mcp__fs__write"] });
+	const cfg = buildMcpProxyConfig({ parentMcpTools: ["mcp__fs__read", "mcp__fs__write"], shareMcp: true });
 	assert.equal(cfg.enableMcp, true, "falls back to child self-discovery when proxies unavailable");
 	assert.deepEqual(cfg.proxyTools, []);
 	assert.deepEqual(cfg.proxyToolNames, ["mcp__fs__read", "mcp__fs__write"]);
@@ -75,19 +80,29 @@ test("buildMcpProxyConfig: shareMcp=false short-circuits to a fully-disabled MCP
 	assert.deepEqual(cfg.proxyToolNames, [], "sharing disabled → no proxy tool names recorded");
 });
 
-test("buildMcpProxyConfig: defaults — undefined parentMcpTools treated as none", () => {
+test("buildMcpProxyConfig: defaults — shareMcp undefined now DENIES (least-privilege hardening)", () => {
+	// Security-review follow-up (SDD-2 remediation): these helpers have no
+	// production call sites, and the old default (undefined shareMcp →
+	// permissive enableMcp:true) re-armed the exact G2 gap for any future
+	// caller that forgets the flag. Sharing must now be explicit.
 	const cfg = buildMcpProxyConfig({});
-	assert.equal(cfg.enableMcp, true);
+	assert.equal(cfg.enableMcp, false, "undefined shareMcp must not enable MCP discovery");
 	assert.deepEqual(cfg.proxyTools, []);
 	assert.deepEqual(cfg.proxyToolNames, []);
 });
 
 test("buildMcpProxyFromSession: integrates discovery + config from a live session's tool list", () => {
-	const cfg = buildMcpProxyFromSession(["bash", "mcp__github__pr", "edit", "mcp__slack__post"]);
+	const cfg = buildMcpProxyFromSession(["bash", "mcp__github__pr", "edit", "mcp__slack__post"], { shareMcp: true });
 	// Discovery filters to MCP names; config then records them.
 	assert.equal(cfg.enableMcp, true);
 	assert.deepEqual(cfg.proxyTools, []);
 	assert.deepEqual(cfg.proxyToolNames.sort(), ["mcp__github__pr", "mcp__slack__post"]);
+});
+
+test("buildMcpProxyFromSession: no options → DENIES (hardened default, security-review follow-up)", () => {
+	const cfg = buildMcpProxyFromSession(["bash", "mcp__github__pr"]);
+	assert.equal(cfg.enableMcp, false, "shareMcp must be explicit; undefined denies");
+	assert.deepEqual(cfg.proxyToolNames, []);
 });
 
 test("buildMcpProxyFromSession: shareMcp=false disables MCP entirely (ignores discovered parent MCP tools)", () => {
@@ -96,11 +111,33 @@ test("buildMcpProxyFromSession: shareMcp=false disables MCP entirely (ignores di
 	assert.deepEqual(cfg.proxyToolNames, []);
 });
 
-test("buildMcpProxyFromSession: session with no MCP tools yields empty config", () => {
-	const cfg = buildMcpProxyFromSession(["bash", "edit", "read"]);
+test("buildMcpProxyFromSession: session with no MCP tools (opted in) yields empty config", () => {
+	const cfg = buildMcpProxyFromSession(["bash", "edit", "read"], { shareMcp: true });
 	assert.equal(cfg.enableMcp, true);
 	assert.deepEqual(cfg.proxyTools, []);
 	assert.deepEqual(cfg.proxyToolNames, []);
+});
+
+test("g2EnforcementDegradationReason: flags fail-open only for non-permitted roles without a loader", () => {
+	// Security-review follow-up (SDD-2 remediation): when the pi SDK stops
+	// exporting DefaultResourceLoader (version drift) or the agent dir is
+	// unresolvable, the extensionsOverride strip silently degrades to
+	// fail-open — the caller must be able to detect and REPORT that.
+	assert.equal(
+		g2EnforcementDegradationReason({ mcpPermitted: false, resourceLoaderAvailable: false }),
+		"sdk_loader_missing",
+		"non-permitted role + no loader → degradation reason",
+	);
+	assert.equal(
+		g2EnforcementDegradationReason({ mcpPermitted: false, resourceLoaderAvailable: true }),
+		undefined,
+		"loader present → strip is armed, no degradation",
+	);
+	assert.equal(
+		g2EnforcementDegradationReason({ mcpPermitted: true, resourceLoaderAvailable: false }),
+		undefined,
+		"permitted role needs no strip, missing loader is not a G2 degradation",
+	);
 });
 
 test("mcpPermittedForRole: write-capable roles are MCP-permitted, read-only/unknown/undefined are denied", () => {

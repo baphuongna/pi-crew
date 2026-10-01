@@ -37,16 +37,23 @@ export interface McpProxyConfig {
  * Build MCP proxy configuration for a live-session worker.
  *
  * @param options.parentMcpTools — MCP tool names from the parent session (if available)
- * @param options.shareMcp — Whether to share MCP connections (default: true)
+ * @param options.shareMcp — Whether to share MCP connections. MUST be explicit:
+ *   `true` enables the discovery/proxy paths below; `false` or `undefined`
+ *   denies (security-review follow-up, SDD-2 remediation — the old
+ *   undefined-default fell through to the permissive enable paths).
  */
 export function buildMcpProxyConfig(options: { parentMcpTools?: string[]; shareMcp?: boolean }): McpProxyConfig {
-	if (options.shareMcp === false) {
-		// G2 (SDD-2 W-B): least-privilege contract. shareMcp=false means the
-		// role is NOT permitted to use MCP — the child must not discover the
-		// parent's MCP servers AT ALL. The pre-flip behavior returned
-		// enableMcp:true here (flag inversion, enshrined by the old tests),
-		// which let even read-only roles self-discover every parent MCP
-		// server (with credentials) — an active least-privilege gap.
+	if (options.shareMcp !== true) {
+		// G2 (SDD-2 W-B) + remediation hardening: least-privilege contract.
+		// shareMcp must be explicitly opted in — anything else (false OR
+		// undefined) means the child must not discover the parent's MCP
+		// servers AT ALL. The pre-flip behavior returned enableMcp:true for
+		// shareMcp:false (flag inversion), and the pre-hardening default let
+		// an OMITTED flag fall through to the permissive paths — either way
+		// even read-only roles self-discovered every parent MCP server (with
+		// credentials). These helpers currently have no production call
+		// sites; the hardened default exists so a future caller cannot
+		// re-open the gap by forgetting the flag.
 		return { enableMcp: false, proxyTools: [], proxyToolNames: [] };
 	}
 
@@ -136,10 +143,35 @@ export function mcpPermittedForRole(role: string | undefined): boolean {
  *   docs name `pi-mcp-adapter` as the canonical replacer (docs/mcp.md:
  *   "replaces the built-in MCP support"). Both must be dropped to actually
  *   deny MCP; a path-segment match keeps npm-installed and file-path forms.
+ *
+ * KNOWN LIMITATION (security-review follow-up): this is a NAME-based
+ * denylist. A third-party MCP adapter that registers `/mcp` under a
+ * different name is NOT stripped and would re-enable discovery for
+ * non-permitted roles on the live-session path. An allowlist-shaped
+ * extension filter is the root fix — tracked as a follow-up work item
+ * (SDD-2 §13, G2 hardening backlog).
  */
 export function isMcpExtensionPath(extensionPath: string): boolean {
 	if (extensionPath === "builtin:mcp") return true;
 	return extensionPath.includes("pi-mcp-adapter");
+}
+
+/**
+ * G2 enforcement-degradation detector (security-review follow-up): the
+ * live-session runtime enforces the role MCP policy by stripping MCP
+ * extensions through `DefaultResourceLoader`'s `extensionsOverride` hook.
+ * If the SDK stops exporting `DefaultResourceLoader` (version drift) or the
+ * agent dir cannot be resolved, that strip silently degrades to fail-open
+ * and a non-permitted role would re-inherit every parent MCP server with
+ * no diagnostic. Callers should emit a warning event when this returns a
+ * reason instead of `undefined`.
+ */
+export function g2EnforcementDegradationReason(input: {
+	mcpPermitted: boolean;
+	resourceLoaderAvailable: boolean;
+}): "sdk_loader_missing" | undefined {
+	if (input.mcpPermitted) return undefined;
+	return input.resourceLoaderAvailable ? undefined : "sdk_loader_missing";
 }
 
 /** Structural stand-in for the SDK's `LoadExtensionsResult` (loose typing —
