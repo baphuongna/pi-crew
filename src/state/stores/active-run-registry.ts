@@ -16,6 +16,12 @@ const BINARY_MAGIC = Buffer.from("PICREW2BIN", "utf-8");
 /** Binary format version for forward compatibility. */
 const BINARY_VERSION = 1;
 
+/** Staleness horizon (2.19 / FIX Issue 2): entries — non-async ones, and async
+ * ones guarding against PID reuse — whose manifest last write is older than
+ * this are filtered as not alive. Exported so resume-liveness consumers
+ * (team-tool.ts) share the exact horizon instead of mirroring a copy. */
+export const ACTIVE_RUN_STALE_MS = 30 * 60_000;
+
 export interface ActiveRunRegistryEntry {
 	runId: string;
 	cwd: string;
@@ -334,16 +340,17 @@ function filterAliveEntries(entries: ActiveRunRegistryEntry[]): {
 					if (code !== "ESRCH" && code !== "ENOENT") return false;
 					return false;
 				}
-				// FIX Issue 2: Async runs older than 30 min are stale even if PID is alive.
-				// This guards against PID reuse after the original process exits.
+				// FIX Issue 2: Async runs older than the staleness horizon are stale even if
+				// PID is alive. This guards against PID reuse after the original process exits.
 				const updatedAt = typeof raw.updatedAt === "string" ? Date.parse(raw.updatedAt) : NaN;
-				if (Number.isFinite(updatedAt) && Date.now() - updatedAt > 30 * 60 * 1000) return false;
+				if (Number.isFinite(updatedAt) && Date.now() - updatedAt > ACTIVE_RUN_STALE_MS) return false;
 			}
-			// 2.19 — Stale non-async run: live-session/scaffold runs older than 30 min
-			// Without this, test runs that crash/leak would stay in the registry forever.
+			// 2.19 — Stale non-async run: live-session/scaffold runs older than the
+			// staleness horizon. Without this, test runs that crash/leak would stay in
+			// the registry forever.
 			if (!raw.async) {
 				const updatedAt = typeof raw.updatedAt === "string" ? Date.parse(raw.updatedAt) : NaN;
-				if (Number.isFinite(updatedAt) && Date.now() - updatedAt > 30 * 60 * 1000) return false;
+				if (Number.isFinite(updatedAt) && Date.now() - updatedAt > ACTIVE_RUN_STALE_MS) return false;
 			}
 		} catch {
 			return false;

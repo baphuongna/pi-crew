@@ -297,7 +297,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 	const capController = new AbortController();
 	// G13: combine the caller's signal with the cap controller so EITHER source
 	// (external abort OR cap trip) reaches runWorker and ctx.signal consumers.
-	// AbortSignal.any is available since Node 20.3 (project requires Node 20+);
+	// AbortSignal.any is available since Node 20.3 (project requires Node 22+);
 	// an already-aborted input yields an already-aborted combined signal.
 	const ctxSignal = AbortSignal.any([opts.signal, capController.signal]);
 	// round-18 P2-3: agent invocation counter. Hydrated from a resumed checkpoint so a

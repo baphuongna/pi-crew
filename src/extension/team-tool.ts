@@ -14,7 +14,7 @@ import { withRunLock } from "../state/coordination/locks.ts";
 import { replayPendingMailboxMessages } from "../state/coordination/mailbox.ts";
 import { isTaskClaimExpired } from "../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../state/event-log/event-log.ts";
-import { activeRunEntries, registerActiveRun, unregisterActiveRun } from "../state/stores/active-run-registry.ts";
+import { ACTIVE_RUN_STALE_MS, activeRunEntries, registerActiveRun, unregisterActiveRun } from "../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -319,11 +319,6 @@ async function recoverCheckpointedTasks(
 	return { manifest: nextManifest, tasks: nextTasks, recovered };
 }
 
-/** Mirror of the registry's staleness horizon (active-run-registry.ts
- * filterAliveEntries): a manifest whose last write is older than this is
- * treated as crashed, not live, so resume stays available. */
-const RESUME_LIVENESS_STALE_MS = 30 * 60_000;
-
 /** PID liveness probe — same semantics as filterAliveEntries: only ESRCH/ENOENT
  * mean "process does not exist"; EPERM means alive in another security context. */
 function isPidAliveForResume(pid: number): boolean {
@@ -344,7 +339,13 @@ function isPidAliveForResume(pid: number): boolean {
  * Three independent signals (any one ⇒ live):
  * 1. active-run-registry entry (activeRunEntries already applies the full
  *    filter: terminal status, dead async PID, >30-min staleness);
- * 2. a running task holding an UNEXPIRED worker claim (task-claims lease);
+ * 2. a running task holding a PRESENT, UNEXPIRED worker claim (task-claims
+ *    lease). Review fix 2026-10-01 (MAJOR): the claim must EXIST — coalesced
+ *    dispatch (run-coalesced-task-group.ts) and the task-graph scheduler mark
+ *    tasks running WITHOUT claims, so counting claim-less running tasks as
+ *    live permanently refused resume of crashed coalesced runs (with a
+ *    misleading "until undefined" message). Runs dispatched by real engines
+ *    carry the registry (signal 1) / async-PID (signal 3) liveness instead;
  * 3. the manifest's detached async PID is alive and the manifest is fresh
  *    (covers goal-loop/DWF background runs whose registry entry was pruned).
  * Terminal runs (completed/failed/cancelled) never count as live via signal 3
@@ -359,7 +360,12 @@ function resumeLivenessRefusal(manifest: TeamRunManifest, tasks: TeamTaskState[]
 			"force:true bypasses OWNERSHIP checks only — it can never bypass this liveness check.",
 		].join("\n");
 	}
-	const claimed = tasks.find((task) => task.status === "running" && !isTaskClaimExpired(task.claim));
+	const claimed = tasks.find(
+		// Review fix 2026-10-01 (MAJOR): require the claim to EXIST — see the
+		// signal-2 note above (claim-less running tasks come from coalesced
+		// dispatch / scheduler markings and must not read as permanently live).
+		(task) => task.status === "running" && task.claim !== undefined && !isTaskClaimExpired(task.claim),
+	);
 	if (claimed) {
 		return [
 			`Run ${runId} is still live (task '${claimed.id}' holds an unexpired worker claim until ${claimed.claim?.leasedUntil}) — resume refused to prevent double-dispatch.`,
@@ -377,7 +383,9 @@ function resumeLivenessRefusal(manifest: TeamRunManifest, tasks: TeamTaskState[]
 		manifest.status !== "cancelled"
 	) {
 		const updatedAt = Date.parse(manifest.updatedAt);
-		const fresh = Number.isFinite(updatedAt) && Date.now() - updatedAt <= RESUME_LIVENESS_STALE_MS;
+		// NIT 1 fix: shared registry constant — the resume horizon can never drift
+		// from filterAliveEntries' staleness horizon.
+		const fresh = Number.isFinite(updatedAt) && Date.now() - updatedAt <= ACTIVE_RUN_STALE_MS;
 		if (fresh && isPidAliveForResume(pid)) {
 			return [
 				`Run ${runId} is still live (background process PID ${pid} is alive) — resume refused to prevent double-dispatch.`,
@@ -512,7 +520,7 @@ async function resumeDynamicWorkflowRun(
 /** G11 (SDD-3 W-C WI-2): resume arm for runKind="goal-loop" — mirrors the
  * background-runner.ts goal-loop short-circuit (:492): hydrate GoalLoopState,
  * continue the loop via runGoalLoop, map the goal outcome to a run status. */
-async function resumeGoalLoopRun(ctx: TeamContext, manifest: TeamRunManifest): Promise<PiTeamsToolResult> {
+async function resumeGoalLoopRun(params: TeamToolParamsValue, ctx: TeamContext, manifest: TeamRunManifest): Promise<PiTeamsToolResult> {
 	// Check the goal state BEFORE adoption: a missing GoalLoopState is not
 	// resumable at all, so the run must be left untouched (no ownership flip,
 	// no status change) for a clearer retry story.
@@ -531,7 +539,10 @@ async function resumeGoalLoopRun(ctx: TeamContext, manifest: TeamRunManifest): P
 	// LAZY: the runner import stays after the state check for fast failure.
 	const { runGoalLoop } = await import("../runtime/goal-workflow/goal-loop-runner.ts");
 	registerActiveRun(adopted);
-	const goalDeadline = resolveRunDeadline(ctx, {});
+	// CORE-8 mirror (review MINOR 4): honor params.timeoutMs like the DWF arm —
+	// previously this arm resolved the deadline with {} and silently ignored the
+	// caller's timeout override.
+	const goalDeadline = resolveRunDeadline(ctx, params);
 	try {
 		const goalResult = await runGoalLoop({
 			goalState,
@@ -572,6 +583,23 @@ async function resumeGoalLoopRun(ctx: TeamContext, manifest: TeamRunManifest): P
 				artifactsRoot: finalManifest.artifactsRoot,
 			},
 			runStatus === "failed",
+		);
+	} catch (runnerError) {
+		// Round-11 runtime-fix mirror (DWF arm + review MINOR 1): persist the
+		// failure instead of leaving the adopted manifest stuck at
+		// status:"running" with a live registry entry until the stale horizon.
+		const failureReason = runnerError instanceof Error ? runnerError.message : String(runnerError);
+		const failedManifest = {
+			...adopted,
+			status: "failed" as const,
+			summary: `Goal-loop resume failed: ${failureReason}`.slice(0, 2000),
+			updatedAt: new Date().toISOString(),
+		};
+		await saveRunManifestAsync(failedManifest);
+		return result(
+			`Goal-loop run ${failedManifest.runId} resume failed: ${failureReason}`,
+			{ action: "resume", status: "error", runId: failedManifest.runId, artifactsRoot: failedManifest.artifactsRoot },
+			true,
 		);
 	} finally {
 		unregisterActiveRun(adopted.runId);
@@ -635,7 +663,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		return await resumeDynamicWorkflowRun(params, ctx, loaded.manifest);
 	}
 	if (resumeRunKind === "goal-loop") {
-		return await resumeGoalLoopRun(ctx, loaded.manifest);
+		return await resumeGoalLoopRun(params, ctx, loaded.manifest);
 	}
 	const agents = allAgents(discoverAgents(ctx.cwd));
 	const direct = directTeamAndWorkflowFromRun(loaded.manifest, loaded.tasks, agents);
@@ -662,6 +690,18 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		const fresh = loadRunManifestById(runCwd, loaded.manifest.runId);
 		const lockedManifest = fresh?.manifest ?? loaded.manifest;
 		const lockedTasks = fresh?.tasks ?? loaded.tasks;
+		// F1 (2026-10-01 security review): the PRE-lock liveness gate raced
+		// concurrent dispatch — between the pre-lock load and this lock acquisition
+		// another session may have adopted and REGISTERED the run. Re-check
+		// liveness against the LOCKED state before any recovery/reset mutation;
+		// force:true still never bypasses liveness (G12 principle).
+		const lockedLiveness = resumeLivenessRefusal(lockedManifest, lockedTasks);
+		if (lockedLiveness) {
+			return {
+				kind: "blocked" as const,
+				payload: result(lockedLiveness, { action: "resume", status: "error", runId: lockedManifest.runId }, true),
+			};
+		}
 		const loadedConfig = loadConfig(ctx.cwd);
 		const recovered = await recoverCheckpointedTasks(lockedManifest, lockedTasks);
 		const resumeManifest = recovered.manifest;
@@ -782,10 +822,28 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			});
 		const executeWorkers = runtime.kind !== "scaffold";
 		const resumeSkillOverride = normalizeSkillOverride(params.skill) ?? runtimeManifest.skillOverride;
-
+		// F1 (2026-10-01 security review): adopt running + REGISTER in the
+		// cross-process active-run registry INSIDE the lock, mirroring run.ts
+		// dispatch (:388) and adoptSpecialKindRunForResume. The static path
+		// previously never registered, so during foreground executeTeamRun (which
+		// runs OUTSIDE the lock) a concurrent resume saw NO cross-process liveness
+		// signal until the first task claim appeared — the double-dispatch window
+		// (even with force:true). Terminal finalize unregisters (updateRunStatus →
+		// unregisterActiveRun); a resume that crashes mid-execution ages out via
+		// the registry's staleness horizon. registerActiveRun throwing here (a
+		// raced external cancel flipped the disk manifest terminal) is intentional
+		// fail-safe: the other writer won the race, so we must not dispatch.
+		const executingManifest = updateRunStatus(
+			runtimeManifest,
+			"running",
+			`Resuming run (adopted by session ${ctx.sessionId ?? "unknown"}).`,
+			// Finding 8 write guard: resume is the legitimate terminal-exit flow.
+			{ allowTerminalExit: true },
+		);
+		registerActiveRun(executingManifest);
 		return {
 			kind: "execute" as const,
-			runtimeManifest,
+			runtimeManifest: executingManifest,
 			resetTasks,
 			executeWorkers,
 			resumeSkillOverride,

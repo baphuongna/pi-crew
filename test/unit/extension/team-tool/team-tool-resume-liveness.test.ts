@@ -18,7 +18,8 @@ import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
 import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
-import { registerActiveRun, unregisterActiveRun } from "../../../../src/state/stores/active-run-registry.ts";
+import { withRunLock } from "../../../../src/state/coordination/locks.ts";
+import { activeRunEntries, registerActiveRun, unregisterActiveRun } from "../../../../src/state/stores/active-run-registry.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 
@@ -203,6 +204,148 @@ test("G4: forced resume of a DEAD foreign run succeeds and records a security ev
 			assert.equal(forcedEvents[0]?.data?.forcingSessionId, "session-intruder");
 			assert.equal(forcedEvents[0]?.data?.action, "resume");
 		} finally {
+			rmCwd(cwd);
+		}
+	});
+});
+
+test("review MAJOR: crashed coalesced run (running task WITHOUT claim) stays resumable", async () => {
+	await withIsolatedHome(async () => {
+		const cwd = fs.mkdtempSync(path.join(realTmp, "pi-crew-resume-coalesced-"));
+		fs.mkdirSync(path.join(cwd, ".crew"));
+		try {
+			const runId = await seedCompletedRun(cwd, "session-owner");
+			const loaded = loadRunManifestById(cwd, runId);
+			assert.ok(loaded, "seeded run must be loadable");
+
+			// Simulate a crashed COALESCED dispatch: run-coalesced-task-group.ts marks
+			// tasks running WITHOUT claims (no task-claims lease is written), then the
+			// process dies mid-run. The crashed run must stay resumable — its liveness
+			// is carried by the registry/PID signals, not by a claim-less task status.
+			const crashedTasks: TeamTaskState[] = loaded.tasks.map((task, index) =>
+				index === 0 ? { ...task, status: "running" as const, claim: undefined } : task,
+			);
+			saveRunTasks(loaded.manifest, crashedTasks);
+
+			const resumed = await handleTeamTool({ action: "resume", runId }, { cwd, sessionId: "session-owner" });
+			assert.equal(
+				resumed.isError,
+				false,
+				`claim-less running task must NOT block resume of a crashed coalesced run: ${textFromToolResult(resumed)}`,
+			);
+			assert.doesNotMatch(textFromToolResult(resumed), /unexpired worker claim/);
+
+			// The stuck running task was reset and re-executed to completion.
+			const after = loadRunManifestById(cwd, runId);
+			assert.ok(after);
+			const rerun = after.tasks.find((task) => task.id === crashedTasks[0]?.id);
+			assert.ok(rerun);
+			assert.notEqual(rerun.status, "running", "the claim-less running task must have been reset and re-executed");
+		} finally {
+			rmCwd(cwd);
+		}
+	});
+});
+
+test("review F1: resume re-checks liveness INSIDE the run lock (adoption between pre-check and lock)", async () => {
+	await withIsolatedHome(async () => {
+		const cwd = fs.mkdtempSync(path.join(realTmp, "pi-crew-resume-inlock-"));
+		fs.mkdirSync(path.join(cwd, ".crew"));
+		let runId = "";
+		try {
+			runId = await seedCompletedRun(cwd, "session-owner");
+			const loaded = loadRunManifestById(cwd, runId);
+			assert.ok(loaded);
+
+			// Hold the run lock so the resume parks BETWEEN its pre-lock liveness
+			// check and its in-lock re-read.
+			let releaseTestLock!: () => void;
+			const testLock = withRunLock(
+				loaded.manifest,
+				() =>
+					new Promise<void>((resolve) => {
+						releaseTestLock = resolve;
+					}),
+			);
+
+			// The pre-lock liveness check runs (and passes — the run is still dead)
+			// while the manifest is untouched; the resume then blocks on our lock.
+			const resumePromise = handleTeamTool({ action: "resume", runId }, { cwd, sessionId: "session-owner" });
+			await new Promise((resolve) => setImmediate(resolve));
+			await new Promise((resolve) => setImmediate(resolve));
+
+			// A concurrent session adopts + registers the run while our resume waits
+			// on the lock — exactly the F1 TOCTOU window (pre-lock check passed, the
+			// run went live before the lock section's re-read).
+			const liveManifest = {
+				...loaded.manifest,
+				status: "running" as const,
+				updatedAt: new Date().toISOString(),
+			};
+			await saveRunManifestAsync(liveManifest, { allowTerminalExit: true });
+			registerActiveRun(liveManifest);
+
+			releaseTestLock();
+			await testLock;
+
+			const resumed = await resumePromise;
+			assert.equal(resumed.isError, true, "in-lock liveness re-check must refuse the concurrently-adopted run");
+			assert.match(textFromToolResult(resumed), /live/i);
+			const after = loadRunManifestById(cwd, runId);
+			assert.ok(after);
+			assert.equal(after.manifest.status, "running", "the live run must be untouched (no reset, no re-dispatch)");
+		} finally {
+			if (runId) unregisterActiveRun(runId);
+			rmCwd(cwd);
+		}
+	});
+});
+
+test("review F1: static resume registers in the active-run registry before dispatch — concurrent resume refused", async () => {
+	await withIsolatedHome(async () => {
+		const cwd = fs.mkdtempSync(path.join(realTmp, "pi-crew-resume-register-"));
+		fs.mkdirSync(path.join(cwd, ".crew"));
+		let runId = "";
+		try {
+			runId = await seedCompletedRun(cwd, "session-owner");
+
+			const first = handleTeamTool({ action: "resume", runId }, { cwd, sessionId: "session-owner" });
+			// The static path must register BEFORE executeTeamRun (which runs outside
+			// the lock) — poll the cross-process registry until the adopted entry is
+			// visible. Pre-fix HEAD never registered on the static path → timeout.
+			const deadline = Date.now() + 8_000;
+			let seen = false;
+			while (Date.now() < deadline) {
+				if (activeRunEntries().some((entry) => entry.runId === runId)) {
+					seen = true;
+					break;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 1));
+			}
+			assert.ok(seen, "static resume must register the run in the active-run registry before dispatch");
+
+			// Freeze the first resume mid-execution: hold the run lock its per-op
+			// merges / finalize need, so it cannot reach terminal while we probe.
+			const frozenManifest = loadRunManifestById(cwd, runId)!.manifest;
+			let releaseFreeze!: () => void;
+			const freeze = withRunLock(
+				frozenManifest,
+				() =>
+					new Promise<void>((resolve) => {
+						releaseFreeze = resolve;
+					}),
+			);
+
+			const second = await handleTeamTool({ action: "resume", runId }, { cwd, sessionId: "session-owner" });
+			assert.equal(second.isError, true, "concurrent resume while the first is executing must be refused");
+			assert.match(textFromToolResult(second), /live/i);
+
+			releaseFreeze();
+			await freeze;
+			const done = await first;
+			assert.equal(done.isError, false, `first resume must complete after the freeze lifts: ${textFromToolResult(done)}`);
+		} finally {
+			if (runId) unregisterActiveRun(runId);
 			rmCwd(cwd);
 		}
 	});
