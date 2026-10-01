@@ -12,7 +12,9 @@ import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
 import { replayPendingMailboxMessages } from "../state/coordination/mailbox.ts";
+import { isTaskClaimExpired } from "../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../state/event-log/event-log.ts";
+import { activeRunEntries } from "../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -315,12 +317,89 @@ async function recoverCheckpointedTasks(
 	return { manifest: nextManifest, tasks: nextTasks, recovered };
 }
 
+/** Mirror of the registry's staleness horizon (active-run-registry.ts
+ * filterAliveEntries): a manifest whose last write is older than this is
+ * treated as crashed, not live, so resume stays available. */
+const RESUME_LIVENESS_STALE_MS = 30 * 60_000;
+
+/** PID liveness probe — same semantics as filterAliveEntries: only ESRCH/ENOENT
+ * mean "process does not exist"; EPERM means alive in another security context. */
+function isPidAliveForResume(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		return code !== "ESRCH" && code !== "ENOENT";
+	}
+}
+
+/** G12 (SDD-3 W-C WI-1): liveness evidence for a run being resumed. Returns a
+ * human-readable refusal message when the run is LIVE, undefined when it is
+ * safe to resume. force:true bypasses OWNERSHIP, never LIVENESS — callers must
+ * refuse regardless of force when this returns a message.
+ *
+ * Three independent signals (any one ⇒ live):
+ * 1. active-run-registry entry (activeRunEntries already applies the full
+ *    filter: terminal status, dead async PID, >30-min staleness);
+ * 2. a running task holding an UNEXPIRED worker claim (task-claims lease);
+ * 3. the manifest's detached async PID is alive and the manifest is fresh
+ *    (covers goal-loop/DWF background runs whose registry entry was pruned).
+ * Terminal runs (completed/failed/cancelled) never count as live via signal 3
+ * — a lingering post-finalize PID must not block legitimate re-runs. */
+function resumeLivenessRefusal(manifest: TeamRunManifest, tasks: TeamTaskState[]): string | undefined {
+	const runId = manifest.runId;
+	const registryEntry = activeRunEntries().find((entry) => entry.runId === runId);
+	if (registryEntry) {
+		return [
+			`Run ${runId} is still live (active-run registry, last heartbeat ${registryEntry.updatedAt}) — resume refused to prevent double-dispatch.`,
+			`Current status: ${manifest.status}. Wait for it to finish, or cancel it first (team action=cancel runId=${runId}).`,
+			"force:true bypasses OWNERSHIP checks only — it can never bypass this liveness check.",
+		].join("\n");
+	}
+	const claimed = tasks.find((task) => task.status === "running" && !isTaskClaimExpired(task.claim));
+	if (claimed) {
+		return [
+			`Run ${runId} is still live (task '${claimed.id}' holds an unexpired worker claim until ${claimed.claim?.leasedUntil}) — resume refused to prevent double-dispatch.`,
+			`Current status: ${manifest.status}. Wait for the worker to finish, or cancel the run first (team action=cancel runId=${runId}).`,
+			"force:true bypasses OWNERSHIP checks only — it can never bypass this liveness check.",
+		].join("\n");
+	}
+	const pid = manifest.async?.pid;
+	if (
+		typeof pid === "number" &&
+		Number.isInteger(pid) &&
+		pid > 0 &&
+		manifest.status !== "completed" &&
+		manifest.status !== "failed" &&
+		manifest.status !== "cancelled"
+	) {
+		const updatedAt = Date.parse(manifest.updatedAt);
+		const fresh = Number.isFinite(updatedAt) && Date.now() - updatedAt <= RESUME_LIVENESS_STALE_MS;
+		if (fresh && isPidAliveForResume(pid)) {
+			return [
+				`Run ${runId} is still live (background process PID ${pid} is alive) — resume refused to prevent double-dispatch.`,
+				`Current status: ${manifest.status}. Wait for the background run to finish, or cancel it first (team action=cancel runId=${runId}).`,
+				"force:true bypasses OWNERSHIP checks only — it can never bypass this liveness check.",
+			].join("\n");
+		}
+	}
+	return undefined;
+}
+
 export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	if (!params.runId) return result("Resume requires runId.", { action: "resume", status: "error" }, true);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
 	if (!runCwd) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "resume", status: "error" }, true);
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "resume", status: "error" }, true);
+	// G12 (SDD-3 W-C WI-1): liveness-first gate — BEFORE the ownership check and
+	// BEFORE any reset/dispatch. executeTeamRun runs OUTSIDE the resume lock
+	// (LOCK-2 below), so a resume accepted against a live run double-dispatches
+	// workers (duplicate tokens + duplicate side effects). force:true bypasses
+	// OWNERSHIP only — never LIVENESS — so the refusal applies even when forced.
+	const liveness = resumeLivenessRefusal(loaded.manifest, loaded.tasks);
+	if (liveness) return result(liveness, { action: "resume", status: "error", runId: loaded.manifest.runId }, true);
 	// R1: foreign-ownership check — mirrors handleRetry/handleCancel. Without it,
 	// another session can resume (and re-execute) a run it doesn't own, racing
 	// the owning session.
@@ -331,6 +410,24 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			{ action: "resume", status: "error", runId: loaded.manifest.runId },
 			true,
 		);
+	}
+	// G4 (SDD-3 W-C WI-1): force-on-foreign is an authorization override — liveness
+	// was already REFUSED above, so force only bypassed OWNERSHIP here. Record it
+	// as a security event (registered in TEAM_EVENT_TYPES) so cross-session forced
+	// resumes are auditable; never silent.
+	if (foreignRun && params.force) {
+		await appendEventAsync(loaded.manifest.eventsPath, {
+			type: "run.resume_forced_foreign",
+			runId: loaded.manifest.runId,
+			message: `Foreign run ${loaded.manifest.runId} force-resumed by session ${ctx.sessionId} (owner ${loaded.manifest.ownerSessionId}).`,
+			data: {
+				action: "resume",
+				forced: true,
+				ownerSessionId: loaded.manifest.ownerSessionId,
+				forcingSessionId: ctx.sessionId,
+				runStatus: loaded.manifest.status,
+			},
+		});
 	}
 	if (!loaded.manifest.workflow)
 		return result(`Run '${params.runId}' has no workflow to resume.`, { action: "resume", status: "error" }, true);

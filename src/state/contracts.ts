@@ -231,6 +231,10 @@ export const TEAM_EVENT_TYPES = [
 	"run.forget_requested",
 	"run.goal_achievement",
 	"run.resume_requested",
+	// SDD-3 W-C G4 (team-tool.ts handleResume): forced resume of a FOREIGN-owned
+	// run — ownership was bypassed with force:true (liveness was NOT bypassable;
+	// live runs are refused before this event can fire). Security-audit trace.
+	"run.resume_forced_foreign",
 	// Runtime/surface resolution
 	"runtime.resolved",
 	"surface.degraded",
