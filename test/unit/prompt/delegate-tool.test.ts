@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { ExtensionContext } from "../../../src/extension/pi-api.ts";
+import type { ExtensionToolContext } from "../../../src/extension/pi-api.ts";
 import type { AskBrokerClientSurface } from "../../../src/prompt/prompt-runtime.ts";
 import {
 	createDelegateTool,
@@ -72,7 +72,7 @@ async function runDelegate(
 	tool: DelegateToolDefinition,
 	params: { prompt: string; role?: "explorer" | "analyst" | "executor"; timeoutSec?: number },
 ) {
-	return tool.execute("tc-1", params, undefined, undefined, undefined as unknown as ExtensionContext);
+	return tool.execute("tc-1", params, undefined, undefined, undefined as unknown as ExtensionToolContext);
 }
 
 function resultText(result: { content: Array<{ type: string; text?: string }> }): string {

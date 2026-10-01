@@ -21,7 +21,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import type { ExtensionContext } from "../../src/extension/pi-api.ts";
+import type { ExtensionToolContext } from "../../src/extension/pi-api.ts";
 import { handleTeamTool } from "../../src/extension/team-tool.ts";
 import { createDelegateTool, type DelegateToolDefinition } from "../../src/prompt/prompt-runtime.ts";
 import { CrewBroker } from "../../src/runtime/broker/crew-broker.ts";
@@ -107,7 +107,7 @@ test("E2E roundtrip: delegate tool poll completes over the real broker + mailbox
 			{ prompt: "summarize the nested output", role: "explorer" },
 			undefined,
 			undefined,
-			undefined as unknown as ExtensionContext,
+			undefined as unknown as ExtensionToolContext,
 		);
 		assert.equal(res.details.status, "completed", `roundtrip must complete: ${JSON.stringify(res)}`);
 		assert.match(res.details.grandchildTaskRef ?? "", /^gc-/);
@@ -185,7 +185,7 @@ test("E2E roundtrip negated: poll with NO grandchild delivery times out (binding
 			{ prompt: "forever", role: "explorer", timeoutSec: 1 },
 			undefined,
 			undefined,
-			undefined as unknown as ExtensionContext,
+			undefined as unknown as ExtensionToolContext,
 		);
 		const waited = Date.now() - before;
 		assert.equal(res.details.status, "timed-out");

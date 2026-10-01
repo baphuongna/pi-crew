@@ -25,7 +25,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ExtensionContext } from "../../../src/extension/pi-api.ts";
+import type { ExtensionToolContext } from "../../../src/extension/pi-api.ts";
 import registerPiTeamsPromptRuntime, {
 	ASK_TIMED_OUT_RESULT,
 	type AskBrokerClientSurface,
@@ -113,7 +113,7 @@ function makeSpySurface(): { surface: AskBrokerClientSurface; called: () => numb
 }
 
 async function runAsk(tool: AskToolDefinition, params: { question: string; options?: string[]; timeoutSec?: number }) {
-	return tool.execute("tc-1", params, undefined, undefined, undefined as unknown as ExtensionContext);
+	return tool.execute("tc-1", params, undefined, undefined, undefined as unknown as ExtensionToolContext);
 }
 
 function resultText(result: { content: Array<{ type: string; text?: string }> }): string {
