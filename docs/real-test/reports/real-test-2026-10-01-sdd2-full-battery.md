@@ -52,7 +52,7 @@
 ## Restart needed?
 
 - [ ] No — session already on the new bundle
-- [x] **Yes — parent session must `/quit` + reopen to load `f28960e3…`** (cold-start sessions already proved the new bundle works). All cold-start battery evidence above is NEW-bundle evidence.
+- [x] **Yes → DONE 2026-10-01 (post-restart)**: user `/quit` + reopened; disk md5 `f28960e3…` unchanged; probe `team action='list'` clean (full teams/workflows/agents/runs, no `Unknown type`) → session confirmed on NEW bundle per T8 recipe. T4/T8 closed.
 
 ## Verdict
 
