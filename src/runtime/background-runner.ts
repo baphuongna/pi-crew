@@ -544,6 +544,9 @@ export async function executeBackgroundRun(
 				workflow: wf as import("../workflows/workflow-config.ts").DynamicWorkflowConfig,
 				signal,
 				tokenBudget: wf.maxTokenBudget,
+				// SDD-3 W-C G13: workflow-config override for the agent-call cap
+				// (unset → ctx default; a run is always bounded).
+				maxAgentCalls: wf.maxAgentCalls,
 			});
 			await saveRunManifestAsync(dwfResult.manifest);
 			earlyResult = dwfResult;

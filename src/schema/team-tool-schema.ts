@@ -376,6 +376,27 @@ const sharedFields = {
 			},
 		),
 	),
+	// SDD-3 W-C G13: agent-call cap for dynamic-workflow runs. A run is always
+	// bounded — unset falls back to DEFAULT_MAX_AGENT_CALLS (200) in the ctx;
+	// tripping the cap terminates the run with a structured reason instead of
+	// the blind 30-min script timeout. Same loose-numeric shape as tokenBudget.
+	maxAgentCalls: Type.Optional(
+		Type.Union(
+			[
+				Type.Literal(""),
+				Type.Number({
+					description:
+						"Cap on ctx.agent() invocations per dynamic-workflow run (steps ≡ agent calls). Default 200 when unset. Tripping the cap terminates the run with a structured agent-call-cap reason. Overrides workflow.maxAgentCalls.",
+					minimum: 1,
+				}),
+				Type.String({ pattern: NUMERIC_STRING_RE }),
+			],
+			{
+				description:
+					"Cap on ctx.agent() invocations per dynamic-workflow run (steps ≡ agent calls). Default 200 when unset. Tripping the cap terminates the run with a structured agent-call-cap reason. Overrides workflow.maxAgentCalls.",
+			},
+		),
+	),
 	args: Type.Optional(Type.Any()),
 	analysis: Type.Optional(
 		Type.String({
@@ -587,6 +608,10 @@ export interface TeamToolParamsValue {
 	runKind?: "team-run" | "goal-loop" | "dynamic-workflow";
 	/** Per-workflow token budget for dynamic-workflow runs (round-14 P1-2). */
 	tokenBudget?: number;
+	/** Cap on ctx.agent() invocations per dynamic-workflow run (SDD-3 W-C G13).
+	 *  Unset → DEFAULT_MAX_AGENT_CALLS (200); tripping the cap terminates the
+	 *  run with a structured agent-call-cap reason. */
+	maxAgentCalls?: number;
 	/** Typed workflow arguments for .dwf.ts scripts, accessible via ctx.args<T>() (round-14 P1-5). */
 	args?: unknown;
 	/** Inline analysis/context notes from the calling session. Persisted to

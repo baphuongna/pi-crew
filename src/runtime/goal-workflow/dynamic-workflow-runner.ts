@@ -55,6 +55,12 @@ export interface RunDynamicWorkflowInput {
 	modelOverride?: string;
 	/** round-14 P1-2: per-workflow token budget. Overrides workflow.maxTokenBudget. */
 	tokenBudget?: number;
+	/** SDD-3 W-C G13: cap on ctx.agent() invocations. Overrides
+	 *  workflow.maxAgentCalls; unset/invalid → DEFAULT_MAX_AGENT_CALLS.
+	 *  Accepts stringified numbers (schema Union numeric-string branch; the
+	 *  team-tool loose-numeric coercion list is owned by team-tool.ts, so this
+	 *  boundary coerces defensively). */
+	maxAgentCalls?: number | string;
 }
 
 export interface RunDynamicWorkflowResult {
@@ -152,6 +158,16 @@ async function loadWorkflowModule(scriptPath: string): Promise<DynamicWorkflowSc
 	return fn as DynamicWorkflowScript;
 }
 
+/** SDD-3 W-C G13: resolve the effective agent-call cap from the runner input /
+ *  workflow config. Accepts the schema's stringified-number form; anything
+ *  non-finite or < 1 falls back to the ctx default (DEFAULT_MAX_AGENT_CALLS). */
+function resolveMaxAgentCalls(value: number | string | undefined | null): number | undefined {
+	if (value === undefined || value === null || value === "") return undefined;
+	const n = typeof value === "number" ? value : Number(value);
+	if (!Number.isFinite(n) || n < 1) return undefined;
+	return Math.floor(n);
+}
+
 /**
  * Run the dynamic workflow script. Loads it, builds the ctx, executes, and returns
  * {manifest, tasks} with the manifest updated to a terminal status + result artifact.
@@ -216,6 +232,9 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		team: input.team,
 		modelOverride: input.modelOverride,
 		tokenBudget: input.tokenBudget ?? workflow.maxTokenBudget,
+		// SDD-3 W-C G13: explicit input wins over workflow config; both unset →
+		// ctx falls back to DEFAULT_MAX_AGENT_CALLS (a run is always bounded).
+		maxAgentCalls: resolveMaxAgentCalls(input.maxAgentCalls ?? workflow.maxAgentCalls),
 		args: manifest.args,
 		resumedState,
 		// round-18 P2-3: checkpoint after each ctx.agent() call so a crash between calls

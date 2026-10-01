@@ -170,6 +170,32 @@ if (ctx.budget.total !== null && ctx.budget.remaining() < 500) {
 }
 ```
 
+### Agent-call cap (SDD-3 W-C G13)
+
+Every dynamic workflow is bounded by a **maxAgentCalls cap** — the maximum number
+of `ctx.agent()` invocations per run (for DWF, steps ≡ agent calls: the loop
+lives inside your script, so each spawned agent IS a step). This closes the
+no-budget runaway gap where the only bounds were the semaphore (concurrency 4)
+and the blind 30-minute script timeout.
+
+- **Default: 200 calls** (`DEFAULT_MAX_AGENT_CALLS`) when nothing is configured —
+  a run is always bounded, even with no `tokenBudget`. 200 gives ≥5× headroom
+  over the largest real workflows (distill pipelines, adaptive plans use ~10-40).
+- Override via the run `maxAgentCalls` param or `workflow.maxAgentCalls`
+  (frontmatter/`DynamicWorkflowConfig`); values < 1 or non-numeric fall back to
+  the default.
+- The cap counts **every `ctx.agent()` invocation**, including cached replays
+  (PERS-1 hits) — a spin loop over the same prompt cannot bypass it.
+- **Tripping the cap terminates the run with a structured reason**, not a blind
+  timeout: `ctx.agent()` throws `DwfAgentCallCapError`
+  (`"dynamic workflow agent-call cap reached (N/N calls; …)"`), the ctx signal is
+  aborted (in-flight children are killed; `ctx.pipeline()` rethrows instead of
+  swallowing the error into a `null` item), a `dwf.log` event records the trip,
+  and the runner fails the run with a `dwf.failed` event carrying the reason.
+- Scripts that `catch` the cap error and keep looping will still make no further
+  spawns — every subsequent `ctx.agent()` re-trips the cap instantly (no cost).
+  Only the wall-clock script timeout bounds a deliberately-catching script.
+
 ### Typed args (round-14 P1-5)
 
 `ctx.args<T>()` returns typed workflow arguments (sourced from `manifest.args`,
@@ -214,6 +240,10 @@ script can reach `process`/`require` directly or via constructor walking. The
 - The path-allowlist (`resolveRealContainedPath`) limits **WHERE** scripts load from
   (`.crew/workflows/`, `<proj>/.pi/teams/workflows/`, `~/.pi/agent/extensions/pi-crew/workflows/`),
   not what they can do.
+- **Resource bound (SDD-3 G13):** agent dispatches are capped at
+  `maxAgentCalls` (default 200) even without a token budget — a runaway script
+  terminates with a structured cap reason instead of burning unbounded worker
+  spawns until the script timeout.
 - `isolated-vm` (real V8 isolate) is planned for **v1.5**.
 - **Only place `.dwf.ts` files you have reviewed** in `.crew/workflows/`.
 

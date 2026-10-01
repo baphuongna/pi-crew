@@ -59,6 +59,12 @@ export interface WorkflowConfig {
 	/** For runtime:"dynamic" — per-workflow token budget. When set, ctx.agent() auto-rejects with
 	 *  ok:false once exhausted. Accumulated from each agent run's reported usage. */
 	maxTokenBudget?: number;
+	/** SDD-3 W-C G13: for runtime:"dynamic" — cap on ctx.agent() invocations per
+	 *  run (new spawns AND cached replays). Unset → DEFAULT_MAX_AGENT_CALLS
+	 *  (dynamic-workflow-context.ts); a dynamic run is always bounded even
+	 *  without a token budget. Tripping the cap terminates the run with a
+	 *  structured DwfAgentCallCapError (dwf.failed), not the blind script timeout. */
+	maxAgentCalls?: number;
 	/** Explicit topology classification from frontmatter `topology:` field.
 	 *  When set, overrides the auto-classified topology in analyzeWorkflowTopology().
 	 *  Used by preflight-validator to enforce "don't use pi-crew for sequential chains".

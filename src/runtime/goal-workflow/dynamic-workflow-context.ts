@@ -32,6 +32,7 @@ import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { safeAbort } from "../../utils/safe-abort.ts";
 import { cleanupAgentWorktreeAsync, prepareAgentWorktreeAsync } from "../../worktree/worktree-manager.ts";
 import type { DwfCheckpointState } from "../dwf-state-store.ts";
 import { parsePiJsonOutput } from "../output/pi-json-output.ts";
@@ -100,6 +101,34 @@ export interface WorkflowBudget {
 	spent(): number;
 	/** Tokens remaining; Infinity when total is null. */
 	remaining(): number;
+}
+
+/** SDD-3 W-C G13: default cap on ctx.agent() invocations per DWF run.
+ *
+ * Rationale: the largest real workflows observed (distill pipelines, adaptive
+ * plans) use ~10-40 agent calls; 200 gives ≥5× headroom so a legitimate run
+ * never trips it. Cost-wise 200 calls × ~5k tokens/call bounds a no-budget run
+ * to roughly a million tokens — an explainable blast radius. For real spawns
+ * the 30-min script timeout usually binds first; this cap's job is the
+ * no-budget runaway class, which previously had NO bound on the number of
+ * spawned steps and died only via the blind timeout (upgrade plan §2 G13). */
+export const DEFAULT_MAX_AGENT_CALLS = 200;
+
+/** SDD-3 W-C G13: structured termination error thrown when the agent-call cap trips.
+ * Propagates out of ctx.agent() (and therefore out of the .dwf.ts script unless
+ * the script catches it) so the runner fails the run with a structured reason
+ * (dwf.failed) instead of waiting out the blind script timeout. */
+export class DwfAgentCallCapError extends Error {
+	/** Effective cap that was tripped. */
+	readonly limit: number;
+	/** Completed agent() invocations when the cap tripped. */
+	readonly used: number;
+	constructor(limit: number, used: number) {
+		super(`dynamic workflow agent-call cap reached (${used}/${limit} calls; raise the run's maxAgentCalls to allow more)`);
+		this.name = "DwfAgentCallCapError";
+		this.limit = limit;
+		this.used = used;
+	}
 }
 
 export interface WorkflowCtx {
@@ -181,6 +210,10 @@ export interface MakeWorkflowCtxOptions {
 	modelOverride?: string;
 	/** round-14 P1-2: per-workflow token budget. null/undefined = unbounded. */
 	tokenBudget?: number | null;
+	/** SDD-3 W-C G13: cap on ctx.agent() invocations (new spawns AND cached
+	 *  replays) per run. null/undefined = DEFAULT_MAX_AGENT_CALLS — a run is
+	 *  always bounded even with no tokenBudget configured. */
+	maxAgentCalls?: number | null;
 	/** round-14 P1-5: typed workflow arguments (sourced from manifest.args). Defaults to {}. */
 	args?: unknown;
 	/** round-18 P2-3: checkpoint state to hydrate ctx with on resume. When provided,
@@ -252,6 +285,20 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 	const concurrency = Math.max(1, opts.concurrency ?? 4);
 	const semaphore = new Semaphore(concurrency);
 	let finalResult: { artifactPath: string; meta?: Record<string, unknown> } | undefined;
+	// SDD-3 W-C G13: effective agent-call cap. Always ≥ 1 — omitting every knob
+	// still leaves the run bounded (default DEFAULT_MAX_AGENT_CALLS). A cap error
+	// aborts capController below so in-flight children are killed and pipeline()
+	// rethrows the cap error instead of swallowing it into a null item.
+	const maxAgentCalls =
+		typeof opts.maxAgentCalls === "number" && Number.isFinite(opts.maxAgentCalls) && opts.maxAgentCalls >= 1
+			? Math.floor(opts.maxAgentCalls)
+			: DEFAULT_MAX_AGENT_CALLS;
+	const capController = new AbortController();
+	// G13: combine the caller's signal with the cap controller so EITHER source
+	// (external abort OR cap trip) reaches runWorker and ctx.signal consumers.
+	// AbortSignal.any is available since Node 20.3 (project requires Node 20+);
+	// an already-aborted input yields an already-aborted combined signal.
+	const ctxSignal = AbortSignal.any([opts.signal, capController.signal]);
 	// round-18 P2-3: agent invocation counter. Hydrated from a resumed checkpoint so a
 	// resumed run keeps an accurate count; incremented in agent()'s finally block.
 	let agentCount = opts.resumedState ? opts.resumedState.agentCount : 0;
@@ -290,7 +337,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		cwd: manifest.cwd,
 		runId: manifest.runId,
 		goal: manifest.goal,
-		signal: opts.signal,
+		signal: ctxSignal,
 		semaphore,
 		async agent(call: AgentCallOpts): Promise<AgentResult> {
 			await semaphore.acquire();
@@ -303,6 +350,28 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			const ESTIMATE = 4096;
 			let reserved = false;
 			try {
+				// SDD-3 W-C G13: agent-call cap — the structured bound for no-budget runs.
+				// Checked BEFORE the PERS-1 cache lookup on purpose: cached replays are
+				// free but must still count, so a spin loop over the same prompt cannot
+				// bypass the cap (the default 200 leaves ≥5× headroom over the largest
+				// real workflows, so resume replays never trip it legitimately). Counts
+				// completed invocations; up to concurrency-1 extra calls may already be
+				// in flight when it trips (they are killed by the cap abort below).
+				if (agentCount >= maxAgentCalls) {
+					// Durable record (dwf.log is the registered workflow-log event type).
+					appendEvent(manifest.eventsPath, {
+						type: "dwf.log",
+						runId: manifest.runId,
+						data: {
+							message: `agent-call cap reached: ${agentCount}/${maxAgentCalls} — terminating workflow (raise maxAgentCalls to allow more)`,
+							limit: maxAgentCalls,
+							used: agentCount,
+						},
+					});
+					// Kill in-flight children + make pipeline()/gatherReplies() see the abort.
+					safeAbort(capController, "dwf-agent-call-cap");
+					throw new DwfAgentCallCapError(maxAgentCalls, agentCount);
+				}
 				// PERS-1: per-agent-call idempotency. Compute a deterministic call ID
 				// from the call arguments and check if this call was already completed
 				// (e.g. during a previous run before a crash). If so, return the cached
@@ -399,7 +468,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					skillPaths: undefined, // skills resolved via agent config + team-role plumbing
 					maxTurns: call.maxTurns,
 					graceTurns: call.graceTurns,
-					signal: opts.signal,
+					signal: ctxSignal,
 					artifactsRoot: manifest.artifactsRoot,
 					runId: manifest.runId,
 					role: call.role ?? call.agent,
@@ -469,6 +538,10 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			} catch (error) {
 				// BDG-2: un-reserve the estimate on failure (only if still reserved).
 				if (reserved) wfState.spent -= ESTIMATE;
+				// SDD-3 W-C G13: cap errors must TERMINATE the script with the
+				// structured reason — degrading to ok:false would let scripts (and the
+				// review()/retry()/pipeline fallbacks) swallow the cap and keep looping.
+				if (error instanceof DwfAgentCallCapError) throw error;
 				logInternalError("dynamic-workflow-context.agent", error, `runId=${manifest.runId}`);
 				return {
 					ok: false,
@@ -534,7 +607,9 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					try {
 						value = await stage(value as TResult, item, index);
 					} catch (error) {
-						if (opts.signal.aborted) throw error;
+						// G13: ctxSignal is aborted on cap trip — rethrow so the structured cap
+						// error terminates the workflow instead of degrading to a null item.
+						if (ctxSignal.aborted) throw error;
 						ctx.log(`pipeline[${index}] failed: ${error instanceof Error ? error.message : String(error)}`);
 						return null;
 					}
@@ -669,7 +744,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				const got = inbox.filter((m) => m.replyTo && messageIds.includes(m.replyTo));
 				if (got.length >= messageIds.length) return got;
 				await new Promise((r) => setTimeout(r, 500));
-				if (opts.signal.aborted) return inbox.filter((m) => m.replyTo && messageIds.includes(m.replyTo));
+				if (ctxSignal.aborted) return inbox.filter((m) => m.replyTo && messageIds.includes(m.replyTo));
 			}
 			return readMailbox(manifest, "inbox").filter((m) => m.replyTo && messageIds.includes(m.replyTo));
 		},
@@ -767,6 +842,12 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 		get: () => agentCount,
 		enumerable: false,
 	});
+	// SDD-3 W-C G13: effective run limits are read-only from the runner (mirrors
+	// __agentCount). Exposed so getWorkflowLimits() can report the effective cap.
+	Object.defineProperty(ctx, "__limits", {
+		get: () => ({ maxAgentCalls }),
+		enumerable: false,
+	});
 	// PERS-1: completedAgentCalls is read-only from the runner; the agent() method
 	// is the only writer. Exposed so getWorkflowCheckpoint() can include it.
 	Object.defineProperty(ctx, "__completedAgentCalls", {
@@ -804,6 +885,13 @@ export function getWorkflowPhaseState(ctx: WorkflowCtx): { currentPhase: string 
  *  Capped at 1000 entries — the events log (dwf.log) is the durable source of truth. */
 export function getWorkflowLogs(ctx: WorkflowCtx): string[] | undefined {
 	return (ctx as unknown as { __logs?: string[] }).__logs;
+}
+
+/** SDD-3 W-C G13: read the effective run limits (runner-only; not part of the public
+ *  ctx surface). Mirrors getWorkflowFinalResult/getWorkflowPhaseState — exposed for
+ *  tests and diagnostics so the default cap is observable without dispatching calls. */
+export function getWorkflowLimits(ctx: WorkflowCtx): { maxAgentCalls: number } | undefined {
+	return (ctx as unknown as { __limits?: { maxAgentCalls: number } }).__limits;
 }
 
 /** round-18 P2-3: snapshot the current DWF checkpoint state (runner-only; not part of the public
