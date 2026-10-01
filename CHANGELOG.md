@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### feat(perf): GH-059 — `--ascii` mode for analyze-run perf reports (glyph-free)
+
+- `scripts/analyze-run.mjs` gains an opt-in `--ascii` flag (or `PI_CREW_ASCII=1` env) that renders perf reports free of emoji/dingbats for vault-lint-strict Markdown consumers (issue #59). Post-process sweep at the two md write sites covers BOTH outputs — `docs/perf/perf-report-<runId>.md` and the per-agent drill-downs `bench/results/<runId>.agents/<taskId>.md` (the latter missed by the issue's own repro). Substitutions: composite sevLabels → `CRITICAL/ERROR/BLOCKED/RETRY/WARN`, duration-anchored slow markers → `[SLOW]` (timeline cells, bottleneck table, legend, header), `⚠️` → `[WARN]`, severity circles → `(!)/(~)/(i)`, `✅/❌/✓` → `[OK]/[FAIL]/[ok]`, decorative heading emoji dropped. VS16-sequence-aware (`⚠️`/`⏱️` matched as base+U+FE0F, never bare codepoint) plus a variation-selector/ZWJ safety net — leftover U+FE0F bytes are themselves inside the consumer lint ranges and would still fail their gate. Default output unchanged (regression-locked by test). JSON/CSV outputs were already glyph-free and are untouched. Spec: `docs/specs/GH-059-ascii-flag.md`; pinned by 4 new cases in `test/unit/scripts/analyze-run-audit.test.ts` (ascii-clean both outputs, per-agent model-attempt markers, default-keeps-emoji, env-gate).
+
 ## [0.11.5] — Phase A + Buổi 1 quick wins: G1 fence, NEW-1 data-loss, G18 breakdown, Node-24 matrix (2026-09-30)
 
 ### fix(security): G1 — sanitize the dependency-output fence body (mirror ADR-5 seams)

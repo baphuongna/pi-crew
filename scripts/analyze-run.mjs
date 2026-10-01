@@ -13,6 +13,7 @@
  *
  * Output:
  *   docs/perf/perf-report-<runId>.md — báo cáo tiếng Việt, bảng + 🔴 highlight
+ *   (opt-in --ascii / PI_CREW_ASCII=1: glyph-free ASCII markers — GH-059)
  *   bench/results/<runId>.json    — structured JSON
  */
 
@@ -22,25 +23,28 @@ import { createInterface } from "node:readline";
 
 // ---------- CLI ----------
 function parseArgs(argv) {
-	const args = { runId: null, crewRoot: null, resources: null, events: false, agents: false };
+	const args = { runId: null, crewRoot: null, resources: null, events: false, agents: false, ascii: false };
 	for (let i = 2; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--crew-root") args.crewRoot = argv[++i];
 		else if (a === "--resources") args.resources = argv[++i];
 		else if (a === "--events") args.events = true;
 		else if (a === "--agents") args.agents = true;
+		else if (a === "--ascii") args.ascii = true;
 		else if (a === "-h" || a === "--help") {
-			process.stderr.write("Usage: analyze-run.mjs <runId> [--crew-root <path>] [--resources <path>] [--events]\n");
+			process.stderr.write("Usage: analyze-run.mjs <runId> [--crew-root <path>] [--resources <path>] [--events] [--agents] [--ascii]\n");
 			process.exit(0);
 		} else if (!a.startsWith("--")) {
 			args.runId = a;
 		}
 	}
 	if (!args.runId) {
-		process.stderr.write("Error: runId required.\nUsage: analyze-run.mjs <runId> [--crew-root <path>]\n");
+		process.stderr.write("Error: runId required.\nUsage: analyze-run.mjs <runId> [--crew-root <path>] [--events] [--agents] [--ascii]\n");
 		process.exit(1);
 	}
 	args.crewRoot = args.crewRoot || join(process.env.HOME || "/home/bom", ".crew");
+	// --ascii can also come from the environment (CI / vault workflows)
+	args.ascii = args.ascii || process.env.PI_CREW_ASCII === "1";
 	return args;
 }
 
@@ -56,6 +60,47 @@ const fmtMs = (n) => {
 };
 const money = (n) => (n ? `$${n.toFixed(4)}` : "$0");
 const esc = (s) => String(s ?? "").replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 80);
+
+// ---------- ASCII mode (--ascii / PI_CREW_ASCII=1) — issue #59, spec GH-059 ----------
+// Post-process sweep over the FINAL markdown string, applied at the md write
+// sites only (JSON/CSV outputs are already glyph-free). ORDER MATTERS:
+// composite labels and duration-anchored slow markers first, VS16 sequences
+// (⚠️/⏱️ = base + U+FE0F) before bare codepoints, variation-selector/ZWJ
+// safety net LAST — a leftover U+FE0F is itself inside the consumer lint
+// ranges (U+FE00-FE0F), so partial matches would still fail their gate.
+const ASCII_RULES = [
+	// composite severity labels (sevLabel) — per-glyph would render "(!)(!)"
+	[/🔴🔴 Nghiêm trọng/g, "CRITICAL"],
+	[/🔴 Lỗi/g, "ERROR"],
+	[/🟡 Blocked/g, "BLOCKED"],
+	[/🟡 Retry/g, "RETRY"],
+	[/⚪ Warning/g, "WARN"],
+	// slow-phase markers: duration-formatted values followed by 🔴 (timeline
+	// cells "626.3s 🔴", bottlenecks "**626.3s** 🔴") + legend/table header
+	[/(\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s|\d+m\d+s) 🔴/g, "$1 [SLOW]"],
+	[/🔴 = phase vượt/g, "[SLOW] = phase vượt"],
+	[/🔴>30s/g, "[SLOW]>30s"],
+	// VS16 sequences — MUST match the full sequence, never the bare codepoint
+	[/⚠️/g, "[WARN]"],
+	[/⏱️/g, ""],
+	// semantic markers
+	[/🔴/g, "(!)"],
+	[/🟡/g, "(~)"],
+	[/🔵/g, "(i)"],
+	[/⚪/g, "(~)"],
+	[/✅/g, "[OK]"],
+	[/❌/g, "[FAIL]"],
+	[/✓/g, "[ok]"],
+	// decorative heading emoji — dropped
+	[/[📋💰🐌🚨📊💡📈⚡🔍]/gu, ""],
+	// safety net: leftover variation selectors / ZWJ
+	[/[\uFE00-\uFE0F\u200D]/g, ""],
+];
+function toAscii(md) {
+	const out = ASCII_RULES.reduce((s, [re, rep]) => s.replace(re, rep), md);
+	// collapse the double space left by dropped heading emoji ("## 📋 X" → "##  X")
+	return out.replace(/^(#+)[ \t]+/gm, "$1 ");
+}
 
 // ---------- line-by-line JSONL reader ----------
 async function readJsonl(path) {
@@ -967,7 +1012,7 @@ async function main() {
 		for (const sa of report.subagents) {
 			const rows = eventTimeline ? eventTimeline.rows.filter((r) => r.taskId === sa.taskId) : [];
 			const mdSa = renderSubagentFile(sa, report, rows);
-			writeFileSync(join(agentsDir, `${sa.taskId}.md`), mdSa + "\n");
+			writeFileSync(join(agentsDir, `${sa.taskId}.md`), (args.ascii ? toAscii(mdSa) : mdSa) + "\n");
 		}
 		process.stderr.write(`[analyze-run] wrote ${report.subagents.length} per-agent files → ${agentsDir}/\n`);
 	}
@@ -975,7 +1020,7 @@ async function main() {
 	// ---------- emit markdown ----------
 	const md = renderMarkdown(report, ea, subagents, args.agents);
 	const mdPath = join(docsDir, `perf-report-${runId}.md`);
-	writeFileSync(mdPath, md);
+	writeFileSync(mdPath, args.ascii ? toAscii(md) : md);
 
 	process.stderr.write(`[analyze-run] wrote ${mdPath}\n[analyze-run] wrote ${jsonPath}\n`);
 }

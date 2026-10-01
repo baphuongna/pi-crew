@@ -40,6 +40,12 @@ file:line anchors, acceptance criteria, and a validation plan.
 | [SR-02](./SR-02.md) | SR-02 | Worker prompt diet (token/run −30%) | planned | P1 |
 | [SR-03](./SR-03.md) | SR-03 | Test-flake remediation (2 known flakes) | planned | P2 |
 
+## Issue-driven specs (outside the backlog program)
+
+| Spec | ID | Title | Status | Priority |
+|------|----|-------|--------|----------|
+| [GH-059](./GH-059-ascii-flag.md) | GH-059 | analyze-run `--ascii` mode (glyph-free perf reports) | done (2026-10-01) | P3 |
+
 ## Deliberately NOT speced
 
 - **US-DEPS-major-upgrade** — already has a full spec:

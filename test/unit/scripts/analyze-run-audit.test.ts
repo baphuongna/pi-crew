@@ -261,11 +261,25 @@ function buildMultiCrew(tasks: { id: string; status: string; exitCode: number }[
 	return { crew, work: mkdtempSync(join(tmpdir(), "analyze-multi-work-")) };
 }
 
-function runAnalyzer(runId: string, crewRoot: string, workCwd: string, resourcesPath?: string, events = false) {
+function runAnalyzer(
+	runId: string,
+	crewRoot: string,
+	workCwd: string,
+	resourcesPath?: string,
+	events = false,
+	extra: string[] = [],
+	envPatch: Record<string, string> = {},
+) {
 	const cmd = ["--experimental-strip-types", ANALYZE, runId, "--crew-root", crewRoot];
 	if (resourcesPath) cmd.push("--resources", resourcesPath);
 	if (events) cmd.push("--events");
-	const res = spawnSync(process.execPath, cmd, { encoding: "utf-8", cwd: workCwd, timeout: 30_000 });
+	cmd.push(...extra);
+	const res = spawnSync(process.execPath, cmd, {
+		encoding: "utf-8",
+		cwd: workCwd,
+		timeout: 30_000,
+		env: { ...process.env, ...envPatch },
+	});
 	return res;
 }
 
@@ -912,6 +926,101 @@ test("R12: verification failure surfaced even when status=completed", () => {
 		const vf = report.problems.find((p: { type: string }) => p.type === "verification_failed");
 		assert.ok(vf, "verification_failed problem must be present");
 		assert.match(vf.message, /tests failed/, "must include verification notes");
+	} finally {
+		rmSync(crew, { recursive: true, force: true });
+		rmSync(work, { recursive: true, force: true });
+	}
+});
+
+// ---------- GH-059: --ascii glyph-free mode (spec docs/specs/GH-059-ascii-flag.md) ----------
+
+/** The reporter's vault-lint ranges (issue #59): any match = report rejected.
+ * VS16 + ZWJ as separate alternations — biome noMisleadingCharacterClass
+ * rejects classes mixing base/combining codepoints. */
+const GLYPH_RE = /[\u{1F000}-\u{1FAFF}\u{2300}-\u{23FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]|[\uFE00-\uFE0F]|\u200D/gu;
+
+/** List every offending codepoint (hex) in a text — empty array = lint-clean. */
+function glyphHits(text: string): string[] {
+	return [...text.matchAll(GLYPH_RE)].map((m) => `U+${m[0].codePointAt(0)!.toString(16).toUpperCase()}`);
+}
+
+function readMainMd(workCwd: string, runId: string): string {
+	return readFileSync(join(workCwd, "docs", "perf", `perf-report-${runId}.md`), "utf-8");
+}
+
+test("GH-059 --ascii: main report + per-agent drill-down are glyph-free", () => {
+	// buildFixtureCrew exercises: severity-1 exit_code (🔴🔴 Nghiêm trọng →
+	// CRITICAL), severity-4 retry (🟡 Retry → RETRY), severity-2 task_status
+	// (🔴 Lỗi → ERROR), run.cancelled anomaly legend (🔴🟡🔵), empty-anomaly
+	// ✅ line, decorative headings (📋⏱️💰🚨📊💡).
+	const { crew, work } = buildFixtureCrew();
+	try {
+		const res = runAnalyzer("r", crew, work, undefined, false, ["--agents", "--ascii"]);
+		assert.equal(res.status, 0, `analyzer failed: ${res.stderr}`);
+		const md = readMainMd(work, "r");
+		assert.deepEqual(glyphHits(md), [], `main report must be lint-clean (got: ${glyphHits(md).join(",")})`);
+		// non-vacuous: semantic ASCII markers actually present
+		assert.match(md, /## Tóm tắt/, "summary heading survives (decorative emoji dropped)");
+		assert.match(md, /CRITICAL/, "severity-1 label maps to CRITICAL");
+		assert.match(md, /RETRY/, "severity-4 label maps to RETRY");
+		assert.match(md, /ERROR/, "severity-2 label maps to ERROR");
+		assert.match(md, /## \[WARN\] Cảnh báo bất thường/, "⚠️ heading maps to [WARN]");
+		assert.match(md, /HIGH \(!\) · \d+ MEDIUM \(~\) · \d+ LOW \(i\)/, "severity legend maps to (!)/(~)/(i)");
+		// per-agent drill-down (issue text missed this output — must be covered too)
+		const agentMd = readFileSync(join(work, "bench", "results", "r.agents", "01_plan.md"), "utf-8");
+		assert.deepEqual(glyphHits(agentMd), [], `per-agent file must be lint-clean (got: ${glyphHits(agentMd).join(",")})`);
+		assert.match(agentMd, /# Subagent `01_plan`/, "per-agent file content intact");
+	} finally {
+		rmSync(crew, { recursive: true, force: true });
+		rmSync(work, { recursive: true, force: true });
+	}
+});
+
+test("GH-059 --ascii: ✓/❌ model-attempt markers in per-agent file map to [ok]/[FAIL]", () => {
+	// modelAttempts with success:false/true force the ❌/✓ bullets in the
+	// per-agent "Model attempts" section (renderSubagentFile).
+	const { crew, work } = buildAnomalyCrew({
+		modelAttempts: [
+			{ model: "glm", success: false },
+			{ model: "glm", success: true },
+		],
+	});
+	try {
+		const res = runAnalyzer("r", crew, work, undefined, false, ["--agents", "--ascii"]);
+		assert.equal(res.status, 0, `analyzer failed: ${res.stderr}`);
+		const agentMd = readFileSync(join(work, "bench", "results", "r.agents", "01_plan.md"), "utf-8");
+		assert.deepEqual(glyphHits(agentMd), [], `per-agent file must be lint-clean (got: ${glyphHits(agentMd).join(",")})`);
+		assert.match(agentMd, /- glm \[FAIL\]/, "❌ maps to [FAIL]");
+		assert.match(agentMd, /- glm \[ok\]/, "✓ maps to [ok]");
+	} finally {
+		rmSync(crew, { recursive: true, force: true });
+		rmSync(work, { recursive: true, force: true });
+	}
+});
+
+test("GH-059 default (no flag): emoji still present — regression lock", () => {
+	const { crew, work } = buildFixtureCrew();
+	try {
+		const res = runAnalyzer("r", crew, work);
+		assert.equal(res.status, 0, `analyzer failed: ${res.stderr}`);
+		const md = readMainMd(work, "r");
+		assert.match(md, /## 📋 Tóm tắt/, "decorative heading emoji kept by default");
+		assert.match(md, /🔴🔴 Nghiêm trọng/, "composite severity label kept by default");
+		assert.ok(glyphHits(md).length > 0, "default mode must keep lint-range glyphs");
+	} finally {
+		rmSync(crew, { recursive: true, force: true });
+		rmSync(work, { recursive: true, force: true });
+	}
+});
+
+test("GH-059 env PI_CREW_ASCII=1 enables ascii mode without the flag", () => {
+	const { crew, work } = buildFixtureCrew();
+	try {
+		const res = runAnalyzer("r", crew, work, undefined, false, [], { PI_CREW_ASCII: "1" });
+		assert.equal(res.status, 0, `analyzer failed: ${res.stderr}`);
+		const md = readMainMd(work, "r");
+		assert.deepEqual(glyphHits(md), [], `env-enabled ascii must be lint-clean (got: ${glyphHits(md).join(",")})`);
+		assert.match(md, /CRITICAL/, "ascii markers present via env");
 	} finally {
 		rmSync(crew, { recursive: true, force: true });
 		rmSync(work, { recursive: true, force: true });
