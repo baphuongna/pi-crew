@@ -66,7 +66,7 @@ for (const [label, task] of [
 				assert.ok(!result.args.some((arg) => arg !== "@" && arg.includes(task)), "argv must not contain task text");
 			}
 			const taskArg = result.args.find((arg) => arg.startsWith("@"));
-		assert.ok(taskArg, "task must ride a @file inclusion arg");
+			assert.ok(taskArg, "task must ride a @file inclusion arg");
 			const taskPath = taskArg!.slice(1);
 			assert.ok(taskPath.endsWith("task.md"));
 			assert.equal(fs.existsSync(taskPath), true);
