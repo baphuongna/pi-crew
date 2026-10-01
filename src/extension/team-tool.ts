@@ -14,11 +14,12 @@ import { withRunLock } from "../state/coordination/locks.ts";
 import { replayPendingMailboxMessages } from "../state/coordination/mailbox.ts";
 import { isTaskClaimExpired } from "../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../state/event-log/event-log.ts";
-import { activeRunEntries } from "../state/stores/active-run-registry.ts";
+import { activeRunEntries, registerActiveRun, unregisterActiveRun } from "../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
+import type { TeamConfig } from "../teams/team-config.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { findRepoRoot, projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 import { resolveRealContainedPath } from "../utils/safe-paths.ts";
@@ -42,6 +43,7 @@ import { buildParentContext, formatScoped, result, type TeamContext } from "./te
 // Lazy-loaded: run.ts pulls in spawnBackgroundTeamRun, resolveCrewRuntime, etc.
 // Static import fails silently in some jiti contexts (child-process), leaving handleRun undefined.
 import type { handleRun as _handleRunFn } from "./team-tool/run.ts";
+import { resolveRunDeadline } from "./team-tool/run-deadline.ts";
 
 type HandleRunFn = typeof _handleRunFn;
 async function handleRun(...args: Parameters<HandleRunFn>): Promise<Awaited<ReturnType<HandleRunFn>>> {
@@ -387,6 +389,196 @@ function resumeLivenessRefusal(manifest: TeamRunManifest, tasks: TeamTaskState[]
 	return undefined;
 }
 
+/** G11 (SDD-3 W-C WI-2): adopt ownership + refresh heartbeat for a special-kind
+ * (goal-loop / dynamic-workflow) resume, under the same per-run lock semantics
+ * as the static path. Mirrors the static path's B1 adoption (battery 2026-08-18
+ * case b): a force-resumed run must not keep its dead original ownerSessionId,
+ * or a third session's orphan-scan cancels the live resumed run. The adopted
+ * manifest PRESERVES the original runKind — the whole point of the branch. */
+async function adoptSpecialKindRunForResume(
+	manifest: TeamRunManifest,
+	runKind: "goal-loop" | "dynamic-workflow",
+	ctx: TeamContext,
+): Promise<TeamRunManifest> {
+	return await withRunLock(manifest, async () => {
+		const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
+		const base = fresh?.manifest ?? manifest;
+		const adopted: TeamRunManifest = {
+			...base,
+			// WI-2 (G11): keep the ORIGINAL runKind — an accidental fallback to
+			// "team-run" would route the NEXT resume through the static path.
+			runKind,
+			// Mark running at adoption: registerActiveRun refuses terminal
+			// entries, and the run IS executing from this dispatch until terminal.
+			// allowTerminalExit mirrors the static resume path (finding 8 write
+			// guard — resume is the one legitimate terminal-exit flow).
+			status: "running",
+			summary: `Resuming ${runKind} run.`,
+			updatedAt: new Date().toISOString(),
+			...(ctx.sessionId ? { ownerSessionId: ctx.sessionId } : {}),
+		};
+		await saveRunManifestAsync(adopted, { allowTerminalExit: true });
+		await appendEventAsync(adopted.eventsPath, {
+			type: "run.resume_requested",
+			runId: adopted.runId,
+			data: { runKind, action: "resume" },
+		});
+		return adopted;
+	});
+}
+
+/** G11 (SDD-3 W-C WI-2): resume arm for runKind="dynamic-workflow" — mirrors
+ * run.ts's DWF dispatch (:390-435): re-synthesize the dynamic team, adopt the
+ * run, then hand off to runDynamicWorkflow (which hydrates the dwf-checkpoint
+ * state, dwf-runner.ts round-18 P2-3). The static team lookup CANNOT resolve
+ * the synthetic `dwf-*` team, which is why this branch exists. */
+async function resumeDynamicWorkflowRun(
+	params: TeamToolParamsValue,
+	ctx: TeamContext,
+	manifest: TeamRunManifest,
+): Promise<PiTeamsToolResult> {
+	const dwfWorkflow = allWorkflows(discoverWorkflows(ctx.cwd)).find((candidate) => candidate.name === manifest.workflow);
+	if (dwfWorkflow?.runtime !== "dynamic" || !dwfWorkflow?.dynamicScript) {
+		return result(
+			`Workflow '${manifest.workflow ?? ""}' is not a dynamic workflow (runKind=dynamic-workflow); cannot resume run ${manifest.runId}. Fix or restore the workflow file, or re-dispatch with action=run.`,
+			{ action: "resume", status: "error", runId: manifest.runId },
+			true,
+		);
+	}
+	// Re-synthesize the dynamic team (§0c C9 mirror of run.ts) — role resolution only.
+	const dwfTeam: TeamConfig = {
+		name: manifest.team,
+		description: `Dynamic workflow run for ${dwfWorkflow.name}`,
+		source: "dynamic",
+		filePath: "<dynamic-workflow>",
+		roles: [{ name: "worker", agent: params.agent ?? "executor" }],
+		workspaceMode: "single",
+	};
+	const adopted = await adoptSpecialKindRunForResume(manifest, "dynamic-workflow", ctx);
+	registerActiveRun(adopted);
+	// CORE-8 mirror: unified deadline (params.timeoutMs > config.maxRunMinutes > 1h default).
+	const dwfDeadline = resolveRunDeadline(ctx, params);
+	try {
+		// LAZY: defer dynamic import of the DWF runner to its call site (mirrors run.ts:399).
+		const { runDynamicWorkflow } = await import("../runtime/goal-workflow/dynamic-workflow-runner.ts");
+		const dwfResult = await runDynamicWorkflow({
+			manifest: adopted,
+			workflow: dwfWorkflow as import("../workflows/workflow-config.ts").DynamicWorkflowConfig,
+			team: dwfTeam,
+			signal: dwfDeadline.signal,
+			modelOverride: params.model,
+			tokenBudget:
+				params.tokenBudget ?? (dwfWorkflow as import("../workflows/workflow-config.ts").DynamicWorkflowConfig).maxTokenBudget,
+		});
+		await saveRunManifestAsync(dwfResult.manifest);
+		return result(
+			[
+				`Resumed dynamic-workflow run ${dwfResult.manifest.runId}.`,
+				`Status: ${dwfResult.manifest.status}`,
+				dwfResult.manifest.summary ? `Result: ${dwfResult.manifest.summary}` : undefined,
+			]
+				.filter((line): line is string => line !== undefined)
+				.join("\n"),
+			{
+				action: "resume",
+				status: dwfResult.manifest.status === "failed" ? "error" : "ok",
+				runId: dwfResult.manifest.runId,
+				artifactsRoot: dwfResult.manifest.artifactsRoot,
+			},
+			dwfResult.manifest.status === "failed",
+		);
+	} catch (runnerError) {
+		// Round-11 runtime-fix mirror (run.ts): persist the failure instead of
+		// leaving the manifest at its pre-resume status forever.
+		const failureReason = runnerError instanceof Error ? runnerError.message : String(runnerError);
+		const failedManifest = {
+			...adopted,
+			status: "failed" as const,
+			summary: `Dynamic workflow '${dwfWorkflow.name}' resume failed: ${failureReason}`.slice(0, 2000),
+			updatedAt: new Date().toISOString(),
+		};
+		await saveRunManifestAsync(failedManifest);
+		return result(
+			`Dynamic workflow '${dwfWorkflow.name}' resume failed: ${failureReason}`,
+			{ action: "resume", status: "error", runId: failedManifest.runId, artifactsRoot: failedManifest.artifactsRoot },
+			true,
+		);
+	} finally {
+		unregisterActiveRun(adopted.runId);
+		clearTimeout(dwfDeadline.timer); // RC-02
+	}
+}
+
+/** G11 (SDD-3 W-C WI-2): resume arm for runKind="goal-loop" — mirrors the
+ * background-runner.ts goal-loop short-circuit (:492): hydrate GoalLoopState,
+ * continue the loop via runGoalLoop, map the goal outcome to a run status. */
+async function resumeGoalLoopRun(ctx: TeamContext, manifest: TeamRunManifest): Promise<PiTeamsToolResult> {
+	// Check the goal state BEFORE adoption: a missing GoalLoopState is not
+	// resumable at all, so the run must be left untouched (no ownership flip,
+	// no status change) for a clearer retry story.
+	// LAZY: defer heavy goal-loop imports to the call site (mirrors background-runner.ts:498-506).
+	const { GoalStore } = await import("../runtime/goal-workflow/goal-state-store.ts");
+	const store = new GoalStore(manifest.cwd);
+	const goalState = store.load(manifest.runId);
+	if (!goalState) {
+		return result(
+			`runKind="goal-loop" but GoalLoopState '${manifest.runId}' not found (cwd=${manifest.cwd}); cannot resume. The goal state file may have been pruned — start a new goal run instead.`,
+			{ action: "resume", status: "error", runId: manifest.runId },
+			true,
+		);
+	}
+	const adopted = await adoptSpecialKindRunForResume(manifest, "goal-loop", ctx);
+	// LAZY: the runner import stays after the state check for fast failure.
+	const { runGoalLoop } = await import("../runtime/goal-workflow/goal-loop-runner.ts");
+	registerActiveRun(adopted);
+	const goalDeadline = resolveRunDeadline(ctx, {});
+	try {
+		const goalResult = await runGoalLoop({
+			goalState,
+			manifest: adopted,
+			signal: goalDeadline.signal,
+			deps: {
+				discoverAgents: (cwd: string) => allAgents(discoverAgents(cwd)),
+			},
+		});
+		// Fix P1-1 + round-6 #5 mirror (background-runner.ts:525-536): persist the
+		// terminal status reflecting the goal's actual outcome, not a blanket
+		// 'completed'.
+		const goalStatusToRunStatus: Record<string, TeamRunManifest["status"]> = {
+			achieved: "completed",
+			max_turns: "completed",
+			budget_exceeded: "completed",
+			blocked: "blocked",
+			cancelled: "cancelled",
+			paused: "blocked",
+			running: "running",
+		};
+		const runStatus = goalStatusToRunStatus[goalResult.goalState.state] ?? "completed";
+		const finalManifest: TeamRunManifest = {
+			...goalResult.manifest,
+			status: runStatus,
+			updatedAt: new Date().toISOString(),
+		};
+		await saveRunManifestAsync(finalManifest);
+		return result(
+			[
+				`Resumed goal-loop run ${finalManifest.runId}.`,
+				`Status: ${finalManifest.status} (goal state: ${goalResult.goalState.state})`,
+			].join("\n"),
+			{
+				action: "resume",
+				status: runStatus === "failed" ? "error" : "ok",
+				runId: finalManifest.runId,
+				artifactsRoot: finalManifest.artifactsRoot,
+			},
+			runStatus === "failed",
+		);
+	} finally {
+		unregisterActiveRun(adopted.runId);
+		clearTimeout(goalDeadline.timer); // RC-02
+	}
+}
+
 export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	if (!params.runId) return result("Resume requires runId.", { action: "resume", status: "error" }, true);
 	const runCwd = locateRunCwd(params.runId, ctx.cwd);
@@ -431,6 +623,20 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 	}
 	if (!loaded.manifest.workflow)
 		return result(`Run '${params.runId}' has no workflow to resume.`, { action: "resume", status: "error" }, true);
+	// G11 (SDD-3 W-C WI-2): goal-loop and dynamic-workflow runs use SYNTHETIC
+	// team names (goal-*/dwf-*) that never appear in discoverTeams — the static
+	// team lookup below fails with "Team not found" and the run is unresumable
+	// even though both engines have resume support (DWF checkpoint hydration,
+	// goal-loop state). Branch on the ORIGINAL runKind (mirrors run.ts:390-435
+	// dispatch and background-runner.ts:492 short-circuit); the resumed run
+	// PRESERVES its runKind (see adoptSpecialKindRunForResume).
+	const resumeRunKind = loaded.manifest.runKind ?? "team-run";
+	if (resumeRunKind === "dynamic-workflow") {
+		return await resumeDynamicWorkflowRun(params, ctx, loaded.manifest);
+	}
+	if (resumeRunKind === "goal-loop") {
+		return await resumeGoalLoopRun(ctx, loaded.manifest);
+	}
 	const agents = allAgents(discoverAgents(ctx.cwd));
 	const direct = directTeamAndWorkflowFromRun(loaded.manifest, loaded.tasks, agents);
 	const team = direct?.team ?? allTeams(discoverTeams(ctx.cwd)).find((candidate) => candidate.name === loaded.manifest.team);
