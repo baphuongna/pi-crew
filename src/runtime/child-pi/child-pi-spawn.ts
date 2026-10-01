@@ -357,10 +357,11 @@ export function prepareSpawnContext(
 		// F4/S-1: the RAW (unredacted) snapshot must NEVER land in artifactsRoot —
 		// point it at a temp dir; the worker reads it then writeArtifact()
 		// (redact+atomic) is the ONLY writer into artifactsRoot.
-		// R3-1: built.tempDir is only created by buildPiWorkerArgs when the agent
-		// has a systemPrompt OR the task exceeds TASK_ARG_LIMIT — guard against
-		// undefined (resolveRealContainedPath(undefined) would TypeError and crash
-		// spawn). createSafeTempDir auto-tracks the dir for cleanupAllTrackedTempDirs.
+		// R3-1: since G3 (spill-always) buildPiWorkerArgs creates a tempDir for
+		// EVERY spawn (task.md) — the `??` guard stays as pure defense against
+		// future call shapes (resolveRealContainedPath(undefined) would
+		// TypeError and crash spawn). createSafeTempDir auto-tracks the dir for
+		// cleanupAllTrackedTempDirs.
 		const scratchTempDir = built.tempDir ?? createSafeTempDir(getPiTempBase(), "pi-crew-scratchpad-");
 		built.env.PI_CREW_SCRATCHPAD_SNAPSHOT = resolveRealContainedPath(scratchTempDir, `${input.agentId}.snapshot.json`);
 		// Phase 2 crash-resume (D1/D1b/D2): locate the latest snapshot artifact of a

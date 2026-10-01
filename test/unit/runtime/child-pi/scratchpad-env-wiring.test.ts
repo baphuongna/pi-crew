@@ -33,7 +33,7 @@ function envFor(
 		const res = prepareSpawnContext(
 			{
 				cwd: dir,
-				task: "small task", // under TASK_ARG_LIMIT (8000) → built.tempDir undefined → exercises R3-1 guard
+				task: "small task", // G3 spill-always: task rides a 0600 @file → built.tempDir always defined
 				agent,
 				role,
 				agentId: opts?.agentId,

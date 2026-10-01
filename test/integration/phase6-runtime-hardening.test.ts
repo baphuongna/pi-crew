@@ -49,6 +49,36 @@ test("buildPiWorkerArgs writes long tasks to private @file and emits canonical d
 	}
 });
 
+// G3 (SDD-2 W-B, spill-always): EVERY task text goes through a 0600 temp
+// file — argv never carries task text (world-readable /proc/<pid>/cmdline).
+// The long-task case above pins the >8000 path; these pin the SHORT cases
+// that used to ride argv verbatim.
+for (const [label, task] of [
+	["tiny task", "zq7"],
+	["empty task", ""],
+	["just-under-limit task", "y".repeat(7999)],
+] as const) {
+	test(`buildPiWorkerArgs spills ${label} to a 0600 @file — argv carries no task text`, () => {
+		const result = buildPiWorkerArgs({ task, agent });
+		try {
+			assert.ok(!result.args.some((arg) => arg.includes("Task:")), "no `Task:` positional may be emitted");
+			if (task.length > 0) {
+				assert.ok(!result.args.some((arg) => arg !== "@" && arg.includes(task)), "argv must not contain task text");
+			}
+			const taskArg = result.args.find((arg) => arg.startsWith("@"));
+		assert.ok(taskArg, "task must ride a @file inclusion arg");
+			const taskPath = taskArg!.slice(1);
+			assert.ok(taskPath.endsWith("task.md"));
+			assert.equal(fs.existsSync(taskPath), true);
+			assert.equal(fs.readFileSync(taskPath, "utf-8"), task);
+			assert.equal(fs.statSync(taskPath).mode & 0o777, 0o600, "task file must be owner-only (0600)");
+			assert.ok(result.tempDir, "tempDir must be reported for cleanup");
+		} finally {
+			if (result.tempDir) fs.rmSync(result.tempDir, { recursive: true, force: true });
+		}
+	});
+}
+
 test("crew depth guard blocks child workers at max depth before mock execution", async () => {
 	const previousDepth = process.env.PI_CREW_DEPTH;
 	const previousMock = process.env.PI_TEAMS_MOCK_CHILD_PI;

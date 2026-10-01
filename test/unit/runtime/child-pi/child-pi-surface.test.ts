@@ -224,7 +224,10 @@ test("runChildPi boots the worker in a pane via launch script — no stdio proce
 			),
 			"TUI argv phải bỏ --mode json -p",
 		);
-		assert.match(content, /Task: Say hello then stop\./);
+		// G3 (spill-always): task text rides a 0600 @file — the launch script
+		// must reference the task FILE, never embed the raw task text.
+		assert.doesNotMatch(content, /Say hello then stop/, "raw task text must not reach the script (or /proc cmdline)");
+		assert.match(content, /'@[^']*task\.md'/, "script must pass the @task.md inclusion arg");
 
 		// Kết quả có marker surface cho T9/T11 consume.
 		assert.equal(result.exitCode, 0);

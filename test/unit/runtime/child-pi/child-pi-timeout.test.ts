@@ -30,15 +30,30 @@ test("child Pi response timeout allows normal provider think time", () => {
 
 // --- New tests ---
 
-test("buildPiWorkerArgs includes task in args", () => {
+test("buildPiWorkerArgs spills EVERY task (short included) to a private @file — argv never carries task text (G3)", () => {
 	const result = buildPiWorkerArgs({
 		task: "Do the thing",
 		agent: minimalAgent,
 	});
-	assert.ok(result.args.includes("Task: Do the thing"));
-	assert.ok(result.args.includes("--mode"));
-	assert.ok(result.args.includes("json"));
-	assert.ok(result.args.includes("-p"));
+	try {
+		// G3 (SDD-2 W-B, spill-always): argv is world-readable via
+		// /proc/<pid>/cmdline — task text must NEVER ride argv, no matter the
+		// length. The pre-G3 short-argv branch (task <= 8000 → `Task: ...`
+		// positional) is removed.
+		assert.ok(!result.args.includes("Task: Do the thing"), "argv must not contain the task text");
+		assert.ok(!result.args.some((arg) => arg.includes("Do the thing")), "no argv element may contain task text");
+		const taskArg = result.args.find((arg) => arg.startsWith("@"));
+		assert.ok(taskArg, "task must ride a @file inclusion arg");
+		const taskPath = taskArg!.slice(1);
+		assert.equal(fs.existsSync(taskPath), true);
+		assert.equal(fs.readFileSync(taskPath, "utf-8"), "Do the thing");
+		assert.equal(fs.statSync(taskPath).mode & 0o777, 0o600, "task file must be owner-only (0600)");
+		assert.ok(result.args.includes("--mode"));
+		assert.ok(result.args.includes("json"));
+		assert.ok(result.args.includes("-p"));
+	} finally {
+		cleanupTempDir(result.tempDir);
+	}
 });
 
 test("buildPiWorkerArgs includes model from agent config", () => {

@@ -15,7 +15,6 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 // find pi-crew's package.json and works correctly from both src/ and
 // dist/ entry points.
 const PROMPT_RUNTIME_EXTENSION_PATH = path.join(packageRoot(), "src", "prompt", "prompt-runtime.ts");
-const TASK_ARG_LIMIT = 8000;
 // D8 spec v0.7 — nested mở (default 4 depth levels: child→child→child→child);
 // cap giữ để chống runaway recursion từ config lỗi hoặc intentional abuse.
 const DEFAULT_MAX_CREW_DEPTH = 4;
@@ -348,17 +347,21 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		args.push(input.agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt", promptPath);
 	}
 
-	if (input.task.length > TASK_ARG_LIMIT) {
-		if (!tempDir) {
-			const tmpBase = getPiTempBase();
-			tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
-		}
-		const taskPath = path.join(tempDir, "task.md");
-		atomicWriteFile(taskPath, input.task, { mode: 0o600 });
-		args.push(`@${taskPath}`);
-	} else {
-		args.push(`Task: ${input.task}`);
+	// G3 (SDD-2 W-B, spill-always): task text NEVER rides argv — argv is
+	// world-readable via /proc/<pid>/cmdline, leaking task content (and any
+	// secrets embedded in prompts) to every local user/process scanner.
+	// EVERY task, regardless of length, is spilled to an owner-only (0600)
+	// task.md inside pi-crew's temp dir and passed as a `@<path>` inclusion
+	// arg. The pre-G3 short-argv branch (task <= 8000 → `Task: ...` positional)
+	// is removed; the file content is the RAW task text (same contract the
+	// long-task path always had — no `Task: ` prefix).
+	if (!tempDir) {
+		const tmpBase = getPiTempBase();
+		tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
 	}
+	const taskPath = path.join(tempDir, "task.md");
+	atomicWriteFile(taskPath, input.task, { mode: 0o600 });
+	args.push(`@${taskPath}`);
 
 	const env = input.env ?? process.env;
 	const parentDepth = currentCrewDepth(env);
