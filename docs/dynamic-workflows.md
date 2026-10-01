@@ -163,6 +163,13 @@ child worker, so no tokens are wasted past the limit.
 - `spent()` accumulates each `ctx.agent()` run's reported `usage.input + usage.output`.
 - Set it via the workflow's `maxTokenBudget` field, or the run `tokenBudget` param
   (the param overrides the workflow value).
+- **Content-based reserve (SDD-3 W-C G14):** before spawning, the call reserves
+  `max(512, estimateTokens(prompt + systemPrompt chars))` — the real in-tree
+  estimator (`chars/4`, same as `pre-execution.ts`) instead of the old flat
+  4096. Short calls no longer over-reserve (more headroom for concurrent
+  siblings); very long prompts reserve proportionally. On completion the
+  reserve is adjusted to the reported usage; on failure it is refunded in
+  full, so `spent()` never drifts from reality.
 
 ```ts
 if (ctx.budget.total !== null && ctx.budget.remaining() < 500) {

@@ -41,6 +41,7 @@ import { executeWithRetry } from "../recovery/retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
 import { mapConcurrent } from "../scheduling/parallel-utils.ts";
 import { Semaphore } from "../scheduling/semaphore.ts";
+import { estimateTokens } from "../task-runner/prompt-builder.ts";
 import { renderPlanTemplate } from "./plan-templates.ts";
 
 export interface AgentCallOpts {
@@ -346,8 +347,18 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			// regardless of which return/throw path is taken.
 			let worktreePath: string | undefined;
 			let worktreeBranch: string | undefined;
-			// BDG-2: declared before the try so the catch block can un-reserve on failure.
-			const ESTIMATE = 4096;
+			// BDG-2 + G14 (SDD-3): content-based reserve estimate — replaces the flat
+			// ESTIMATE=4096. estimateTokens() (chars/4, the in-tree heuristic exported
+			// from runtime/task-runner/prompt-builder.ts — the same estimator
+			// pre-execution.ts uses) runs over the call's prompt + optional
+			// systemPrompt override, floored at 512 tokens for the fixed per-call
+			// overhead (schema/JSON directive, artifact headers) not present in the
+			// prompt string. Short calls stop over-reserving; very long prompts
+			// reserve proportionally so N concurrent calls cannot blow past the
+			// budget between reserve and the post-run adjust. Every BDG-2 site
+			// below (check/reserve/un-reserve/adjust/refund) uses THIS value, so
+			// refund always matches what was reserved.
+			const estimate = Math.max(512, estimateTokens((call.prompt?.length ?? 0) + (call.systemPrompt?.length ?? 0)));
 			let reserved = false;
 			try {
 				// SDD-3 W-C G13: agent-call cap — the structured bound for no-budget runs.
@@ -396,7 +407,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				// BDG-2: reserve-then-adjust budget. Before spawning, estimate the cost and
 				// reserve it by adding to wfState.spent. This prevents N concurrent calls from
 				// all seeing the same remaining budget and overspending.
-				if (budget.total !== null && budget.remaining() < ESTIMATE) {
+				if (budget.total !== null && budget.remaining() < estimate) {
 					return {
 						ok: false,
 						text: "",
@@ -405,7 +416,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					};
 				}
 				// Reserve the estimate before spawning.
-				wfState.spent += ESTIMATE;
+				wfState.spent += estimate;
 				reserved = true;
 
 				const agentConfig = resolveAgentForRole(call.role, {
@@ -475,7 +486,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				});
 				if (childResult.exitCode !== 0 || childResult.error) {
 					// BDG-2: un-reserve the estimate on spawn failure.
-					wfState.spent -= ESTIMATE;
+					wfState.spent -= estimate;
 					reserved = false;
 					return {
 						ok: false,
@@ -487,8 +498,8 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				const parsed = parsePiJsonOutput(childResult.stdout);
 				// round-14 P1-2: accumulate this run's token usage into the workflow budget.
 				// BDG-2: adjust the reserve — subtract the estimate, add the actual usage.
-				// This correctly reduces spent when actualUsage < ESTIMATE.
-				wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0) - ESTIMATE;
+				// This correctly reduces spent when actualUsage < estimate.
+				wfState.spent += (parsed.usage?.input ?? 0) + (parsed.usage?.output ?? 0) - estimate;
 				reserved = false;
 				let text = childResult.rawFinalText || parsed.finalText || "";
 				// Round-11 test fix: parsePiJsonOutput only extracts text from pi event stream
@@ -537,7 +548,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				};
 			} catch (error) {
 				// BDG-2: un-reserve the estimate on failure (only if still reserved).
-				if (reserved) wfState.spent -= ESTIMATE;
+				if (reserved) wfState.spent -= estimate;
 				// SDD-3 W-C G13: cap errors must TERMINATE the script with the
 				// structured reason — degrading to ok:false would let scripts (and the
 				// review()/retry()/pipeline fallbacks) swallow the cap and keep looping.
