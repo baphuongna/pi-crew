@@ -9,15 +9,20 @@
  * Strategy:
  * 1. If the Pi SDK session has MCP tools after bindExtensions → use them directly
  * 2. If not → create proxy custom tools that wrap MCP calls
- * 3. If no MCP config exists → disable MCP in the session
+ * 3. If sharing is not permitted for the role → disable MCP in the session
  *
- * The Pi SDK's `createAgentSession` accepts a `customTools` array for injecting
- * proxy tools. The session also accepts `enableMCP: false` to skip MCP discovery
- * when proxying from the parent.
+ * G2 enforcement note (pi ≥0.99): MCP is now a BUILT-IN EXTENSION
+ * (`builtin:mcp`, reading `mcp.json`) and the pre-0.99 `enableMcp:false`
+ * `createAgentSession` option no longer exists. The runtime enforcement for
+ * a non-permitted role therefore drops the MCP extension(s) from the child's
+ * resource loader (`extensionsOverride` → `stripMcpExtensions` below).
+ * `McpProxyConfig.enableMcp` remains the module's semantic contract: callers
+ * can branch on it while E1 (real parent→child proxying) is unbuilt.
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "@sinclair/typebox";
+import { permissionForRole } from "./role-permission.ts";
 
 export interface McpProxyConfig {
 	/** Whether to enable MCP in the child session. */
@@ -36,7 +41,13 @@ export interface McpProxyConfig {
  */
 export function buildMcpProxyConfig(options: { parentMcpTools?: string[]; shareMcp?: boolean }): McpProxyConfig {
 	if (options.shareMcp === false) {
-		return { enableMcp: true, proxyTools: [], proxyToolNames: [] };
+		// G2 (SDD-2 W-B): least-privilege contract. shareMcp=false means the
+		// role is NOT permitted to use MCP — the child must not discover the
+		// parent's MCP servers AT ALL. The pre-flip behavior returned
+		// enableMcp:true here (flag inversion, enshrined by the old tests),
+		// which let even read-only roles self-discover every parent MCP
+		// server (with credentials) — an active least-privilege gap.
+		return { enableMcp: false, proxyTools: [], proxyToolNames: [] };
 	}
 
 	const parentTools = options.parentMcpTools ?? [];
@@ -102,4 +113,64 @@ export function buildMcpProxyFromSession(activeToolNames: string[], options?: { 
 		parentMcpTools: mcpTools,
 		shareMcp: options?.shareMcp,
 	});
+}
+
+/**
+ * G2 (SDD-2 W-B): the role-permission signal that decides `shareMcp` at the
+ * spawn sites. MCP servers carry the parent's credentials and can mutate
+ * state far outside the workspace, so only WRITE-capable roles may discover
+ * them. Read-only roles (explorer/reviewer/security-reviewer/analyst/
+ * critic/planner) are denied; unknown and undefined roles resolve to
+ * read-only via `permissionForRole`'s FIND-12 default-deny and are denied
+ * too. AgentConfig has no `mcp` field — this permission classification is
+ * the existing explicit signal (same source `filterActiveTools` uses).
+ */
+export function mcpPermittedForRole(role: string | undefined): boolean {
+	return permissionForRole(role ?? "") !== "read_only";
+}
+
+/**
+ * Identify the extensions that provide MCP connectivity in pi ≥0.99:
+ * - `builtin:mcp` — the built-in MCP extension (reads `mcp.json`);
+ * - third-party extensions that REPLACE it by registering `/mcp` — pi's own
+ *   docs name `pi-mcp-adapter` as the canonical replacer (docs/mcp.md:
+ *   "replaces the built-in MCP support"). Both must be dropped to actually
+ *   deny MCP; a path-segment match keeps npm-installed and file-path forms.
+ */
+export function isMcpExtensionPath(extensionPath: string): boolean {
+	if (extensionPath === "builtin:mcp") return true;
+	return extensionPath.includes("pi-mcp-adapter");
+}
+
+/** Structural stand-in for the SDK's `LoadExtensionsResult` (loose typing —
+ * the live-session runtime holds the SDK behind `Record<string, unknown>`). */
+export interface LoadedExtensionsShape {
+	extensions: Array<{ path: string; [key: string]: unknown }>;
+	errors?: unknown;
+	warnings?: Array<{ path: string; warning: string }>;
+	runtime?: unknown;
+	[key: string]: unknown;
+}
+
+/**
+ * `DefaultResourceLoader` `extensionsOverride` hook (G2 enforcement on
+ * pi ≥0.99): drop every MCP-providing extension from the child's extension
+ * list so a non-permitted role neither loads the MCP code nor connects to
+ * any server. Stripped paths are recorded as warnings for diagnostics.
+ */
+export function stripMcpExtensions(base: LoadedExtensionsShape): LoadedExtensionsShape {
+	const kept = base.extensions.filter((extension) => !isMcpExtensionPath(extension.path));
+	if (kept.length === base.extensions.length) return base;
+	const stripped = base.extensions.filter((extension) => isMcpExtensionPath(extension.path));
+	return {
+		...base,
+		extensions: kept,
+		warnings: [
+			...(base.warnings ?? []),
+			...stripped.map((extension) => ({
+				path: extension.path,
+				warning: "stripped by pi-crew G2 role MCP policy (role is not MCP-permitted)",
+			})),
+		],
+	};
 }

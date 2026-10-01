@@ -12,7 +12,7 @@ import type { WorkflowStep } from "../../workflows/workflow-config.ts";
 import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
-import { buildMcpProxyFromSession } from "../mcp-proxy.ts";
+import { mcpPermittedForRole, stripMcpExtensions } from "../mcp-proxy.ts";
 import {
 	availableModelInfosFromRegistry,
 	buildConfiguredModelRouting,
@@ -701,6 +701,16 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 
 	try {
 		const agentDir = typeof mod.getAgentDir === "function" ? mod.getAgentDir() : undefined;
+		// G2 (SDD-2 W-B, least-privilege): live-session workers inherit the
+		// parent's MCP servers ONLY when the role is MCP-permitted
+		// (write-capable; read-only/unknown/undefined are default-denied —
+		// see mcpPermittedForRole). pi ≥0.99 loads MCP as a built-in
+		// EXTENSION (`builtin:mcp`, plus any installed replacer such as
+		// pi-mcp-adapter) and the pre-0.99 `enableMCP:false` session option
+		// no longer exists — so enforcement happens HERE, at the resource
+		// loader: the MCP extension(s) are dropped from the child's extension
+		// list for non-permitted roles (no MCP code load, no server connect).
+		const mcpPermitted = mcpPermittedForRole(input.task.role);
 		let resourceLoader: unknown;
 		// F1 (v0.7.9) NOTE: `agent.excludeExtensions` is applied on the
 		// child-pi path (see `pi-args.ts`). The live-session path loads
@@ -718,6 +728,8 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				noContextFiles: input.runtimeConfig?.inheritContext !== true,
 				systemPromptOverride: () => liveSystemPrompt(input),
 				appendSystemPromptOverride: () => [],
+				// G2: non-permitted roles get the MCP extension(s) stripped.
+				...(mcpPermitted ? {} : { extensionsOverride: stripMcpExtensions }),
 			});
 			await (resourceLoader as { reload?: () => Promise<void> }).reload?.();
 		}
@@ -759,9 +771,6 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		warnOutOfScopeSoft(modelRouting.scopeVerdict, "live-session.model-out-of-scope");
 		// H1.a: teamRole.thinking takes precedence over agent.thinking.
 		const effectiveThinking = input.teamRoleThinking ?? input.agent.thinking;
-		// Phase 4: MCP proxy — will be determined after session creation
-		// (we check parent's MCP tools and share connections when available)
-		const mcpProxy = buildMcpProxyFromSession([], { shareMcp: true });
 
 		// G1: Build custom tools (submit_result + irc)
 		const submitResultTool = createSubmitResultTool((result) => {
@@ -789,7 +798,6 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			...(input.modelRegistry ? { modelRegistry: input.modelRegistry } : {}),
 			...(resolvedModel ? { model: resolvedModel } : {}),
 			...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
-			...(mcpProxy.enableMcp ? {} : { enableMCP: false }),
 			customTools,
 		});
 		session = created.session;
