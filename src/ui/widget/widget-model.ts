@@ -12,6 +12,7 @@ import type { ManifestCache } from "../../runtime/manifest-cache.ts";
 import { isDisplayActiveRun } from "../../runtime/process-status.ts";
 import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
+import { goalFlagSuffix } from "../goal-flag.ts";
 import { ACTIVE, RAIL, shortId } from "../rail.ts";
 import type { RunSnapshotCache } from "../snapshot-types.ts";
 import type { WidgetRun } from "./widget-types.ts";
@@ -128,6 +129,9 @@ export function statusSummary(runs: WidgetRun[]): string {
 export function shortRunLabel(run: TeamRunManifest): string {
 	const team = (run.team ?? "").trim();
 	const workflow = (run.workflow ?? "").trim();
-	if (team && workflow && team !== workflow) return `${team}/${workflow}`;
-	return team || workflow || shortId(run.runId);
+	// G19 (W-E Phase 1): append the ⚠ goal flag when a TERMINAL run did not
+	// achieve its goal (false-green surfacing) — silent otherwise, so active
+	// runs and green runs never flicker.
+	const label = team && workflow && team !== workflow ? `${team}/${workflow}` : team || workflow || shortId(run.runId);
+	return `${label}${goalFlagSuffix(run)}`;
 }

@@ -23,7 +23,6 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { PreparedTaskWorkspace } from "../../worktree/worktree-manager.ts";
 import { prepareTaskWorkspaceAsync } from "../../worktree/worktree-manager.ts";
-import { reserveControlChannel } from "../agent-control.ts";
 import { emptyCrewAgentProgress, recordFromTask, upsertCrewAgent } from "../crew-agent-records.ts";
 import type { CrewRuntimeKind } from "../crew-agent-runtime.ts";
 import type { registerStreamBridge } from "../event-stream-bridge.ts";
@@ -164,8 +163,6 @@ export async function prepareTaskExecutionContext(
 		// Lifetime usage accumulator — survives compaction unlike session.stats
 		lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
 		...(dependencyContextText ? { dependencyContextText } : {}),
-		// Reserve control channel before spawn so cancel/steer can target this task immediately
-		controlReservation: reserveControlChannel(input.task.id, manifest.runId),
 	} as TeamTaskState;
 	let tasks = updateTask(input.tasks, task);
 	// T2/R4 (ADR-4 §3 single-writer linkage): record on the CURRENT plan

@@ -167,7 +167,6 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 			error: undefined,
 			claim: undefined,
 			heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
-			workerExitStatus: terminalEvidence.at(-1)?.exitStatus,
 			terminalEvidence: terminalEvidence.length ? [...(task.terminalEvidence ?? []), ...terminalEvidence] : task.terminalEvidence,
 			diagnostics: {
 				...(task.diagnostics ?? {}),
@@ -545,7 +544,6 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		resultArtifact,
 		claim: undefined,
 		heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
-		workerExitStatus: terminalEvidence.at(-1)?.exitStatus,
 		terminalEvidence: terminalEvidence.length ? [...(task.terminalEvidence ?? []), ...terminalEvidence] : task.terminalEvidence,
 		...(logArtifact ? { logArtifact } : {}),
 		...(transcriptArtifact ? { transcriptArtifact } : {}),

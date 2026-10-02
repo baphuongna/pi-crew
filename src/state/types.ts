@@ -638,7 +638,6 @@ export interface TeamTaskState {
 	heartbeat?: WorkerHeartbeatState;
 	checkpoint?: TaskCheckpointState;
 	attempts?: TaskAttemptState[];
-	workerExitStatus?: WorkerExitStatus;
 	terminalEvidence?: OperationTerminalEvidence[];
 	taskPacket?: TaskPacket;
 	verification?: VerificationEvidence;
@@ -675,7 +674,6 @@ export interface TeamTaskState {
 		retryCount?: number;
 		lastDecision?: PolicyDecision;
 	};
-	controlReservation?: ControlReservation;
 
 	/** Structured diagnostics per task (ASI pattern from pi-autoresearch). */
 	diagnostics?: Record<string, unknown>;
@@ -711,12 +709,6 @@ export interface TeamTaskState {
 		/** Optional answer choices the worker presented with the question. */
 		options?: string[];
 	};
-}
-
-export interface ControlReservation {
-	reservedAt: string;
-	controllerId: string;
-	acceptsControlEvents: boolean;
 }
 
 /**

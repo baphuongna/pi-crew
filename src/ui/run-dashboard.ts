@@ -29,6 +29,7 @@ import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
 import { renderScheduleDetails, renderSchedulesPane } from "./dashboard-panes/schedules-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
 import { formatCount, teamWorkflowLabel } from "./format-helpers.ts";
+import { goalFlagSuffix } from "./goal-flag.ts";
 import { type DashboardKeyAction, dashboardActionForKey } from "./keybinding-map.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
 import { ACTIVE, CURSOR, canopyLine, formatHint, gaugeBar, overflowHint, RAIL, railLine, sectionLine } from "./rail.ts";
@@ -448,7 +449,7 @@ function runLabel(
 	// survive; team/workflow/step clip) rather than the goal. Optional `maxW`
 	// enables the goal-aware truncation; legacy 3-arg callers (dev patch
 	// scripts) get the untruncated full label.
-	const head = `${marker} ${icon} ${run.runId.slice(-8)} ${status}`;
+	const head = `${marker} ${icon} ${run.runId.slice(-8)} ${status}${goalFlagSuffix(run)}`;
 	const meta = `${teamWorkflowLabel(run.team, run.workflow)} · ${step}`;
 	const goal = sanitizeLine(run.goal ?? "");
 	if (maxW === undefined) return sanitizeLine(`${head} · ${meta} · ${goal}`);

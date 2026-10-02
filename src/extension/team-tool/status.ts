@@ -15,6 +15,7 @@ import { appendEvent, readEventsCursor } from "../../state/event-log/event-log.t
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCost, formatUsage } from "../../state/usage.ts";
 import { formatDuration } from "../../ui/format-helpers.ts";
+import { goalAchievedStatusLabel } from "../../ui/goal-flag.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -236,11 +237,16 @@ export function handleStatus(params: TeamToolParamsValue, ctx: TeamContext): PiT
 	const waitingTasks = tasks.filter((task) => task.status === "queued" || task.status === "waiting");
 	const agentLine = (agent: (typeof crewAgents)[number]): string =>
 		`- ${agent.id} [${agent.status}] ${agent.role} -> ${agent.agent} runtime=${agent.runtime}${agent.model ? ` model=${agent.model}` : ""}${agent.usage ? ` usage=${formatUsage(agent.usage)}` : ""}${agent.usage?.cost ? ` cost=${formatCost(agent.usage.cost)}` : ""}${agent.progress?.activityState ? ` activityState=${agent.progress.activityState}` : ""}${formatActivityAge(agent) ? ` activity=${formatActivityAge(agent)}` : ""}${agent.progress?.currentTool ? ` tool=${agent.progress.currentTool}` : ""}${agent.toolUses ? ` tools=${agent.toolUses}` : ""}${!agent.usage && agent.progress?.tokens ? ` tokens=${agent.progress.tokens}` : ""}${agent.progress?.turns ? ` turns=${agent.progress.turns}` : ""}${agent.jsonEvents !== undefined ? ` jsonEvents=${agent.jsonEvents}` : ""}${agent.outputPath ? ` output=${agent.outputPath}` : ""}${agent.transcriptPath ? ` transcript=${agent.transcriptPath}` : ""}${agent.statusPath ? ` status=${agent.statusPath}` : ""}${agent.error ? ` error=${agent.error}` : ""}`;
+	// G19 (W-E Phase 1): surface the goal-achievement verdict on terminal runs —
+	// ⚠ false-green warning line; silent while running, when achieved, or when
+	// the run predates the assessment (goalAchieved undefined).
+	const goalLine = goalAchievedStatusLabel(manifest);
 	const lines = [
 		`Run: ${manifest.runId}`,
 		`Team: ${manifest.team}`,
 		`Workflow: ${manifest.workflow ?? "(none)"}`,
 		`Status: ${manifest.status}`,
+		...(goalLine ? [goalLine] : []),
 		`Progress: ${phaseProgress.overallPercentage}% (~${formatDuration(phaseProgress.estimatedRemainingMs)} remaining)`,
 		`Workspace mode: ${manifest.workspaceMode}`,
 		...(manifest.runtimeResolution
@@ -347,6 +353,8 @@ export function buildCompactStatus(
 		status: string;
 		goal: string;
 		workspaceMode?: string;
+		goalAchieved?: boolean | "unknown";
+		goalAchievementNote?: string;
 	},
 	tasks: Array<{
 		id: string;
@@ -360,10 +368,12 @@ export function buildCompactStatus(
 	progress?: { overallPercentage: number; estimatedRemainingMs: number },
 ): string[] {
 	const failedOrAttention = tasks.filter((t) => t.status === "failed" || t.status === "needs_attention" || t.status === "cancelled");
+	const goalLine = goalAchievedStatusLabel(manifest);
 	const lines = [
 		`Run: ${manifest.runId}`,
 		`Team: ${manifest.team}${manifest.workflow ? ` (${manifest.workflow})` : ""}`,
 		`Status: ${manifest.status}`,
+		...(goalLine ? [goalLine] : []),
 		...(progress ? [`Progress: ${progress.overallPercentage}% (~${formatDuration(progress.estimatedRemainingMs)} remaining)`] : []),
 		`Goal: ${manifest.goal}`,
 		...(asyncLivenessLine ? [asyncLivenessLine] : []),

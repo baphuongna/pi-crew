@@ -9,6 +9,7 @@ import { aggregateUsage, formatTokens } from "../state/usage.ts";
 import { readJsonFileCoalesced } from "../utils/file-coalescer.ts";
 import { truncate } from "../utils/visual.ts";
 import { formatCount, teamWorkflowLabel } from "./format-helpers.ts";
+import { goalFlagSuffix } from "./goal-flag.ts";
 import { DASHBOARD_KEYS } from "./keybinding-map.ts";
 import { ACTIVE, canopyLine, formatHint, RAIL, type RailSlot, railLine, sectionLine, shortId, statusSlot } from "./rail.ts";
 import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
@@ -230,6 +231,9 @@ export class LiveRunSidebar {
 			// user sees *why* a run ended without having to switch panes. The reason
 			// is already computed on the consumed snapshot (cancellationReason).
 			const TERMINAL_WITH_REASON = ["failed", "cancelled", "stopped"];
+			// G19 (W-E Phase 1): goal false-green flag on terminal runs — same rule
+			// as the team-tool status output; never rendered while still running.
+			const goalSuffix = goalFlagSuffix(run) ? " · ⚠ goal" : "";
 			const reasonSuffix =
 				TERMINAL_WITH_REASON.includes(run.status) && snapshot?.cancellationReason
 					? ` · ${truncate(snapshot.cancellationReason, 40)}`
@@ -241,7 +245,7 @@ export class LiveRunSidebar {
 					"border",
 					this.theme.fg(
 						"muted",
-						`${shortId(run.runId)} · ${run.status ?? "?"}${reasonSuffix} · ${run.workspaceMode ?? "single"}`,
+						`${shortId(run.runId)} · ${run.status ?? "?"}${reasonSuffix}${goalSuffix} · ${run.workspaceMode ?? "single"}`,
 					),
 					this.theme,
 					budget,
