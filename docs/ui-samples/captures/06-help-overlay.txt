@@ -17,12 +17,12 @@
 ┃ A                 approve   N                 deny                        
 ┃ X                 diff                                                    
 ┣ RUN ACTIONS                                                               
-┃ U                 summary   A                 artifacts                   
-┃ I                 api   D                 agents                          
-┃ M                 mailbox   E                 events                      
-┃ O                 output   V                 transcript                   
-┃ V                 live conv   R                 reload                    
-┃ B                 browser                                                 
+┃ U                 summary   X                 cancel                      
+┃ A                 artifacts   I                 api                       
+┃ D                 agents   M                 mailbox                      
+┃ E                 events   O                 output                       
+┃ V                 transcript   V                 live conv                
+┃ R                 reload   B                 browser                      
 ┣ MAILBOX (PANE 3)                                                          
 ┃ A                 ack   N                 nudge                           
 ┃ C                 compose   P                 preview                     

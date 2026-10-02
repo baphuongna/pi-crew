@@ -1,7 +1,7 @@
 ### 13. Run dashboard — /team-dashboard (alt+c) · REAL render: RunDashboard.render(120)
 ### Fixture: 2 run ghi thật qua state-store (1 running + 1 completed) trong temp cwd + snapshotCache thật
 
-┏ DASHBOARD ▸ 2 runs ······················································· 1-8 pane · ↑/↓ move · Enter select · ? help
+┏ DASHBOARD ▸ 2 runs ············································ 1-8 pane · ↑/↓ move · Enter select · X cancel · ? help
 ┣ RECENT ▸ 2                                                                                                            
 ┃ › ⠸ o_active running · implementation · step t2 · Audit toàn bộ UI của pi-crew và fix mọi finding                     
 ┃   ✓ _nightly completed · implementation · agents 1 · Nightly audit toàn bộ pi-crew                                    
