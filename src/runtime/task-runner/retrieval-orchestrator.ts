@@ -31,6 +31,27 @@ export const MAX_SUGGESTED_FILES = 10;
 /** Minimum files suggested when retrieval returns anything. */
 export const MIN_SUGGESTED_FILES = 5;
 
+/**
+ * G23b (2026-10-02): minimum retrieval score for a file to be suggested.
+ *
+ * Rationale — the legacy `score > 0` floor in the byPath pass only keeps
+ * out zero-score files, so generic path-keyword grazers sail through and
+ * fill the top-10. Live evidence (run team_20261002065548, the small-wins
+ * batch this fix ships in): 10 junk suggestions scoring 0.45–0.46 (paths
+ * grazing generic tokens like "template", "security", "skill", "md",
+ * "ts", "source") were injected into worker context ahead of any useful
+ * file. 0.5 sits above that observed junk band while still admitting
+ * genuinely relevant path-only matches (useful path-only scores reach
+ * ~0.64; HIGH_RELEVANCE_THRESHOLD=0.7 stays convergence-only). Applied
+ * BEFORE the top-N cap/slice so junk can never occupy a slot even when
+ * the qualified set is small.
+ *
+ * Tuning: recalibrate against real-run evidence if the junk band shifts
+ * above 0.5 or gold files start scoring below — and update the G23b
+ * pinning tests in the same change (they import this constant).
+ */
+export const MIN_SUGGEST_SCORE = 0.5;
+
 /** Stopwords dropped during keyword tokenization (lowercase comparison). */
 // PERF round 3: expanded from 14 function words to the common verb/pronoun/
 // filler set. These multiply the scoring cost (keywords × files × passes)
@@ -492,8 +513,13 @@ export async function runRetrievalCycle(task: string, goal: string, cwd: string)
 	const converged = hasConverged(evaluations);
 	// Sort by score desc, take top N (5..10).
 	evaluations.sort((a, b) => b.relevance - a.relevance);
-	const cap = Math.min(MAX_SUGGESTED_FILES, Math.max(MIN_SUGGESTED_FILES, evaluations.length));
-	const top = evaluations.slice(0, cap).map((e) => ({
+	// G23b: drop sub-floor keyword-grazers BEFORE the cap/slice so junk can
+	// never occupy a top-N slot. Sub-floor evaluations stay in `evaluations`
+	// above — convergence only counts ≥0.7 hits over always-empty
+	// missingContext, so filtering here cannot change `converged`.
+	const qualified = evaluations.filter((e) => e.relevance >= MIN_SUGGEST_SCORE);
+	const cap = Math.min(MAX_SUGGESTED_FILES, Math.max(MIN_SUGGESTED_FILES, qualified.length));
+	const top = qualified.slice(0, cap).map((e) => ({
 		path: path.isAbsolute(e.path) ? path.relative(cwd, e.path) : e.path,
 		score: e.relevance,
 		reason: e.reason,

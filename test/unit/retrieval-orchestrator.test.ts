@@ -3,11 +3,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { scoreRelevance } from "../../src/runtime/task-runner/context-retrieval.ts";
 import {
 	__test_resetDiscoveredCache,
 	__test_resetRipgrepCache,
 	detectRipgrep,
 	MAX_SUGGESTED_FILES,
+	MIN_SUGGEST_SCORE,
 	renderSuggestedFilesSection,
 	runRetrievalCycle,
 	tokenizeQuery,
@@ -327,6 +329,119 @@ test("R3-4: rg discovery cached per cwd for 60s — new files invisible until re
 			third.files.some((f) => f.path.includes("late-added")),
 			"after cache reset the new file must be discovered and rank (single keyword path hit)",
 		);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+/**
+ * G23b fixture: 35 synthetic animal keywords (9 from task + 26 from goal —
+ * none collide with the tmpdir/src/docs path prefixes). Path-only scoring
+ * math (content is always "" in the orchestrator): score = coverage*0.6 +
+ * min(0.3*hits, 0.4), so with the weighted term capped, a file grazing k of
+ * the 35 keywords scores (k/35)*0.6 + 0.4:
+ *   gold  (9 hits) = 0.554 ≥ floor → suggested
+ *   gold2 (7 hits) = 0.520 ≥ floor → suggested
+ *   junkA (3 hits) = 0.451 < floor — the live-evidence junk band (0.45–0.46:
+ *                     template/references paths grazing a few generic
+ *                     keywords, run team_20261002065548)
+ *   junkB (4 hits) = 0.469 < floor — top of the junk band, still excluded
+ *   zero  (0 hits) = 0     < legacy `score > 0` floor → never evaluated
+ */
+const G23B_TASK = "zebra yak wombat viper tiger seal rabbit quail possum";
+const G23B_GOAL =
+	"xray urchin otter newt marmot lynx koala jaguar ibex hare gerbil fox elk deer cougar badger ape monkey narwhal okapi puffer quokka tapir uakari vaquita wolverine";
+
+function makeG23bFixtureDir(withGold: boolean): string {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-g23b-fixture-"));
+	fs.mkdirSync(path.join(cwd, "src"), { recursive: true });
+	fs.mkdirSync(path.join(cwd, "docs"), { recursive: true });
+	if (withGold) {
+		fs.writeFileSync(
+			path.join(cwd, "src", "zebra-yak-wombat-viper-tiger-seal-rabbit-quail-possum.ts"),
+			"// gold: 9 keyword hits\n",
+			"utf-8",
+		);
+		fs.writeFileSync(path.join(cwd, "src", "xray-urchin-otter-newt-marmot-lynx-koala.ts"), "// gold2: 7 keyword hits\n", "utf-8");
+	}
+	// Junk grazers mirroring the live evidence: generic template/reference
+	// docs paths grazing 3–4 of the 35 keywords (the "template.md/references.md
+	// matching 'template'/'security'-style tokens" pattern).
+	fs.writeFileSync(path.join(cwd, "docs", "zebra-yak-tiger-template-security-references.md"), "# junk grazer A (3 hits)\n", "utf-8");
+	fs.writeFileSync(path.join(cwd, "docs", "xray-tiger-seal-hare-template-workflows.md"), "# junk grazer B (4 hits)\n", "utf-8");
+	// Zero-score file: path contains none of the 35 keywords.
+	fs.writeFileSync(path.join(cwd, "src", "unrelated-notes.ts"), "// zero-score: no keyword in path\n", "utf-8");
+	return cwd;
+}
+
+test("G23b: sub-floor keyword-graze junk never reaches suggested files", async () => {
+	const cwd = makeG23bFixtureDir(true);
+	__test_resetRipgrepCache();
+	__test_resetDiscoveredCache();
+	try {
+		// Calibration self-check on the REAL scoreRelevance scale — documents
+		// the band positioning MIN_SUGGEST_SCORE=0.5 was chosen against. If
+		// scoring ever shifts so gold falls below the floor or junk clears it,
+		// these asserts fail first and force a conscious recalibration.
+		const keywords = tokenizeQuery(G23B_TASK, G23B_GOAL);
+		const goldScore = scoreRelevance(path.join(cwd, "src", "zebra-yak-wombat-viper-tiger-seal-rabbit-quail-possum.ts"), "", keywords);
+		const junkAScore = scoreRelevance(path.join(cwd, "docs", "zebra-yak-tiger-template-security-references.md"), "", keywords);
+		const junkBScore = scoreRelevance(path.join(cwd, "docs", "xray-tiger-seal-hare-template-workflows.md"), "", keywords);
+		assert.ok(
+			goldScore >= MIN_SUGGEST_SCORE,
+			`gold must clear the floor (got ${goldScore}) — recalibrate MIN_SUGGEST_SCORE or fixture`,
+		);
+		assert.ok(
+			junkAScore > 0.4 && junkAScore < MIN_SUGGEST_SCORE,
+			`junkA should sit in the observed junk band 0.45-0.46 (got ${junkAScore})`,
+		);
+		assert.ok(junkBScore > 0.4 && junkBScore < MIN_SUGGEST_SCORE, `junkB should sit at the top of the junk band (got ${junkBScore})`);
+
+		const result = await runRetrievalCycle(G23B_TASK, G23B_GOAL, cwd);
+		const paths = result.files.map((f) => f.path);
+		// Exactly the two qualifying files survive the floor, sorted desc.
+		assert.equal(result.files.length, 2, `expected only the two qualifying files, got ${JSON.stringify(result.files)}`);
+		for (const f of result.files) {
+			assert.ok(f.score >= MIN_SUGGEST_SCORE, `suggested file ${f.path} scored ${f.score} < floor ${MIN_SUGGEST_SCORE}`);
+		}
+		assert.ok(result.files[0]!.score >= result.files[1]!.score, "suggested files must stay sorted score-desc");
+		assert.ok(
+			paths.some((p) => p.endsWith("zebra-yak-wombat-viper-tiger-seal-rabbit-quail-possum.ts")),
+			"gold must be suggested",
+		);
+		assert.ok(
+			paths.some((p) => p.endsWith("xray-urchin-otter-newt-marmot-lynx-koala.ts")),
+			"gold2 must be suggested",
+		);
+		// Junk grazers in the 0.45-0.47 band are excluded by the floor.
+		assert.ok(
+			!paths.some((p) => p.includes("template-security-references")),
+			`junk grazer A (score ${junkAScore}) must be excluded by the min-score floor`,
+		);
+		assert.ok(
+			!paths.some((p) => p.includes("template-workflows")),
+			`junk grazer B (score ${junkBScore}) must be excluded by the min-score floor`,
+		);
+		// Regression pin of the legacy floor: zero-score files never pass.
+		assert.ok(!paths.some((p) => p.includes("unrelated-notes")), "zero-score file must never be suggested");
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("G23b: all candidates below floor → empty files + no section header", async () => {
+	const cwd = makeG23bFixtureDir(false); // no gold — only junk grazers + zero-score files
+	__test_resetRipgrepCache();
+	__test_resetDiscoveredCache();
+	try {
+		const result = await runRetrievalCycle(G23B_TASK, G23B_GOAL, cwd);
+		assert.deepEqual(result.files, [], "sub-floor-only retrieval must suggest nothing");
+		// Retrieval DID run (keywords existed) — cycles stays 1, not the 0 of
+		// the empty-keyword short-circuit path (M3-C).
+		assert.equal(result.cycles, 1);
+		// The rendered section collapses to "" — no header-only junk block is
+		// injected into the worker prompt (caller filters falsy blocks).
+		assert.equal(renderSuggestedFilesSection(result), "", "empty retrieval must render an empty section");
 	} finally {
 		fs.rmSync(cwd, { recursive: true, force: true });
 	}
