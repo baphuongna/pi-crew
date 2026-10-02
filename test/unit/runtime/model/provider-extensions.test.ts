@@ -230,3 +230,37 @@ test("GH#61: unresolvable directory entry is skipped (never injected as dir)", (
 		cleanup();
 	}
 });
+
+test("GH#61: dir with BOTH index.mjs and index.js must pick index.js (identity match with Pi's ts→js order)", () => {
+	const { settingsPath, npmBase, cleanup } = makeFakeRegistry();
+	try {
+		const dir = path.join(npmBase, "mjs-js-prov");
+		fs.mkdirSync(path.join(dir, "dist"), { recursive: true });
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ pi: { extensions: ["./dist"] } }), "utf-8");
+		fs.writeFileSync(path.join(dir, "dist", "index.mjs"), "export default function () {}", "utf-8");
+		fs.writeFileSync(path.join(dir, "dist", "index.js"), "export default function () {}", "utf-8");
+		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:mjs-js-prov"] }), "utf-8");
+		const result = discoverProviderExtensions(settingsPath);
+		assert.equal(result.length, 1);
+		assert.ok(result[0].entryPath.endsWith(path.join("dist", "index.js")), `must match Pi's pick (index.js), got: ${result[0].entryPath}`);
+	} finally {
+		cleanup();
+	}
+});
+
+test("GH#61: dir with only package.json main keeps loading (legacy jiti dir behaviour preserved)", () => {
+	const { settingsPath, npmBase, cleanup } = makeFakeRegistry();
+	try {
+		const dir = path.join(npmBase, "main-only-prov");
+		fs.mkdirSync(path.join(dir, "dist"), { recursive: true });
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ pi: { extensions: ["./dist"] } }), "utf-8");
+		fs.writeFileSync(path.join(dir, "dist", "package.json"), JSON.stringify({ main: "./plugin.js" }), "utf-8");
+		fs.writeFileSync(path.join(dir, "dist", "plugin.js"), "export default function () {}", "utf-8");
+		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:main-only-prov"] }), "utf-8");
+		const result = discoverProviderExtensions(settingsPath);
+		assert.equal(result.length, 1, "main-only dir must still inject (single instance — Pi does not auto-load it)");
+		assert.ok(result[0].entryPath.endsWith(path.join("dist", "plugin.js")));
+	} finally {
+		cleanup();
+	}
+});

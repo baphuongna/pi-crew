@@ -91,9 +91,28 @@ function resolveExtensionDirEntry(dir: string, depth = 0): string | undefined {
 			/* malformed package.json — fall through to index probes */
 		}
 	}
-	for (const name of ["index.ts", "index.mjs", "index.js"]) {
+	// Order mirrors Pi's resolveExtensionEntries EXACTLY for the first two
+	// (index.ts → index.js): when Pi's auto-load registers the extension, the
+	// injected identity MUST match its pick. index.mjs and package.json `main`
+	// are fallbacks for packages Pi's auto-load would NOT register at all (it
+	// checks neither) — a single injected instance there cannot conflict, and
+	// `main` preserves the legacy jiti dir-loading behaviour (GH #61 follow-up).
+	for (const name of ["index.ts", "index.js"]) {
 		const abs = path.join(dir, name);
 		if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+	}
+	const mjs = path.join(dir, "index.mjs");
+	if (fs.existsSync(mjs) && fs.statSync(mjs).isFile()) return mjs;
+	if (fs.existsSync(pkgJsonPath)) {
+		try {
+			const main = (JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as { main?: string }).main;
+			if (main) {
+				const abs = path.resolve(dir, main);
+				if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+			}
+		} catch {
+			/* malformed package.json — skip */
+		}
 	}
 	return undefined;
 }
