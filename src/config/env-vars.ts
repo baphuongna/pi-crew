@@ -290,6 +290,12 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_DWF_SKIP_DETERMINISM_CHECK",
 		doc: "'1' disables the DWF determinism check (deterministic-ast.ts:60)",
 	},
+	PI_CREW_HEARTBEAT_PULSE_MS: {
+		name: "PI_CREW_HEARTBEAT_PULSE_MS",
+		parser: "int",
+		default: 15_000,
+		doc: "child-executor liveness-pulse interval (ms): touches the worker heartbeat while the attempt's child process is alive even with no stdout events (NEW-4/G25 silent-turn freeze); ≤0 disables (child-executor.ts)",
+	},
 	PI_CREW_INTERRUPT_GUARD_INTERVAL_MS: {
 		name: "PI_CREW_INTERRUPT_GUARD_INTERVAL_MS",
 		parser: "int",

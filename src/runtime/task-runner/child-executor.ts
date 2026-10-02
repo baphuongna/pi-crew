@@ -28,7 +28,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { loadConfig } from "../../config/config.ts";
-import { getCrewEnv } from "../../config/env-vars.ts";
+import { getCrewEnv, getCrewEnvInt } from "../../config/env-vars.ts";
 import { errors } from "../../errors.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
@@ -64,6 +64,7 @@ import { readEnabledModelsPatterns } from "../model/model-scope.ts";
 import { type ParsedPiJsonOutput, parsePiJsonOutput } from "../output/pi-json-output.ts";
 import { type ProgressEventSummary, shouldAppendProgressEventUpdate } from "../output/progress-event-coalescer.ts";
 import { buildSyntheticTerminalEvidence, cancellationReasonFromSignal } from "../process/cancellation.ts";
+import { checkProcessLiveness } from "../process-status.ts";
 import { DEFAULT_RETRY_POLICY } from "../recovery/retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
 import { parseSessionUsage } from "../session-usage.ts";
@@ -150,6 +151,90 @@ export function resolveConfiguredMaxAttempts(cwd: string): number {
  */
 export function computeSpawnBudgetMax(attemptModelsCount: number, configuredMaxAttempts: number): number {
 	return attemptModelsCount * (configuredMaxAttempts + 1);
+}
+
+/**
+ * NEW-4/G25 (SDD-4 WI-4): default liveness-pulse interval, in ms.
+ *
+ * Why a pulse at all: `persistHeartbeat` was only invoked from stdout-driven
+ * callbacks (onStdoutLine / onJsonEvent / onSurfaceActivity). A worker turn
+ * that stays silent for longer than the stale windows — observed live:
+ * 12m27s (heartbeat gradient deadMs=300s, staleMs=60s; stale-reconciler
+ * NO_PID_HEARTBEAT_STALE_MS=300s) — froze heartbeat.lastSeenAt while the
+ * worker process was alive and mid-turn, so liveness consumers (heartbeat
+ * watcher gradient, widget, stale reconciler no-PID path) saw a "dead"
+ * worker that was actually healthy.
+ *
+ * 15s keeps the gradient at "healthy" (warnMs=30s) with 2× headroom, stays
+ * 4× under staleMs (60s) and 20× under deadMs (300s), and costs at most one
+ * throttled tasks.json persist per running task per 15s (persistHeartbeat's
+ * 1s throttle binds first for tighter configured intervals).
+ *
+ * Design choice (producer-side pulse vs reconciler corroboration): the
+ * reconciler and heartbeat-watcher ALREADY carry a PID-liveness gate
+ * (stale-reconciler.ts isTaskHeartbeatStale, heartbeat-watcher.ts
+ * dead→stale downgrade) keyed on `heartbeat.pid ?? checkpoint.childPid`.
+ * Those gates only help when a pid was recorded AND the consumer runs it;
+ * the pulse fixes the PRODUCER side for every consumer at once (gradient
+ * levels, widget, no-pid repair path, ambient notifications) without
+ * touching stale-reconciler.ts (owned by WI-2). Both are wanted; this is
+ * the least invasive in-lane half. See handoff for the recommendation.
+ */
+const DEFAULT_HEARTBEAT_PULSE_INTERVAL_MS = 15_000;
+
+/** Opaque handle for the per-attempt heartbeat liveness pulse. */
+export interface WorkerHeartbeatPulse {
+	/** Stop the pulse and clear its timer. Idempotent. */
+	stop(): void;
+}
+
+/**
+ * Resolve the liveness-pulse interval from `PI_CREW_HEARTBEAT_PULSE_MS`.
+ * Unset/invalid → default (15s). Values ≤ 0 disable the pulse entirely
+ * (escape hatch for operators/batteries that want the pre-fix behaviour).
+ */
+export function resolveHeartbeatPulseIntervalMs(): number {
+	const configured = getCrewEnvInt("PI_CREW_HEARTBEAT_PULSE_MS");
+	if (configured === undefined || !Number.isFinite(configured)) return DEFAULT_HEARTBEAT_PULSE_INTERVAL_MS;
+	if (configured <= 0) return 0;
+	return configured;
+}
+
+/**
+ * Start a periodic heartbeat liveness pulse: every `intervalMs`, if
+ * `isAlive()` reports the worker incarnation as alive, call `touch()`.
+ * This decouples heartbeat freshness from stdout events (NEW-4/G25): a
+ * silent-but-alive turn keeps the heartbeat fresh; a dead worker stops
+ * being touched the moment its pid checks dead (see [pulse-2]).
+ *
+ * Failure containment: a throwing `touch`/`isAlive` is logged and the timer
+ * keeps ticking — the pulse must never crash the host process ([pulse-3]).
+ * The timer is `unref`'d so it can never hold the event loop open.
+ */
+export function startWorkerHeartbeatPulse(opts: { intervalMs: number; isAlive: () => boolean; touch: () => void }): WorkerHeartbeatPulse {
+	if (opts.intervalMs <= 0) {
+		return {
+			stop() {
+				// Intentional no-op: a disabled pulse (interval ≤ 0) has no timer to clear.
+			},
+		};
+	}
+	let stopped = false;
+	const timer = setInterval(() => {
+		if (stopped) return;
+		try {
+			if (opts.isAlive()) opts.touch();
+		} catch (err) {
+			logInternalError("task-runner.heartbeat-pulse", err as Error);
+		}
+	}, opts.intervalMs);
+	timer.unref?.();
+	return {
+		stop() {
+			stopped = true;
+			clearInterval(timer);
+		},
+	};
 }
 
 /**
@@ -535,6 +620,30 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			}, taskTimeoutMs);
 			timeoutHandle.unref?.();
 		}
+		// NEW-4/G25 (SDD-4 WI-4): per-attempt heartbeat liveness pulse. Keeps
+		// heartbeat.lastSeenAt fresh while THIS attempt's worker process is
+		// alive, independent of stdout events (a silent turn no longer freezes
+		// the heartbeat → liveness consumers stop repairing live workers).
+		// Liveness predicate:
+		// - attempt aborted (wall-clock timeout / external cancel) → stop
+		//   asserting liveness; kill escalation owns the remainder.
+		// - pid known (onSpawn fired) → hard corroboration via kill(pid,0);
+		//   a dead pid is never touched, so genuine zombie repair keeps working.
+		// - pid not yet known (pre-spawn window / mock fixtures that bypass
+		//   spawn) → the pending runWorker promise is the best available
+		//   evidence of an in-flight incarnation; touch (fail-open, bounded:
+		//   real spawns pin the pid within ms, and the reconciler's ESRCH
+		//   verdict can never be overridden by a fresh heartbeat).
+		let attemptWorkerPid: number | undefined;
+		const heartbeatPulse = startWorkerHeartbeatPulse({
+			intervalMs: resolveHeartbeatPulseIntervalMs(),
+			isAlive: () => {
+				if (timeoutController.signal.aborted) return false;
+				if (attemptWorkerPid === undefined) return true;
+				return checkProcessLiveness(attemptWorkerPid).alive;
+			},
+			touch: () => persistHeartbeat(),
+		});
 		let childResult: ChildPiRunResult;
 		try {
 			childResult = await runWorker({
@@ -561,6 +670,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				attempt: i,
 				steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 				onSpawn: (pid) => {
+					// NEW-4/G25: pin this incarnation's pid FIRST so the liveness pulse
+					// corroborates against the real process from its first tick on.
+					attemptWorkerPid = pid;
 					try {
 						// WP-1/R1 (H6): dispatch-time ownership writer — record the
 						// task ⇄ pid ⇄ artifactsDir leg of the ownership map as soon as
@@ -764,6 +876,12 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			// the persisted events/output after a task always match what the
 			// unbuffered implementation would have written.
 			flushCrewAgentRecordBuffer(manifest, task.id);
+			// NEW-4/G25: the attempt is over (success, failure, or throw) — stop
+			// the liveness pulse in the same per-attempt cleanup as the wall-clock
+			// timeout (R3 contract block): nothing may touch this incarnation's
+			// heartbeat anymore, including across the model-fallback respawn gap
+			// (where nothing is alive and the heartbeat must be allowed to age).
+			heartbeatPulse.stop();
 			if (timeoutHandle) clearTimeout(timeoutHandle);
 			// W2 fix — release the listener so it doesn't leak. {once:true}
 			// only auto-removes when the listener FIRES; if the timeout
