@@ -186,6 +186,37 @@ function safeDisposeLiveSession(handle: LiveAgentHandle): void {
 	}
 }
 
+/**
+ * WI-5 (SDD-4): last-resort kill for process-backed live sessions.
+ *
+ * terminateLiveAgent used to rely ONLY on session.abort()/dispose(). For
+ * in-process SDK sessions that is sufficient (nothing to signal), but a
+ * session handle that wraps a worker process and exposes `pid` (the same
+ * property evictStaleLiveAgentHandles already reads for liveness) can
+ * survive abort() — abort cancels the in-flight request, not the process —
+ * leaking a live worker process after terminate. Real child-pi workers never
+ * register here (they are killed via killProcessPid from the runner SIGTERM
+ * cascade, cancel/lifecycle asyncPid kill, and the stale reconciler); this
+ * covers registered handles that DO expose a worker pid. Guarded best-effort:
+ * skip non-numeric/self pids and already-dead processes; killProcessPid does
+ * the SIGTERM→SIGKILL escalation on the process group.
+ */
+async function killLiveSessionProcessIfAlive(handle: LiveAgentHandle): Promise<void> {
+	try {
+		const session = handle.session as Record<string, unknown> | undefined;
+		const pid = session?.pid;
+		if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
+		if (!checkProcessLiveness(pid).alive) return;
+		// child-pi-kill is only needed on the terminate/cleanup path — keep it off
+		// the registration/render hot path (same pattern as background-runner).
+		// LAZY: dynamic import keeps child-pi-kill off the hot registration path.
+		const { killProcessPid } = await import("../child-pi/child-pi-kill.ts");
+		killProcessPid(pid);
+	} catch (error) {
+		logInternalError("live-agent-manager.kill-process", error, `agentId=${handle.agentId}`);
+	}
+}
+
 export function disposeLiveAgentSession(agentIdOrTaskId: string): void {
 	const handle = getLiveAgent(agentIdOrTaskId);
 	if (!handle) return;
@@ -226,6 +257,10 @@ export async function terminateLiveAgent(
 		safeDisposeLiveSession(handle);
 		liveAgents.delete(handle.agentId); // Move AFTER abort completes to prevent race
 		invalidateSortedLiveAgents();
+		// WI-5 (SDD-4): if the session still backs a live worker process that
+		// abort()/dispose() failed to stop, signal it last so terminate cannot
+		// leak the worker. No-op for in-process SDK sessions (no numeric pid).
+		await killLiveSessionProcessIfAlive(handle);
 	}
 	return handle;
 }
