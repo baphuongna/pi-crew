@@ -1,7 +1,7 @@
 ---
 name: model-routing-context
 description: >
-  Model routing, parent context, thinking level, and prompt construction workflow. Use when changing model fallback, child Pi args, inherited context, task prompts, or compact-read behavior.
+  Model routing, parent context, thinking level, and prompt construction workflow. Use when changing model fallback, child Pi args, inherited context, task prompts, or compaction/compact-string behavior.
   When NOT to use: project-level config (use resource-discovery-config); routing for non-pi-crew agents.
 
 origin: pi-crew
@@ -10,7 +10,7 @@ triggers:
   - "parent context"
   - "thinking level"
   - "task prompts"
-  - "compact read"
+  - "compaction"
 
 ---
 # model-routing-context
@@ -27,7 +27,8 @@ Use this skill when working on model/context propagation.
 - Preserve parent model inheritance unless an agent/task/user explicitly provides a non-empty model override.
 - Treat empty strings and whitespace model values as absent.
 - Carry relevant parent conversation context as reference-only; do not let it override explicit task instructions or safety constraints.
-- Respect compact-read/compaction summaries when building context; avoid ballooning prompts with redundant transcript data.
+- Distinguish the two compaction layers: host-Pi session compaction (`source/pi/.../session-manager.ts`, `agent-session.ts`, compaction modules) is a reference-only concept — it is not a pi-crew API.
+- Respect pi-crew's write-side compaction when building context: `compactString`/`compactValue` transcript truncation in `src/runtime/child-pi/child-pi-transcript.ts:132-164` (`compactString` exported at :134; cuts marked `[truncated]` / `[pi-crew truncated N entries]`). Avoid ballooning prompts with redundant transcript data.
 - Avoid inline dynamic imports for model providers or prompt helpers.
 - When changing model precedence, add tests for undefined, empty, whitespace, agent, task, parent, and explicit tool override cases.
 - Redact secrets in context snippets and child prompts where logs/artifacts may persist them.
