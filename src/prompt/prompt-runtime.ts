@@ -621,10 +621,19 @@ function findAskResponse(manifest: TeamRunManifest, questionId: string): Mailbox
  *  report — best-effort wait.resolve on EVERY terminal path (answered /
  *  timed-out / aborted). A rejected resolve leaves the task parked; the
  *  scheduler's TTL leak-guard (stale-reconciler) is the backstop, so the
- *  failure is logged, never thrown. */
-async function resolvePark(client: AskBrokerClientSurface, taskId: string, questionId: string): Promise<void> {
+ *  failure is logged, never thrown.
+ *  G5 (deep-review 2026-10-01): the terminal outcome rides the resolve frame
+ *  so the broker can emit `task.respond_delivered` ONLY when the worker
+ *  actually picked up the leader's mailbox response ("answered") — a
+ *  timed-out/aborted park was NOT a delivery and must not masquerade as one. */
+async function resolvePark(
+	client: AskBrokerClientSurface,
+	taskId: string,
+	questionId: string,
+	outcome: "answered" | "timed-out" | "aborted",
+): Promise<void> {
 	try {
-		const res = await client.request("wait.resolve", { to: taskId, questionId });
+		const res = await client.request("wait.resolve", { to: taskId, questionId, outcome });
 		if (!res.ok) {
 			logInternalError(
 				"prompt-runtime.ask-wait-resolve",
@@ -774,7 +783,7 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 				}
 				const waitedMs = now() - startedAt;
 				// Terminal report (ADR item 8): best-effort un-park on EVERY path.
-				await resolvePark(client, taskId, questionId);
+				await resolvePark(client, taskId, questionId, terminal);
 				if (terminal === "answered" && answer) {
 					return {
 						content: [{ type: "text" as const, text: renderAskAnswer(questionId, answer.body) }],

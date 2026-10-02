@@ -94,6 +94,17 @@ export const TEAM_EVENT_TYPES = [
 	"async.stale",
 	"task.waiting",
 	"task.resumed",
+	// G5 (deep-review 2026-10-01): respond-delivery observability. The leader
+	// previously had NO confirmation that a mailbox respond reached the worker:
+	// `respond_delivered` fires at the broker's wait.resolve ack when the parked
+	// worker reports it PICKED UP the questionId-tagged response (terminal
+	// outcome "answered" — timed-out/aborted resolves are NOT deliveries);
+	// `respond_missed` fires root-side when the respond discriminator finds the
+	// waiting worker dead (delivery rides the requeue+inject path instead).
+	// Neither transitions run state — sibling ask.answered/task.resumed carry
+	// the lifecycle; these two carry only the delivery verdict.
+	"task.respond_delivered",
+	"task.respond_missed",
 	"task.retried",
 	// WP-2/R2 waiting-producer (ADR-0 2026-08-17-waiting-producer-ask item 10):
 	// `ask` tool lifecycle — requested on park acceptance, answered on delivery

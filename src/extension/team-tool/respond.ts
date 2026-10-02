@@ -1,6 +1,7 @@
 import { renderAskAnswer } from "../../prompt/prompt-runtime.ts";
 import { readCrewAgents, recordFromTask, saveCrewAgents } from "../../runtime/crew-agent-records.ts";
 import { isWaitingWorkerAlive } from "../../runtime/dispatch-batch.ts";
+import { checkProcessLiveness } from "../../runtime/process-status.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendMailboxMessage, readMailbox, updateMailboxMessageReply } from "../../state/coordination/mailbox.ts";
@@ -142,6 +143,17 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 		/** Exactly-once no-ops: a mailbox response already exists for the questionId. */
 		const noopIds: string[] = [];
 		const answeredEvents: Array<{ taskId: string; questionId: string; delivery: "mailbox" | "requeue" }> = [];
+		/** G5 (deep-review 2026-10-01): DEAD parks — the questionId-tagged response
+		 *  can never be picked up (the parked poller is gone); recorded with the
+		 *  liveness pid evidence so the leader sees the respond fell into the void.
+		 *  Twin of the broker-side task.respond_delivered ack. */
+		const missedEvents: Array<{
+			taskId: string;
+			questionId: string;
+			workerPid: number | undefined;
+			pidAlive: boolean;
+			pidDetail: string;
+		}> = [];
 		let updatedTasks = fresh.tasks;
 
 		for (const task of targetTasks) {
@@ -206,6 +218,21 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 			updatedTasks = requeueWaitingTask(updatedTasks, task.id, message, renderAskAnswer(questionId, message));
 			requeuedIds.push(task.id);
 			answeredEvents.push({ taskId: task.id, questionId, delivery: "requeue" });
+			// G5: liveness evidence for respond_missed — the same pid source + probe
+			// the stale-reconciler / heartbeat-watcher use (heartbeat pid, fallback
+			// checkpoint childPid, then process.kill(pid,0) via checkProcessLiveness).
+			// A live pid here (stale heartbeat but process alive) is still recorded
+			// verbatim — the discriminator already ruled DEAD for delivery; the event
+			// reports what the pid probe saw, it does not re-decide the branch.
+			const missedPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
+			const liveness = checkProcessLiveness(missedPid);
+			missedEvents.push({
+				taskId: task.id,
+				questionId,
+				workerPid: missedPid,
+				pidAlive: liveness.alive,
+				pidDetail: liveness.detail,
+			});
 		}
 
 		// If this respond includes a replyTo, update the original message with reply metadata.
@@ -250,6 +277,33 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 			}).catch((error) =>
 				logInternalError(
 					"respond.ask-answered-event",
+					error instanceof Error ? error : new Error(String(error)),
+					`runId=${manifest.runId}`,
+				),
+			);
+		}
+		// G5 (deep-review 2026-10-01): respond_missed — the DEAD-branch twin of
+		// the broker's respond_delivered ack. Same H1 fire-and-forget discipline
+		// (sync run-lock callback, never await/block); carries the questionId and
+		// the pid/liveness evidence the discrimination was based on.
+		for (const missed of missedEvents) {
+			void appendEventAsync(manifest.eventsPath, {
+				type: "task.respond_missed",
+				runId: manifest.runId,
+				taskId: missed.taskId,
+				message: `Leader respond missed: worker for question ${missed.questionId} is not alive to receive the mailbox response (pid ${
+					missed.workerPid ?? "none recorded"
+				}: ${missed.pidDetail}); delivery rides the requeue+inject path.`,
+				data: {
+					questionId: missed.questionId,
+					...(missed.workerPid !== undefined ? { workerPid: missed.workerPid } : {}),
+					pidAlive: missed.pidAlive,
+					pidDetail: missed.pidDetail,
+					delivery: "requeue",
+				},
+			}).catch((error) =>
+				logInternalError(
+					"respond.respond-missed-event",
 					error instanceof Error ? error : new Error(String(error)),
 					`runId=${manifest.runId}`,
 				),

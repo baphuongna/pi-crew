@@ -172,6 +172,13 @@ export function parseWaitRequestParams(value: unknown): WaitRequestParams | unde
 export interface WaitResolveParams {
 	to: string;
 	questionId: string;
+	/** G5 (deep-review 2026-10-01): the parked worker's terminal outcome —
+	 *  "answered" = it PICKED UP the leader's mailbox response for this
+	 *  questionId (the only outcome that triggers the broker's
+	 *  task.respond_delivered ack event); "timed-out"/"aborted" resolve the
+	 *  park WITHOUT a delivery claim. Optional + fail-closed: legacy workers
+	 *  that omit it never claim a delivery (no event is emitted). */
+	outcome?: "answered" | "timed-out" | "aborted";
 }
 
 export function parseWaitResolveParams(value: unknown): WaitResolveParams | undefined {
@@ -179,5 +186,6 @@ export function parseWaitResolveParams(value: unknown): WaitResolveParams | unde
 	const v = value as Record<string, unknown>;
 	if (typeof v.to !== "string" || v.to.length === 0 || v.to.length > 256) return undefined;
 	if (typeof v.questionId !== "string" || v.questionId.length === 0 || v.questionId.length > 128) return undefined;
-	return { to: v.to, questionId: v.questionId };
+	if (v.outcome !== undefined && v.outcome !== "answered" && v.outcome !== "timed-out" && v.outcome !== "aborted") return undefined;
+	return { to: v.to, questionId: v.questionId, ...(v.outcome !== undefined ? { outcome: v.outcome } : {}) };
 }

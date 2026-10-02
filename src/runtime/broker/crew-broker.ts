@@ -1950,6 +1950,11 @@ export class CrewBroker {
 				};
 			}
 			const updatedTasks = fresh.tasks.map((t) => (t.id === taskId ? { ...t, status: "running" as const, waiting: undefined } : t));
+			// G5 (deep-review 2026-10-01): capture the liveness pid (heartbeat-first,
+			// checkpoint-fallback — the same source stale-reconciler uses) before
+			// the flip, so respond_delivered records the same worker-pid evidence
+			// its respond_missed twin does root-side.
+			const workerPid = task.heartbeat?.pid ?? task.checkpoint?.childPid;
 			// waitState is a single run-level slot: clear it ONLY when it points
 			// at this exact question — never clobber another task's newer park.
 			const waitState = fresh.manifest.waitState;
@@ -1961,7 +1966,7 @@ export class CrewBroker {
 			};
 			saveRunTasks(updatedManifest, updatedTasks);
 			saveRunManifest(updatedManifest);
-			return { code: "ok" as const, message: "" };
+			return { code: "ok" as const, message: "", workerPid };
 		});
 		if (outcome.code !== "ok") {
 			this.sendError(conn, id, outcome.code, outcome.message);
@@ -1986,6 +1991,34 @@ export class CrewBroker {
 		}).catch((err) =>
 			logInternalError("crew-broker.wait.task-resumed-event", err instanceof Error ? err : new Error(String(err)), `runId=${runId}`),
 		);
+		// G5 (deep-review 2026-10-01): respond-delivery ack. wait.resolve fires on
+		// EVERY terminal path (answered/timed-out/aborted) — only the worker-claimed
+		// outcome "answered" is a DELIVERY: the parked ask tool found the
+		// questionId-tagged mailbox response and is resolving the park WITH the
+		// answer in hand (its findAskResponse exact-equality match). A
+		// timed-out/aborted resolve — or a legacy worker that sends no outcome —
+		// never claims a delivery: fail-closed, no event. This ack is the leader's
+		// only confirmation that a mailbox respond reached a live worker instead
+		// of falling into the void; the root-side respond_missed twin covers the
+		// dead-worker branch at write time (extension/team-tool/respond.ts).
+		if (parsed.outcome === "answered") {
+			void appendEventAsync(eventsPath, {
+				type: "task.respond_delivered",
+				runId,
+				taskId,
+				message: `Leader respond delivered: worker acknowledged the mailbox response for question ${parsed.questionId}.`,
+				data: {
+					questionId: parsed.questionId,
+					...(outcome.workerPid !== undefined ? { workerPid: outcome.workerPid } : {}),
+				},
+			}).catch((err) =>
+				logInternalError(
+					"crew-broker.wait.respond-delivered-event",
+					err instanceof Error ? err : new Error(String(err)),
+					`runId=${runId}`,
+				),
+			);
+		}
 		this.sendResult(conn, id, { ok: true, taskId, questionId: parsed.questionId });
 	}
 }

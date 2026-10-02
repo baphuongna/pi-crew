@@ -191,7 +191,7 @@ describe("ask tool lifecycle (WP-2/R2)", () => {
 			// Exactly one terminal wait.resolve (waiting→running flip).
 			const resolves = calls.filter((c) => c.method === "wait.resolve");
 			assert.equal(resolves.length, 1);
-			assert.deepEqual(resolves[0]?.params, { to: "task-1", questionId });
+			assert.deepEqual(resolves[0]?.params, { to: "task-1", questionId, outcome: "answered" });
 		} finally {
 			state.cleanup();
 		}
@@ -219,6 +219,14 @@ describe("ask tool lifecycle (WP-2/R2)", () => {
 			assert.equal(result.details.questionId, questionId);
 			// Terminal report still un-parks the task (ADR item 8).
 			assert.equal(calls.filter((c) => c.method === "wait.resolve").length, 1);
+			// G5 (2026-10-02): a timed-out park is NOT a delivery — the resolve
+			// frame must claim outcome "timed-out" so the broker never emits a
+			// task.respond_delivered ack for an answer the worker never picked up.
+			assert.deepEqual(calls.filter((c) => c.method === "wait.resolve")[0]?.params, {
+				to: state.taskId,
+				questionId,
+				outcome: "timed-out",
+			});
 			// ADR item 10: ask.timedout lands in <stateRoot>/events.jsonl (fire-and-forget).
 			const eventsPath = path.join(state.stateRoot, "events.jsonl");
 			await waitForCondition(() => fs.existsSync(eventsPath) && fs.readFileSync(eventsPath, "utf8").includes("ask.timedout"), 2_000);

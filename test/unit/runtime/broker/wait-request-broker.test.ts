@@ -537,6 +537,89 @@ test("wait.resolve: parked task resolves waiting→running, waitState cleared, e
 	}
 });
 
+// ----------------------------------------------------------------------------
+// Broker: wait.resolve outcome discrimination (G5 respond-delivery ack)
+// ----------------------------------------------------------------------------
+
+test("wait.resolve G5: outcome answered → task.respond_delivered ack with taskId/questionId/pid; timed-out → no delivery claim", async () => {
+	const scaff = await scaffoldRunningTask("g5deliv");
+	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd, waitMethodsEnabled: true });
+	const token = broker.issueRunToken(scaff.runId, scaff.taskId);
+	try {
+		const client = await rawConnect(socketPath);
+		await hello(client, scaff.runId, scaff.taskId, token);
+
+		// Park #1 → resolve with outcome "timed-out": the park clears and the
+		// lifecycle events land, but NO delivery is claimed — a timed-out park
+		// never picked up a mailbox response.
+		client.socket.write(encodeBrokerFrame({ id: "w1", method: "wait.request", params: { to: scaff.taskId, question: "Q1" } }));
+		const park1 = (await client.waitForFrame((f) => (f as { id?: string })?.id === "w1")) as { result?: { questionId?: string } };
+		const q1 = park1.result?.questionId ?? "";
+		assert.ok(q1.length > 0, "park #1 must return a questionId");
+		client.socket.write(
+			encodeBrokerFrame({ id: "r1", method: "wait.resolve", params: { to: scaff.taskId, questionId: q1, outcome: "timed-out" } }),
+		);
+		const res1 = (await client.waitForFrame((f) => (f as { id?: string })?.id === "r1")) as {
+			result?: { ok?: boolean };
+			error?: { code: string };
+		};
+		assert.ok(!res1.error, `timed-out resolve must succeed: ${JSON.stringify(res1)}`);
+		const eventsPath = loadRunManifestById(scaff.cwd, scaff.runId)!.manifest.eventsPath;
+		await readEvents(eventsPath, (ev) => ev.some((e) => e.type === "task.resumed"));
+		// Drain the fire-and-forget window before judging the absence.
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		assert.ok(
+			!parseEvents(eventsPath).some((e) => e.type === "task.respond_delivered"),
+			"timed-out resolve must NOT emit a delivery ack",
+		);
+
+		// Park #2 (task flipped back to running) — seed a heartbeat pid on the
+		// parked task so the ack carries the liveness-pid evidence, then resolve
+		// with outcome "answered": the worker-claimed pickup of the mailbox
+		// response → respond_delivered ack.
+		client.socket.write(encodeBrokerFrame({ id: "w2", method: "wait.request", params: { to: scaff.taskId, question: "Q2" } }));
+		const park2 = (await client.waitForFrame((f) => (f as { id?: string })?.id === "w2")) as { result?: { questionId?: string } };
+		const q2 = park2.result?.questionId ?? "";
+		assert.ok(q2.length > 0 && q2 !== q1, "park #2 must return a fresh questionId");
+		{
+			const loaded = loadRunManifestById(scaff.cwd, scaff.runId)!;
+			saveRunTasks(
+				loaded.manifest,
+				loaded.tasks.map((t) =>
+					t.id === scaff.taskId
+						? { ...t, heartbeat: { workerId: t.id, pid: process.pid, lastSeenAt: new Date().toISOString(), alive: true } }
+						: t,
+				),
+			);
+		}
+		client.socket.write(
+			encodeBrokerFrame({ id: "r2", method: "wait.resolve", params: { to: scaff.taskId, questionId: q2, outcome: "answered" } }),
+		);
+		const res2 = (await client.waitForFrame((f) => (f as { id?: string })?.id === "r2")) as {
+			result?: { ok?: boolean };
+			error?: { code: string };
+		};
+		assert.ok(!res2.error, `answered resolve must succeed: ${JSON.stringify(res2)}`);
+
+		const events = await readEvents(eventsPath, (ev) => ev.some((e) => e.type === "task.respond_delivered"));
+		const delivered = events.filter((e) => e.type === "task.respond_delivered");
+		assert.equal(delivered.length, 1, "exactly one respond_delivered ack");
+		const ack = delivered[0]!;
+		assert.equal(ack.taskId, scaff.taskId, "ack names the waiting task");
+		assert.equal(ack.runId, scaff.runId);
+		const data = ack.data as Record<string, unknown> | undefined;
+		assert.equal(data?.questionId, q2, "ack carries the delivered questionId");
+		assert.equal(data?.workerPid, process.pid, "ack carries the heartbeat pid (liveness parity with respond_missed)");
+		// respond_missed is the ROOT-side (leader respond path) twin — the broker
+		// never emits it.
+		assert.ok(!events.some((e) => e.type === "task.respond_missed"), "broker must not emit respond_missed");
+		client.close();
+	} finally {
+		await broker.stop();
+		teardownCwd(scaff.cwd);
+	}
+});
+
 test("wait.resolve: flag off → policy-disabled error AND policy.action event", async () => {
 	const scaff = await scaffoldRunningTask("resolveoff");
 	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd });

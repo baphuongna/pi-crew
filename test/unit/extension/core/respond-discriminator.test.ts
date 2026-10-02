@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -9,7 +10,9 @@ import { textFromToolResult } from "../../../../src/extension/tool-result.ts";
 import { sweepExpiredWaitingTasks } from "../../../../src/runtime/dispatch-batch.ts";
 import type { WorkerHeartbeatState } from "../../../../src/runtime/heartbeat/worker-heartbeat.ts";
 import { clearLiveAgentsForTest, registerLiveAgent } from "../../../../src/runtime/live-session/live-agent-manager.ts";
+import { checkProcessLiveness } from "../../../../src/runtime/process-status.ts";
 import { readMailbox } from "../../../../src/state/coordination/mailbox.ts";
+import type { TeamEvent } from "../../../../src/state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../../../src/state/types.ts";
 import { sleepSync } from "../../../../src/utils/sleep.ts";
@@ -32,13 +35,13 @@ interface ParkedFixture {
 	questionId: string;
 }
 
-function heartbeatAt(taskId: string, ageMs: number, alive = true): WorkerHeartbeatState {
+function heartbeatAt(taskId: string, ageMs: number, alive = true, pid?: number): WorkerHeartbeatState {
 	// ageMs may be NEGATIVE (future timestamp): fixture setup (scaffold run
 	// completion) can take >60s under suite load, which would age a now-fresh
 	// heartbeat past the gradient stale window before respond executes.
 	// Negative ages pin the heartbeat into the future => classify "healthy"
 	// regardless of fixture slowness (duration_ms ~127s observed in-suite).
-	return { workerId: taskId, lastSeenAt: new Date(Date.now() - ageMs).toISOString(), alive };
+	return { workerId: taskId, lastSeenAt: new Date(Date.now() - ageMs).toISOString(), alive, ...(pid !== undefined ? { pid } : {}) };
 }
 
 /** Create a scaffold run, wait for completion, then park its first task. */
@@ -108,6 +111,17 @@ async function waitForEvent(cwd: string, runId: string, needle: string, timeoutM
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
 	return false;
+}
+
+/** Parse events.jsonl and return only the entries of `type` (G5 tests). */
+function readEventsOfType(eventsPath: string, type: TeamEvent["type"]): TeamEvent[] {
+	if (!fs.existsSync(eventsPath)) return [];
+	return fs
+		.readFileSync(eventsPath, "utf-8")
+		.split("\n")
+		.filter((line) => line.trim().length > 0)
+		.map((line) => JSON.parse(line) as TeamEvent)
+		.filter((event) => event.type === type);
 }
 
 test("respond discriminator: alive (fresh heartbeat) → mailbox response with questionId, task stays waiting", async () => {
@@ -203,6 +217,70 @@ test("respond discriminator: dead → requeued + fenced answer injected, no mail
 
 		assert.ok(await waitForEvent(fixture.cwd, fixture.runId, '"ask.answered"'));
 		assert.ok(await waitForEvent(fixture.cwd, fixture.runId, '"task.resumed"'));
+	} finally {
+		teardown(fixture.cwd);
+	}
+});
+
+test("respond delivery events: dead worker, NO pid recorded → task.respond_missed with no-pid liveness evidence", async () => {
+	clearLiveAgentsForTest();
+	// Stale + dead heartbeat with no pid field: the DEAD branch runs and the
+	// liveness probe must report "no pid recorded", never throw.
+	const fixture = await createParkedRun(heartbeatAt("t", 10 * 60_000, false), 60_000);
+	try {
+		const responded = await handleTeamTool(
+			{ action: "respond", runId: fixture.runId, taskId: fixture.taskId, message: "into the void" },
+			{ cwd: fixture.cwd },
+		);
+		assert.equal(responded.isError, false, textFromToolResult(responded));
+		assert.ok(await waitForEvent(fixture.cwd, fixture.runId, '"task.respond_missed"'), "respond_missed event must land");
+
+		const loaded = loadRunManifestById(fixture.cwd, fixture.runId)!;
+		const missed = readEventsOfType(loaded.manifest.eventsPath, "task.respond_missed");
+		assert.equal(missed.length, 1, "exactly one respond_missed for the DEAD park");
+		const event = missed[0]!;
+		assert.equal(event.taskId, fixture.taskId);
+		assert.equal(event.runId, fixture.runId);
+		const data = event.data as Record<string, unknown>;
+		assert.equal(data.questionId, fixture.questionId);
+		assert.equal(data.workerPid, undefined, "no pid recorded ⇒ no workerPid field");
+		assert.equal(data.pidAlive, false);
+		assert.equal(data.pidDetail, "no pid recorded");
+		assert.equal(data.delivery, "requeue");
+
+		// Missed (root-side) and delivered (broker-side ack) are disjoint verdicts.
+		assert.ok(!fs.readFileSync(loaded.manifest.eventsPath, "utf-8").includes('"task.respond_delivered"'));
+	} finally {
+		teardown(fixture.cwd);
+	}
+});
+
+test("respond delivery events: dead worker WITH dead pid → task.respond_missed records the dead-pid evidence", async () => {
+	clearLiveAgentsForTest();
+	// A real process that has already exited: its pid is deterministic dead
+	// evidence for the checkProcessLiveness probe (stale-reconciler pattern).
+	const exited = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
+	assert.ok(typeof exited.pid === "number" && exited.pid > 0, "fixture must capture the exited child pid");
+	const deadPid = exited.pid as number;
+	assert.equal(checkProcessLiveness(deadPid).alive, false, "fixture pid must be dead before respond runs");
+
+	const fixture = await createParkedRun(heartbeatAt("t", 10 * 60_000, false, deadPid), 60_000);
+	try {
+		const responded = await handleTeamTool(
+			{ action: "respond", runId: fixture.runId, taskId: fixture.taskId, message: "worker died parked" },
+			{ cwd: fixture.cwd },
+		);
+		assert.equal(responded.isError, false, textFromToolResult(responded));
+		assert.ok(await waitForEvent(fixture.cwd, fixture.runId, '"task.respond_missed"'), "respond_missed event must land");
+
+		const loaded = loadRunManifestById(fixture.cwd, fixture.runId)!;
+		const missed = readEventsOfType(loaded.manifest.eventsPath, "task.respond_missed");
+		assert.equal(missed.length, 1);
+		const data = missed[0]!.data as Record<string, unknown>;
+		assert.equal(data.questionId, fixture.questionId);
+		assert.equal(data.workerPid, deadPid, "event carries the heartbeat pid used for the liveness decision");
+		assert.equal(data.pidAlive, false);
+		assert.equal(data.pidDetail, "process does not exist");
 	} finally {
 		teardown(fixture.cwd);
 	}
