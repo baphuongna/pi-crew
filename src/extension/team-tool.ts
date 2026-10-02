@@ -411,8 +411,19 @@ async function adoptSpecialKindRunForResume(
 	return await withRunLock(manifest, async () => {
 		const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
 		const base = fresh?.manifest ?? manifest;
+		// W-C2 (SDD-4 WI-6): drop the dispatch-time detached-runner pointer. Resume
+		// arms re-execute IN THIS session's process (runGoalLoop /
+		// runDynamicWorkflow) — no runner is re-spawned — yet goal-wrapped runs carry
+		// `async: { pid }` from their original background spawn. A dead pid on an
+		// adopted "running" manifest is exactly the state that
+		// transitionStaleAsyncUnderLock (status.ts) flips to failed on the next
+		// status poll ("Async process stale: process does not exist"). The drop is
+		// audited on the run.resume_requested event (clearedAsyncPid).
+		const adoptedBase: TeamRunManifest = { ...base };
+		const staleAsyncPid = adoptedBase.async?.pid;
+		delete adoptedBase.async;
 		const adopted: TeamRunManifest = {
-			...base,
+			...adoptedBase,
 			// WI-2 (G11): keep the ORIGINAL runKind — an accidental fallback to
 			// "team-run" would route the NEXT resume through the static path.
 			runKind,
@@ -429,7 +440,7 @@ async function adoptSpecialKindRunForResume(
 		await appendEventAsync(adopted.eventsPath, {
 			type: "run.resume_requested",
 			runId: adopted.runId,
-			data: { runKind, action: "resume" },
+			data: { runKind, action: "resume", ...(staleAsyncPid !== undefined ? { clearedAsyncPid: staleAsyncPid } : {}) },
 		});
 		return adopted;
 	});
@@ -705,6 +716,21 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		const loadedConfig = loadConfig(ctx.cwd);
 		const recovered = await recoverCheckpointedTasks(lockedManifest, lockedTasks);
 		const resumeManifest = recovered.manifest;
+		// W-C2 (SDD-4 WI-6): drop the stale detached-runner pointer — resume never
+		// re-spawns a background runner (executeTeamRun below runs in THIS
+		// session's process), yet the adopted manifest kept the dispatch-time
+		// `async: { pid }` block pointing at the (now dead) original runner. During
+		// the re-execution window (status=running) any status poll read that dead
+		// pid and transitionStaleAsyncUnderLock flipped the LIVE resumed run to
+		// failed ("Async process stale: process does not exist", cancelling running
+		// tasks) — real-test battery 2026-10-02 finding 1: resume of a completed
+		// async run died 14s in while the sync contrast passed. Invariant restored:
+		// manifest.async is present ONLY while a detached runner owns execution; a
+		// resumed run's liveness is carried by registerActiveRun + ownerSessionId.
+		// The drop is audited on the run.resume_requested event (clearedAsyncPid).
+		const resumeBase: TeamRunManifest = { ...resumeManifest };
+		const staleAsyncPid = resumeBase.async?.pid;
+		delete resumeBase.async;
 		const executedConfig = {
 			...effectiveRunConfig(loadedConfig.config, params.config),
 		};
@@ -725,7 +751,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		const runtime = await resolveCrewRuntime(executedConfig);
 		const runtimeResolution = runtimeResolutionState(runtime);
 		const runtimeManifest = {
-			...resumeManifest,
+			...resumeBase,
 			runtimeResolution,
 			updatedAt: new Date().toISOString(),
 			// B1 battery 2026-08-18 (case b root-cause fix): resume ADOPTS the run —
@@ -801,6 +827,9 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			data: {
 				replayedMailboxMessages: replay.messages.length,
 				recoveredCheckpointTasks: recovered.recovered,
+				// W-C2 (SDD-4 WI-6): audit trail for the stale detached-runner pointer
+				// dropped at adoption (see resumeBase above).
+				...(staleAsyncPid !== undefined ? { clearedAsyncPid: staleAsyncPid } : {}),
 			},
 		});
 		if (recovered.recovered.length)
