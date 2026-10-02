@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { getCrewEnv } from "../config/env-vars.ts";
 import { errors } from "../errors.ts";
 import { atomicWriteFile, atomicWriteJson } from "../state/atomic-write.ts";
+import { type ActiveRunRegistryEntry, activeRunEntries } from "../state/stores/active-run-registry.ts";
 import { getCurrentPlanRecord } from "../state/stores/plan-store.ts";
 import { loadManifestWithRecovery, loadTasksWithRecovery, saveRunManifest } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -360,6 +361,25 @@ function buildStaleReconcileError(task: TeamTaskState, reason: string): Error {
 	return errors.runStale(reason, heartbeatAgeSeconds);
 }
 
+/**
+ * G24 (SDD-4 WI-2): find a LIVE active-run-registry entry for this runId.
+ * activeRunEntries() already applies the full liveness filter (terminal status,
+ * dead async PID, >30min-stale non-async manifests, symlink safety), so an
+ * entry found here means some live session or runner claims the run RIGHT NOW.
+ * Read-only consult (register/unregister are never imported here). Fail-open:
+ * on an unexpected registry error return undefined so normal staleness
+ * reconciliation proceeds — a broken registry must not shield dead runs from
+ * repair forever.
+ */
+function findLiveRegistryEntry(runId: string): ActiveRunRegistryEntry | undefined {
+	try {
+		return activeRunEntries().find((entry) => entry.runId === runId);
+	} catch (err) {
+		logInternalError("stale-reconciler", new Error(`active-run registry consult failed for ${runId}: ${err}`), undefined, "warn");
+		return undefined;
+	}
+}
+
 function repairStaleRun(manifest: TeamRunManifest, tasks: TeamTaskState[], reason: string): TeamTaskState[] {
 	const now = new Date().toISOString();
 	const repairedTasks = tasks.map((task) => {
@@ -429,6 +449,33 @@ export function reconcileStaleRun(manifest: TeamRunManifest, tasks: TeamTaskStat
 			verdict: "waiting_answer",
 			repaired: false,
 			detail: "Ask answer pending (manifest.waitState.askedAt within waiting TTL); run is intentionally waiting and must not be stale-repaired",
+		};
+	}
+
+	// G24 (SDD-4 WI-2, plan §2 upgrade-2026-09-29): foreign-LIVE skip. The
+	// active-run registry is the cross-session source of truth for "a live
+	// session/runner owns this run right now" (registerActiveRun at dispatch;
+	// entries self-expire via PID liveness + the 30min freshness horizon). Until
+	// now ownership was only checked as "run of the CURRENT session"
+	// (crash-recovery.ts ownerSessionId filter), so a child session — or the /tmp
+	// orphan scan, which has no session identity at all — could repair (cancel)
+	// a run whose workers were alive but heartbeat-frozen (G25 silent turn:
+	// 12m27s measured on a live worker). Must run BEFORE Phase 1/2/3: no phase
+	// below may act on a run a live owner still owns. Placement AFTER the
+	// intentional-wait guards keeps their more precise verdicts (both already
+	// return repaired:false, so no repair was ever at risk from them).
+	const liveEntry = findLiveRegistryEntry(runId);
+	if (liveEntry) {
+		return {
+			runId,
+			verdict: "healthy",
+			repaired: false,
+			// Honest text (G24): says exactly what happened — skipped because a live
+			// owner exists — and does not claim any repair. The "healthy" verdict
+			// keeps callers passive: crash-recovery does not push it into the
+			// notify result list, and reconcileOrphanedTempWorkspaces marks the
+			// workspace hasRunning so the foreign run's state is preserved.
+			detail: `Foreign-LIVE run: active-run registry entry is alive (cwd ${liveEntry.cwd}, updatedAt ${liveEntry.updatedAt}); reconcile skipped — a live session/runner owns this run, nothing was changed`,
 		};
 	}
 
