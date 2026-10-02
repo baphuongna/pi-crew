@@ -42,6 +42,7 @@ import { CrewScheduler, type ScheduledJob } from "../../runtime/scheduling/sched
 import { tryRegisterSessionCleanup } from "../../runtime/session-resources.ts";
 import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers, scheduledJobsHiddenCountOf } from "../../runtime/settings-store.ts";
+import type { ReconcileResult } from "../../runtime/stale-reconciler.ts";
 import { loadTasksWithRecovery } from "../../state/stores/manifest-io.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
@@ -86,6 +87,62 @@ export function installSessionLifecycleHandlers(pi: ExtensionAPI, ctx: Registrat
 	installSessionStartHandler(pi, ctx);
 	installSessionBeforeSwitchHandler(pi, ctx);
 	installModelTrackingHandlers(pi);
+}
+
+// ─── NEW-2 (SDD-4 follow-up, P3 review MAJOR 1): honest stale-reconcile notify ──
+
+/**
+ * Repaired runIds already surfaced by the session-start stale-reconcile
+ * notify in THIS process, bounded so a long-lived session cannot grow the set
+ * unboundedly (overflow clears — a re-notify after 256+ distinct repairs is
+ * acceptable noise, an unbounded leak is not).
+ *
+ * Cross-restart dedupe is structural, not tracked here: a real repair persists
+ * a terminal run status, so the run drops out of the reconcile input and can
+ * never re-notify. The set guards the two in-process repeat windows — session
+ * reload/fork re-firing session_start, and a repair whose persistence failed
+ * (disk error / lock steal leaves the run reconcileable while the notify still
+ * claimed it). Observed pre-fix (2026-09-29): 77 dishonest notifies/day,
+ * ~3x per runId, because non-repaired verdicts (blocked_awaiting_approval,
+ * waiting_answer, result_exists) never persist anything and re-fired the
+ * "Found and repaired ghost runs" text on every session start.
+ */
+const notifiedRepairedRunIds = new Set<string>();
+const NOTIFIED_REPAIRED_RUN_IDS_CAP = 256;
+
+/** What the session-start stale-reconcile notify should say (or null: say nothing). */
+export interface StaleReconcileNotifyPlan {
+	title: string;
+	body: string;
+}
+
+/**
+ * NEW-2: decide the operator notification for a session-start reconcile
+ * batch. Honest by construction — a notify is emitted ONLY when reconcile
+ * actually repaired something (`repaired === true`): non-repaired verdicts
+ * are intentional states (plan approval pending, ask parked, result already
+ * exists) that the run dashboard already surfaces, so claiming "repaired"
+ * for them was a false system statement. The title says exactly what
+ * happened ("Repaired N stale run(s)"), the body names each repaired runId
+ * with its verdict, and each repaired runId notifies at most once per
+ * process (bounded set above).
+ */
+export function decideStaleReconcileNotification(staleResults: ReconcileResult[]): StaleReconcileNotifyPlan | null {
+	const repaired = staleResults.filter((r) => r.repaired === true && !notifiedRepairedRunIds.has(r.runId));
+	if (repaired.length === 0) return null;
+	for (const r of repaired) {
+		if (notifiedRepairedRunIds.size >= NOTIFIED_REPAIRED_RUN_IDS_CAP) notifiedRepairedRunIds.clear();
+		notifiedRepairedRunIds.add(r.runId);
+	}
+	return {
+		title: `Repaired ${repaired.length} stale run(s)`,
+		body: `Repaired stale runs from previous sessions: ${repaired.map((r) => `${r.runId} (${r.verdict})`).join(", ")}`,
+	};
+}
+
+/** Test seam: reset the per-process dedupe set between unit tests. */
+export function __test__resetNotifiedRepairedRunIds(): void {
+	notifiedRepairedRunIds.clear();
 }
 
 /**
@@ -460,13 +517,18 @@ async function runDeferredSessionCleanup(
 		// session_start callback synchronous; notify when the result lands.
 		void reconcileAllStaleRuns(extensionCtx.cwd, ctx.getManifestCache(extensionCtx.cwd), Date.now(), currentSessionId)
 			.then((staleResults) => {
-				if ((staleResults ?? []).length > 0) {
+				// NEW-2 (SDD-4 follow-up): honest notify — only actual repairs are
+				// reported, each repaired runId at most once per process. Non-repaired
+				// verdicts (blocked_awaiting_approval / waiting_answer /
+				// result_exists) must NEVER be claimed as "repaired".
+				const plan = decideStaleReconcileNotification(staleResults ?? []);
+				if (plan) {
 					ctx.notifyOperator({
 						id: "stale_reconcile",
 						severity: "info",
 						source: "crash-recovery",
-						title: `Reconciled ${staleResults.length} stale run(s)`,
-						body: `Found and repaired ghost runs from previous sessions: ${staleResults.map((r) => r.runId).join(", ")}`,
+						title: plan.title,
+						body: plan.body,
 					});
 				}
 			})
