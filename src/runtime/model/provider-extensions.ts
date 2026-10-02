@@ -63,6 +63,42 @@ function cachedResult(settingsPath: string): { mtimeMs: number; result: Discover
 }
 
 /**
+ * GH #61: normalize a DIRECTORY `pi.extensions` entry to the entry FILE that
+ * Pi's own package auto-load registers. Pi's chain (package-manager
+ * `collectAutoExtensionEntries` → `resolveExtensionEntries`) resolves a
+ * directory to its nested pi-manifest entries, else `index.ts`/`index.js`.
+ * If pi-crew injects the directory as-is, the child worker loads the same
+ * extension twice under two path identities (".../dist" via --extension vs
+ * ".../dist/index.js" via package auto-discovery) and pi's
+ * detectExtensionConflicts kills the worker at startup (exit 1, every tool
+ * reported as conflicting). Always inject the FILE identity.
+ */
+function resolveExtensionDirEntry(dir: string, depth = 0): string | undefined {
+	if (depth > 2) return undefined; // guard pathological nesting loops
+	const pkgJsonPath = path.join(dir, "package.json");
+	if (fs.existsSync(pkgJsonPath)) {
+		try {
+			const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as { pi?: { extensions?: string[] } };
+			const piExts = pkg.pi?.extensions;
+			if (Array.isArray(piExts) && piExts.length > 0) {
+				for (const rel of piExts) {
+					const abs = path.resolve(dir, rel);
+					if (!fs.existsSync(abs)) continue;
+					return fs.statSync(abs).isDirectory() ? resolveExtensionDirEntry(abs, depth + 1) : abs;
+				}
+			}
+		} catch {
+			/* malformed package.json — fall through to index probes */
+		}
+	}
+	for (const name of ["index.ts", "index.mjs", "index.js"]) {
+		const abs = path.join(dir, name);
+		if (fs.existsSync(abs) && fs.statSync(abs).isFile()) return abs;
+	}
+	return undefined;
+}
+
+/**
  * Resolve the extension entry point for an installed Pi package.
  * Order: package.json `pi.extensions` (array) → `index.ts` → `index.mjs` → `index.js` → `src/index.ts`.
  * Returns undefined when the package has no resolvable entry point.
@@ -80,7 +116,18 @@ function resolvePackageEntry(pkgDir: string): string | undefined {
 			if (Array.isArray(piExts) && piExts.length > 0) {
 				for (const rel of piExts) {
 					const abs = path.resolve(pkgDir, rel);
-					if (fs.existsSync(abs)) return abs;
+					if (!fs.existsSync(abs)) continue;
+					// GH #61: a DIRECTORY entry (e.g. pi-web-access "./dist") must be
+				// normalized to the file identity Pi's auto-load uses — injecting the
+				// raw dir double-loads the extension in child workers (tool conflicts,
+				// exit 1). An unresolvable dir is SKIPPED, matching Pi's own view of
+				// the package (its auto-load would not register it either).
+					if (fs.statSync(abs).isDirectory()) {
+						const entry = resolveExtensionDirEntry(abs);
+						if (entry) return entry;
+						continue;
+					}
+					return abs;
 				}
 			}
 			// Fall back to `main` when it points at a loadable entry (rare for extensions).

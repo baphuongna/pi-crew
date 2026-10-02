@@ -173,3 +173,60 @@ test("discoverProviderExtensionPaths: returns entry paths only", () => {
 		cleanup();
 	}
 });
+
+// ─── GH #61: directory-based pi.extensions must resolve to entry FILE ──────
+
+test("GH#61: pi.extensions directory entry resolves to the entry file (no double-load identity)", () => {
+	const { settingsPath, npmBase, cleanup } = makeFakeRegistry();
+	try {
+		// pi-web-access layout: pi.extensions: ["./dist"], dist/index.js exists.
+		const dir = path.join(npmBase, "pi-web-access");
+		fs.mkdirSync(path.join(dir, "dist"), { recursive: true });
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "pi-web-access", pi: { extensions: ["./dist"] } }), "utf-8");
+		fs.writeFileSync(path.join(dir, "dist", "index.js"), "export default function () {}", "utf-8");
+		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:pi-web-access"] }), "utf-8");
+		const result = discoverProviderExtensions(settingsPath);
+		assert.equal(result.length, 1, "package must still be discovered");
+		assert.ok(
+			result[0].entryPath.endsWith(path.join("dist", "index.js")),
+			`entry must be the FILE identity Pi auto-load uses, got: ${result[0].entryPath}`,
+		);
+		assert.ok(fs.statSync(result[0].entryPath).isFile(), "injected extension path must never be a directory (GH #61)");
+	} finally {
+		cleanup();
+	}
+});
+
+test("GH#61: directory entry with nested pi-manifest resolves one level deeper", () => {
+	const { settingsPath, npmBase, cleanup } = makeFakeRegistry();
+	try {
+		const dir = path.join(npmBase, "nested-prov");
+		const sub = path.join(dir, "build");
+		fs.mkdirSync(sub, { recursive: true });
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ pi: { extensions: ["./build"] } }), "utf-8");
+		fs.writeFileSync(path.join(sub, "package.json"), JSON.stringify({ pi: { extensions: ["./entry.ts"] } }), "utf-8");
+		fs.writeFileSync(path.join(sub, "entry.ts"), "export default function () {}", "utf-8");
+		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:nested-prov"] }), "utf-8");
+		const result = discoverProviderExtensions(settingsPath);
+		assert.equal(result.length, 1);
+		assert.ok(result[0].entryPath.endsWith(path.join("build", "entry.ts")));
+	} finally {
+		cleanup();
+	}
+});
+
+test("GH#61: unresolvable directory entry is skipped (never injected as dir)", () => {
+	const { settingsPath, npmBase, cleanup } = makeFakeRegistry();
+	try {
+		// dist exists but has no index.* and no pi-manifest → Pi auto-load would
+		// not register it either; pi-crew must skip, not inject the raw dir.
+		const dir = path.join(npmBase, "empty-dist-prov");
+		fs.mkdirSync(path.join(dir, "dist"), { recursive: true });
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ pi: { extensions: ["./dist"] } }), "utf-8");
+		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:empty-dist-prov"] }), "utf-8");
+		const result = discoverProviderExtensions(settingsPath);
+		assert.equal(result.length, 0, "unresolvable dir entry must be skipped, not injected as a directory");
+	} finally {
+		cleanup();
+	}
+});
