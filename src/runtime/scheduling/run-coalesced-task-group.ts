@@ -263,13 +263,70 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 
 	const split = splitCoalescedOutput(rawOutput, taskIds);
 
+	// G20 (2026-10-02): fail-closed partial delimiter-hit. When the splitter
+	// reports the output as unpartitionable (strategy "deadletter" — the
+	// worker delimited SOME but not ALL of the group's tasks), broadcasting
+	// the full raw output to every task used to leak each task's delimited
+	// body to every OTHER task. Instead, record the group in the deadletter
+	// store using the same deliberate US-003 pattern as the retry-exhaustion
+	// hook above: ONE entry against the group's FIRST task, with the whole
+	// group's taskIds named in the message — the group shares one worker, so
+	// a single post-mortem record is the deliberate granularity. Each task
+	// then gets a content-free marker and a terminal "failed" status (see the
+	// mapping loop below); no task receives another task's content.
+	const deadlettered = split.some((s) => s.strategy === "deadletter");
+	if (deadlettered) {
+		appendDeadletter(manifest, {
+			runId: manifest.runId,
+			taskId: firstTask.id,
+			reason: "manual",
+			attempts: 1,
+			lastError: `coalesced group (${taskIds.length} task(s): ${taskIds.join(", ")}) — unpartitionable worker output: partial delimiter hit; per-task results withheld (G20 fail-closed, cross-task broadcast suppressed)`,
+			timestamp: new Date().toISOString(),
+			agent: agent.name,
+			role: firstTask.role,
+			runStatus: manifest.status,
+		});
+	}
+
 	const finishedAt = new Date().toISOString();
 	const newArtifacts: TeamRunManifest["artifacts"] = [];
 	updatedTasks = updatedTasks.map((t) => {
 		if (!taskIds.includes(t.id)) return t;
 		const entry = split.find((s) => s.taskId === t.id);
+		// G20 deadletter branch: unpartitionable output. Fail closed — every
+		// group task gets a marker that carries NO cross-task content (no
+		// delimited bodies, no full raw output) and a terminal "failed" status
+		// regardless of the worker's exit code: a worker whose output cannot be
+		// partitioned has NOT produced this task's result.
+		if (deadlettered) {
+			const markerText = `[coalesced-output-unpartitionable] task ${t.id}: worker output could not be partitioned (partial delimiter hit) — per-task result withheld (G20 fail-closed); see deadletter entry for group ${groupId}`;
+			const resultArtifact = writeArtifact(manifest.artifactsRoot, {
+				kind: "result",
+				relativePath: `results/${t.id}.txt`,
+				content: markerText,
+				producer: t.id,
+			});
+			newArtifacts.push(resultArtifact);
+			return {
+				...t,
+				status: "failed" as const,
+				finishedAt,
+				result: {
+					text: markerText,
+					producer: groupId,
+					strategy: "deadletter",
+				},
+				resultArtifact,
+			};
+		}
 		const ok = success && Boolean(entry?.text);
-		const text = entry?.text ?? rawOutput;
+		// G20 (second leak path closed): a task with NO split entry previously
+		// fell back to the FULL rawOutput — i.e. every other task's content.
+		// That fallback was exactly the cross-task leak; a missing entry now
+		// gets an empty marker instead. (splitCoalescedOutput returns an entry
+		// per taskId in every branch today, so this is defensive.)
+		const text = entry?.text ?? `[no partition entry for task ${t.id} — result withheld]`;
 		// BUGFIX (M6 real dispatch): write to artifactsRoot via writeArtifact
 		// so task.resultArtifact is set and aggregateTaskOutputs can read
 		// the per-task text. Previously the coalesced path used a raw
@@ -332,8 +389,10 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 	await appendEventAsync(updatedManifest.eventsPath, {
 		type: "task.coalesced_dispatch_end",
 		runId: manifest.runId,
-		message: `Coalesced dispatch ${success ? "completed" : cancelled ? "cancelled" : "failed"} (${taskIds.length} tasks, ${split[0]?.strategy ?? "broadcast"} split)`,
-		data: { groupId, taskIds, success, cancelled, strategy: split[0]?.strategy },
+		message: deadlettered
+			? `Coalesced dispatch failed — unpartitionable output deadlettered (${taskIds.length} tasks, partial delimiter hit, G20 fail-closed)`
+			: `Coalesced dispatch ${success ? "completed" : cancelled ? "cancelled" : "failed"} (${taskIds.length} tasks, ${split[0]?.strategy ?? "broadcast"} split)`,
+		data: { groupId, taskIds, success, cancelled, strategy: split[0]?.strategy, deadlettered },
 	});
 
 	return { manifest: updatedManifest, tasks: updatedTasks, taskIds, rawOutput, success };

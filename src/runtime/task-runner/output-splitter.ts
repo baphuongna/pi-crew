@@ -9,25 +9,40 @@
  * Strategy (in priority order):
  *   1. Delimiter parse — exact match of `<<<TASK_RESULT:id>>>` markers
  *   2. Section heading parse — `### Task N of M` / `## Task N` headers
+ *      (only reachable when the output contains ZERO delimiter markers)
  *   3. Whole-output broadcast — assign full raw output to ALL taskIds
- *      (safe fallback for read-only roles where identical context is OK)
+ *      (safe fallback for read-only roles where identical context is OK;
+ *      only reachable when the output contains ZERO delimiter markers —
+ *      see the deadletter note below for why)
+ *   Deadletter (G20 fail-closed) — a PARTIAL delimiter hit (some but not
+ *      all taskIds delimited) marks the whole output unpartitionable: no
+ *      task may receive any partition of it. Previously this case fell
+ *      through to Strategy 3 and broadcast the full raw output — including
+ *      other tasks' delimited bodies — to every task in the group. The
+ *      caller (run-coalesced-task-group) records the group via
+ *      appendDeadletter and fails the tasks instead.
  *
  * Returns an array of { taskId, text } records in input-order. When the
  * delimiter strategy succeeds, each entry contains that task's delimited
  * text. When broadcast fallback is used, all entries contain the full
- * raw output.
+ * raw output. When the deadletter strategy is returned, all entries have
+ * empty text — the caller decides what marker to surface per task.
  *
  * Note: pure function — no I/O, no LLM calls, deterministic. This is
  * deliberately the simplest possible splitter; we don't try fuzzy
  * matching, NL extraction, or retry-the-LLM. The MVP trusts workers
- * to follow delimiters 99% of the time and broadcasts the rest.
+ * to follow delimiters 99% of the time; a zero-marker miss degrades to
+ * broadcast (nothing task-specific exists to leak), and a partial
+ * violation now fails closed (G20) instead of leaking cross-task
+ * delimited bodies.
  */
 
 export interface SplitResult {
 	taskId: string;
 	text: string;
-	/** Which strategy produced this entry. */
-	strategy: "delimiter" | "section" | "broadcast";
+	/** Which strategy produced this entry. `deadletter` = G20 fail-closed:
+	 * partial delimiter hit — output is unpartitionable, text is empty. */
+	strategy: "delimiter" | "section" | "broadcast" | "deadletter";
 }
 
 /**
@@ -69,8 +84,30 @@ export function splitCoalescedOutput(rawOutput: string, taskIds: string[]): Spli
 		}));
 	}
 
+	// G20 fail-closed: PARTIAL delimiter hit (0 < hits < taskIds.length).
+	// The worker started following the delimiter contract but did not finish
+	// it — the output mixes delimited per-task bodies with unattributed
+	// prose. No per-task partition can be trusted at this point, not even
+	// for the ids that DID get a delimiter: attributing a body to task X is
+	// only sound when every other body is provably not X's, and partial
+	// coverage cannot prove that. Previously this case skipped Strategy 2
+	// entirely (the `delimiterHits.size === 0` guard below) and fell through
+	// to Strategy 3, broadcasting the FULL raw output — including other
+	// tasks' delimited bodies — to every task in the group (cross-task
+	// content leak). Fail closed instead: mark the whole group deadletter;
+	// the caller records it and withholds per-task results.
+	if (delimiterHits.size > 0) {
+		return taskIds.map((id) => ({
+			taskId: id,
+			text: "",
+			strategy: "deadletter" as const,
+		}));
+	}
+
 	// Strategy 2: section heading parse.
 	// Look for `### Task N of M` or `## Task {id}` markers. We try both.
+	// Only reachable with ZERO delimiter hits — partial hits return
+	// deadletter above.
 	if (delimiterHits.size === 0) {
 		const bySection = parseBySectionHeadings(rawOutput, taskIds);
 		if (bySection.size === taskIds.length) {
@@ -85,6 +122,12 @@ export function splitCoalescedOutput(rawOutput: string, taskIds: string[]): Spli
 	// Strategy 3: broadcast fallback. All tasks get the full raw output.
 	// This is safe for read-only roles (explorers, reviewers) where
 	// downstream consumers care about findings, not strict per-task partitioning.
+	// G20: unreachable for partial delimiter hits (those return deadletter
+	// above). Broadcast is ONLY reachable when the output contains ZERO
+	// delimiter markers and section parsing failed — i.e. the raw output has
+	// no delimited per-task bodies at all, so broadcasting it cannot leak one
+	// task's delimited content to another task. If that zero-marker premise
+	// ever changes, this fallback must be re-audited for cross-task leaks.
 	return taskIds.map((id) => ({
 		taskId: id,
 		text: rawOutput,

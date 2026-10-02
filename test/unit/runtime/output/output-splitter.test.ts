@@ -105,16 +105,101 @@ Second.`;
 			assert.equal(result[1]!.text, raw);
 			assert.equal(result[2]!.text, raw);
 		});
+	});
 
-		it("broadcasts when only SOME tasks got delimiters (partial match)", () => {
-			const raw = `<<<TASK_RESULT:only-one>>>
-Only task 1 got a delimiter.
-<<<END_TASK_RESULT>>>`;
+	describe("G20 fail-closed: partial delimiter-hit", () => {
+		it("deadletters when only SOME tasks got delimiters — no broadcast leak", () => {
+			const raw = `Worker preamble for the whole group.
+
+<<<TASK_RESULT:first>>>
+SECRET-BODY-FOR-FIRST — delimited content for the one task that followed the format.
+<<<END_TASK_RESULT>>>
+
+Unattributed trailing prose with no delimiters for the others.`;
 			const result = splitCoalescedOutput(raw, ["first", "second"]);
-			// Strategy 2 needs all-or-nothing; partial delimiter + no section
-			// header triggers broadcast.
+			// G20: partial hit (1 of 2 KNOWN taskIds delimited) → the whole output
+			// is unpartitionable. Previously this broadcast the FULL raw — leaking
+			// SECRET-BODY-FOR-FIRST to `second` — to every task.
+			assert.equal(result.length, 2);
+			assert.equal(result[0]!.strategy, "deadletter");
+			assert.equal(result[1]!.strategy, "deadletter");
+			// No task may receive any partition of the output: empty text,
+			// never the delimited body, never the full raw.
+			for (const entry of result) {
+				assert.equal(entry.text, "");
+				assert.ok(!entry.text.includes("SECRET-BODY-FOR-FIRST"));
+				assert.notEqual(entry.text, raw);
+			}
+		});
+
+		it("3-task group with 1 delimited task → deadletter for ALL, zero cross-task content", () => {
+			const raw = `Group preamble mentioning all work.
+
+<<<TASK_RESULT:task-one>>>
+SECRET-BODY-ONE.
+<<<END_TASK_RESULT>>>
+
+Task two and task three results were merged into this trailing prose without delimiters.`;
+			const result = splitCoalescedOutput(raw, ["task-one", "task-two", "task-three"]);
+			assert.equal(result.length, 3);
+			for (const entry of result) {
+				assert.equal(entry.strategy, "deadletter", `${entry.taskId} must be deadletter`);
+				assert.equal(entry.text, "", `${entry.taskId} must carry NO content`);
+			}
+			// Belt: no entry carries the delimited body or the full raw.
+			assert.ok(!result.some((e) => e.text.includes("SECRET-BODY-ONE")));
+			assert.ok(!result.some((e) => e.text === raw));
+		});
+
+		it("partial hit wins even when valid section headings exist (fail-closed, no section fallback)", () => {
+			const raw = `### Task 1 of 2
+First section body.
+
+<<<TASK_RESULT:a>>>
+SECRET-DELIMITED-BODY.
+<<<END_TASK_RESULT>>>
+
+### Task 2 of 2
+Second section body.`;
+			const result = splitCoalescedOutput(raw, ["a", "b"]);
+			// A partial delimiter hit marks the output unpartitionable — it must
+			// NOT silently degrade into section parsing either (that would still
+			// partition an output the worker only half-followed).
+			assert.equal(result[0]!.strategy, "deadletter");
+			assert.equal(result[1]!.strategy, "deadletter");
+			assert.equal(result[0]!.text, "");
+			assert.equal(result[1]!.text, "");
+		});
+
+		it("regression: full delimiter hit still partitions per-task with own bodies only", () => {
+			const raw = `<<<TASK_RESULT:a>>>
+SECRET-BODY-A.
+<<<END_TASK_RESULT>>>
+
+<<<TASK_RESULT:b>>>
+SECRET-BODY-B.
+<<<END_TASK_RESULT>>>
+
+<<<TASK_RESULT:c>>>
+SECRET-BODY-C.
+<<<END_TASK_RESULT>>>`;
+			const result = splitCoalescedOutput(raw, ["a", "b", "c"]);
+			assert.equal(result.length, 3);
+			assert.ok(result.every((e) => e.strategy === "delimiter"));
+			assert.match(result[0]!.text, /SECRET-BODY-A/);
+			assert.match(result[1]!.text, /SECRET-BODY-B/);
+			assert.match(result[2]!.text, /SECRET-BODY-C/);
+			// No cross-task leak on the happy path either.
+			assert.ok(!result[0]!.text.includes("SECRET-BODY-B"));
+			assert.ok(!result[1]!.text.includes("SECRET-BODY-C"));
+		});
+
+		it("regression: zero-hit output with no sections still broadcasts (unchanged)", () => {
+			const raw = "No markers whatsoever, shared context only.";
+			const result = splitCoalescedOutput(raw, ["a", "b"]);
 			assert.equal(result[0]!.strategy, "broadcast");
 			assert.equal(result[1]!.strategy, "broadcast");
+			assert.equal(result[0]!.text, raw);
 		});
 	});
 
@@ -131,7 +216,7 @@ Only task 1 got a delimiter.
 			assert.equal(result[0]!.text, raw);
 		});
 
-		it("ignores delimiter for unknown task IDs", () => {
+		it("partial hit on unknown-ID delimiter → deadletter (G20)", () => {
 			const raw = `<<<TASK_RESULT:real-task>>>
 content.
 <<<END_TASK_RESULT>>>
@@ -141,13 +226,16 @@ phantom.
 <<<END_TASK_RESULT>>>`;
 			// Request two tasks — real-task (has delimiter) and missing-task
 			// (no delimiter at all). real-task gets delimiter hit; missing-task
-			// does not. delimiterHits.size=1 ≠ taskIds.length=2 → falls
-			// through to strategy 2 (sections), then strategy 3 (broadcast).
+			// does not. delimiterHits.size=1 ≠ taskIds.length=2 → G20 partial
+			// hit: fail closed to deadletter for the WHOLE group (previously this
+			// broadcast the full raw — including real-task's and the phantom's
+			// delimited bodies — to missing-task).
 			const result = splitCoalescedOutput(raw, ["real-task", "missing-task"]);
 			assert.equal(result.length, 2);
-			assert.equal(result[0]!.strategy, "broadcast");
-			assert.equal(result[1]!.strategy, "broadcast");
-			assert.equal(result[0]!.text, raw);
+			assert.equal(result[0]!.strategy, "deadletter");
+			assert.equal(result[1]!.strategy, "deadletter");
+			assert.equal(result[0]!.text, "");
+			assert.equal(result[1]!.text, "");
 		});
 
 		it("handles empty raw output with multi-task group (broadcast empty)", () => {
