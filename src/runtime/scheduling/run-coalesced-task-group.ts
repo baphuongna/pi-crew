@@ -102,6 +102,18 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 	// (now-terminal) updatedTasks AFTER its own save resolves, so the terminal
 	// state always lands last regardless of disk timing.
 	let finalWriteStarted = false;
+	// NEW-3 (SDD-4 W-D): the coalesced path was the only dispatch path with NO
+	// pid evidence at all — the singleton path records checkpoint.childPid at
+	// child-spawned (child-executor.ts), but this module never calls
+	// checkpointTask, so heartbeat.pid stayed undefined AND checkpoint.childPid
+	// stayed undefined → the PID-liveness gates in stale-reconciler.ts and
+	// heartbeat-watcher.ts (both read `heartbeat?.pid ?? checkpoint?.childPid`)
+	// resolved to undefined for EVERY task in EVERY coalesced group; an
+	// alive-but-silent coalesced worker could be falsely repaired. Capture the
+	// real worker pid at spawn — onSpawn fires per spawn attempt, so
+	// retry/model-fallback overwrite this with the latest live pid (mirroring
+	// the singleton ownership-entry semantics in child-executor.ts).
+	let workerPid: number | undefined;
 	if (!executeWorkers) {
 		rawOutput = buildScaffoldOutput(groupTasks);
 		success = true;
@@ -121,7 +133,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 					// snapshot of the FULL task array — a sibling cancelled on disk after
 					// dispatch could be un-cancelled by a late heartbeat save (the map
 					// only mutated group tasks, but the SAVE wrote the whole stale array).
-					await persistGroupHeartbeats(manifest, taskIds);
+					await persistGroupHeartbeats(manifest, taskIds, workerPid);
 				} catch {
 					// Run may have been pruned mid-dispatch — best-effort only.
 				} finally {
@@ -188,6 +200,11 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 					maxTurns: input.runtimeConfig?.maxTurns,
 					graceTurns: input.runtimeConfig?.graceTurns,
 					onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e),
+					// NEW-3: capture the spawned worker's real pid for the heartbeat
+					// persists (see `workerPid` declaration above).
+					onSpawn: (pid) => {
+						workerPid = pid;
+					},
 				});
 			} finally {
 				if (timeoutHandle) clearTimeout(timeoutHandle);
@@ -335,7 +352,7 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
  * with heartbeats touched; sibling tasks are preserved untouched from the
  * fresh disk read. Keeps the FIND-06 'never replace terminal state' guard.
  */
-async function persistGroupHeartbeats(manifest: TeamRunManifest, taskIds: string[]): Promise<void> {
+async function persistGroupHeartbeats(manifest: TeamRunManifest, taskIds: string[], workerPid?: number): Promise<void> {
 	const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
 	if (!fresh) return; // run pruned mid-dispatch — best-effort only.
 	const merged = fresh.tasks.map((t) => {
@@ -345,7 +362,14 @@ async function persistGroupHeartbeats(manifest: TeamRunManifest, taskIds: string
 		if (t.status === "completed" || t.status === "failed" || t.status === "cancelled") return t;
 		return {
 			...t,
-			heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id), { alive: true }),
+			// NEW-3: stamp the worker's real pid on BOTH the create fallback and
+			// the touch update. Conditional spread is required — a literal
+			// `pid: undefined` would clobber a pid recorded by an earlier tick
+			// (touchWorkerHeartbeat spreads `updates` verbatim).
+			heartbeat: touchWorkerHeartbeat(t.heartbeat ?? createWorkerHeartbeat(t.id, workerPid), {
+				alive: true,
+				...(workerPid ? { pid: workerPid } : {}),
+			}),
 		};
 	});
 	await saveRunTasksAsync(manifest, merged);

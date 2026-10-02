@@ -152,6 +152,14 @@ export async function prepareTaskExecutionContext(
 		startedAt: new Date().toISOString(),
 		claim: createTaskClaim(`task-runner:${input.task.id}`),
 		heartbeat: createWorkerHeartbeat(input.task.id),
+		// NEW-3 (SDD-4 W-D) note: deliberately NO pid here — at prepare time the
+		// worker does not exist yet (spawn happens later in child-executor.ts).
+		// The singleton path's real pid arrives via checkpoint.childPid
+		// (child-executor "child-spawned" checkpoint), which the
+		// `heartbeat?.pid ?? checkpoint?.childPid` consumers already read as a
+		// fallback. Do NOT stamp process.pid here — that is the orchestrator, and
+		// it outlives the worker, which would blind the stale-reconciler's
+		// PID-liveness gate forever.
 		agentProgress: input.task.agentProgress ?? emptyCrewAgentProgress(),
 		// Lifetime usage accumulator — survives compaction unlike session.stats
 		lifetimeUsage: { input: 0, output: 0, cacheWrite: 0 },
