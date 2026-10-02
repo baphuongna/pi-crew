@@ -36,6 +36,7 @@ import type { CrewWebhookConfig } from "../config/types.ts";
 import { loadRunManifestById } from "../state/stores/state-store.ts";
 import type { TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { embeddedIpv4FromGroups, parseIpv6Literal } from "../utils/ip-literal.ts";
 import { isInQuietHours } from "./notification-router.ts";
 
 /** Documented payload (spec §Design). Field order matches the spec example. */
@@ -139,7 +140,28 @@ function isLocalAddress(hostname: string): boolean {
 	const firstHextet = bare.split(":").find((segment) => segment.length > 0);
 	if (firstHextet && /^[0-9a-f]{1,4}$/.test(firstHextet)) {
 		const value = Number.parseInt(firstHextet, 16);
-		return value >= 0xfe80 && value <= 0xfebf;
+		if (value >= 0xfe80 && value <= 0xfebf) return true;
+	}
+	// G6: classify any remaining IPv6 literal through the shared parser —
+	// the textual checks above match only a subset of spellings, so
+	// `::127.0.0.1` (IPv4-compatible loopback), `0:0:0:0:0:0:0:1` (expanded
+	// ::1) and full-form mapped addresses slipped through. Same predicate
+	// scope as above: loopback/unspecified/link-local + the local part of an
+	// embedded IPv4 (RFC1918 deliberately stays allowed — internal
+	// webhooks are a use case).
+	const groups = parseIpv6Literal(bare);
+	if (groups) {
+		if (groups.every((group) => group === 0)) return true;
+		if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true;
+		if ((groups[0] & 0xffc0) === 0xfe80) return true;
+		const embedded = embeddedIpv4FromGroups(groups);
+		if (embedded) {
+			const v4 = ipv4Octets(embedded);
+			if (v4) {
+				const [a, b] = v4;
+				return a === 127 || a === 0 || (a === 169 && b === 254);
+			}
+		}
 	}
 	return false;
 }

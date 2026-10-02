@@ -281,6 +281,15 @@ test("SSRF guard: refuses non-http(s), loopback, unspecified, and link-local tar
 	assert.equal(isWebhookUrlAllowed("http://[::1]:9090/hook"), false);
 	assert.equal(isWebhookUrlAllowed("http://[fe80::1]:9090/hook"), false, "IPv6 link-local");
 	assert.equal(isWebhookUrlAllowed("http://0.0.0.0/hook"), false, "unspecified");
+	// G6: IPv6 forms the textual checks used to miss.
+	assert.equal(isWebhookUrlAllowed("http://[::127.0.0.1]:9090/hook"), false, "IPv4-compatible loopback bypassed the old checks");
+	assert.equal(isWebhookUrlAllowed("http://[0:0:0:0:0:0:0:1]:9090/hook"), false, "expanded ::1");
+	assert.equal(isWebhookUrlAllowed("http://[0:0:0:0:0:ffff:127.0.0.1]:9090/hook"), false, "expanded IPv4-mapped loopback");
+	assert.equal(isWebhookUrlAllowed("http://[::169.254.169.254]/hook"), false, "metadata via IPv4-compatible form");
+	assert.equal(isWebhookUrlAllowed("http://[::ffff:169.254.169.254]/hook"), false, "metadata via mapped form");
+	assert.equal(isWebhookUrlAllowed("http://[::0.0.0.0]/hook"), false, "IPv4-compatible unspecified");
+	assert.equal(isWebhookUrlAllowed("http://[2606:4700:4700::1111]:9090/hook"), true, "public IPv6 literal stays allowed");
+	assert.equal(isWebhookUrlAllowed("http://[::ffff:10.1.2.3]:9090/hook"), true, "mapped RFC1918 stays allowed by design");
 });
 
 test("factory refuses disallowed URLs at creation → ZERO fetch calls even with enabled:true", async () => {

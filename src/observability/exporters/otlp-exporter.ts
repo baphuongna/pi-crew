@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { bracketIpv6InUrl, embeddedIpv4FromGroups, parseIpv6Literal, unbracketHost } from "../../utils/ip-literal.ts";
 import { redactSecrets } from "../../utils/redaction.ts";
 import type { MetricRegistry } from "../metric-registry.ts";
 import type { MetricSnapshot } from "../metrics-primitives.ts";
@@ -17,6 +18,10 @@ const gzipAsync = promisify(gzip);
  * Only http:// and https:// to public hostnames are allowed.
  */
 export function validateEndpoint(endpoint: string): void {
+	// G6: a bare IPv6 literal in the authority (`http://::1:4318`) makes
+	// `new URL` throw — bracket it first so the classifier sees the literal
+	// instead of a generic invalid-URL error (RFC 3986 §3.2.2 host ABNF).
+	endpoint = bracketIpv6InUrl(endpoint);
 	let url: URL;
 	try {
 		url = new URL(endpoint);
@@ -67,6 +72,13 @@ export function validateEndpoint(endpoint: string): void {
 		if (lower.startsWith("::ffff:")) {
 			throw new Error(`OTLP endpoint must not target IPv4-mapped IPv6 address: ${endpoint}`);
 		}
+		// G6: catch every literal form the prefix checks above miss —
+		// IPv4-compatible `::a.b.c.d` (e.g. ::127.0.0.1, ::169.254.169.254),
+		// expanded spellings (`0:0:0:0:0:0:0:1`), zone-ids — through the
+		// shared parser, applying the same predicates as the IPv4 branch.
+		if (isPrivateIpv6Literal(bare)) {
+			throw new Error(`OTLP endpoint must not target private/reserved IPv6 address: ${endpoint}`);
+		}
 	}
 
 	// Reject IPv4 private/reserved ranges
@@ -102,6 +114,63 @@ export function validateEndpoint(endpoint: string): void {
 }
 
 /**
+ * IPv4 predicate shared by the IPv6 literal classifier below: loopback,
+ * private (RFC1918), link-local/metadata, this-network. Mirrors the ranges
+ * checked textually in `validateEndpoint`.
+ */
+function isPrivateIpv4(address: string): boolean {
+	const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(address);
+	if (!match) return false;
+	const o0 = Number(match[1]);
+	const o1 = Number(match[2]);
+	if (o0 === 127 || o0 === 0) return true;
+	if (o0 === 10) return true;
+	if (o0 === 172 && o1 >= 16 && o1 <= 31) return true;
+	if (o0 === 192 && o1 === 168) return true;
+	if (o0 === 169 && o1 === 254) return true;
+	return false;
+}
+
+/**
+ * G6: classify a parsed IPv6 literal (8 groups) as private/reserved using
+ * the same predicates as the IPv4 branch. Catches the forms the textual
+ * prefix checks miss: IPv4-compatible `::a.b.c.d`, IPv4-mapped
+ * `::ffff:a.b.c.d` (refused wholesale, as before), expanded spellings of
+ * `::1` / ULA / link-local / site-local / multicast, and zone-ids.
+ */
+function isPrivateIpv6Groups(groups: number[]): boolean {
+	// Unspecified `::`.
+	if (groups.every((group) => group === 0)) return true;
+	// Loopback `::1`.
+	if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true;
+	// IPv4-mapped `::ffff:a.b.c.d` — refused wholesale (existing rule).
+	if (groups[5] === 0xffff && groups.slice(0, 5).every((group) => group === 0)) return true;
+	// IPv4-compatible `::a.b.c.d` — map to IPv4, apply the IPv4 predicates.
+	const embedded = embeddedIpv4FromGroups(groups);
+	if (embedded && isPrivateIpv4(embedded)) return true;
+	// Unique local fc00::/7.
+	if ((groups[0] & 0xfe00) === 0xfc00) return true;
+	// Link-local fe80::/10.
+	if ((groups[0] & 0xffc0) === 0xfe80) return true;
+	// Site-local fec0::/10 (deprecated).
+	if ((groups[0] & 0xffc0) === 0xfec0) return true;
+	// Multicast ff00::/8.
+	if ((groups[0] & 0xff00) === 0xff00) return true;
+	return false;
+}
+
+/**
+ * G6: classify ANY IPv6 literal spelling (bracketed or bare) as
+ * private/reserved. Non-literals (hostnames, plain IPv4) return false —
+ * those are handled by `validateEndpoint`'s IPv4 branch and the DNS
+ * rebinding guard.
+ */
+function isPrivateIpv6Literal(host: string): boolean {
+	const groups = parseIpv6Literal(unbracketHost(host));
+	return groups !== undefined && isPrivateIpv6Groups(groups);
+}
+
+/**
  * CFG-6: classify a single IP address (IPv4 or IPv6) as private / reserved /
  * loopback / link-local. Used by the runtime DNS-rebinding guard below to
  * verify the addresses the endpoint hostname resolves to. Returns true for
@@ -122,14 +191,11 @@ export function isPrivateIpAddress(address: string): boolean {
 		if (o0 === 169 && o1 === 254) return true;
 		return false;
 	}
-	// IPv6 (without surrounding brackets, as `dns.lookup` returns them)
-	if (lower === "::1" || lower === "::") return true;
-	if (lower.startsWith("fd") || lower.startsWith("fc")) return true;
-	if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) return true;
-	if (lower.startsWith("fec") || lower.startsWith("fed") || lower.startsWith("fee") || lower.startsWith("fef")) return true;
-	if (lower.startsWith("ff")) return true;
-	if (lower.startsWith("::ffff:")) return true;
-	return false;
+	// IPv6 (without surrounding brackets, as `dns.lookup` returns them):
+	// classify through the shared literal parser (G6) so compressed,
+	// expanded, embedded-IPv4 and zone-id forms all reduce to the same
+	// predicates — the old prefix chain missed `::127.0.0.1`.
+	return isPrivateIpv6Literal(lower);
 }
 
 /**
@@ -142,6 +208,9 @@ export function isPrivateIpAddress(address: string): boolean {
  * allowed to fall through so the underlying `fetch` surfaces the error.
  */
 export async function assertResolvedAddressSafe(endpoint: string): Promise<void> {
+	// G6: bare IPv6 literal authorities are bracketed before parsing so the
+	// literal classifier below sees them (idempotent for normal URLs).
+	endpoint = bracketIpv6InUrl(endpoint);
 	let url: URL;
 	try {
 		url = new URL(endpoint);
@@ -155,7 +224,16 @@ export async function assertResolvedAddressSafe(endpoint: string): Promise<void>
 	// round-trip so we don't double-report errors the sync check already
 	// produces.
 	if (hostname === "localhost" || hostname.endsWith(".localhost")) return;
-	if (hostname.startsWith("[")) return;
+	// G6: bracketed IPv6 literals used to bypass this layer entirely; now
+	// they are classified with the same predicates as `validateEndpoint`
+	// (defense in depth — layer 2 must not trust layer 1 having run). A
+	// literal needs no DNS round-trip.
+	if (hostname.startsWith("[")) {
+		if (isPrivateIpv6Literal(hostname)) {
+			throw new Error(`OTLP endpoint targets private/reserved IPv6 literal: ${endpoint}`);
+		}
+		return;
+	}
 	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return;
 	let addresses: { address: string }[];
 	try {
@@ -261,8 +339,12 @@ export class OTLPExporter implements MetricExporter {
 	private readonly registry: MetricRegistry;
 
 	constructor(opts: OTLPExporterOptions, registry: MetricRegistry) {
-		validateEndpoint(opts.endpoint);
-		this.opts = opts;
+		// G6: normalize a bare IPv6 literal authority (`http://::1:4318`) to
+		// bracketed form ONCE — `new URL` throws on the raw form, and both
+		// SSRF layers plus the actual `fetch` must see the same parseable URL.
+		const endpoint = bracketIpv6InUrl(opts.endpoint);
+		validateEndpoint(endpoint);
+		this.opts = { ...opts, endpoint };
 		this.registry = registry;
 	}
 

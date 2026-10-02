@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { assertResolvedAddressSafe, isPrivateIpAddress, validateEndpoint } from "../../../src/observability/exporters/otlp-exporter.ts";
+import { bracketIpv6InUrl } from "../../../src/utils/ip-literal.ts";
 
 describe("OTLP SSRF endpoint validation", () => {
 	it("allows valid public https URL", () => {
@@ -154,12 +155,24 @@ describe("OTLP SSRF endpoint validation", () => {
 		assert.equal(isPrivateIpAddress("2606:4700:4700::1111"), false);
 	});
 
+	// G6: IPv4-compatible IPv6 and other literal spellings the old prefix
+	// chain missed.
+	it("isPrivateIpAddress flags IPv4-compatible IPv6 (::a.b.c.d)", () => {
+		assert.equal(isPrivateIpAddress("::127.0.0.1"), true, "IPv4-compatible loopback");
+		assert.equal(isPrivateIpAddress("::10.0.0.1"), true, "IPv4-compatible private");
+		assert.equal(isPrivateIpAddress("::192.168.1.1"), true, "IPv4-compatible private");
+		assert.equal(isPrivateIpAddress("::169.254.169.254"), true, "IPv4-compatible metadata");
+		assert.equal(isPrivateIpAddress("::ffff:169.254.169.254"), true, "metadata rebinding via mapped form");
+		assert.equal(isPrivateIpAddress("0:0:0:0:0:0:0:1"), true, "expanded ::1");
+		assert.equal(isPrivateIpAddress("fe80::1%eth0"), true, "link-local with zone-id");
+		assert.equal(isPrivateIpAddress("::8.8.8.8"), false, "embedded PUBLIC quad maps to IPv4 and passes");
+	});
+
 	// CFG-6: DNS-rebinding guard — the runtime async guard.
 	it("assertResolvedAddressSafe skips hostnames already covered by validateEndpoint", async () => {
 		await assert.doesNotReject(async () => {
 			await assertResolvedAddressSafe("http://localhost:4318");
 			await assertResolvedAddressSafe("http://127.0.0.1:4318");
-			await assertResolvedAddressSafe("http://[::1]:4318");
 		});
 	});
 
@@ -172,5 +185,61 @@ describe("OTLP SSRF endpoint validation", () => {
 		// example.com is owned by IANA and resolves to a public IP; the guard
 		// must therefore allow it.
 		await assert.doesNotReject(assertResolvedAddressSafe("https://example.com/v1/metrics"));
+	});
+
+	// G6 (pin): bare IPv6 literals are bracketed before URL parsing — the
+	// normalized URL/host '::1' must contain '[::1]'.
+	it("brackets bare IPv6 literal hosts when normalizing endpoint URLs", () => {
+		assert.ok(bracketIpv6InUrl("http://::1:4318").includes("[::1]"));
+		assert.equal(bracketIpv6InUrl("http://::1:4318/v1/metrics"), "http://[::1]:4318/v1/metrics");
+		assert.equal(bracketIpv6InUrl("http://::1"), "http://[::1]");
+		assert.equal(bracketIpv6InUrl("HTTP://::1:4318"), "HTTP://[::1]:4318");
+		assert.equal(
+			bracketIpv6InUrl("https://otlp.example.com:4318/v1/metrics"),
+			"https://otlp.example.com:4318/v1/metrics",
+			"normal URLs untouched",
+		);
+		assert.equal(bracketIpv6InUrl("http://[::1]:4318"), "http://[::1]:4318", "already bracketed untouched");
+	});
+
+	// G6 (pin): bracketed IPv4-compatible IPv6 must be rejected by BOTH guard
+	// layers — sync validateEndpoint AND push-time assertResolvedAddressSafe.
+	it("rejects [::127.0.0.1] at validateEndpoint (layer 1)", () => {
+		assert.throws(() => validateEndpoint("http://[::127.0.0.1]:4318"), /private\/reserved IPv6/);
+	});
+
+	it("rejects [::127.0.0.1] at assertResolvedAddressSafe (layer 2)", async () => {
+		await assert.rejects(assertResolvedAddressSafe("http://[::127.0.0.1]:4318"), /private\/reserved IPv6/);
+	});
+
+	it("rejects bare-literal endpoint http://::1:4318 after bracket normalization", async () => {
+		assert.throws(() => validateEndpoint("http://::1:4318"), /loopback/);
+		// Layer 2 sees the same normalized literal.
+		await assert.rejects(assertResolvedAddressSafe("http://::1:4318"), /private\/reserved IPv6/);
+	});
+
+	it("blocks metadata rebinding via IPv4-mapped form ::ffff:169.254.169.254", () => {
+		assert.throws(() => validateEndpoint("http://[::ffff:169.254.169.254]:4318"), /IPv4-mapped/);
+		assert.throws(() => validateEndpoint("http://[::169.254.169.254]:4318"), /private\/reserved IPv6/, "IPv4-compatible form");
+	});
+
+	it("rejects expanded-form IPv6 loopback [0:0:0:0:0:0:0:1] at both layers", () => {
+		// `new URL` canonicalizes the expanded spelling to `[::1]`, so layer 1
+		// throws the loopback error; layer 2 classifies via the parser.
+		assert.throws(() => validateEndpoint("http://[0:0:0:0:0:0:0:1]:4318"), /loopback|private\/reserved IPv6/);
+	});
+
+	it("assertResolvedAddressSafe classifies bracketed IPv6 literals (no more blanket skip)", async () => {
+		await assert.rejects(assertResolvedAddressSafe("http://[::1]:4318"), /private\/reserved IPv6/);
+		await assert.rejects(assertResolvedAddressSafe("http://[fd00::1]:4318"), /private\/reserved IPv6/);
+		await assert.rejects(assertResolvedAddressSafe("http://[0:0:0:0:0:0:0:1]:4318"), /private\/reserved IPv6/);
+		// Public literal passes without a DNS round-trip.
+		await assert.doesNotReject(assertResolvedAddressSafe("http://[2606:4700:4700::1111]:4318"));
+	});
+
+	// G6 (pin): white case — valid public endpoints, including a public bare
+	// IPv6 literal, still pass.
+	it("allows public bare-literal IPv6 endpoint after normalization", () => {
+		assert.doesNotThrow(() => validateEndpoint("http://2606:4700:4700::1111:4318"));
 	});
 });
