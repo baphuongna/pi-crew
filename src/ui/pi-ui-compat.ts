@@ -36,6 +36,8 @@ export function setWorkingIndicator(ctx: UiContext, options?: WorkingIndicatorOp
 	if (typeof fn === "function") fn.call(ctx.ui, options);
 }
 
+/** Install or update an extension widget slot.
+ * No-op when the host UI predates the `setWidget` API. */
 export function setExtensionWidget(
 	ctx: UiContext,
 	key: string,
@@ -43,7 +45,9 @@ export function setExtensionWidget(
 	options?: WidgetOptionsWithPersist,
 ): void {
 	const { persist: _persist, ...widgetOptions } = options ?? {};
-	ctx.ui.setWidget(key, content as never, widgetOptions as WidgetOptions);
+	const record = maybeRecord(ctx.ui);
+	const fn = record?.setWidget;
+	if (typeof fn === "function") fn.call(ctx.ui, key, content as never, widgetOptions as WidgetOptions);
 }
 
 /**
@@ -66,12 +70,25 @@ export function setFooter(ctx: UiContext | undefined, factory: FooterFactory | u
 	if (typeof fn === "function") fn.call(ctx.ui, factory as never);
 }
 
+/** Show a custom focused component.
+ * When the host UI predates (or mangles) the `custom` API, resolves `undefined`
+ * instead of rejecting or hanging: the sole caller today
+ * (src/extension/registration/ui.ts) already fire-and-forgets via
+ * `void showCustom(...)`, so a rejected or never-settling promise would only
+ * surface as an unhandled rejection. */
 export function showCustom<T>(ctx: UiContext, factory: CustomFactory<T>, options?: CustomOptions): Promise<T> {
-	const custom = ctx.ui.custom as unknown as GenericCustom;
+	const record = maybeRecord(ctx.ui);
+	const fn = record?.custom;
+	if (typeof fn !== "function") return Promise.resolve(undefined as T);
+	const custom = fn as unknown as GenericCustom;
 	return custom<T>(factory, options);
 }
 
+/** Set a status fallback line.
+ * No-op when the host UI predates the `setStatus` API. */
 export function setStatusFallback(ctx: UiContext, key: string, lines: string | readonly string[] | undefined, segment?: string): void {
 	const text = typeof lines === "string" ? lines : lines ? [...lines].join("\n") : undefined;
-	ctx.ui.setStatus(segment ? `${key}:${segment}` : key, text);
+	const record = maybeRecord(ctx.ui);
+	const fn = record?.setStatus;
+	if (typeof fn === "function") fn.call(ctx.ui, segment ? `${key}:${segment}` : key, text);
 }

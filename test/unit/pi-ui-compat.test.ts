@@ -8,6 +8,7 @@ import {
 	setExtensionWidget,
 	setStatusFallback,
 	setWorkingIndicator,
+	showCustom,
 } from "../../src/ui/pi-ui-compat.ts";
 
 function walkTsFiles(dir: string): string[] {
@@ -70,4 +71,34 @@ test("pi UI compat safely feature-detects optional APIs", () => {
 	assert.doesNotThrow(() => requestRender({ ui: {} } as never));
 	assert.doesNotThrow(() => requestRenderTarget({}));
 	assert.doesNotThrow(() => setWorkingIndicator({ ui: {} } as never));
+});
+
+test("pi UI compat no-ops setWidget/showCustom/setStatus on older host runtimes", async () => {
+	const ctx = { ui: {} } as never;
+	assert.doesNotThrow(() => setExtensionWidget(ctx, "widget", ["line"], { placement: "belowEditor", persist: true }));
+	assert.doesNotThrow(() => setStatusFallback(ctx, "status", ["a", "b"], "segment"));
+	// showCustom must settle (never reject / never hang) when ui.custom is absent...
+	const missing = await showCustom(ctx, () => undefined);
+	assert.equal(missing, undefined);
+	// ...or present but not callable.
+	const broken = { ui: { custom: "not-a-function" } } as never;
+	assert.equal(await showCustom(broken, () => undefined), undefined);
+});
+
+test("showCustom passthrough pins factory and options when ui.custom exists", async () => {
+	const seen: { factory?: unknown; options?: unknown } = {};
+	const factory = () => undefined;
+	const ctx = {
+		ui: {
+			custom: (candidate: unknown, options?: unknown) => {
+				seen.factory = candidate;
+				seen.options = options;
+				return Promise.resolve("host-result");
+			},
+		},
+	} as never;
+	const result = await showCustom<string>(ctx, factory, { overlay: true });
+	assert.equal(result, "host-result");
+	assert.equal(seen.factory, factory);
+	assert.deepEqual(seen.options, { overlay: true });
 });
