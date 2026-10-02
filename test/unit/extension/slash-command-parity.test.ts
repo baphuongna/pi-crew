@@ -3,16 +3,32 @@
  *
  * Per spec §5 M5 acceptance: "Codegen command: parity test số command +
  * hành vi không đổi." This test:
- *   - Collects every `pi.registerCommand("<name>", ...)` call in the
- *     extension surface.
- *   - Asserts the count is ≥ 28 (lower bound — current is 31 per
- *     registry audit 2026-09-10) AND ≤ 45 (upper bound — sanity
- *     guard against accidental duplication or regression).
+ *   - Enumerates every slash command pi-crew registers at runtime.
+ *   - Asserts the count is within a tight sanity range (full-enumeration
+ *     audit 2026-10-02: exactly 42).
  *   - Asserts each name matches /^[a-z][a-z0-9_-]+$/ (no spaces,
  *     no upper-case).
+ *   - Asserts no name is registered twice (double registration throws at
+ *     extension startup).
  *
- * The actual list is informational (logged) — not asserted exactly
- * — because command discovery is intentionally dynamic across releases.
+ * G21 (2026-10-02): enumeration is the UNION of two complementary methods
+ * (same approach as test/unit/docs/commands-reference-parity.test.ts —
+ * neither method alone is complete):
+ *   1. Fake-pi capture of `registerTeamCommands(...)` — catches the 10
+ *      loop-registered tuple commands (team-status, team-summary,
+ *      team-events, team-artifacts, team-worktrees, team-validate,
+ *      team-doctor, team-resume, team-export, team-cancel — registered via
+ *      `for (const [name, ...] of [...]) registerCommand(name, ...)` in
+ *      src/extension/registration/commands/run.ts + status.ts) that a
+ *      textual scan cannot see.
+ *   2. Literal `registerCommand("name"` scan of src/ — catches commands
+ *      registered OUTSIDE registerTeamCommands: /schedules
+ *      (command-registration.ts wires registerSchedulesCommands directly),
+ *      /team-vibes (src/extension/crew-vibes/index.ts), /crew-view +
+ *      /crew-back (src/ui/inline-panel/index.ts).
+ *
+ * The actual list is informational (logged) — not asserted exactly —
+ * because command discovery is intentionally dynamic across releases.
  * If a SPECIFIC command is REMOVED intentionally, this test logs the
  * change; the next caller can grep the diff to confirm.
  */
@@ -21,6 +37,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it } from "node:test";
+import { registerTeamCommands } from "../../../src/extension/registration/commands.ts";
 
 interface CommandEntry {
 	file: string;
@@ -28,7 +45,14 @@ interface CommandEntry {
 	name: string;
 }
 
-function collectCommands(root: string): CommandEntry[] {
+const repoRoot = path.resolve(import.meta.dirname ?? __dirname, "../../..");
+const srcRoot = path.join(repoRoot, "src");
+
+/** Directory whose registerCommand call sites run inside registerTeamCommands. */
+const teamCommandsTree = path.join(repoRoot, "src", "extension", "registration", "commands");
+const teamCommandsShim = path.join(repoRoot, "src", "extension", "registration", "commands.ts");
+
+function collectLiteralCommands(root: string): CommandEntry[] {
 	const entries: CommandEntry[] = [];
 	const rx = /registerCommand\(\s*"([a-z][a-z0-9_-]*)"/g;
 
@@ -57,32 +81,87 @@ function collectCommands(root: string): CommandEntry[] {
 	return entries;
 }
 
+/**
+ * Fake-pi capture of registerTeamCommands (mirrors
+ * registration-commands-coverage.test.ts). The deps stub is the minimal
+ * surface the registration phase touches; command handlers stay lazy.
+ */
+function captureRegisterTeamCommandNames(): Set<string> {
+	const names = new Set<string>();
+	registerTeamCommands(
+		{
+			registerCommand: (name: string) => {
+				names.add(name);
+			},
+		} as never,
+		{
+			startForegroundRun: () => undefined,
+			abortForegroundRun: () => false,
+			openLiveSidebar: () => undefined,
+			getManifestCache: () => ({ list: () => [] }),
+		},
+	);
+	return names;
+}
+
+/** Full runtime surface: registerTeamCommands (38) ∪ literal-only (4). */
+function unionRegisteredNames(): Set<string> {
+	const captured = captureRegisterTeamCommandNames();
+	const literal = collectLiteralCommands(srcRoot).map((e) => e.name);
+	return new Set([...captured, ...literal]);
+}
+
 describe("WI-5.5 slash-command parity", () => {
 	// REVIEW FIX (2026-09-10, C5): bounds alone let up-to-3 command removals
 	// (incl. `team` itself) pass silently. The must-include list pins the
-	// core command surface; the 28..45 range stays as a cheap ceiling.
-	const MUST_INCLUDE = ["team-run", "teams", "team-help", "crew-view", "crew-brief"];
+	// core command surface; the count range stays as a cheap ceiling.
+	// G21 (2026-10-02): extended to pin one representative of EVERY
+	// registration class the enumeration covers —
+	//   literal inside registerTeamCommands: team-run, teams, team-help, crew-brief
+	//   loop-registered tuples: team-status, team-resume, team-export
+	//   registered outside registerTeamCommands: crew-view, crew-back, schedules, team-vibes
+	const MUST_INCLUDE = [
+		"team-run",
+		"teams",
+		"team-help",
+		"crew-brief",
+		"team-status",
+		"team-resume",
+		"team-export",
+		"crew-view",
+		"crew-back",
+		"schedules",
+		"team-vibes",
+	];
 
 	it("core commands must be present (must-include list)", () => {
-		const root = path.join(import.meta.dirname ?? __dirname, "../../../src");
-		const unique = new Set(collectCommands(root).map((e) => e.name));
+		const unique = unionRegisteredNames();
 		const absent = MUST_INCLUDE.filter((c) => !unique.has(c));
 		assert.deepEqual(absent, [], `core commands missing from registration: ${absent.join(", ")}`);
 	});
 
-	it("command count within sanity range (28..45)", () => {
-		const root = path.join(import.meta.dirname ?? __dirname, "../../../src");
-		const entries = collectCommands(root);
-		const unique = new Set(entries.map((e) => e.name));
-		console.log(`[WI-5.5] registered slash commands: ${unique.size} unique (${entries.length} call sites)`);
+	it("command count within tight sanity range (40..44)", () => {
+		const entries = collectLiteralCommands(srcRoot);
+		const unique = unionRegisteredNames();
+		const captured = captureRegisterTeamCommandNames();
+		const loopOnly = [...captured].filter((n) => !entries.some((e) => e.name === n)).sort();
+		const literalOnly = [...unique].filter((n) => !captured.has(n)).sort();
+		console.log(
+			`[WI-5.5] registered slash commands: ${unique.size} unique (union of ${captured.size} registerTeamCommands + ${literalOnly.length} outside)`,
+		);
+		console.log(`  loop-registered (invisible to literal scan): ${loopOnly.join(", ")}`);
+		console.log(`  registered outside registerTeamCommands: ${literalOnly.join(", ")}`);
 		console.log(`  ${[...unique].sort().join(", ")}`);
-		assert.ok(unique.size >= 28, `expected ≥28 unique commands, got ${unique.size}`);
-		assert.ok(unique.size <= 45, `expected ≤45 unique commands, got ${unique.size}`);
+		// Full-enumeration audit 2026-10-02: exactly 42
+		// (38 registerTeamCommands + schedules + team-vibes + crew-view + crew-back).
+		// Enumeration is now complete, so the range is tight: an intentional
+		// add/remove beyond ±2 must update this bound + the audit comment.
+		assert.ok(unique.size >= 40, `expected ≥40 unique commands, got ${unique.size}`);
+		assert.ok(unique.size <= 44, `expected ≤44 unique commands, got ${unique.size}`);
 	});
 
 	it("all command names match /^[a-z][a-z0-9_-]+$/", () => {
-		const root = path.join(import.meta.dirname ?? __dirname, "../../../src");
-		const entries = collectCommands(root);
+		const entries = collectLiteralCommands(srcRoot);
 		const rx = /^[a-z][a-z0-9_-]+$/;
 		const bad: Array<{ name: string; file: string; line: number }> = [];
 		for (const e of entries) {
@@ -94,8 +173,7 @@ describe("WI-5.5 slash-command parity", () => {
 	});
 
 	it("no duplicate commands across files (per-name uniqueness)", () => {
-		const root = path.join(import.meta.dirname ?? __dirname, "../../../src");
-		const entries = collectCommands(root);
+		const entries = collectLiteralCommands(srcRoot);
 		const seen = new Map<string, CommandEntry[]>();
 		for (const e of entries) {
 			const arr = seen.get(e.name) ?? [];
@@ -115,6 +193,23 @@ describe("WI-5.5 slash-command parity", () => {
 						`  ${d.name} → ${d.sites.map((s) => `${path.basename(path.dirname(s.file))}/${path.basename(s.file)}:${s.line}`).join(", ")}`,
 				)
 				.join("\n")}`,
+		);
+
+		// G21: a loop-registered name (captured via registerTeamCommands) must
+		// not ALSO be registered literally outside the registerTeamCommands
+		// tree — registerPiCommands and the outside installers (crew-vibes,
+		// inline-panel) all run at startup, so that collision would throw at
+		// extension load. Literal sites inside src/extension/registration/
+		// commands/ + commands.ts are the registerTeamCommands surface itself
+		// and are expected.
+		const captured = captureRegisterTeamCommandNames();
+		const outsideLiteral = entries.filter(
+			(e) => captured.has(e.name) && !e.file.startsWith(teamCommandsTree) && e.file !== teamCommandsShim,
+		);
+		assert.deepEqual(
+			outsideLiteral.map((e) => `${e.name} (${path.relative(repoRoot, e.file)}:${e.line})`),
+			[],
+			`Loop-registered command also registered literally outside registerTeamCommands (double registration at startup)`,
 		);
 	});
 });

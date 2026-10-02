@@ -89,7 +89,7 @@ Or via tool calls (all examples verified against the action schema):
 ```
 
 `action: "recommend"` picks a team/workflow when you're unsure which fits.
-Slash commands (`/team-status`, `/team-dashboard`, `/team-config`, …) cover ops
+42 slash commands (`/team-status`, `/team-dashboard`, `/team-config`, …) cover ops
 and debugging — [full list](docs/commands-reference.md).
 
 ## Built-in teams
