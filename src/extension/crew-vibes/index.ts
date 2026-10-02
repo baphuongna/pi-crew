@@ -34,6 +34,13 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 	let providerTimer: ReturnType<typeof setInterval> | undefined;
 	let lastProviderUsage: ProviderUsage | null = null;
 	let currentProvider: string | undefined;
+	// Latest ctx of the CURRENT session, re-fetched at every publish/tick.
+	// Never hold a ctx captured from an earlier event across a session
+	// replacement (newSession/fork/switchSession/reload): pi invalidates every
+	// prior ctx, and even reading ctx.hasUI then throws the stale-ctx error.
+	// session_shutdown clears this so in-flight fetch continuations no-op
+	// instead of publishing into a dead session (WI-1, SDD-4).
+	let sessionCtx: ExtensionContext | undefined;
 
 	function themeOf(ctx: ExtensionContext) {
 		return asCrewTheme(ctx.hasUI ? ctx.ui.theme : undefined);
@@ -57,29 +64,37 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 	/** Fetch provider usage for currentProvider and publish the quota status.
 	 *  Called on start, on each timer tick, and immediately when the
 	 *  provider changes (model_select) so the quota reflects the new
-	 *  provider without waiting for the next tick. */
-	async function fetchProviderAndRefresh(ctx: ExtensionContext): Promise<void> {
+	 *  provider without waiting for the next tick. The ctx is resolved at
+	 *  call time (never captured) and re-checked after the await: if the
+	 *  session was replaced while the fetch was in flight, the continuation
+	 *  is dropped — the new session re-arms its own publish. */
+	async function fetchProviderAndRefresh(): Promise<void> {
+		const ctx = sessionCtx;
+		if (!ctx) return; // session already shut down or replaced — nothing to publish to
 		if (!config.enabled || !config.capacity.providerUsage) {
 			lastProviderUsage = null;
 			publishQuotaStatus(ctx);
 			return;
 		}
+		let usage: ProviderUsage | null = null;
 		try {
-			lastProviderUsage = await fetchProviderUsage(config.capacity.providerRefreshMs, currentProvider);
+			usage = await fetchProviderUsage(config.capacity.providerRefreshMs, currentProvider);
 		} catch {
 			// Never crash on provider fetch failure
-			lastProviderUsage = null;
+			usage = null;
 		}
+		if (sessionCtx !== ctx) return; // replaced mid-fetch: old ctx must never be used
+		lastProviderUsage = usage;
 		publishQuotaStatus(ctx);
 	}
 
-	function startProviderTimer(ctx: ExtensionContext): void {
+	function startProviderTimer(): void {
 		if (providerTimer) return;
 		if (!config.capacity.providerUsage) return;
 		const interval = Math.max(10000, config.capacity.providerRefreshMs);
 
-		fetchProviderAndRefresh(ctx); // Fetch immediately on start
-		providerTimer = setInterval(() => fetchProviderAndRefresh(ctx), interval);
+		fetchProviderAndRefresh(); // Fetch immediately on start
+		providerTimer = setInterval(() => fetchProviderAndRefresh(), interval);
 		providerTimer.unref?.();
 	}
 
@@ -90,12 +105,13 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 			clearVibesStatus(ctx);
 			return;
 		}
-		if (config.capacity.providerUsage) startProviderTimer(ctx);
+		if (config.capacity.providerUsage) startProviderTimer();
 		else publishQuotaStatus(ctx); // clears the stale status when disabled
 	}
 
 	pi.on("session_start", (_event, ctx) => {
 		stopProviderTimer();
+		sessionCtx = ctx; // fresh ctx of the current session — any prior ctx is invalid now
 		config = loadConfig();
 		clearProviderUsageCache();
 		// Initialize provider from current model — model_select only fires on manual switch
@@ -104,19 +120,22 @@ export function registerCrewVibes(pi: ExtensionAPI): void {
 			clearVibesStatus(ctx);
 			return;
 		}
-		startProviderTimer(ctx);
+		startProviderTimer();
 	});
 
 	pi.on("model_select", (event, ctx) => {
+		sessionCtx = ctx;
 		currentProvider = (event as { model?: { provider?: string } }).model?.provider;
 		clearProviderUsageCache();
 		// Fetch immediately so the quota reflects the new provider without
 		// waiting for the next timer tick.
-		fetchProviderAndRefresh(ctx);
+		fetchProviderAndRefresh();
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
 		stopProviderTimer();
+		sessionCtx = undefined; // later continuations must no-op, never touch a disposed ctx
+		// ctx is still valid here: pi emits session_shutdown before dispose().
 		clearVibesStatus(ctx);
 	});
 
