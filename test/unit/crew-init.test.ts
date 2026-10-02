@@ -443,3 +443,139 @@ test("ensureCrewDirectory walks up to package.json marker", async () => {
 		cleanup(dir);
 	}
 });
+
+// --- G23c (2026-10-02): legacy .pi/teams residue sweep ---
+//
+// When `.crew/` is the active layout, an empty legacy `.pi/teams` skeleton
+// from an older pi-crew version is swept on init. Anything that looks like
+// data (run manifests, artifact content, user files, unknown entries) keeps
+// the residue in place with one info log line. Nothing under `.pi/` other
+// than the `teams/` path itself is ever touched.
+
+function makeLegacyTeamsSkeleton(repoRoot: string): string {
+	// Mirrors the dirs an older pi-crew created/used under a crew root:
+	// ensureCrewDirectory (state/runs, state/subagents, artifacts, cache,
+	// graphs, audit + .gitkeep + README.md) and project-init.ts (agents,
+	// teams, workflows, imports).
+	const teams = path.join(repoRoot, ".pi", "teams");
+	for (const sub of [
+		"state/runs",
+		"state/subagents",
+		"artifacts",
+		"cache",
+		"graphs",
+		"audit",
+		"agents",
+		"teams",
+		"workflows",
+		"imports",
+	]) {
+		fs.mkdirSync(path.join(teams, ...sub.split("/")), { recursive: true });
+	}
+	for (const sub of ["artifacts", "cache", "graphs", "audit"]) {
+		fs.writeFileSync(path.join(teams, sub, ".gitkeep"), "");
+	}
+	fs.writeFileSync(path.join(teams, "README.md"), "# legacy pi-crew runtime dir\n");
+	return teams;
+}
+
+test("ensureCrewDirectory removes an empty legacy .pi/teams skeleton once .crew is active (G23c)", async () => {
+	const dir = makeTempProject();
+	try {
+		// .crew/ already active from a previous init.
+		await ensureCrewDirectory(dir);
+		const teams = makeLegacyTeamsSkeleton(dir);
+		// Sibling under .pi/ that must never be touched by the sweep.
+		fs.mkdirSync(path.join(dir, ".pi", "agent"), { recursive: true });
+		fs.writeFileSync(path.join(dir, ".pi", "agent", "settings.json"), "{}");
+		await ensureCrewDirectory(dir);
+		assert.ok(!fs.existsSync(teams), "bare legacy skeleton should be swept");
+		assert.ok(fs.existsSync(path.join(dir, ".pi", "agent", "settings.json")), ".pi siblings must stay intact");
+		assert.ok(fs.statSync(path.join(dir, ".pi")).isDirectory(), ".pi parent itself must remain");
+		assert.ok(fs.statSync(path.join(dir, ".crew")).isDirectory(), ".crew stays the active root");
+	} finally {
+		cleanup(dir);
+	}
+});
+
+test("ensureCrewDirectory never removes .pi/teams while it is the ACTIVE root (G23c)", async () => {
+	const dir = makeTempProject();
+	try {
+		// No .crew/ => computeCrewRoot resolves to the legacy .pi/teams layout;
+		// the sweep must not fire against the live root.
+		const teams = makeLegacyTeamsSkeleton(dir);
+		await ensureCrewDirectory(dir);
+		assert.ok(fs.statSync(teams).isDirectory(), "live legacy root must survive init");
+		assert.ok(!fs.existsSync(path.join(dir, ".crew")), "init must not migrate the layout");
+	} finally {
+		cleanup(dir);
+	}
+});
+
+test("ensureCrewDirectory keeps legacy .pi/teams with run data and logs exactly one info line (G23c)", async () => {
+	const dir = makeTempProject();
+	try {
+		await ensureCrewDirectory(dir);
+		const teams = makeLegacyTeamsSkeleton(dir);
+		// Run manifest under state/runs/ => real run data => never delete.
+		fs.writeFileSync(path.join(teams, "state", "runs", "team_20200101000000_deadbeef.json"), '{"schemaVersion":1}\n');
+		const lines: string[] = [];
+		const originalInfo = console.info;
+		console.info = (...args: unknown[]) => {
+			lines.push(args.join(" "));
+		};
+		try {
+			await ensureCrewDirectory(dir);
+		} finally {
+			console.info = originalInfo;
+		}
+		assert.ok(fs.existsSync(teams), "residue with run data must be kept");
+		const sweepLines = lines.filter((line) => line.includes("[pi-crew] legacy"));
+		assert.equal(sweepLines.length, 1, "exactly one residue info line");
+		assert.ok(sweepLines[0]?.includes("run-lookup path"), "log line should state the skip reason");
+	} finally {
+		cleanup(dir);
+	}
+});
+
+test("ensureCrewDirectory keeps legacy .pi/teams with artifact content or unknown entries (G23c conservative)", async () => {
+	const dir = makeTempProject();
+	try {
+		await ensureCrewDirectory(dir);
+		const teams = makeLegacyTeamsSkeleton(dir);
+		// Artifact content (not just .gitkeep) => data => keep.
+		fs.writeFileSync(path.join(teams, "artifacts", "result.txt"), "kept output");
+		// Unknown nested dir + unknown root file => conservative keep.
+		fs.mkdirSync(path.join(teams, "state", "backups"));
+		fs.writeFileSync(path.join(teams, "notes.txt"), "user data");
+		await ensureCrewDirectory(dir);
+		assert.ok(fs.existsSync(path.join(teams, "artifacts", "result.txt")), "artifact content must be kept");
+		assert.ok(fs.existsSync(path.join(teams, "notes.txt")), "unknown root file must be kept");
+		assert.ok(fs.statSync(path.join(teams, "state", "backups")).isDirectory(), "unknown nested dir must be kept");
+	} finally {
+		cleanup(dir);
+	}
+});
+
+test("ensureCrewDirectory does not create or touch .pi when no legacy exists (G23c)", async () => {
+	const dir = makeTempProject();
+	try {
+		await ensureCrewDirectory(dir);
+		assert.ok(!fs.existsSync(path.join(dir, ".pi")), "no .pi should be created by init");
+		assert.ok(fs.statSync(path.join(dir, ".crew")).isDirectory());
+		// .pi/ existing WITHOUT a teams/ subdir is also not legacy-layout —
+		// init must leave it fully alone (sweep only targets .pi/teams).
+		const dir2 = makeTempProject();
+		try {
+			await ensureCrewDirectory(dir2);
+			fs.mkdirSync(path.join(dir2, ".pi", "agent"), { recursive: true });
+			fs.writeFileSync(path.join(dir2, ".pi", "agent", "settings.json"), "{}");
+			await ensureCrewDirectory(dir2);
+			assert.ok(fs.existsSync(path.join(dir2, ".pi", "agent", "settings.json")), ".pi without teams/ stays untouched");
+		} finally {
+			cleanup(dir2);
+		}
+	} finally {
+		cleanup(dir);
+	}
+});

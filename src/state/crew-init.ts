@@ -277,6 +277,116 @@ function computeCrewRoot(cwd: string): string {
 }
 
 /**
+ * G23c (2026-10-02): sweep an empty legacy `.pi/teams` residue once the
+ * project has migrated to the `.crew/` layout.
+ *
+ * When `.crew/` exists, `computeCrewRoot` resolves to `.crew/` and the
+ * legacy `.pi/teams/` tree from an older pi-crew version is never revisited
+ * — dead residue stays on disk forever (plan §G23c: "0 code dọn"). This
+ * sweep is deliberately CONSERVATIVE because it deletes from the user's
+ * workspace:
+ *
+ *   1. Fires ONLY when the active crew root is the `.crew` layout AND
+ *      `<repoRoot>/.pi/teams` exists (a live legacy root is never touched).
+ *   2. Removes the legacy tree ONLY when it is a bare pi-crew skeleton:
+ *      known pi-crew directory names at every depth, and only placeholder
+ *      files (`.gitkeep` anywhere; `README.md`/`.gitignore` at the root).
+ *      Every entry is content-checked before anything is deleted.
+ *   3. Any real data — a run manifest under `state/`, artifact content, a
+ *      user-authored agent/workflow file, an unknown entry — keeps the
+ *      residue in place with ONE info log line: auto-migrating run state
+ *      would change the run-lookup path, which is too risky for an
+ *      automatic sweep (leader/user decision).
+ *   4. Never touches anything under `.pi/` other than the `teams/` path
+ *      itself — the `.pi` parent and all siblings (`.pi/agent`, ...) stay.
+ *
+ * Self-contained by design: inline helpers only, no new module imports.
+ * Any failure inside the sweep is logged and swallowed — init must never
+ * break because the residue could not be inspected.
+ */
+
+/** Directory names pi-crew itself creates/uses under a crew root (any depth).
+ *  Sources: ensureCrewDirectory (state/subagents/runs/artifacts/cache/graphs/
+ *  audit), project-init.ts (agents/teams/workflows/imports), and the legacy
+ *  .gitignore entries in gitignore-manager.ts (worktrees/imports). */
+const LEGACY_TEAMS_SKELETON_DIRS = new Set([
+	"state",
+	"subagents",
+	"runs",
+	"artifacts",
+	"cache",
+	"graphs",
+	"audit",
+	"worktrees",
+	"agents",
+	"teams",
+	"workflows",
+	"imports",
+]);
+
+/** Placeholder files pi-crew itself writes at the crew-root level. */
+const LEGACY_TEAMS_SKELETON_ROOT_FILES = new Set(["README.md", ".gitignore"]);
+
+/**
+ * True when `root` holds no data: every directory has a pi-crew skeleton
+ * name and every file is a pi-crew placeholder. Anything else — run
+ * manifests, artifacts, user agent/workflow content, unknown entries —
+ * returns false (the caller then keeps the residue).
+ */
+function isBareLegacyTeamsSkeleton(root: string): boolean {
+	const walk = (dir: string, depth: number): boolean => {
+		let entries: fs.Dirent[];
+		try {
+			entries = fs.readdirSync(dir, { withFileTypes: true });
+		} catch {
+			// Unreadable => assume data; never delete what we cannot inspect.
+			return false;
+		}
+		for (const entry of entries) {
+			if (entry.isDirectory()) {
+				if (!LEGACY_TEAMS_SKELETON_DIRS.has(entry.name)) return false;
+				if (!walk(safeJoin(dir, entry.name), depth + 1)) return false;
+			} else if (entry.isFile() || entry.isSymbolicLink()) {
+				// `.gitkeep` placeholders are written at any depth; README.md and
+				// .gitignore only at the crew-root level. Any other file (run
+				// manifest, artifact, user content) counts as data.
+				if (entry.name === ".gitkeep") continue;
+				if (depth === 0 && LEGACY_TEAMS_SKELETON_ROOT_FILES.has(entry.name)) continue;
+				return false;
+			} else {
+				// Sockets/FIFOs/devices — unknown => keep.
+				return false;
+			}
+		}
+		return true;
+	};
+	return walk(root, 0);
+}
+
+/** See the G23c block comment above. Returns silently when there is nothing
+ *  safe to sweep. */
+function sweepLegacyTeamsResidue(cwd: string, activeCrewRoot: string): void {
+	try {
+		const repoRoot = findProjectRoot(cwd) ?? cwd;
+		const legacyTeamsDir = safeJoin(repoRoot, ".pi", "teams");
+		// Sweep only when the ACTIVE layout is `.crew` (computeCrewRoot did NOT
+		// resolve to the legacy root) and a legacy tree actually exists.
+		if (activeCrewRoot === legacyTeamsDir || !fs.existsSync(legacyTeamsDir)) return;
+		if (isBareLegacyTeamsSkeleton(legacyTeamsDir)) {
+			// Exact-path removal of `.pi/teams` only — the `.pi` parent and
+			// every sibling under it stay untouched.
+			fs.rmSync(legacyTeamsDir, { recursive: true, force: true });
+			return;
+		}
+		console.info(
+			`[pi-crew] legacy ${legacyTeamsDir} still contains data — kept in place (auto-migration would change the run-lookup path); remove manually once you no longer need it`,
+		);
+	} catch (error) {
+		console.info(`[pi-crew] legacy .pi/teams residue sweep skipped: ${error instanceof Error ? error.message : String(error)}`);
+	}
+}
+
+/**
  * Ensure the .crew directory structure exists with all required subdirectories,
  * placeholder files, README, and .gitignore entries.
  *
@@ -286,6 +396,10 @@ function computeCrewRoot(cwd: string): string {
  */
 export async function ensureCrewDirectory(cwd: string): Promise<void> {
 	const crewRoot = computeCrewRoot(cwd);
+
+	// G23c: once `.crew/` is the active layout, sweep an empty legacy
+	// `.pi/teams` skeleton left behind by an older pi-crew version.
+	sweepLegacyTeamsResidue(cwd, crewRoot);
 
 	// 1. Create directory structure
 	const dirs = [
