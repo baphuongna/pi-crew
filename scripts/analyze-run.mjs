@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, createReadStream } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
 
 // ---------- CLI ----------
 function parseArgs(argv) {
@@ -615,6 +616,37 @@ async function analyzeTranscripts(artifactsDir) {
 }
 
 // ---------- resources ----------
+/**
+ * Max-decimation for per-agent trajectories: when samples exceed `cap`, split
+ * the index range into ≤cap buckets and keep each bucket's MAX-rssBytes
+ * point (first index wins ties — deterministic).
+ *
+ * The previous even-stride cap (keep every ceil(n/80)-th index) is
+ * aliasing-prone: a single-sample RSS spike (OOM, short-lived tool
+ * subprocess) landing between kept indices was dropped ENTIRELY — the
+ * report charted a flat line where the incident happened. Max-per-bucket
+ * guarantees the spike's bucket cannot select a smaller point, so peaks
+ * always survive downsampling.
+ *
+ * Output keeps input order (buckets are index-ordered) with ts strictly
+ * increasing (equal-ts samples across worker/tool PIDs collapse).
+ */
+export function decimateTrajectory(points, cap = 80) {
+	if (!Array.isArray(points) || points.length <= cap) return points;
+	const n = points.length;
+	const kept = new Array(cap).fill(null);
+	for (let i = 0; i < n; i++) {
+		const bucket = Math.min(Math.floor((i * cap) / n), cap - 1);
+		const cur = kept[bucket];
+		if (cur === null || (points[i].rssBytes || 0) > (cur.rssBytes || 0)) kept[bucket] = points[i];
+	}
+	const out = [];
+	for (const p of kept) {
+		if (p && (!out.length || p.ts > out[out.length - 1].ts)) out.push(p);
+	}
+	return out;
+}
+
 function analyzeResources(path, subagents) {
 	if (!path || !existsSync(path)) return null;
 	const samples = readJsonlSync(path);
@@ -702,8 +734,9 @@ function analyzeResources(path, subagents) {
 		avgCpuPct: sa.ownCpuSamples ? Math.round((sa.ownCpuSum / sa.ownCpuSamples) * 10) / 10 : 0,
 		attributed: sa.samples > 0,
 		descendantPids: [...sa.descendantPids],
-		// trajectory: cap to ~80 points (even stride) so per-agent files stay readable
-		trajectory: sa.trajectory.length <= 80 ? sa.trajectory : sa.trajectory.filter((_, i) => i % Math.ceil(sa.trajectory.length / 80) === 0),
+		// trajectory: cap to ~80 points via max-decimation (per-bucket max RSS) so
+		// per-agent files stay readable WITHOUT dropping spikes to stride aliasing
+		trajectory: decimateTrajectory(sa.trajectory, 80),
 	}));
 	return {
 		sampleCount: samples.length,
@@ -1375,7 +1408,13 @@ function renderMarkdown(report, ea, subagents, perAgent = false) {
 	return L.join("\n");
 }
 
-main().catch((e) => {
-	process.stderr.write(`[analyze-run] fatal: ${e.stack || e}\n`);
-	process.exit(1);
-});
+// CLI main-guard: run main() only when executed directly (node scripts/analyze-run.mjs),
+// never when imported (analyze-run-decimation.test.ts imports the pure
+// decimateTrajectory). import.meta.url vs argv[1] through pathToFileURL so
+// relative invocations resolve identically to absolute ones.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	main().catch((e) => {
+		process.stderr.write(`[analyze-run] fatal: ${e.stack || e}\n`);
+		process.exit(1);
+	});
+}
