@@ -1,6 +1,43 @@
 # Changelog
 
 ## [Unreleased]
+### Added — Pi 1.0.0 adoption wave (see docs/reviews/pi-1.0.0-adoption-review-2026-10-03.md)
+
+- **Session-file recovery for crash-killed workers (P1-1)** — workers now spawn with
+  deterministic `--session-id`/`--session-dir` (files live under the run's artifacts, not
+  `~/.pi`). On signal death (`exitCode === null`) the settle path tail-replays the worker's
+  session JSONL (SDK `parseSessionEntries`/`migrateSessionEntries`, torn-tail tolerant, 5s
+  bounded) and surfaces the last complete assistant message as a new `"session"` result
+  source — ranked below live captures, above stdout/stderr noise — plus a provenance sidecar
+  `results/<task>.session-recovery.json`. Config `runtime.sessionRecovery` (default **on**),
+  env `PI_CREW_SESSION_RECOVERY`.
+- **Worker auto-compaction observability (P2-2)** — the injected prompt-runtime extension now
+  listens for the SDK `session_before_compact` event and emits `worker.session_before_compact`
+  (scalar payload) through the worker-events channel. Hook is infra-proven in `-p` mode but
+  not yet live-fired at threshold (docs + host-analog evidence).
+- **Experimental RPC transport prototype (P2-3)** — new `src/runtime/rpc/`: strict-LF JSONL
+  frame client on SDK protocol types, `extension_ui_request` drain policy (count+drop), dialog
+  auto-answer policy `cancel`|`block` (auto-confirm deliberately absent). Config
+  `runtime.workerTransport: 'stdio' (default) | 'rpc'` + env `PI_CREW_WORKER_TRANSPORT` /
+  `PI_CREW_RPC_DIALOG_ANSWER`. The seam returns a structured not-implemented result until the
+  live-fire integration phase — default path is byte-identical.
+
+### Changed
+
+- **Surface TUI spawns pin `--tui-mode regular` (P0-1)** — Pi 1.0.0 defaults the TUI to
+  fullscreen, which silently empties the scrollback capture path (`capture-pane -S`) that
+  `readScreen` always uses. The pin restores pre-1.0.0 behavior for surface panes.
+- `parseRuntimeConfig` now emits `runtime.sessionRecovery` and `runtime.workerTransport`
+  (F19-1 discipline — both keys were previously parse-dead).
+- Legacy `@mariozechner/pi-coding-agent` fork resolution now warns once per process (staged
+  deprecation; canonical `@earendil-works` path unaffected).
+
+### Fixed / removed
+
+- Dead `persist: true` widget option removed (call site + compat strip + type alias).
+- `--provider` without `--model` now has an argv contract test across every builder path
+  (Pi 1.0.0 turned the silent ignore into an error).
+
 
 ### Security
 
