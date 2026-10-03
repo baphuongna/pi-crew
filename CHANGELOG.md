@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.6] — SDD-3/4 upgrade waves, W-E/W-I, small-wins, Pi 1.0.0 compat, GH #61 fix (2026-10-03)
 
 ### fix(extensions): GH-061 — normalize directory `pi.extensions` entries to entry-file identity (child workers double-load)
 
