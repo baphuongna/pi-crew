@@ -450,6 +450,14 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "boolean",
 		doc: "W2 session-file recovery override for killed workers (exitCode null / killed): '0' disables, '1' forces on — beats ChildPiRunInput.sessionRecovery / runtime.sessionRecovery; default ON (session-recovery.ts:resolveSessionRecoveryEnabled)",
 	},
+	PI_CREW_WORKER_TRANSPORT: {
+		name: "PI_CREW_WORKER_TRANSPORT",
+		doc: "W7 EXPERIMENTAL worker transport gate: 'rpc' selects the prototype RPC frame-client (src/runtime/rpc/) — the run-worker seam currently returns a structured not-implemented result instead of spawning; anything else/unset → default stdio child-pi path (rpc-worker.ts resolveWorkerTransport)",
+	},
+	PI_CREW_RPC_DIALOG_ANSWER: {
+		name: "PI_CREW_RPC_DIALOG_ANSWER",
+		doc: "W7 EXPERIMENTAL dialog auto-answer policy for RPC-mode extension_ui_request dialogs (select/confirm/input/editor): 'cancel' (default) answers {cancelled:true} — universal safe answer; 'block' leaves the server promise pending (debug). Auto-confirm deliberately NOT implemented (security); invalid → 'cancel' (rpc-worker.ts resolveDialogAnswerPolicy)",
+	},
 	PI_CREW_AUTO_EXIT: {
 		name: "PI_CREW_AUTO_EXIT",
 		doc: "'1' → the worker shuts its session down after the final settled turn — spec §5.2 D7 (written by prepareSurfaceSpawn, read by surface-worker.ts)",

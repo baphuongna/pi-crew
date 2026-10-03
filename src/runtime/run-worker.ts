@@ -28,6 +28,7 @@
 
 import type { ChildPiRunInput, ChildPiRunResult } from "./child-pi/child-pi.ts";
 import { runChildPi } from "./child-pi/child-pi.ts";
+import { resolveWorkerTransport } from "./rpc/rpc-worker.ts";
 import { withWorkerSlot } from "./scheduling/global-worker-cap.ts";
 
 /**
@@ -71,6 +72,19 @@ export interface WorkerSpawnInput extends ChildPiRunInput {
  */
 export async function runWorker(input: WorkerSpawnInput): Promise<ChildPiRunResult> {
 	const { cap = true, ...childPiInput } = input;
+	// W7 (P2-3) EXPERIMENTAL transport seam: PI_CREW_WORKER_TRANSPORT=rpc
+	// selects the prototype RPC transport. NOT wired live yet — the module
+	// (src/runtime/rpc/, fake-stream tested only) stands beside production and
+	// the seam returns a structured not-implemented result so nobody can
+	// mistake the prototype for an active transport. Default/invalid env →
+	// stdio path below, byte-identical to the pre-W7 behavior. No worker-cap
+	// slot is taken for the not-implemented return (nothing spawns).
+	if (resolveWorkerTransport() === "rpc") {
+		const message =
+			"rpc worker transport requested (PI_CREW_WORKER_TRANSPORT=rpc) but live wiring is not implemented yet — W7 prototype module src/runtime/rpc/ is fake-stream tested only; unset PI_CREW_WORKER_TRANSPORT to use the default stdio transport";
+		console.error(`[pi-crew:run-worker.rpc-transport] ${message}`);
+		return { exitCode: null, stdout: "", stderr: "", error: message };
+	}
 	if (cap) {
 		// RR-014 / F15: thread the caller's signal into the slot WAIT itself.
 		// Previously the signal lived only inside childPiInput and was read by

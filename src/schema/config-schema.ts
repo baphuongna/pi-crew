@@ -128,6 +128,15 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 			),
 		),
 		modelFallback: Type.Optional(PiTeamsModelFallbackConfigSchema),
+		// W7 (P2-3) EXPERIMENTAL: worker transport selector. Absent = "stdio"
+		// (production child-pi path, behavior unchanged). "rpc" selects the
+		// prototype RPC frame-client transport (src/runtime/rpc/) — currently
+		// the run-worker seam returns a structured not-implemented result
+		// instead of spawning. Live gate is env PI_CREW_WORKER_TRANSPORT;
+		// config→seam plumbing is the integration-phase follow-up (needs a
+		// parseRuntimeConfig line in config-validation.ts). Not sensitive —
+		// picks a transport, not authority.
+		workerTransport: Type.Optional(Type.Union([Type.Literal("stdio"), Type.Literal("rpc")])),
 	},
 	{ additionalProperties: false },
 );

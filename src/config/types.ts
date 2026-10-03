@@ -110,6 +110,15 @@ export interface CrewRuntimeConfig {
 	 */
 	handoffBudgetTokens?: number;
 	/**
+	 * W7 (P2-3) EXPERIMENTAL: transport used to spawn child-pi workers.
+	 * "stdio" (default) — the production print-mode path, unchanged.
+	 * "rpc" — prototype RPC frame-client (src/runtime/rpc/); the run-worker
+	 * seam currently returns a structured not-implemented result instead of
+	 * spawning. Live gate: env PI_CREW_WORKER_TRANSPORT (config→seam plumbing
+	 * is the integration-phase follow-up).
+	 */
+	workerTransport?: "stdio" | "rpc";
+	/**
 	 * Mux-surface policy (mux-surface spec v0.7 §8.1): WHERE worker processes
 	 * live — a pane in tmux/herdr or headless child processes. Surface only
 	 * picks the process home; scheduler, broker, and state-on-disk are
