@@ -179,7 +179,16 @@ test("strict machine-check failure → gateError + spec.check_failed event (dige
 			},
 		];
 		const packet = packetWith({ specRefs: ["spec-a"], specSnapshots: bad, specStrict: true });
-		const out = await computeSpecGate({ packet, finalText: GOOD_FOOTER, sandboxCwd: cwd, runtimeKind: "child", alreadyFailed: false });
+		let out = await computeSpecGate({ packet, finalText: GOOD_FOOTER, sandboxCwd: cwd, runtimeKind: "child", alreadyFailed: false });
+		// GH-runner flake (CI 2026-10-03 rounds 4-5, green on job-rerun with zero
+		// code change): the module-load `unshare` probe passes but the real
+		// machine-check exec intermittently fails on shared runners →
+		// exit-mismatch instead of the deterministic digest-mismatch. The tamper
+		// scenario cannot legitimately produce exit-mismatch, so retry once on
+		// exactly that transient signature before asserting.
+		if (!out.gateError?.includes("digest-mismatch") && out.gateError?.includes("exit-mismatch")) {
+			out = await computeSpecGate({ packet, finalText: GOOD_FOOTER, sandboxCwd: cwd, runtimeKind: "child", alreadyFailed: false });
+		}
 		assert.ok(out.gateError?.includes("digest-mismatch"), out.gateError);
 		const evt = out.events.find((e) => e.type === "spec.check_failed");
 		assert.ok(evt, "spec.check_failed emitted");

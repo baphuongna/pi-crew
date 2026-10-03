@@ -71,7 +71,11 @@ for (const [label, task] of [
 			assert.ok(taskPath.endsWith("task.md"));
 			assert.equal(fs.existsSync(taskPath), true);
 			assert.equal(fs.readFileSync(taskPath, "utf-8"), task);
-			assert.equal(fs.statSync(taskPath).mode & 0o777, 0o600, "task file must be owner-only (0600)");
+			// POSIX-only bit check: Windows fs reports 0o666 regardless of ACLs
+			// (same guard as child-pi-timeout G3 — CI 2026-10-03 plain jobs).
+			if (process.platform !== "win32") {
+				assert.equal(fs.statSync(taskPath).mode & 0o777, 0o600, "task file must be owner-only (0600)");
+			}
 			assert.ok(result.tempDir, "tempDir must be reported for cleanup");
 		} finally {
 			if (result.tempDir) fs.rmSync(result.tempDir, { recursive: true, force: true });
