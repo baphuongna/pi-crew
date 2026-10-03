@@ -625,6 +625,8 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 	const { workflow, input, runtimeKind, runController } = ctx;
 
 	// 2.2 caller migration: batch progress is high-frequency informational (M7 wire).
+	// .catch REQUIRED — buffered-flush rejections reject queued promises (see
+	// child-executor.ts:530 note, CI 2026-10-03).
 	void appendEventBuffered(ctx.manifest.eventsPath, {
 		type: "task.progress",
 		runId: ctx.manifest.runId,
@@ -640,7 +642,7 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 			defaultConcurrency: concurrency.defaultConcurrency,
 			concurrencyReason: approvalPending ? `${concurrency.reason};plan-approval-read-only` : concurrency.reason,
 		},
-	});
+	}).catch((error) => logInternalError("dispatch-batch.ready-batch-progress", error, `runId=${ctx.manifest.runId}`));
 	// Execute before_task_start hooks for the batch — P1-10: run hooks in
 	// parallel (each may be a subprocess), then apply skip mutations in order.
 	const beforeTaskStartReports = await Promise.all(

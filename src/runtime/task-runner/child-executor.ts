@@ -527,12 +527,16 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			// is informational and re-derivable from per-agent records.
 			// appendEventBuffered coalesces into a single lock acquire after bufferMs,
 			// reducing producer p95 from ~13µs (serial) to ~0µs (bench M7).
+			// .catch is REQUIRED (CI 2026-10-03 char-core5-6): the buffered flush
+			// rejects queued promises on write failure (e.g. ENOENT after cwd
+			// cleanup) — a naked `void` turns that into an unhandledRejection
+			// that kills the host test/process long after the caller returned.
 			void appendEventBuffered(manifest.eventsPath, {
 				type: "task.progress",
 				runId: manifest.runId,
 				taskId: task.id,
 				data: { ...summary, coalesceReason: decision.reason },
-			});
+			}).catch((error) => logInternalError("child-executor.progress-buffered", error, `taskId=${task.id}, runId=${manifest.runId}`));
 			lastRunProgressSummary = summary;
 			lastRunProgressPersistedAt = now;
 		}
@@ -733,7 +737,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 							// Fire-and-forget async write for steering events (the file was
 							// truncated just above; this incarnation receives only its own
 							// pending steers).
-							void appendSteeringAsync(steeringDir, task.id, task.pendingSteers);
+							void appendSteeringAsync(steeringDir, task.id, task.pendingSteers).catch((error) =>
+								logInternalError("child-executor.steering-append", error as Error, `taskId=${task.id}`),
+							);
 							// RT-8: spread before clearing pendingSteers instead of mutating
 							// in place — preserves the immutable-snapshot invariant (the same
 							// object may already be referenced by the tasks array / snapshots).
@@ -804,7 +810,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 							const bgLogPath = `${manifest.stateRoot}/background.log`;
 							const eventLine = typeof event === "object" && !Array.isArray(event) ? JSON.stringify(event) : String(event);
 							// Fire-and-forget async write for background log
-							void appendBackgroundLogAsync(bgLogPath, eventLine);
+							void appendBackgroundLogAsync(bgLogPath, eventLine).catch((error) =>
+								logInternalError("child-executor.background-log", error as Error, `taskId=${task.id}`),
+							);
 						}
 						// Always keep in-memory agentProgress fresh (cheap) so the UI/events see
 						// the latest progress, but THROTTLE the disk persist. Previously this
