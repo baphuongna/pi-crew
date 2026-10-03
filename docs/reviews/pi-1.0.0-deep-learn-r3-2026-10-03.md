@@ -431,3 +431,203 @@ verified in the D3 probe batch.
 *Written by 07_write from the 06_synthesize unified matrix (authoritative merge of shards
 02/03/05; shard 04 false-complete, content covered by 02). No other pi-crew files modified; the
 repo remains 24 commits ahead of origin under the 0.11.7 release hold.*
+
+---
+
+## Round 3b — Gap closure (L3 + E + probes)
+
+- **Date:** 2026-10-03 (same day, follow-up)
+- **Mandate:** D3 (§6 of this document) — close the two never-dispatched lanes (L3 models/talent,
+  E residual docs) and the two missing probes (L4 b/c) before round 3 closes.
+- **Executor:** direct agent `01_01-agent` (run `team_20261003163341_0e66b43cf21dac1e`, team
+  `direct-executor`). All citations below were read directly by the writer **[W]** (docs, SDK
+  `dist/`, pi-crew `src/`) or produced by the R3b probes **[P]** in `/tmp/pi-deeplearn-r3/`
+  (new files prefixed `b-`/`c-`/`r3b-`; R3-round files `a1/a2/proj/empty/sess` untouched).
+  `PI_CREW_*` scrubbed from every probe child env (worker-shell gotcha, knowledge.md 2026-08-15).
+- **Deliverable:** this section only. §0/§1 tables above are untouched (audit trail); the updated
+  completeness view lives in §R3b.7.
+
+### R3b.1 New candidates (R3-19…R3-23) — same format as §1
+
+| ID | Mechanism | Type | Pri | Effort | Adoption-fit (where it lands in pi-crew) |
+|----|-----------|------|-----|--------|------------------------------------------|
+| R3-19 | Hermetic worker spawns: `-ne` (`--no-extensions`) + keep explicit `-e prompt-runtime` — kills the ~1.4 s/spawn ambient package-extension tax AND the ambient untrusted surface (host MCP tools + host-side team tools in workers) | ALIGNMENT (needs leader decision — reverses D5 default) | **P2** | S–M | `pi-args.ts` worker arg builder (line 339 already passes prompt-runtime via `--extension`) |
+| R3-20 | `scopeModels` pattern parity: strip `:<thinking>` suffix, support `?`/`[` glob chars, match model `name`, try `provider/id` + bare-id forms — or reuse the SDK's own matcher | ALIGNMENT | P3 | S | `model-scope.ts:55-72` (`matchesModelPattern`) vs SDK `model-resolver.js:204-270` |
+| R3-21 | Crew skills bypass `--no-skills` via the `resources_discover` hook → `inheritSkills: false` is half-effective; cwd `skills/` (untrusted project content) is also injected regardless of trust | CONFIRMED-BEHAVIOR → **needs leader verdict (D4)**: intended-infra or fix | P3 | S (doc) / M (fix) | `hook-registration.ts:65-77`; interacts with `pi-args.ts:357` |
+| R3-22 | Container-isolated workers (plain Docker / Docker Sandboxes / OpenShell / Gondolin) | NEW-ADOPTION candidacy → **recommend DOCUMENT-AND-DECLINE** (same family as R3-17) | P3-arch | L | conflicts with the current runtime-limits sandbox posture; re-open only if an untrusted-task threat model materializes |
+| R3-23 | Deduplicate skill advertisement: host `<available_skills>` (system prompt) and pi-crew's "Applicable Skills" index block both advertise name+description+path for every selected skill | ALIGNMENT | P3 | S | `skill-instructions.ts` (SR-02 index block) × `--skill`-driven host advertisement (skills.js:275-298) |
+
+**R3-19 detail.** Probe C (§R3b.6) measured first-stdout-record at **431 ms** with
+`--no-extensions --no-skills` vs **1806 ms** with the ambient package stack — the ambient
+extension discovery/load (pi-crew host extension + 4 other configured packages) costs
+**~1.37 s per spawn**, paid by every worker (D5: "extension discovery hoạt động như main
+session"). The standard CLI explicitly supports the hermetic combination: "Disables discovered,
+configured, and built-in extensions. Explicit `-e` paths still load" (`cli.md:186-187`) — and
+`pi-args.ts:339` already passes prompt-runtime explicitly, so workers would keep the coordination
+layer. The probe shell also showed the ambient surface leak concretely: a plain `-p` spawn
+declares `team`, `crew_agent`, `Agent` (pi-crew host tools) plus 8 direct-exposure MCP tools
+(firecrawl, zai_mcp, web_search_prime, hostinger×5) — see §R3b.6; hermetic spawns show only
+`read/bash/edit/write`. Tradeoff to decide: D5 parity (workers see user extensions/MCP) vs
+~1.4 s/spawn + untrusted-surface reduction. Composes with D1 (R3-3) and E1 WI-4.
+
+**R3-20 detail.** See §R3b.3 (Q3b) for the full divergence table.
+
+**R3-21 detail.** Probe b-2 (§R3b.6): with `--no-skills --skill <probe>`, the user's 3
+`~/.pi/agent/skills` skills and 8 other-package skills correctly disappear — but all **34
+pi-crew skills remain advertised**, because the host extension's `resources_discover` hook
+(`hook-registration.ts:65-77`) injects `packageRoot()/skills` (and the session-cwd `skills/`
+dir) through the extension-resource path, which pi merges **after** the `noSkills` gate
+(`resource-loader.js:419-423` gated set vs `:318-331` `updateSkillsFromPaths` extension merge).
+Consequences: (1) `inheritSkills: false` (`pi-args.ts:357`) does not remove crew skills from
+the worker system prompt — 34 name+description entries of context in every such worker; (2) the
+same hook injects the **worker-cwd `skills/` dir** — untrusted project skill content
+(pi-crew's own labeling, `skill-instructions.ts` trust block) gets advertised to workers
+regardless of `inheritSkills` or project trust. Either document crew-skills-as-infrastructure
+(same stance as prompt-runtime, `pi-args.ts:338` comment) or gate the cwd injection on trust.
+
+### R3b.2 Q3a — is `--skill <path>` the standard 1.0.0 mechanism? (YES; no better API for process workers)
+
+**Answer (1 line):** `--skill <path>` IS the documented standard channel (`cli.md:188-189`,
+repeatable; `--no-skills` cannot suppress it — `cli.md:190-191`), it automatically gets the
+host's progressive disclosure, and no better CLI API exists for process-spawned workers — the
+finer-grained `skillsOverride` on `DefaultResourceLoader` exists only on the SDK embedding path
+that R3-17 declined. **Evidence:**
+
+- **Flag surface [W]:** `cli.md:188-189` — "`--skill <path>`: Loads a skill file or directory and
+  is repeatable"; `cli.md:190-191` — "`-ns, --no-skills`: Disables discovered and configured
+  skills. Explicit `--skill` paths still load." No `--skills` (plural) variant exists in the
+  1.0.0 docs; `--skill`+`--no-skills` is the complete surface.
+- **Progressive disclosure is built into the mechanism [W]:** at startup pi adds each skill's
+  `name`/`description`/`location` to the system prompt as `<available_skills>` XML and nothing
+  more (`skills.js:275-298` `formatSkillsForPrompt`; wired via `system-prompt.js:99-103`); the
+  full `SKILL.md` loads only when the task matches (`skills.md` "Understand how skills load").
+  CLI `--skill` paths enter the **same** discovered set (`resource-loader.js:419-423` merges
+  `cliEnabledSkills`/`additionalSkillPaths` into `updateSkillsFromPaths`) — so `--skill` does
+  not bypass progressive disclosure. **Probe-verified [P]:** b-1/b-2 system prompts contain the
+  `<available_skills>` entry for the probe skill (name+description+location) with **no** full
+  body and **no** co-located `notes.md` leak (§R3b.6).
+- **pi-crew's usage is aligned [W]:** `pi-args.ts:357-358` emits exactly `--no-skills` (when
+  `inheritSkills === false`) + repeatable `--skill <dir>` from `skillPaths` (fed by
+  `skill-instructions.ts:418` render). pi-crew's SR-02 "index mode" block is an *additional*
+  selection/confidence/trust layer on top — redundant with the host advertisement in
+  name+description+path (→ R3-23) but not wrong.
+- **Discovery-based alternative is worse for workers [W]:** relying on pi's discovery locations
+  (`~/.pi/agent/skills`, `~/.agents/skills`, project `.agents/skills` walking cwd ancestors,
+  `skills.md` "Add it to Pi") would be cwd-dependent, would pollute user repos, and stops at the
+  repo root; explicit `--skill` is precisely the designed programmatic channel.
+- **SDK-only better API (not applicable) [W]:** `DefaultResourceLoader({ skillsOverride })`
+  (sdk.md "Configuring a session"; example `examples/sdk/04-skills.ts`) gives full programmatic
+  filter+merge control — but only inside an embedded session (R3-17: document-and-decline).
+
+### R3b.3 Q3b — does pi-crew `scopeModels` match the 1.0.0 `--models` pattern standard? (mostly; 4 concrete divergences)
+
+**Answer (1 line):** pi-crew reads the **same allowlist source** (pi's own
+`SettingsManager.getEnabledModels()`, `model-scope.ts:143-165`) and mimics the semantics order,
+but its re-implemented matcher diverges from the standard `resolveModelScopeFromModels()` in 4
+points — most importantly `:<thinking>` suffixes are **not stripped**, so a pattern like
+`anthropic/claude-sonnet-5:high` in `enabledModels` falsely rejects the plain model id →
+**hard error** for caller-supplied models (`model-fallback.ts:819`). Needs ALIGNMENT (R3-20).
+
+The standard (`cli.md:71-72` `--models <patterns>` = "exact IDs, fuzzy matches, case-insensitive
+globs, and optional `:<thinking>` suffixes"; `settings.md:16` `enabledModels` "Uses the same
+format as `--models`"), implemented in `model-resolver.js:204-270` `resolveModelScopeFromModels`
+[W], vs pi-crew `model-scope.ts:55-72` `matchesModelPattern` [W] — which itself claims parity in
+its header (`model-scope.ts:9-13`) but does not fully deliver it:
+
+| # | Standard behavior (1.0.0) | pi-crew behavior | Impact |
+|---|---|---|---|
+| 1 | `:<thinking>` suffix optional in patterns; stripped before matching (glob branch `model-resolver.js:214-222`; fuzzy branch `parseModelPattern` `:155-200`) | Suffix never stripped; raw pattern compared | **False out-of-scope → hard error** for caller-level models when user patterns carry suffixes |
+| 2 | Glob chars = `*`, `?`, `[` (minimatch, `model-resolver.js:210`) | Only `*` (own `*`→`.*` regex, `model-scope.ts:47-53`) | `?`/`[...]` patterns degrade to substring match — usually still passes, but not equivalent |
+| 3 | Fuzzy fallback matches model `id` **or `name`** (`model-resolver.js:114-115`) | `id` only (`model-scope.ts:71`) | Gate stricter than host; display-name references rejected |
+| 4 | Globs tried against `provider/modelId` **and** bare `id` (`model-resolver.js:228-232`) | Single string form as configured | Provider-less model strings may miss provider-scoped globs |
+
+Fix options (R3-20): minimal — strip a trailing valid-thinking suffix + treat `?`/`[` as glob
+chars; full — resolve the allowlist through the SDK's own matcher (it is exported:
+`model-resolver.d.ts:39`) or gate membership against `resolveModelScopeFromModels()` output.
+Note the *hard-error* path makes divergence 1 user-visible, not cosmetic
+(`model-fallback.ts:816-820`, `errors.ts:67`).
+
+### R3b.4 L3 doc-by-doc yield record (completeness evidence for the lane)
+
+All five docs read in full [W]; mcp.md read in full and compared against E1 §9 (delta only).
+
+| Doc | Yield |
+|---|---|
+| `models.md` | Q3b standard extracted (§R3b.3); `--models`/`enabledModels`/`/scoped-models` wiring. No new candidate beyond R3-20. `/login` credential precedence + `models.json` `!command` interpolation: no pi-crew fit (host-managed creds). no-yield otherwise. |
+| `codemode.md` | no-yield for adoption (codemode off by default; `classify()` already shelved P2-1). **Evidence gain:** `searchTools()`/`describeTool()`/`ALL_TOOLS` + "deferred … not listed, so the description stays the same while MCP servers connect" corroborate R3-11's discovery model. |
+| `skills.md` | Q3a standard extracted (§R3b.2). No new mechanism beyond R3-23 (dedupe note). `disable-model-invocation`, `/skill:name` args, Agent-Spec `~/.agents/skills` locations: already covered by pi-crew's selection layer; no-yield. |
+| `custom-provider.md` | no-yield — provider extensions are host-side integrations; pi-crew ships no providers. (`streamSimple` custom-stream contract already captured as R3-8 context.) |
+| `packages.md` | **no-yield — already aligned:** pi-crew's manifest is exactly the documented form: host packages in `peerDependencies` with `"*"`, `pi` key `{extensions:["./index.ts"], skills:["./skills"]}`, `pi-package` keyword (package.json:124-130,25 [W]; rule at packages.md "Declare dependencies"). Object-form package resource filters and `autoload:false` delta-scoping: no current need. |
+| `mcp.md` (delta vs E1 §9) | **no new candidate.** Two evidence notes: (1) "The first prompt waits up to 10 seconds only for servers with `direct` tools" — worker spawns inheriting ambient direct-exposure MCP servers (probe §R3b.6 shows 8 such tools declared) can pay up to +10 s first-prompt latency → strengthens E1 WI-4 and R3-19; (2) "Pi activates `tool_search` for a server with `deferred` exposure" → closes R3-11's precondition question (see §R3b.6). Resource tools / OAuth `authServerMetadataUrl` / `toolExposure` patterns: E1 KEEP-STATUS-QUO already governs. |
+
+### R3b.5 Residual-docs triage (E lane — 13 files, verdict each)
+
+Scan depth: headings + key sections for onboarding/reference pages; full read for
+`tmux.md`/`containerization.md`/`shell-aliases.md` (flagged "đáng đọc kỹ"). All [W].
+
+| Doc | Verdict (1 sentence) |
+|---|---|
+| `index.md` | no-yield — pure navigation overview. |
+| `quickstart.md` | no-yield — end-user install/first-task onboarding; "choose how to customize" chooser maps to mechanisms already mined. |
+| `usage.md` | no-yield — interactive-session usage; `/copy` `/export` `/share` `/debug` are host-session UX (pi-crew workers are `-p`/surface panes; `/debug`'s `pi-debug.log` is an ops curiosity only). |
+| `providers.md` | no-yield — credential/env setup per provider; pi-crew deliberately does not manage provider creds (env must survive SEC-1 strip for workers to run — known behavior). |
+| `message-types.md` | no-yield — type reference already consumed via the SDK's `.d.ts`; `BranchSummaryMessage`/`CompactionSummaryMessage` replay concerns are P1-1/P2-2 territory (R1/R2). |
+| `tmux.md` | **conditional doc-note, no code candidate:** pi-crew's surface panes host *full interactive pi sessions* (`surface-worker.ts:6-8`), so if a user ever composes multi-line input inside a pane, the doc's `extended-keys on` + `extended-keys-format csi-u` tmux.conf guidance applies — today steering is mailbox-side and pi-crew sets no tmux key config (grep `extended-keys|csi-u` in `src/` = 0 hits), so no action; worth one line in the crew surface docs. |
+| `shell-aliases.md` | no-yield — `shellPath`/`shellCommandPrefix` are user-global settings pi-crew doesn't touch (grep = 0 hits); the `!command`-in-settings pattern duplicates what models.json already provides. |
+| `containerization.md` | **R3-22** (document-and-decline, §R3b.1) — whole-process Docker / Docker Sandboxes (credential-substituting proxy) / OpenShell / Gondolin micro-VM are a heavier isolation tier than pi-crew's runtime-limits sandbox; record the option, keep the current model. |
+| `llama-cpp.md` | no-yield — local GGUF router ops; pi-crew model routing is provider-agnostic and already works with any configured provider. |
+| `termux.md` | no-yield — Android/Termux install specifics. |
+| `windows.md` | no-yield — native-Windows/WSL shell selection (`shellPath` resolution order); pi-crew is not Windows-targeted today. |
+| `terminal-setup.md` | no-yield — per-terminal key/IME troubleshooting for humans at a terminal; the IME cursor contract as an extension concern is already R3-6. |
+| `docs.json` | no-yield — site navigation metadata; confirms the corpus list used by this triage. |
+
+### R3b.6 Probe evidence (L4 b + c + control + opportunistic R3-11)
+
+All runs: `timeout -k 5` outer wrapper, real exit codes reported, `PI_CREW_*` scrubbed,
+sessions under `/tmp/pi-deeplearn-r3/sess-{b,c}`, cwd `/tmp/pi-deeplearn-r3/probe-cwd`, scratch
+skill `b-skill/r3probe/SKILL.md` (frontmatter `name: r3-probe-skill`). Scripts kept:
+`r3b-probe-b-skills.py`, `r3b-probe-c-extcost.py` (+ inline C-arm block recorded in run log).
+
+**(b) Skills-flag injection — 2 runs, both exit 0.**
+
+- **b-1** `timeout -k 5 120 pi --mode json -p --session-dir …/sess-b --skill /tmp/pi-deeplearn-r3/b-skill/r3probe "<list all skills>"` → exit 0, 579 records, wall 17.9 s. System-prompt `<available_skills>` = **46 entries incl. `r3-probe-skill`**; full SKILL.md body absent (progressive disclosure ✓); co-located `notes.md` absent (no bundle leak ✓); assistant listed `r3-probe-skill` then `PROBE-DONE`. *(The one-turn prompt did not trigger reading SKILL.md, so the in-body marker `R3PROBE-SKILL-LOADED` is absent from the reply — advertisement, not body, is the contract; consistent with skills.md.)*
+- **b-2 (variant)** same + `--no-skills` → exit 0, 1196 records, wall 43.3 s. `<available_skills>` = **35 entries: `r3-probe-skill` + all 34 pi-crew skills**; the user's 3 `~/.pi/agent/skills` skills and 8 other-package skills correctly suppressed. Confirms `cli.md:191` (explicit `--skill` survives `--no-skills`) live, and exposes R3-21 (crew skills arrive via `resources_discover`, not discovery).
+
+**(c) Extension-load cost with `-e` — 3 runs/variant, all exit 0, metric = spawn→first stdout record (type `session`, emitted before any model call).**
+
+- Extension path: `PROMPT_RUNTIME_EXTENSION_PATH` = `<packageRoot>/src/prompt/prompt-runtime.ts` (`pi-args.ts:17`) — **exists as an independent source file**; no synthetic substitute needed.
+- **A** `pi --mode json -p --offline` → first-record **1806 ms median** (2565/1759/1806).
+- **B** `pi --mode json -p --offline -e <prompt-runtime.ts>` → **1797 ms median** (1766/1797/1805). **B−A = −9 ms** — incremental `-e prompt-runtime` load cost is within noise (A's own spread is ±800 ms).
+- **C (control, added)** `… --offline --no-extensions --no-skills` → **431 ms median** (430/431/469). **A−C ≈ 1.37 s = ambient package-extension stack cost per spawn** (pi-crew host extension + 4 configured packages — stderr shows `[pi-crew] Session shutdown…` in A *and* B, proving the ambient load is present in both arms; B measures only the incremental `-e`). → R3-19.
+- Wall-clock sanity: all runs completed a full model turn (A 11.9–15.6 s; B ~9.2 s; C ~5-9 s), consistent with R3 P-B (model latency dominates total run, extensions dominate startup).
+
+**Opportunistic R3-11 verification (tool surfaces from the same outputs).** Declared tools in
+the system-prompt tools section: b-1/b-2/c-B1 = `read, bash, edit, write, team, crew_agent,
+Agent, mcp, mcp__firecrawl, mcp__zai_mcp, mcp__web_search_prime, mcp__hostinger_{hosting,domains,dns,billing,reach,vps}`;
+c-C3 = `read, bash, edit, write` only. Findings: (1) **`tool_search` is NOT declared in plain
+`-p` sessions on this host** — R3-11's docs-asserted assumption is **false by default**;
+`tool_search` activates only when a `deferred`-exposure server/tool exists (mcp.md "Control tool
+exposure"), so R3-11 additionally needs `"defaultTools": ["+tool_search"]`-style activation
+(or an SDK `createToolSearchExtension()` factory, sdk.md) before `deferred` tool declarations
+become discoverable — precondition now closed. (2) Ambient host-side tools (`team`, `crew_agent`,
+`Agent`) and 8 direct-exposure MCP tools reach every default-discovery worker spawn (D5) —
+concrete tool-level evidence for R3-19 and E1 WI-4.
+
+### R3b.7 Updated completeness (supersedes §0 rows — old table left intact for audit)
+
+| Shard / item | Status after Round 3b | Closed by |
+|---|---|---|
+| L3 models/talent | ✅ complete (models/codemode/skills/custom-provider/packages full; mcp delta vs E1 §9) | Round 3b §R3b.4 |
+| E residual-docs triage | ✅ complete (13/13 files verdicted, §R3b.5; `security.md` trust § + `slash-commands.md` were already read in R3) | Round 3b §R3b.5 |
+| L4 probe (b) skills-flag | ✅ complete (2 runs, exit 0, §R3b.6) | Round 3b §R3b.6 |
+| L4 probe (c) `-e` load-cost | ✅ complete (3 variants × 3 runs, exit 0, §R3b.6) | Round 3b §R3b.6 |
+| Q3a (skillPaths standard?) | ✅ answered — standard; no better CLI API (§R3b.2) | Round 3b |
+| Q3b (scopeModels parity?) | ✅ answered — 4 divergences, ALIGNMENT R3-20 (§R3b.3) | Round 3b |
+| R3-11 `tool_search` precondition | ✅ verified false-by-default; activation requirement recorded (§R3b.6) | Round 3b |
+
+**Remaining known-unmined:** `session-format.md` (structure only, per §0 — unchanged);
+`json.md` partial (R2). No new leader decisions beyond **D4 (R3-21)** and the R3-19 D5-reversal
+decision were introduced; D1/D2/D3 from §6 stand, with D3 now satisfied by this section.
+
+*Round 3b written by executor 01_01-agent (direct-executor team). Files touched:
+this document only. Probes and scratch under /tmp/pi-deeplearn-r3 (R3-round files untouched).*
