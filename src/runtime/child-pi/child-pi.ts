@@ -27,6 +27,16 @@ import { ChildPiLineObserver } from "./child-pi-streams.ts";
 // Phase 2.3: the six timer constructs moved to child-pi-timers.ts (pure motion).
 import { createChildPiTimers } from "./child-pi-timers.ts";
 import { runMockChildPi } from "./mock-fixtures.ts";
+// W2 (session-file recovery): deterministic worker session flags + crash-path
+// tail-replay of the session JSONL (see session-recovery.ts header).
+import {
+	appendWorkerSessionArgs,
+	deriveSessionPaths,
+	recoverLastAssistantFromSession,
+	resolveSessionRecoveryEnabled,
+	type SessionRecoveryInfo,
+	shouldAttemptSessionRecovery,
+} from "./session-recovery.ts";
 
 // ── Re-exports from child-pi-kill.ts (H-7 decomposition step 2) ──
 // killProcessTree is internal (not previously exported) — keep that invariant.
@@ -185,8 +195,18 @@ export interface ChildPiRunInput {
 	inheritContext?: boolean;
 	/** Pass to pi to mark certain commands as context-excluded. Default: false */
 	excludeContextBash?: boolean;
-	/** pi session ID for session naming (aligns with pi-crew run ID) */
+	/** pi session ID for session naming (aligns with pi-crew run ID). W2: now
+	 *  WIRED — flows to `--session-id` (deterministic worker session files for
+	 *  crash-path tail-recovery; see session-recovery.ts). */
 	sessionId?: string;
+	/** W2 (session-file recovery): explicit session directory override. When
+	 *  absent, derived per-worker as `<artifactsRoot>/sessions/<taskId>/` so
+	 *  session JSONL is cleaned up together with run artifacts. */
+	sessionDir?: string;
+	/** W2 (session-file recovery): explicit on/off (runtime.sessionRecovery
+	 *  config). Env PI_CREW_SESSION_RECOVERY overrides in either direction;
+	 * default ON. Only consulted on crash-ish settles (exitCode null / killed). */
+	sessionRecovery?: boolean;
 	/** Path to steering JSONL file for real-time steer injection. */
 	steeringFile?: string;
 	/** Run ID for cleanup tracking */
@@ -291,6 +311,13 @@ export interface ChildPiRunResult {
 	 *  text) still produce a non-empty result. Consumers should prefer rawFinalText
 	 *  first — this is a last-resort fallback. */
 	intermediateFindings?: string;
+	/** W2 (session-file recovery): present when the worker died WITHOUT a
+	 *  final assistant event (exitCode null / killed) and a COMPLETE assistant
+	 *  record was tail-recovered from the worker's session JSONL (deterministic
+	 *  `--session-id`/`--session-dir` under the run artifacts root). Consumers
+	 *  treat it as a crash-path supplement to rawFinalText — never a replacement
+	 *  for clean-path output, and manifest polling is untouched. */
+	recoveredFromSession?: SessionRecoveryInfo;
 	/**
 	 * MuxSurface A1: present ONLY when the worker booted inside a multiplexer
 	 * pane instead of a stdio pipe (spec §13.1). Downstream (T9 EventLogTailSource,
@@ -684,6 +711,24 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask, depthEnv);
 	if (spawnPrep.kind === "aborted") return spawnPrep.result;
 	const { spawnSpec, mergedEnv, tempDir, builtEnv, builtArgs } = spawnPrep.ctx;
+	// W2 (session-file recovery): resolve the worker's deterministic session
+	// identity (per-worker dir under the run artifacts root) and arm it on BOTH
+	// argv views — the headless spawnSpec.args ([script, ...builtArgs]) and the
+	// raw builtArgs (also consumed by the surface branch). prepareSpawnContext
+	// does not forward session identity to the arg builder (ownership boundary
+	// with child-pi-spawn.ts — see the lane report), so this is the in-zone
+	// activation point; appendWorkerSessionArgs is idempotent, making the move
+	// to builder-side forwarding later a zero-diff no-op.
+	const workerSession = deriveSessionPaths(input);
+	const sessionRecoveryEnabled = resolveSessionRecoveryEnabled(input.sessionRecovery);
+	if (workerSession) {
+		try {
+			fs.mkdirSync(workerSession.sessionDir, { recursive: true });
+		} catch {
+			// Unwritable target → spawn proceeds; recovery simply finds no files.
+		}
+		appendWorkerSessionArgs(spawnSpec.args, builtArgs, workerSession);
+	}
 	// MuxSurface A1 (spec §13.1): attempt booting the worker in a mux pane BEFORE
 	// spawning a stdio pipe. Returns a finished result in surface mode (pane exit
 	// awaited) or null → fall through to the classic headless spawn below.
@@ -869,6 +914,22 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				clearPostExitGuard();
 			};
 
+			// W2 (session-file recovery): crash-path augment — when the worker died
+			// WITHOUT a final assistant event (exitCode null / killed), tail-replay
+			// its session JSONL and surface the last COMPLETE assistant record on the
+			// resolved result. Best-effort and deadline-bounded (session-recovery.ts)
+			// so settle can never hang on pathological IO. This AUGMENTS the result —
+			// manifest polling (heartbeat-watcher / detached-run-results) is untouched.
+			const recoverForSettle = async (settleResult: ChildPiRunResult): Promise<SessionRecoveryInfo | undefined> => {
+				if (!workerSession || !sessionRecoveryEnabled) return undefined;
+				if (!shouldAttemptSessionRecovery(settleResult, hardKilled)) return undefined;
+				try {
+					return (await recoverLastAssistantFromSession(workerSession.sessionDir, workerSession.sessionId)) ?? undefined;
+				} catch {
+					return undefined;
+				}
+			};
+
 			const settle = (result: ChildPiRunResult): Promise<void> => {
 				if (settled) return Promise.resolve();
 				settled = true;
@@ -885,7 +946,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 				// durable transcript on disk.
 				return lineObserver
 					.flush()
-					.then(() => {
+					.then(async () => {
 						input.signal?.removeEventListener("abort", abort);
 						input.signal?.removeEventListener("abort", onParentAbort);
 						try {
@@ -893,12 +954,16 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						} catch (error) {
 							cleanupErrors.push(error instanceof Error ? error.message : String(error));
 						}
+						// W2: crash-path session tail-recovery (await BEFORE resolve so the
+						// recovered record rides the same settled result object).
+						const recoveredFromSession = await recoverForSettle(result);
 						// Catch all errors from settle to prevent unhandled rejection from propagating
 						try {
 							resolve({
 								...result,
 								rawFinalText: lineObserver.getRawFinalText(),
 								intermediateFindings: lineObserver.getIntermediateFindings(),
+								...(recoveredFromSession ? { recoveredFromSession } : {}),
 								exitStatus: result.exitStatus ?? {
 									exitCode: result.exitCode,
 									cancelled: abortRequested,
@@ -926,7 +991,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 							);
 						}
 					})
-					.catch((flushError) => {
+					.catch(async (flushError) => {
 						// Drain failed — log and still resolve so runChildPi doesn't hang.
 						logInternalError(
 							"child-pi.settle-flush-failed",
@@ -940,11 +1005,15 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 						} catch (error) {
 							cleanupErrors.push(error instanceof Error ? error.message : String(error));
 						}
+						// W2: crash-path session tail-recovery — same augment on the
+						// drain-failed path (a torn flush is itself crash-adjacent).
+						const recoveredFromSession = await recoverForSettle(result);
 						try {
 							resolve({
 								...result,
 								rawFinalText: lineObserver.getRawFinalText(),
 								intermediateFindings: lineObserver.getIntermediateFindings(),
+								...(recoveredFromSession ? { recoveredFromSession } : {}),
 								exitStatus: result.exitStatus ?? {
 									exitCode: result.exitCode,
 									cancelled: abortRequested,
