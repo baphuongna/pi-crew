@@ -16,6 +16,7 @@ import { pollWorkerInbox } from "./inbox-poll.ts";
 import { createMessageTool, type MessageToolParams as MessageToolInputs, shouldRegisterMessageTool } from "./message-tool.ts";
 import { registerScratchpadLifecycle } from "./scratchpad-lifecycle.ts";
 import { createWorkerActivityTracker, registerSurfaceWorkerLifecycle, trackToolActivity } from "./surface-worker.ts";
+import { createWorkerEventsChannel } from "./worker-events-channel.ts";
 
 export const PI_TEAMS_INHERIT_PROJECT_CONTEXT_ENV = "PI_TEAMS_INHERIT_PROJECT_CONTEXT";
 export const PI_TEAMS_INHERIT_SKILLS_ENV = "PI_TEAMS_INHERIT_SKILLS";
@@ -653,10 +654,11 @@ async function resolvePark(
 }
 
 /** ADR item 10: every ask-timeout outcome appends `ask.timedout` to the run's
- *  events.jsonl. The worker cannot rely on PI_CREW_EVENTS_PATH (scratchpad-
- *  gated), but the state store pins eventsPath === <stateRoot>/events.jsonl —
- *  the same invariant child-pi-spawn relies on to derive PI_CREW_STATE_ROOT.
- *  Fire-and-forget: never blocks the tool result. */
+ *  events.jsonl. WP-9 made PI_CREW_EVENTS_PATH unconditional (this comment
+ *  used to say it was scratchpad-gated — stale); this path predates that and
+ *  keeps deriving the file from the state store invariant eventsPath ===
+ *  <stateRoot>/events.jsonl — the same invariant child-pi-spawn relies on to
+ *  derive PI_CREW_STATE_ROOT. Fire-and-forget: never blocks the tool result. */
 function emitAskTimedOutEvent(stateRoot: string, runId: string, taskId: string, questionId: string): void {
 	appendEventFireAndForget(path.join(stateRoot, "events.jsonl"), {
 		type: "ask.timedout",
@@ -1028,6 +1030,33 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// swallowed because teardown failures during shutdown are harmless.
 	pi.on("session_shutdown", () => {
 		void brokerHandle.close().catch(() => undefined);
+	});
+
+	// ── W5 (P2-2): observe worker auto-compaction ──────────────────────────
+	// Auto-compaction inside a worker is otherwise silent from the
+	// orchestrator's view (perf reports only see token jumps). The SDK fires
+	// `session_before_compact` right before the host pi compacts the session
+	// context; this listener OBSERVES ONLY — it returns undefined so the host
+	// proceeds with its own preparation untouched (host analog:
+	// compaction-guard.ts `pi.on("session_before_compact", async () => { return; })`).
+	// NAME DISCIPLINE: this is the SDK's SESSION compaction (host context
+	// summarization) — NOT pi-crew's internal `prepareCompaction` event-log
+	// rotation (event-log-rotation.ts); same word, different mechanism.
+	// Channel discipline (WP-9): createWorkerEventsChannel is registered
+	// unconditionally and self-no-ops without PI_CREW_EVENTS_PATH/
+	// PI_CREW_BROKER_RUN_ID, so a main user session pays nothing. Payload is
+	// scalar-only: branchEntries (large) and signal (AbortSignal) are never
+	// serialized; preparation fields are read defensively (SDK shape evolves).
+	const compactEventsChannel = createWorkerEventsChannel();
+	pi.on("session_before_compact", (event) => {
+		const tokensBefore = (event.preparation as { tokensBefore?: unknown } | undefined)?.tokensBefore;
+		compactEventsChannel.emit("worker.session_before_compact", {
+			reason: event.reason,
+			willRetry: event.willRetry,
+			branchEntryCount: event.branchEntries?.length ?? 0,
+			hasCustomInstructions: typeof event.customInstructions === "string",
+			...(typeof tokensBefore === "number" ? { tokensBefore } : {}),
+		});
 	});
 
 	// ── Task 5 (§15.2): worker inbox pickup ────────────────────────────────
