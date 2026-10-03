@@ -317,6 +317,11 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_DISABLE_RESULT_READ_CACHE",
 		doc: "'1' bypasses the per-run result-artifact read cache (R10-1 bypass control; task-output-context.ts createResultArtifactReadCache)",
 	},
+	PI_CREW_HANDOFF_BUDGET_TOKENS: {
+		name: "PI_CREW_HANDOFF_BUDGET_TOKENS",
+		parser: "int",
+		doc: "est-token (chars/4) budget for the dynamic.dependencyContext prompt layer; beats runtime.handoffBudgetTokens, default 1800; resolved ≤0 or >1_000_000 disables the trim (task-output-context.ts renderDependencyOutputContext)",
+	},
 	PI_CREW_MOCK_LIVE_SESSION: {
 		name: "PI_CREW_MOCK_LIVE_SESSION",
 		doc: "'success' mocks a successful live-session (live-session-runtime.ts:558, runtime-resolver.ts:38/116)",

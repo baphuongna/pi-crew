@@ -77,6 +77,11 @@ const LIMIT_CEILINGS = {
 	// (10_000 turns), which capped the effective timeout at 10s and silently disabled
 	// any larger value (e.g. 300_000 = 5min) via parsePositiveInteger returning undefined.
 	runtimeTaskTimeoutMs: 24 * 60 * 60 * 1000,
+	// Handoff budget (est tokens, chars/4) for the dynamic.dependencyContext
+	// prompt layer. Above the ceiling the budget is treated as the OFF-switch
+	// (untrimmed render), mirroring the render-site semantics in
+	// task-output-context.ts.
+	runtimeHandoffBudgetTokens: 1_000_000,
 	nestingMaxSlots: 64,
 	nestingMaxDepth: 10,
 } as const;
@@ -325,6 +330,21 @@ function parseModelFallbackConfig(value: unknown): CrewRuntimeConfig["modelFallb
 	return Object.values(modelFallback).some((entry) => entry !== undefined) ? modelFallback : undefined;
 }
 
+/**
+ * Handoff budget for the dynamic.dependencyContext prompt layer (est tokens,
+ * chars/4). Deliberately NOT parsePositiveInteger: out-of-range values are
+ * dropped silently (undefined → render site falls back to default 1800)
+ * rather than rejecting the whole runtime block. The ≤0 / >1_000_000
+ * OFF-switch is expressible only via env PI_CREW_HANDOFF_BUDGET_TOKENS
+ * (env bypasses this parse and resolves first); the config schema documents
+ * 1..1_000_000 as the valid range.
+ */
+function parseHandoffBudgetTokens(value: unknown): number | undefined {
+	if (typeof value !== "number" || !Number.isInteger(value)) return undefined;
+	if (value < 1 || value > LIMIT_CEILINGS.runtimeHandoffBudgetTokens) return undefined;
+	return value;
+}
+
 function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 	const obj = asRecord(value);
 	if (!obj) return { inheritContext: true } as CrewRuntimeConfig;
@@ -362,6 +382,7 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 			return Object.values(parsed).some((v) => v !== undefined) ? parsed : undefined;
 		})(),
 		excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
+		handoffBudgetTokens: parseHandoffBudgetTokens(obj.handoffBudgetTokens),
 		agentExtensions: parseStringList(obj.agentExtensions),
 		isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
 		surface: parseSurfacePolicy(obj.surface),

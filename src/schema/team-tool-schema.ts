@@ -280,6 +280,14 @@ const sharedFields = {
 			description: "Mark certain bash commands as excludeFromContext to reduce context tokens (default: false).",
 		}),
 	),
+	handoffBudgetTokens: Type.Optional(
+		Type.Integer({
+			minimum: 1,
+			maximum: 1_000_000,
+			description:
+				"Est-token (chars/4) budget cap on the dependency-context layer of worker prompts (default 1800). When exceeded, later dependencies are trimmed to summary head + artifact pointer. Out-of-range values are ignored.",
+		}),
+	),
 	budgetTotal: Type.Optional(
 		// Empty-string unset marker accepted (Tier-9: models emit "" when unset).
 		// 0 accepted as "unset/disabled" (models emit 0 for off); still rejects 1-999
@@ -596,6 +604,8 @@ export interface TeamToolParamsValue {
 	b?: number;
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens (default: false). */
 	excludeContextBash?: boolean;
+	/** Est-token (chars/4) budget cap on the dependency-context layer of worker prompts (default 1800). Later dependencies get trimmed to summary head + artifact pointer when exceeded. */
+	handoffBudgetTokens?: number;
 	/** Total token budget for the run. When set, enables budget tracking (minimum 1000). */
 	budgetTotal?: number;
 	/** When true, skip budget enforcement entirely (explicit opt-out). */

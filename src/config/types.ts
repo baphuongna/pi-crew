@@ -86,6 +86,20 @@ export interface CrewRuntimeConfig {
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens. Default: false */
 	excludeContextBash?: boolean;
 	/**
+	 * Est-token budget for the dynamic.dependencyContext prompt layer
+	 * (handoff budget). When the rendered dependency output exceeds this many
+	 * estimated tokens (chars/4 — the same heuristic the prompt breakdown
+	 * uses), dependencies are trimmed IN DECLARATION ORDER: earlier deps keep
+	 * their full output, later ones are downgraded to taskId/role/status + a
+	 * ≤240-char summary head + an artifact pointer
+	 * (`artifacts/<runId>/results/<taskId>.txt`) the worker can `read` back.
+	 * Long sharedRead bodies are dropped the same way. Valid range 1..1_000_000;
+	 * a RESOLVED value ≤0 or >1_000_000 disables the trim entirely
+	 * (off-switch). Env override PI_CREW_HANDOFF_BUDGET_TOKENS beats this
+	 * config. Default: 1800.
+	 */
+	handoffBudgetTokens?: number;
+	/**
 	 * Mux-surface policy (mux-surface spec v0.7 §8.1): WHERE worker processes
 	 * live — a pane in tmux/herdr or headless child processes. Surface only
 	 * picks the process home; scheduler, broker, and state-on-disk are
