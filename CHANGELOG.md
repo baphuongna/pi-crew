@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- **fast-uri 3.1.2 → 3.1.8** (transitive of `ajv`, shipped runtime tree): patched
+  the 9 GHSA advisories (host-confusion / SSRF-via-URI-parsing family). pi-crew
+  only compiles its own static JSON schemas with ajv, so exploitability was low,
+  but the package ships to users, so the lockfile bump is user-facing hardening.
+- Known-accepted (dev-tree only, NOT shipped — `npm pack` carries 0 copies):
+  `brace-expansion@5.0.9` nested under `@earendil-works/pi-coding-agent` →
+  `minimatch@10.2.6` carries 3 high ReDoS/stack-exhaustion advisories. Kept at
+  5.0.9 because npm's resolver deterministically re-nests 5.0.9 for this scoped
+  position (overrides, cache-clean, clean-room regen, and lockfile surgery all
+  fail or regress on plain `npm install`; only `npm ci` would hold the pin).
+  CI runs `npm ci --no-audit` and has no `npm audit` gate; revisit when the
+  SDK bumps minimatch.
+
 ## [0.11.6] — SDD-3/4 upgrade waves, W-E/W-I, small-wins, Pi 1.0.0 compat, GH #61 fix (2026-10-03)
 
 ### fix(extensions): GH-061 — normalize directory `pi.extensions` entries to entry-file identity (child workers double-load)
