@@ -110,7 +110,12 @@ test("prepareTaskWorkspaceAsync returns cwd when workspaceMode is single", async
 	}
 });
 
-test("concurrent workspace preparation works without blocking", { skip: process.platform === "win32" ? "git-on-win32 races concurrent `worktree add` on .git/worktrees bookkeeping (commondir read error) — POSIX-only coverage, flake precedent 4a7f811f" : false }, async () => {
+test("concurrent workspace preparation works without blocking", {
+	skip:
+		process.platform === "win32"
+			? "git-on-win32 races concurrent `worktree add` on .git/worktrees bookkeeping (commondir read error) — POSIX-only coverage, flake precedent 4a7f811f"
+			: false,
+}, async () => {
 	const repo = makeRepoTemp("pi-crew-wt-concurrent-");
 	initGitRepo(repo);
 	try {
