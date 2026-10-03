@@ -495,3 +495,10 @@ chain), `sessions/*.jsonl` (11 session files incl. `…_adopt-r2-fixed.jsonl`, `
 (MARKER scrollback), `tui_full_chat.txt` (viewport), `tui-fsx-after.txt` (post-exit), `rpc-plain.out` /
 `rpc.stderr` / `rpc2.py` / `rpc3.py` / `rpc-driver.py` (RPC). Shard outputs:
 `.crew/artifacts/team_20261003101450_71becef2534e9675/results/{02,04}_explore-*.txt`.
+
+---
+
+## Future design (not adopted) — W6(c), 2026-10-03
+
+- **Virtual models for model-fallback.** SDK virtual-model types (`ModelRoute`, `VirtualModelDefinition`, `dist/index.d.ts:27`) could encode per-lane fallback routes host-side (fallback observes provider health; single retry surface) — deferred because routes must live in the host's `models.json` (out-of-repo artifact) and pi-crew loses visibility into which route fired.
+- **`prepareLoadout()` + `ctx.executeTool()`** (CHANGELOG 0.99.0) — pre-declared tool sets with bounded execution fit future tool composition (skill/resource discovery as declared tools; loadout boundary as tool gate for a future RPC transport); not adopted — newer than the tested floor's semantics and the current prompt pipeline works.
