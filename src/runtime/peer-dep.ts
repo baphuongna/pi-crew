@@ -69,6 +69,9 @@ let cachedResolve: ResolvedPeerDep | undefined | null = null;
 let cachedModule: PeerDepModule | undefined;
 let primingPromise: Promise<PeerDepModule> | undefined;
 
+/** Warn-once guard for the legacy-fork resolution notice (W6/P2-4, 2026-10-03). */
+let forkResolutionWarned = false;
+
 /**
  * Build the ordered list of "resolution bases" — paths to seed
  * `createRequire(...).resolve()` from. Node walks UP `node_modules` from each
@@ -212,6 +215,24 @@ function tryResolveFrom(base: string): ResolvedPeerDep | undefined {
 	}
 }
 
+/**
+ * W6/P2-4 (pi 1.0.0 adoption wave, 2026-10-03): the @mariozechner fork stopped
+ * publishing (npm latest 0.73.1, 2026-05-07) and sits outside the
+ * @earendil-works semver guarantees, but resolution code + tests still
+ * deliberately support it (Windows global installs, issue #33) and there is
+ * no install-base evidence it is unused — kept, not removed. Warn once per
+ * process so installs relying on it know to migrate to the canonical package.
+ */
+function warnIfForkResolved(name: string): void {
+	if (name !== "@mariozechner/pi-coding-agent" || forkResolutionWarned) return;
+	forkResolutionWarned = true;
+	console.warn(
+		`[pi-crew] notice: resolved the legacy peer dependency "${name}" (fork last published 0.73.1, 2026-05-07). ` +
+			`The canonical package is "@earendil-works/pi-coding-agent"; pi-crew keeps the fork for compatibility, ` +
+			`but support may be removed in a future release.`,
+	);
+}
+
 /** Resolve the peer dep install dir + ESM entry URL. Memoized (sync). */
 export function resolvePeerDep(): ResolvedPeerDep | undefined {
 	if (cachedResolve !== null) return cachedResolve ?? undefined;
@@ -225,6 +246,7 @@ export function resolvePeerDep(): ResolvedPeerDep | undefined {
 	for (const base of bases) {
 		const found = tryResolveFrom(base);
 		if (found) {
+			warnIfForkResolved(found.name);
 			cachedResolve = found;
 			return found;
 		}
@@ -234,6 +256,7 @@ export function resolvePeerDep(): ResolvedPeerDep | undefined {
 	for (const base of peerDepNpmGlobalBases()) {
 		const found = tryResolveFrom(base);
 		if (found) {
+			warnIfForkResolved(found.name);
 			cachedResolve = found;
 			return found;
 		}
@@ -317,4 +340,5 @@ export function __resetPeerDepCacheForTest(): void {
 	cachedResolve = null;
 	cachedModule = undefined;
 	primingPromise = undefined;
+	forkResolutionWarned = false;
 }

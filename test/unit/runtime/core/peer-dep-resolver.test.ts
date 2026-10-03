@@ -47,6 +47,32 @@ function buildFakePeerDep(agentDirValue: string): {
 	return { root: tmpRoot, pkgDir };
 }
 
+/**
+ * Fake the LEGACY fork layout: <root>/node_modules/@mariozechner/pi-coding-agent.
+ * Mirrors buildFakePeerDep but under the historical scope (W6/P2-4).
+ */
+function buildFakeForkPeerDep(agentDirValue: string): {
+	root: string;
+	pkgDir: string;
+} {
+	const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "peerdep-fork-"));
+	const scopeDir = path.join(tmpRoot, "node_modules", "@mariozechner");
+	const pkgDir = path.join(scopeDir, "pi-coding-agent");
+	fs.mkdirSync(pkgDir, { recursive: true });
+	fs.writeFileSync(
+		path.join(pkgDir, "package.json"),
+		JSON.stringify({
+			name: "@mariozechner/pi-coding-agent",
+			version: "0.73.1-fake",
+			type: "module",
+			main: "./index.js",
+			exports: { ".": { import: "./index.js" } },
+		}),
+	);
+	fs.writeFileSync(path.join(pkgDir, "index.js"), `export function getAgentDir(){return ${JSON.stringify(agentDirValue)};}\n`);
+	return { root: tmpRoot, pkgDir };
+}
+
 describe("peer-dep resolver", () => {
 	const origEnv = { ...process.env };
 	const origArgv1 = process.argv[1];
@@ -146,6 +172,49 @@ describe("peer-dep resolver", () => {
 	it("PEER_DEP_NAMES includes both scopes", () => {
 		assert.ok(PEER_DEP_NAMES.includes("@earendil-works/pi-coding-agent"));
 		assert.ok(PEER_DEP_NAMES.includes("@mariozechner/pi-coding-agent"));
+	});
+
+	it("W6/P2-4: resolving the legacy @mariozechner fork warns exactly ONCE", () => {
+		const { root, pkgDir } = buildFakeForkPeerDep("/fake/agent-fork");
+		process.env[PEER_DEP_DIR_ENV] = root;
+		const warnings: string[] = [];
+		const origWarn = console.warn;
+		console.warn = (...args: unknown[]) => {
+			warnings.push(args.map(String).join(" "));
+		};
+		try {
+			const first = resolvePeerDep();
+			assert.ok(first, "expected fork env-hint resolution to succeed");
+			assert.equal(first?.name, "@mariozechner/pi-coding-agent");
+			assert.equal(first?.dir, pkgDir);
+			const second = resolvePeerDep(); // memoized — must not re-warn
+			assert.equal(second?.dir, pkgDir);
+			assert.equal(warnings.length, 1, `expected exactly 1 warn, got ${warnings.length}`);
+			assert.match(warnings[0] ?? "", /@mariozechner\/pi-coding-agent/);
+			assert.match(warnings[0] ?? "", /legacy/);
+		} finally {
+			console.warn = origWarn;
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("W6/P2-4: resolving the canonical @earendil-works package does NOT warn", () => {
+		const { root } = buildFakePeerDep("/fake/agent-canonical-nowarn");
+		process.env[PEER_DEP_DIR_ENV] = root;
+		const warnings: string[] = [];
+		const origWarn = console.warn;
+		console.warn = (...args: unknown[]) => {
+			warnings.push(args.map(String).join(" "));
+		};
+		try {
+			const resolved = resolvePeerDep();
+			assert.ok(resolved);
+			assert.equal(resolved?.name, "@earendil-works/pi-coding-agent");
+			assert.equal(warnings.length, 0, `unexpected warn: ${warnings.join(" | ")}`);
+		} finally {
+			console.warn = origWarn;
+			fs.rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	it("mainUrl is a loadable file:// URL under jiti (the child's loader)", async () => {
