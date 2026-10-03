@@ -56,7 +56,6 @@ test("pi UI compat safely feature-detects optional APIs", () => {
 	setWorkingIndicator(ctx, { frames: ["x"], intervalMs: 10 });
 	setExtensionWidget(ctx, "widget", ["line"], {
 		placement: "belowEditor",
-		persist: true,
 	});
 	setStatusFallback(ctx, "status", ["a", "b"], "segment");
 	assert.equal(renderCount, 2);
@@ -75,7 +74,7 @@ test("pi UI compat safely feature-detects optional APIs", () => {
 
 test("pi UI compat no-ops setWidget/showCustom/setStatus on older host runtimes", async () => {
 	const ctx = { ui: {} } as never;
-	assert.doesNotThrow(() => setExtensionWidget(ctx, "widget", ["line"], { placement: "belowEditor", persist: true }));
+	assert.doesNotThrow(() => setExtensionWidget(ctx, "widget", ["line"], { placement: "belowEditor" }));
 	assert.doesNotThrow(() => setStatusFallback(ctx, "status", ["a", "b"], "segment"));
 	// showCustom must settle (never reject / never hang) when ui.custom is absent...
 	const missing = await showCustom(ctx, () => undefined);

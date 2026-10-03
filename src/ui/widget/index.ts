@@ -522,7 +522,6 @@ export function updateCrewWidget(
 		const model = state.model;
 		setExtensionWidget(ctx, WIDGET_KEY, ((_tui: unknown, theme: unknown) => new CrewWidgetComponent(model, theme, _tui)) as never, {
 			placement: piPlacement,
-			persist: true,
 		});
 		state.lastVisibility = "visible";
 		state.lastPlacement = placement;

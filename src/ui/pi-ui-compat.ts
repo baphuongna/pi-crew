@@ -1,5 +1,21 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+/**
+ * Host-compatibility shims for the `ExtensionContext["ui"]` surface.
+ *
+ * RETENTION POLICY (W4 2026-10-03): these typeof-based capability guards are
+ * deliberate no-ops, NOT version guards, and must be kept. pi-crew declares
+ * `"@earendil-works/pi-coding-agent": "*"` and `"@earendil-works/pi-tui": "*"`
+ * as optional peerDependencies with no minimum-version floor
+ * (package.json peerDependencies/peerDependenciesMeta), so host installs older
+ * than any SDK floor we verify against must keep working — retiring these
+ * shims would crash hosts whose UI predates
+ * `setWidget`/`setFooter`/`custom`/`setStatus`/`setWorkingIndicator`.
+ * Verified live: each guard is a pure feature check; there is no version
+ * constant or gate in this file. New host UI APIs should be added here
+ * (feature-detected), not called directly from src/.
+ */
+
 export interface WorkingIndicatorOptions {
 	frames?: string[];
 	intervalMs?: number;
@@ -9,7 +25,6 @@ type UiContext = Pick<ExtensionContext, "ui">;
 type ExtensionUi = ExtensionContext["ui"];
 type WidgetContent = string[] | ((tui: unknown, theme: unknown) => unknown);
 type WidgetOptions = Parameters<ExtensionUi["setWidget"]>[2];
-type WidgetOptionsWithPersist = WidgetOptions & { persist?: boolean };
 
 type CustomOptions = Parameters<ExtensionUi["custom"]>[1];
 
@@ -38,16 +53,10 @@ export function setWorkingIndicator(ctx: UiContext, options?: WorkingIndicatorOp
 
 /** Install or update an extension widget slot.
  * No-op when the host UI predates the `setWidget` API. */
-export function setExtensionWidget(
-	ctx: UiContext,
-	key: string,
-	content: WidgetContent | undefined,
-	options?: WidgetOptionsWithPersist,
-): void {
-	const { persist: _persist, ...widgetOptions } = options ?? {};
+export function setExtensionWidget(ctx: UiContext, key: string, content: WidgetContent | undefined, options?: WidgetOptions): void {
 	const record = maybeRecord(ctx.ui);
 	const fn = record?.setWidget;
-	if (typeof fn === "function") fn.call(ctx.ui, key, content as never, widgetOptions as WidgetOptions);
+	if (typeof fn === "function") fn.call(ctx.ui, key, content as never, options);
 }
 
 /**
