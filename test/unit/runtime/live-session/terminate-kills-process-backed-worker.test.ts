@@ -119,7 +119,12 @@ describe("terminateLiveAgentsForRun — process-backed (child-pi-style) workers"
 			assert.equal(handle.status, "failed");
 			assert.equal(getLiveAgent("proc-agent"), undefined, "handle removed from the registry");
 			const signal = await waitForExit(exited, "worker of run-proc");
-			assert.ok(signal === "SIGTERM" || signal === "SIGKILL", `worker was signalled (got ${signal ?? "natural exit code"})`);
+			// win32 has no POSIX signals: process.kill(pid, SIGTERM) terminates the
+			// process but Node reports a natural exit code with signal=null. The
+			// worker parks until killed, so ANY exit here means the terminate path
+			// reached the backing pid (CI 2026-10-03, unit 2/4 · windows).
+			const allowed = process.platform === "win32" ? [null, "SIGTERM", "SIGKILL"] : ["SIGTERM", "SIGKILL"];
+			assert.ok((allowed as (string | null)[]).includes(signal), `worker was signalled (got ${signal ?? "natural exit code"})`);
 		} finally {
 			killHard(child);
 		}
