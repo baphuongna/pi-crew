@@ -445,6 +445,11 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_AGENT_EVENTS_PATH",
 		doc: "per-agent events log (<stateRoot>/agents/<taskId>/events.jsonl) written by the surface worker recorder (surface-worker.ts; derived by prepareSurfaceSpawn)",
 	},
+	PI_CREW_SESSION_RECOVERY: {
+		name: "PI_CREW_SESSION_RECOVERY",
+		parser: "boolean",
+		doc: "W2 session-file recovery override for killed workers (exitCode null / killed): '0' disables, '1' forces on — beats ChildPiRunInput.sessionRecovery / runtime.sessionRecovery; default ON (session-recovery.ts:resolveSessionRecoveryEnabled)",
+	},
 	PI_CREW_AUTO_EXIT: {
 		name: "PI_CREW_AUTO_EXIT",
 		doc: "'1' → the worker shuts its session down after the final settled turn — spec §5.2 D7 (written by prepareSurfaceSpawn, read by surface-worker.ts)",

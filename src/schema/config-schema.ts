@@ -75,6 +75,12 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 		graceTurns: Type.Optional(Type.Integer({ minimum: 1 })),
 		taskTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
 		inheritContext: Type.Optional(Type.Boolean({ sensitive: true })),
+		// W2 (session-file recovery): when a worker dies without a final assistant
+		// event (exitCode null / killed), tail-replay its session JSONL and attach
+		// the last complete assistant record to the run result. Default ON; env
+		// PI_CREW_SESSION_RECOVERY overrides. Kill switch, not a secret — no
+		// sensitive mark (same policy as surface: picks behavior, not authority).
+		sessionRecovery: Type.Optional(Type.Boolean()),
 		promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
 		groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),
 		groupJoinAckTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),

@@ -65,6 +65,16 @@ export interface CrewRuntimeConfig {
 	 */
 	taskTimeoutMs?: number;
 	inheritContext?: boolean;
+	/**
+	 * W2 (session-file recovery): when a worker dies without a final assistant
+	 * event (exitCode null / killed), tail-replay its session JSONL (written by
+	 * the worker under `<artifactsRoot>/sessions/<taskId>/`) and attach the last
+	 * COMPLETE assistant record to the task result (`recoveredFromSession`).
+	 * Default: enabled. The env var PI_CREW_SESSION_RECOVERY overrides this
+	 * flag in either direction (see session-recovery.ts:resolveSessionRecoveryEnabled).
+	 * Manifest polling is NOT replaced — this only augments the settle-time result.
+	 */
+	sessionRecovery?: boolean;
 	promptMode?: "replace" | "append";
 	groupJoin?: "off" | "group" | "smart";
 	groupJoinAckTimeoutMs?: number;
