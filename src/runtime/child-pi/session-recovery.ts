@@ -167,8 +167,9 @@ let sessionParserCache: SessionParserModule | null | undefined;
 async function loadSessionParser(): Promise<SessionParserModule | null> {
 	if (sessionParserCache !== undefined) return sessionParserCache;
 	try {
-		// LAZY: first value-import of the SDK inside src/runtime — recovery is a
+		// First value-import of the SDK inside src/runtime — recovery is a
 		// crash-path concern; child-pi module init must never pay SDK load cost.
+		// LAZY: SDK session parsers (parseSessionEntries/migrateSessionEntries)
 		const mod = (await import("@earendil-works/pi-coding-agent")) as unknown as SessionParserModule;
 		sessionParserCache = typeof mod.parseSessionEntries === "function" && typeof mod.migrateSessionEntries === "function" ? mod : null;
 	} catch {
