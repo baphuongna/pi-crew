@@ -270,7 +270,14 @@ export async function prepareSurfaceSpawn(input: PrepareSurfaceSpawnInput): Prom
 			throw new Error("provider does not implement sendCommand — cannot boot a commandless pane");
 		}
 		const tuiArgs = stripHeadlessModeArgs(input.piArgs);
-		const spawnSpec = (input.deps?.resolveCommand ?? getPiSpawnCommand)(tuiArgs);
+		// P0-1 (pi 1.0.0 — review R2.1 2026-10-03): pin TUI mode `regular`.
+		// 1.0.0 đổi default sang fullscreen; alt-screen làm rỗng scrollback mà
+		// readScreen (tmux capture-pane -S) đang scrape → mất history pane.
+		// Flag có từ pi 0.84.0, dưới tested floor 0.99.2 của pi-crew → thêm vô
+		// điều kiện (pi strict parser REJECT flag lạ — note buildPiWorkerArgs,
+		// pi-args.ts). Caller đã set --tui-mode thì tôn trọng, không nhân đôi.
+		const tuiSpawnArgs = tuiArgs.includes("--tui-mode") ? tuiArgs : [...tuiArgs, "--tui-mode", "regular"];
+		const spawnSpec = (input.deps?.resolveCommand ?? getPiSpawnCommand)(tuiSpawnArgs);
 		// Env export = worker env đầy đủ (parity headless) + các biến surface.
 		// Không stateRoot (spawn ngoài run) → không có event log để ghi — bỏ key
 		// thay vì đường dẫn tương đối sai layout agents/{taskId}/events.jsonl.

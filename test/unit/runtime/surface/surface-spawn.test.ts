@@ -11,11 +11,16 @@
  */
 
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { createHerdrProvider, type HerdrSocket } from "../../../../src/runtime/surface/herdr-provider.ts";
-import type { SurfaceProvider } from "../../../../src/runtime/surface/surface-provider.ts";
+import { launchScriptRegistry } from "../../../../src/runtime/surface/launch-script.ts";
+import type { SurfaceExitReason, SurfaceHandle, SurfaceProvider } from "../../../../src/runtime/surface/surface-provider.ts";
 import { MAX_PANES_PER_TAB, splitDirectionFor } from "../../../../src/runtime/surface/surface-provider.ts";
+import { prepareSurfaceSpawn } from "../../../../src/runtime/surface/surface-spawn.ts";
 import { createTmuxProvider } from "../../../../src/runtime/surface/tmux-provider.ts";
 
 const CWD = "/tmp/project";
@@ -125,4 +130,106 @@ test("splitDirectionFor: 0 → down, 1 → right, xen kẽ (splitIndex%2)", () =
 
 test("MAX_PANES_PER_TAB = 8 (spec 2026-08-27-surface-tab-layout)", () => {
 	assert.equal(MAX_PANES_PER_TAB, 8);
+});
+
+// ── P0-1 (pi 1.0.0 — review R2.1): pin --tui-mode regular trên TUI spawn ──
+
+/** Provider giả tối tiểu cho prepareSurfaceSpawn qua deps.provider (không cần mux thật). */
+function makePinTestProvider(): SurfaceProvider {
+	const handle: SurfaceHandle = {
+		id: "%91",
+		kind: "tmux",
+		// biome-ignore lint/suspicious/noEmptyBlockStatements: fixture không cần exit callback
+		onExit(_cb: (reason: SurfaceExitReason) => void) {},
+		// biome-ignore lint/suspicious/noEmptyBlockStatements: fixture không cần dọn gì
+		dispose() {},
+	};
+	return {
+		kind: "tmux",
+		detect() {
+			return { ok: true, kind: "tmux" };
+		},
+		async createSurface() {
+			return handle;
+		},
+		// biome-ignore lint/suspicious/noEmptyBlockStatements: fixture không gửi gì thật
+		async sendCommand() {},
+		attach() {
+			return null;
+		},
+		async readScreen() {
+			return "";
+		},
+		// biome-ignore lint/suspicious/noEmptyBlockStatements: fixture không cần đóng gì
+		async closeSurface() {},
+	};
+}
+
+test("P0-1: TUI spawn argv luôn pin --tui-mode regular; argv headless không đổi", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "surface-tui-pin-"));
+	const seenArgs: string[][] = [];
+	const headlessArgv = ["--mode", "json", "-p", "--model", "glm-4.7:medium", "Task: hi"];
+	try {
+		const outcome = await prepareSurfaceSpawn({
+			env: { PI_CREW_DEPTH: "0" },
+			workerEnv: {},
+			config: { runtime: { surface: { mode: "tmux", visibleAgents: ["*"] } } },
+			role: "executor",
+			livePaneCount: 0,
+			taskId: "01_pin",
+			cwd: "/tmp/project",
+			piArgs: headlessArgv,
+			stateRoot: "",
+			baseDir: dir,
+			deps: {
+				provider: makePinTestProvider(),
+				resolveCommand: (args) => {
+					seenArgs.push(args);
+					return { command: "/bin/echo", args };
+				},
+			},
+		});
+		assert.equal(outcome.mode, "surface", JSON.stringify(outcome));
+		// Unconditional pin (fact-pack mục 1): flag tồn tại từ pi 0.84.0 <
+		// tested floor 0.99.2 — pi strict parser chấp nhận, không cần gate.
+		assert.deepEqual(seenArgs, [["--model", "glm-4.7:medium", "Task: hi", "--tui-mode", "regular"]]);
+		// Đường headless (dùng chung piArgs gốc) KHÔNG bị thấm flag — pin chỉ
+		// thuộc về nhánh TUI surface.
+		assert.deepEqual(headlessArgv, ["--mode", "json", "-p", "--model", "glm-4.7:medium", "Task: hi"]);
+		assert.ok(!headlessArgv.includes("--tui-mode"));
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+		launchScriptRegistry.clear();
+	}
+});
+
+test("P0-1: caller đã set --tui-mode → giữ nguyên mode caller, không nhân đôi flag", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "surface-tui-pin-dup-"));
+	const seenArgs: string[][] = [];
+	try {
+		const outcome = await prepareSurfaceSpawn({
+			env: { PI_CREW_DEPTH: "0" },
+			workerEnv: {},
+			config: { runtime: { surface: { mode: "tmux", visibleAgents: ["*"] } } },
+			role: "executor",
+			livePaneCount: 0,
+			taskId: "01_pin_dup",
+			cwd: "/tmp/project",
+			piArgs: ["--mode", "json", "-p", "--tui-mode", "fullscreen", "Task: hi"],
+			stateRoot: "",
+			baseDir: dir,
+			deps: {
+				provider: makePinTestProvider(),
+				resolveCommand: (args) => {
+					seenArgs.push(args);
+					return { command: "/bin/echo", args };
+				},
+			},
+		});
+		assert.equal(outcome.mode, "surface", JSON.stringify(outcome));
+		assert.deepEqual(seenArgs, [["--tui-mode", "fullscreen", "Task: hi"]]);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+		launchScriptRegistry.clear();
+	}
 });

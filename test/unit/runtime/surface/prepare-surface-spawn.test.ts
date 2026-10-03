@@ -340,6 +340,7 @@ test("script content carries REAL pane id + parent info + agent events path + TU
 	assert.equal(commandLines.length, 1, `đúng một dòng lệnh worker, thấy ${commandLines.length}`);
 	assert.ok(!/--mode\b/.test(commandLines[0]), "surface variant KHÔNG được chứa --mode json -p");
 	assert.ok(commandLines[0].includes("--model"), "phải giữ --model và phần còn lại của argv");
+	assert.ok(commandLines[0].includes("'--tui-mode' 'regular'"), "P0-1: surface TUI spawn phải pin --tui-mode regular");
 	rmSync(outcome.scriptPath, { force: true });
 });
 
@@ -355,7 +356,9 @@ test("running the built script delivers the argv verbatim to the worker process 
 	assert.ok(outcome.mode === "surface");
 	const stdout = execFileSync("bash", [outcome.scriptPath], { encoding: "utf8" });
 	// Arg cuối phải đến NGUYÊN VẸN: không expansion $(…), nháy đơn giữ nguyên.
-	assert.equal(stdout, `--model m Task: ${evilTask}\n`);
+	// P0-1: pin --tui-mode regular được append cuối argv TUI (sau strip
+	// --mode json -p) — vẫn nguyên vẹn, không expansion.
+	assert.equal(stdout, `--model m Task: ${evilTask} --tui-mode regular\n`);
 	assert.ok(!existsSync(outcome.scriptPath), 'script tự xóa qua rm -f -- "$0"');
 });
 
