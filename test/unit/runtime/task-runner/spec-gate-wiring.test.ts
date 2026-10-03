@@ -167,9 +167,24 @@ test("unresolved refs: non-strict → badge + spec.freeze_failed; strict → gat
 
 test("strict machine-check failure → gateError + spec.check_failed event (digest-only payload)", async (t) => {
 	if (process.platform !== "linux") return t.skip("non-Linux");
-	if (!SANDBOX_EXEC_OK) t.skip("unshare -rn unavailable — strict checks fail closed here by design (B4-g)");
+	if (!SANDBOX_EXEC_OK) return t.skip("unshare -rn unavailable — strict checks fail closed here by design (B4-g)");
 	const cwd = makeCwd();
 	try {
+		// Control run (CI 2026-10-03 rounds 4-6): the ubuntu-latest pool mixes
+		// runner generations — the module-load `unshare` probe can pass while the
+		// real machine-check exec fails (exit-mismatch) on restricted images. Run
+		// the UNTAMPERED snapshot first: if the control itself cannot pass, the
+		// sandbox is broken on this host right now → skip (environment, not code).
+		const controlPacket = packetWith({ specRefs: ["spec-a"], specSnapshots: snapshotsFor(cwd, true), specStrict: true });
+		const control = await computeSpecGate({
+			packet: controlPacket,
+			finalText: GOOD_FOOTER,
+			sandboxCwd: cwd,
+			runtimeKind: "child",
+			alreadyFailed: false,
+		});
+		if (control.gateError)
+			return t.skip(`control run failed on this host (${control.gateError}) — sandbox exec unreliable, not a code regression`);
 		const snaps = snapshotsFor(cwd, true);
 		// Tamper the frozen expectedDigest so the machine-check fails.
 		const bad = [

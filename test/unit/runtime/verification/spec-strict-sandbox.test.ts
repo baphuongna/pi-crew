@@ -43,7 +43,7 @@ const SANDBOX_EXEC_OK = await (async () => {
 	}
 })();
 const skipIfNoUserns = (t: { skip: (msg: string) => void }) => {
-	if (!SANDBOX_EXEC_OK) t.skip("unshare -rn unavailable on this host — strict checks fail closed here by design (B4-g)");
+	if (!SANDBOX_EXEC_OK) return t.skip("unshare -rn unavailable on this host — strict checks fail closed here by design (B4-g)");
 };
 const REAL_HOME = process.env.HOME;
 const REAL_USERPROFILE = process.env.USERPROFILE;
