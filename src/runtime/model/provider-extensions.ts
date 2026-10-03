@@ -137,10 +137,10 @@ function resolvePackageEntry(pkgDir: string): string | undefined {
 					const abs = path.resolve(pkgDir, rel);
 					if (!fs.existsSync(abs)) continue;
 					// GH #61: a DIRECTORY entry (e.g. pi-web-access "./dist") must be
-				// normalized to the file identity Pi's auto-load uses — injecting the
-				// raw dir double-loads the extension in child workers (tool conflicts,
-				// exit 1). An unresolvable dir is SKIPPED, matching Pi's own view of
-				// the package (its auto-load would not register it either).
+					// normalized to the file identity Pi's auto-load uses — injecting the
+					// raw dir double-loads the extension in child workers (tool conflicts,
+					// exit 1). An unresolvable dir is SKIPPED, matching Pi's own view of
+					// the package (its auto-load would not register it either).
 					if (fs.statSync(abs).isDirectory()) {
 						const entry = resolveExtensionDirEntry(abs);
 						if (entry) return entry;

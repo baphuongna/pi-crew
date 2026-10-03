@@ -182,7 +182,11 @@ test("GH#61: pi.extensions directory entry resolves to the entry file (no double
 		// pi-web-access layout: pi.extensions: ["./dist"], dist/index.js exists.
 		const dir = path.join(npmBase, "pi-web-access");
 		fs.mkdirSync(path.join(dir, "dist"), { recursive: true });
-		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "pi-web-access", pi: { extensions: ["./dist"] } }), "utf-8");
+		fs.writeFileSync(
+			path.join(dir, "package.json"),
+			JSON.stringify({ name: "pi-web-access", pi: { extensions: ["./dist"] } }),
+			"utf-8",
+		);
 		fs.writeFileSync(path.join(dir, "dist", "index.js"), "export default function () {}", "utf-8");
 		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:pi-web-access"] }), "utf-8");
 		const result = discoverProviderExtensions(settingsPath);
@@ -242,7 +246,10 @@ test("GH#61: dir with BOTH index.mjs and index.js must pick index.js (identity m
 		fs.writeFileSync(settingsPath, JSON.stringify({ packages: ["npm:mjs-js-prov"] }), "utf-8");
 		const result = discoverProviderExtensions(settingsPath);
 		assert.equal(result.length, 1);
-		assert.ok(result[0].entryPath.endsWith(path.join("dist", "index.js")), `must match Pi's pick (index.js), got: ${result[0].entryPath}`);
+		assert.ok(
+			result[0].entryPath.endsWith(path.join("dist", "index.js")),
+			`must match Pi's pick (index.js), got: ${result[0].entryPath}`,
+		);
 	} finally {
 		cleanup();
 	}
