@@ -1,12 +1,14 @@
 # E1 Design Review — Expose MCP cho pi-crew worker: (A) broker-RPC proxy vs (B) `registerMcpServer`
 
 **Ngày**: 2026-10-02
-**Status**: PROPOSED — chờ user quyết các câu hỏi mở (§7)
+**Status**: PROPOSED — chờ user quyết các câu hỏi mở (§7). *(Re-evaluated 2026-10-03 trên SDK 1.0.0 — xem §9: Q3 đã ANSWERED, verdict KEEP giữ nguyên.)*
 **Scope**: READ-ONLY design review. Không thay đổi code. Mọi evidence trong doc đã được verify trực tiếp tại repo/env ngày 2026-10-02 (xem Phụ lục).
 **Refs**:
 - pi-crew-sdd-2026-09-30-buoi1.md (SDD-2 execution record): :428-446 (3 remediation options), :496-545 (HIGH residual + gates), :660-686 (queue SDD-5)
 - src/runtime/mcp-proxy.ts (G2/E1 module), src/runtime/live-session/live-session-runtime.ts:694-755, src/runtime/model/pi-args.ts:282-335
 - SDK `@earendil-works/pi-coding-agent` 0.99.2: CHANGELOG, dist/core/mcp-servers.d.ts, dist/extensions/mcp/index.d.ts, docs/mcp.md
+- *(added 2026-10-03)* SDK 1.0.0 + 0.99.2 tarball verify: `/tmp/pi100/package/` (1.0.0) + `/tmp/pi100/p0992/package/` (0.99.2) — `dist/core/mcp-servers.d.ts`, `dist/core/extensions/types.d.ts`, `CHANGELOG.md` (/tmp là ephemeral — re-verify bằng `npm pack` nếu bị dọn)
+- *(added 2026-10-03)* `pi-mcp-adapter@5.0.0` source đã install: `~/.pi/agent/npm/node_modules/pi-mcp-adapter/` (`index.ts`, `package.json`)
 
 ---
 
@@ -93,15 +95,20 @@ support"). Nghĩa là: remediation (a) của SDD-2 **như-đã-áp-dụng chưa 
 Replacer **đổi tên** thì thoát strip trên đường live-session — đã được ghi nhận in-code là
 KNOWN LIMITATION; root-fix là extension filter dạng allowlist (backlog SDD-2 §13).
 
-### 1.6 SDK surface cho Option B — mới 3 ngày tuổi
+### 1.6 SDK surface cho Option B — mới 3 ngày tuổi *(lúc review 2026-10-02; cập nhật 2026-10-03 → §9)*
 
-- Phiên bản cài: `@earendil-works/pi-coding-agent` **0.99.2** (2026-09-30). pi-crew khai
-  peer-dep `"*"` (optional) + devDeps `^0.99.1` (pi-crew/package.json).
+- Phiên bản cài lúc review: `@earendil-works/pi-coding-agent` **0.99.2** (2026-09-30). pi-crew khai
+  peer-dep `"*"` (optional). **[updated 2026-10-03]** devDeps hiện là `^1.0.0` — không còn
+  `^0.99.1` như ghi ban đầu (pi-crew/package.json:135 peer `*`, :152 devDeps `^1.0.0`); SDK
+  1.0.0 đã release 2026-10-01, env live pi = 1.0.0 (verify `pi --version` bởi explorer run
+  team_20261003032149). Chi tiết: §9.
 - `pi.registerMcpServer()` + MCP-as-builtin-extension + `McpExposure` ra mắt **0.99.0 —
   2026-09-29** (SDK CHANGELOG), tức **3 ngày** trước ngày review này.
 - Exposure semantics **đã đổi** ngay trong 0.99.0→0.99.2 (default `codemode` không còn hiện
   trong codemode description; đổi naming `mcp__<server>__<tool>` với `-`→`_` — SDK CHANGELOG
-  0.99.2, #10212/#10239). Bề mặt API đang còn di chuyển.
+  0.99.2, #10212/#10239). Bề mặt API đang còn di chuyển. **[updated 2026-10-03]** Đến 1.0.0 đó
+  vẫn là lần đổi duy nhất; 1.0.0 giữ nguyên semantics (diff additive-only — §9 V1). "3 ngày
+  tuổi" nay = ổn định qua 1/4 release, 0 minor cycle — gate §5 vẫn CHƯA ĐẠT (§9 V1).
 - 0 occurrence của `registerMcpServer|RegisteredMcpServer|McpServerRegistry` trong
   `pi-crew/src/` (grep kép độc lập của explorer + analyst) → B là tích hợp hoàn toàn mới.
 
@@ -193,7 +200,7 @@ Ba remediation đã được SDD-2 ghi (:432-443, không code trong vòng đó):
 | Trigger | Hướng mở | Lý do |
 |---|---|---|
 | Policy: worker **không được giữ credential MCP** (audit/mediation yêu cầu) | **A** | A là cơ chế duy nhất giữ creds ở parent (§3, trục least-privilege). |
-| Demand-signal thực + SDK API ổn định + version-floor chốt + replacer interop verify (Q3) | **B** | B là chi phí thấp nhất cho curation per-role. |
+| Demand-signal thực + SDK API ổn định + version-floor chốt + replacer interop (Q3) — **Q3 verified ĐẠT 2026-10-03 (§9 V2), hết là ẩn số** | **B** | B là chi phí thấp nhất cho curation per-role; còn chờ maturity (§9 V1: CHƯA ĐẠT) + floor (§9 V3: đề xuất `>=0.99.2`). |
 | Không trigger nào trong 1-2 chu kỳ phát triển | Giữ status-quo; chỉ đóng leak bằng denylist | Tránh new-surface chết. |
 
 ### Ghi chú công bằng (không rubber-stamp)
@@ -239,13 +246,14 @@ không qua worker test-engineer.
    security → KEEP + denylist là đủ, A/B đều chưa cần.
 2. **Version-floor (Q2)**: nếu chọn B, có chấp nhận raise SDK floor (peer `"*"` → minimum
    cụ thể, bỏ optional nếu cần runtime API) không? Ai owns việc này (pi-crew maintainer vs
-   user ops)?
-3. **Replacer interop (Q3 — kỹ thuật, chặn B)**: pi-mcp-adapter có xử lý
-   `mcp_servers_change` (servers do extension khác đăng ký) không? SDK core chỉ store;
-   extension xử lý event mới connect. Adapter đã 0.99-aware (imports `RegisteredMcpServer`,
-   gate `typeof pi.registerMcpServer === "function"` — `pi-mcp-adapter/index.ts`) nhưng việc
-   nó connect servers của extension khác **chưa verify**. Nếu không → B không hoạt động khi
-   replacer đang install.
+   user ops)? **[2026-10-03]** Đề xuất floor `>=0.99.2` — API có từ 0.99.0 nhưng semantics
+   ổn định từ 0.99.2; 0.99.2→1.0.0 additive-only (§9 V3). Vẫn chờ user chốt.
+3. **Replacer interop (Q3 — kỹ thuật, chặn B) — ANSWERED 2026-10-03, xem §9 V2**: adapter
+   **CÓ** xử lý `mcp_servers_change` và connect servers do extension khác đăng ký
+   (`pi-mcp-adapter@5.0.0` `index.ts:1034-1040` handler; `applyPiMcpServers` `:995-1032` →
+   `registerRuntimeServer` `:1027`). B **không chết** khi replacer đang install. 2 caveat:
+   `exposure: "direct"` bị ignore (runtime servers proxy-only, `index.ts:845-846`); peer range
+   adapter chưa khai `^1.0.0` (`package.json:200-201`).
 4. **Denylist cho package extension (Q4 — chặn fix rẻ nhất)**: settings `extensions` có nhận
    entry nhắm package (`-pi-mcp-adapter`/path-form) không, và có áp được **project-scope**
    (đóng cho children trong workspace này mà host session vẫn giữ MCP) không? Verify: grep
@@ -271,7 +279,104 @@ vào doc quyết định.
 
 ---
 
-## Phụ lục — Evidence index (verify trực tiếp 2026-10-02)
+---
+
+## 9. 1.0.0 Re-evaluation (2026-10-03)
+
+*(Bổ sung sau review gốc 2026-10-02 — KHÔNG rewrite body phía trên. Writer đã verify trực
+ tiếp mọi primary source của section này: tarball SDK 0.99.2 + 1.0.0 tại `/tmp/pi100/`
+(ephemeral — cite kèm version, re-verify bằng `npm pack` nếu bị dọn) và source
+`pi-mcp-adapter@5.0.0` đã install tại `~/.pi/agent/npm/node_modules/pi-mcp-adapter/`.
+Run nguồn: team_20261003032149_f20b650757a890fd.)*
+
+### V1 — API maturity: CHƯA ĐẠT gate "≥1 minor cycle"
+
+Diff `.d.ts` 0.99.2 ↔ 1.0.0 (đọc trực tiếp cả hai file):
+
+- `McpExposure = "codemode" | "deferred" | "direct" | "hidden"` (`mcp-servers.d.ts:16`) và
+  default `exposure = "codemode"` (`:18`) — **byte-identical** giữa hai bản.
+- `registerMcpServer(name: string, config: McpServerConfig): void` identical
+  (`dist/core/extensions/types.d.ts:1343`); doc-comment giữ nguyên cảnh báo replacer —
+  registration khi không extension nào handle MCP là *"reported as an extension error"*
+  (`types.d.ts:1337-1338`).
+- Diff **duy nhất** giữa hai bản: 1.0.0 thêm `authServerMetadataUrl?: string` vào
+  `McpOAuthConfig` (1.0.0 `mcp-servers.d.ts:70-75`; 0.99.2 không có trường này).
+  Additive-only.
+
+Semantics đổi mấy lần trong 0.99.0→1.0.0 (đọc CHANGELOG từng bản,
+`/tmp/pi100/package/CHANGELOG.md`):
+
+| Release (ngày) | MCP-relevant change | Đổi semantics? |
+|---|---|---|
+| 0.99.0 (`:106`) 2026-09-29 | Debut: MCP builtin extension; servers từ `mcp.json` **hoặc** `pi.registerMcpServer()` (#10040) | baseline |
+| 0.99.1 (`:89`) 2026-09-29 | Không đụng MCP (chỉ GPT-6.1 Sol + fix login) | không |
+| 0.99.2 (`:49`) 2026-09-30 | #10212: codemode-default servers rời codemode description, first-prompt không chờ; #10239: naming `mcp__<server>__<tool>` đổi `-`→`_` + hash suffix | **CÓ — lần duy nhất** |
+| 1.0.0 (`:3`) 2026-10-01 | Chỉ OAuth hardening (#10172 `authServerMetadataUrl`, #10252 per-server creds, RFC 9207 `iss`) + fix deferred-tools-on-resume | không |
+
+Đếm cho gate §5 (mục 4): 4 release chứa API; semantics đổi đúng **1 lần** (0.99.2); ổn định
+qua **1/4 release** (chỉ 1.0.0) sau thay đổi cuối; **0 minor cycle hoàn chỉnh** (1.0.0 là
+major bump — không tính là "1 minor giữ nguyên semantics" theo nghĩa strict). → Gate
+"ổn định ≥1 minor cycle" **CHƯA ĐẠT**, đang cải thiện. Count thô ghi lại đây để lần
+re-eval sau không misread major-boundary thành minor-cycle.
+
+### V2 — Q3 interop: ĐẠT — Option B KHÔNG chết dưới replacer (2 caveat)
+
+Đọc source `pi-mcp-adapter@5.0.0` (`~/.pi/agent/npm/node_modules/pi-mcp-adapter/index.ts`):
+
+- Gate tồn tại (claim cũ ở §7-Q3 về `index.ts` là đúng): `piSupportsMcp(pi)` =
+  `typeof pi.registerMcpServer === "function"` (`index.ts:62-65`).
+- Handler `mcp_servers_change` tồn tại, đăng ký trong factory:
+  `pi.on("mcp_servers_change", …)` (`index.ts:1034-1040`); comment in-code xác nhận
+  *"session_start reads earlier registrations"* (`:1035`).
+- Server do extension KHÁC đăng ký **được connect**: `applyPiMcpServers`
+  (`index.ts:995-1032`) duyệt registrations → `translatePiMcpServer` →
+  `registerRuntimeServer` (`:1027`). Precedence khi trùng tên: `mcp.json`-configured >
+  adapter-runtime-own > foreign-extension, kèm warning "overridden by …" (`:1013-1016`).
+- Kết luận Q3: mối lo "adapter thay builtin:mcp mà bỏ event → B chết khi replacer
+  installed" **vô hiệu**. B sống dưới replacer.
+
+Caveat (không chặn B, nhưng phải ghi nhận):
+
+1. `exposure: "direct"` bị **ignore** dưới replacer: runtime-registered servers là
+   proxy-tool-only — comment gốc *"Runtime-registered servers are proxy-tool-only: direct
+   tools are frozen at startup"* (`index.ts:845-846`); logic strip `directTools` + warning
+   "ignored settings" (`:1018-1026`). B dưới replacer chỉ còn `codemode`/`deferred`/`hidden`.
+2. Adapter **peer-lag**: peerDependencies `"@earendil-works/pi-ai": "^0.84.1 || ^0.85.0 ||
+   ^0.86.0 || ^0.87.0 || ^0.99.0"` (`package.json:200-201`) — chưa khai `^1.0.0`, và caret
+   `^0.99.0` không phủ 1.x. Runtime vẫn chạy nhờ typeof gate; nếu npm re-resolve peer
+   strict hơn trong tương lai sẽ warn/fail lúc install. Metadata lag của adapter, không
+   phải bug pi-crew.
+
+### V3 — Version-floor: `>=0.99.2` đủ, KHÔNG cần `>=1.0.0`
+
+- API có từ 0.99.0 (CHANGELOG #10040: servers từ `mcp.json` "or `pi.registerMcpServer()`"),
+  nhưng semantics cuối (post-#10212/#10239) chỉ ổn định từ **0.99.2**; 0.99.2→1.0.0
+  additive-only (V1) → floor đúng = **`>=0.99.2`**.
+- Floor `>=1.0.0` là thừa — không có breaking nào buộc mức đó.
+- Hiện trạng pi-crew: peer-dep `"*"` (`pi-crew/package.json:135`) + devDeps `^1.0.0`
+  (`:152`) — §1.6 cũ ghi devDeps `^0.99.1` đã stale, đã sửa inline phía trên.
+
+### V4 — Trigger §5 cập nhật + verdict cuối
+
+| Gate (từ §5) | Trạng thái (2026-10-03) | Ghi chú |
+|---|---|---|
+| API maturity ≥1 minor cycle | **CHƯA ĐẠT** | 1/4 release, 0 minor cycle (V1) — tái đánh giá ở minor SDK kế tiếp sau 1.0.0 |
+| Replacer interop (Q3) | **ĐẠT** | kèm 2 caveat V2 (direct-exposure ignored; adapter peer-lag) |
+| Version-floor (Q2) | **chốt được** | đề xuất `>=0.99.2` (V3) — chờ user quyết chính thức |
+| Demand-signal (Q1) | chưa có | vẫn là câu quyết định chính dành cho user |
+
+**Verdict cuối: KEEP-STATUS-QUO (§5) đứng vững trên SDK 1.0.0.** Không gì trong 1.0.0 thay
+đổi khuyến nghị. Điều kiện mở B thu hẹp còn: demand thực (Q1) + 1 minor cycle ổn định sau
+1.0.0 + floor bump `>=0.99.2`; A vẫn đúng hướng khi policy là credentials-ở-parent. Q3 —
+ẩn số kỹ thuật duy nhất — đã verify và không còn là blocker.
+
+Residual chưa byte-verify: `McpExposure` enum tại đúng 0.99.0/0.99.1 (không có tarball hai
+bản đó) — suy-diễn từ CHANGELOG 0.99.2 mô tả #10212/#10239 như thay đổi hành vi 0.99.x trước
+đó. Không ảnh hưởng kết luận: floor đề xuất = 0.99.2 đã byte-verify cả hai phía.
+
+---
+
+## Phụ lục — Evidence index (verify trực tiếp 2026-10-02; E14-E17 verify 2026-10-03)
 
 | # | Claim | Evidence |
 |---|---|---|
@@ -288,6 +393,10 @@ vào doc quyết định.
 | E11 | Name-denylist bypass; allowlist là root-fix backlog | `src/runtime/mcp-proxy.ts` (`isMcpExtensionPath` KNOWN LIMITATION); SDD-2 §13 |
 | E12 | Queue SDD-5 + 33 commit user-gated | pi-crew-sdd-2026-09-30-buoi1.md:680-686 |
 | E13 | Real-test tiers cho thay đổi MCP/spawn-path | `skills/real-test-pi-crew/SKILL.md` (decision table) |
+| E14 | 1.0.0 re-eval: d.ts 0.99.2↔1.0.0 additive-only (chỉ thêm `authServerMetadataUrl`); enum/default/`registerMcpServer` identical *(verify 2026-10-03)* | `/tmp/pi100/package/dist/core/mcp-servers.d.ts` (1.0.0: enum `:16`, default `:18`, oauth `:70-75`) vs `/tmp/pi100/p0992/package/dist/core/mcp-servers.d.ts` (0.99.2); `dist/core/extensions/types.d.ts:1337-1343` |
+| E15 | Semantics đổi đúng 1 lần (0.99.2, #10212/#10239); 0.99.1 không đụng MCP; 1.0.0 chỉ OAuth hardening *(verify 2026-10-03)* | `/tmp/pi100/package/CHANGELOG.md`: [1.0.0] `:3-47`, [0.99.2] `:49-87`, [0.99.1] `:89-104`, [0.99.0] `:106+` (#10040) |
+| E16 | Adapter handle `mcp_servers_change` + connect foreign servers; `exposure: "direct"` bị ignore (proxy-only) *(verify 2026-10-03)* | `~/.pi/agent/npm/node_modules/pi-mcp-adapter@5.0.0/index.ts`: gate `:62-65`, comment `:845-846`, `applyPiMcpServers` `:995-1032` (precedence `:1013-1016`, strip `:1018-1026`, register `:1027`), handler `:1034-1040` |
+| E17 | Adapter peer range chưa có `^1.0.0`; pi-crew peer `*` + devDeps `^1.0.0` *(verify 2026-10-03)* | `pi-mcp-adapter/package.json:3` (version 5.0.0), `:200-201` (peer `^0.84.1 \|\| … \|\| ^0.99.0`); `pi-crew/package.json:135` (peer `*`), `:152` (devDeps `^1.0.0`) |
 
 ---
 
