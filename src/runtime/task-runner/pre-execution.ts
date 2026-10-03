@@ -141,7 +141,14 @@ export async function prepareTaskExecutionContext(
 	// caller provided one) into the dep-context collection — cache hits reuse
 	// the closeout's reads byte-identically; undefined keeps uncached behavior.
 	const dependencyContext = collectDependencyOutputContext(manifest, input.tasks, input.task, input.step, input.resultReadCache);
-	const dependencyContextText = input.dependencyContextText ?? renderDependencyOutputContext(dependencyContext);
+	// Handoff budget: caps the dynamic.dependencyContext layer at an est-token
+	// (chars/4) budget (env PI_CREW_HANDOFF_BUDGET_TOKENS > runtime config >
+	// default 1800). IMPORTANT: only the RENDER path is budgeted — an explicit
+	// input.dependencyContextText override (leader-provided text) passes through
+	// UNCHANGED.
+	const dependencyContextText =
+		input.dependencyContextText ??
+		renderDependencyOutputContext(dependencyContext, { budgetTokens: input.runtimeConfig?.handoffBudgetTokens });
 	let task: TeamTaskState = {
 		...input.task,
 		cwd: workspace.cwd,
