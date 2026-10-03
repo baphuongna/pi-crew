@@ -97,8 +97,11 @@ test("usageTokensFromEvent: zero / negative / NaN / Infinity / non-number values
 
 test("grandchildArtifactsRoot: namespaced segment order .crew/artifacts/<runId>/<parentTaskId>/nested/<subId>", () => {
 	const root = grandchildArtifactsRoot("/ws", "run_1", "task_9", "gc_2");
-	const expectedSegments = [..."/ws".split(path.sep), ".crew", "artifacts", "run_1", "task_9", "nested", "gc_2"];
-	assert.deepEqual(root.split(path.sep), expectedSegments);
+	// Platform-agnostic segment check: split on BOTH separators and drop roots.
+	// (The previous `"/ws".split(path.sep)` expected-side broke on win32, where
+	// path.sep is "\\" and the POSIX-style input never splits — CI 2026-10-03.)
+	const segments = (p: string) => p.split(/[\\/]/).filter(Boolean);
+	assert.deepEqual(segments(root), ["ws", ".crew", "artifacts", "run_1", "task_9", "nested", "gc_2"]);
 });
 
 test("grandchildArtifactsRoot: is task-scoped (parentTaskId), not broker- or run-flat-scoped", () => {

@@ -47,7 +47,11 @@ test("buildPiWorkerArgs spills EVERY task (short included) to a private @file â€
 		const taskPath = taskArg!.slice(1);
 		assert.equal(fs.existsSync(taskPath), true);
 		assert.equal(fs.readFileSync(taskPath, "utf-8"), "Do the thing");
-		assert.equal(fs.statSync(taskPath).mode & 0o777, 0o600, "task file must be owner-only (0600)");
+		// POSIX-only bit check: Windows fs reports 0o666 regardless of ACLs
+		// (same guard pattern as the other 0600 suites â€” see scratchpad-artifact).
+		if (process.platform !== "win32") {
+			assert.equal(fs.statSync(taskPath).mode & 0o777, 0o600, "task file must be owner-only (0600)");
+		}
 		assert.ok(result.args.includes("--mode"));
 		assert.ok(result.args.includes("json"));
 		assert.ok(result.args.includes("-p"));

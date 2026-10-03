@@ -54,7 +54,6 @@ import {
 	isRequestObject,
 	parseMsgSendParams,
 	parseWaitRequestParams,
-	parseWaitResolveParams,
 	safeStringify,
 	WAIT_REQUEST_TIMEOUT_SEC_DEFAULT,
 	WAIT_REQUEST_TIMEOUT_SEC_MAX,
