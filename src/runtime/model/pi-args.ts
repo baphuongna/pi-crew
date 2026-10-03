@@ -40,6 +40,15 @@ export interface BuildPiWorkerArgsInput {
 	agent: AgentConfig;
 	model?: string;
 	sessionEnabled?: boolean;
+	/** W2 (session-file recovery): deterministic pi session id for this worker
+	 *  (`--session-id`, SDK ≥ 0.76.0 — below pi-crew's tested host floor 0.99.2,
+	 *  so emitted unconditionally when set; no capability gate). Same id across
+	 *  retries appends to one session file (SDK §R2.2) — cross-attempt resume. */
+	sessionId?: string;
+	/** W2 (session-file recovery): directory for this worker's session JSONL
+	 *  (`--session-dir`, SDK ≥ 0.30.0). Run-scoped per-worker dir, e.g.
+	 *  `<artifactsRoot>/sessions/<taskId>/` — lives and dies with run artifacts. */
+	sessionDir?: string;
 	maxDepth?: number;
 	skillPaths?: string[];
 	env?: NodeJS.ProcessEnv;
@@ -265,6 +274,18 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	// never sets it, so it can never be matched as a sub-agent.
 	const args = ["--mode", "json", "-p"];
 	if (input.sessionEnabled === false) args.push("--no-session");
+	// W2 (session-file recovery): deterministic session identity so a worker
+	// that dies without a final assistant event (exitCode null / killed) can
+	// have its last COMPLETE assistant turn tail-recovered from the session
+	// JSONL (child-pi.ts settle path → session-recovery.ts). Both flags are
+	// SDK-era flags older than the tested host floor (fact pack §1: session-id
+	// 0.76.0, session-dir 0.30.0 < 0.99.2) → unconditional add, same as the
+	// existing --no-session/--model emissions. Skipped when sessions are off —
+	// under --no-session pi persists nothing, the flags would be meaningless.
+	if (input.sessionEnabled !== false) {
+		if (input.sessionId) args.push("--session-id", input.sessionId);
+		if (input.sessionDir) args.push("--session-dir", input.sessionDir);
+	}
 
 	const resolvedModel = input.model ?? input.agent.model;
 	// H1.a: teamRole.thinking (passed as thinkingOverride) takes precedence over agent.thinking.
