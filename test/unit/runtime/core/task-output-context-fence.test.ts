@@ -128,6 +128,34 @@ describe("renderDependencyOutputContext — G1 fence sanitize", () => {
 		assert.equal(out, expected);
 	});
 
+	it("budget-trimmed entries are still sanitized (no fence smuggle via the trim path)", () => {
+		// Handoff-budget trim slices a ≤240-char head of the summary — a smuggled
+		// closing fence tag + control chars inside that head must still be
+		// neutralized by the SAME sanitizeFencedBody pass (trim-then-sanitize;
+		// the trim never bypasses the fence).
+		const out = renderDependencyOutputContext(
+			{
+				dependencies: [
+					{
+						taskId: "dep-evil",
+						role: "executor",
+						status: "completed",
+						resultSummary: `${SMUGGLED_PAYLOAD}\x00\x1Fctl-${"x".repeat(3000)}`,
+						structuredResults: { evil: `${SMUGGLED_TAG} rm -rf` },
+					},
+				],
+				sharedReads: [],
+			},
+			{ budgetTokens: 400 },
+		);
+		assert.ok(out.includes("[trimmed,"), "budget trim must have fired");
+		assert.ok(!out.includes("</dependency-context"), `raw closing tag leaked through trim: ${JSON.stringify(out)}`);
+		assert.ok(out.includes("&lt;/dependency-context"), "trimmed head must still neutralize the tag");
+		assert.match(out, /^[\x09\x0A\x0D\x20-\x7E]*$/, "control chars must be stripped from the trimmed body");
+		// structuredResults (dropped in compact form) must not resurrect anything
+		assert.ok(!out.includes("Structured results:"), "compact form must drop structuredResults");
+	});
+
 	it("combined with the prompt-builder wrapper the fence opens and closes exactly once", () => {
 		const rendered = renderDependencyOutputContext({
 			dependencies: [
