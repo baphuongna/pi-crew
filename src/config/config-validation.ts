@@ -387,6 +387,11 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		isolationPolicy: parseIsolationPolicy(obj.isolationPolicy),
 		surface: parseSurfacePolicy(obj.surface),
 		modelFallback: parseModelFallbackConfig(obj.modelFallback),
+		// F19-1 discipline: every key declared in types.ts + schema MUST be
+		// emitted here or the config key is dead (runtime.sessionRecovery —
+		// W2/P1-1; runtime.workerTransport — W7/P2-3, experimental).
+		sessionRecovery: parseWithSchema(Type.Boolean(), obj.sessionRecovery),
+		workerTransport: parseWithSchema(Type.Union([Type.Literal("stdio"), Type.Literal("rpc")]), obj.workerTransport),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;
 }
