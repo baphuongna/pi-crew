@@ -42,13 +42,13 @@ surfaces and cannot be settled by static analysis; it gates on a live probe.
 
 | ID | Item | Pain point / motive | Key evidence | Priority | Effort |
 |----|------|--------------------|--------------|----------|--------|
-| P0-1 | Verify all pi-crew surfaces under fullscreen-by-default; pin `--tui-mode` on spawned surface processes | 1.0.0 changed default TUI mode; overlays/dashboard/pane-scraping may render differently | CHANGELOG 1.0.0 "Changed" [V]; `src/runtime/surface/surface-spawn.ts:142-149` spawns a TUI variant without mode pinning [V] | P0 (verify) | S probe / S fix |
-| P1-1 | Session-file recovery for SIGKILL'd runners: capture session header id at spawn, replay tail on `exitCode === null` | runner-died-near-end: host killed exit=137 while background run completed | `src/runtime/model/pi-args.ts:266-267` workers already persist sessions [V]; `docs/json.md:23-28` header record [V]; `src/runtime/child-pi/child-pi.ts:903-968` exit-status settle [V] | P1 | M |
+| P0-1 | Verify all pi-crew surfaces under fullscreen-by-default; pin `--tui-mode` on spawned surface processes | 1.0.0 changed default TUI mode; overlays/dashboard/pane-scraping may render differently | CHANGELOG 1.0.0 "Changed" [V]; `src/runtime/surface/surface-spawn.ts:142-149` spawns a TUI variant without mode pinning [V]; **live-verified R2 (§R2.1): `readScreen` scrollback scrape (`-S`) loses history under fullscreen default — pin `regular`** | P0 (verified; fix pending) | S probe / S fix |
+| P1-1 | Session-file recovery for SIGKILL'd runners: capture session header id at spawn, replay tail on `exitCode === null` | runner-died-near-end: host killed exit=137 while background run completed | `src/runtime/model/pi-args.ts:266-267` workers already persist sessions [V]; `docs/json.md:23-28` header record [V]; `src/runtime/child-pi/child-pi.ts:903-968` exit-status settle [V]; **live-proven R2 (§R2.2): anatomy + SIGKILL tail-recovery validated — GO** | P1 | M |
 | P1-2 | Audit every arg-builder path for `--provider` without `--model` | was silently ignored, now **errors** (#10236) | `docs/cli.md:63-64` [V]; CHANGELOG 1.0.0 Fixed [V] | P1 | S |
 | P1-3 | Hygiene: adopt pi-tui `TruncatedText`; drop dead `persist:true`; retire version-guard shims | duplication + dead code under the `^1.0.0` floor | `pi-tui/dist/index.d.ts:17` [V]; `src/ui/widget/index.ts:525` passes `persist` [V]; `src/ui/pi-ui-compat.ts:47` strips it [V] | P1 | S–M |
-| P2-1 | `ctx.modelRegistry.classify()` for host-side cheap decisions (retry triage, routing hints) — spike first | subagent turns are expensive; classifiers answer typed questions | `docs/models.md:137-138` [V]; host-process only (see Q2c) | P2 | M spike |
-| P2-2 | Compaction hooks `session_before_compact` / `generateSummary()` in the injected prompt-runtime extension | control worker auto-compaction, custom summaries | `docs/compaction.md:296-313`, `:167-171` [V]; `pi-args.ts:318` unconditional `--extension` [V] | P2 | M |
-| P2-3 | RPC mode (`RpcClient` / `runRpcMode`) for controllable long-lived workers | replace one-shot `-p` stdout parsing for steering-heavy roles | `dist/index.d.ts:34` exports [V]; `docs/cli-integration.md` "Control Pi with RPC" | P2 | L |
+| P2-1 | `ctx.modelRegistry.classify()` for host-side cheap decisions (retry triage, routing hints) — spike first | subagent turns are expensive; classifiers answer typed questions | `docs/models.md:137-138` [V]; host-process only (see Q2c); **live R2 (§R2.3): blocked-on-credentials on this host (`getAvailableOfType("classifier")` = `[]`)** | P2 | M spike |
+| P2-2 | Compaction hook `session_before_compact` in the injected prompt-runtime extension *(R2 scope fix: `generateSummary()` is not extension-exported — dropped)* | control worker auto-compaction | `docs/compaction.md:296-313` [V]; `pi-args.ts:318` unconditional `--extension` [V]; **live R2 (§R2.4): extension bus fires in `-p`; hook itself still unfired-live** | P2 | M |
+| P2-3 | RPC mode (`RpcClient` / `runRpcMode`) for controllable long-lived workers | replace one-shot `-p` stdout parsing for steering-heavy roles | `dist/index.d.ts:34` exports [V]; `docs/cli-integration.md` "Control Pi with RPC"; **live R2 (§R2.5): steer round-trip proven; `extension_ui_request` flood + dialog-blocking are design gates** | P2 | L |
 | P2-4 | Virtual models (per-request routing), `prepareLoadout()` + `ctx.executeTool()`, `fuzzyFilter`, staged drop of `@mariozechner` fork probe | fit model-fallback; tool composition; autocomplete; shrink out-of-semver surface | `dist/index.d.ts:27` virtual-model types [V]; CHANGELOG 0.99.0 Added [V]; `pi-tui/dist/index.d.ts:19` [V]; `src/runtime/peer-dep.ts:48` [V] | P2 | per item |
 
 Effort: S < 1 day, M = days, L = week+.
@@ -277,3 +277,221 @@ footer, and tmux pane-scraping. That is why P0-1 exists: run the live T5/T10/T13
   `pi-crew-sdd-2026-09-30-buoi1.md` §12–§20 (background)
 - Run artifacts — `.crew/artifacts/team_20261003094832_beeed264e89afa71/` (shard evidence packs 01–05,
   synthesis 06)
+
+---
+
+## Round 2 — Live verification (2026-10-03)
+
+- **Run:** `team_20261003101450_71becef2534e9675` (parallel-research: static shards 03/05 + live-probe shards
+  02/04 → synthesis 06 → this append, 07_write).
+- **Why this round exists:** Round 1 left P0-1 gated on a live probe, P1-1 design-only, and P2-1/P2-2/P2-3
+  at docs-grade evidence. This round converts each into live evidence.
+- **Method:** all probes ran in scratch `/tmp/pi-adoption-r2/` via wrapper `px.sh` (unsets every `PI_CREW_*`
+  env var before `exec pi` — real `.crew` state untouched), on a dedicated tmux socket (`tuisock`). No
+  global install, no user-config writes. Every spawn timeout-bounded; SIGKILL liveness-checked.
+- **Provenance tags (this round only):**
+  - **[R2-V]** — verified directly by 07_write reading the cited scratch file (contents quoted inline).
+  - **[R2-S]** — live output recorded by probe shards 02/04 (exit codes, help text, measurements);
+    consistent across both shards but not re-executed by 07_write.
+- **Exit-code honesty:** completed `-p`/RPC runs recorded exit=0 by both shards; the SIGKILL probe's kill
+  was confirmed by process-liveness check, not exit code alone. Stream completeness (records ending in
+  `agent_settled` / orderly shutdown lines) corroborates the clean exits. Per the workspace lesson
+  (background work can complete after a timeout kill), exit codes are treated as secondary to
+  stream/session-file evidence.
+
+### R2.1 — P0-1 fullscreen-by-default: LIVE-CONFIRMED, pin `--tui-mode regular`
+
+**Verdict.** The 1.0.0 fullscreen default does not crash or visibly break pi-crew surfaces, and the
+alt-screen lifecycle is clean — but it silently empties the *scrollback* capture path that pi-crew's
+`readScreen` always uses. Action: pin `--tui-mode regular` on surface TUI spawns (S effort).
+
+**Evidence** (fresh tmux pane per run; MARKER = distinctive line echoed to the shell *before* pi
+started; capture via `tmux capture-pane`):
+
+- `pi --help` exposes `--tui-mode fullscreen|regular`, fullscreen being the default; exit=0 [R2-S, 02].
+- **Fullscreen (default), scrollback capture** (`capture-pane -p -S -200`) → `tui-fs-scroll.txt`:
+  **0 MARKER hits** in the entire capture [R2-V, file read in full] — pre-pi scrollback history is gone.
+- **`--tui-mode regular`, same recipe** → `tui-reg-scroll.txt:1` opens with `MARKER-BEFORE-PI-REG`
+  [R2-V] — shell history above the TUI survives.
+- **Viewport capture** (`capture-pane -p`, no `-S`): works in BOTH modes — fullscreen `tui_full_chat.txt`
+  shows the prompt `Reply with exactly: HI` and the reply `HI` mid-capture [R2-V]; regular analog per
+  02 [R2-S].
+- **Alt-screen exit is clean:** post-ctrl+d capture `tui-fsx-after.txt` shows pre-pi `MARKER3-BEFORE`
+  preserved, pi's exit output (`[pi-crew] Session shutdown … Cleanup complete`), and `POST-PI-MARKER
+  rc=0` from the resumed shell [R2-V]; `#{alternate_on}` went 1→0 across the exit [R2-S, 02].
+
+**Reconciling the 02-vs-04 divergence.** Shard 02 concluded "no mandatory action" because its captures
+were viewport-only (correct — viewport capture is unaffected); shard 04 measured the scrollback path and
+called for pinning. Direct read of the real call site settles it: `src/runtime/surface/tmux-provider.ts`
+`readScreen` **always** passes `-S -<lines>` (`capture-pane -p -t <id> -S -<max(1,lines)>`) [R2-V —
+provider source read this round], so pi-crew's screen-scrape *is* the scrollback path. Shard 04's
+verdict is the correct one for pi-crew.
+
+**Recommended action.** In `src/runtime/surface/surface-spawn.ts`, pin `--tui-mode regular` on the TUI
+spawn — insertion point directly after `const tuiArgs = stripHeadlessModeArgs(input.piArgs);` (~line
+271), before `resolveCommand(tuiArgs)` [R2-V — call site read]. Viewport-only consumers are unaffected
+either way; banner/skills/extensions/footer all render under fullscreen [R2-V], so dashboard surfaces
+degrade only via history loss.
+
+### R2.2 — P1-1 session-file recovery: GO, live-proven
+
+**Verdict.** Session-file anatomy is fully mapped and the tail-recovery algorithm works under SIGKILL,
+with loss bounded by turn granularity.
+
+**Evidence:**
+
+- `--session-dir /tmp/pi-adoption-r2/sessions` accepted; files land **flat** as
+  `<ISO-ts>_<session-id>.jsonl` (11 files observed) [R2-V].
+- `--session-id adopt-r2-fixed` run twice (`Reply with exactly: ONE`, then `TWO`): **one file**
+  `2026-10-03T10-19-13-265Z_adopt-r2-fixed.jsonl` holds both turns — header
+  (`{"type":"session","version":3,"id":"adopt-r2-fixed",…,"cwd":"/tmp/pi-adoption-r2"}`),
+  `model_change` (`zai/glm-5.3`), `thinking_level_change`, then user/assistant pairs `ONE→"ONE"` and
+  `TWO→"TWO"`, each assistant carrying `"stopReason":"stop"` [R2-V]. Run 2's stdout (`p2b2.out`)
+  re-emits the session header with the **same id** and terminates with `agent_settled` [R2-V].
+  Same-id rerun therefore appends to one file; the id is stable across runs.
+- **SIGKILL mid-stream:** task "run `sleep 4 && echo done-N` 12 times"; `kill -9` after turn 1 settled.
+  stdout stream `mykill.stdout` = 249 records with `message_update`s still in flight (247 per 02
+  [R2-S]) [R2-V count]. The session file `…_adopt-r2-mykill.jsonl` = 9 records: header, `model_change`,
+  `thinking_level_change`, user(task), a **complete** turn-1 assistant (thinking + text + `toolCall
+  "sleep 4 && echo done-1"`, `"stopReason":"toolUse"`), `toolResult` `done-1`, a system record
+  (`toolsAdded` …) — and **nothing** for the in-flight later turns [R2-V]. Kills landing before the
+  first turn ends leave user-only tails with no assistant record at all [R2-S, 02 — 8-line `p2c*.out`
+  streams].
+- Persistence is per-completed-message (atomic at `message_end`): no partial or torn assistant records
+  observed in any killed file [R2-V mykill; R2-S early kills].
+- Fresh fixed-id stderr: `Warning: No project session found with id 'adopt-r2-kill4'; creating a new
+  session with that id.` (`p2c4.err`) — create-if-absent semantics confirmed [R2-V].
+
+**Recovery algorithm (validated).** Tail-scan the JSONL backwards: the last `message` record with
+`role:"assistant"` (with its `stopReason`, usage, toolCalls) is the last settled turn and is fully
+recoverable; a tail ending at user/`toolResult` without a following assistant means "died mid-stream",
+  loss bounded by turn granularity. Tolerate a truncated final line regardless (never observed, but a
+  killed writer can theoretically tear one). Build on the SDK exports `parseSessionEntries` /
+`migrateSessionEntries` / `SessionManager` [R2-S, 05 — cited at `dist/index.d.ts`] rather than a
+hand-rolled parser.
+
+**Recommended action.** Proceed with P1-1 as proposed in §Q2(a): capture the session id at spawn (or
+force `--session-id <taskId>`), point `--session-dir` at run state, replay the tail on
+`exitCode === null`.
+
+### R2.3 — P2-1 `classify()`: blocked-on-credentials on this host
+
+**Verdict.** NO-GO for the spike on this host — the blocker is classifier *credentials*, not API
+shape. The never-rejects contract is confirmed live.
+
+**Evidence** — extension probe (`--extension /tmp/pi-adoption-r2/probe-ext/probe.ts`) under
+`--mode json -p`; stderr verbatim from `p3b.err` [R2-V]:
+
+```text
+[PROBE:p3b] before_agent_start fired
+[PROBE:p3b] before_provider_request fired
+[PROBE:p3b] classify: available classifiers = []
+[PROBE:p3b] classify: known classifier models = ["cloudflare-workers-ai/typesafe/jev","opencode/jev-1.13","opencode/jev-1.13-free","openrouter/~typesafe/jev-latest","openrouter/inception/mercury-decide:free","openrouter/jaredpalmer/kev-4b"]
+[PROBE:p3b] classify: using opencode/jev-1.13-free
+[PROBE:p3b] classify: result={"api":"typesafe-system-one","provider":"opencode","model":"jev-1.13-free","answers":{},"stopReason":"error","errorMessage":"Provider is not configured: opencode",…}
+[PROBE:p3b] session_shutdown fired
+```
+
+Reading: `getAvailableOfType("classifier")` returns `[]` (nothing credentialed) while the catalog
+(`getModelsOfType("classifier")`) lists 6 models — catalog present, credentials absent. `classify()`
+returned a structured result with `stopReason:"error"` instead of throwing [R2-V], matching the
+`model-registry.d.ts:40-48` never-rejects contract [V, R1]. This also resolves shard 04's open
+uncertainty (catalog-absent vs cred-absent).
+
+**Recommended action.** Shelve the spike until a classifier provider is credentialed. No pi-crew code
+should call `classify()` expecting an answer on this host today. Leader decision: which provider
+(opencode free tier vs a gateway-key route).
+
+### R2.4 — P2-2 compaction hooks: infra-proven, hook-unfired + scope correction
+
+**Verdict.** PARTIAL: the extension bus demonstrably fires in `-p` mode (the biggest R1 gate), but
+`session_before_compact` itself was never live-fired. One scope correction against R1's item text.
+
+**Evidence:**
+
+- Extension bus fires under `--mode json -p` with an injected `--extension`: `before_agent_start`,
+  `before_provider_request`, `session_shutdown` all logged by the probe (`p3b.err`, quoted in §R2.3)
+  [R2-V]; run exit=0 [R2-S].
+- `session_before_compact` did not fire in any probe run — no compaction threshold was reached
+  (auto-compaction checks between turns after tools finish — `docs/compaction.md:37` [V, R1]; forcing
+  it needs a near-overflow context ≈1M tokens on glm-5.3, out of probe budget) [R2-S]. Submitting
+  `/compact` as a `-p` prompt is not a slash-command there: the model answers in prose [R2-S, 02].
+- **Scope correction:** `generateSummary()` is **not** extension-exported — 0 hits in
+  `extensions/types.d.ts` [R2-S, 02]. R1's P2-2 row listed it; the extension-reachable surface is
+  `session_before_compact` blocking/cancel/custom-summary only. Backlog row narrowed accordingly.
+- The in-repo analog already runs in the interactive host: `compaction-guard.ts:272,283` listens for
+  the same event [R2-S].
+
+**Recommended action.** Treat P2-2 as infra-proven / hook-unfired. One bounded live-fire test
+(small-context model + filler to threshold) closes the last unknown; otherwise proceed on docs +
+host-analog evidence and label it as such.
+
+### R2.5 — P2-3 RPC mode: feasible-green with two mandatory design gates
+
+**Verdict.** RPC works end-to-end for the steering use case and is the right replacement for stdout
+parsing in long-lived workers — *if* the client handles UI-request records and dialogs.
+
+**Evidence:**
+
+- `pi --mode rpc --no-session` speaks newline-delimited JSON on stdio [R2-S]; on stdin close it shuts
+  down orderly — `rpc.stderr` shows `[pi-crew] Session shutdown - cleaning up resources / Cleanup
+  complete / Received SIGTERM - starting cleanup` [R2-V]; recorded exit=0 [R2-S].
+- `get_state` → typed state incl. `steeringMode`, `autoCompactionEnabled`, `sessionId`,
+  `contextWindow: 1 000 000` [R2-S]; `prompt` → `disposition:"started"`; `agent_settled` observed
+  [R2-S].
+- **Steering round-trip proven:** mid-turn `steer` landed; the final assistant text read back as
+  `"finished STEERED"` [R2-S, 04]. Full command surface confirmed in `docs/rpc-commands.md`: `steer`,
+  `follow_up`, `abort`, `set_steering_mode`, `compact`, `set_auto_compaction`, `set_auto_retry` [R2-S].
+- **Caveat 1 — `extension_ui_request` flood:** `rpc-plain.out`: of the first 16 records, **15 are
+  `extension_ui_request`** (`setStatus`/`setWidget` for `pi-crew`, `pi-crew-active`, `pi-crew-tasks`,
+  `mcp`, `pi-crew-bar`) [R2-V]. Shard 02 measured one trivia turn at 48 records / 163 415 bytes with
+  31/48 ui-requests [R2-S]; 04 measured 46–65 % [R2-S]. A headless RPC client must answer or drain
+  these.
+- **Caveat 2 — dialogs block:** UI *dialog* requests block until answered [R2-S, 04] → pi-crew's `ask`
+  tool over RPC can deadlock a worker unless the client implements an answer policy. This is a design
+  gate, not a bug.
+- Framing is LF-only line protocol — Node's readline defaults are unsafe for it [R2-S, 04]; child
+  lifecycle is bound to the RPC process.
+
+**Recommended action.** Keep P2-3 at L effort, gated on (a) an `extension_ui_request` answer/drain
+policy and (b) a dialog-answer policy for `ask`. Reuse exported `RpcClient` / `runRpcMode`
+(`dist/index.d.ts:34` [V, R1]) rather than a hand-rolled driver; re-run the `--approve` probe cleanly
+once (04's rpc3 anomaly: zero records, likely driver race) before trusting it.
+
+### R2 backlog deltas
+
+| Item | R1 evidence state | R2 state | Nature change |
+|---|---|---|---|
+| P0-1 | docs + static, gated on live probe | live-verified: scrollback scrape affected; viewport + exit clean | verify → fix (pin `regular`, S) |
+| P1-1 | design (§Q2a proposal) | live-proven GO (anatomy + SIGKILL tail-recovery) | design → implementable |
+| P2-1 | docs spike candidate | blocked-on-credentials on this host; never-rejects confirmed | spike → shelved pending creds |
+| P2-2 | docs-gated | infra-proven / hook-unfired; `generateSummary()` dropped from extension scope | gate narrowed |
+| P2-3 | docs feasibility | steer round-trip live-proven + two design gates (ui-request flood, dialog blocking) | feasibility → gated-green |
+
+### R2 leader decisions
+
+1. **P0-1:** pin `--tui-mode regular` now (S effort, `surface-spawn.ts` right after
+   `stripHeadlessModeArgs`) vs defer to the next surface-touching change. Recommended: now — without
+   the pin, `readScreen` consumers silently lose history under the 1.0.0 default.
+2. **P2-1:** which classifier provider to credential (opencode free tier vs gateway key), or shelve.
+
+### R2 remaining unknowns (bounded)
+
+- `session_before_compact` live-fire in `-p` (needs an overflow-context test; docs + interactive-host
+  analog both point yes).
+- The TUI probe did not exercise pi-crew's `PI_CREW_AUTO_EXIT` path (env scrubbed to protect real
+  `.crew` state; render behavior is env-independent, but that exit path remains unprobed).
+- Torn/truncated session lines were never observed — the recovery reader should still tolerate a short
+  tail.
+- 04's `rpc3.py --approve` re-run produced zero records (likely driver race); one clean re-run before
+  P2-3 implementation.
+
+### R2 evidence index
+
+All under `/tmp/pi-adoption-r2/` (scratch, not committed): `px.sh` (env-scrub wrapper),
+`probe-ext/probe.ts` + `ext/probe-ext.ts` (extension probes), `ext-events.log`, `p3b.err` (classify
+chain), `sessions/*.jsonl` (11 session files incl. `…_adopt-r2-fixed.jsonl`, `…_adopt-r2-mykill.jsonl`),
+`mykill.stdout|err|pid`, `p2b1/p2b2.out` (fixed-id reruns), `tui-fs-scroll.txt` / `tui-reg-scroll.txt`
+(MARKER scrollback), `tui_full_chat.txt` (viewport), `tui-fsx-after.txt` (post-exit), `rpc-plain.out` /
+`rpc.stderr` / `rpc2.py` / `rpc3.py` / `rpc-driver.py` (RPC). Shard outputs:
+`.crew/artifacts/team_20261003101450_71becef2534e9675/results/{02,04}_explore-*.txt`.
