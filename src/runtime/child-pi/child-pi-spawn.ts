@@ -270,6 +270,11 @@ export function prepareSpawnContext(
 		agent: input.agent,
 		model: input.model,
 		sessionEnabled: true,
+		// W2 (P1-1): deterministic session identity so crash-path tail-recovery
+		// can find the worker's session JSONL (see session-recovery.ts). Falls
+		// back to child-pi.ts deriveSessionPaths when unset (idempotent both ways).
+		sessionId: input.sessionId,
+		sessionDir: input.sessionDir,
 		maxDepth: input.maxDepth,
 		skillPaths: input.skillPaths,
 		role: input.role,

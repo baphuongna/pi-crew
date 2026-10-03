@@ -86,16 +86,18 @@ export interface TaskExecutionResult {
 	terminalEvidence: OperationTerminalEvidence[];
 	startupEvidence: import("../heartbeat/worker-startup.ts").WorkerStartupEvidence;
 	/** Which child-executor fallback branch produced the result artifact
-	 *  content (rawFinalText → finalText → stdout → stderr → findings →
+	 *  content (rawFinalText → finalText → session → stdout → stderr → findings →
 	 *  "(no output)"). Finding #2 (2026-09-29 battery): "stderr"/"none" mean
 	 *  every authoritative worker output source was empty — finalizeTaskResult
 	 *  fails those DETERMINISTICALLY; the stderr-noise classifier stays a
-	 *  defense layer, never the verdict oracle. */
+	 *  defense layer, never the verdict oracle. "session" (W2/P1-1) = the text
+	 *  was tail-recovered from the worker's session JSONL on a signal-death
+	 *  crash path — authoritative recovered output, not a failure source. */
 	resultSource?: ResultSource;
 }
 
 /** Result-artifact provenance tags (see {@link TaskExecutionResult.resultSource}). */
-export type ResultSource = "rawFinalText" | "finalText" | "stdout" | "stderr" | "findings" | "none";
+export type ResultSource = "rawFinalText" | "finalText" | "session" | "stdout" | "stderr" | "findings" | "none";
 
 /** Final persisted task state returned by finalizeTaskResult. */
 export interface FinalTaskResult {

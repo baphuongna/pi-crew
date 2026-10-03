@@ -38,6 +38,7 @@ import { type FatalFsCause, failureCauseForAttempt } from "../../utils/fs-errno.
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi/child-pi.ts";
+import type { SessionRecoveryInfo } from "../child-pi/session-recovery.ts";
 import {
 	appendCrewAgentEventBuffered,
 	appendCrewAgentOutputBuffered,
@@ -409,6 +410,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	let modelAttempts: ModelAttemptSummary[] | undefined;
 	let parsedOutput: ParsedPiJsonOutput | undefined;
 	let rawFinalText: string | undefined;
+	// W2 (P1-1): last attempt's session-recovery provenance (thread-level,
+	// mirrors rawFinalText — escapes the attempt loop's block scope).
+	let recoveredFromSession: SessionRecoveryInfo | undefined;
 	let intermediateFindings: string | undefined;
 	let finalStdout = "";
 	let transcriptPath: string | undefined;
@@ -665,6 +669,10 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				parentContext: input.parentContext,
 				excludeContextBash: input.runtimeConfig?.excludeContextBash,
 				sessionId: manifest.sessionId,
+				// W2 (P1-1): thread the runtime.sessionRecovery flag so the config
+				// gate reaches the crash-path tail-replay (env/default still work
+				// without this — resolveSessionRecoveryEnabled precedence).
+				sessionRecovery: input.runtimeConfig?.sessionRecovery,
 				role: task.role,
 				thinkingOverride: input.teamRoleThinking,
 				runId: manifest.runId,
@@ -997,6 +1005,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		const transcriptText = tailReadWithLineSnap(transcriptPath, MAX_TRANSCRIPT_PARSE_BYTES, childResult.stdout);
 		parsedOutput = parsePiJsonOutput(transcriptText);
 		rawFinalText = childResult.rawFinalText;
+		// W2 (P1-1): keep the most recent recovery info (crash-path only —
+		// undefined on clean exits, so this stays dormant in the happy path).
+		recoveredFromSession = childResult.recoveredFromSession ?? recoveredFromSession;
 		intermediateFindings = childResult.intermediateFindings;
 		error = attemptErrorFor(childResult, parsedOutput, task.id);
 		// bug-026 sub-issue B: classify fatal fs errnos (ENOSPC/EDQUOT/EMFILE/
@@ -1121,6 +1132,12 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	const resultCandidates: ReadonlyArray<{ source: ResultSource; text: string | undefined }> = [
 		{ source: "rawFinalText", text: cleanResultText(rawFinalText) },
 		{ source: "finalText", text: cleanResultText(parsedOutput?.finalText) },
+		// W2 (P1-1): crash-path session tail-recovery. Ranks BELOW live captures
+		// (raw/finalText — the stream is authoritative when it survived) but
+		// ABOVE stdout/stderr noise: on signal death (exitCode null) the live
+		// captures are empty and this is the recovered last complete assistant
+		// message from the worker's session JSONL.
+		{ source: "session", text: cleanResultText(recoveredFromSession?.text) },
 		{ source: "stdout", text: cleanResultText(finalStdout) },
 		{ source: "stderr", text: cleanResultText(finalStderr) },
 		{ source: "findings", text: cleanResultText(intermediateFindings) },
@@ -1142,6 +1159,18 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			"(no output)",
 		producer: task.id,
 	});
+	// W2 (P1-1): serialize the recovery provenance as a result sidecar — the
+	// recovered text itself flows through the "session" candidate above; this
+	// records WHERE it came from (session id/file, timestamp, stopReason) so
+	// crash-path recovery is auditable after the fact.
+	if (recoveredFromSession) {
+		writeArtifact(manifest.artifactsRoot, {
+			kind: "result",
+			relativePath: `results/${task.id}.session-recovery.json`,
+			content: JSON.stringify(recoveredFromSession, null, "\t"),
+			producer: task.id,
+		});
+	}
 	const logArtifact = writeArtifact(manifest.artifactsRoot, {
 		kind: "log",
 		relativePath: `logs/${task.id}.log`,
