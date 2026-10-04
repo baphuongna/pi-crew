@@ -223,7 +223,9 @@ describe("SEC-1: project-agent extensions RCE prevention", () => {
 				args.some((a) => a.includes("user-ext.ts")),
 				"user agent extensions pass through (trusted source)",
 			);
-			assert.ok(!args.includes("--no-extensions"), "--no-extensions is gone (open discovery)");
+			// R3-19/D5: hermetic by default — discovery is cut but explicit -e
+			// declarations survive (cli.md:186-187).
+			assert.ok(args.includes("--no-extensions"), "--no-extensions is present (hermetic default)");
 		} finally {
 			restoreEnv(envSnap);
 		}

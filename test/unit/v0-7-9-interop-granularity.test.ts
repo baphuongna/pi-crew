@@ -191,10 +191,10 @@ describe("F1 → D5 — extension discovery OPEN, untrusted declarations strippe
 		assert.ok(!flags.includes("/tmp/attacker.ts"));
 	});
 
-	it("NO --no-extensions; prompt-runtime always present and first", () => {
+	it("R3-19/D5: --no-extensions by default; prompt-runtime + declared -e still load", () => {
 		const agent = makeAgentConfig({ source: "user", extensions: ["foo"] });
 		const { args } = buildPiWorkerArgs({ agent, role: "test", task: "do something" });
-		assert.ok(!args.includes("--no-extensions"), "extension discovery must stay open");
+		assert.ok(args.includes("--no-extensions"), "hermetic default cuts ambient discovery");
 		const flags = extensionFlagsOf(args);
 		assert.ok(flags.length === 2, `prompt-runtime + declared extension expected, got ${JSON.stringify(flags)}`);
 		assert.ok(flags[0]!.includes("prompt-runtime"), "prompt-runtime is emitted first (infrastructure, declared extensions after)");

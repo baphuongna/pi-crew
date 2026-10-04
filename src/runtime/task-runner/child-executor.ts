@@ -662,6 +662,10 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				cwd: task.cwd,
 				task: userPrompt,
 				systemPromptAppend: ctx.systemPromptAppend,
+				// R3-19/D5: thread the runtime.hermeticWorkers config gate to the
+				// worker argv (--no-extensions). Env PI_CREW_HERMETIC_WORKERS still
+				// overrides either way (resolveHermeticWorkers).
+				hermeticWorkers: input.runtimeConfig?.hermeticWorkers,
 				agent: input.agent,
 				model,
 				signal: timeoutController.signal,

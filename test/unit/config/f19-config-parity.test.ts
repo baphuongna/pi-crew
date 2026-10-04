@@ -123,3 +123,25 @@ test("F19-3: invalid control thresholds are dropped, siblings survive", () => {
 	assert.equal(parsed.control?.longRunningMinutes, undefined, "negative must be dropped");
 	assert.equal(parsed.control?.needsAttentionAfterMs, 5000, "sibling fields unaffected");
 });
+
+// ---------------------------------------------------------------------------
+// F19-1 discipline (R3-19/D5): runtime.hermeticWorkers parse parity
+// ---------------------------------------------------------------------------
+
+test("F19-1/D5: parseConfig emits runtime.hermeticWorkers (schema + parser + types aligned)", () => {
+	const config = { runtime: { hermeticWorkers: false } };
+	assert.equal(Value.Check(PiTeamsConfigSchema, config), true, "schema must admit runtime.hermeticWorkers");
+	const parsed = parseConfig(config);
+	assert.equal(parsed.runtime?.hermeticWorkers, false, "parser must emit the key — not parse-dead");
+});
+
+test("F19-1/D5: runtime.hermeticWorkers stays undefined when absent (default TRUE stays read-site)", () => {
+	const parsed = parseConfig({ runtime: { maxTurns: 12 } });
+	assert.equal(parsed.runtime?.hermeticWorkers, undefined, "unset must not leak a false default");
+});
+
+test("F19-1/D5: invalid runtime.hermeticWorkers values are dropped, siblings survive", () => {
+	const parsed = parseConfig({ runtime: { hermeticWorkers: "yes", maxTurns: 9 } });
+	assert.equal(parsed.runtime?.hermeticWorkers, undefined, "non-boolean must not pass through");
+	assert.equal(parsed.runtime?.maxTurns, 9, "sibling keys unaffected");
+});

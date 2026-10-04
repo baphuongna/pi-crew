@@ -222,6 +222,10 @@ export interface ChildPiRunInput {
 	 *  Protocol/mailbox/workspace/runtime-context block survives compaction
 	 *  instead of living in the summarizable user-message span. */
 	systemPromptAppend?: string;
+	/** R3-19/D5 (hermetic worker spawns): thread runtime.hermeticWorkers to
+	 *  buildPiWorkerArgs (--no-extensions). Env PI_CREW_HERMETIC_WORKERS
+	 *  overrides either way; default TRUE. */
+	hermeticWorkers?: boolean;
 	/** Root directory for artifacts (used to validate transcriptPath). */
 	artifactsRoot?: string;
 	/** I5: run events JSONL path — threaded to the worker so its scratchpad
@@ -404,14 +408,14 @@ function safeLoadSurfaceConfig(cwd: string): PiTeamsConfig {
 }
 
 /**
- * D1/D5: flags that apply to HEADESS worker spawns only. The surface TUI
+ * D1/D5: flags that apply to HEADLESS worker spawns only. The surface TUI
  * branch strips them before booting a pane — a pane hosts a full interactive
  * pi session where the interactive trust prompt must stay available and the
  * ambient extension stack is part of the human-visible session (task mandate:
  * worker spawn CHỈ, KHÔNG đụng surface TUI spawn).
  */
 function stripHeadlessOnlyFlags(args: string[]): string[] {
-	return args.filter((arg) => arg !== "--no-approve");
+	return args.filter((arg) => arg !== "--no-approve" && arg !== "--no-extensions");
 }
 
 /**

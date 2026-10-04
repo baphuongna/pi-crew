@@ -75,6 +75,20 @@ export interface CrewRuntimeConfig {
 	 * Manifest polling is NOT replaced — this only augments the settle-time result.
 	 */
 	sessionRecovery?: boolean;
+	/**
+	 * R3-19/D5 reversal (2026-10-04): hermetic worker spawns — pass
+	 * `--no-extensions` on worker argv. Explicit `-e prompt-runtime` and agent
+	 * `extensions:` still load (cli.md:186-187: "Disables discovered, configured,
+	 * and built-in extensions. Explicit -e paths still load"), and `--skill`
+	 * flags are independent — what gets cut is the ~1.37s/spawn ambient package
+	 * stack (pi-crew host ext + configured packages; probe C §R3b.6: 431ms vs
+	 * 1806ms to first stdout record) plus the ambient tool surface (team/
+	 * crew_agent/Agent host tools + 8 direct-exposure MCP tools).
+	 * Default: true. Env PI_CREW_HERMETIC_WORKERS overrides in either
+	 * direction (pi-args.ts resolveHermeticWorkers). Surface TUI spawns strip
+	 * the flag — panes keep the full interactive session.
+	 */
+	hermeticWorkers?: boolean;
 	promptMode?: "replace" | "append";
 	groupJoin?: "off" | "group" | "smart";
 	groupJoinAckTimeoutMs?: number;

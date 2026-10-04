@@ -212,16 +212,17 @@ test("buildPiWorkerArgs emits agent extensions at depth>0 (D5 open discovery)", 
 	};
 	const result = buildPiWorkerArgs({ task: "test", agent: agentWithExt });
 	const extFlags = result.args.filter((a) => a === "--extension").length;
-	// D5 (spec v0.7 §6): extension discovery is OPEN — agent-declared
-	// extensions pass through after the always-present prompt-runtime.
+	// R3-19/D5 reversal (2026-10-04): extension discovery is now HERMETIC by
+	// default (--no-extensions), while agent-declared extensions STILL pass
+	// through after the always-present prompt-runtime (cli.md:186-187:
+	// explicit -e paths still load).
 	assert.equal(extFlags, 3, `expected 3 --extension (prompt-runtime + 2 declared), got ${extFlags}`);
 	assert.ok(
 		result.args.includes("/home/u/.pi/agent/npm/node_modules/pi-commandcode-provider/index.ts"),
-		"agent extension must pass through (D5)",
+		"agent extension must pass through (explicit -e survives --no-extensions)",
 	);
 	assert.ok(result.args.includes("/tmp/another-ext.ts"), "second extension must pass through");
-	// --no-extensions is gone (extension discovery open like the main session)
-	assert.ok(!result.args.includes("--no-extensions"), "--no-extensions must NOT be present");
+	assert.ok(result.args.includes("--no-extensions"), "--no-extensions must be present (hermetic default)");
 });
 
 test("buildPiWorkerArgs without agent extensions emits only prompt-runtime", () => {

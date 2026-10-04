@@ -389,8 +389,10 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		modelFallback: parseModelFallbackConfig(obj.modelFallback),
 		// F19-1 discipline: every key declared in types.ts + schema MUST be
 		// emitted here or the config key is dead (runtime.sessionRecovery —
-		// W2/P1-1; runtime.workerTransport — W7/P2-3, experimental).
+		// W2/P1-1; runtime.workerTransport — W7/P2-3, experimental;
+		// runtime.hermeticWorkers — R3-19/D5 reversal, hermetic spawns).
 		sessionRecovery: parseWithSchema(Type.Boolean(), obj.sessionRecovery),
+		hermeticWorkers: parseWithSchema(Type.Boolean(), obj.hermeticWorkers),
 		workerTransport: parseWithSchema(Type.Union([Type.Literal("stdio"), Type.Literal("rpc")]), obj.workerTransport),
 	};
 	return Object.values(runtime).some((entry) => entry !== undefined) ? runtime : undefined;

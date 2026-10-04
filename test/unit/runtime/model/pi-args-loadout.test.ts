@@ -17,12 +17,24 @@ function agent(fields: Partial<AgentConfig> = {}): AgentConfig {
 	} as AgentConfig;
 }
 
-test("default loadout is FULL session: no --no-extensions/--no-skills/--tools", () => {
-	const { args } = buildPiWorkerArgs({ task: "Task: do it", agent: agent() });
-	assert.ok(!args.includes("--no-extensions"), "must not disable extension discovery");
-	assert.ok(!args.includes("--no-skills"), "must not disable skills discovery");
+test("default loadout is hermetic: --no-extensions ON, no --no-skills/--tools", () => {
+	const { args } = buildPiWorkerArgs({ task: "Task: do it", agent: agent(), env: {} });
+	// R3-19/D5 reversal (2026-10-04): ambient extension discovery is cut by
+	// default (≈1.37s/spawn saved + 8 MCP tools + 5 host tools removed), while
+	// the explicit prompt-runtime -e below survives (cli.md:186-187).
+	assert.ok(args.includes("--no-extensions"), "hermetic default must disable ambient extension discovery");
+	assert.ok(!args.includes("--no-skills"), "skills discovery still on unless agent opts out");
 	assert.ok(!args.includes("--tools"), "must not restrict tools when agent declares none");
 	assert.ok(!args.includes("--exclude-tools"), "must not exclude tools by default");
+	assert.ok(
+		args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")),
+		"prompt-runtime must stay (explicit -e survives --no-extensions)",
+	);
+});
+
+test("R3-19/D5 off-switch: hermeticWorkers:false restores ambient discovery", () => {
+	const { args } = buildPiWorkerArgs({ task: "Task: do it", agent: agent(), hermeticWorkers: false, env: {} });
+	assert.ok(!args.includes("--no-extensions"), "explicit config off-switch removes the flag");
 	assert.ok(
 		args.some((a, i) => a === "--extension" && args[i + 1]?.includes("prompt-runtime")),
 		"prompt-runtime must stay",

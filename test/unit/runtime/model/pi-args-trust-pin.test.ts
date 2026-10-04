@@ -95,6 +95,9 @@ test("D1: surface TUI spawn strips --no-approve (interactive trust prompt stays)
 		assert.ok(sentMatch, `pane command shape: ${sent[0]}`);
 		const script = readFileSync(sentMatch[1] as string, "utf8");
 		assert.ok(!script.includes("--no-approve"), "surface pane command must NOT carry --no-approve");
+		// D5 (R3-19): same strip covers --no-extensions — the default-hermetic
+		// worker argv carries it, but a pane keeps the ambient interactive stack.
+		assert.ok(!script.includes("--no-extensions"), "surface pane command must NOT carry --no-extensions");
 		// Positive control: surface panes pin --tui-mode regular (P0-1) — proves
 		// the captured script IS the pane pi command, just without the flag.
 		assert.ok(script.includes("--tui-mode"), "sanity: the launch script carries the surface pi command");

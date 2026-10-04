@@ -450,6 +450,11 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "boolean",
 		doc: "W2 session-file recovery override for killed workers (exitCode null / killed): '0' disables, '1' forces on — beats ChildPiRunInput.sessionRecovery / runtime.sessionRecovery; default ON (session-recovery.ts:resolveSessionRecoveryEnabled)",
 	},
+	PI_CREW_HERMETIC_WORKERS: {
+		name: "PI_CREW_HERMETIC_WORKERS",
+		parser: "boolean",
+		doc: "R3-19/D5 hermetic worker spawn override: '1' forces --no-extensions on worker argv, '0' restores the old ambient-stack parity (discovered/configured/built-in extensions load); beats BuildPiWorkerArgsInput.hermeticWorkers / runtime.hermeticWorkers; default ON (pi-args.ts:resolveHermeticWorkers). Explicit -e prompt-runtime + agent extensions + --skill flags are unaffected (cli.md:186-191)",
+	},
 	PI_CREW_WORKER_TRANSPORT: {
 		name: "PI_CREW_WORKER_TRANSPORT",
 		doc: "W7 EXPERIMENTAL worker transport gate: 'rpc' selects the prototype RPC frame-client (src/runtime/rpc/) — the run-worker seam currently returns a structured not-implemented result instead of spawning; anything else/unset → default stdio child-pi path (rpc-worker.ts resolveWorkerTransport)",

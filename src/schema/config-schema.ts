@@ -81,6 +81,12 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 		// PI_CREW_SESSION_RECOVERY overrides. Kill switch, not a secret — no
 		// sensitive mark (same policy as surface: picks behavior, not authority).
 		sessionRecovery: Type.Optional(Type.Boolean()),
+		// R3-19/D5 reversal: hermetic worker spawns (--no-extensions on worker
+		// argv; explicit -e prompt-runtime + --skill flags unaffected). Default
+		// TRUE — off-switch for operators who want the old ambient-stack parity.
+		// Env PI_CREW_HERMETIC_WORKERS overrides either way. Behavior pick, not
+		// authority — no sensitive mark.
+		hermeticWorkers: Type.Optional(Type.Boolean()),
 		promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
 		groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),
 		groupJoinAckTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),

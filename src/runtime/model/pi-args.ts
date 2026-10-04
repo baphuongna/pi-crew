@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
+import { getCrewEnvBool } from "../../config/env-vars.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { hasRunStateLayout, packageRoot, userPiRoot } from "../../utils/paths.ts";
 
@@ -67,6 +68,13 @@ export interface BuildPiWorkerArgsInput {
 	 *  2026-10-04 (/tmp/pi-r3impl): the append channel and AGENTS.md discovery
 	 *  (project_context section) coexist in one system message. */
 	systemPromptAppend?: string;
+	/** R3-19/D5 (hermetic worker spawns): pass `--no-extensions` on the worker
+	 *  argv. Resolved via resolveHermeticWorkers — env
+	 *  PI_CREW_HERMETIC_WORKERS beats this beats default TRUE. Explicit `-e
+	 *  prompt-runtime` (pushed unconditionally below), agent `extensions:`
+	 *  declarations, and `--skill` flags are unaffected (cli.md:186-191:
+	 *  explicit -e and --skill survive --no-extensions/--no-skills). */
+	hermeticWorkers?: boolean;
 }
 
 export interface BuildPiWorkerArgsResult {
@@ -108,6 +116,17 @@ export function resolveCrewMaxDepth(inputMaxDepth?: number, env: NodeJS.ProcessE
 		return 10;
 	}
 	return DEFAULT_MAX_CREW_DEPTH;
+}
+
+/**
+ * R3-19/D5 (hermetic worker spawns): resolution order mirrors
+ * resolveSessionRecoveryEnabled — env PI_CREW_HERMETIC_WORKERS beats the
+ * explicit config/runtime value beats default TRUE.
+ */
+export function resolveHermeticWorkers(explicit?: boolean): boolean {
+	const env = getCrewEnvBool("PI_CREW_HERMETIC_WORKERS");
+	if (env !== undefined) return env;
+	return explicit ?? true;
 }
 
 export function checkCrewDepth(
@@ -310,8 +329,13 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		args.push("--thinking", effectiveThinking);
 	}
 
-	// D5 (spec v0.7 §6): default loadout = FULL session (như main session).
-	// --no-extensions/--no-skills/--tools CHỈ xuất hiện khi agent .md khai explicit.
+	// D5 (spec v0.7 §6): default loadout = FULL session (như main session) —
+	// --no-skills/--tools CHỈ xuất hiện khi agent .md khai explicit. R3-19/D5
+	// reversal (2026-10-04): extension discovery is now hermetic by default
+	// (--no-extensions below, off-switch runtime.hermeticWorkers / env
+	// PI_CREW_HERMETIC_WORKERS) — the ambient package stack cost ~1.37s/spawn
+	// and leaked 8 direct-exposure MCP tools + 5 host tools into every worker
+	// (probe C §R3b.6: 431ms vs 1806ms to first stdout record).
 	// "message" MUST stay in CONTROL_TOOLS: it is registered by prompt-runtime
 	// behind the PI_CREW_MSG_ENABLED dormant-env gate (child-pi-spawn.ts sets it
 	// unconditionally), but pi's --tools allowlist filters the tool SURFACE — a
@@ -364,7 +388,13 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	const excluded = new Set((input.agent.excludeExtensions ?? []).map((name) => path.basename(name).toLowerCase()));
 	declaredExtensions = declaredExtensions.filter((ext) => !excluded.has(path.basename(ext).toLowerCase()));
 	for (const ext of declaredExtensions) args.push("--extension", ext);
-	// KHÔNG còn --no-extensions (extension discovery hoạt động như main session).
+	// R3-19/D5: hermetic spawns — disable discovered/configured/built-in
+	// extensions on worker argv. cli.md:186-187: "Explicit -e paths still
+	// load" — the unconditional prompt-runtime push above and the agent
+	// `extensions:` declarations below survive; --skill flags are a separate
+	// gate. Default ON (resolveHermeticWorkers); surface TUI panes strip the
+	// flag (child-pi.ts stripHeadlessOnlyFlags).
+	if (resolveHermeticWorkers(input.hermeticWorkers)) args.push("--no-extensions");
 	if (input.agent.inheritSkills === false) args.push("--no-skills");
 	for (const skillPath of input.skillPaths ?? []) args.push("--skill", skillPath);
 
