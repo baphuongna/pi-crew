@@ -84,8 +84,15 @@ function taskStatusIcon(task: TeamTaskState): string {
 	}
 }
 
-/** `45s` / `2m 49s` / `1h 03m`. */
-function formatDuration(ms: number): string {
+/**
+ * Plan-card elapsed dialect (QW#5): `45s` / `2m 49s` / `1h 03m`, empty
+ * string for non-finite/negative input. Deliberately NOT ui/format-helpers'
+ * canonical `formatDuration` (that one renders `12.3s`/`3m5s` with no hours
+ * bucket and no invalid-input guard) — the spaced, zero-padded, hour-capable
+ * format here is pinned by the pi-tasks plan-card display. Renamed from a
+ * local `formatDuration` to end the three-way name collision.
+ */
+function formatTaskElapsed(ms: number): string {
 	if (!Number.isFinite(ms) || ms < 0) return "";
 	const totalSeconds = Math.floor(ms / 1000);
 	if (totalSeconds < 60) return `${totalSeconds}s`;
@@ -110,7 +117,7 @@ function runningSuffix(task: TeamTaskState): string {
 	const start = Date.parse(task.startedAt ?? "");
 	if (Number.isFinite(start) && start > 0) {
 		const end = task.finishedAt ? Date.parse(task.finishedAt) : Date.now();
-		const elapsed = formatDuration(end - start);
+		const elapsed = formatTaskElapsed(end - start);
 		if (elapsed) parts.push(elapsed);
 	}
 	const input = task.usage?.input ?? 0;

@@ -12,6 +12,17 @@ export function formatTokens(n: number): string {
 	return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/**
+ * Canonical generic duration formatter (QW#5 collision resolution):
+ * `45ms` / `12.3s` / `3m5s` / `75m` — minutes are unbounded (no hours
+ * bucket) and there is no invalid-input guard. Two same-stemmed helpers are
+ * DELIBERATELY separate dialects and must not be merged into this one
+ * (their output formats are design-pinned):
+ *   - `formatTaskElapsed` (ui/widget/task-list.ts) — plan-card elapsed:
+ *     `2m 49s` / `1h 03m`, empty string on invalid input.
+ *   - `formatRelativeCompact` (utils/relative-time.ts) — relative-time
+ *     ladder buckets `84m` / `14h` / `2d14h`.
+ */
 export function formatDuration(ms: number): string {
 	if (ms < 1000) return `${ms}ms`;
 	if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
