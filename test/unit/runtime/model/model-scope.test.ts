@@ -44,7 +44,7 @@ describe("matchesModelPattern", () => {
 		assert.equal(matchesModelPattern("openai/gpt-4o", "anthropic/claude-opus-4-5"), false);
 	});
 
-	it("matches glob with single '*' wildcard (unanchored — matches anywhere)", () => {
+	it("matches glob against the configured form AND the bare id (canonical tries both)", () => {
 		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "claude-*"), true);
 		assert.equal(matchesModelPattern("anthropic/claude-haiku-4-5", "claude-*"), true);
 		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "*sonnet*"), false);
@@ -53,7 +53,7 @@ describe("matchesModelPattern", () => {
 		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "github-copilot/*"), false);
 	});
 
-	it("falls back to case-insensitive substring when no '*' in pattern", () => {
+	it("falls back to case-insensitive substring when no glob chars in pattern", () => {
 		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "opus"), true);
 		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "Opus"), true);
 		assert.equal(matchesModelPattern("openai/gpt-4o", "opus"), false);
@@ -66,6 +66,129 @@ describe("matchesModelPattern", () => {
 	});
 });
 
+describe("matchesModelPattern — R3-20 divergence 1: `:<thinking>` suffix", () => {
+	it("strips a valid thinking suffix from the PATTERN (the false-hard-error fix)", () => {
+		// enabledModels carries `anthropic/claude-sonnet-5:high`; the resolved
+		// model is the plain id — must be in scope, not E013.
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-5", "anthropic/claude-sonnet-5:high"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-5", "sonnet:high"), true);
+	});
+
+	it("strips a valid thinking suffix from the MODEL id (resolved candidates keep `:high`)", () => {
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-5:high", "anthropic/claude-sonnet-5"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-5:high", "anthropic/*"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-5:high", "anthropic/claude-sonnet-5:low"), true);
+	});
+
+	it("recognizes all canonical level names on the pattern side", () => {
+		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+			assert.equal(matchesModelPattern("anthropic/claude-x", `anthropic/claude-x:${level}`), true, level);
+		}
+	});
+
+	it("glob branch strips one VALID suffix (canonical glob rule: `provider/*:high`)", () => {
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-5", "anthropic/*:high"), true);
+		// Invalid level names are NOT stripped in the glob branch (canonical
+		// keeps the raw glob when the suffix is not a valid level).
+		assert.equal(matchesModelPattern("anthropic/claude-x", "anthropic/*:higher"), false);
+	});
+
+	it("level names are case-sensitive: `:HIGH` is not a valid glob suffix, but the fuzzy branch still recurses", () => {
+		// Glob branch: `:HIGH` invalid → not stripped → no match.
+		assert.equal(matchesModelPattern("anthropic/claude-x", "anthropic/*:HIGH"), false);
+		// Fuzzy branch (no glob chars): parseModelPattern recurses on the
+		// prefix for invalid suffixes (with a warning) → membership follows prefix.
+		assert.equal(matchesModelPattern("anthropic/claude-x", "claude-x:HIGH"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-x", "claude-x:notalevel"), true);
+	});
+
+	it("multi-colon patterns strip progressively (fuzzy recursion)", () => {
+		assert.equal(matchesModelPattern("claude-x", "claude-x:high:off"), true);
+	});
+
+	it("preserves colon-ful model ids that are not thinking suffixes (OpenRouter style)", () => {
+		// `:exacto` is not a valid level → the MODEL id keeps it.
+		assert.equal(matchesModelPattern("openrouter/model:exacto", "openrouter/model:exacto"), true);
+		assert.equal(matchesModelPattern("openrouter/model:exacto", "openrouter/*"), true);
+		// Pattern side: canonical scope mode recurses through invalid suffixes
+		// (parseModelPattern strips + warns), so the prefix still decides.
+		assert.equal(matchesModelPattern("openrouter/model", "openrouter/model:exacto"), true);
+	});
+});
+
+describe("matchesModelPattern — R3-20 divergence 2: `?` and `[` glob chars", () => {
+	it("treats `?` as a glob char (single non-separator char), not a substring", () => {
+		assert.equal(matchesModelPattern("openai/gpt-4o", "gpt-?o"), true);
+		assert.equal(matchesModelPattern("openai/gpt-4o", "openai/gpt-?o"), true);
+		assert.equal(matchesModelPattern("openai/gpt-44o", "gpt-?o"), false);
+		// `?` must NOT cross `/` (minimatch semantics).
+		assert.equal(matchesModelPattern("openai/gpt-4o", "openai?gpt-4o"), false);
+	});
+
+	it("supports character classes with `!` and `^` negation", () => {
+		assert.equal(matchesModelPattern("anthropic/claude-x", "anthropic/[cg]laude-x"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-x", "anthropic/[dz]laude-x"), false);
+		assert.equal(matchesModelPattern("anthropic/claude-x", "anthropic/[!z]laude-x"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-x", "anthropic/[!c]laude-x"), false);
+		assert.equal(matchesModelPattern("anthropic/claude-x", "anthropic/[^z]laude-x"), true);
+	});
+
+	it("treats an unmatched `[` as a literal", () => {
+		assert.equal(matchesModelPattern("openai/gpt-4o[mini", "gpt-4o[mini"), true);
+	});
+});
+
+describe("matchesModelPattern — R3-20 divergence 4: provider/id AND bare-id glob forms", () => {
+	it("bare-id glob hit: provider-scoped string matched by an id-only glob", () => {
+		// Old matcher required the glob to match the full `provider/id` string.
+		assert.equal(matchesModelPattern("openai/gpt-5-mini", "gpt-5*"), true);
+		assert.equal(matchesModelPattern("openai/gpt-4o", "openai/*"), true);
+		assert.equal(matchesModelPattern("openai/gpt-4o", "anthropic/*"), false);
+	});
+
+	it("`*` alone matches any model via the bare-id form", () => {
+		assert.equal(matchesModelPattern("anything/model-x", "*"), true);
+		assert.equal(matchesModelPattern("model-x", "*"), true);
+	});
+
+	it("bare id = segment after the FIRST slash (openrouter ids contain slashes)", () => {
+		assert.equal(matchesModelPattern("openrouter/moonshotai/kimi-k2.6", "openrouter/moonshotai/*"), true);
+		assert.equal(matchesModelPattern("openrouter/moonshotai/kimi-k2.6", "moonshotai/*"), true);
+		assert.equal(matchesModelPattern("openrouter/moonshotai/kimi-k2.6", "openrouter/*"), false);
+	});
+});
+
+describe("matchesModelPattern — R3-20 divergence 3: display-name fuzzy (documented residual)", () => {
+	it("display-name-only patterns stay unmatched without the catalog", () => {
+		// Canonical fuzzy also matches model display `name`s
+		// (model-resolver.js:114-115); a pure string matcher cannot replicate
+		// that. Documented residual gap — see model-scope.ts header.
+		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "Claude Opus 4.5"), false);
+		// Id-substring patterns still work (the common case).
+		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "Opus"), true);
+	});
+});
+
+describe("matchesModelPattern — boundary", () => {
+	it("no negation support (canonical enabledModels has none)", () => {
+		// A leading `!` is matched literally, never treated as a negator.
+		assert.equal(matchesModelPattern("anthropic/claude-x", "!claude-*"), false);
+	});
+});
+
+describe("matchesModelPattern — regression: patterns used in pi docs/config examples", () => {
+	it("docs example set keeps its verdicts", () => {
+		// cli.md --models / settings.md enabledModels examples.
+		assert.equal(matchesModelPattern("anthropic/claude-opus-4-5", "anthropic/claude-opus-4-5"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-4-5", "claude-*"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-4-5", "*sonnet*"), true);
+		assert.equal(matchesModelPattern("github-copilot/gpt-5.4", "github-copilot/*"), true);
+		assert.equal(matchesModelPattern("anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5:high"), true);
+		// `--models sonnet:high,haiku:low` arrives here as separate elements.
+		assert.equal(matchesModelPattern("anthropic/claude-haiku-4-5", "haiku:low"), true);
+	});
+});
+
 describe("patternToRegExp", () => {
 	it("escapes regex meta-characters", () => {
 		// '.' must be literal, not regex any-char.
@@ -73,10 +196,29 @@ describe("patternToRegExp", () => {
 		assert.equal(patternToRegExp("a.b").test("a.b"), true);
 	});
 
-	it("converts '*' to .* (unanchored — matches anywhere)", () => {
+	it("converts '*' to a non-slash run (minimatch: `*` does not cross '/')", () => {
 		assert.equal(patternToRegExp("claude-*").test("claude-opus"), true);
-		assert.equal(patternToRegExp("claude-*").test("anthropic/claude-opus-4-5"), true);
+		// Cross-segment matching is matchesModelPattern's job (it retries the
+		// bare-id form, like canonical minimatch(fullId) || minimatch(id)).
+		assert.equal(patternToRegExp("claude-*").test("anthropic/claude-opus-4-5"), false);
 		assert.equal(patternToRegExp("*sonnet*").test("gpt-4o-sonnet-preview"), true);
+		assert.equal(patternToRegExp("*sonnet*").test("openai/gpt-4o-sonnet-preview"), false);
+	});
+
+	it("supports `?` and character classes", () => {
+		assert.equal(patternToRegExp("gpt-?o").test("gpt-4o"), true);
+		assert.equal(patternToRegExp("gpt-?o").test("gpt-44o"), false);
+		assert.equal(patternToRegExp("[cg]laude").test("claude"), true);
+		assert.equal(patternToRegExp("[cg]laude").test("dlaude"), false);
+		assert.equal(patternToRegExp("[!c]laude").test("dlaude"), true);
+		assert.equal(patternToRegExp("[!c]laude").test("claude"), false);
+		assert.equal(patternToRegExp("a[b").test("a[b"), true);
+	});
+
+	it("whole-segment `**` crosses separators but still needs the preceding '/'", () => {
+		assert.equal(patternToRegExp("anthropic/**").test("anthropic/claude-x"), true);
+		assert.equal(patternToRegExp("anthropic/**").test("anthropic"), false);
+		assert.equal(patternToRegExp("a/**").test("a/b/c"), true);
 	});
 
 	it("is case-insensitive", () => {
@@ -183,6 +325,35 @@ describe("buildConfiguredModelRouting — F7 scope gate", () => {
 		assert.equal(result.scopeVerdict?.inScope, true);
 		assert.equal(result.scopeVerdict?.source, "caller");
 		assert.equal(result.scopeVerdict?.matchedPattern, "claude-*");
+	});
+
+	it("R3-20: `:<thinking>` suffix in patterns no longer false-rejects caller models", () => {
+		// The reported bug: enabledModels carries `provider/model:high`, the
+		// plain resolved model got a hard E013 out-of-scope error.
+		const cwd = freshCwd();
+		const input = (extra: Record<string, unknown>) => ({
+			...baseInput(cwd),
+			modelRegistry: mockModelRegistry(["openai/gpt-4o", "anthropic/claude-sonnet-5"]),
+			...extra,
+		});
+		const result = buildConfiguredModelRouting(
+			input({
+				overrideModel: "anthropic/claude-sonnet-5",
+				scopeModelsPatterns: ["anthropic/claude-sonnet-5:high"],
+			}),
+		);
+		assert.equal(result.scopeVerdict?.inScope, true);
+		assert.equal(result.scopeVerdict?.source, "caller");
+		assert.equal(result.scopeVerdict?.matchedPattern, "anthropic/claude-sonnet-5:high");
+
+		// Resolved model carrying the suffix, pattern without it.
+		const result2 = buildConfiguredModelRouting(
+			input({
+				overrideModel: "anthropic/claude-sonnet-5:high",
+				scopeModelsPatterns: ["anthropic/*"],
+			}),
+		);
+		assert.equal(result2.scopeVerdict?.inScope, true);
 	});
 
 	it("frontmatter agent model out-of-scope → returns verdict, NO throw", () => {

@@ -11,11 +11,34 @@
  *   - defaultSubagentModel / parentModel-inherited out-of-scope
  *     → WARNING + runs anyway (soft warn, same as frontmatter).
  *
- * Pattern semantics match pi's `--models` CLI / `enabledModels` allowlist:
- *   - `"anthropic/claude-opus-4-5"` — exact match (case-insensitive).
- *   - `"claude-*"`, `"*sonnet*"`, `"github-copilot/*"` — glob (single `*`).
- *   - Any other string — case-insensitive substring fallback (pi's
- *     `tryMatchModel` behavior, model-resolver.ts).
+ * Pattern semantics mirror pi 1.0.0's canonical `resolveModelScopeFromModels()`
+ * (SDK `core/model-resolver.js:204-270`) and `parseModelPattern()` (:155-200) —
+ * R3-20 alignment (docs/reviews/pi-1.0.0-deep-learn-r3-2026-10-03.md §R3b.3):
+ *   - Optional `:<thinking>` suffix (`off|minimal|low|medium|high|xhigh|max`,
+ *     case-sensitive) is stripped from patterns AND resolved model ids before
+ *     matching, so `anthropic/claude-sonnet-5:high` in enabledModels no longer
+ *     falsely rejects the plain model id (hard-error bug).
+ *   - A pattern containing ANY of `*`, `?`, `[` is a glob, translated with
+ *     minimatch semantics (`*`/`?` do not cross `/`, `[...]`/`[!...]` classes,
+ *     whole-segment `**` crosses separators), anchored + case-insensitive.
+ *   - Globs are tried against BOTH the configured `provider/id` form and the
+ *     bare model id (after the first `/`), mirroring
+ *     `minimatch(fullId, p) || minimatch(id, p)` — so `gpt-5*` matches
+ *     `openai/gpt-5-mini`.
+ *   - Non-glob patterns fall back to case-insensitive substring, progressively
+ *     stripping trailing colon suffixes (mirrors parseModelPattern's
+ *     recursion: valid levels become thinking hints, invalid ones are
+ *     recursed through with a warning — membership still follows the prefix).
+ *
+ * Why reimplement instead of importing the canonical matcher: the SDK does
+ * NOT export `resolveModelScopeFromModels` from the package root (runtime-
+ * verified: only `resolveModelScopeWithDiagnostics` is exported, and it needs
+ * a live async `ModelRuntime` + catalog I/O). This gate is synchronous and
+ * this module is pure by design, so an exact-semantics reimplementation is
+ * the only import-compatible option. Residual divergence (documented, not
+ * fixable string-level): canonical fuzzy also matches model display `name`s
+ * (`model-resolver.js:114-115`), which requires the catalog — display-name-
+ * only patterns (e.g. `"Claude Opus 4.5"`) stay unmatched here.
  *
  * This module is pure (no I/O, no globals). Reading the actual
  * `enabledModels` from pi's settings is the caller's job (instantiate
@@ -41,37 +64,134 @@ export interface ModelScopeCheck {
 }
 
 /**
- * Convert a glob pattern with `*` wildcards into a RegExp.
- * Escape all regex meta-characters except `*`, which becomes `.*`.
- * Anchored (^...$) and case-insensitive.
+ * Valid `:<thinking>` level names — mirrors pi's `VALID_THINKING_LEVELS`
+ * (SDK `cli/args.js`). Matched case-sensitively, exactly like the canonical
+ * `isValidThinkingLevel()`, so OpenRouter-style ids (`foo:exacto`) and
+ * mistyped levels (`:HIGH`) are NOT treated as thinking suffixes.
+ */
+const VALID_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+function isValidThinkingLevel(level: string): boolean {
+	return (VALID_THINKING_LEVELS as readonly string[]).includes(level);
+}
+
+/**
+ * Strip one trailing VALID `:<thinking>` suffix — the canonical glob-branch
+ * rule (model-resolver.js:214-222). Invalid suffixes are left in place here;
+ * the fuzzy branch strips them progressively instead (parseModelPattern
+ * recursion) — see matchesModelPattern.
+ */
+function stripValidThinkingSuffix(value: string): string {
+	const colonIdx = value.lastIndexOf(":");
+	if (colonIdx === -1) return value;
+	return isValidThinkingLevel(value.substring(colonIdx + 1)) ? value.substring(0, colonIdx) : value;
+}
+
+/** Does the pattern contain glob characters? Canonical test: `*`, `?` or `[`. */
+function hasGlobChars(pattern: string): boolean {
+	return pattern.includes("*") || pattern.includes("?") || pattern.includes("[");
+}
+
+/** Escape a literal character for use in a RegExp body. */
+function escapeRegExpChar(ch: string): string {
+	return /[.+^${}()|[\]\\]/.test(ch) ? `\\${ch}` : ch;
+}
+
+/**
+ * Convert a glob pattern into an anchored, case-insensitive RegExp with
+ * minimatch semantics (canonical uses `minimatch(p, { nocase: true })`):
+ *   - `*`  → `[^/]*` (any run of non-separator chars; does NOT cross `/`)
+ *   - `?`  → `[^/]` (exactly one non-separator char)
+ *   - `[...]` / `[!...]` / `[^...]` → character class (both `!` and `^` negate)
+ *   - `[` without a closing `]` → literal `[`
+ *   - a whole-segment run of `**` → `.*` (crosses separators, but still
+ *     requires the preceding `/` — `anthropic/**` does not match `anthropic`)
+ *   - everything else → regex-escaped literal
  */
 export function patternToRegExp(pattern: string): RegExp {
-	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
-	return new RegExp(`${escaped.replace(/\*/g, ".*")}`, "i");
+	let out = "^";
+	for (let i = 0; i < pattern.length; i++) {
+		const ch = pattern[i];
+		if (ch === "*") {
+			let end = i;
+			while (end < pattern.length && pattern[end] === "*") end++;
+			const wholeSegment = (i === 0 || pattern[i - 1] === "/") && (end === pattern.length || pattern[end] === "/");
+			out += end - i >= 2 && wholeSegment ? ".*" : "[^/]*";
+			i = end - 1;
+		} else if (ch === "?") {
+			out += "[^/]";
+		} else if (ch === "[") {
+			const closing = pattern.indexOf("]", i + 1);
+			let inner = closing === -1 ? "" : pattern.substring(i + 1, closing);
+			let negated = false;
+			if (inner.startsWith("!") || inner.startsWith("^")) {
+				negated = true;
+				inner = inner.substring(1);
+			}
+			if (closing === -1 || inner.length === 0) {
+				// Unmatched `[` (or empty class `[]`/`[!]`) → literal, like minimatch.
+				out += "\\[";
+			} else {
+				let cls = "";
+				for (const c of inner) {
+					if (c === "\\") cls += "\\\\";
+					else if (c === "]") cls += "\\]";
+					else cls += c;
+				}
+				out += `[${negated ? "^" : ""}${cls}]`;
+				i = closing;
+			}
+		} else {
+			out += escapeRegExpChar(ch);
+		}
+	}
+	return new RegExp(`${out}$`, "i");
 }
 
 /**
  * Does a model id match a single allowlist pattern?
- * Semantics (in order):
- *   1. Exact case-insensitive match.
- *   2. Glob match (pattern contains `*`).
- *   3. Case-insensitive substring match (pi's fallback).
+ * Mirrors the canonical `resolveModelScopeFromModels()` per-pattern flow:
+ *   - Glob branch (pattern contains `*`, `?` or `[`): strip one VALID
+ *     `:<thinking>` suffix, try the exact reference first, then match the
+ *     glob against BOTH the configured string and its bare-id form
+ *     (`minimatch(fullId, p) || minimatch(id, p)`, model-resolver.js:228-232).
+ *   - Fuzzy branch (parseModelPattern): substring match, progressively
+ *     stripping trailing colon suffixes until a hit or no colon remains.
  * Returns true on first hit; false otherwise.
  */
 export function matchesModelPattern(modelId: string, pattern: string): boolean {
 	if (!modelId || !pattern) return false;
-	const id = modelId.trim();
-	const pat = pattern.trim();
-	if (!id || !pat) return false;
-	if (id.toLowerCase() === pat.toLowerCase()) return true;
-	if (pat.includes("*")) {
+	const rawId = modelId.trim();
+	const rawPat = pattern.trim();
+	if (!rawId || !rawPat) return false;
+	// Canonical compares thinking-less base ids: pi-crew's resolved candidates
+	// keep their `:high` suffix (splitThinkingSuffix), and user patterns may
+	// carry one — strip valid suffixes from BOTH sides before matching.
+	const id = stripValidThinkingSuffix(rawId);
+	// Bare-id form = everything after the FIRST `/` (the provider segment);
+	// openrouter-style ids can themselves contain slashes.
+	const bareId = id.includes("/") ? id.substring(id.indexOf("/") + 1) : id;
+	if (hasGlobChars(rawPat)) {
+		const glob = stripValidThinkingSuffix(rawPat);
+		if (id.toLowerCase() === glob.toLowerCase() || bareId.toLowerCase() === glob.toLowerCase()) {
+			return true;
+		}
 		try {
-			return patternToRegExp(pat).test(id);
+			const re = patternToRegExp(glob);
+			return re.test(id) || re.test(bareId);
 		} catch {
 			return false;
 		}
 	}
-	return id.toLowerCase().includes(pat.toLowerCase());
+	let pat = rawPat;
+	for (;;) {
+		// Substring over the configured form is a superset of canonical's
+		// exact-then-substring over the same string, so verdicts agree.
+		if (id.toLowerCase().includes(pat.toLowerCase())) return true;
+		const colonIdx = pat.lastIndexOf(":");
+		if (colonIdx === -1) return false;
+		pat = pat.substring(0, colonIdx);
+	}
 }
 
 /**
