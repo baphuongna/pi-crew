@@ -71,3 +71,30 @@ test("sessionEnabled:false (--no-session) skips the session flags — nothing pe
 	assert.equal(args.includes("--session-id"), false);
 	assert.equal(args.includes("--session-dir"), false);
 });
+
+// ── R3-15: --name crew-<taskId> session display label ─────────────────────
+
+test("R3-15: taskId emits --name crew-<taskId> after the session flags", () => {
+	const { args } = build({ taskId: "01_01-agent", sessionId: "01_01-agent", sessionDir: "/d" });
+	assert.equal(argValue(args, "--name"), "crew-01_01-agent");
+	// Order: headless cluster → session-id → session-dir → name → everything else.
+	const nameIdx = args.indexOf("--name");
+	assert.ok(nameIdx > args.indexOf("--session-dir"), "--name must follow the session flags");
+	assert.ok(args.findIndex((a) => a.startsWith("@")) > nameIdx, "--name must not trail the task file positional");
+});
+
+test("R3-15: no taskId leaves the argv shape untouched (legacy callers unchanged)", () => {
+	const { args } = build({});
+	assert.equal(args.includes("--name"), false, "--name must only appear when taskId is provided");
+});
+
+test("R3-15: sessionEnabled:false skips --name too — no persisted session to label", () => {
+	const { args } = build({ sessionEnabled: false, taskId: "01_01-agent" });
+	assert.equal(args.includes("--name"), false);
+});
+
+test("R3-15: taskId works without session identity fields (name needs no session-id)", () => {
+	const { args } = build({ taskId: "02_05-verifier" });
+	assert.equal(argValue(args, "--name"), "crew-02_05-verifier");
+	assert.equal(args.includes("--session-id"), false, "session-id stays independently optional");
+});

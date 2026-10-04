@@ -270,6 +270,10 @@ export function prepareSpawnContext(
 		agent: input.agent,
 		model: input.model,
 		sessionEnabled: true,
+		// R3-15: human-facing `--name crew-<taskId>` session label (agentId IS the
+		// task id; anonymous spawns without one simply get no name — same
+		// optional-shape as sessionId/sessionDir above).
+		taskId: input.agentId,
 		// W2 (P1-1): deterministic session identity so crash-path tail-recovery
 		// can find the worker's session JSONL (see session-recovery.ts). Falls
 		// back to child-pi.ts deriveSessionPaths when unset (idempotent both ways).

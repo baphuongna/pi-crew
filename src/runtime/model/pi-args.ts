@@ -50,6 +50,15 @@ export interface BuildPiWorkerArgsInput {
 	 *  (`--session-dir`, SDK ≥ 0.30.0). Run-scoped per-worker dir, e.g.
 	 *  `<artifactsRoot>/sessions/<taskId>/` — lives and dies with run artifacts. */
 	sessionDir?: string;
+	/** R3-15 (Pi 1.0.0 deep-learn r3): worker task id for the human-facing
+	 *  session display name — emits `--name crew-<taskId>` (cli.md:100, `-n/--name`
+	 *  "Sets the session display name"). Cosmetic only: W2's deterministic
+	 *  --session-id stays the machine-readable correlation key. Emitted inside
+	 *  the sessionEnabled block (a name labels a persisted session; under
+	 *  --no-session nothing persists). NOT stripped for surface TUI panes — a
+	 *  display name is not headless-only, it labels the pane's session too
+	 *  (child-pi.ts stripHeadlessOnlyFlags stays untouched). */
+	taskId?: string;
 	maxDepth?: number;
 	skillPaths?: string[];
 	env?: NodeJS.ProcessEnv;
@@ -315,6 +324,10 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	if (input.sessionEnabled !== false) {
 		if (input.sessionId) args.push("--session-id", input.sessionId);
 		if (input.sessionDir) args.push("--session-dir", input.sessionDir);
+		// R3-15: human-facing display name — `crew-<taskId>` makes crew workers
+		// distinguishable in pi's session picker (flag predates nothing: -n/--name
+		// is a long-standing CLI flag, cli.md:100 — no capability gate needed).
+		if (input.taskId) args.push("--name", `crew-${input.taskId}`);
 	}
 
 	const resolvedModel = input.model ?? input.agent.model;
