@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 /**
- * wc-gate.mjs — Enforce the M4 done-gate: no module under src/runtime/ may
- * exceed 2000 lines (spec §5 M4 acceptance).
+ * wc-gate.mjs — Enforce the M4 done-gate: no module under src/ may exceed
+ * 2000 lines (spec §5 M4 acceptance).
+ *
+ * QW#3 (0.11.8 polish): the gate used to scan src/runtime/ ONLY, so the
+ * other subtrees (src/ui/, src/extension/, src/prompt/, src/state/, ...) were
+ * silently outside the limit. Scan root is now the whole of src/; the 2000
+ * limit is unchanged. As of this change the largest module is
+ * src/runtime/broker/crew-broker.ts (~1900 lines) — under the limit, so the
+ * allowlist below ships EMPTY.
  *
  * Exits 0 on green, 1 on violation. Run via `npm run check:wc-gate`
  * (also part of `ci` / `ci:fast` and the per-PR ci.yml workflow).
@@ -15,8 +22,21 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = fileURLToPath(new URL("../src/runtime/", import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const ROOT = join(REPO_ROOT, "src");
 const LIMIT = 2000;
+
+/**
+ * Modules exempt from the line limit (repo-relative posix paths, exact match).
+ * Bar for entry: generated code or pure data tables where a mechanical split
+ * would hurt navigation more than it helps — EVERY entry needs an inline
+ * rationale comment, and prose/logic modules must be refactored instead of
+ * allowlisted. Allowlisted files are reported (stderr) but do not fail the
+ * gate. Currently EMPTY — see header.
+ */
+const ALLOWLIST = new Set([
+	// "src/some/generated-table.ts", // rationale: ...
+]);
 
 /** @param {string} dir @returns {AsyncGenerator<string>} */
 async function* walk(dir) {
@@ -45,16 +65,26 @@ async function lineCount(p) {
 // derive from it.
 const all = [];
 const violations = [];
+const allowlistedOver = [];
 for await (const p of walk(ROOT)) {
 	const n = await lineCount(p);
 	all.push({ p, n });
-	if (n > LIMIT) violations.push(`${n}\t${p}`);
+	if (n > LIMIT) {
+		const rel = p.slice(REPO_ROOT.length);
+		if (ALLOWLIST.has(rel)) allowlistedOver.push(`${n}\t${rel}`);
+		else violations.push(`${n}\t${p}`);
+	}
+}
+
+if (allowlistedOver.length > 0) {
+	console.error(`wc-gate NOTE — ${allowlistedOver.length} allowlisted module(s) over ${LIMIT} lines (exempt, see ALLOWLIST rationale):`);
+	for (const v of allowlistedOver) console.error(`  ${v}`);
 }
 
 if (violations.length > 0) {
 	console.error(`wc-gate FAIL — ${violations.length} module(s) over ${LIMIT} lines:`);
 	for (const v of violations) console.error(`  ${v}`);
-	console.error(`M4 done-gate §5: no module under src/runtime/ may exceed ${LIMIT} lines.`);
+	console.error(`M4 done-gate §5 (QW#3: whole src/, not just src/runtime/): no module under src/ may exceed ${LIMIT} lines.`);
 	process.exit(1);
 }
 
