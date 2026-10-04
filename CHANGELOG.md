@@ -32,6 +32,27 @@
 - Legacy `@mariozechner/pi-coding-agent` fork resolution now warns once per process (staged
   deprecation; canonical `@earendil-works` path unaffected).
 
+### Added — deep-learn round 3 execution (see docs/reviews/pi-1.0.0-deep-learn-r3-2026-10-03.md)
+
+- **Compaction-surviving worker header (R3-1)** — the run-static worker context (protocol
+  block, mailbox contract, workspace structure) moved from the user message to the
+  `--append-system-prompt` channel (byte-preserving move; probe-verified coexistence with
+  AGENTS.md discovery). Auto-compaction summarizes the user-message span but never the system
+  prompt, so long runs keep exactly the context that must not be lost. Prompt breakdown now
+  reports `userPrompt`/`userAppend` channels separately.
+- **Worker provenance self-report (R3-2)** — the handoff template's new `### Provenance`
+  section asks workers to echo their `PI_SESSION_ID`/`PI_SESSION_FILE`/`PI_MODEL`/`PI_PROVIDER`/
+  `PI_REASONING_LEVEL` env — model provenance without log parsing.
+- **Hermetic worker spawns (D5/R3-19)** — headless workers now spawn with `--no-extensions`
+  (default on; off-switch `runtime.hermeticWorkers` / `PI_CREW_HERMETIC_WORKERS`). Kills the
+  ~1.37 s/spawn ambient extension stack and the ambient untrusted tool surface (8 direct-exposure
+  MCP tools). Explicit `-e` prompt-runtime injection and `--skill` flags unaffected; surface TUI
+  panes keep the ambient stack.
+- **Trust pin (D1/R3-3)** — worker spawns pin `--no-approve` unconditionally: worker trust is
+  machine-state-free (no ambient `~/.pi/agent/trust.json` dependence). Project trust does not
+  gate write capability and AGENTS.md discovery is unaffected (probe-verified); surface TUI
+  spawns keep the interactive prompt.
+
 ### Fixed / removed
 
 - Dead `persist: true` widget option removed (call site + compat strip + type alias).
