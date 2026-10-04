@@ -399,7 +399,11 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	const manifest: TeamRunManifest = ctx.manifest;
 	let task = ctx.task;
 	let tasks = ctx.tasks;
-	const prompt = ctx.prompt;
+	// R3-1: the child-pi worker's USER message is the dynamic suffix — the
+	// run-static header rides --append-system-prompt (compaction-safe).
+	// Fallback to the full prompt keeps hand-built contexts (tests, custom
+	// callers that skip pre-execution) on the old single-channel behavior.
+	const userPrompt = ctx.userPrompt ?? ctx.prompt;
 	const skillPaths = ctx.skillPaths;
 	const collectedJsonEvents = ctx.collectedJsonEvents;
 	const streamBridge: StreamBridgeHandle | undefined = ctx.streamBridge;
@@ -656,7 +660,8 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		try {
 			childResult = await runWorker({
 				cwd: task.cwd,
-				task: prompt,
+				task: userPrompt,
+				systemPromptAppend: ctx.systemPromptAppend,
 				agent: input.agent,
 				model,
 				signal: timeoutController.signal,

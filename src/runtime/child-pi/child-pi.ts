@@ -217,6 +217,11 @@ export interface ChildPiRunInput {
 	role?: string;
 	/** Team-role thinking override (takes precedence over agent.thinking). */
 	thinkingOverride?: string;
+	/** R3-1: run-static worker header for the --append-system-prompt channel
+	 *  (renderTaskPrompt().stablePrefix). Threaded by child-executor so the
+	 *  Protocol/mailbox/workspace/runtime-context block survives compaction
+	 *  instead of living in the summarizable user-message span. */
+	systemPromptAppend?: string;
 	/** Root directory for artifacts (used to validate transcriptPath). */
 	artifactsRoot?: string;
 	/** I5: run events JSONL path — threaded to the worker so its scratchpad

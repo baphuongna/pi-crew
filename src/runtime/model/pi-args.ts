@@ -56,6 +56,17 @@ export interface BuildPiWorkerArgsInput {
 	role?: string;
 	/** Per-role thinking override (teamRole.thinking). Takes precedence over agent.thinking. */
 	thinkingOverride?: string;
+	/** R3-1 (Pi 1.0.0 deep-learn round 3): run-static worker header (Protocol
+	 *  block, mailbox contract, workspace structure, runtime context) riding the
+	 *  `--append-system-prompt` channel instead of the user-message concatenation.
+	 *  Compaction summarizes the user-message span (compaction.md:150-160) but the
+	 *  system prompt survives intact — the parts that must NEVER be lost move here.
+	 *  Task text + dependency context stay in the user message (they SHOULD be
+	 *  summarizable). Final append order: builtin → agent.systemPrompt (if any,
+	 *  honoring its declared replace/append mode) → this header. Probe-verified
+	 *  2026-10-04 (/tmp/pi-r3impl): the append channel and AGENTS.md discovery
+	 *  (project_context section) coexist in one system message. */
+	systemPromptAppend?: string;
 }
 
 export interface BuildPiWorkerArgsResult {
@@ -366,6 +377,22 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		const promptPath = path.join(tempDir, `${input.agent.name.replace(/[^\w.-]/g, "_")}.md`);
 		atomicWriteFile(promptPath, input.agent.systemPrompt, { mode: 0o600 });
 		args.push(input.agent.systemPromptMode === "append" ? "--append-system-prompt" : "--system-prompt", promptPath);
+	}
+	// R3-1: run-static header rides its own --append-system-prompt file. pi
+	// parses --system-prompt and --append-system-prompt independently and the
+	// append flag is repeatable (cli/args.js:71-77; appends join with "\n\n" in
+	// argv order), so pushing it AFTER the agent flag yields the required final
+	// order builtin → agent.systemPrompt → run-static header in BOTH modes
+	// (replace mode: agent file replaces builtin, header appends after it;
+	// append mode: two append files in argv order).
+	if (input.systemPromptAppend?.trim()) {
+		if (!tempDir) {
+			const tmpBase = getPiTempBase();
+			tempDir = createSafeTempDir(tmpBase, `pi-crew-${process.pid}-`);
+		}
+		const headerPath = path.join(tempDir, "worker-header.md");
+		atomicWriteFile(headerPath, input.systemPromptAppend, { mode: 0o600 });
+		args.push("--append-system-prompt", headerPath);
 	}
 
 	// G3 (SDD-2 W-B, spill-always): task text NEVER rides argv — argv is

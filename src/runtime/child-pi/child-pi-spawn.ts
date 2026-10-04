@@ -279,6 +279,7 @@ export function prepareSpawnContext(
 		skillPaths: input.skillPaths,
 		role: input.role,
 		thinkingOverride: input.thinkingOverride,
+		systemPromptAppend: input.systemPromptAppend,
 		// ADR-5 §3: depthOverride is pre-encoded into depthEnv by runChildPi
 		// (parent's record depth as base-env PI_CREW_DEPTH); forward it so the
 		// child env gets parentDepth+1 = the true grandchild depth.

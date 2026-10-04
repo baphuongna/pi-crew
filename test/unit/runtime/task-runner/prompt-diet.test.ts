@@ -149,7 +149,10 @@ test("SR-02 phase 1: PI_CREW_PROMPT_BREAKDOWN=1 populates per-section char count
 	const rendered = await renderTaskPrompt(manifest, step, task, undefined, "skill-block-chars", undefined, []);
 	assert.ok(rendered.sections, "sections object present when enabled");
 	assert.equal(rendered.sections!["dynamic.skills"], "skill-block-chars".length);
-	assert.equal(rendered.sections!["total.userPrompt"], rendered.full.length);
+	// R3-1: user message = dynamic suffix only; stable prefix went to the
+	// system-prompt append channel (compaction-safe).
+	assert.equal(rendered.sections!["total.userPrompt"], rendered.dynamicSuffix.length);
+	assert.equal(rendered.sections!["total.systemAppend"], rendered.stablePrefix.length);
 	// sums are consistent: stable + dynamic ≈ total (minus join separators)
 	const stableSum = Object.entries(rendered.sections!)
 		.filter(([k]) => k.startsWith("stable."))

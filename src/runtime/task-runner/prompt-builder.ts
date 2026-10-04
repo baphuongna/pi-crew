@@ -275,11 +275,14 @@ export interface RenderedTaskPrompt {
 	/** Full rendered prompt (stablePrefix + dynamicSuffix). */
 	full: string;
 	/**
-	 * SR-02 phase 1 (2026-09-23): per-section char counts of the USER prompt,
+	 * SR-02 phase 1 (2026-09-23): per-section char counts of the worker prompt,
 	 * keyed by section name — the token-breakdown instrumentation. Populated
 	 * only when PI_CREW_PROMPT_BREAKDOWN=1 (off by default; zero cost when off:
 	 * the sections object is built lazily). Pre-execution adds the SYSTEM-side
 	 * pieces (agent definition, skills) and writes the JSON artifact.
+	 * R3-1 note: stable.* sections ride the --append-system-prompt channel;
+	 * total.userPrompt counts the user message (dynamic suffix) only, while
+	 * total.systemAppend counts the system-channel header.
 	 */
 	sections?: Record<string, number>;
 }
@@ -424,6 +427,8 @@ export async function renderTaskPrompt(
 	const full = [stablePrefix, "", dynamicSuffix].join("\n");
 	const sections: Record<string, number> | undefined = promptBreakdownEnabled()
 		? {
+				// R3-1: the stable.* sections now ride the --append-system-prompt
+				// channel; the worker's user message is the dynamic suffix only.
 				"stable.runtimeHeader": headerBlock.length,
 				"stable.protocol": protocolBlock.length,
 				"stable.roleInstructions": roleInstructions.length,
@@ -440,7 +445,10 @@ export async function renderTaskPrompt(
 				"dynamic.memory": memoryBlock.length,
 				"dynamic.outputSchema": outputSchemaBlock.length,
 				"dynamic.taskAndHandoff": taskAndHandoff.length,
-				"total.userPrompt": full.length,
+				// R3-1: channel split — the user message carries ONLY the dynamic
+				// suffix; the stable prefix went to the system-prompt append channel.
+				"total.systemAppend": stablePrefix.length,
+				"total.userPrompt": dynamicSuffix.length,
 			}
 		: undefined;
 	return { stablePrefix, dynamicSuffix, full, sections };

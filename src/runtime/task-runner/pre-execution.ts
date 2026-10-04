@@ -69,6 +69,17 @@ export interface TaskExecutionContext {
 	skillNames: string[] | undefined;
 	skillPaths: string[] | undefined;
 	prompt: string;
+	/** R3-1: the USER-message half of the rendered prompt (dynamicSuffix) —
+	 *  what the worker's task.md actually carries when the run-static header
+	 *  moves to the --append-system-prompt channel. `prompt` stays the FULL
+	 *  rendered prompt (stablePrefix + dynamicSuffix) for artifacts and the
+	 *  live-session path. Optional so hand-built contexts (tests, custom
+	 *  callers) keep the old single-channel behavior via the ?? fallback. */
+	userPrompt?: string;
+	/** R3-1: run-static worker header (stablePrefix) for the append-system-prompt
+	 *  channel — threaded to buildPiWorkerArgs via ChildPiRunInput. Undefined on
+	 *  hand-built contexts → single-channel legacy behavior. */
+	systemPromptAppend?: string;
 	promptArtifact: ArtifactDescriptor;
 	/** G18: prompt-breakdown artifact descriptor (undefined when PI_CREW_PROMPT_BREAKDOWN off). */
 	breakdownArtifact?: ArtifactDescriptor;
@@ -442,6 +453,11 @@ export async function prepareTaskExecutionContext(
 			collectedJsonEvents,
 			streamBridge,
 			startupEvidence,
+			// R3-1: channel split for child-pi workers — user message = dynamic
+			// suffix; run-static header = system-prompt append channel (compaction
+			// summarizes the user-message span, compaction.md:150-160).
+			userPrompt: promptResult.dynamicSuffix,
+			systemPromptAppend: promptResult.stablePrefix,
 		},
 	};
 }
