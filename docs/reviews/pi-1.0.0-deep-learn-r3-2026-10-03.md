@@ -631,3 +631,79 @@ decision were introduced; D1/D2/D3 from §6 stand, with D3 now satisfied by this
 
 *Round 3b written by executor 01_01-agent (direct-executor team). Files touched:
 this document only. Probes and scratch under /tmp/pi-deeplearn-r3 (R3-round files untouched).*
+
+---
+
+## Round 3 — Leader decisions & execution record (2026-10-03)
+
+- **Decided by:** leader. **Recorded by:** LANE 3 executor `01_01-agent`
+  (run `team_20261004022848_222ba4aff2c3be55`, team `direct-executor`; record
+  written 2026-10-04).
+- **User approval:** "chạy all nhưng không release" — execute every adopted item,
+  but **release is DEFERRED**: no version bump, no CHANGELOG entry, no bundle
+  rebuild, no push. The repo stays ahead of origin under the existing release
+  hold.
+- **Lane split (parallel, single workspace):** Lane 1 = R3-1/R3-2 + D1/D5
+  implementation (`prompt-builder.ts`, `pi-args.ts`, `child-pi*.ts`); Lane 2 =
+  R3-20 (`model-scope.ts`); Lane 3 = this record + D4 verdict and behavior-lock
+  test. No file overlap.
+
+| ID | Finding | Decision | Evidence / execution status |
+|----|---------|----------|------------------------------|
+| D1 (R3-3) | Worker trust pin (`-na` hermetic vs `-a` project-aware) — no trust flag passed today; worker behavior varies with ambient `~/.pi/agent/trust.json` | **HERMETIC — `--no-approve`** (cli alias `-na`) pinned unconditionally on headless worker spawns | Executed by Lane 1. The CLI override applies first in pi's trust resolution, before the ambient store — worker trust becomes machine-state-free. Rationale recorded in-code: project trust does NOT gate tool write capability (security.md:33); context files (AGENTS.md) load regardless of trust (security.md:57, probe-verified `/tmp/pi-r3impl` probe2 → R3-18 auto-load preserved); `-a` rejected (grants maximal project trust from untrusted task cwds — opposite of minimal scope). Surface TUI spawns strip the flag (`stripHeadlessOnlyFlags`, child-pi.ts) to keep the interactive trust prompt. Landed R3-1 `28a5ea5c` + R3-2 `9f8e08b9`; the D1 pin itself was still **in Lane 1's working tree at record time** (diff + `test/unit/runtime/model/pi-args-trust-pin.test.ts` verified read-only) — **commit pending, leader sẽ cập nhật hash**. |
+| D2 (R3-17) | SDK in-process embedding as worker transport | **DECLINE — process isolation kept** (document-and-decline) | Conflicts with the process-isolation safety model: `executeWorkers=false` kill switch, crash containment, runtime limits (R3-17 §2). In-process workers share the host's fate and reintroduce the env-scrub/`PI_CREW_*` leak class. Re-open only if a non-sandboxed read-only "fast lane" is ever explicitly wanted. No code change; the tradeoff is documented in §2 R3-17. |
+| D3 (coverage) | Dispatch follow-up for L3 + E + probes (b)/(c) | **DONE — closed by Round 3b** | §R3b.1–R3b.7 of this document: L3 doc yield (§R3b.4), E residual triage 13/13 (§R3b.5), probes b/c + control (§R3b.6), Q3a/Q3b answered (§R3b.2/§R3b.3). |
+| D4 (R3-21) | Crew skills bypass `--no-skills` via the `resources_discover` hook → `inheritSkills:false` "half-effective" | **INTENTIONAL — crew skills are infrastructure; `inheritSkills:false` governs USER-skill inheritance only** | Verdict + evidence below. Locked by `test/unit/extension/registration/crew-skills-infra.test.ts` (6 tests, all green; commit `86d75434`). One consequence of R3-21 corrected, one residual deferred (see detail). |
+| D5 (R3-19) | Hermetic worker spawns: `-ne` (`--no-extensions`) + keep explicit `-e prompt-runtime` — reverses the v0.7 "full session" default (kills ~1.37 s/spawn ambient stack + ambient untrusted tool surface) | **ADOPTED — hermetic for headless workers; surface TUI panes keep the ambient stack** (interactive sessions are human-visible) | Executed by Lane 1 (`pi-args.ts`/`child-pi.ts`). At record time: R3-1 `28a5ea5c` + R3-2 `9f8e08b9` landed; the `-ne` reversal + D1 pin were **in the working tree — commit pending, leader sẽ cập nhật hash**. Probe basis: §R3b.6 arm C (431 ms vs 1806 ms first-record) + ambient tool-surface leak evidence. |
+| Release | — | **DEFERRED** per user instruction | No CHANGELOG, no bundle, no push, no version bump for this wave. |
+
+### D4 verdict detail (R3-21) — INTENTIONAL, with two corrections/deferrals
+
+**Verdict: INTENTIONAL.** The crew skills arriving via `resources_discover`
+regardless of `--no-skills` is pi-crew infrastructure working as designed, not
+a bug of `inheritSkills:false`:
+
+1. **SDK semantics.** `--no-skills` gates only *discovered and configured*
+   (user) skills — "Explicit `--skill` paths still load" (cli.md:190-191).
+   Extension-contributed resources merge **after** that gate
+   (`resource-loader.js:318-332` `extendResources` vs the gated static set at
+   `:419-423`); `updateSkillsFromPaths` (`:619-628`) blanks only when
+   `noSkills && skillPaths.length === 0`. Upstream pi treats a loaded
+   extension's resources as capabilities of that extension; suppressing them
+   means not loading the extension (`--no-extensions` — exactly the D5/R3-19
+   lever, not the `inheritSkills` lever).
+2. **Two-layer `inheritSkills:false` design (pi-crew).** argv `--no-skills`
+   (resource layer, `pi-args.ts:357`) + `PI_CREW_INHERIT_SKILLS=0`
+   (`pi-args.ts:401`) which drives prompt-runtime's `before_agent_start` to
+   strip the whole skills advertisement from the worker system prompt
+   (`prompt-runtime.ts:1128-1140`, `stripInheritedSkills` matching pi's exact
+   `skills.js:281` header). Both layers target the USER skill environment.
+3. **Intent evidence.** `pi-args.ts:338` — prompt-runtime "luôn nạp (hạ tầng
+   phối hợp — không phải cắt xén)"; `skill-instructions.ts` — "Package skills
+   … are from the pi-crew installation and are trusted" with SEC-003
+   package-first precedence; the hook itself was introduced by commit
+   `cfbacd86` (Phase 11a, 2026-05-04) explicitly to "inject pi-crew skill
+   paths".
+
+**Consequence correction.** R3-21's consequence (1) — "34 name+description
+entries of context in every such worker" — holds for **raw pi sessions** with
+the extension loaded (the b-2 probe ran a bare `pi` invocation with no
+`PI_CREW_INHERIT_SKILLS` env), but **not for real pi-crew worker spawns**: all
+builtin agents declare `inheritSkills:false`, so prompt-runtime strips the
+entire `<available_skills>` advertisement (crew skills included) from the
+worker system prompt. Crew skills therefore contribute resource-layer
+availability (read-tool accessible) — not advertisement-layer context — in
+pi-crew workers; selected skills are advertised separately through the SR-02
+"Applicable Skills" block with trust labels.
+
+**Residual (deferred, out of Lane 3 scope).** The same hook injects the
+session-cwd `skills/` dir at the resource layer regardless of project trust.
+The advertisement strip covers `inheritSkills:false` workers; trust-gating the
+cwd injection for `inheritSkills:true` workers and host sessions remains open
+as a follow-up candidate (R3-21's "fix" branch, effort M) — not adopted in this
+round. Symlink-escape is already refused (`resolveRealContainedPath`, locked
+by the new test).
+
+*Record written by LANE 3 executor `01_01-agent`. Files touched by Lane 3:
+this section + `test/unit/extension/registration/crew-skills-infra.test.ts`
+(commit `86d75434`). Lane 1/Lane 2 file states were observed read-only.*
