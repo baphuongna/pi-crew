@@ -23,8 +23,10 @@ test("register.ts implements an autoRecoveryLast defensive cap (Round 22)", () =
 	// v0.9.42 register.ts decomposition: the autoRecoveryLast cap moved to
 	// `src/extension/registration/lifecycle-handlers.ts` (the cap constant lives
 	// in `context-builder.ts`; the eviction loop lives in `lifecycle-handlers.ts`).
+	// QW#2 (2026-10-04): the eviction-loop delegation moved again with
+	// setupRenderLoop into `render-loop.ts`.
 	const ctxPath = path.resolve(here, "..", "..", "..", "..", "src", "extension", "registration", "context-builder.ts");
-	const lifecyclePath = path.resolve(here, "..", "..", "..", "..", "src", "extension", "registration", "lifecycle-handlers.ts");
+	const lifecyclePath = path.resolve(here, "..", "..", "..", "..", "src", "extension", "registration", "render-loop.ts");
 	const ctxSource = fs.readFileSync(ctxPath, "utf-8");
 	const lifecycleSource = fs.readFileSync(lifecyclePath, "utf-8");
 
@@ -43,7 +45,7 @@ test("register.ts implements an autoRecoveryLast defensive cap (Round 22)", () =
 	assert.match(
 		lifecycleSource,
 		/entries:\s*ctx\.autoRecoveryLast,\s*maxEntries:\s*ctx\.AUTO_RECOVERY_LAST_MAX_ENTRIES/,
-		"lifecycle-handlers.ts should delegate the map + cap to the notify policy",
+		"render-loop.ts should delegate the map + cap to the notify policy",
 	);
 	assert.match(
 		policySource,

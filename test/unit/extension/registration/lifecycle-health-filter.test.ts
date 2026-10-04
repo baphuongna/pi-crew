@@ -22,7 +22,7 @@ import {
 	evictRunFromManifests,
 	filterManifestsForHealthNotifications,
 	isTerminalRunEventType,
-} from "../../../../src/extension/registration/lifecycle-handlers.ts";
+} from "../../../../src/extension/registration/render-loop.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 import { runEventBus } from "../../../../src/ui/run-event-bus.ts";
 
