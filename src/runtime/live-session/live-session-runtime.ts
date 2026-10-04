@@ -323,6 +323,29 @@ function modelFromRegistry(modelRegistry: unknown, modelId: string | undefined):
 }
 
 /**
+ * R3-12: resolve pi-crew's fallback chain into pi SDK `scopedModels` entries.
+ *
+ * SDK semantics (pi-coding-agent docs/sdk.md; dist/core/agent-session.js):
+ * `scopedModels` bounds the session's CYCLING scope and what extensions see
+ * through `getScopedModels` — it is NOT a hard access gate (`setModel` still
+ * accepts any credentialed model), so binding the fallback chain cannot break
+ * a legitimate user/model override. Candidates that don't resolve in the
+ * registry are skipped; an empty result means the caller passes NO option so
+ * pi keeps its default scope (all available models) — the "explicit
+ * non-empty" guard from the R3 spec.
+ */
+export function resolveScopedSessionModels(modelRegistry: unknown, candidates: readonly string[]): Array<{ model: unknown }> {
+	const scoped: Array<{ model: unknown }> = [];
+	for (const candidate of candidates) {
+		const model = modelFromRegistry(modelRegistry, candidate);
+		if (!model || typeof model !== "object") continue;
+		if (scoped.some((entry) => entry.model === model)) continue;
+		scoped.push({ model });
+	}
+	return scoped;
+}
+
+/**
  * Round 18: when agent declares `model: false`, the inherited `parentModel`
  * (= `ctx.model` from Pi runtime, set via `team-tool.ts:541/655`) is the
  * session's SAVED model. That saved model can be stale (e.g. a previous
@@ -793,6 +816,12 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		// H1.a: teamRole.thinking takes precedence over agent.thinking.
 		const effectiveThinking = input.teamRoleThinking ?? input.agent.thinking;
 
+		// R3-12: bind the live session's model scope to pi-crew's fallback chain
+		// so model cycling (and the extension-visible scope) cannot drift outside
+		// the candidates the routing gate approved. Only bound when the chain
+		// resolves to at least one registry model (explicit non-empty guard).
+		const scopedSessionModels = resolveScopedSessionModels(input.modelRegistry, modelRouting.candidates);
+
 		// G1: Build custom tools (submit_result + irc)
 		const submitResultTool = createSubmitResultTool((result) => {
 			customToolYieldResult = result;
@@ -819,6 +848,8 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			...(input.modelRegistry ? { modelRegistry: input.modelRegistry } : {}),
 			...(resolvedModel ? { model: resolvedModel } : {}),
 			...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
+			// R3-12: cycling/visibility scope = the fallback chain (see helper).
+			...(scopedSessionModels.length > 0 ? { scopedModels: scopedSessionModels } : {}),
 			customTools,
 		});
 		session = created.session;
