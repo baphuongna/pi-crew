@@ -395,6 +395,29 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		args.push("--append-system-prompt", headerPath);
 	}
 
+	// D1 (R3-3, pinned 2026-10-04): deterministic project-trust for worker
+	// spawns — `--no-approve` (cli alias -na). The command-line override applies
+	// FIRST in pi's trust resolution (security.md "How Pi chooses a trust
+	// decision"), before any extension, saved decision in ~/.pi/agent/trust.json,
+	// or defaultProjectTrust — so worker behavior no longer varies with the
+	// ambient trust store of the machine (P-C probe: /home/bom/source/my_pi and
+	// /tmp were pre-trusted there). Decision rationale vs the D1 criteria:
+	// (a) no ambient-trust dependency ✓ (CLI override wins);
+	// (b) write capability intact ✓ (security.md:33 — project trust does NOT
+	//     limit what tool calls can access; only startup resource loading is
+	//     gated, so workers still write files in the task cwd);
+	// (c) minimal scope ✓ (declines rather than grants; one command; not
+	//     persisted to trust.json).
+	// AGENTS.md/CLAUDE.md context files load REGARDLESS of project trust
+	// (security.md:57) — probe-verified 2026-10-04 (/tmp/pi-r3impl probe2: the
+	// project_context section is present with --no-approve), so the R3-18
+	// repo-instruction auto-load is preserved. `-a` was rejected: it grants
+	// maximal project trust (loads .pi/mcp.json, .pi/extensions… from untrusted
+	// task cwds) — the opposite of minimal scope, and redundant with the D5
+	// hermetic posture. Surface TUI spawns strip this flag (child-pi.ts
+	// trySurfaceBranch) to keep the interactive trust prompt available.
+	args.push("--no-approve");
+
 	// G3 (SDD-2 W-B, spill-always): task text NEVER rides argv — argv is
 	// world-readable via /proc/<pid>/cmdline, leaking task content (and any
 	// secrets embedded in prompts) to every local user/process scanner.

@@ -404,6 +404,17 @@ function safeLoadSurfaceConfig(cwd: string): PiTeamsConfig {
 }
 
 /**
+ * D1/D5: flags that apply to HEADESS worker spawns only. The surface TUI
+ * branch strips them before booting a pane — a pane hosts a full interactive
+ * pi session where the interactive trust prompt must stay available and the
+ * ambient extension stack is part of the human-visible session (task mandate:
+ * worker spawn CHỈ, KHÔNG đụng surface TUI spawn).
+ */
+function stripHeadlessOnlyFlags(args: string[]): string[] {
+	return args.filter((arg) => arg !== "--no-approve");
+}
+
+/**
  * MuxSurface A1 spawn branch (spec §13.1). Returns a ChildPiRunResult when the
  * worker was booted INSIDE a multiplexer pane (no stdio process is spawned and
  * completion is awaited through the pane's own lifetime), or null to fall
@@ -445,7 +456,7 @@ async function trySurfaceBranch(
 			livePaneCount: degradeController ? degradeController.livePaneCount() : (surfaceOpts?.livePaneCount ?? 0),
 			taskId,
 			cwd: input.cwd,
-			piArgs: builtArgs,
+			piArgs: stripHeadlessOnlyFlags(builtArgs),
 			stateRoot: input.eventsPath ? path.dirname(input.eventsPath) : "",
 			baseDir: surfaceOpts?.baseDir,
 			deps: preResolved ? { provider: preResolved } : {},
