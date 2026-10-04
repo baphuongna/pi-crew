@@ -138,10 +138,13 @@ test("WP-3 (single line): non-pending run keeps the ⚠ plan segment OFF the cou
 });
 
 // Cheap ANSI stripper for visible-width assertion. Sufficient for the
-// widget's output which uses a known subset of SGR codes + OSC 8.
+// widget's output which uses a known subset of SGR codes + OSC 8 — in BOTH
+// terminator forms: BEL (legacy) and ST `ESC\\` (what pi-tui's hyperlink()
+// emits; R3-9 dock link).
 function stripAnsi(s: string): string {
 	return s
 		.replace(/\u001b\[[0-9;]*m/g, "")
 		.replace(/\u001b\]\d+;[^\u0007]*\u0007/g, "")
+		.replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
 		.replace(/\u0007/g, "");
 }

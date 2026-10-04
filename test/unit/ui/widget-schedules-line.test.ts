@@ -68,7 +68,10 @@ function makeFakeRun(): WidgetRun {
 		conversationId: "conv_test",
 		cwd: FAKE_CWD,
 		stateRoot: FAKE_CWD,
-		artifactsRoot: FAKE_CWD,
+		// R3-9: NO artifactsRoot — these tests pin the dock's PLAIN text shape
+		// (identity regex, schedules segments, endsWith hints). The OSC-8
+		// artifacts link has its own suite (widget-osc8-link.test.ts).
+		artifactsRoot: undefined as never,
 		tasksPath: "/tmp/tasks.jsonl",
 		eventsPath: "/tmp/events.jsonl",
 		pendingTasks: [],

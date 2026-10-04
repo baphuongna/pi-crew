@@ -4,11 +4,14 @@
  * Extracted from crew-widget.ts.
  */
 
+import { pathToFileURL } from "node:url";
+import * as piTui from "@earendil-works/pi-tui";
 import { getCrewScheduler, getScheduledJobs, getScheduledJobsHiddenCountView } from "../../extension/team-tool/handle-schedule.ts";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
 import { isPlanApprovalStatePending } from "../../runtime/plan-approval.ts";
 import { isFinishedRunStatus } from "../../runtime/process-status.ts";
 import type { ScheduledJob } from "../../runtime/scheduling/scheduler.ts";
+import type { TeamRunManifest } from "../../state/types.ts";
 import { formatRelativeTime } from "../../utils/relative-time.ts";
 import { truncate, visibleWidth } from "../../utils/visual.ts";
 import { Box, Text } from "../layout-primitives.ts";
@@ -95,9 +98,52 @@ export function widgetRailSlot(runs: readonly WidgetRun[]): RailSlot {
 /** `<team>` (or `team/workflow` when they differ); several live runs collapse
  *  to `<n> runs` — the counts on the row stay aggregate. */
 function dockSubject(runs: WidgetRun[]): string {
-	if (runs.length > 1) return `${runs.length} runs`;
-	const first = runs[0];
-	return first ? shortRunLabel(first.run) : "idle";
+	if (runs.length === 0) return "idle";
+	const label = runs.length > 1 ? `${runs.length} runs` : shortRunLabel(runs[0]!.run);
+	// R3-9: the dock's ONE clickable action — the subject opens the LATEST
+	// run's artifacts directory (`file://` OSC-8 link). Terminals without
+	// OSC-8 support ignore the escapes and render the plain label.
+	return linkify(label, latestArtifactsUrl(runs));
+}
+
+// ── R3-9: OSC-8 dock link ─────────────────────────────────────────────
+
+type TuiHyperlink = (text: string, url: string) => string;
+
+/** pi-tui's OSC-8 helper, resolved defensively: the peer range is `*`, so a
+ *  host running a pi-tui build without the export must still render the
+ *  plain dock instead of failing the namespace import. */
+const tuiHyperlink: TuiHyperlink | undefined = (() => {
+	const candidate = (piTui as { hyperlink?: unknown }).hyperlink;
+	return typeof candidate === "function" ? (candidate as TuiHyperlink) : undefined;
+})();
+
+/** `file://` URL for an artifacts dir; `undefined` keeps the label plain. */
+function artifactsDirUrl(artifactsRoot: string | undefined): string | undefined {
+	if (!artifactsRoot) return undefined;
+	try {
+		return pathToFileURL(artifactsRoot).href;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Latest (by createdAt) run's artifacts dir — the dock link target. */
+function latestArtifactsUrl(runs: readonly WidgetRun[]): string | undefined {
+	let latest: TeamRunManifest | undefined;
+	for (const entry of runs) {
+		const candidate = entry.run;
+		if (!candidate.artifactsRoot) continue;
+		if (!latest || (candidate.createdAt ?? "") > (latest.createdAt ?? "")) latest = candidate;
+	}
+	return artifactsDirUrl(latest?.artifactsRoot);
+}
+
+/** Wrap in OSC-8 when both the pi-tui helper and a target exist; plain text
+ *  otherwise (clean degrade on non-hyperlink terminals and older hosts). */
+function linkify(text: string, url: string | undefined): string {
+	if (!url || !tuiHyperlink) return text;
+	return tuiHyperlink(text, url);
 }
 
 /**
@@ -389,7 +435,10 @@ export function buildWidgetLines(
  */
 export function colorWidgetLine(line: string, index: number, theme: CrewTheme, slot: RailSlot = "border"): string {
 	let result = line;
-	if (index === 0 && !result.includes("\u001b")) {
+	// R3-9: the guard detects THEME styling (CSI `ESC[`), not any escape — the
+	// dock's OSC-8 artifacts link (introduced by `dockSubject`) is not styling
+	// and must NOT opt the line out of the identity paint pass.
+	if (index === 0 && !result.includes("\u001b[")) {
 		// `┏|┃ <WORD> ▸ <subject>`: rail glyph takes the state slot, the identity
 		// word accent+bold, the subject toolTitle+bold. The subject is bounded by
 		// the first ` ·` so a count segment can never be swallowed.

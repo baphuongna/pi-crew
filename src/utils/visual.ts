@@ -60,11 +60,30 @@ export function __test__visibleWidthCacheSize(): number {
 function consumeAnsi(input: string, index: number): number {
 	const char = input[index];
 	if (!char || char !== "\u001b") return 0;
-	if (input[index + 1] !== "[") return 0;
+	const next = input[index + 1];
+	if (next === "[") {
+		let i = index + 2;
+		while (i < input.length) {
+			const code = input.charCodeAt(i);
+			if (code >= 0x40 && code <= 0x7e) return i - index + 1;
+			i++;
+		}
+		return 0;
+	}
+	// R3-9: OSC sequences (`ESC ] … BEL` or `ESC ] … ESC \`) — OSC-8 hyperlinks
+	// (pi-tui `hyperlink()`, used by the crew widget) ride this branch. The
+	// truncation/wrap/sanitize helpers must treat the whole sequence as ONE
+	// zero-width unit, matching pi-tui's `visibleWidth` (which already strips
+	// OSC), or a clipped line would slice mid-escape and leak raw bytes into
+	// the terminal. Malformed payloads (stray control char) fall back to the
+	// pre-existing behaviour of treating the ESC as ordinary data.
+	if (next !== "]") return 0;
 	let i = index + 2;
 	while (i < input.length) {
 		const code = input.charCodeAt(i);
-		if (code >= 0x40 && code <= 0x7e) return i - index + 1;
+		if (code === 0x07) return i - index + 1; // BEL terminator
+		if (code === 0x1b && input[i + 1] === "\\") return i - index + 2; // ST terminator
+		if (code < 0x20) return 0; // control char cannot belong to an OSC payload
 		i++;
 	}
 	return 0;
