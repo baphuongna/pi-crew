@@ -596,3 +596,96 @@ test("collectTaskSkillNames: wildcard marker alone = defaults (no-op)", () => {
 	const result = resolveTaskSkillNames({ role, override: ["*"] });
 	assert.equal(result.length, defaults.length, "wildcard alone returns defaults");
 });
+
+// ── R3-23 (2026-10-04): host-advertised dedupe on the worker spawn path ────
+// The child-pi spawn path passes every resolved skill via --skill; the host
+// system prompt then advertises name+description+path in <available_skills>.
+// advertisedByHost:true drops the duplicated per-skill entries and keeps only
+// the layers the host block cannot carry. Live-session/scaffold/diagnostic
+// callers default to the full index block (their only advertisement).
+
+test("R3-23: advertisedByHost drops the per-skill advertisement but keeps names+paths for --skill", () => {
+	const full = renderSkillInstructions({
+		cwd: process.cwd(),
+		role: "verifier",
+		override: ["verification-before-done"],
+	});
+	const slim = renderSkillInstructions({
+		cwd: process.cwd(),
+		role: "verifier",
+		override: ["verification-before-done"],
+		advertisedByHost: true,
+	});
+	// The selection itself is unchanged — paths still feed the --skill flags.
+	assert.deepEqual(slim.names, full.names);
+	assert.deepEqual(slim.paths, full.paths);
+	// The block points at the host advertisement instead of repeating it.
+	assert.match(slim.block, /# Applicable Skills/);
+	assert.match(slim.block, /<available_skills>/);
+	assert.doesNotMatch(slim.block, /^## verification-before-done$/m);
+	assert.doesNotMatch(slim.block, /^Path: /m);
+	assert.doesNotMatch(slim.block, /^Source: /m);
+	assert.doesNotMatch(slim.block, /^Description: /m);
+	assert.ok(slim.block.length < full.block.length, `slim block must shrink, got ${slim.block.length} vs ${full.block.length}`);
+});
+
+test("R3-23: package-only selection omits the trust warning entirely", () => {
+	const slim = renderSkillInstructions({
+		cwd: process.cwd(),
+		role: "verifier",
+		override: ["verification-before-done"],
+		advertisedByHost: true,
+	});
+	assert.doesNotMatch(slim.block, /UNTRUSTED/);
+});
+
+test("R3-23: advertisedByHost flags project-sourced skills as UNTRUSTED by name", () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-skill-r323-"));
+	try {
+		writeProjectSkill(cwd, "untrusted-review", "# U\n\nproject body");
+		const slim = renderSkillInstructions({
+			cwd,
+			role: "unknown",
+			override: ["untrusted-review"],
+			advertisedByHost: true,
+		});
+		assert.match(slim.block, /Project-sourced skills \(untrusted-review\)/);
+		assert.match(slim.block, /UNTRUSTED/);
+	} finally {
+		fs.rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("R3-23: missing skills keep their notice under advertisedByHost (host cannot advertise them)", () => {
+	const slim = renderSkillInstructions({
+		cwd: process.cwd(),
+		role: "unknown",
+		override: ["verification-before-done", "no-such-skill"],
+		advertisedByHost: true,
+	});
+	assert.match(slim.block, /<available_skills>/);
+	assert.match(slim.block, /Skill 'no-such-skill' was selected but no SKILL\.md file was found/);
+});
+
+test("R3-23: all-missing selection falls back to the standard block (no misleading host pointer)", () => {
+	const slim = renderSkillInstructions({
+		cwd: process.cwd(),
+		role: "unknown",
+		override: ["no-such-skill"],
+		advertisedByHost: true,
+	});
+	assert.doesNotMatch(slim.block, /<available_skills>/);
+	assert.match(slim.block, /no SKILL\.md file was found/);
+});
+
+test("R3-23: PI_CREW_PROMPT_SKILLS=full ignores advertisedByHost (rollback path inlines bodies)", () =>
+	withFullSkills(() => {
+		const rendered = renderSkillInstructions({
+			cwd: process.cwd(),
+			role: "verifier",
+			override: ["verification-before-done"],
+			advertisedByHost: true,
+		});
+		assert.ok(rendered.block.includes("<!-- skill: verification-before-done -->"), "full bodies inlined");
+		assert.match(rendered.block, /^Path: /m, "full-mode header intact");
+	}));

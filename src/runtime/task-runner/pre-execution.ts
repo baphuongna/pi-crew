@@ -256,6 +256,14 @@ export async function prepareTaskExecutionContext(
 					step: input.step,
 					override: input.skillOverride,
 					runId: manifest.runId,
+					// R3-23: the child-process spawn path feeds every resolved skill to
+					// the worker via --skill (ctx.skillPaths → buildPiWorkerArgs), so the
+					// host advertises them in <available_skills> — drop the duplicated
+					// per-skill entries from the prompt block. Live-session/scaffold
+					// workers get no --skill channel and keep the full block. Externally
+					// supplied skillPaths may diverge from this render — stay safe and
+					// keep the full block for those callers.
+					advertisedByHost: runtimeKind === "child-process" && input.skillPaths === undefined,
 				})
 			: undefined;
 	const skillBlock = input.skillBlock ?? renderedSkills?.block;
