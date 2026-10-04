@@ -68,8 +68,8 @@
 
 ### Migration notes
 
-- **Hermetic worker spawns are ON by default** (`runtime.workerWorkers` typo guard: the key is
-  `runtime.hermeticWorkers`): headless workers no longer load ambient user extensions/MCP —
+- **Hermetic worker spawns are ON by default** (`runtime.hermeticWorkers`): headless workers
+  no longer load ambient user extensions/MCP —
   set `PI_CREW_HERMETIC_WORKERS=0` or `runtime.hermeticWorkers: false` to restore the old
   behavior if a worker genuinely needs ambient tooling.
 
