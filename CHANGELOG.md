@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.7] — Pi 1.0.0 adoption waves + deep-learn execution (2026-10-04)
 ### Added — Pi 1.0.0 adoption wave (see docs/reviews/pi-1.0.0-adoption-review-2026-10-03.md)
 
 - **Session-file recovery for crash-killed workers (P1-1)** — workers now spawn with
@@ -52,6 +52,26 @@
   machine-state-free (no ambient `~/.pi/agent/trust.json` dependence). Project trust does not
   gate write capability and AGENTS.md discovery is unaffected (probe-verified); surface TUI
   spawns keep the interactive prompt.
+
+### Fixed
+
+- **Session args per-flag idempotency (live battery find)** — partial builder forwarding
+  (manifest `sessionId` without `sessionDir`) made the both-or-nothing guard self-disarm the
+  full activation: `--session-id` went out but `--session-dir` never did, so worker session
+  files silently landed in the cwd-keyed default dir and crash recovery read the wrong place.
+  Each missing flag is now filled independently; verified end-to-end by killing a real worker
+  (SIGKILL mid-tool) and recovering its last complete assistant message from the per-worker
+  artifacts dir in ~1s.
+- **engines floor raised to Node `>=22.19.0`** — aligns pi-crew with the SDK's own declared
+  floor (previously `>=22.0.0` let Node 22.0–22.18 users run an SDK that declares itself
+  unsupported).
+
+### Migration notes
+
+- **Hermetic worker spawns are ON by default** (`runtime.workerWorkers` typo guard: the key is
+  `runtime.hermeticWorkers`): headless workers no longer load ambient user extensions/MCP —
+  set `PI_CREW_HERMETIC_WORKERS=0` or `runtime.hermeticWorkers: false` to restore the old
+  behavior if a worker genuinely needs ambient tooling.
 
 ### Fixed / removed
 
