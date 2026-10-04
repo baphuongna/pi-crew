@@ -14,11 +14,16 @@
  * canopy/hint rows are NOT part of the split any more, so the hint keeps its
  * full width instead of being cropped to 60% of the overlay.
  *
+ * R3-6 (IME): the ACTIVE field emits pi-tui's zero-width `CURSOR_MARKER` at
+ * its value end — the host TUI strips it and parks the hardware cursor there
+ * so the IME candidate window follows the logical text cursor (CJK input).
+ *
  * Keys/behaviour are unchanged (same `overlay:*` dispatch, same free-text
  * passthrough, same validation errors, same discard confirmation). Hints come
  * from `formatHint` (discard LAST, keys through `keyToken`).
  */
 
+import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import type { MailboxDirection } from "../../state/coordination/mailbox.ts";
 import { pad, sanitizeLine, truncate } from "../../utils/visual.ts";
 import { overlayActionForKey } from "../keybinding-map.ts";
@@ -117,7 +122,16 @@ export class MailboxComposeOverlay {
 		// (the field is a single-line cell; multi-line content belongs to the
 		// preview column).
 		const value = sanitizeLine(this.fields[field] ?? "");
-		return `${active ? CURSOR : " "} ${label}: ${truncate(value, Math.max(8, width - label.length - 5))}`;
+		// R3-6 (IME): CURSOR_MARKER is pi-tui's zero-width APC sequence — the host
+		// TUI finds it, positions the HARDWARE cursor there (IME candidate window
+		// anchor for CJK input), and strips it before painting. This overlay's
+		// fields append/backspace at end-of-value only, so the logical cursor IS
+		// the value end — same pattern as pi-tui's own Input component
+		// (marker + fake cursor). The `›` prefix stays: it is the RAIL list-selection
+		// glyph, orthogonal to the text cursor. Direction checkbox row gets NO
+		// marker — it toggles on space and has no text insertion point.
+		const marker = active && !this.confirm ? CURSOR_MARKER : "";
+		return `${active ? CURSOR : " "} ${label}: ${truncate(value, Math.max(8, width - label.length - 5))}${marker}`;
 	}
 
 	private activeName(): FieldName {

@@ -4,6 +4,7 @@
  * label/value alignment, inline toggle, select submenu, and text input.
  */
 
+import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "../utils/visual.ts";
 import { keyOf, matchesKey } from "./key-utils.ts";
 import { CURSOR, canopyLine, formatHint, overflowHint, RAIL, railLine } from "./rail.ts";
@@ -601,7 +602,12 @@ class TextinputSubmenu {
 			lines.push(this.theme.fg("muted", this.description));
 		}
 		lines.push("");
-		lines.push(`  ${this.buffer}█`);
+		// R3-6 (IME): the marker before the fake `█` cursor is pi-tui's
+		// zero-width CURSOR_MARKER — the host TUI strips it and positions the
+		// hardware cursor there so the IME candidate window tracks the buffer
+		// end (this submenu's buffer appends/erases at end only). Emitted
+		// unconditionally: the row renders only while this input owns keys.
+		lines.push(`  ${this.buffer}${CURSOR_MARKER}█`);
 		lines.push("");
 		lines.push(
 			this.theme.fg(
@@ -730,7 +736,10 @@ class AgentOverridesSubmenu {
 		const lines: string[] = [];
 		lines.push(this.theme.bold(this.theme.fg("accent", `Edit ${agent} ${field}`)));
 		lines.push("");
-		lines.push(`  ${this.editBuffer}█`);
+		// R3-6 (IME): same CURSOR_MARKER contract as TextinputSubmenu — the
+		// edit buffer is end-append only, so the marker rides immediately before
+		// the fake `█` cursor (pi-tui Input's marker+cursorChar pattern).
+		lines.push(`  ${this.editBuffer}${CURSOR_MARKER}█`);
 		lines.push("");
 		lines.push(
 			this.theme.fg(

@@ -58,7 +58,20 @@ export const RAIL = { open: "┏", section: "┣", body: "┃", close: "┗" } a
  */
 export const PI_EXPAND_CHORD = "ctrl+o";
 
-/** Selection cursor (lists) and active/step marker (sections, goals). */
+/** Selection cursor (lists) and active/step marker (sections, goals).
+ *
+ * R3-6 audit (2026-10-04): this glyph marks LIST SELECTION in dashboards,
+ * pickers, settings menus, and compose field rows — a navigation affordance,
+ * not a text insertion point. It therefore deliberately does NOT adopt
+ * pi-tui's `CURSOR_MARKER` (the zero-width APC sequence that anchors the
+ * IME candidate window at a TEXT cursor). Sites that DO own a text cursor —
+ * mailbox-compose field values, settings text-input/edit buffers — emit
+ * `CURSOR_MARKER` at their buffer end in addition to any visual glyph.
+ * Not converted, by design: run-dashboard run rows, settings menu rows,
+ * agents-jobs-browser rows, mailbox-detail rows, agent-picker rows,
+ * schedules-pane job rows (all list selection); widget dock `❯` (a
+ * single-line focus acknowledgement, not an input); mascot `█` frames
+ * (animation glyphs). */
 export const CURSOR = "›";
 export const ACTIVE = "▸";
 

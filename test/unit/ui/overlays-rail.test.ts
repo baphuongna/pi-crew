@@ -21,6 +21,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
+import { CURSOR_MARKER } from "@earendil-works/pi-tui";
 import { saveCrewAgents } from "../../../src/runtime/crew-agent-records.ts";
 import type { LiveAgentHandle } from "../../../src/runtime/live-session/live-agent-manager.ts";
 import { appendMailboxMessage } from "../../../src/state/coordination/mailbox.ts";
@@ -40,12 +41,16 @@ const RAIL_GLYPHS = ["┏", "┣", "┃", "┗"];
 /** Retired rounded-box vocabulary (audit §2.E) — must appear NOWHERE. */
 const RETIRED_GLYPHS = ["╭", "╮", "╰", "╯", "├", "┤"];
 const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]/g;
+/** pi-tui's zero-width APC cursor marker (R3-6) — stripped by the host TUI
+ * before painting, so assertions must ignore it too (a character-index check
+ * would otherwise see a phantom column shift on marker-bearing rows). */
+const CURSOR_MARKER_RE = /\u001b_pi:c\u0007/g;
 
 const theme = asCrewTheme({});
 
 /** Strip ANSI so the assertions run on the glyphs a terminal shows. */
 function plain(lines: readonly string[]): string[] {
-	return lines.map((line) => line.replace(ANSI, ""));
+	return lines.map((line) => line.replace(ANSI, "").replace(CURSOR_MARKER_RE, ""));
 }
 
 function joined(lines: readonly string[]): string {
@@ -422,6 +427,39 @@ test("compose: a multi-line pre-filled field is flattened into its single-line c
 	const lines = overlay.render(80);
 	assert.equal(lines.length, 7, `the rail rows stay single-line (got ${lines.length} lines)`);
 	assertRailSurface(lines, "compose(multiline)", 80);
+});
+
+test("compose: the ACTIVE field emits the pi-tui CURSOR_MARKER at its value end (R3-6 IME anchor)", () => {
+	const overlay = new MailboxComposeOverlay({ done: () => undefined, theme, initial: { to: "worker" } });
+	const activeRow = overlay.render(80).find((line) => line.includes("to: worker"));
+	assert.ok(activeRow, "active `to` field row rendered");
+	assert.ok(activeRow!.includes(CURSOR_MARKER), "active field carries the hardware-cursor marker");
+	// Placement: the buffer appends/erases at end-of-value only, so the logical
+	// text cursor IS the value end — the marker must terminate the row content
+	// (railLine pads AFTER it, so the row ends with padding spaces; match on the
+	// marker directly following the value instead).
+	assert.ok(activeRow!.includes(`to: worker${CURSOR_MARKER}`), `marker must sit at the value end, got ${JSON.stringify(activeRow)}`);
+	// Exactly ONE anchor per frame — two markers would fight over the hardware
+	// cursor position.
+	assert.equal(overlay.render(80).filter((line) => line.includes(CURSOR_MARKER)).length, 1);
+	// Inactive fields carry no marker (the default `from: operator` row).
+	const fromRow = overlay.render(80).find((line) => line.includes("from: operator"));
+	assert.ok(fromRow && !fromRow.includes(CURSOR_MARKER), "inactive field has no marker");
+	// Zero-width under pi-tui's width model: the rail width contract is intact.
+	assert.equal(visibleWidth(activeRow!), visibleWidth(activeRow!.replaceAll(CURSOR_MARKER, "")));
+	assertRailSurface(overlay.render(80), "compose(marker)", 80);
+	// Tab moves the marker with the active field (body next).
+	overlay.handleInput("\t");
+	const bodyRow = overlay.render(80).find((line) => line.includes(`body: ${CURSOR_MARKER}`));
+	assert.ok(bodyRow, `marker follows the tab-cycled active field, got ${JSON.stringify(overlay.render(80))}`);
+	// The direction checkbox owns no text insertion point — never a marker.
+	// (body is index 2; two tabs land on direction at index 4.)
+	overlay.handleInput("\t");
+	overlay.handleInput("\t");
+	assert.ok(
+		overlay.render(80).every((line) => !line.includes(CURSOR_MARKER)),
+		"direction toggle row emits no marker",
+	);
 });
 
 // ── 6. Live conversation ────────────────────────────────────────────────
