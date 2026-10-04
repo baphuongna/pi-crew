@@ -203,6 +203,9 @@ export const HANDOFF_TEMPLATE = [
 	"",
 	"### Follow-ups",
 	"<!-- Any remaining issues or next steps -->",
+	"",
+	"### Provenance",
+	"<!-- Self-report your runtime identity (pre-set in your bash tool env, one line): PI_SESSION_ID, PI_SESSION_FILE, PI_MODEL, PI_PROVIDER, PI_REASONING_LEVEL — e.g. `session=<id> model=<provider>/<model> reasoning=<level>` -->",
 ].join("\n");
 
 export interface ParsedHandoff {
