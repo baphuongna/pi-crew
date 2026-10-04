@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	buildRpcWorkerArgv,
 	RPC_DIALOG_ANSWER_ENV,
 	resolveDialogAnswerPolicy,
 	resolveWorkerTransport,
@@ -59,6 +60,31 @@ test("happy path: prompt sent first, settle observed, orderly exit, result mappe
 	assert.equal(result.rawFinalText, "done: 3 files");
 	assert.notEqual(result.stdout, "");
 	assert.ok(result.stdout.includes("agent_settled"));
+});
+
+test("live-fire argv (probe GREEN 2026-10-04): --mode rpc --no-session, model appended raw, override wins", async () => {
+	// Pure builder contract — the argv the live-fire probe validated.
+	assert.deepEqual(buildRpcWorkerArgv(undefined), ["--mode", "rpc", "--no-session"]);
+	assert.deepEqual(buildRpcWorkerArgv("zai/glm-5.3:high"), ["--mode", "rpc", "--no-session", "--model", "zai/glm-5.3:high"]);
+	// Behavioral: runRpcWorker builds it from input.model when the caller
+	// does not pass a wholesale argv override (probe1b scenario: exit 0,
+	// rawFinalText "OK", 24 ui-requests drained against real pi).
+	const fake = createFakeRpcServer();
+	scriptHappyPath(fake, "OK");
+	const captured: { argv?: string[] } = {};
+	await runRpcWorker({
+		task: "x",
+		model: "chiase/deepseek-v4.1-flash",
+		rpc: {
+			spawnFn: (argv) => {
+				captured.argv = argv;
+				return fake.handle;
+			},
+			commandTimeoutMs: 400,
+			stopTimeoutMs: 300,
+		},
+	});
+	assert.deepEqual(captured.argv, ["--mode", "rpc", "--no-session", "--model", "chiase/deepseek-v4.1-flash"]);
 });
 
 test("assistant text: only assistant message_end records become rawFinalText", async () => {

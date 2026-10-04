@@ -1,19 +1,25 @@
 /**
- * rpc-worker.ts — W7 (P2-3): EXPERIMENTAL RPC worker transport (prototype).
+ * rpc-worker.ts — W7 (P2-3): EXPERIMENTAL RPC worker transport.
  *
- * STATUS — NOT WIRED INTO LIVE DISPATCH (honest prototype):
- * `runWorker` (run-worker.ts) consults {@link resolveWorkerTransport}; when it
- * resolves "rpc" the seam currently returns a structured not-implemented
- * result instead of calling {@link runRpcWorker}. Reason: this lane is
- * forbidden from live-spawning pi (Round-2 evidence already covers the live
- * probes; unit tests use fake streams only), so the live path would ship
- * completely unvalidated. Flipping the seam to call runRpcWorker is the
- * integration-phase follow-up AFTER a live-fire probe (see README.md).
+ * STATUS — WIRED at the run-worker seam behind PI_CREW_WORKER_TRANSPORT=rpc
+ * (integration phase, 2026-10-04), after a LIVE-FIRE probe against a real
+ * `pi --mode rpc` process came back GREEN on all four probe items:
+ *   (a) extension_ui_request drain: 24 drained (setStatus×20, setWidget×3,
+ *       notify×1 — pi-crew extension widgets visible in the raw frames);
+ *   (b) prompt round-trip: ack 24ms, agent_settled 4.2s, rawFinalText="OK";
+ *   (c) dialog (confirm) auto-answered by the "cancel" policy
+ *       (extension_ui_response cancelled:true → ui.confirm resolved false →
+ *       the model literally echoed "false"), NO deadlock (settled 1.7s);
+ *   (d) steer mid-turn: disposition "queued", RTT 53ms, final text honored
+ *       ("STOP"); all runs exited 0 with orderly stdin-end shutdown.
+ * Raw probe artifacts: /tmp/rpc-lf/probe1{,b}.{log,stdout.txt,stderr.txt},
+ * probe2.*, probe3.* (2026-10-04, lane D6).
  *
- * runRpcWorker itself is complete and fake-stream tested:
- *   prompt → collect session events until `agent_settled` → orderly stop →
- *   map to ChildPiRunResult. Abort/steer signals send the RPC `abort` command
- *   before stopping.
+ * runRpcWorker: prompt → collect session events until `agent_settled` →
+ * orderly stop → map to ChildPiRunResult. Abort/steer signals send the RPC
+ * `abort` command before stopping. If the transport fails BEFORE any agent
+ * output (early spawn/handshake failure), runWorker falls back to the stdio
+ * transport (structured warn, no double-execution of a consumed task).
  */
 
 import { getCrewEnv } from "../../config/env-vars.ts";
@@ -36,6 +42,25 @@ export interface RpcWorkerInput {
 	signal?: AbortSignal;
 	/** Optional client overrides (tests inject a fake spawner + tiny timeouts). */
 	rpc?: Pick<RpcFrameClientOptions, "spawnFn" | "argv" | "commandTimeoutMs" | "stopTimeoutMs" | "dialogPolicy">;
+}
+
+/**
+ * Live-fire argv for the RPC transport (probe-verified 2026-10-04).
+ *
+ * `--no-session` is the SAFE prototype default: a worker spawned without
+ * deterministic session identity (`--session-id`/`--session-dir` — stdio-only
+ * today, see pi-args.ts W2) would otherwise attach to the cwd project's
+ * DEFAULT session and pollute the user's live session. Ephemeral workers are
+ * correct worker semantics until rpc-mode session identity is designed.
+ *
+ * Limitation vs the stdio argv (documented, deliberate): the model string is
+ * passed RAW — no applyThinkingSuffix composition, no agent/system-prompt
+ * files, no hermetic flags. Those remain stdio-only until each is probed.
+ */
+export function buildRpcWorkerArgv(model?: string): string[] {
+	const argv = ["--mode", "rpc", "--no-session"];
+	if (model) argv.push("--model", model);
+	return argv;
 }
 
 /**
@@ -82,8 +107,9 @@ function extractAssistantText(message: unknown): string | undefined {
 }
 
 /**
- * Run one worker turn over the RPC frame transport (EXPERIMENTAL prototype —
- * see module header). Never spawned by production dispatch in this lane.
+ * Run one worker turn over the RPC frame transport (EXPERIMENTAL — see module
+ * header for live-fire status). Spawn failure surfaces as a structured result
+ * (error field), never a throw from the transport itself.
  */
 export async function runRpcWorker(input: RpcWorkerInput): Promise<ChildPiRunResult> {
 	const tracking: SettleTracking = { lastAssistantText: undefined, settled: false };
@@ -96,6 +122,8 @@ export async function runRpcWorker(input: RpcWorkerInput): Promise<ChildPiRunRes
 	const overrides = input.rpc ?? {};
 	const client = createRpcFrameClient({
 		...overrides,
+		// Live-fire argv unless the caller (tests) overrides wholesale.
+		argv: overrides.argv ?? buildRpcWorkerArgv(input.model),
 		dialogPolicy: overrides.dialogPolicy ?? resolveDialogAnswerPolicy(),
 		onEvent: (event) => {
 			const record = event as { type?: unknown; message?: unknown };
