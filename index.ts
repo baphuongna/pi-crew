@@ -3,9 +3,9 @@
  *
  * Resolution order:
  *   1. dist/index.mjs (bundle) when present AND not explicitly disabled.
- *      Default since v0.9.17 close-out — benchmarks show bundle is
- *      ~19% faster cold-start on a cold Node cache; with a warm
- *      NODE_COMPILE_CACHE the gap shrinks to ~2%. The bundle's primary
+ *      Default since v0.9.17 close-out — re-measured 2026-10-01 (deep review
+ *      §10/V7): ~36% faster cold-start on a cold Node cache; the gap narrows
+ *      with a warm NODE_COMPILE_CACHE. The bundle's primary
  *      value is correctness (vendored typebox) and deterministic startup,
  *      not raw speed.
  *      See `scripts/bench-cold-start.mjs` for reproducible numbers.
