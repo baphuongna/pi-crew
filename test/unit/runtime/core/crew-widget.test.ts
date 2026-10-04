@@ -53,9 +53,12 @@ test("crew widget renders installed-style run and agent summary lines", async ()
 		]);
 		// Single-line dock (RAIL §2.B): the identity canopy + counts only —
 		// team/workflow and agent detail moved into the Agents & Jobs browser
-		// (↓ + Enter).
+		// (↓ + Enter). R3-9: the subject is wrapped in an OSC-8 file:// hyperlink
+		// to the run's artifacts dir, so the team name sits between the
+		// hyperlink escape sequences — match with escapes allowed around it.
 		const lines = buildCrewWidgetLines(cwd, 1);
-		assert.match(lines[0]!, /^┃ \S+ CREW ▸ fast-fix/, `rail + canopy, got '${lines[0]}'`);
+		assert.match(lines[0]!, /^┃ \S+ CREW ▸ (?:\x1b\]8;;\S+\x1b\\)?fast-fix/, `rail + canopy, got '${lines[0]}'`);
+		assert.match(lines[0]!, /\x1b\]8;;file:\/\//, "R3-9: dock subject must be a file:// hyperlink");
 		assert.match(lines.join("\n"), /1 running/);
 		assert.match(lines.join("\n"), /···· ↓·enter/);
 		const calls: Array<{ key: string; content: string[] | undefined }> = [];

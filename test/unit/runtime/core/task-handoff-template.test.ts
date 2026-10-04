@@ -29,9 +29,13 @@ describe("HANDOFF_TEMPLATE", () => {
 		assert.ok(HANDOFF_TEMPLATE.length > 0);
 	});
 
-	it("has exactly 4 subsections", () => {
+	it("has exactly 5 subsections", () => {
 		const matches = HANDOFF_TEMPLATE.match(/^### /gm);
-		assert.equal(matches?.length, 4);
+		assert.equal(matches?.length, 5);
+	});
+
+	it("includes the R3-2 Provenance subsection (worker PI_* self-report)", () => {
+		assert.match(HANDOFF_TEMPLATE, /^### Provenance$/m);
 	});
 });
 

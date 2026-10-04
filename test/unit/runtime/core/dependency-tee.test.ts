@@ -52,6 +52,7 @@ function buildFixtures(dir: string, depResultChars: number) {
 	const manifest = {
 		artifactsRoot: dir,
 		artifacts: [],
+		runId: "run-fixture",
 	} as unknown as TeamRunManifest;
 	const depTask = {
 		id: "dep-1",
@@ -92,7 +93,9 @@ test("renderDependencyOutputContext surfaces the recovery hint for dependencies 
 		const chars = MAX_RESULT_INLINE_BYTES * 2; // well above tee threshold
 		const { manifest, depTask, mainTask, step } = buildFixtures(dir, chars);
 		const ctx = collectDependencyOutputContext(manifest, [depTask, mainTask], mainTask, step);
-		const rendered = renderDependencyOutputContext(ctx);
+		// budget off (0 = inactive) so the FULL form renders — this test pins
+		// the full-form tee hint; the budget-trim form is pinned separately below.
+		const rendered = renderDependencyOutputContext(ctx, { budgetTokens: 0 });
 		assert.match(
 			rendered,
 			/Full output \(if you need the missing middle\): .+/,
@@ -100,6 +103,27 @@ test("renderDependencyOutputContext surfaces the recovery hint for dependencies 
 		);
 		// The head+tail inline summary is still present.
 		assert.match(rendered, /## dep-1 \(explorer\)/);
+	} finally {
+		cleanup();
+	}
+});
+
+test("budget-trimmed dependency context still surfaces a recovery pointer (no lost middle)", () => {
+	const { dir, cleanup } = makeTmpDir("fixb-hint-trim-");
+	try {
+		const chars = MAX_RESULT_INLINE_BYTES * 2; // same oversized fixture
+		const { manifest, depTask, mainTask, step } = buildFixtures(dir, chars);
+		const ctx = collectDependencyOutputContext(manifest, [depTask, mainTask], mainTask, step);
+		// Default budget (1800) forces the trim form; the tee hint line is
+		// intentionally replaced by a manifest-derived relative pointer the
+		// worker can read — recovery must remain possible in BOTH forms.
+		const rendered = renderDependencyOutputContext(ctx);
+		assert.match(rendered, /## dep-1 \(explorer\)/, "dep header survives the trim");
+		assert.match(
+			rendered,
+			new RegExp(`full output: artifacts/\\S+/results/dep-1\\.txt`),
+			"trimmed form must surface the relative recovery pointer",
+		);
 	} finally {
 		cleanup();
 	}
