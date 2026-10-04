@@ -563,6 +563,7 @@ test("E2E tmux: doctor liệt kê + đóng pane mồ côi thật, report chứa 
 				},
 			],
 			live: [],
+			foreign: [],
 			errors: [],
 		};
 		const cleanupResult = await cleanupOrphanSurfacePanes({

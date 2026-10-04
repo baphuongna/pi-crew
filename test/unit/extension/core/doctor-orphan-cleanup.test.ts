@@ -67,7 +67,7 @@ function surfaceZombie(pid: number, paneId: string, surface: "tmux" | "herdr" = 
 }
 
 function emptyScanWith(zombies: ZombieSubagent[]): ZombieScanResult {
-	return { zombies, live: [], errors: [] };
+	return { zombies, live: [], foreign: [], errors: [] };
 }
 
 /** Minimal project layout with one run dir + manifest.json. */

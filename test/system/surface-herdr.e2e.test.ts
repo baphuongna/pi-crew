@@ -552,6 +552,7 @@ test("E2E herdr: doctor liệt kê + đóng pane mồ côi thật, report chứa
 				},
 			],
 			live: [],
+			foreign: [],
 			errors: [],
 		};
 		const cleanupResult = await cleanupOrphanSurfacePanes({

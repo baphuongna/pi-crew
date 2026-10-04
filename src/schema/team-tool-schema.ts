@@ -422,7 +422,7 @@ const sharedFields = {
 	focus: Type.Optional(
 		Type.String({
 			description:
-				"Sub-focus for the doctor action. 'zombies' runs a READ-ONLY scan for orphaned pi-crew sub-agent processes (identified by PI_CREW_KIND=subagent); it never kills and never matches the user's interactive main session.",
+				"Sub-focus for the doctor action. 'zombies' runs a READ-ONLY scan for orphaned pi-crew sub-agent processes (identified by PI_CREW_KIND=subagent); it never kills and never matches the user's interactive main session. Also WARN-lists foreign CLI-spawned pi processes (AI_AGENT=pi markers, R3-16) — report-only, never kill candidates.",
 		}),
 	),
 };
@@ -576,7 +576,9 @@ export interface TeamToolParamsValue {
 	config?: Record<string, unknown>;
 	/** Sub-focus for the `doctor` action. `"zombies"` runs a READ-ONLY scan for
 	 *  orphaned pi-crew sub-agent processes (identified by PI_CREW_KIND=subagent);
-	 *  it never kills and never matches the user's interactive main session. */
+	 *  it never kills and never matches the user's interactive main session. Also
+	 *  WARN-lists foreign CLI-spawned pi processes (AI_AGENT=pi markers, R3-16) —
+	 *  report-only, never kill candidates. */
 	focus?: string;
 	dryRun?: boolean;
 	confirm?: boolean;

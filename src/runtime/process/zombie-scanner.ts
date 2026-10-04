@@ -18,6 +18,22 @@
  * is no longer alive (parent crashed/exited without reaping the child). A sub-agent
  * whose parent is still running is NOT a zombie — it's a legitimate in-flight task.
  *
+ * R3-16 (2026-10-04): a SECOND class — "foreign pi processes" — is detected via
+ * the CLI-entry markers `AI_AGENT=pi` / `PI_CODING_AGENT=true` (SDK docs
+ * environment-variables.md:15-16: both are set at runtime by the CLI/RPC entry
+ * points and inherited by children). Because they are set POST-exec, they show
+ * up in a process's own frozen /proc/<pid>/environ ONLY when that process was
+ * spawned BY another pi process — a top-level interactive main session's
+ * at-exec environ never carries them. Discriminator hierarchy:
+ *   1. `PI_CREW_KIND=subagent` → crew worker (zombies/live arrays, authoritative);
+ *   2. markers + pi-looking argv + not self/not an ancestor → foreign, REPORT ONLY.
+ * The argv gate matters: every shell/tool/MCP-server process pi spawns INHERITS
+ * the markers (uv/python/bash/xclip …), so marker presence alone over-matches.
+ * Residual ambiguity: a pi the USER deliberately starts from inside a pi shell
+ * tool (nested pi) inherits the markers too and is indistinguishable from a
+ * leak. No 100%-reliable discriminator exists for that residue → foreign
+ * entries are a WARN listing with caveat, NEVER offered as kill candidates.
+ *
  * This module is READ-ONLY. It never kills anything. The caller (doctor --zombies)
  * prints the list and asks for explicit confirmation before any kill.
  */
@@ -51,8 +67,27 @@ export interface ZombieScanResult {
 	zombies: ZombieSubagent[];
 	/** Sub-agents whose parent is still alive — shown for transparency, never killed. */
 	live: ZombieSubagent[];
+	/** R3-16: non-crew pi processes carrying the CLI markers
+	 *  (AI_AGENT=pi / PI_CODING_AGENT=true) with a pi-looking argv. REPORT ONLY —
+	 *  never a kill candidate (a user-started nested pi is indistinguishable
+	 *  from a leaked one; see module header). */
+	foreign: ForeignPiProcess[];
 	/** Errors encountered while scanning (per-pid). Never aborts the whole scan. */
 	errors: string[];
+}
+
+export interface ForeignPiProcess {
+	pid: number;
+	ppid: number;
+	/** Parent dead or re-parented to init (ppid=1) — strongest available orphan signal. */
+	orphaned: boolean;
+	/** argv carries headless markers (`--mode json` / `-p` / `--print`) — an
+	 *  interactive TUI session never does; combined with orphaned this is the
+	 *  highest-confidence "likely leak" pair, still WARN-only. */
+	headless: boolean;
+	rssKb: number;
+	elapsedSec: number | undefined;
+	cmd: string;
 }
 
 /** Read /proc/<pid>/environ as a key=value record. Returns {} if unreadable. */
@@ -121,12 +156,17 @@ function isPidAlive(pid: number): boolean {
 }
 
 function readProcCmdline(pid: number): string {
+	return readProcCmdlineTokens(pid).join(" ").trim() || `pid ${pid}`;
+}
+
+/** /proc/<pid>/cmdline as argv tokens (NUL-split). Empty array if unreadable. */
+function readProcCmdlineTokens(pid: number): string[] {
 	try {
 		// /proc/<pid>/cmdline is NUL-separated argv.
 		const raw = fs.readFileSync(`/proc/${pid}/cmdline`, "utf-8");
-		return raw.split("\0").filter(Boolean).join(" ").trim() || `pid ${pid}`;
+		return raw.split("\0").filter(Boolean);
 	} catch {
-		return `pid ${pid}`;
+		return [];
 	}
 }
 
@@ -169,13 +209,16 @@ function listCandidatePids(): number[] {
  * has no side effects.
  */
 export function scanZombieSubagents(): ZombieScanResult {
-	const result: ZombieScanResult = { zombies: [], live: [], errors: [] };
+	const result: ZombieScanResult = { zombies: [], live: [], foreign: [], errors: [] };
 	if (process.platform !== "linux") {
 		result.errors.push("zombie scan is Linux-only (/proc required); skipping on " + process.platform);
 		return result;
 	}
 
 	const myUid = tryGetUid();
+	// R3-16: self + ancestors are live hosting sessions (main session / crew
+	// host chain) — never reportable as foreign, even when they carry markers.
+	const ancestors = collectAncestorPids();
 	for (const pid of listCandidatePids()) {
 		try {
 			// Cheap rejection first: only inspect processes we own (avoid scanning system procs).
@@ -185,7 +228,33 @@ export function scanZombieSubagents(): ZombieScanResult {
 			// AUTHORITATIVE GATE: a process is a pi-crew sub-agent ONLY if it carries
 			// PI_CREW_KIND=subagent. The user's main session never sets this, so it can
 			// never be matched — this is the fix for accidentally killing main sessions.
-			if (environ.PI_CREW_KIND !== "subagent") continue;
+			// R3-16: non-crew processes get ONE extra look — the foreign pi branch
+			// below (markers + pi-looking argv, REPORT ONLY); all else is invisible.
+			if (environ.PI_CREW_KIND !== "subagent") {
+				// Exact value match matters: other agents reuse the AI_AGENT name with
+				// their own value (claude-code sets AI_AGENT=claude-code_…_agent), and
+				// marker INHERITORS (shells, MCP servers, xclip) are filtered by the
+				// argv gate below. Crew workers never reach here — the gate above owns
+				// them (pi-crew also scrubs these markers from worker env).
+				const hasPiMarker = environ.AI_AGENT === "pi" || environ.PI_CODING_AGENT === "true";
+				if (hasPiMarker && pid !== process.pid && !ancestors.has(pid)) {
+					const tokens = readProcCmdlineTokens(pid);
+					if (looksLikePiBinary(tokens)) {
+						const foreignStat = readProcStat(pid);
+						const ppid = foreignStat?.ppid ?? 0;
+						result.foreign.push({
+							pid,
+							ppid,
+							orphaned: ppid <= 1 || !isPidAlive(ppid),
+							headless: isHeadlessArgv(tokens),
+							rssKb: readProcRssKb(pid),
+							elapsedSec: foreignStat?.elapsedSec,
+							cmd: readProcCmdline(pid),
+						});
+					}
+				}
+				continue;
+			}
 
 			const crewParentPid = Number.parseInt(environ.PI_CREW_PARENT_PID ?? "", 10);
 			const stat = readProcStat(pid);
@@ -216,9 +285,11 @@ export function scanZombieSubagents(): ZombieScanResult {
 		}
 	}
 
-	// Sort: zombies first by descending RSS (biggest leaks first), live by pid.
+	// Sort: zombies first by descending RSS (biggest leaks first), live by pid;
+	// foreign: orphans first (the likely leaks), then by descending RSS.
 	result.zombies.sort((a, b) => b.rssKb - a.rssKb);
 	result.live.sort((a, b) => a.pid - b.pid);
+	result.foreign.sort((a, b) => Number(b.orphaned) - Number(a.orphaned) || b.rssKb - a.rssKb);
 	return result;
 }
 
@@ -241,6 +312,63 @@ function getProcUid(pid: number): number | undefined {
 	}
 }
 
+function pathBasename(p: string): string {
+	const idx = p.lastIndexOf("/");
+	return idx === -1 ? p : p.slice(idx + 1);
+}
+
+/**
+ * R3-16: does the argv look like the pi CLI binary itself?
+ *
+ * Every process pi spawns (bash, uv, python MCP servers, xclip, …) INHERITS the
+ * AI_AGENT/PI_CODING_AGENT markers, so marker presence alone over-matches the
+ * user's own tool processes. Only pi-looking argv[0..1] counts (argv[0] itself,
+ * or a node-style script path at argv[1]): basename `pi` (covers
+ * /usr/local/bin/pi, .nvm/…/bin/pi, ./pi), `pi-coding-agent`, or a path
+ * containing pi-coding-agent (node …/pi-coding-agent/dist/…). Tokens deeper
+ * than argv[1] are ARGUMENTS (e.g. `bash -c "pi …"`) — never the binary.
+ */
+function looksLikePiBinary(tokens: string[]): boolean {
+	for (const token of tokens.slice(0, 2)) {
+		const base = pathBasename(token);
+		if (base === "pi" || base === "pi-coding-agent" || base === "pi.js") return true;
+		if (token.includes("pi-coding-agent")) return true;
+	}
+	return false;
+}
+
+/** R3-16: headless argv detection — an interactive TUI session never carries these. */
+function isHeadlessArgv(tokens: string[]): boolean {
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i] ?? "";
+		if (token === "-p" || token === "--print" || token === "--mode=json") return true;
+		if (token === "--mode" && tokens[i + 1] === "json") return true;
+	}
+	return false;
+}
+
+/**
+ * R3-16: the scanner's own ancestor chain (self's parent up to init).
+ *
+ * Any pi process on this chain is a LIVE hosting session (the user's main
+ * session / a crew host) and must never be reported — even in the nested case
+ * (worker runs doctor → its parent crew host and the user's main session above
+ * it sit on this chain and carry markers when pi-in-pi). Bounded at 64 hops to
+ * survive a hypothetical pid cycle.
+ */
+function collectAncestorPids(): Set<number> {
+	const chain = new Set<number>();
+	let current = process.ppid;
+	let guard = 0;
+	while (current > 1 && guard++ < 64) {
+		chain.add(current);
+		const stat = readProcStat(current);
+		if (!stat || stat.ppid <= 0) break;
+		current = stat.ppid;
+	}
+	return chain;
+}
+
 /**
  * Render a ZombieScanResult as human-readable text for the doctor report.
  * Explicitly labels main-session safety and never suggests killing live parents.
@@ -252,7 +380,7 @@ export function formatZombieReport(scan: ZombieScanResult): string {
 	lines.push(`Sub-agents identified by PI_CREW_KIND=subagent marker. Main sessions (no marker) are never listed.`);
 	lines.push("");
 
-	if (scan.zombies.length === 0 && scan.live.length === 0) {
+	if (scan.zombies.length === 0 && scan.live.length === 0 && scan.foreign.length === 0) {
 		lines.push("No pi-crew sub-agent processes found.");
 		if (scan.errors.length > 0) {
 			lines.push("");
@@ -284,6 +412,23 @@ export function formatZombieReport(scan: ZombieScanResult): string {
 		lines.push("");
 	}
 
+	if (scan.foreign.length > 0) {
+		lines.push(`### WARN — Foreign pi processes, REPORT ONLY (${scan.foreign.length})`);
+		lines.push("CLI-spawned pi processes (AI_AGENT=pi / PI_CODING_AGENT=true markers) that are");
+		lines.push("NOT pi-crew children. A top-level interactive session never carries these");
+		lines.push("markers in its own environment (the CLI sets them post-exec) — but a pi YOU");
+		lines.push("deliberately started from inside a pi shell looks identical to a leak.");
+		lines.push("NO reliable discriminator exists for that residue: verify cmd / session-dir");
+		lines.push("/ cwd by hand before ever killing one. These are never kill candidates and");
+		lines.push("never feed pane cleanup. This tool never kills.");
+		lines.push("");
+		lines.push("  PID       PPID     STATE             RSS       CMD");
+		for (const f of scan.foreign) {
+			lines.push(formatForeignRow(f));
+		}
+		lines.push("");
+	}
+
 	if (scan.errors.length > 0) {
 		lines.push(`Scan errors (${scan.errors.length}, first 5 shown):`);
 		for (const err of scan.errors.slice(0, 5)) lines.push(`  - ${err}`);
@@ -301,6 +446,14 @@ function formatZombieRow(z: ZombieSubagent): string {
 	return `  ${String(z.pid).padEnd(9)}${String(z.crewParentPid).padEnd(8)}${formatRss(z.rssKb).padEnd(10)}${(z.role ?? "?").padEnd(14)}${surface.padEnd(16)}${z.cmd.slice(0, 44)}`;
 }
 
+/** One table row for the R3-16 foreign section — state carries the triage flags. */
+function formatForeignRow(f: ForeignPiProcess): string {
+	// "orphaned" = parent dead/re-parented to init (strongest leak signal);
+	// "headless" = --mode json / -p argv (never an interactive TUI session).
+	const state = `${f.orphaned ? "orphaned" : "live-parent"}${f.headless ? " headless" : ""}`;
+	return `  ${String(f.pid).padEnd(9)}${String(f.ppid).padEnd(8)}${state.padEnd(17)}${formatRss(f.rssKb).padEnd(10)}${f.cmd.slice(0, 40)}`;
+}
+
 function formatRss(kb: number): string {
 	if (kb >= 1024 * 1024) return `${(kb / 1024 / 1024).toFixed(1)}G`;
 	if (kb >= 1024) return `${(kb / 1024).toFixed(0)}M`;
@@ -308,4 +461,12 @@ function formatRss(kb: number): string {
 }
 
 // Re-export for tests + callers that want to inspect proc helpers in isolation.
-export const __test = { readProcEnviron, isPidAlive, computeElapsedSec };
+export const __test = {
+	readProcEnviron,
+	isPidAlive,
+	computeElapsedSec,
+	readProcCmdlineTokens,
+	looksLikePiBinary,
+	isHeadlessArgv,
+	collectAncestorPids,
+};

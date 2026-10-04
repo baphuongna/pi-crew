@@ -865,6 +865,9 @@ export async function handleDoctor(ctx: TeamContext, params: TeamToolParamsValue
 	// cleanup only closes multiplexer panes (zombie workers' panes + terminal
 	// runs' leaked panes) through the provider, gated on detect(). The user's
 	// main session never carries PI_CREW_KIND, so it can never appear here.
+	// R3-16: the scan ALSO reports "foreign" pi processes (AI_AGENT=pi /
+	// PI_CODING_AGENT=true CLI markers + pi-looking argv) — WARN listing only,
+	// never kill candidates, never fed to pane cleanup.
 	if (params.focus === "zombies") {
 		const scan = scanZombieSubagents();
 		const cleanup = await cleanupOrphanSurfacePanes({ cwd: ctx.cwd, scan });
@@ -877,6 +880,9 @@ export async function handleDoctor(ctx: TeamContext, params: TeamToolParamsValue
 				data: {
 					zombies: scan.zombies.length,
 					live: scan.live.length,
+					// R3-16: foreign pi processes — WARN-only report count (never killed,
+					// never pane-cleaned; see zombie-scanner.ts discriminator notes).
+					foreignPi: scan.foreign.length,
 					errors: scan.errors.length,
 					orphanPanes: cleanup.orphans.length,
 					panesClosed: cleanup.closed.length,
