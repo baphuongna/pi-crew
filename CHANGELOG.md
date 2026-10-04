@@ -1,5 +1,43 @@
 # Changelog
 
+## [Unreleased]
+
+### Added — deep-learn polish batch (docs/reviews/pi-1.0.0-deep-learn-r3-2026-10-03.md R3 matrix)
+
+- **RPC worker transport wired (P2-3 integration)** — after a live-fire probe against a real
+  `pi --mode rpc` (24 ui-requests drained by the drain policy; dialog auto-answered `cancel`
+  with no deadlock; steer honored at 53 ms RTT), the `runtime.workerTransport: "rpc"` path now
+  dispatches real RPC workers with worker-cap parity, a pre-abort short-circuit, and a guarded
+  stdio fallback. Still experimental: minimal input mapping, raw model passthrough, ephemeral
+  sessions (see src/runtime/rpc/README.md).
+- **Skill advertisement dedup (R3-23)** — the worker spawn path no longer duplicates the host's
+  `<available_skills>` block with pi-crew's own per-skill index; measured ~232–284 tokens/worker
+  (~65% of the block) saved, ~1.9k tokens per 8-role wave. Live-session/scaffold keep the full
+  block.
+- **Foreign-pi orphan scan (R3-16)** — `doctor --zombies` now WARN-lists orphaned pi processes
+  via `AI_AGENT`/`PI_CODING_AGENT` markers (exact-value match, argv pi-binary gate, self/ancestor
+  exclusion). Report-only by design — never a kill candidate.
+- **Worker session labels (R3-15)** — headless workers spawn with `--name crew-<taskId>` for
+  human-friendly session pickers.
+- **Live-session scoped models (R3-12)** — live sessions bind `scopedModels` to the configured
+  fallback chain (explicit-chain-only; user overrides preserved — scope is visibility, not gate).
+- **OSC-8 dock link (R3-9)** — the crew dock subject is a `file://` hyperlink to the latest run's
+  artifacts dir; degrades to plain text on old hosts, escape-safe under truncation.
+
+### Changed
+
+- `setupRenderLoop` extracted byte-identically into `src/extension/registration/render-loop.ts`
+  (lifecycle-handlers.ts 1347→897 lines) (QW#2).
+- `formatDuration` name collision resolved with domain names (`formatTaskElapsed`,
+  `formatRelativeCompact`) — zero output-format changes (QW#5).
+- wc-gate now scans **all of `src/`** (527 files; 0 violations, max 1908) (QW#3).
+- f19-config-parity test now auto-derives runtime keys 3-way (types ↔ schema ↔ parser) — no hand
+  lists; mutation-verified (parse-dead and phantom keys both fail loudly).
+- IME-safe cursors: hand-written text inputs emit pi-tui `CURSOR_MARKER` (R3-6).
+- Bundle benchmark comment refreshed to the re-measured ~36% cold-start gap (QW#6).
+- R3-10 (withFileMutationQueue) skipped with evidence: pi-crew's flock-based mutation locks
+  already cover the named paths; the SDK helper is in-process-only — double-lock for no gain.
+
 ## [0.11.7] — Pi 1.0.0 adoption waves + deep-learn execution (2026-10-04)
 ### Added — Pi 1.0.0 adoption wave (see docs/reviews/pi-1.0.0-adoption-review-2026-10-03.md)
 
