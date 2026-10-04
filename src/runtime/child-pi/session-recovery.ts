@@ -107,11 +107,32 @@ export function deriveSessionPaths(input: SessionIdentityInput): WorkerSessionCo
  * present (builder forwarding, future wiring), this is a no-op.
  */
 export function appendWorkerSessionArgs(spawnArgs: string[], builtArgs: string[], ctx: WorkerSessionContext): boolean {
-	if (builtArgs.includes("--session-id") || builtArgs.includes("--session-dir")) return false;
-	const flags = ["--session-id", ctx.sessionId, "--session-dir", ctx.sessionDir];
-	insertAfterHeadlessCluster(builtArgs, flags);
-	if (!spawnArgs.includes("--session-id")) insertAfterHeadlessCluster(spawnArgs, flags);
-	return true;
+	// PER-FLAG idempotency (battery fix 2026-10-04): the builder may forward a
+	// PARTIAL identity (e.g. manifest sessionId without sessionDir — the
+	// child-executor runWorker call passes sessionId only). The old
+	// both-or-nothing guard ("if --session-id present, skip everything") let
+	// that partial arming self-disarm the full activation: --session-id went
+	// out, --session-dir never did, and worker session files silently landed
+	// in the cwd-keyed default dir instead of the per-worker artifacts dir —
+	// breaking crash recovery in the live path. Fill in each missing flag.
+	let changed = false;
+	const missing: string[] = [];
+	if (!builtArgs.includes("--session-id")) missing.push("--session-id", ctx.sessionId);
+	if (!builtArgs.includes("--session-dir")) missing.push("--session-dir", ctx.sessionDir);
+	if (missing.length > 0) {
+		insertAfterHeadlessCluster(builtArgs, missing);
+		changed = true;
+	}
+	// Mirror onto the headless spawnArgs view (independent array) with the
+	// same per-flag check.
+	const missingSpawn: string[] = [];
+	if (!spawnArgs.includes("--session-id")) missingSpawn.push("--session-id", ctx.sessionId);
+	if (!spawnArgs.includes("--session-dir")) missingSpawn.push("--session-dir", ctx.sessionDir);
+	if (missingSpawn.length > 0) {
+		insertAfterHeadlessCluster(spawnArgs, missingSpawn);
+		changed = true;
+	}
+	return changed;
 }
 
 function insertAfterHeadlessCluster(arr: string[], flags: string[]): void {

@@ -364,6 +364,28 @@ test("appendWorkerSessionArgs: idempotent — already-forwarded flags (future bu
 	assert.equal(spawnArgs.filter((a) => a === "--session-id").length, 1);
 });
 
+test("appendWorkerSessionArgs: partial builder forwarding (sessionId only) still fills --session-dir (battery fix 2026-10-04)", () => {
+	// Live-path regression: child-executor forwards manifest.sessionId through
+	// the builder but not sessionDir. The old both-or-nothing guard saw
+	// --session-id present and skipped EVERYTHING, so --session-dir never went
+	// out and worker session files landed in the cwd-keyed default dir instead
+	// of the per-worker artifacts dir — crash recovery read the wrong place.
+	const builtArgs = ["--mode", "json", "-p", "--session-id", "crew-teamX"];
+	const spawnArgs = ["/pi.js", "--mode", "json", "-p", "--session-id", "crew-teamX"];
+	const appended = appendWorkerSessionArgs(spawnArgs, builtArgs, {
+		sessionId: "crew-teamX",
+		sessionDir: "/run/artifacts/sessions/01_explore",
+	});
+	assert.equal(appended, true, "must report a change (dir flag filled)");
+	// Inserted right after the headless cluster, NOT appended at the end
+	// (trailing positionals would swallow a late flag pair).
+	assert.equal(builtArgs[3], "--session-dir");
+	assert.equal(builtArgs[4], "/run/artifacts/sessions/01_explore");
+	assert.equal(builtArgs.filter((a) => a === "--session-id").length, 1, "existing --session-id not duplicated");
+	assert.equal(spawnArgs[4], "--session-dir", "spawnArgs view mirrored after its own cluster");
+	assert.equal(spawnArgs.filter((a) => a === "--session-id").length, 1);
+});
+
 // ─── resolveSessionRecoveryEnabled ───────────────────────────────────────────
 
 test("enabled gate: default ON when neither env nor explicit flag is set", () => {
