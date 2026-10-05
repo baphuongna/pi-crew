@@ -263,6 +263,16 @@ test("T-6 (b): sustained lock-free writer pressure — no convergence error, mer
 			"merge must derive from disk state containing B (≥1 retry via the primed flush)",
 		);
 
+		// Flush the primed template write NOW — while the storm child is still
+		// alive. The template carries a tickLESS B riding a 50ms coalesce
+		// timer; if that timer is still pending when the child exits (slow
+		// win32 CI), the post-exit flush below lands the tickless template
+		// AFTER the storm's last tick-bearing write and erases diskB.tick.
+		// Flushing mid-storm guarantees the storm's remaining writes (hundreds
+		// at this point) rewrite ticks afterwards, on every platform and
+		// scheduler.
+		flushPendingAtomicWrites();
+
 		// Once the pressure stops, a follow-up persist (with a fresh
 		// fallback, as the caller contract requires) converges on the first
 		// attempt and durably lands the merge.
