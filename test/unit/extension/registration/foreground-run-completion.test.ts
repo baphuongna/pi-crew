@@ -25,7 +25,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { installForegroundRunController } from "../../../../src/extension/registration/foreground-run-controller.ts";
 import type { RegistrationContext } from "../../../../src/extension/registration/registration-types.ts";
+import { createManifestCache } from "../../../../src/runtime/manifest-cache.ts";
 import { createRunManifest, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
+import { createRunSnapshotCache } from "../../../../src/ui/run-snapshot-cache.ts";
 
 function makeTmpDir(prefix: string): { dir: string; cleanup: () => void } {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -58,7 +60,7 @@ function makeSessionBase(cwd: string, sessionId: string): Record<string, unknown
 	};
 }
 
-function makeRegContext(currentCtx: Record<string, unknown> | undefined): RegistrationContext {
+function makeRegContext(currentCtx: Record<string, unknown> | undefined, cwd: string): RegistrationContext {
 	const ctx = {
 		cleanedUp: false,
 		currentCtx,
@@ -71,8 +73,11 @@ function makeRegContext(currentCtx: Record<string, unknown> | undefined): Regist
 		},
 		isContextCurrent: (c: unknown, gen: number | undefined) => !ctx.cleanedUp && ctx.currentCtx === c && ctx.sessionGeneration === gen,
 		widgetState: { frame: 0 },
-		getManifestCache: () => new Map(),
-		getRunSnapshotCache: () => new Map(),
+		// REAL cache factories (empty tmpdir): the completion path hands these to
+		// updateCrewWidget/requestPowerbarUpdate, which call manifestCache.list()
+		// — a plain Map crashes there (live CI shard caught it).
+		getManifestCache: () => createManifestCache(cwd),
+		getRunSnapshotCache: () => createRunSnapshotCache(cwd),
 	};
 	return ctx as unknown as RegistrationContext;
 }
@@ -106,7 +111,7 @@ test("#62 spread-copy owner (tool path): completion side effects all fire", asyn
 	try {
 		const runId = completedRunIn(dir);
 		const base = makeSessionBase(dir, "sess-1");
-		const ctx = makeRegContext(base);
+		const ctx = makeRegContext(base, dir);
 		const { pi, entries, events } = makePi();
 		installForegroundRunController(pi as never, ctx);
 
@@ -147,7 +152,7 @@ test("#62 stale session owner: reporting skipped, working-message clear still ru
 		const runId = completedRunIn(dir);
 		const ownerBase = makeSessionBase(dir, "sess-owner");
 		const currentNow = makeSessionBase(dir, "sess-other"); // user switched sessions
-		const ctx = makeRegContext(currentNow);
+		const ctx = makeRegContext(currentNow, dir);
 		const { pi, entries, events } = makePi();
 		installForegroundRunController(pi as never, ctx);
 
@@ -180,7 +185,7 @@ test("#62 cleanedUp registration: clear attempted, reporting skipped", async () 
 	try {
 		const runId = completedRunIn(dir);
 		const base = makeSessionBase(dir, "sess-1");
-		const ctx = makeRegContext(base);
+		const ctx = makeRegContext(base, dir);
 		const { pi, entries, events } = makePi();
 		installForegroundRunController(pi as never, ctx);
 		(ctx as unknown as { cleanedUp: boolean }).cleanedUp = true;
@@ -211,7 +216,7 @@ test("#62 failed runner: error notify reaches a spread-copy owner", async () => 
 	const { dir, cleanup } = makeTmpDir("pi-crew-fg62-fail-");
 	try {
 		const base = makeSessionBase(dir, "sess-1");
-		const ctx = makeRegContext(base);
+		const ctx = makeRegContext(base, dir);
 		const { pi, entries, events } = makePi();
 		installForegroundRunController(pi as never, ctx);
 
