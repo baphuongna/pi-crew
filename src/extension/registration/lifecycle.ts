@@ -5,10 +5,12 @@
  * active. This is the "lazy" half of H3 — the heavy heartbeat/auto-repair
  * graph stays out of cold start until a run actually starts.
  *
- * Extracted from src/extension/register.ts. State holder is `LifecycleState`;
- * installer is `startLifecycleWatchers(ctx, state, deps)` which fires on
- * session_start (when the first run becomes possible) and is no-op when
- * `activeRunCount === 0`.
+ * NOTE (GH #62 audit, 2026-10-05): the former startLifecycleWatchers /
+ * stopLifecycleWatchers pair was REMOVED — dead code (0 callers since the
+ * lifecycle-handlers.ts rewrite) carrying a duplicate async-notifier install
+ * gated on the object-identity isContextCurrent pattern that #62 proved
+ * fragile for tool-path contexts. The async-run notifier is installed
+ * directly in lifecycle-handlers.ts (session_start).
  *
  * Also owns DeliveryCoordinator + OverflowRecoveryTracker + NotificationRouter
  * wiring since these are all "delivery lifecycle" services that share the
@@ -16,13 +18,10 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../../config/config.ts";
-import { DEFAULT_NOTIFICATIONS, DEFAULT_UI } from "../../config/defaults.ts";
-import { logInternalError } from "../../utils/internal-error.ts";
+import { DEFAULT_NOTIFICATIONS } from "../../config/defaults.ts";
 import { projectCrewRoot } from "../../utils/paths.ts";
-import type { AsyncNotifierState } from "../async-notifier.ts";
 import type { NotificationDescriptor, NotificationRouter } from "../notification-router.ts";
 import type { NotificationSink } from "../notification-sink.ts";
-import { createWebhookNotifier } from "../webhook-notify.ts";
 
 /**
  * Mutable state owned by register.ts and read/written by this module.
@@ -35,88 +34,6 @@ export interface LifecycleState {
 	notificationRouter: NotificationRouter | undefined;
 	deliveryCoordinator: import("../../runtime/delivery-coordinator.ts").DeliveryCoordinator | undefined;
 	overflowTracker: import("../../runtime/recovery/overflow-recovery.ts").OverflowRecoveryTracker | undefined;
-}
-
-/** Dependencies passed in by register.ts so this module stays decoupled. */
-export interface LifecycleDeps {
-	pi: ExtensionAPI;
-	notifierState: AsyncNotifierState;
-	isCleanedUp: () => boolean;
-	isContextCurrent: (ctx: ExtensionContext, ownerGeneration: number) => boolean;
-	ownerGeneration: number;
-}
-
-/**
- * Start the async-run notifier. Idempotent — repeated calls while running
- * are no-ops. Returns true if started now, false if already running or
- * skipped due to config gate.
- *
- * NOTE: This module does NOT start heartbeat watchers or auto-repair timers.
- * Those live in `observability.ts` (configurable + resource-heavy). This
- * module only manages the lightweight async-run poller.
- */
-export function startLifecycleWatchers(ctx: ExtensionContext, state: LifecycleState, deps: LifecycleDeps): boolean {
-	if (state.notifierStarted) return false;
-	const loadedConfig = loadConfig(ctx.cwd);
-	state.notifierStarted = true;
-	try {
-		// US-030 (docs/specs/US-030.md): outbound webhook sink built from config.
-		// Gated on the notifications master switch (`notifications.enabled !== false`,
-		// same gate as configureNotifications), opt-in per `webhook.url`, and
-		// SSRF-guarded inside the factory. Inactive config → shared no-op
-		// singleton (zero network calls, zero hot-path allocation).
-		const notificationsConfig = loadedConfig.config.notifications;
-		const webhookNotifier =
-			notificationsConfig?.enabled === false
-				? undefined
-				: createWebhookNotifier(
-						{ webhook: notificationsConfig?.webhook, quietHours: notificationsConfig?.quietHours },
-						{
-							onFailure: (failure) => {
-								// Spec: failures surface as a `webhook.failed` event (crew.*-prefixed
-								// pi event, mirroring crew.run.completed / crew.task.overflow).
-								// logInternalError already fired inside the notifier.
-								deps.pi.events?.emit?.("crew.webhook.failed", {
-									runId: failure.runId,
-									attempts: failure.attempts,
-									error: failure.error,
-								});
-							},
-						},
-					);
-		// LAZY: async-notifier pulls in debounce + cron helpers — defer
-		// until the first lifecycle install (deferred import within module).
-		void import("../async-notifier.ts").then(({ startAsyncRunNotifier }) => {
-			// LAZY: defer async-notifier until the lifecycle event fires
-			if (deps.isCleanedUp()) return;
-			startAsyncRunNotifier(ctx, deps.notifierState, loadedConfig.config.notifierIntervalMs ?? DEFAULT_UI.notifierIntervalMs, {
-				generation: deps.ownerGeneration,
-				isCurrent: (generation) => generation === deps.ownerGeneration && deps.isContextCurrent(ctx, deps.ownerGeneration),
-				webhookNotifier,
-			});
-		});
-		return true;
-	} catch (error) {
-		state.notifierStarted = false;
-		logInternalError("register.startLifecycleWatchers", error);
-		return false;
-	}
-}
-
-/**
- * Stop the async-run notifier. Safe to call when not started.
- */
-export function stopLifecycleWatchers(state: LifecycleState, deps: LifecycleDeps): void {
-	if (!state.notifierStarted) return;
-	state.notifierStarted = false;
-	try {
-		void import("../async-notifier.ts").then(({ stopAsyncRunNotifier }) => {
-			// LAZY: defer async-notifier until the lifecycle event fires
-			stopAsyncRunNotifier(deps.notifierState);
-		});
-	} catch (error) {
-		logInternalError("register.stopLifecycleWatchers", error);
-	}
 }
 
 /** Dependencies for configureNotifications (UI-facing delivery wiring). */
