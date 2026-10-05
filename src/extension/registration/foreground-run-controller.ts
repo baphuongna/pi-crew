@@ -92,6 +92,15 @@ function startForegroundRunImpl(
 	runId?: string,
 ): void {
 	const ownerGeneration = ctx.captureSessionGeneration();
+	// Issue #62: tool-dispatched runs receive a SPREAD COPY of the session
+	// context (withSessionId() always returns { ...ctx }), so the object-
+	// identity check (isContextCurrent) was false from the very first moment
+	// and the whole completion block below was silently skipped for every
+	// foreground run started via the team/subagent tools — stale working
+	// message, no crew:run-completed entry, no crew.run.* metrics. Liveness
+	// for the reporting half is therefore session-ID based; the UI clear is
+	// unconditional (try/catch guards a disposed ctx).
+	const ownerSessionId = extensionCtx.sessionManager?.getSessionId?.();
 	const controller = new AbortController();
 	const key = runId ?? Symbol();
 	ctx.foregroundTeamRunControllers.set(key, controller);
@@ -130,7 +139,7 @@ function startForegroundRunImpl(
 						logInternalError("register.foreground-run-failure", statusError, `runId=${runId}`);
 					}
 				}
-				if (ctx.isContextCurrent(extensionCtx, ownerGeneration)) {
+				if (ctx.isOwnerSessionCurrent(ownerGeneration, ownerSessionId)) {
 					extensionCtx.ui.notify(`pi-crew foreground run failed: ${message}`, "error");
 				} else {
 					logInternalError("register.foreground-run-failure", error, `runId=${runId} context disposed`);
@@ -145,18 +154,18 @@ function startForegroundRunImpl(
 						})
 						.catch((error) => logInternalError("register.foreground-watchdog", error, `runId=${runId}`));
 				}
-				const ownerCurrent = ctx.isContextCurrent(extensionCtx, ownerGeneration);
-				// The owner ctx can go stale while the run is in flight (e.g. the
-				// user opened an agent session view via /crew-view and the run
-				// finishes there): the `hasUI` getter THROWS on a stale ctx, so
-				// it must only be touched for the still-current owner.
-				if (ownerCurrent && extensionCtx.hasUI) {
-					try {
+				const ownerCurrent = ctx.isOwnerSessionCurrent(ownerGeneration, ownerSessionId);
+				// Issue #62: clear the working message UNCONDITIONALLY. The `hasUI`
+				// getter THROWS on a disposed ctx, so touch it inside try/catch —
+				// a stale ctx just means the host already reset its UI; a live one
+				// must never keep spinning a finished run's label.
+				try {
+					if (extensionCtx.hasUI) {
 						setWorkingIndicator(extensionCtx);
 						extensionCtx.ui.setWorkingMessage();
-					} catch {
-						/* ignore */
 					}
+				} catch {
+					/* disposed ctx — host-side UI reset already happened */
 				}
 				if (ownerCurrent && runId) {
 					const loaded = loadRunManifestById(extensionCtx.cwd, runId);
