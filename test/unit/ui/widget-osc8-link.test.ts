@@ -14,6 +14,7 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { asCrewTheme } from "../../../src/ui/theme-adapter.ts";
 import { buildWidgetLines, colorWidgetLine, idleWidgetLine } from "../../../src/ui/widget/widget-renderer.ts";
 import type { WidgetRun } from "../../../src/ui/widget/widget-types.ts";
@@ -77,7 +78,11 @@ test("single run: dock subject is wrapped in an OSC-8 file:// link to the artifa
 	const line = lines[0]!;
 	const open = line.indexOf(`${OSC8_OPEN}file://`);
 	assert.ok(open !== -1, `expected OSC-8 open in: ${JSON.stringify(line)}`);
-	assert.ok(line.includes("file:///tmp/arts-a"), "URL must point at the artifacts dir");
+	// pi-tui's hyperlink() builds the URL via Node's pathToFileURL(), which on
+	// win32 resolves a rooted posix fixture path against the current drive
+	// (e.g. "/tmp/arts-a" → "file:///D:/tmp/arts-a"). Compute the expectation
+	// with the same primitive so the assertion holds on every CI matrix OS.
+	assert.ok(line.includes(pathToFileURL("/tmp/arts-a").href), "URL must point at the artifacts dir");
 	// The label stays visible between the open and the close pair.
 	const closeIdx = line.indexOf(`${OSC8_OPEN}\u001b\\`, open + 1);
 	assert.ok(closeIdx !== -1, "expected OSC-8 close pair");
@@ -89,7 +94,7 @@ test("multiple runs: the aggregate label links to the NEWEST run's artifacts dir
 	const newer = makeRun({ runId: "run_new", createdAt: "2026-10-02T00:00:00.000Z", artifactsRoot: "/tmp/arts-new" });
 	const lines = buildWidgetLines(FAKE_CWD, 0, 8, [older, newer]);
 	const line = lines[0]!;
-	assert.ok(line.includes("file:///tmp/arts-new"), `newest run wins: ${JSON.stringify(line)}`);
+	assert.ok(line.includes(pathToFileURL("/tmp/arts-new").href), `newest run wins: ${JSON.stringify(line)}`);
 	assert.ok(!line.includes("arts-old"), "older run must not be linked");
 	assert.ok(line.includes("2 runs"), "aggregate label stays");
 });
