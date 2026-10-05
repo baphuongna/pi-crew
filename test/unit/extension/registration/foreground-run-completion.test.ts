@@ -19,13 +19,13 @@
  *   - failed runner: error notify reaches a spread-copy owner too.
  */
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { test } from "node:test";
 import { installForegroundRunController } from "../../../../src/extension/registration/foreground-run-controller.ts";
-import { createRunManifest, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
 import type { RegistrationContext } from "../../../../src/extension/registration/registration-types.ts";
+import { createRunManifest, updateRunStatus } from "../../../../src/state/stores/state-store.ts";
 
 function makeTmpDir(prefix: string): { dir: string; cleanup: () => void } {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -66,11 +66,10 @@ function makeRegContext(currentCtx: Record<string, unknown> | undefined): Regist
 		foregroundTeamRunControllers: new Map(),
 		captureSessionGeneration: () => ctx.sessionGeneration,
 		isOwnerSessionCurrent: (gen: number | undefined, oid: string | undefined) => {
-			const currentSid = ctx.currentCtx?.sessionManager?.getSessionId?.() as string | undefined;
+			const currentSid = (ctx.currentCtx?.sessionManager as { getSessionId?: () => string } | undefined)?.getSessionId?.();
 			return !ctx.cleanedUp && (oid === undefined || oid === currentSid) && (gen === undefined || gen === ctx.sessionGeneration);
 		},
-		isContextCurrent: (c: unknown, gen: number | undefined) =>
-			!ctx.cleanedUp && ctx.currentCtx === c && ctx.sessionGeneration === gen,
+		isContextCurrent: (c: unknown, gen: number | undefined) => !ctx.cleanedUp && ctx.currentCtx === c && ctx.sessionGeneration === gen,
 		widgetState: { frame: 0 },
 		getManifestCache: () => new Map(),
 		getRunSnapshotCache: () => new Map(),
@@ -132,7 +131,11 @@ test("#62 spread-copy owner (tool path): completion side effects all fire", asyn
 			true,
 			"crew:run-completed session entry must be appended",
 		);
-		assert.equal(events.some((e) => e.type === "crew.run.completed"), true, "crew.run.completed event must emit");
+		assert.equal(
+			events.some((e) => e.type === "crew.run.completed"),
+			true,
+			"crew.run.completed event must emit",
+		);
 	} finally {
 		cleanup();
 	}
@@ -158,8 +161,15 @@ test("#62 stale session owner: reporting skipped, working-message clear still ru
 			true,
 			"UI clear is unconditional — a finished run must never keep spinning",
 		);
-		assert.equal(entries.some((e) => e.type === "crew:run-completed"), false, "no reporting into a foreign session");
-		assert.equal(events.some((e) => e.type === "crew.run.completed"), false);
+		assert.equal(
+			entries.some((e) => e.type === "crew:run-completed"),
+			false,
+			"no reporting into a foreign session",
+		);
+		assert.equal(
+			events.some((e) => e.type === "crew.run.completed"),
+			false,
+		);
 	} finally {
 		cleanup();
 	}
@@ -180,7 +190,11 @@ test("#62 cleanedUp registration: clear attempted, reporting skipped", async () 
 		ctx.startForegroundRun(extCtx as never, async () => undefined, runId);
 		await settle();
 
-		assert.equal(entries.some((e) => e.type === "crew:run-completed"), false, "no reporting after cleanup");
+		assert.equal(
+			entries.some((e) => e.type === "crew:run-completed"),
+			false,
+			"no reporting after cleanup",
+		);
 		// hasUI on a "disposed" fake still returns true here, so the clear
 		// attempt is observable; the try/catch covers the throwing case.
 		assert.equal(
