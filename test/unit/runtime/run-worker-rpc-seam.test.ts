@@ -16,7 +16,11 @@
  *      (The early-failure → stdio fallback leg reuses that same runChildPi
  *      call inside the rpc path; its gate is the predicate truth table.)
  *   3. isEarlyRpcTransportFailure truth table (double-execution guard: a
- *      result with rawFinalText or aborted is never retried).
+ *      result with rawFinalText, rpcAgentStarted, or aborted is never retried).
+ *   4. DR1/DR5 lifecycle hardening (deep-review 2026-10-05 §2): child exit
+ *      before agent_settled → early failure → stdio fallback + slot released;
+ *      agent-started-but-unsettled → surfaced, NEVER retried; turn timeout
+ *      (PI_CREW_RPC_TURN_TIMEOUT_MS) → early-failure shape → fallback.
  *
  * The default (env unset → stdio) path is deliberately NOT exercised here: it
  * delegates to the real runChildPi and would spawn a real pi binary. Its
@@ -33,7 +37,7 @@ import type { RpcSpawnFn } from "../../../src/runtime/rpc/frame-client.ts";
 import { isEarlyRpcTransportFailure, runWorker, type WorkerSpawnInput } from "../../../src/runtime/run-worker.ts";
 import { createFakeRpcServer, type FakeRpcServer } from "./rpc/fake-rpc-stream.ts";
 
-const ENV_KEYS = ["PI_CREW_WORKER_TRANSPORT"] as const;
+const ENV_KEYS = ["PI_CREW_WORKER_TRANSPORT", "PI_CREW_RPC_TURN_TIMEOUT_MS"] as const;
 
 const agent: AgentConfig = {
 	name: "worker",
@@ -48,6 +52,7 @@ test.beforeEach(() => {
 	envBackup = new Map();
 	for (const key of ENV_KEYS) envBackup.set(key, process.env[key]);
 	process.env.PI_CREW_WORKER_TRANSPORT = "rpc";
+	delete process.env.PI_CREW_RPC_TURN_TIMEOUT_MS;
 });
 test.afterEach(() => {
 	for (const [key, value] of envBackup) {
@@ -81,6 +86,45 @@ function capturingSpawnFn(fake: FakeRpcServer, captured: { argv?: string[] }): R
 function seamInput(overrides: Partial<WorkerSpawnInput> & { rpc: NonNullable<WorkerSpawnInput["rpc"]> }): WorkerSpawnInput {
 	const { rpc, ...rest } = overrides;
 	return { cwd: process.cwd(), task: "seam probe", agent, cap: true, rpc, ...rest };
+}
+
+/**
+ * Env for the DR1/DR5 tests whose stdio FALLBACK leg must not spawn a real
+ * pi binary: PI_TEAMS_MOCK_CHILD_PI=success makes runChildPi answer from the
+ * mock fixtures, and the depth vars are scrubbed so the worker-shell env
+ * (knowledge.md 2026-08-15 gotcha — a pi-crew worker exports PI_CREW_DEPTH)
+ * can never trip the child depth guard. Snapshot/restore everything touched.
+ */
+const FALLBACK_MOCK_ENV_KEYS = [
+	"PI_TEAMS_MOCK_CHILD_PI",
+	"PI_CREW_ALLOW_MOCK",
+	"PI_CREW_DEPTH",
+	"PI_TEAMS_DEPTH",
+	"PI_CREW_MAX_DEPTH",
+	"PI_TEAMS_MAX_DEPTH",
+] as const;
+
+async function withFallbackMockEnv<T>(fn: () => Promise<T>): Promise<T> {
+	const saved = new Map<string, string | undefined>();
+	for (const key of FALLBACK_MOCK_ENV_KEYS) saved.set(key, process.env[key]);
+	process.env.PI_TEAMS_MOCK_CHILD_PI = "success";
+	process.env.PI_CREW_ALLOW_MOCK = "1";
+	delete process.env.PI_CREW_DEPTH;
+	delete process.env.PI_TEAMS_DEPTH;
+	delete process.env.PI_CREW_MAX_DEPTH;
+	delete process.env.PI_TEAMS_MAX_DEPTH;
+	try {
+		// Await INSIDE the try: the mock env must stay set for the whole
+		// async run (the stdio fallback leg executes long after runWorker
+		// returns its promise — restoring early here once leaked a REAL pi
+		// spawn into the suite).
+		return await fn();
+	} finally {
+		for (const [key, value] of saved) {
+			if (value === undefined) delete process.env[key];
+			else process.env[key] = value;
+		}
+	}
 }
 
 test("wired seam: rpc transport runs runRpcWorker (argv contract, drain policy, cap released)", async () => {
@@ -162,6 +206,111 @@ test("wired seam: pre-aborted signal short-circuits before the rpc spawn (B5 abo
 	assert.equal(result2.rawFinalText, "after fallback");
 });
 
+test("DR1 crash-before-settle: exit before agent_settled → early failure → stdio fallback + slot released", async () => {
+	// Script: fake ACKs the prompt (response success), emits NO session event,
+	// NO agent_settled, then dies — the settle-hang shape (before the DR1 fix
+	// this held the worker-cap slot forever).
+	const fake = createFakeRpcServer();
+	fake.onLine = (line) => {
+		const record = JSON.parse(line) as { id?: string; type?: string };
+		if (record.type === "prompt") {
+			fake.emit({ id: record.id, type: "response", command: "prompt", success: true, data: { disposition: "appended" } });
+			fake.exitWith(1); // crash after ACK, before the turn started
+		}
+	};
+	let rpcSpawnCalls = 0;
+	const result = await withFallbackMockEnv(() =>
+		runWorker(
+			seamInput({
+				rpc: {
+					spawnFn: (argv) => {
+						rpcSpawnCalls++;
+						return fake.handle;
+					},
+					commandTimeoutMs: 400,
+					stopTimeoutMs: 300,
+				},
+			}),
+		),
+	);
+	// The rpc transport ran exactly once and its exit-race failure (error, no
+	// rawFinalText, no agent start) classified as early → the stdio fallback
+	// leg answered from the mock fixtures instead of a real spawn.
+	assert.equal(rpcSpawnCalls, 1);
+	assert.equal(result.exitCode, 0);
+	assert.match(result.stdout, /\[MOCK\] Success/);
+	assert.equal(result.rawFinalText, undefined);
+	// Slot released (the pre-fix hang): a follow-up capped rpc call completes.
+	const fake2 = createFakeRpcServer();
+	scriptHappyPath(fake2, "after crash-before-settle");
+	const result2 = await runWorker(
+		seamInput({ task: "second", rpc: { spawnFn: () => fake2.handle, commandTimeoutMs: 400, stopTimeoutMs: 300 } }),
+	);
+	assert.equal(result2.rawFinalText, "after crash-before-settle");
+});
+
+test("DR5 started-then-fail: session event seen, no settle → surfaced, NEVER falls back", async () => {
+	// Script: ACK + ONE session event (the agent turn began) + NO settle +
+	// exit — the rawFinalText blind spot: no assistant text, yet side effects
+	// may already have run. The stdio fallback must NOT engage.
+	const fake = createFakeRpcServer();
+	fake.onLine = (line) => {
+		const record = JSON.parse(line) as { id?: string; type?: string };
+		if (record.type === "prompt") {
+			fake.emit({ id: record.id, type: "response", command: "prompt", success: true, data: { disposition: "appended" } });
+			fake.emit({ type: "message_start" }); // agent started
+			setTimeout(() => fake.exitWith(1), 10); // crash before settle/text
+		}
+	};
+	const result = await withFallbackMockEnv(() =>
+		runWorker(seamInput({ rpc: { spawnFn: () => fake.handle, commandTimeoutMs: 400, stopTimeoutMs: 300 } })),
+	);
+	assert.equal(result.error, "rpc transport: exited before agent_settled");
+	assert.equal(result.rpcAgentStarted, true);
+	assert.equal(result.rawFinalText, undefined);
+	assert.notEqual(result.exitCode, 0);
+	// The stdio leg never ran (mock-env active, so its distinctive stdout is
+	// the tell — a fallback here would be a double execution).
+	assert.doesNotMatch(result.stdout, /\[MOCK\]/);
+	// Slot still released: the surfaced error path must not hang the cap.
+	const fake2 = createFakeRpcServer();
+	scriptHappyPath(fake2, "after started-then-fail");
+	const result2 = await runWorker(
+		seamInput({ task: "second", rpc: { spawnFn: () => fake2.handle, commandTimeoutMs: 400, stopTimeoutMs: 300 } }),
+	);
+	assert.equal(result2.rawFinalText, "after started-then-fail");
+});
+
+test("DR1 turn timeout: live-but-silent child → early-failure shape → stdio fallback", async () => {
+	// Script: ACK, then NOTHING — no session event, no settle, no exit. Only
+	// the turn timeout can rescue this (the exit-race alone never fires).
+	process.env.PI_CREW_RPC_TURN_TIMEOUT_MS = "60";
+	const fake = createFakeRpcServer();
+	fake.onLine = (line) => {
+		const record = JSON.parse(line) as { id?: string; type?: string };
+		if (record.type === "prompt") {
+			fake.emit({ id: record.id, type: "response", command: "prompt", success: true, data: { disposition: "appended" } });
+		}
+	};
+	fake.onStdinEnd = () => setTimeout(() => fake.exitWith(0), 5);
+	const result = await withFallbackMockEnv(() =>
+		runWorker(seamInput({ rpc: { spawnFn: () => fake.handle, commandTimeoutMs: 400, stopTimeoutMs: 300 } })),
+	);
+	// Timeout fired → early-failure shape → the stdio fallback answered.
+	assert.equal(result.exitCode, 0);
+	assert.match(result.stdout, /\[MOCK\] Success/);
+	// The timeout failure shape itself: retry-safe only while the DR5 guard
+	// has not marked the turn as started.
+	const timeoutFailure = {
+		exitCode: null,
+		stdout: "",
+		stderr: "",
+		error: "rpc transport: turn timeout after 60ms without agent_settled",
+	};
+	assert.equal(isEarlyRpcTransportFailure(timeoutFailure), true);
+	assert.equal(isEarlyRpcTransportFailure({ ...timeoutFailure, rpcAgentStarted: true }), false);
+});
+
 test("isEarlyRpcTransportFailure truth table (double-execution guard)", () => {
 	// No error → transport succeeded (even an empty turn) → never retry.
 	assert.equal(isEarlyRpcTransportFailure({ exitCode: 0, stdout: "", stderr: "" }), false);
@@ -171,6 +320,22 @@ test("isEarlyRpcTransportFailure truth table (double-execution guard)", () => {
 		isEarlyRpcTransportFailure({ exitCode: null, stdout: "", stderr: "", error: "rpc transport: stdout closed before response" }),
 		true,
 	);
+	// DR1 shapes (no agent start): exit-before-settle and turn timeout → retry-safe.
+	assert.equal(
+		isEarlyRpcTransportFailure({ exitCode: 1, stdout: "", stderr: "", error: "rpc transport: exited before agent_settled" }),
+		true,
+	);
+	assert.equal(
+		isEarlyRpcTransportFailure({
+			exitCode: null,
+			stdout: "",
+			stderr: "",
+			error: "rpc transport: turn timeout after 600000ms without agent_settled",
+		}),
+		true,
+	);
+	// DR5: agent turn had begun (no captured text) → NEVER retry.
+	assert.equal(isEarlyRpcTransportFailure({ exitCode: 1, stdout: "", stderr: "", error: "late crash", rpcAgentStarted: true }), false);
 	// Agent produced output → NEVER retry (task already consumed).
 	assert.equal(
 		isEarlyRpcTransportFailure({ exitCode: 1, stdout: "", stderr: "", error: "late crash", rawFinalText: "partial work" }),

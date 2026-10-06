@@ -63,17 +63,26 @@ export interface WorkerSpawnInput extends ChildPiRunInput {
 /**
  * True when the RPC transport failed BEFORE the agent produced any output —
  * the only shape safe to retry on the stdio transport (the task was never
- * consumed). A result with `rawFinalText` (agent ran) or `aborted: true`
- * (caller cancelled) is NEVER retried: double-executing a task that already
- * produced work is worse than surfacing the transport error.
+ * consumed). A result with `rawFinalText` (agent ran), `rpcAgentStarted`
+ * (DR5: a session event landed after the prompt — the turn had begun even
+ * without captured text), or `aborted: true` (caller cancelled) is NEVER
+ * retried: double-executing a task that already produced work is worse than
+ * surfacing the transport error.
  *
  * Covers: pi binary missing/instant crash (prompt rejects fast via stdout
  * close — live-fire probe failure-injection path), rpc handshake/prompt
- * timeout, server prompt preflight rejection (the turn never started).
+ * timeout, server prompt preflight rejection (the turn never started), child
+ * exit before agent_settled (DR1 exit-race), and the DR1 turn timeout
+ * (live-but-silent child) — the last two only when the DR5 guard has not
+ * marked the turn as started.
  */
 export function isEarlyRpcTransportFailure(result: ChildPiRunResult): boolean {
 	if (result.error === undefined) return false;
 	if (result.rawFinalText !== undefined) return false;
+	// DR5: the agent turn had begun (a session event landed after the prompt)
+	// even though no assistant text was captured — surface the error, never
+	// retry (the side-effect window rawFinalText cannot see).
+	if (result.rpcAgentStarted) return false;
 	if (result.aborted) return false;
 	return true;
 }

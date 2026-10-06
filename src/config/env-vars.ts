@@ -463,6 +463,12 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_RPC_DIALOG_ANSWER",
 		doc: "W7 EXPERIMENTAL dialog auto-answer policy for RPC-mode extension_ui_request dialogs (select/confirm/input/editor): 'cancel' (default) answers {cancelled:true} — universal safe answer; 'block' leaves the server promise pending (debug). Auto-confirm deliberately NOT implemented (security); invalid → 'cancel' (rpc-worker.ts resolveDialogAnswerPolicy)",
 	},
+	PI_CREW_RPC_TURN_TIMEOUT_MS: {
+		name: "PI_CREW_RPC_TURN_TIMEOUT_MS",
+		parser: "int",
+		default: "600000",
+		doc: "W7/DR1 belt-and-suspenders turn timeout for the EXPERIMENTAL RPC worker transport: max ms a prompt-accepted turn may run without agent_settled before the transport fails with the early-failure shape (DR5 guard still blocks the stdio fallback once a session event was seen). Env-only while RPC stays experimental. Invalid/≤0 → 600000 (rpc-worker.ts resolveRpcTurnTimeoutMs)",
+	},
 	PI_CREW_AUTO_EXIT: {
 		name: "PI_CREW_AUTO_EXIT",
 		doc: "'1' → the worker shuts its session down after the final settled turn — spec §5.2 D7 (written by prepareSurfaceSpawn, read by surface-worker.ts)",

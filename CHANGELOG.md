@@ -55,6 +55,15 @@
 
 ### Fixed
 
+- **RPC transport lifecycle hardening (DR1/DR5)** — the experimental RPC worker transport can
+  no longer hang a worker-cap slot forever: the settle wait races `client.exited()` + a
+  belt-and-suspenders turn timeout (env `PI_CREW_RPC_TURN_TIMEOUT_MS`, default 600 000 ms,
+  env-only while RPC stays experimental; invalid/≤0 → default). Exit-before-`agent_settled`
+  and turn-timeout map to the early-failure shape so the stdio fallback engages and the slot
+  is released. DR5 closes the double-execution window: a session event after the prompt marks
+  the turn as started (`result.rpcAgentStarted`), and started-but-unsettled failures are
+  surfaced, never retried. New seam tests: crash-before-settle (fallback + slot released),
+  started-then-fail (no fallback), turn timeout (early-failure shape).
 - **`consumeAnsi` handles APC sequences (U6/DR4)** — an APC branch (ESC `_` … terminated by
   BEL 0x07 or ST ESC `\`) sits beside the OSC branch with mirrored terminators and
   control-char fallback, so pi-tui's `CURSOR_MARKER` (an APC string) measures zero-width;

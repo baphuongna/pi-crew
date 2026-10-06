@@ -20,9 +20,21 @@
  * `abort` command before stopping. If the transport fails BEFORE any agent
  * output (early spawn/handshake failure), runWorker falls back to the stdio
  * transport (structured warn, no double-execution of a consumed task).
+ *
+ * LIFECYCLE HARDENING (DR1/DR5, deep-review 2026-10-05 §2):
+ * - DR1 settle-hang: the settle wait is RACED against `client.exited()` and
+ *   a belt-and-suspenders turn timeout — a child that crashes after the
+ *   prompt was accepted (or stays live-but-silent) can no longer hold the
+ *   await open forever (and with it the global worker-cap slot). Both
+ *   losers map to the early-failure result shape so the stdio fallback
+ *   engages and the slot is released.
+ * - DR5 double-execution: `SettleTracking.agentStarted` records that a
+ *   session event was observed after the prompt was sent; a failure in that
+ *   state is NEVER retried (surfaced via result.rpcAgentStarted — see
+ *   isEarlyRpcTransportFailure), closing the started-but-no-text window.
  */
 
-import { getCrewEnv } from "../../config/env-vars.ts";
+import { getCrewEnv, getCrewEnvInt } from "../../config/env-vars.ts";
 import type { ChildPiRunResult } from "../child-pi/child-pi.ts";
 import { createRpcFrameClient, type RpcFrameClientOptions } from "./frame-client.ts";
 import type { DialogAnswerPolicy } from "./ui-request-policy.ts";
@@ -31,6 +43,10 @@ import type { DialogAnswerPolicy } from "./ui-request-policy.ts";
 export const WORKER_TRANSPORT_ENV = "PI_CREW_WORKER_TRANSPORT";
 /** Env knob for the dialog auto-answer policy (GATE 2). */
 export const RPC_DIALOG_ANSWER_ENV = "PI_CREW_RPC_DIALOG_ANSWER";
+/** Env knob for the DR1 turn timeout (ms) — env-only, RPC stays experimental. */
+export const RPC_TURN_TIMEOUT_ENV = "PI_CREW_RPC_TURN_TIMEOUT_MS";
+/** Default DR1 turn bound: 10 minutes (registry default mirrors this literal). */
+export const DEFAULT_RPC_TURN_TIMEOUT_MS = 600_000;
 
 export type WorkerTransport = "stdio" | "rpc";
 
@@ -85,9 +101,36 @@ export function resolveDialogAnswerPolicy(read: (name: string) => string | undef
 	return read(RPC_DIALOG_ANSWER_ENV)?.trim() === "block" ? "block" : "cancel";
 }
 
+/**
+ * Resolve the DR1 turn timeout (ms). Belt-and-suspenders bound for a
+ * live-but-silent child: the settle wait also races this timeout, so even a
+ * child that never exits cannot hold the worker-cap slot forever. Read via
+ * the env registry (getCrewEnvInt — the registry default "600000" applies
+ * when unset/unparseable); a parsed value ≤ 0 falls back to the default —
+ * there is deliberately NO disable value while RPC stays experimental.
+ */
+export function resolveRpcTurnTimeoutMs(read: (name: string) => number | undefined = getCrewEnvInt): number {
+	const value = read(RPC_TURN_TIMEOUT_ENV);
+	return typeof value === "number" && value > 0 ? value : DEFAULT_RPC_TURN_TIMEOUT_MS;
+}
+
 interface SettleTracking {
 	lastAssistantText: string | undefined;
 	settled: boolean;
+	/**
+	 * DR5 double-execution guard: true once ANY session event other than
+	 * `agent_settled` (message_start / message_end / extension_error / …)
+	 * was observed after the prompt command was WRITTEN. "Written" rather
+	 * than strictly "after the prompt ACK": the frame client processes a
+	 * stdout chunk's lines synchronously while the sendCommand promise only
+	 * resolves in a later microtask — an event coalesced into the same chunk
+	 * as the ACK would slip past a strict ACK gate, reopening the exact
+	 * window this guard exists to close. `agent_settled` itself does NOT
+	 * count (it ends the turn; a settled-with-no-other-event turn is an
+	 * empty turn, not a started one — keeps prompt-preflight rejections
+	 * retry-safe).
+	 */
+	agentStarted: boolean;
 }
 
 function extractAssistantText(message: unknown): string | undefined {
@@ -112,12 +155,15 @@ function extractAssistantText(message: unknown): string | undefined {
  * (error field), never a throw from the transport itself.
  */
 export async function runRpcWorker(input: RpcWorkerInput): Promise<ChildPiRunResult> {
-	const tracking: SettleTracking = { lastAssistantText: undefined, settled: false };
+	const tracking: SettleTracking = { lastAssistantText: undefined, settled: false, agentStarted: false };
 	let settleResolve: (() => void) | undefined;
 	const settledPromise = new Promise<void>((resolve) => {
 		settleResolve = resolve;
 	});
 	let abortError: Error | undefined;
+	// DR5: set synchronously right before the prompt command is written (see
+	// SettleTracking.agentStarted for why "written", not "ACKed").
+	let promptSent = false;
 
 	const overrides = input.rpc ?? {};
 	const client = createRpcFrameClient({
@@ -134,6 +180,9 @@ export async function runRpcWorker(input: RpcWorkerInput): Promise<ChildPiRunRes
 				tracking.settled = true;
 				settleResolve?.();
 			}
+			// DR5: any other session event after the prompt was sent marks the
+			// agent turn as begun (see SettleTracking.agentStarted docstring).
+			if (promptSent && !tracking.settled) tracking.agentStarted = true;
 		},
 	});
 
@@ -154,12 +203,41 @@ export async function runRpcWorker(input: RpcWorkerInput): Promise<ChildPiRunRes
 	input.signal?.addEventListener("abort", onAbort, { once: true });
 
 	let runError: string | undefined;
+	// DR1: belt-and-suspenders turn timeout — even a child that never exits
+	// must not hold the settle wait (and the worker-cap slot around it) open.
+	const turnTimeoutMs = resolveRpcTurnTimeoutMs();
+	let turnTimeoutReject: ((error: Error) => void) | undefined;
+	const turnTimeoutPromise = new Promise<never>((_resolve, reject) => {
+		turnTimeoutReject = reject;
+	});
+	const turnTimer = setTimeout(() => {
+		turnTimeoutReject?.(new Error(`rpc transport: turn timeout after ${turnTimeoutMs}ms without agent_settled`));
+	}, turnTimeoutMs);
+	turnTimer.unref?.();
 	try {
+		promptSent = true;
 		await client.sendCommand({ type: "prompt", message: input.task });
-		await settledPromise;
+		// DR1: race the settle against process exit and the turn timeout. Both
+		// losers carry the early-failure shape (error set, no rawFinalText —
+		// unless assistant text was already captured, which correctly blocks
+		// retry via the existing predicate); the settled-check inside the exit
+		// branch keeps a settle frame that lands in the same tick as the exit
+		// from being misread as a crash. Promise.race attaches handlers to all
+		// participants, so the losers' later rejections are absorbed (no
+		// unhandled-rejection), and the abort branch still resolves
+		// settledPromise first (abort is never swallowed).
+		await Promise.race([
+			settledPromise,
+			client.exited().then((code) => {
+				if (!tracking.settled) throw new Error("rpc transport: exited before agent_settled");
+				return code;
+			}),
+			turnTimeoutPromise,
+		]);
 	} catch (error) {
 		runError = error instanceof Error ? error.message : String(error);
 	} finally {
+		clearTimeout(turnTimer);
 		input.signal?.removeEventListener("abort", onAbort);
 		// biome-ignore lint/suspicious/noEmptyBlockStatements: stop() never rejects by design — void-append .catch per lane rules.
 		await client.stop().catch(() => {});
@@ -174,6 +252,10 @@ export async function runRpcWorker(input: RpcWorkerInput): Promise<ChildPiRunRes
 	if (runError) result.error = runError;
 	else if (abortError && !tracking.settled) result.error = `rpc abort failed: ${abortError.message}`;
 	if (tracking.lastAssistantText !== undefined) result.rawFinalText = tracking.lastAssistantText;
+	// DR5 bridge: explicit result field (NOT an error-string marker) so the
+	// non-retryable contract is testable and greppable — isEarlyRpcTransportFailure
+	// consults it (run-worker.ts). Set whenever the agent turn had begun.
+	if (tracking.agentStarted) result.rpcAgentStarted = true;
 	if (input.signal?.aborted) result.aborted = true;
 	return result;
 }

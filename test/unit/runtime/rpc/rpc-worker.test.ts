@@ -12,7 +12,9 @@ import test from "node:test";
 import {
 	buildRpcWorkerArgv,
 	RPC_DIALOG_ANSWER_ENV,
+	RPC_TURN_TIMEOUT_ENV,
 	resolveDialogAnswerPolicy,
+	resolveRpcTurnTimeoutMs,
 	resolveWorkerTransport,
 	runRpcWorker,
 	WORKER_TRANSPORT_ENV,
@@ -194,9 +196,18 @@ test("resolvers: resolveDialogAnswerPolicy fails safe to cancel", () => {
 	assert.equal(resolveDialogAnswerPolicy(read("approve")), "cancel", "auto-approve does not exist");
 });
 
+test("resolvers: resolveRpcTurnTimeoutMs default + failsafe (DR1 belt-and-suspenders)", () => {
+	const read = (value: number | undefined) => (name: string) => (name === RPC_TURN_TIMEOUT_ENV ? value : undefined);
+	assert.equal(resolveRpcTurnTimeoutMs(read(undefined)), 600_000, "unset → 10 min default");
+	assert.equal(resolveRpcTurnTimeoutMs(read(60)), 60);
+	assert.equal(resolveRpcTurnTimeoutMs(read(0)), 600_000, "≤0 → default (no disable value)");
+	assert.equal(resolveRpcTurnTimeoutMs(read(-5)), 600_000);
+});
+
 test("resolvers: live env wiring (getCrewEnv-backed default reader)", () => {
 	const savedTransport = process.env[WORKER_TRANSPORT_ENV];
 	const savedDialog = process.env[RPC_DIALOG_ANSWER_ENV];
+	const savedTurnTimeout = process.env[RPC_TURN_TIMEOUT_ENV];
 	try {
 		delete process.env[WORKER_TRANSPORT_ENV];
 		assert.equal(resolveWorkerTransport(), "stdio");
@@ -206,10 +217,18 @@ test("resolvers: live env wiring (getCrewEnv-backed default reader)", () => {
 		assert.equal(resolveDialogAnswerPolicy(), "cancel");
 		process.env[RPC_DIALOG_ANSWER_ENV] = "block";
 		assert.equal(resolveDialogAnswerPolicy(), "block");
+		delete process.env[RPC_TURN_TIMEOUT_ENV];
+		assert.equal(resolveRpcTurnTimeoutMs(), 600_000, "unset → registry default");
+		process.env[RPC_TURN_TIMEOUT_ENV] = "250";
+		assert.equal(resolveRpcTurnTimeoutMs(), 250);
+		process.env[RPC_TURN_TIMEOUT_ENV] = "not-a-number";
+		assert.equal(resolveRpcTurnTimeoutMs(), 600_000, "unparseable → registry default");
 	} finally {
 		if (savedTransport === undefined) delete process.env[WORKER_TRANSPORT_ENV];
 		else process.env[WORKER_TRANSPORT_ENV] = savedTransport;
 		if (savedDialog === undefined) delete process.env[RPC_DIALOG_ANSWER_ENV];
 		else process.env[RPC_DIALOG_ANSWER_ENV] = savedDialog;
+		if (savedTurnTimeout === undefined) delete process.env[RPC_TURN_TIMEOUT_ENV];
+		else process.env[RPC_TURN_TIMEOUT_ENV] = savedTurnTimeout;
 	}
 });

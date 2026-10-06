@@ -312,6 +312,19 @@ export interface ChildPiRunResult {
 	exitStatus?: WorkerExitStatus;
 	/** True if the agent was hard-aborted (max_turns + grace exceeded). */
 	aborted?: boolean;
+	/**
+	 * DR5 (RPC double-execution guard, deep-review 2026-10-05 §2): set by the
+	 * RPC transport when a session event (message_start/message_end/…) was
+	 * observed after the prompt was sent but the turn never settled — i.e.
+	 * the agent turn HAD begun when the transport failed, even though no
+	 * assistant text was captured. `isEarlyRpcTransportFailure` treats this
+	 * as non-retryable: the turn may already have performed side effects, and
+	 * double-executing a task that already produced work is worse than
+	 * surfacing the transport error. An explicit result field (not an
+	 * error-string marker) so the contract is testable and greppable; the
+	 * stdio transport never sets it.
+	 */
+	rpcAgentStarted?: boolean;
 	/** True if the agent was steered to wrap up (hit soft turn limit) but finished in time. */
 	steered?: boolean;
 	/** #7 hardening: bounded digest of intermediate findings (last N tool results or
