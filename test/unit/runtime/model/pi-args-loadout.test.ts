@@ -85,6 +85,60 @@ test("B2: declared disallowedTools → --exclude-tools; omitted → none", () =>
 	assert.ok(!full.args.includes("--exclude-tools"), "no --exclude-tools when nothing declared");
 });
 
+// U2-lite (pi 1.0.4 adoption): on 1.0.4, `--tools` no longer cuts MCP —
+// parity (NON-hermetic) spawns fold `mcp__*` into --exclude-tools to restore
+// the pre-1.0.4 MCP cut (docs/reviews/pi-1.0.4-upgrade-notes-2026-10-06.md
+// Lane 1). Hermetic default stays clean (pinned by the first test above —
+// !args.includes("--exclude-tools") must stay green).
+function countFlag(args: string[], flag: string): number {
+	return args.reduce((n, a) => (a === flag ? n + 1 : n), 0);
+}
+
+test("U2-lite: parity spawn (hermeticWorkers:false) adds exactly one --exclude-tools mcp__* cut", () => {
+	const { args } = buildPiWorkerArgs({ task: "Task: x", agent: agent(), hermeticWorkers: false, env: {} });
+	assert.equal(countFlag(args, "--exclude-tools"), 1, "exactly one --exclude-tools flag (pi parser rejects duplicates)");
+	const idx = args.indexOf("--exclude-tools");
+	assert.equal(args[idx + 1], "mcp__*", "cut value is the mcp__* pattern");
+});
+
+test("U2-lite: parity + declared disallowedTools merges mcp__* into the single flag value", () => {
+	const { args } = buildPiWorkerArgs({
+		task: "Task: x",
+		agent: agent({ disallowedTools: ["foo"] }),
+		hermeticWorkers: false,
+		env: {},
+	});
+	assert.equal(countFlag(args, "--exclude-tools"), 1, "merge, never a second flag");
+	const idx = args.indexOf("--exclude-tools");
+	assert.equal(args[idx + 1], "foo,mcp__*", "declared denylist first, pattern appended");
+});
+
+test("U2-lite: hermetic spawn keeps the cut out (declared denylist passes through unmangled)", () => {
+	const { args } = buildPiWorkerArgs({
+		task: "Task: x",
+		agent: agent({ disallowedTools: ["foo"] }),
+		hermeticWorkers: true,
+		env: {},
+	});
+	const idx = args.indexOf("--exclude-tools");
+	assert.ok(idx >= 0, "declared denylist still emitted");
+	assert.equal(args[idx + 1], "foo", "no mcp__* fold on hermetic spawns");
+});
+
+test("U2-lite: env PI_CREW_HERMETIC_WORKERS=0 gets the parity cut (env beats param)", () => {
+	const saved = process.env.PI_CREW_HERMETIC_WORKERS;
+	try {
+		process.env.PI_CREW_HERMETIC_WORKERS = "0";
+		const { args } = buildPiWorkerArgs({ task: "Task: x", agent: agent(), hermeticWorkers: true });
+		assert.ok(!args.includes("--no-extensions"), "env off-switch wins over explicit true");
+		assert.equal(countFlag(args, "--exclude-tools"), 1, "parity cut applies");
+		assert.equal(args[args.indexOf("--exclude-tools") + 1], "mcp__*");
+	} finally {
+		if (saved === undefined) delete process.env.PI_CREW_HERMETIC_WORKERS;
+		else process.env.PI_CREW_HERMETIC_WORKERS = saved;
+	}
+});
+
 // GAP-1 (fix round 1): SEC-1 builder strip is restored for DECLARED
 // extensions from untrusted sources — auto-discovery stays open (D5), but
 // `extensions:` in a project/project-pi/dynamic agent never reaches argv

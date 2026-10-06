@@ -383,8 +383,24 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		// B2 (fix round 1): `disallowedTools:` frontmatter is a
 		// declaration-driven denylist (opt-in like `tools:`) — NOT the
 		// role-based policy D5 removed.
-		const disallowed = (input.agent.disallowedTools ?? []).map((t) => t.trim()).filter(Boolean);
-		if (disallowed.length > 0) args.push("--exclude-tools", [...new Set(disallowed)].join(","));
+		// U2-lite (pi 1.0.4 `--tools` semantics drift): on 1.0.4, `--tools` no
+		// longer cuts MCP — ambient MCP servers stay connected on parity
+		// (NON-hermetic) spawns. Fold `mcp__*` into the exclude list to restore
+		// the pre-1.0.4 MCP cut. Kept OUT of hermetic spawns: --no-extensions
+		// already disables builtin:mcp (hermetic spawns are MCP-clean — the
+		// conflict verdict in docs/reviews/pi-1.0.4-upgrade-notes-2026-10-06.md),
+		// and the default loadout pins !--exclude-tools
+		// (test/unit/runtime/model/pi-args-loadout.test.ts). Cross-version-safe:
+		// on pre-1.0.4 hosts the `mcp__*` pattern matches no literal tool name
+		// → benign no-op. ONE flag value only — pi's strict parser rejects a
+		// duplicate --exclude-tools flag, so declared disallowedTools merge
+		// comma-sep ahead of the pattern. Stays inside the else of disableTools:
+		// `--no-tools` already locks the whole tool surface, an extra cut would
+		// be dead weight. Surface TUI panes strip argv flags after build
+		// (child-pi.ts stripHeadlessOnlyFlags), so this cut never reaches them.
+		const disallowed = new Set((input.agent.disallowedTools ?? []).map((t) => t.trim()).filter(Boolean));
+		if (!resolveHermeticWorkers(input.hermeticWorkers)) disallowed.add("mcp__" + "*");
+		if (disallowed.size > 0) args.push("--exclude-tools", [...disallowed].join(","));
 	}
 	// prompt-runtime extension luôn nạp (hạ tầng phối hợp — không phải cắt xén).
 	args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
