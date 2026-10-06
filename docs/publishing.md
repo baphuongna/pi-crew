@@ -76,6 +76,35 @@ Users can install the published package with:
 pi install npm:pi-crew
 ```
 
+### Pre-push hook (local release gate, D3)
+
+The repo ships committed git hooks under `.githooks/`. A plain
+`npm install` activates them via the `prepare` script
+(`scripts/install-hooks.mjs` sets `git config core.hooksPath .githooks` —
+idempotent, and a no-op when git or a repo is absent). Manual activation
+in an existing clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Scope of `pre-push` (the release-gate broadening; `pre-commit` handles
+lockfile drift):
+
+- **push to `refs/heads/main`** — `check:conflict-markers` + `typecheck`,
+  then the **FULL unit suite** (`npm run test:unit`, the same gate CI
+  runs). Any failure blocks the push. This closes the 2026-10 gap where
+  local pushes ran only `test:critical` (~120 tests) while CI ran the full
+  suite — three waves shipped red that way.
+- **push to any other ref** — fast gates only (`check:conflict-markers` +
+  `typecheck`).
+
+Emergency bypass (CI still gates `main`):
+
+```bash
+git push --no-verify
+```
+
 ### Postinstall
 
 `npm install` / `pi install` triggers `scripts/postinstall.mjs`, which:

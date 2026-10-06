@@ -26,6 +26,12 @@
 
 ### Changed
 
+- **Local pre-push release gate broadened via committed `.githooks/` (D3)** — a new
+  `pre-push` hook (activated by the `prepare` script on `npm install`, or manually via
+  `git config core.hooksPath .githooks`) runs `check:conflict-markers` + `typecheck` on every
+  push, and additionally the FULL `test:unit` suite when pushing to `refs/heads/main` — the
+  same gate CI runs — so a leader's local fast-gate-only push can no longer ship red.
+  Emergency bypass: `git push --no-verify` (CI still gates). Documented in docs/publishing.md.
 - **`runtime.workerTransport` config plumbed to the run-worker seam (D1/DR2)** — the config key
   is no longer parse+emit-only dead: callers carrying runtimeConfig (child-executor,
   run-coalesced-task-group) thread it to `runWorker`, with the established precedence

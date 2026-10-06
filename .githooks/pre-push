@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# pi-crew pre-push hook — broaden the local release gate (D3).
+#
+# The 2026-10 CI-red recurrence: pushes to origin/main ran only
+# test:critical (~120 tests) locally, while CI runs the FULL unit suite —
+# three waves in a row shipped red. This hook closes that gap BEFORE the
+# push leaves the machine.
+#
+# Scope:
+#   push to refs/heads/main → check:conflict-markers + typecheck, then the
+#                            FULL unit suite (npm run test:unit — the same
+#                            gate CI runs); any failure blocks the push
+#   any other ref          → fast gates only (check:conflict-markers +
+#                            typecheck)
+#
+# Activated by `npm install` (prepare → scripts/install-hooks.mjs sets
+# git config core.hooksPath .githooks) or manually:
+#   git config core.hooksPath .githooks
+# Emergency bypass:  git push --no-verify   (CI still gates main).
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+pushes_main=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+	if [ "$remote_ref" = "refs/heads/main" ]; then
+		pushes_main=1
+	fi
+done
+
+if ! npm run check:conflict-markers; then
+	echo "[pre-push] ✋ push blocked: conflict markers present."
+	echo "[pre-push]    Fix: resolve the markers, or bypass with 'git push --no-verify' (CI still gates)."
+	exit 1
+fi
+if ! npm run typecheck; then
+	echo "[pre-push] ✋ push blocked: typecheck failed."
+	echo "[pre-push]    Fix the errors above, or bypass with 'git push --no-verify' (CI still gates)."
+	exit 1
+fi
+
+if [ "$pushes_main" = "1" ]; then
+	echo "[pre-push] push to main: running the FULL unit suite (test:unit)…"
+	if ! npm run test:unit; then
+		echo "[pre-push] ✋ push blocked: test:unit failed."
+		echo "[pre-push]    Fix the failures above, or bypass with 'git push --no-verify' (CI still gates)."
+		exit 1
+	fi
+fi
+
+echo "[pre-push] gates green."
