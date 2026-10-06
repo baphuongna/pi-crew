@@ -6,7 +6,10 @@ import { getCrewEnvBool } from "../../config/env-vars.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { hasRunStateLayout, packageRoot, userPiRoot } from "../../utils/paths.ts";
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
+// U4 (pi 1.0.4 adoption): pi's CLI documents 7 thinking levels (docs/cli.md:70);
+// `max` completes the surface — frontmatter `thinking: max` previously fell
+// back to Pi's default via isValidThinkingLevel.
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 // FIX (2026-07-02): use packageRoot() instead of import.meta.url-relative path.
 // The previous path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 // "..", "prompt", "prompt-runtime.ts") was correct in source but BROKEN

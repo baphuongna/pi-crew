@@ -42,6 +42,22 @@ test("applyThinkingSuffix: ignores invalid thinking level", () => {
 	assert.equal(applyThinkingSuffix("gpt-4", "EXTREME"), "gpt-4");
 });
 
+// U4 (pi 1.0.4 adoption): pi's CLI documents 7 thinking levels incl. `max`
+// (pi docs/cli.md:70) — THINKING_LEVELS must accept all of them. Pinned via
+// behavior (applyThinkingSuffix); the array itself is intentionally not
+// exported, so no export was added just for this test.
+test("applyThinkingSuffix: accepts all 7 pi thinking levels incl. max (U4)", () => {
+	// "off" is a valid level but is never appended (off = Pi default behavior).
+	assert.equal(applyThinkingSuffix("model", "off"), "model");
+	for (const level of ["minimal", "low", "medium", "high", "xhigh", "max"]) {
+		assert.equal(applyThinkingSuffix("model", level), `model:${level}`, `level ${level} must be accepted`);
+	}
+	// A model already carrying a valid suffix keeps it (no double-append).
+	assert.equal(applyThinkingSuffix("model:low", "max"), "model:low");
+	// Anything outside the 7-level surface still falls back to Pi's default.
+	assert.equal(applyThinkingSuffix("model", "ultra"), "model");
+});
+
 // ─── currentCrewDepth ──────────────────────────────────────────────────────
 
 test("currentCrewDepth: returns 0 when no env vars set", () => {
