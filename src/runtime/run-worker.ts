@@ -58,6 +58,17 @@ export interface WorkerSpawnInput extends ChildPiRunInput {
 	 * or any dispatch site.
 	 */
 	rpc?: RpcWorkerInput["rpc"];
+
+	/**
+	 * DR2/D1: transport selector threaded from runtime.workerTransport by the
+	 * callers that carry runtimeConfig (child-executor, run-coalesced-task-
+	 * group). Env PI_CREW_WORKER_TRANSPORT still WINS when set — see
+	 * resolveWorkerTransport precedence. Unset → env-only resolution,
+	 * default stdio. Callers without runtimeConfig (dynamic-workflow-context,
+	 * goal-evaluator) deliberately omit it: default stdio, the seam's
+	 * pre-D1 behavior.
+	 */
+	workerTransport?: "stdio" | "rpc";
 }
 
 /**
@@ -110,18 +121,21 @@ export function isEarlyRpcTransportFailure(result: ChildPiRunResult): boolean {
  * const result = await runWorker({ cwd, task, agent, model, signal, cap: false });
  */
 export async function runWorker(input: WorkerSpawnInput): Promise<ChildPiRunResult> {
-	const { cap = true, rpc: rpcOverrides, ...childPiInput } = input;
+	const { cap = true, rpc: rpcOverrides, workerTransport, ...childPiInput } = input;
 	// W7 (P2-3) EXPERIMENTAL transport seam: PI_CREW_WORKER_TRANSPORT=rpc
 	// selects the RPC transport (WIRED 2026-10-04 after the live-fire probe
-	// came back GREEN — see src/runtime/rpc/README.md + module header). The
-	// rpc path maps the minimal input the prototype consumes (cwd/task/model/
-	// signal — agent config, system-prompt files, skills, transcript, session
-	// identity remain stdio-only; README "Limitations"). If the rpc transport
-	// fails before any agent output, the spawn falls back to the stdio path
-	// inside the same worker-cap slot (structured warn; never retried after
-	// the agent produced output or on caller abort). Default/invalid env →
-	// stdio path below, byte-identical to the pre-W7 behavior.
-	if (resolveWorkerTransport() === "rpc") {
+	// came back GREEN — see src/runtime/rpc/README.md + module header). Since
+	// D1/DR2 the seam ALSO honors runtime.workerTransport, threaded here by
+	// callers that carry runtimeConfig (env still wins — established
+	// precedence). The rpc path maps the minimal input the prototype consumes
+	// (cwd/task/model/signal — agent config, system-prompt files, skills,
+	// transcript, session identity remain stdio-only; README "Limitations").
+	// If the rpc transport fails before any agent output, the spawn falls
+	// back to the stdio path inside the same worker-cap slot (structured warn;
+	// never retried after the agent produced output or on caller abort).
+	// Default/invalid env+config → stdio path below, byte-identical to the
+	// pre-W7 behavior.
+	if (resolveWorkerTransport(workerTransport) === "rpc") {
 		const runRpcPath = async (): Promise<ChildPiRunResult> => {
 			// Pre-aborted signal never reaches the rpc transport: mirror the
 			// stdio path's B5 pre-spawn guard directly (a doomed rpc spawn would

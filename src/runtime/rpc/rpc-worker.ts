@@ -80,15 +80,25 @@ export function buildRpcWorkerArgv(model?: string): string[] {
 }
 
 /**
- * Resolve the worker transport. The env var is the live prototype gate
- * (runWorker has no config access — packet §A); the `runtime.workerTransport`
- * config key is declared in config-schema.ts/types.ts and reaches this seam
- * in the integration phase. FAILSAFE: anything other than exactly "rpc"
- * (after trim) resolves to the default stdio transport.
+ * Resolve the worker transport. Precedence: env > config > default stdio
+ * (the repo's established order — the env var stays the live experimental
+ * gate and WINS over config whenever it is set, even when its value is
+ * invalid: an operator who sets PI_CREW_WORKER_TRANSPORT is driving via env,
+ * so the config value is not consulted behind their back). The config value
+ * (runtime.workerTransport, threaded to the seam via WorkerSpawnInput by the
+ * callers that carry runtimeConfig — D1/DR2) applies only when env is unset.
+ * FAILSAFE: anything other than exactly "rpc" (after trim) resolves to the
+ * default stdio transport.
  */
-export function resolveWorkerTransport(read: (name: string) => string | undefined = getCrewEnv): WorkerTransport {
-	const raw = read(WORKER_TRANSPORT_ENV);
-	return raw?.trim() === "rpc" ? "rpc" : "stdio";
+export function resolveWorkerTransport(
+	configValue?: WorkerTransport,
+	read: (name: string) => string | undefined = getCrewEnv,
+): WorkerTransport {
+	const raw = read(WORKER_TRANSPORT_ENV)?.trim();
+	if (raw === "rpc") return "rpc";
+	if (raw === "stdio") return "stdio";
+	if (raw !== undefined) return "stdio"; // env set but invalid → failsafe stdio
+	return configValue === "rpc" ? "rpc" : "stdio";
 }
 
 /**

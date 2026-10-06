@@ -199,6 +199,9 @@ export async function runCoalescedTaskGroup(input: CoalescedTaskGroupInput): Pro
 					excludeContextBash: true,
 					maxTurns: input.runtimeConfig?.maxTurns,
 					graceTurns: input.runtimeConfig?.graceTurns,
+					// DR2/D1: thread runtime.workerTransport to the run-worker seam
+					// (env PI_CREW_WORKER_TRANSPORT still wins — resolveWorkerTransport).
+					workerTransport: input.runtimeConfig?.workerTransport,
 					onJsonEvent: (e) => input.onJsonEvent?.(firstTask.id, manifest.runId, e),
 					// NEW-3: capture the spawned worker's real pid for the heartbeat
 					// persists (see `workerPid` declaration above).

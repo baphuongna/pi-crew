@@ -126,10 +126,11 @@ export interface CrewRuntimeConfig {
 	/**
 	 * W7 (P2-3) EXPERIMENTAL: transport used to spawn child-pi workers.
 	 * "stdio" (default) — the production print-mode path, unchanged.
-	 * "rpc" — prototype RPC frame-client (src/runtime/rpc/); the run-worker
-	 * seam currently returns a structured not-implemented result instead of
-	 * spawning. Live gate: env PI_CREW_WORKER_TRANSPORT (config→seam plumbing
-	 * is the integration-phase follow-up).
+	 * "rpc" — prototype RPC frame-client (src/runtime/rpc/), wired at the
+	 * run-worker seam since e2728f68 (D1/DR2 plumbing, 2026-10-06): callers
+	 * carrying runtimeConfig thread it to the seam. Env
+	 * PI_CREW_WORKER_TRANSPORT=rpc overrides this config (env wins —
+	 * established precedence; invalid env fails safe to stdio).
 	 */
 	workerTransport?: "stdio" | "rpc";
 	/**

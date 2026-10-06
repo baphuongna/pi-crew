@@ -176,15 +176,21 @@ test("dialog auto-answer flows through runRpcWorker (default env → cancel)", a
 	}
 });
 
-test("resolvers: resolveWorkerTransport fails safe to stdio (config precedence)", () => {
+test("resolvers: resolveWorkerTransport fails safe to stdio (env > config precedence)", () => {
 	const read = (value: string | undefined) => (name: string) => (name === WORKER_TRANSPORT_ENV ? value : undefined);
-	assert.equal(resolveWorkerTransport(read(undefined)), "stdio", "unset → default stdio");
-	assert.equal(resolveWorkerTransport(read("rpc")), "rpc");
-	assert.equal(resolveWorkerTransport(read("  rpc  ")), "rpc", "trimmed exact match");
-	assert.equal(resolveWorkerTransport(read("RPC")), "stdio", "case-sensitive failsafe");
-	assert.equal(resolveWorkerTransport(read("stdio")), "stdio");
-	assert.equal(resolveWorkerTransport(read("garbage")), "stdio");
-	assert.equal(resolveWorkerTransport(read("")), "stdio");
+	// env unset → config applies; no config → default stdio.
+	assert.equal(resolveWorkerTransport(undefined, read(undefined)), "stdio", "no env, no config → default stdio");
+	assert.equal(resolveWorkerTransport("rpc", read(undefined)), "rpc", "config wins when env unset");
+	assert.equal(resolveWorkerTransport("stdio", read(undefined)), "stdio");
+	assert.equal(resolveWorkerTransport("garbage" as "rpc", read(undefined)), "stdio", "invalid config → stdio");
+	// env wins over config (D1/DR2: env stays the live experimental gate).
+	assert.equal(resolveWorkerTransport("stdio", read("rpc")), "rpc", "env overrides config");
+	assert.equal(resolveWorkerTransport("rpc", read("stdio")), "stdio", "explicit env stdio beats config rpc");
+	assert.equal(resolveWorkerTransport("rpc", read("garbage")), "stdio", "invalid env → failsafe stdio (config not consulted)");
+	// Failsafe hygiene (unchanged).
+	assert.equal(resolveWorkerTransport("rpc", read("  rpc  ")), "rpc", "trimmed exact match");
+	assert.equal(resolveWorkerTransport("rpc", read("RPC")), "stdio", "case-sensitive failsafe");
+	assert.equal(resolveWorkerTransport("rpc", read("")), "stdio");
 });
 
 test("resolvers: resolveDialogAnswerPolicy fails safe to cancel", () => {

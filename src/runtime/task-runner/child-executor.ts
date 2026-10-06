@@ -666,6 +666,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				// worker argv (--no-extensions). Env PI_CREW_HERMETIC_WORKERS still
 				// overrides either way (resolveHermeticWorkers).
 				hermeticWorkers: input.runtimeConfig?.hermeticWorkers,
+				// DR2/D1: thread runtime.workerTransport to the run-worker seam (env
+				// PI_CREW_WORKER_TRANSPORT still wins — resolveWorkerTransport).
+				workerTransport: input.runtimeConfig?.workerTransport,
 				agent: input.agent,
 				model,
 				signal: timeoutController.signal,

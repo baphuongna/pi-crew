@@ -391,6 +391,9 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 		// emitted here or the config key is dead (runtime.sessionRecovery —
 		// W2/P1-1; runtime.workerTransport — W7/P2-3, experimental;
 		// runtime.hermeticWorkers — R3-19/D5 reversal, hermetic spawns).
+		// Necessary but NOT sufficient: emission still needs a CONSUMER at the
+		// seam — workerTransport was parse+emit-only dead until D1/DR2 threaded
+		// it to resolveWorkerTransport (run-worker seam).
 		sessionRecovery: parseWithSchema(Type.Boolean(), obj.sessionRecovery),
 		hermeticWorkers: parseWithSchema(Type.Boolean(), obj.hermeticWorkers),
 		workerTransport: parseWithSchema(Type.Union([Type.Literal("stdio"), Type.Literal("rpc")]), obj.workerTransport),

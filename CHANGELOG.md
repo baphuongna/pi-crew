@@ -26,6 +26,14 @@
 
 ### Changed
 
+- **`runtime.workerTransport` config plumbed to the run-worker seam (D1/DR2)** — the config key
+  is no longer parse+emit-only dead: callers carrying runtimeConfig (child-executor,
+  run-coalesced-task-group) thread it to `runWorker`, with the established precedence
+  env > config > default stdio (`PI_CREW_WORKER_TRANSPORT` still wins when set; invalid values
+  fail safe to stdio). The three stale "not-implemented" doc blocks (config-schema.ts,
+  config/types.ts, env-vars.ts) now describe the wired state; the F19-1 comment records that
+  emission without a consumer is still dead. dynamic-workflow-context and goal-evaluator have
+  no runtimeConfig and deliberately keep default stdio.
 - `setupRenderLoop` extracted byte-identically into `src/extension/registration/render-loop.ts`
   (lifecycle-handlers.ts 1347→897 lines) (QW#2).
 - `formatDuration` name collision resolved with domain names (`formatTaskElapsed`,

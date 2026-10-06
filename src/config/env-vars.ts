@@ -457,7 +457,7 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 	},
 	PI_CREW_WORKER_TRANSPORT: {
 		name: "PI_CREW_WORKER_TRANSPORT",
-		doc: "W7 EXPERIMENTAL worker transport gate: 'rpc' selects the prototype RPC frame-client (src/runtime/rpc/) — the run-worker seam currently returns a structured not-implemented result instead of spawning; anything else/unset → default stdio child-pi path (rpc-worker.ts resolveWorkerTransport)",
+		doc: "W7 EXPERIMENTAL worker transport override: 'rpc' selects the prototype RPC frame-client (src/runtime/rpc/) at the run-worker seam (wired e2728f68; D1/DR2 also plumbs config runtime.workerTransport to the same seam — env WINS over config when set, invalid env fails safe to stdio); anything else/unset → config value, default stdio child-pi path (rpc-worker.ts resolveWorkerTransport)",
 	},
 	PI_CREW_RPC_DIALOG_ANSWER: {
 		name: "PI_CREW_RPC_DIALOG_ANSWER",

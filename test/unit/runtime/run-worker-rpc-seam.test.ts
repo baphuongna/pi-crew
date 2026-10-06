@@ -157,6 +157,20 @@ test("wired seam: rpc transport runs runRpcWorker (argv contract, drain policy, 
 	assert.equal(result2.rawFinalText, "second run");
 });
 
+test("DR2 seam: input.workerTransport='rpc' selects the rpc path when env is unset", async () => {
+	// Config plumbing (D1): with the env gate unset, the value threaded from
+	// runtime.workerTransport picks the transport — a user setting
+	// runtime.workerTransport: "rpc" no longer gets a silent stdio no-op.
+	delete process.env.PI_CREW_WORKER_TRANSPORT;
+	const fake = createFakeRpcServer();
+	scriptHappyPath(fake, "config-selected rpc");
+	const result = await runWorker(
+		seamInput({ rpc: { spawnFn: () => fake.handle, commandTimeoutMs: 400, stopTimeoutMs: 300 }, workerTransport: "rpc" }),
+	);
+	assert.equal(result.rawFinalText, "config-selected rpc");
+	assert.equal(result.exitCode, 0);
+});
+
 test("wired seam: model flows into the live-fire argv", async () => {
 	const fake = createFakeRpcServer();
 	scriptHappyPath(fake, "ok");
