@@ -38,6 +38,36 @@
 - R3-10 (withFileMutationQueue) skipped with evidence: pi-crew's flock-based mutation locks
   already cover the named paths; the SDK helper is in-process-only — double-lock for no gain.
 
+### Added — Pi 1.0.4 adoption wave (see docs/reviews/pi-1.0.4-upgrade-notes-2026-10-06.md)
+
+- **devDeps on the pi SDK 1.0.4 (U1, P0)** — all four `@earendil-works` devDeps bumped
+  `^1.0.0`→`^1.0.4` with a lockfile refresh. pi-coding-agent@1.0.4 direct-pins
+  `brace-expansion 5.0.12`, closing the accepted dev-scope 5.0.9 finding: the top level now
+  hoists 5.0.12 and the pi subtree no longer nests a copy.
+- **Thinking level `max` (U4)** — `THINKING_LEVELS` carries all 7 pi levels (was 6);
+  frontmatter `thinking: max` was previously rejected by `isValidThinkingLevel` even though
+  pi's CLI documents it.
+- **MCP cut for parity spawns (U2-lite)** — pi 1.0.4 no longer cuts MCP under `--tools`, so
+  parity (NON-hermetic) spawns fold `mcp__*` into their single `--exclude-tools` value
+  (merged comma-sep with frontmatter `disallowedTools`; pi's strict parser rejects duplicate
+  flags). Hermetic defaults gain no new flag — `--no-extensions` already kills built-in MCP
+  on 1.0.4. Cross-version-safe: on pre-1.0.4 hosts the pattern matches no literal tool name.
+
+### Fixed
+
+- **`consumeAnsi` handles APC sequences (U6/DR4)** — an APC branch (ESC `_` … terminated by
+  BEL 0x07 or ST ESC `\`) sits beside the OSC branch with mirrored terminators and
+  control-char fallback, so pi-tui's `CURSOR_MARKER` (an APC string) measures zero-width;
+  `truncateToWidth`/`wrapHard` no longer count it as ~6 visible columns.
+
+### Ops notes
+
+- **Azure provider rename in pi 1.0.3 (U3)** — pi renamed provider id
+  `azure-openai-responses`→`azure`; `AZURE_OPENAI_*` env vars are unchanged. User config
+  (`auth.json`/`models.json`/`settings.json`) entries under the old id need renaming.
+  pi-crew code is unaffected — `env-filter.ts` PROVIDER_ENV_KEY_MAP already keys `azure`
+  and `azure-openai` (both → `AZURE_OPENAI_*`).
+
 ## [0.11.7] — Pi 1.0.0 adoption waves + deep-learn execution (2026-10-04)
 ### Added — Pi 1.0.0 adoption wave (see docs/reviews/pi-1.0.0-adoption-review-2026-10-03.md)
 

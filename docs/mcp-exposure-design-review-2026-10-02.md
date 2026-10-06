@@ -374,6 +374,32 @@ Residual chưa byte-verify: `McpExposure` enum tại đúng 0.99.0/0.99.1 (khôn
 bản đó) — suy-diễn từ CHANGELOG 0.99.2 mô tả #10212/#10239 như thay đổi hành vi 0.99.x trước
 đó. Không ảnh hưởng kết luận: floor đề xuất = 0.99.2 đã byte-verify cả hai phía.
 
+### Addendum (2026-10-06) — pi 1.0.1+: `.pi/mcp.json` project override trên trusted panes
+
+*(Bổ sung sau V1-V4 phía trên — KHÔNG rewrite body cũ. Writer đã verify lại primary source
+ngày 2026-10-06: pi 1.0.4 `docs/mcp.md:32-42` (project override, "read only after project
+trust"), `docs/security.md:40-50` (declining trust skip `.pi/mcp.json`), pi-crew
+`child-pi.ts:410-419` (`stripHeadlessOnlyFlags`), `pi-args.ts:481` (`--no-approve`). Nguồn
+đầy đủ: `docs/reviews/pi-1.0.4-upgrade-notes-2026-10-06.md` mục U5.)*
+
+Từ pi 1.0.1, project override MCP per-server qua `.pi/mcp.json` được đọc **sau project
+trust**: entry không có `command`/`url`/`type` thì override đúng `enabled`, `exposure`,
+`toolExposure` của user-level server cùng tên (giữ `env`/`headers`/`auth`). Tác động lên
+pi-crew (host ≥ 1.0.1):
+
+- **Surface TUI panes — ambient theo thiết kế của pi**: `stripHeadlessOnlyFlags`
+  (`child-pi.ts:410-419`) cố ý bỏ `--no-approve`/`--no-extensions` để giữ ambient stack +
+  interactive trust prompt → pane mở trong project ĐÃ trusted giờ kế thừa thêm project MCP
+  override. Pane hành xử như session user tự mở tại cwd — không phải leak mới.
+- **Headless workers — an toàn theo cấu trúc**: `--no-approve` (`pi-args.ts:481`) pin
+  distrust, áp trước mọi nguồn trust khác (D1); declining trust skip toàn bộ protected
+  resources, gồm `.pi/mcp.json` (`security.md:40-50`). Comment D1 đã nêu đích danh lý do
+  loại `-a`: nó *"loads .pi/mcp.json … from untrusted task cwds"*.
+
+**Verdict: KEEP-STATUS-QUO (§5, §9 V4) giữ nguyên.** Rủi ro ghi nhận LOW, doc-only —
+panes vốn đã ambient theo mô hình D1/D5; 1.0.1 chỉ thêm một nguồn ambient (project
+override) trên đúng bề mặt đã được thiết kế ambient. Không cần đổi code pi-crew.
+
 ---
 
 ## Phụ lục — Evidence index (verify trực tiếp 2026-10-02; E14-E17 verify 2026-10-03)
