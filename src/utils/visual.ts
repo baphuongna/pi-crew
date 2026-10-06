@@ -77,13 +77,24 @@ function consumeAnsi(input: string, index: number): number {
 	// OSC), or a clipped line would slice mid-escape and leak raw bytes into
 	// the terminal. Malformed payloads (stray control char) fall back to the
 	// pre-existing behaviour of treating the ESC as ordinary data.
-	if (next !== "]") return 0;
+	//
+	// U6/DR4 (pi 1.0.4 adoption, 2026-10-06): APC sequences (`ESC _ … BEL` or
+	// `ESC _ … ESC \`) share the exact same grammar, so they ride the same
+	// scanner. pi-tui's `CURSOR_MARKER` — now a documented public contract —
+	// is an APC string (`\u001b_pi:c\u0007`) that focused components emit at
+	// the cursor position. Without this branch, truncateToWidth/wrapHard
+	// walked the marker's `_pi:c` payload as ordinary text (~6 visible
+	// columns) and could slice the sequence in half; with it, the whole
+	// marker is consumed as ONE zero-width unit, matching pi-tui's
+	// `visibleWidth` (which already zero-widths APC). Same malformed fallback:
+	// a stray control char cannot belong to an OSC/APC payload either.
+	if (next !== "]" && next !== "_") return 0;
 	let i = index + 2;
 	while (i < input.length) {
 		const code = input.charCodeAt(i);
 		if (code === 0x07) return i - index + 1; // BEL terminator
 		if (code === 0x1b && input[i + 1] === "\\") return i - index + 2; // ST terminator
-		if (code < 0x20) return 0; // control char cannot belong to an OSC payload
+		if (code < 0x20) return 0; // control char cannot belong to an OSC/APC payload
 		i++;
 	}
 	return 0;
