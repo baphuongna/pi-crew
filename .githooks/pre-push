@@ -42,8 +42,12 @@ fi
 
 if [ "$pushes_main" = "1" ]; then
 	echo "[pre-push] push to main: running the FULL unit suite (test:unit)…"
-	if ! npm run test:unit; then
-		echo "[pre-push] ✋ push blocked: test:unit failed."
+	# Capture the full log so a flake's failing test is identifiable even when
+	# the push output is truncated by tooling (lesson 2026-10-07: three hook
+	# blocks lost their failure detail to a trailing `| tail`).
+	UNIT_LOG="${TMPDIR:-/tmp}/pi-crew-prepush-unit.log"
+	if ! npm run test:unit 2>&1 | tee "$UNIT_LOG"; then
+		echo "[pre-push] ✋ push blocked: test:unit failed (full log: $UNIT_LOG)."
 		echo "[pre-push]    Fix the failures above, or bypass with 'git push --no-verify' (CI still gates)."
 		exit 1
 	fi
