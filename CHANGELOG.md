@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.8] — Pi 1.0.4 adoption + RPC/surface hardening + battery-proven stability (2026-10-07)
 
 ### Added — deep-learn polish batch (docs/reviews/pi-1.0.0-deep-learn-r3-2026-10-03.md R3 matrix)
 
@@ -101,16 +101,6 @@
   control-char fallback, so pi-tui's `CURSOR_MARKER` (an APC string) measures zero-width;
   `truncateToWidth`/`wrapHard` no longer count it as ~6 visible columns.
 
-### Ops notes
-
-- **Azure provider rename in pi 1.0.3 (U3)** — pi renamed provider id
-  `azure-openai-responses`→`azure`; `AZURE_OPENAI_*` env vars are unchanged. User config
-  (`auth.json`/`models.json`/`settings.json`) entries under the old id need renaming.
-  pi-crew code is unaffected — `env-filter.ts` PROVIDER_ENV_KEY_MAP already keys `azure`
-  and `azure-openai` (both → `AZURE_OPENAI_*`).
-
-### Fixed
-
 - **herdr liveness ping survives ESM hosts** (battery 2026-10-07, T10c) — `pingSocketSync`'s eval'd
   Worker used bare `require(...)`; under a `--input-type=module` host the eval source parses as ESM,
   `require` throws, and the ping fail-closed to false → herdr degraded "socket not live" against a
@@ -121,6 +111,15 @@
   test raced the lock ACQUISITION itself (test vs resume; ~1/3 red even isolated — it blocked the new
   pre-push hook twice). Entered-signal now guarantees the lock is held before the resume starts, making
   both orderings of the pre-lock check deterministic refusals. 8/8 green isolated (was ~2/3).
+
+### Ops notes
+
+- **Azure provider rename in pi 1.0.3 (U3)** — pi renamed provider id
+  `azure-openai-responses`→`azure`; `AZURE_OPENAI_*` env vars are unchanged. User config
+  (`auth.json`/`models.json`/`settings.json`) entries under the old id need renaming.
+  pi-crew code is unaffected — `env-filter.ts` PROVIDER_ENV_KEY_MAP already keys `azure`
+  and `azure-openai` (both → `AZURE_OPENAI_*`).
+
 
 ## [0.11.7] — Pi 1.0.0 adoption waves + deep-learn execution (2026-10-04)
 ### Added — Pi 1.0.0 adoption wave (see docs/reviews/pi-1.0.0-adoption-review-2026-10-03.md)
@@ -5238,7 +5237,6 @@ resolved: even if a future regression reintroduces the crash, async-notifier
 will detect the dead background-runner within ~30s and emit `async.died` —
 the user sees "Goal failed: Background runner died unexpectedly" instead of
 an infinite "running" state.
-
 
 
 ### `goal` — autonomous goal loop (P0a + P0 + P1)
