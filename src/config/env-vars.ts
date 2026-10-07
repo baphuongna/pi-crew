@@ -459,6 +459,15 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_WORKER_TRANSPORT",
 		doc: "W7 EXPERIMENTAL worker transport override: 'rpc' selects the prototype RPC frame-client (src/runtime/rpc/) at the run-worker seam (wired e2728f68; D1/DR2 also plumbs config runtime.workerTransport to the same seam — env WINS over config when set, invalid env fails safe to stdio); anything else/unset → config value, default stdio child-pi path (rpc-worker.ts resolveWorkerTransport)",
 	},
+	PI_CREW_CLASSIFIER_ENABLED: {
+		name: "PI_CREW_CLASSIFIER_ENABLED",
+		parser: "boolean",
+		doc: "P2-1 (pi 1.0.4 adoption) host-process retry-triage classifier override: '1' enables transient-vs-permanent classification before a queued re-attempt in the child-executor retry loop, '0' forces it off — beats runtime.classifierEnabled; default OFF / dormant (classifier-service.ts:resolveClassifierEnabled). Fallback decision is used on every classifier failure mode, never an error",
+	},
+	PI_CREW_CLASSIFIER_MODEL: {
+		name: "PI_CREW_CLASSIFIER_MODEL",
+		doc: "P2-1 classifier model id override ('provider/id', catalog ids only — availability depends on provider credentials at runtime): beats runtime.classifierModel; unset/blank → config value, default 'opencode/jev-1.13-free' (classifier-service.ts:resolveClassifierModel)",
+	},
 	PI_CREW_RPC_DIALOG_ANSWER: {
 		name: "PI_CREW_RPC_DIALOG_ANSWER",
 		doc: "W7 EXPERIMENTAL dialog auto-answer policy for RPC-mode extension_ui_request dialogs (select/confirm/input/editor): 'cancel' (default) answers {cancelled:true} — universal safe answer; 'block' leaves the server promise pending (debug). Auto-confirm deliberately NOT implemented (security); invalid → 'cancel' (rpc-worker.ts resolveDialogAnswerPolicy)",

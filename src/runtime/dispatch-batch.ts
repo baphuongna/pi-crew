@@ -778,6 +778,10 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 			parentContext: input.parentContext,
 			parentModel: input.parentModel,
 			modelRegistry: input.modelRegistry,
+			// P2-1: thread the host metric registry to the task-runner seam so the
+			// retry-triage classifier can count calls/decisions (same
+			// ExecuteTeamRunInput handle dispatch-batch itself uses at :812).
+			metricRegistry: input.metricRegistry,
 			modelOverride: input.modelOverride,
 			teamRoleModel: teamRole?.model,
 			teamRoleThinking: teamRole?.thinking,

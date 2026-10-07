@@ -89,6 +89,29 @@ export interface CrewRuntimeConfig {
 	 * the flag — panes keep the full interactive session.
 	 */
 	hermeticWorkers?: boolean;
+	/**
+	 * P2-1 (pi 1.0.4 adoption, 2026-10-07): host-process retry-triage
+	 * classifier seam (src/runtime/classifier/classifier-service.ts —
+	 * wrapper around ctx.modelRegistry.classify(), host process only).
+	 * DORMANT by design: default false, and the consumer (child-executor
+	 * retry loop) falls back to the pre-existing retry behavior on every
+	 * classifier failure mode (unavailable / threw / stopReason!=='stop').
+	 * Enabling opts INTO transient-vs-permanent classification before a
+	 * queued re-attempt burns a full worker spawn. Env
+	 * PI_CREW_CLASSIFIER_ENABLED overrides in either direction
+	 * (resolveClassifierEnabled). Behavior pick, not authority — no
+	 * sensitive mark.
+	 */
+	classifierEnabled?: boolean;
+	/**
+	 * P2-1: classifier model id ("provider/id" form) for the seam above.
+	 * Availability is credential-dependent at runtime (getAvailableOfType);
+	 * a configured-but-uncredentialed id degrades to the fallback decision,
+	 * never to an error. Default "opencode/jev-1.13-free"
+	 * (DEFAULT_CLASSIFIER_MODEL); env PI_CREW_CLASSIFIER_MODEL overrides
+	 * (resolveClassifierModel).
+	 */
+	classifierModel?: string;
 	promptMode?: "replace" | "append";
 	groupJoin?: "off" | "group" | "smart";
 	groupJoinAckTimeoutMs?: number;

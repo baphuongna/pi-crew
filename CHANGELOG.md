@@ -66,6 +66,17 @@
   (merged comma-sep with frontmatter `disallowedTools`; pi's strict parser rejects duplicate
   flags). Hermetic defaults gain no new flag — `--no-extensions` already kills built-in MCP
   on 1.0.4. Cross-version-safe: on pre-1.0.4 hosts the pattern matches no literal tool name.
+- **Classifier seam, dormant (P2-1)** — `runtime.classifierEnabled` (default **false**) +
+  `runtime.classifierModel` (default `opencode/jev-1.13-free`; env `PI_CREW_CLASSIFIER_ENABLED`
+  / `PI_CREW_CLASSIFIER_MODEL` beats config) land with full config ceremony (schema → types →
+  validation → env registry → snapshot test). Host-process `classifyBool()` is never-rejects:
+  missing registry / no classifier available / classify throw / `stopReason:"error"` all return
+  the caller-supplied fallback decision with log-once + `crew.classifier.calls_total` counters —
+  never an exception up to the orchestrator. Spike consumer: child-executor retry-triage
+  classifies transient-vs-permanent before burning a re-attempt (event `task.retry_triage`,
+  metric `crew.classifier.decisions_total`); default-off never touches the registry (zero
+  behavior change, test-pinned). Live-fire probe for post-credential runs:
+  `scripts/probe-classifier.mjs`.
 
 ### Fixed
 

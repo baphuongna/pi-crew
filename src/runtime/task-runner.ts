@@ -1,5 +1,6 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
+import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
@@ -51,6 +52,11 @@ export interface TaskRunnerInput {
 	parentContext?: string;
 	parentModel?: unknown;
 	modelRegistry?: unknown;
+	/** P2-1 (pi 1.0.4 adoption): host-process metric registry threaded from
+	 *  ExecuteTeamRunInput so the retry-triage classifier seam can count its
+	 *  calls/decisions (crew.classifier.* counters). Optional — undefined keeps
+	 *  the uncounted behavior (e.g. tests, hand-built contexts). */
+	metricRegistry?: MetricRegistry;
 	modelOverride?: string;
 	teamRoleModel?: string;
 	teamRoleFallbackModels?: string[];

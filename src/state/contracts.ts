@@ -106,6 +106,11 @@ export const TEAM_EVENT_TYPES = [
 	"task.respond_delivered",
 	"task.respond_missed",
 	"task.retried",
+	// P2-1 (pi 1.0.4 adoption, 2026-10-07): retry-triage classifier decision —
+	// fired by child-executor's triageRetryWithClassifier ONLY when a real
+	// classifier answer informed the retry-vs-skip decision (dormant unless
+	// runtime.classifierEnabled). Diagnostic only — never transitions state.
+	"task.retry_triage",
 	// WP-2/R2 waiting-producer (ADR-0 2026-08-17-waiting-producer-ask item 10):
 	// `ask` tool lifecycle — requested on park acceptance, answered on delivery
 	// (mailbox or requeue+inject), timedout on deadline expiry (both the

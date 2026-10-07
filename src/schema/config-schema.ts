@@ -87,6 +87,17 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 		// Env PI_CREW_HERMETIC_WORKERS overrides either way. Behavior pick, not
 		// authority — no sensitive mark.
 		hermeticWorkers: Type.Optional(Type.Boolean()),
+		// P2-1 (pi 1.0.4 adoption): host-process retry-triage classifier seam
+		// (src/runtime/classifier/). DORMANT — default FALSE; enabling turns on
+		// transient-vs-permanent classification before expensive re-attempts.
+		// Env PI_CREW_CLASSIFIER_ENABLED overrides either way. Behavior pick,
+		// not authority — no sensitive mark.
+		classifierEnabled: Type.Optional(Type.Boolean()),
+		// P2-1: classifier model id for the seam above. Default resolved at the
+		// consumer (resolveClassifierModel → "opencode/jev-1.13-free"); env
+		// PI_CREW_CLASSIFIER_MODEL overrides. Catalog ids only — availability
+		// depends on provider credentials at runtime.
+		classifierModel: Type.Optional(Type.String({ minLength: 1 })),
 		promptMode: Type.Optional(Type.Union([Type.Literal("replace"), Type.Literal("append")])),
 		groupJoin: Type.Optional(Type.Union([Type.Literal("off"), Type.Literal("group"), Type.Literal("smart")])),
 		groupJoinAckTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),

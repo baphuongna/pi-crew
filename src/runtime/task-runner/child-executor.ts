@@ -30,6 +30,7 @@ import * as path from "node:path";
 import { loadConfig } from "../../config/config.ts";
 import { getCrewEnv, getCrewEnvInt } from "../../config/env-vars.ts";
 import { errors } from "../../errors.ts";
+import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { upsertOwnershipEntry } from "../../state/stores/ownership-map.ts";
@@ -39,6 +40,7 @@ import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
 import type { ChildPiLifecycleEvent, ChildPiRunResult } from "../child-pi/child-pi.ts";
 import type { SessionRecoveryInfo } from "../child-pi/session-recovery.ts";
+import { classifyBool, resolveClassifierEnabled, resolveClassifierModel } from "../classifier/classifier-service.ts";
 import {
 	appendCrewAgentEventBuffered,
 	appendCrewAgentOutputBuffered,
@@ -394,6 +396,103 @@ export function attemptErrorFor(
 	return err;
 }
 
+/** Outcome of the P2-1 retry-triage classifier consultation. */
+export interface RetryTriageResult {
+	/** false → skip the queued re-attempt (classifier judged the failure permanent). */
+	proceedWithRetry: boolean;
+	/** true ONLY when a real classifier answer informed the decision (event + decision metric emitted). */
+	consulted: boolean;
+}
+
+export interface RetryTriageArgs {
+	/** Pre-resolved gate (resolveClassifierEnabled) — false short-circuits before ANY registry touch. */
+	enabled: boolean;
+	/** Host-process model registry (ctx.modelRegistry, threaded unknown). */
+	modelRegistry: unknown;
+	/** Pre-resolved classifier model id (resolveClassifierModel). */
+	classifierModel: string;
+	/** Failure summary the attempt loop already computed (task error string). */
+	failureSummary: string;
+	/** Model the failed attempt used. */
+	failedModel: string;
+	/** Failed attempt's exit code (null = signal death). */
+	exitCode: number | null;
+	/** Event-log identity for the task.retry_triage diagnostic event. */
+	eventsPath: string;
+	runId: string;
+	taskId: string;
+	/** Optional host metric registry (crew.classifier.decisions_total). */
+	metricRegistry?: MetricRegistry;
+}
+
+/**
+ * P2-1 (pi 1.0.4 adoption) spike consumer: transient-vs-permanent triage for
+ * a queued model-fallback re-attempt, asked BEFORE burning the next full
+ * worker spawn. ONE bool question built from the failure summary; the answer
+ * is honored ONLY when `enabled` (runtime.classifierEnabled, default FALSE →
+ * dormant → zero behavior change: the helper returns without touching the
+ * registry). Fallback on every classifier failure mode is `proceedWithRetry:
+ * true` — the pre-existing retry behavior (classifyBool never-rejects).
+ *
+ * Emits `crew.classifier.decisions_total{consumer,decision}` + a
+ * `task.retry_triage` event ONLY when a real classifier answer informed the
+ * decision (fallback paths are already counted by the service's
+ * calls_total metric and must not double-report a decision they did not make).
+ */
+export async function triageRetryWithClassifier(args: RetryTriageArgs): Promise<RetryTriageResult> {
+	if (!args.enabled) return { proceedWithRetry: true, consulted: false };
+	const result = await classifyBool({
+		modelRegistry: args.modelRegistry,
+		classifierModel: args.classifierModel,
+		questionKey: "transient",
+		question: {
+			type: "bool",
+			instructions:
+				"A worker task failed and a retry on a different model is queued. Read the failure state. Is the failure TRANSIENT (a retry has a realistic chance of success, e.g. rate limit, provider hiccup, timeout, network error) rather than PERMANENT (a retry will fail the same way, e.g. auth/permission denied, invalid request, missing resource, deterministic error)?",
+			criteria: {
+				true: "Transient — the queued retry may succeed",
+				false: "Permanent — the queued retry will fail the same way",
+			},
+		},
+		state: {
+			// Cap the summary: classifiers reason over small JSON state — the raw
+			// error can carry multi-KB stderr tails.
+			failureSummary: args.failureSummary.slice(0, 2000),
+			failedModel: args.failedModel,
+			exitCode: args.exitCode,
+		},
+		fallback: true,
+		metricRegistry: args.metricRegistry,
+		metricLabels: { consumer: "retry_triage" },
+	});
+	if (!result.fromClassifier) return { proceedWithRetry: true, consulted: false };
+	const decision = result.decision ? "transient" : "permanent";
+	try {
+		args.metricRegistry?.counter("crew.classifier.decisions_total", "Classifier-informed decisions by consumer and verdict").inc({
+			consumer: "retry_triage",
+			decision: result.decision ? "transient_retry" : "permanent_skip",
+		});
+	} catch (metricError) {
+		logInternalError("child-executor.retry-triage.metric", metricError, `decision=${decision}`, "warn");
+	}
+	void appendEventAsync(args.eventsPath, {
+		type: "task.retry_triage",
+		runId: args.runId,
+		taskId: args.taskId,
+		message: `Retry triage classified the failure as ${decision} (classifier ${result.usedModel ?? args.classifierModel})`,
+		data: {
+			decision,
+			classifierModel: result.usedModel,
+			configuredModel: args.classifierModel,
+			failedModel: args.failedModel,
+			stopReason: result.stopReason,
+		},
+	}).catch(() => {
+		/* no-op: best-effort diagnostic append, ignore delivery errors */
+	});
+	return { proceedWithRetry: result.decision, consulted: true };
+}
+
 export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<TaskExecutionResult> {
 	const input = ctx.input;
 	const manifest: TeamRunManifest = ctx.manifest;
@@ -425,6 +524,12 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 
 	const modelFallbackPolicy = resolveTaskModelFallbackPolicy(task.cwd);
 	const defaultSubagentModel = resolveTaskDefaultSubagentModel(task.cwd);
+	// P2-1 (pi 1.0.4 adoption): retry-triage classifier gate — resolved once
+	// per task (env PI_CREW_CLASSIFIER_ENABLED beats runtime.classifierEnabled
+	// beats default FALSE — dormant). The disabled path never touches the
+	// registry, so default-off is a zero behavior change.
+	const classifierTriageEnabled = resolveClassifierEnabled(input.runtimeConfig?.classifierEnabled);
+	const classifierTriageModel = resolveClassifierModel(input.runtimeConfig?.classifierModel);
 	const modelRoutingPlan = buildConfiguredModelRouting({
 		overrideModel: input.modelOverride,
 		stepModel: input.step.model,
@@ -1097,6 +1202,30 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			}
 		}
 		if (!nextModel || !isRetryableModelFailure(error)) break;
+		// P2-1 spike: before burning the queued (expensive) re-attempt, ask the
+		// host classifier whether the failure looks transient. Dormant unless
+		// classifierTriageEnabled — the disabled path returns without touching
+		// the registry (zero behavior change), and every classifier failure
+		// mode falls back to proceeding with the retry (never-rejects contract).
+		const triage = await triageRetryWithClassifier({
+			enabled: classifierTriageEnabled,
+			modelRegistry: input.modelRegistry,
+			classifierModel: classifierTriageModel,
+			failureSummary: error,
+			failedModel: attempt.model,
+			exitCode,
+			eventsPath: manifest.eventsPath,
+			runId: manifest.runId,
+			taskId: task.id,
+			metricRegistry: input.metricRegistry,
+		});
+		if (!triage.proceedWithRetry) {
+			logs.push(
+				`CLASSIFIER TRIAGE: failure classified PERMANENT — skipping retry on ${nextModel} (classifier ${classifierTriageModel})`,
+				"",
+			);
+			break;
+		}
 		logs.push(formatModelAttemptNote(attempt, nextModel), "");
 	}
 	// E2 (Round 15): when the fallback chain was used and STILL failed, surface
