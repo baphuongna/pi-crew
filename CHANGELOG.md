@@ -109,6 +109,15 @@
   pi-crew code is unaffected — `env-filter.ts` PROVIDER_ENV_KEY_MAP already keys `azure`
   and `azure-openai` (both → `AZURE_OPENAI_*`).
 
+### Fixed
+
+- **herdr liveness ping survives ESM hosts** (battery 2026-10-07, T10c) — `pingSocketSync`'s eval'd
+  Worker used bare `require(...)`; under a `--input-type=module` host the eval source parses as ESM,
+  `require` throws, and the ping fail-closed to false → herdr degraded "socket not live" against a
+  LIVE socket (CJS hosts like the pi CLI were unaffected). The worker source is now dual-mode
+  (`require` try → dynamic `import()` fallback) and exported for tests;
+  `test/unit/runtime/surface/resolve-surface-ping.test.ts` pins both module contexts + fail-closed.
+
 ## [0.11.7] — Pi 1.0.0 adoption waves + deep-learn execution (2026-10-04)
 ### Added — Pi 1.0.0 adoption wave (see docs/reviews/pi-1.0.0-adoption-review-2026-10-03.md)
 

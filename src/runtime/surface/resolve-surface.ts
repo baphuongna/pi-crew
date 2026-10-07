@@ -72,25 +72,40 @@ function hasBinary(bin: string): boolean {
 
 // The liveness probe runs in a Worker so the main thread can block on
 // Atomics.wait while the worker's event loop drives net.connect to
-// completion. Plain CJS string — no bundler path rewriting needed.
+// completion. Plain string — no bundler path rewriting needed.
+// Dual-mode (2026-10-07 battery finding): an eval'd Worker inherits the
+// HOST's module detection — under `--input-type=module` hosts the source
+// parses as ESM where bare `require()` throws ReferenceError and the ping
+// fail-closed to false (herdr degraded "socket not live" on a LIVE socket).
+// The async IIFE parses in BOTH CJS and ESM; `require` is tried first and
+// the ReferenceError falls back to dynamic `import()`.
 const PING_WORKER_SRC = `
-const { parentPort, workerData } = require("node:worker_threads");
-const net = require("node:net");
-const flag = new Int32Array(workerData.sab);
-const done = (ok) => {
-  if (Atomics.load(flag, 0) !== 0) return;
-  Atomics.store(flag, 0, ok ? 1 : 2);
-  Atomics.notify(flag, 0);
-};
-try {
-  const socket = net.connect({ path: workerData.socketPath });
-  const timer = setTimeout(() => { socket.destroy(); done(false); }, workerData.timeoutMs);
-  socket.on("connect", () => { clearTimeout(timer); socket.destroy(); done(true); });
-  socket.on("error", () => { clearTimeout(timer); done(false); });
-} catch {
-  done(false);
-}
-parentPort.unref();
+(async () => {
+  let workerData, parentPort, net;
+  try {
+    ({ workerData, parentPort } = require("node:worker_threads"));
+    net = require("node:net");
+  } catch {
+    const wt = await import("node:worker_threads");
+    ({ workerData, parentPort } = wt);
+    net = await import("node:net");
+  }
+  const flag = new Int32Array(workerData.sab);
+  const done = (ok) => {
+    if (Atomics.load(flag, 0) !== 0) return;
+    Atomics.store(flag, 0, ok ? 1 : 2);
+    Atomics.notify(flag, 0);
+  };
+  try {
+    const socket = net.connect({ path: workerData.socketPath });
+    const timer = setTimeout(() => { socket.destroy(); done(false); }, workerData.timeoutMs);
+    socket.on("connect", () => { clearTimeout(timer); socket.destroy(); done(true); });
+    socket.on("error", () => { clearTimeout(timer); done(false); });
+  } catch {
+    done(false);
+  }
+  parentPort.unref();
+})();
 `;
 
 /**
@@ -98,7 +113,7 @@ parentPort.unref();
  * accepted the connection. Any failure (missing socket, refusal, timeout,
  * Worker/Atomics unavailable on this runtime) → false → fail-closed headless.
  */
-function pingSocketSync(socketPath: string, timeoutMs = HERDR_PING_TIMEOUT_MS): boolean {
+export function pingSocketSync(socketPath: string, timeoutMs = HERDR_PING_TIMEOUT_MS): boolean {
 	const sab = new SharedArrayBuffer(4);
 	const flag = new Int32Array(sab);
 	let worker: Worker;
