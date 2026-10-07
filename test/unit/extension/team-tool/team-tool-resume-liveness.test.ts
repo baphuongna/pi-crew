@@ -258,21 +258,31 @@ test("review F1: resume re-checks liveness INSIDE the run lock (adoption between
 			assert.ok(loaded);
 
 			// Hold the run lock so the resume parks BETWEEN its pre-lock liveness
-			// check and its in-lock re-read.
+			// check and its in-lock re-read. Flake fix (2026-10-07 battery): the
+			// old shape raced the lock ACQUISITION itself (test vs resume — whoever
+			// won ran first; when the resume won it completed against the still-dead
+			// manifest and returned success → assert red ~1/3 isolated runs, also
+			// blocked the pre-push hook). The entered-signal makes the hold
+			// DETERMINISTIC: the resume cannot start before the lock is ours, and
+			// the manifest flip lands before the release — so BOTH orderings of the
+			// pre-lock check end in a refusal.
+			let lockEntered!: () => void;
 			let releaseTestLock!: () => void;
-			const testLock = withRunLock(
-				loaded.manifest,
-				() =>
-					new Promise<void>((resolve) => {
-						releaseTestLock = resolve;
-					}),
-			);
+			const entered = new Promise<void>((resolve) => {
+				lockEntered = resolve;
+			});
+			const release = new Promise<void>((resolve) => {
+				releaseTestLock = resolve;
+			});
+			const testLock = withRunLock(loaded.manifest, async () => {
+				lockEntered();
+				await release;
+			});
+			await entered; // lock is HELD before the resume exists
 
 			// The pre-lock liveness check runs (and passes — the run is still dead)
 			// while the manifest is untouched; the resume then blocks on our lock.
 			const resumePromise = handleTeamTool({ action: "resume", runId }, { cwd, sessionId: "session-owner" });
-			await new Promise((resolve) => setImmediate(resolve));
-			await new Promise((resolve) => setImmediate(resolve));
 
 			// A concurrent session adopts + registers the run while our resume waits
 			// on the lock — exactly the F1 TOCTOU window (pre-lock check passed, the

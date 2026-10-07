@@ -117,6 +117,10 @@
   LIVE socket (CJS hosts like the pi CLI were unaffected). The worker source is now dual-mode
   (`require` try → dynamic `import()` fallback) and exported for tests;
   `test/unit/runtime/surface/resolve-surface-ping.test.ts` pins both module contexts + fail-closed.
+- **resume-liveness F1 test stabilized** (battery 2026-10-07) — the "re-checks liveness INSIDE the run lock"
+  test raced the lock ACQUISITION itself (test vs resume; ~1/3 red even isolated — it blocked the new
+  pre-push hook twice). Entered-signal now guarantees the lock is held before the resume starts, making
+  both orderings of the pre-lock check deterministic refusals. 8/8 green isolated (was ~2/3).
 
 ## [0.11.7] — Pi 1.0.0 adoption waves + deep-learn execution (2026-10-04)
 ### Added — Pi 1.0.0 adoption wave (see docs/reviews/pi-1.0.0-adoption-review-2026-10-03.md)
