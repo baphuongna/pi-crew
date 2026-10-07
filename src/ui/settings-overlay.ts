@@ -4,12 +4,33 @@
  * label/value alignment, inline toggle, select submenu, and text input.
  */
 
-import { CURSOR_MARKER } from "@earendil-works/pi-tui";
+import * as piTui from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "../utils/visual.ts";
 import { keyOf, matchesKey } from "./key-utils.ts";
 import { CURSOR, canopyLine, formatHint, overflowHint, RAIL, railLine } from "./rail.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
 import { discoverPiThemes, getActivePiTheme } from "./theme-discovery.ts";
+
+// ---------------------------------------------------------------------------
+// pi-tui CURSOR_MARKER — defensive resolve (L8, policy W4/G22)
+// ---------------------------------------------------------------------------
+
+/** Resolve pi-tui's zero-width IME cursor anchor (APC `ESC _ pi:c BEL`) from
+ *  a pi-tui namespace object. Modeled on the hyperlink() typeof-guard at
+ *  widget/widget-renderer.ts:118-128: the peer range is `*`, so a host
+ *  running a pi-tui build without the export must still render instead of
+ *  failing the named import at link time. Non-string exports are treated as
+ *  missing (contract drift, not a marker). Exported for the fallback pin in
+ *  test/unit/ui/settings-overlay-cursor-marker.test.ts. */
+export function resolveCursorMarker(mod: unknown): string {
+	const candidate = (mod as { CURSOR_MARKER?: unknown }).CURSOR_MARKER;
+	return typeof candidate === "string" ? candidate : "";
+}
+
+/** "" on hosts whose pi-tui predates CURSOR_MARKER — text-input rows then
+ *  render without the IME anchor (the marker is an enhancement, never a
+ *  layout dependency: zero-width, stripped by visibleWidth). */
+const CURSOR_MARKER = resolveCursorMarker(piTui);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -378,7 +399,10 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"ui.showModel": true,
 	"ui.showTokens": true,
 	"ui.showTools": true,
-	"ui.dashboardPlacement": "center",
+	// L3 (2026-10-07): mirrors DEFAULT_UI.dashboardPlacement = "right"
+	// (defaults.ts) — G17: duplicated EFFECTIVE_DEFAULTS maps must track the
+	// canonical default or the overlay shows a stale value to unset keys.
+	"ui.dashboardPlacement": "right",
 	"ui.dashboardWidth": 72,
 	"ui.autoOpenDashboard": false,
 	// G17 sync (2026-09-10 review): canonical DEFAULT_UI.widgetPlacement =

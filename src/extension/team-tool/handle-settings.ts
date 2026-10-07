@@ -35,7 +35,10 @@ const EFFECTIVE_DEFAULTS: Record<string, unknown> = {
 	"ui.showModel": true,
 	"ui.showTokens": true,
 	"ui.showTools": true,
-	"ui.dashboardPlacement": "center",
+	// L3 (2026-10-07): mirrors DEFAULT_UI.dashboardPlacement = "right"
+	// (defaults.ts) — G17: duplicated EFFECTIVE_DEFAULTS maps must track the
+	// canonical default or the settings overlay shows a stale value.
+	"ui.dashboardPlacement": "right",
 	"ui.dashboardWidth": 72,
 	"ui.autoOpenDashboard": false,
 	// G17 sync (2026-09-10 review): canonical DEFAULT_UI.widgetPlacement =

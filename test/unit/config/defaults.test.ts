@@ -224,7 +224,9 @@ describe("DEFAULT_UI", () => {
 		// The dock renders at the very bottom (below crew-vibes' quota footer)
 		// by default; pi's widget slots (aboveEditor) remain for explicit config.
 		assert.equal(DEFAULT_UI.widgetPlacement, "bottom");
-		assert.equal(DEFAULT_UI.dashboardPlacement, "center");
+		// L3 (2026-10-07 real-test review): default flipped center→right — the
+		// centered 90% overlay exposed chopped background words at both margins.
+		assert.equal(DEFAULT_UI.dashboardPlacement, "right");
 	});
 
 	it("has boolean flags for powerbar, showModel, showTokens, showTools", () => {

@@ -8,8 +8,14 @@ export function renderProgressPane(snapshot: RunUiSnapshot | undefined): string[
 	if (!snapshot) return ["Progress pane: snapshot unavailable"];
 	const progress = snapshot.progress;
 	const groupJoins = snapshot.groupJoins ?? [];
+	// L7 judgment: the header and group-join lines speak the count-first tally
+	// dialect (`1 running · 0 queued`, `req-123 · acknowledged`), not the
+	// `running=1`/`ack=acknowledged` wire format. The ONE deliberate
+	// key=value survivor is `reason=` below: the cancellation reason is a
+	// machine code (`leader_interrupted`) — diagnostic data, not prose, and
+	// the shape (not the wording) is what the operator greps for.
 	const groupJoinLines = groupJoins.length
-		? groupJoins.map((item) => `group join ${item.partial ? "partial" : "completed"}: ${item.requestId} ack=${item.ack}`)
+		? groupJoins.map((item) => `group join ${item.partial ? "partial" : "completed"}: ${item.requestId} · ${item.ack}`)
 		: ["group joins: none"];
 	const cancellationLine = snapshot.cancellationReason ? [`cancelled: reason=${snapshot.cancellationReason}`] : [];
 	const runProgress = computePhaseProgress(snapshot.tasks);
@@ -30,7 +36,7 @@ export function renderProgressPane(snapshot: RunUiSnapshot | undefined): string[
 	// uncolored by design). One line while the run is parked on approval.
 	const planBanner = isPlanApprovalPending(snapshot.manifest) ? [`⚠ plan approval pending — ${PLAN_APPROVAL_HINT}`] : [];
 	return [
-		`Progress pane: ${progress.completed}/${progress.total} completed · running=${progress.running} queued=${progress.queued} failed=${progress.failed}`,
+		`Progress pane: ${progress.completed}/${progress.total} completed · ${progress.running} running · ${progress.queued} queued · ${progress.failed} failed`,
 		...planBanner,
 		...dwfPhaseLines,
 		...phaseHeader,

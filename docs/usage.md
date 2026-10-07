@@ -45,7 +45,7 @@ Supported fields:
     "widgetPlacement": "aboveEditor",
     "widgetMaxLines": 8,
     "powerbar": true,
-    "dashboardPlacement": "center",
+    "dashboardPlacement": "right",
     "dashboardWidth": 72,
     "dashboardLiveRefreshMs": 1000,
     "autoOpenDashboard": false,

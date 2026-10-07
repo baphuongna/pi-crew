@@ -8,8 +8,9 @@ import { saveCrewAgents } from "../../../src/runtime/crew-agent-records.ts";
 import { appendMailboxMessage } from "../../../src/state/coordination/mailbox.ts";
 import { createRunManifest, saveRunManifest } from "../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../../src/state/types.ts";
-import { RunDashboard, type RunDashboardSelection } from "../../../src/ui/run-dashboard.ts";
+import { __test__resetDashboardState, RunDashboard, type RunDashboardSelection } from "../../../src/ui/run-dashboard.ts";
 import { createRunSnapshotCache } from "../../../src/ui/run-snapshot-cache.ts";
+import type { RunUiSnapshot } from "../../../src/ui/snapshot-types.ts";
 
 function run(id: string, status: TeamRunManifest["status"]): TeamRunManifest {
 	return {
@@ -186,8 +187,18 @@ test("RunDashboard renders model and token details from task state", () => {
 		]);
 		const dashboard = new RunDashboard([manifest], () => undefined, {}, { showModel: true, showTokens: true });
 		const lines = dashboard.render(140);
-		assert.ok(lines.some((line) => line.includes("model=configured-provider/configured-model")));
-		assert.ok(lines.some((line) => line.includes("tok=2.0k")));
+		// L7 (real-test 2026-10-07): the model renders BARE (agents-pane
+		// dialect), never behind the retired `model=` wire prefix.
+		assert.ok(
+			lines.some((line) => line.includes("configured-provider/configured-model") && !line.includes("model=")),
+			`bare model dialect missing: ${JSON.stringify(lines.filter((l) => l.includes("configured")))}`,
+		);
+		// L7: usage renders in the compact TUI dialect `↑in ↓out`, never
+		// `tok=/in=/out=/cache=`. input=1000 → `↑1.0k`, output=250 → `↓250`.
+		assert.ok(
+			lines.some((line) => line.includes("↑1.0k ↓250") && !line.includes("tok=")),
+			`compact usage dialect missing: ${JSON.stringify(lines.filter((l) => l.includes("↑") || l.includes("tok=")))}`,
+		);
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
@@ -253,7 +264,7 @@ test("RunDashboard switches live snapshot panes and shows mailbox badges", () =>
 		dashboard.handleInput("3");
 		let lines = dashboard.render(120);
 		assert.ok(lines.some((line) => line.includes("Mailbox pane")));
-		assert.ok(lines.some((line) => line.includes("inbox unread=1")));
+		assert.ok(lines.some((line) => line.includes("↓1 unread")));
 		dashboard.handleInput("4");
 		lines = dashboard.render(120);
 		assert.ok(lines.some((line) => line.includes("Output pane")));
@@ -284,6 +295,128 @@ test("RunDashboard renders progress preview", () => {
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
+});
+
+// ─── L7/L9 (real-test 2026-10-07): dashboard dialect pins ──────────────────
+
+test("L7/L9: dashboard agent preview speaks the TUI dialect (no wire keys, correct plurals)", () => {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-dashboard-dialect-"));
+	try {
+		const manifest = run("team_dialect", "running");
+		manifest.stateRoot = tmp;
+		manifest.tasksPath = path.join(tmp, "tasks.json");
+		fs.writeFileSync(
+			manifest.tasksPath,
+			JSON.stringify([
+				{
+					id: "01",
+					status: "running",
+					usage: { input: 2800, output: 3715, cost: 0.012 },
+					modelAttempts: [{ model: "probe-model", success: true, exitCode: 0 }],
+				},
+			]),
+		);
+		saveCrewAgents(manifest, [
+			{
+				id: "team_dialect:01",
+				runId: "team_dialect",
+				taskId: "01",
+				agent: "executor",
+				role: "executor",
+				runtime: "child-process",
+				status: "running",
+				// 344.2s old → formatDuration renders `5m44s` (deterministic for
+				// ~800ms of test-run drift).
+				startedAt: new Date(Date.now() - 344_200).toISOString(),
+				progress: { recentTools: [], recentOutput: [], toolCount: 1, currentTool: "bash", turns: 1, activityState: "active" },
+			},
+		]);
+		const dashboard = new RunDashboard([manifest], () => undefined, {}, { showModel: true, showTokens: true, showTools: true });
+		const lines = dashboard.render(140);
+		// L7: the retired wire keys must never appear on a rendered row.
+		const wire = lines.filter((line) => /tok=|in=|out=|model=|age=/.test(line));
+		assert.deepEqual(wire, [], `wire-format keys leaked into rendered rows: ${JSON.stringify(wire)}`);
+		// L7: compact usage dialect (compactUsage pattern from live-run-sidebar).
+		assert.ok(
+			lines.some((line) => line.includes("↑2.8k ↓3.7k $0.012")),
+			`compact usage dialect missing: ${JSON.stringify(lines.filter((l) => l.includes("↑")))}`,
+		);
+		// L7: the model renders bare (agents-pane dialect), age via formatDuration.
+		assert.ok(
+			lines.some((line) => line.includes("probe-model")),
+			"bare model name must render",
+		);
+		assert.ok(
+			lines.some((line) => line.includes("5m44s")),
+			`formatDuration age missing: ${JSON.stringify(lines.filter((l) => /\dm\d+s/.test(l)))}`,
+		);
+		// L9: turns pluralise via formatCount.
+		assert.ok(
+			lines.some((line) => line.includes("1 turn")),
+			"`1 turn` singular missing",
+		);
+		assert.ok(!lines.some((line) => line.includes("1 turns")), "`1 turns` plural bug present");
+	} finally {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
+// ─── L5 (real-test 2026-10-07): paint path reads cached snapshots only ──────
+
+test("L5: render resolves via readForRender (no sync rebuild); keypress keeps sync refreshIfStale", () => {
+	__test__resetDashboardState();
+	const manifest = run("team_l5", "completed");
+	const snapshot: RunUiSnapshot = {
+		runId: manifest.runId,
+		cwd: manifest.cwd,
+		fetchedAt: Date.now(),
+		signature: "sig-l5-1",
+		manifest,
+		tasks: [],
+		agents: [],
+		progress: { total: 1, completed: 1, running: 0, failed: 0, queued: 0 },
+		usage: { tokensIn: 0, tokensOut: 0, toolUses: 0 },
+		mailbox: { inboxUnread: 0, outboxPending: 0, needsAttention: 0 },
+		recentEvents: [],
+		recentOutputLines: [],
+	};
+	const calls = { refresh: 0, refreshIfStale: 0, readForRender: 0, scheduleRefresh: 0 };
+	const cache = {
+		get: (id: string) => (id === snapshot.runId ? snapshot : undefined),
+		refresh: () => {
+			calls.refresh++;
+			return snapshot;
+		},
+		refreshIfStale: () => {
+			calls.refreshIfStale++;
+			return snapshot;
+		},
+		readForRender: (id: string) => {
+			calls.readForRender++;
+			return id === snapshot.runId ? snapshot : undefined;
+		},
+		scheduleRefresh: () => {
+			calls.scheduleRefresh++;
+		},
+		invalidate: () => undefined,
+		snapshotsByKey: () => new Map([[snapshot.runId, snapshot]]),
+		dispose: () => undefined,
+	};
+	const dashboard = new RunDashboard([manifest], () => undefined, {}, { snapshotCache: cache });
+	// The constructor primes via the sync path (cursor restore → groupedRuns →
+	// snapshotFor); reset the counters so the assertions below measure the
+	// RENDER FRAME only.
+	calls.refreshIfStale = 0;
+	calls.refresh = 0;
+	const lines = dashboard.render(120);
+	assert.ok(lines.length > 0, "dashboard must render");
+	assert.equal(calls.refreshIfStale, 0, "render must not sync-rebuild via refreshIfStale (L5 paint-path rule)");
+	assert.equal(calls.refresh, 0, "render must not force-rebuild via refresh (L5 paint-path rule)");
+	assert.ok(calls.readForRender > 0, "render path must resolve through the readForRender paint accessor");
+	// Tier 11a (read-your-writes): keypress handlers KEEP the sync path.
+	dashboard.handleInput("j");
+	assert.ok(calls.refreshIfStale > 0, "keypress path must keep sync refreshIfStale (Tier 11a)");
+	dashboard.dispose();
 });
 
 // ─── M1-8 (P1-5b): the `placement` no-op option is gone ─────────────────────
@@ -353,9 +486,13 @@ test("M1-8: ui.dashboardPlacement='right' anchors the overlay top-right (host-ow
 	assert.equal(typeof opts.overlayOptions?.width, "number", "right panel uses an explicit column width");
 });
 
-test("M1-8: default ui.dashboardPlacement='center' anchors the overlay center", async () => {
+test("M1-8: default ui.dashboardPlacement='right' anchors the overlay top-right (L3 re-pin)", async () => {
+	// L3 (real-test 2026-10-07): the DEFAULT placement moved from "center"
+	// (90% overlay that exposed chopped background words at both margins) to
+	// the right-anchored panel — re-pinned here so the default can never drift
+	// back silently.
 	const opts = await captureDashboardOverlayOptions(undefined);
 	assert.equal(opts.overlay, true, "dashboard still opens as an overlay");
-	assert.equal(opts.overlayOptions?.anchor, "center", "default placement must anchor center");
-	assert.equal(opts.overlayOptions?.width, "90%", "center panel keeps the 90% width default");
+	assert.equal(opts.overlayOptions?.anchor, "top-right", "default placement must anchor top-right");
+	assert.equal(typeof opts.overlayOptions?.width, "number", "default right panel uses an explicit column width");
 });

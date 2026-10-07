@@ -23,7 +23,7 @@
  * from `formatHint` (discard LAST, keys through `keyToken`).
  */
 
-import { CURSOR_MARKER } from "@earendil-works/pi-tui";
+import * as piTui from "@earendil-works/pi-tui";
 import type { MailboxDirection } from "../../state/coordination/mailbox.ts";
 import { pad, sanitizeLine, truncate } from "../../utils/visual.ts";
 import { overlayActionForKey } from "../keybinding-map.ts";
@@ -31,6 +31,22 @@ import { CURSOR, canopyLine, formatHint, RAIL, railLine, railRaw } from "../rail
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { ConfirmOverlay } from "./confirm-overlay.ts";
 import { renderComposePreview } from "./mailbox-compose-preview.ts";
+
+/** Resolve pi-tui's zero-width IME cursor anchor defensively (L8, policy
+ *  W4/G22) — same typeof-guard shape as hyperlink() at widget-renderer.ts:
+ *  118-128 and the sibling resolver in settings-overlay.ts. The peer range is
+ *  `*`, so a host running a pi-tui build without the export must still render
+ *  instead of failing the named import at link time. Exported for the
+ *  fallback pin in test/unit/ui/settings-overlay-cursor-marker.test.ts. */
+export function resolveCursorMarker(mod: unknown): string {
+	const candidate = (mod as { CURSOR_MARKER?: unknown }).CURSOR_MARKER;
+	return typeof candidate === "string" ? candidate : "";
+}
+
+/** "" on hosts whose pi-tui predates CURSOR_MARKER — the active field then
+ *  renders without the IME anchor (marker is zero-width, stripped before
+ *  painting; pure enhancement, never a layout dependency). */
+const CURSOR_MARKER = resolveCursorMarker(piTui);
 
 export interface MailboxComposePayload {
 	from: string;

@@ -11,12 +11,22 @@
  *
  * Driven end-to-end through the public SettingsOverlay surface (keyOf-based
  * handleInput), not the private submenu classes.
+ *
+ * L8 (2026-10-07 real-test review, policy W4/G22): both consumers
+ * (settings-overlay.ts, overlays/mailbox-compose-overlay.ts) now resolve the
+ * marker DEFENSIVELY from a pi-tui namespace import (typeof-guard, fallback ""),
+ * modeled on hyperlink() at widget/widget-renderer.ts:118-128 — a host whose
+ * pi-tui build lacks the export must render instead of failing the named
+ * import at link time. The tests below pin BOTH branches: real-export emission
+ * (end-to-end render) and the missing-export fallback (resolver units).
  */
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as piTui from "@earendil-works/pi-tui";
 import { CURSOR_MARKER } from "@earendil-works/pi-tui";
-import { createSettingsOverlay } from "../../../src/ui/settings-overlay.ts";
+import { MailboxComposeOverlay, resolveCursorMarker } from "../../../src/ui/overlays/mailbox-compose-overlay.ts";
+import { createSettingsOverlay, resolveCursorMarker as resolveSettingsCursorMarker } from "../../../src/ui/settings-overlay.ts";
 import { asCrewTheme } from "../../../src/ui/theme-adapter.ts";
 import { visibleWidth } from "../../../src/utils/visual.ts";
 
@@ -78,4 +88,45 @@ test("R3-6: settings menu rows (list selection) emit NO marker — `›` is navi
 		lines.every((line) => !line.includes(CURSOR_MARKER)),
 		"no marker outside text inputs",
 	);
+});
+
+test("R3-6+L8: mailbox compose overlay emits CURSOR_MARKER at the ACTIVE field's value end", () => {
+	const overlay = new MailboxComposeOverlay({ done: () => undefined });
+	const lines = overlay.render(80);
+	// activeField defaults to 1 ("to") — exactly one row carries the marker.
+	const marked = lines.filter((line) => line.includes(CURSOR_MARKER));
+	assert.equal(marked.length, 1, `exactly one marked row, got ${JSON.stringify(lines)}`);
+	assert.ok(marked[0]?.includes("to:"), "marker sits on the active field row");
+	assert.ok(
+		(marked[0]?.indexOf(CURSOR_MARKER) ?? -1) > (marked[0]?.indexOf("to:") ?? -1),
+		"marker rides after the active field's value (IME anchor at the text-cursor end)",
+	);
+	assert.equal(visibleWidth(marked[0]), visibleWidth(marked[0].replaceAll(CURSOR_MARKER, "")), "marker is zero-width");
+	// Tab cycles the active field — the marker must follow it.
+	overlay.handleInput("\t");
+	const cycled = overlay.render(80).filter((line) => line.includes(CURSOR_MARKER));
+	assert.equal(cycled.length, 1, "still exactly one marker after cycling");
+	assert.ok(!cycled[0]?.includes("to:"), "marker moved off the previous field");
+});
+
+test("L8: resolveCursorMarker returns pi-tui's marker when the export exists (emission branch)", () => {
+	// The real namespace — proves the typeof-guard picks up the genuine export
+	// in BOTH defensive consumers, so rendered output is byte-identical to the
+	// old named-import behavior on healthy hosts.
+	assert.equal(resolveSettingsCursorMarker(piTui), CURSOR_MARKER);
+	assert.equal(resolveCursorMarker(piTui), CURSOR_MARKER);
+});
+
+test('L8: resolveCursorMarker falls back to "" when the host\'s pi-tui lacks the export (W4/G22)', () => {
+	// Missing export entirely.
+	assert.equal(resolveSettingsCursorMarker({}), "");
+	assert.equal(resolveCursorMarker({}), "");
+	// Wrong-shaped exports are contract drift, not a marker — never emit them.
+	assert.equal(resolveSettingsCursorMarker({ CURSOR_MARKER: null }), "");
+	assert.equal(resolveSettingsCursorMarker({ CURSOR_MARKER: 7 }), "");
+	assert.equal(resolveCursorMarker({ CURSOR_MARKER: { not: "a string" } }), "");
+	// A genuine string export passes through untouched (mutation guard for the
+	// typeof check itself — not just the missing-key branch).
+	assert.equal(resolveSettingsCursorMarker({ CURSOR_MARKER: "X" }), "X");
+	assert.equal(resolveCursorMarker({ CURSOR_MARKER: "X" }), "X");
 });

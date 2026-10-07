@@ -12,9 +12,12 @@ import { formatCount, teamWorkflowLabel } from "./format-helpers.ts";
 import { goalFlagSuffix } from "./goal-flag.ts";
 import { DASHBOARD_KEYS } from "./keybinding-map.ts";
 import { ACTIVE, canopyLine, formatHint, RAIL, type RailSlot, railLine, sectionLine, shortId, statusSlot } from "./rail.ts";
+// L5: the EXTENDED cache interface — the base type in snapshot-types.ts does
+// not declare the paint-path accessor (readForRender) or scheduleRefresh.
+import type { RunSnapshotCache } from "./run-snapshot-cache.ts";
 import type { OverlaySchedulerHandle } from "./shared-overlay-scheduler.ts";
 import { registerOverlayScheduler } from "./shared-overlay-scheduler.ts";
-import type { RunSnapshotCache, RunUiSnapshot } from "./snapshot-types.ts";
+import type { RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerBucket, spinnerFrame } from "./spinner.ts";
 import { colorizeStatusGlyphs, iconForStatus } from "./status-colors.ts";
 import type { CrewTheme } from "./theme-adapter.ts";
@@ -79,6 +82,9 @@ export class LiveRunSidebar {
 	private cachedWidth = 0;
 	private cachedSignature = "";
 	private autoCloseTimeout?: NodeJS.Timeout;
+	/** L4 (real-test 2026-10-07): FIXED close deadline (epoch ms), captured
+	 * ONCE on first eligibility — re-renders must never slide it. */
+	private autoCloseDeadline?: number;
 	private hasAutoClosed = false;
 
 	constructor(input: {
@@ -157,10 +163,7 @@ export class LiveRunSidebar {
 		// M-10 fix (code-review 2026-06-23): clear the auto-close timer so a
 		// disposed sidebar (not closed via the normal path) doesn't fire this.done()
 		// on a disposed component.
-		if (this.autoCloseTimeout) {
-			clearTimeout(this.autoCloseTimeout);
-			this.autoCloseTimeout = undefined;
-		}
+		this.clearAutoClose();
 		this.unsubscribeTheme();
 		this.schedulerHandle.dispose();
 	}
@@ -180,8 +183,15 @@ export class LiveRunSidebar {
 		let rawAgents: ReturnType<typeof readCrewAgents>;
 		let snapshot: RunUiSnapshot | undefined;
 		if (this.snapshotCache) {
+			// L5 (real-test 2026-10-07): the paint path reads the cache ONLY.
+			// refreshIfStale rebuilt synchronously between paints (multiple stats +
+			// manifest/tasks parse + sha256), stuttering frame pacing. readForRender
+			// returns the cached snapshot and schedules the COALESCED ASYNC refresh
+			// when the entry's TTL has lapsed; a missing entry schedules nothing, so
+			// kick one here or the pre-load frame below would never fill.
 			try {
-				snapshot = this.snapshotCache.refreshIfStale(this.runId);
+				snapshot = this.snapshotCache.readForRender(this.runId);
+				if (!snapshot) this.snapshotCache.scheduleRefresh(this.runId);
 			} catch {
 				snapshot = undefined;
 			}
@@ -331,25 +341,29 @@ export class LiveRunSidebar {
 			}
 			// F-6: compute the auto-close countdown BEFORE the cap so the countdown
 			// renders inside the frame rather than below it.
-			// Auto-close logic: if run is terminal and no active agents, close after delay
+			// Auto-close logic: if run is terminal and no active agents, close after delay.
+			// L4 (real-test 2026-10-07): the deadline is captured ONCE on FIRST
+			// eligibility and never re-armed while eligibility persists. The old code
+			// did clearTimeout+setTimeout(full delay) on every fresh render, so any
+			// trailing event < autoCloseMs apart slid the deadline forever and the
+			// countdown froze while the sidebar stayed open indefinitely.
 			const isTerminal = ["completed", "failed", "cancelled", "blocked"].includes(run.status);
 			const hasActiveAgents = agents.some((a) => a.status === "running");
 			if (isTerminal && !hasActiveAgents && !this.hasAutoClosed) {
 				const autoCloseMs = this.config?.autoCloseDashboardMs ?? 3000;
 				if (autoCloseMs > 0) {
-					if (this.autoCloseTimeout) clearTimeout(this.autoCloseTimeout);
-					this.autoCloseTimeout = setTimeout(() => {
-						this.hasAutoClosed = true;
-						this.done(undefined);
-					}, autoCloseMs);
-					this.autoCloseTimeout?.unref();
-					lines.push(this.bodyRow(this.theme.fg("dim", `auto-close in ${Math.round(autoCloseMs / 1000)}s…`), budget));
+					if (this.autoCloseDeadline === undefined) {
+						this.autoCloseDeadline = Date.now() + autoCloseMs;
+						this.armAutoClose(this.autoCloseDeadline);
+					}
+					const remainingMs = Math.max(0, this.autoCloseDeadline - Date.now());
+					lines.push(this.bodyRow(this.theme.fg("dim", `auto-close in ${Math.ceil(remainingMs / 1000)}s…`), budget));
 				}
-			}
-			// Clear timeout if conditions change
-			else if (this.autoCloseTimeout) {
-				clearTimeout(this.autoCloseTimeout);
-				this.autoCloseTimeout = undefined;
+			} else {
+				// Off the terminal window (run resumed, active agents (re)appeared) or
+				// already closed: cancel AND forget the deadline — the NEXT eligibility
+				// captures a fresh one. hasAutoClosed keeps done() from re-arming.
+				this.clearAutoClose();
 			}
 			this.cachedLines = renderLines(this.renderFrame(lines, budget, slot), w);
 			this.cachedSignature = signature;
@@ -363,11 +377,67 @@ export class LiveRunSidebar {
 		return railLine(RAIL.body, "border", content, this.theme, budget);
 	}
 
-	/** Append the `┗ <hint>` cap and colorize the glyphs (F-1 / V-3). */
+	/** L4: arm the close callback for a FIXED deadline. Re-renders never touch
+	 * it, so the close lands at firstEligibility + autoCloseMs regardless of
+	 * how many trailing events repaint the frame in between. */
+	private armAutoClose(deadline: number): void {
+		if (this.autoCloseTimeout) clearTimeout(this.autoCloseTimeout);
+		this.autoCloseTimeout = setTimeout(
+			() => {
+				this.hasAutoClosed = true;
+				this.done(undefined);
+			},
+			Math.max(0, deadline - Date.now()),
+		);
+		this.autoCloseTimeout?.unref();
+	}
+
+	/** L4: cancel the fixed deadline — only a NEW eligibility re-arms it. */
+	private clearAutoClose(): void {
+		if (this.autoCloseTimeout) {
+			clearTimeout(this.autoCloseTimeout);
+			this.autoCloseTimeout = undefined;
+		}
+		this.autoCloseDeadline = undefined;
+	}
+
+	/** Append the `┗ <hint>` cap, lock the frame to ONE stable height (L6)
+	 * and colorize the glyphs (F-1 / V-3). */
 	private renderFrame(lines: string[], budget: number, slot: RailSlot): string[] {
 		const hint = this.theme.fg("dim", formatHint(SIDEBAR_HINT));
 		const framed = [...lines, railLine(RAIL.close, slot, hint, this.theme, budget)];
+		this.lockHeight(framed, budget);
 		return framed.map((entry) => this.colorLine(entry));
+	}
+
+	/**
+	 * L6 (real-test 2026-10-07): pad with blank rail rows (cap stays LAST) or
+	 * slice (cap preserved) so EVERY frame — the 3-line pre-load frame and the
+	 * 20+ line loaded frame — is exactly targetHeight() lines. The host
+	 * positions overlays by the returned line count; a frame that flips
+	 * between heights moves the anchor row and the differential renderer
+	 * leaves a ghost footprint below the sidebar. Same contract as
+	 * run-dashboard's targetHeight() clamp.
+	 */
+	private lockHeight(lines: string[], budget: number): void {
+		const target = this.targetHeight();
+		if (lines.length < target) {
+			const blankRow = railLine(RAIL.body, "border", "", this.theme, budget);
+			const bottom = lines.pop();
+			while (lines.length < target - 1) lines.push(blankRow);
+			if (bottom !== undefined) lines.push(bottom);
+		} else if (lines.length > target) {
+			const bottom = lines[lines.length - 1];
+			lines.length = target - 1;
+			lines.push(bottom);
+		}
+	}
+
+	/** L6: stable overlay height — clamped like run-dashboard's targetHeight()
+	 * but scaled for the sidebar's single column (12–30 instead of 12–36). */
+	private targetHeight(): number {
+		const rows = Number.isFinite(process.stdout?.rows) ? Number(process.stdout?.rows) : 30;
+		return Math.max(12, Math.min(30, rows - 2));
 	}
 
 	handleInput(data: string): void {

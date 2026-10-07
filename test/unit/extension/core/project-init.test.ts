@@ -58,7 +58,8 @@ test(
 		assert.equal(config.agents.overrides.executor.thinking, "medium");
 		assert.equal(config.ui.widgetPlacement, "bottom");
 		assert.equal(config.ui.widgetMaxLines, 8);
-		assert.equal(config.ui.dashboardPlacement, "center");
+		// L3 (2026-10-07): project-init derives from DEFAULT_UI — default "right".
+		assert.equal(config.ui.dashboardPlacement, "right");
 		assert.equal(config.ui.dashboardWidth, 72);
 		assert.equal(config.ui.autoOpenDashboard, false);
 		assert.equal(config.ui.autoOpenDashboardForForegroundRuns, false);

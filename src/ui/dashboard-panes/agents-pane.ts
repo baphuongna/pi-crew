@@ -134,8 +134,9 @@ export function renderAgentsPane(snapshot: RunUiSnapshot | undefined, options: R
 
 	// `3/3 tasks · 3 agents` — the label arrives pre-pluralised by the caller
 	// ("N agents"); the task tally keeps the slash form on purpose (it reads as
-	// progress, not as a count).
-	lines.push(`${completed}/${total} tasks · ${label}`);
+	// progress, not as a count), with the noun pluralised by the TOTAL
+	// (formatCount, L9): `1/1 task`, `3/3 tasks`.
+	lines.push(`${completed}/${formatCount(total, "task")} · ${label}`);
 
 	for (const agent of realAgents.slice(0, 12)) {
 		const liveHandle = liveByTaskId.get(agent.taskId);

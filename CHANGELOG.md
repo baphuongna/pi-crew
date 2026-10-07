@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.11.9] — UI instability fix wave L1–L9 (2026-10-07)
+
+Live-battery-driven fixes from the 2026-10-07 UI review
+(docs/real-test/reports/real-test-2026-10-07-ui-instability-review.md +
+real-test-2026-10-07-ui-fix-wave.md — 4 real runs, 308 live frames, T1/T5/T13 gates,
+5/5 mutation-verified pins).
+
+### Fixed
+
+- **L1 — crew dock renders in every session (HIGH)**: `activeWidgetRuns()` no longer filters
+  runs by `ownerSessionId` — bystander terminals now see active runs owned by other sessions
+  (live evidence: 308 frames across 3 async runs + 1 headless run rendered 0 docks; widget of
+  another extension updated fine in the same session). Crash-recovery scoping unchanged.
+- **L2 — no more flicker around run completion (HIGH-MED)**: the render-loop health gates
+  (GATE 1 / FIX#1 / GATE 3) now rebuild snapshots in place (`scheduleRefresh`) instead of
+  hard-deleting cache entries — restoring the FLICKER FIX invariant the gates had been
+  violating on every tick for terminal/divergent runs.
+- **L3 — dashboard defaults to the right-anchored panel**: `ui.dashboardPlacement` default
+  `"center"` → `"right"` (mirrors updated in install.mjs + both EFFECTIVE_DEFAULTS maps). The
+  centered 90% overlay exposed chopped background words at both margins on every width probed
+  (160/100/80) — pi-tui keeps base content visible outside overlay bounds by design.
+- **L4 — sidebar auto-close deadline no longer slides**: the deadline is captured on first
+  eligibility and re-armed only when the run leaves terminal state; the "auto-close in 3s…"
+  countdown now reflects a fixed deadline instead of being reset by every re-render.
+- **L6 — sidebar height locked** (dashboard `targetHeight()` pattern): loading → loaded →
+  shrunk frames share one height, killing ghost `┃` rows.
+- **L5 — sync snapshot rebuild off the paint path**: new `readForRender()` cached-only accessor
+  + coalesced async refresh for render(); keypress paths with sync read-after-write keep
+  `refreshIfStale` (Tier 11a read-your-writes preserved).
+
+### Changed
+
+- **L7 — TUI dialect sweep**: dashboard agent preview + mailbox pane now use `↑/↓` compact
+  usage instead of `tok=/in=/out=/model=/age=` wire format; live-conversation overlay uses
+  `formatDuration` (`5m44s`) instead of raw seconds; dead `formatLiveDuration` export removed.
+- **L8 — `CURSOR_MARKER` defensive resolve** (settings overlay, mailbox compose): named import
+  replaced with the W4/G22 typeof-guard pattern — no ESM crash on hosts whose pi-tui lacks the
+  export.
+- **L9 — dock truncation priority**: status pieces (`1 running`, `3/5 done`) are atomic — they
+  render whole or drop, never split mid-word (`1 runnin…` gone at 40 cols); meta pieces drop
+  first; plurals via `formatCount` across dashboard/panes/dispatcher.
+
 ## [0.11.8] — Pi 1.0.4 adoption + RPC/surface hardening + battery-proven stability (2026-10-07)
 
 ### Added — deep-learn polish batch (docs/reviews/pi-1.0.0-deep-learn-r3-2026-10-03.md R3 matrix)

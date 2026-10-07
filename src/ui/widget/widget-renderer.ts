@@ -51,27 +51,132 @@ const DOCK_WORD = "CREW";
 const DOCK_HINT_RIGHT = "↓·enter";
 const DOCK_HINT = `···· ${DOCK_HINT_RIGHT}`;
 
+/** The ` · ` the dock row joins its canopy and segments with. */
+const DOCK_SEPARATOR = " · ";
+
+/** Content-budget floor: a degenerate width still paints a (clipped) rail row. */
+const MIN_DOCK_WIDTH = 8;
+
+/** One ` · `-separated piece of the dock row, with its budget priority. */
+interface DockPiece {
+	text: string;
+	/**
+	 * L9 (ui-instability review 2026-10-07, T13 evidence: the 40-column dock
+	 * rendered `1 runnin…`): `status` pieces (`2 running`, `3/5 done`, `⚠
+	 * plan:<id>`) are ATOMIC — they render whole or drop as a unit, never
+	 * split mid-word; `meta` pieces (`⏰ …`, alerts badge) are dropped first
+	 * under width pressure. The subject (run id / label) clips LAST, with `…`
+	 * at its own boundary — never a blind truncate() across a concatenation
+	 * that mixes a must-survive token with a droppable one.
+	 */
+	kind: "status" | "meta";
+}
+
+/** Clip `text` at WORD boundaries (trailing words drop, `…` marks the
+ *  elision) — the finest clip the dock ever applies inside a piece. */
+function clipWords(text: string, budget: number): string {
+	if (visibleWidth(text) <= budget) return text;
+	const words = text.split(" ");
+	let kept = words.length;
+	while (kept > 1 && visibleWidth(words.slice(0, kept).join(" ")) > budget - 1) kept--;
+	const base = words.slice(0, kept).join(" ");
+	return visibleWidth(base) <= budget - 1 ? `${base}…` : truncate(text, budget);
+}
+
+/**
+ * Compose the dock row's left side under a width budget, by explicit
+ * priority (L9/T13): meta pieces drop first (right-to-left), then the subject
+ * (id) clips with `…` at its own boundary, then the `↓·enter` hint yields,
+ * and only then does a piece drop as a WHOLE unit. A status word is therefore
+ * never split — the ellipsis only ever lands at a segment boundary.
+ */
+function budgetDockLeft(
+	buildLeft: (subject: string, pieces: readonly DockPiece[]) => string,
+	subject: string,
+	pieces: readonly DockPiece[],
+	/** Left budget while the hint rides (hint + the 2-space collapsed gap). */
+	withHint: number,
+	/** Left budget once the hint is dropped. */
+	full: number,
+): { left: string; hint: boolean } {
+	let subjectText = subject;
+	let kept = pieces;
+	const current = (): string => buildLeft(subjectText, kept);
+	const fits = (limit: number): boolean => visibleWidth(current()) <= limit;
+
+	if (fits(withHint)) return { left: current(), hint: true };
+
+	// (1) meta drops first, right-to-left — but never the row's LAST piece: an
+	// idle row whose only piece is the schedule must clip it, not lose it (a
+	// content-free row is indistinguishable from no row at all).
+	while (kept.length > 1 && kept.at(-1)?.kind === "meta" && !fits(withHint)) kept = kept.slice(0, -1);
+	if (fits(withHint)) return { left: current(), hint: true };
+
+	// (2) the subject (id) clips — the lowest-priority clippable piece. `…`
+	// lands at the subject's own boundary; the pieces stay untouched.
+	const room = withHint - visibleWidth(buildLeft("", kept));
+	subjectText = room >= 4 ? truncate(subject, room - 3) : "";
+	if (fits(withHint)) return { left: current(), hint: true };
+
+	// (3) the hint yields before ANY piece is dropped or mangled: status
+	// outranks the affordance — `↓·enter` may survive per budget, never at the
+	// cost of `1 running`.
+	if (fits(full)) return { left: current(), hint: false };
+
+	// (4) whole pieces drop right-to-left — status included, but as a UNIT.
+	while (kept.length > 1 && !fits(full)) kept = kept.slice(0, -1);
+	if (fits(full)) return { left: current(), hint: false };
+
+	// (5) one piece left: meta clips word-wise (the idle schedule); a lone
+	// status piece drops whole rather than split.
+	const last = kept.at(-1);
+	if (last?.kind === "meta") {
+		const pieceBudget = full - visibleWidth(buildLeft(subjectText, [])) - visibleWidth(DOCK_SEPARATOR);
+		kept = [{ kind: "meta", text: clipWords(last.text, Math.max(pieceBudget, 1)) }];
+		if (fits(full)) return { left: current(), hint: false };
+	}
+	// (6) pathological width (< ~12 cols): the width invariant wins.
+	return { left: truncate(buildLeft(subjectText, []), Math.max(full, 1)), hint: false };
+}
+
+/**
+ * The dock's one row, composed under the segment-priority budget and laid
+ * out with the `↓·enter` tail. The pin gives a fixed four-dot leader on a
+ * wide terminal (`railLeaders`); on a NARROW one the budget shrinks instead,
+ * so `budgetDockLeft` sacrifices meta → subject → hint → whole pieces — in
+ * that order — and the actionable hint never gets clipped mid-glyph (the
+ * live row used to end in `↓…` at 50 columns, and later in `1 runnin…` at
+ * 40). The exact-fit gap is laid out HERE rather than through `railLeaders`:
+ * its 0-slack branch cuts ONE visible char off the left side, which is
+ * exactly the mid-token regression this composer exists to kill.
+ */
+function dockRow(args: {
+	glyph: string;
+	subject: string;
+	subjectUrl: string | undefined;
+	pieces: readonly DockPiece[];
+	maxWidth?: number;
+}): string {
+	const { glyph, subjectUrl, pieces } = args;
+	const buildLeft = (subjectText: string, kept: readonly DockPiece[]): string => {
+		const identity = dockIdentity(linkify(subjectText, subjectUrl));
+		const head = glyph ? `${glyph} ${identity}` : identity;
+		return kept.length > 0 ? `${head}${DOCK_SEPARATOR}${kept.map((piece) => piece.text).join(DOCK_SEPARATOR)}` : head;
+	};
+	const pinned = visibleWidth(buildLeft(args.subject, pieces)) + visibleWidth(DOCK_HINT_RIGHT) + 6;
+	const budget = args.maxWidth === undefined ? pinned : Math.min(pinned, Math.max(args.maxWidth, MIN_DOCK_WIDTH) - 2);
+	const outcome = budgetDockLeft(buildLeft, args.subject, pieces, budget - visibleWidth(DOCK_HINT_RIGHT) - 2, budget);
+	if (!outcome.hint) return outcome.left;
+	const slack = budget - visibleWidth(outcome.left) - visibleWidth(DOCK_HINT_RIGHT) - 2;
+	if (slack >= 3) return railLeaders(outcome.left, DOCK_HINT_RIGHT, budget, PLAIN_THEME);
+	return `${outcome.left}  ${DOCK_HINT_RIGHT}`;
+}
+
 /** The dock's FOCUS marker (RAIL §2.B: "focused row keeps the `❯ ` prefix").
  *  It is deliberately not `rail.ts`'s `CURSOR` (`›`) — that glyph marks the
  *  selected row of a LIST; the dock is a single line, and `❯` is the marker
  *  the prompt area has always acknowledged the ↓ keystroke with. */
 const FOCUS_MARKER = "❯";
-
-/**
- * `···· ↓·enter` appended to a dock row. Composed through `railLeaders` with a
- * budget that pins the leader run at exactly four dots — the dock is a
- * left-aligned single row, so the leaders must NOT stretch to the terminal
- * width the way a card's metrics→elapsed leaders do.
- */
-function dockTail(left: string, theme: CrewTheme, maxWidth?: number): string {
-	const pinned = visibleWidth(left) + visibleWidth(DOCK_HINT_RIGHT) + 6;
-	// The pin gives a fixed four-dot leader on a wide terminal. On a NARROW one
-	// the budget shrinks instead, so `railLeaders` trims the LEFT segment (with
-	// `…`) and the actionable `↓·enter` hint never gets clipped away — the live
-	// row used to end in `↓…` at 50 columns.
-	const budget = maxWidth === undefined ? pinned : Math.min(pinned, maxWidth - 2);
-	return railLeaders(left, DOCK_HINT_RIGHT, budget, theme);
-}
 
 /** `CREW ▸ <subject>` — the dock identity (colour is applied on the paint pass). */
 function dockIdentity(subject: string): string {
@@ -96,14 +201,12 @@ export function widgetRailSlot(runs: readonly WidgetRun[]): RailSlot {
 }
 
 /** `<team>` (or `team/workflow` when they differ); several live runs collapse
- *  to `<n> runs` — the counts on the row stay aggregate. */
-function dockSubject(runs: WidgetRun[]): string {
+ *  to `<n> runs` — the counts on the row stay aggregate. Returns the RAW
+ *  label: the row budget clips it BEFORE the OSC-8 wrap, so a hyperlink
+ *  sequence can never be sliced open (the link target survives whole). */
+function dockSubjectLabel(runs: WidgetRun[]): string {
 	if (runs.length === 0) return "idle";
-	const label = runs.length > 1 ? `${runs.length} runs` : shortRunLabel(runs[0]!.run);
-	// R3-9: the dock's ONE clickable action — the subject opens the LATEST
-	// run's artifacts directory (`file://` OSC-8 link). Terminals without
-	// OSC-8 support ignore the escapes and render the plain label.
-	return linkify(label, latestArtifactsUrl(runs));
+	return runs.length > 1 ? `${runs.length} runs` : shortRunLabel(runs[0]!.run);
 }
 
 // ── R3-9: OSC-8 dock link ─────────────────────────────────────────────
@@ -155,8 +258,20 @@ function linkify(text: string, url: string | undefined): string {
  */
 export function idleWidgetLine(schedLine: string | undefined, focused = false, maxWidth?: number): string | undefined {
 	if (!schedLine) return undefined;
-	const left = `${dockIdentity("idle")} · ${schedLine}`;
-	const line = dockLine(dockTail(left, PLAIN_THEME, maxWidth), PLAIN_THEME, "border");
+	const line = dockLine(
+		dockRow({
+			glyph: "",
+			subject: "idle",
+			subjectUrl: undefined,
+			pieces: [{ text: schedLine, kind: "meta" }],
+			// The focused ❯ prefix eats two columns of the same terminal row —
+			// budget for it here so the final truncate stays a safety net, not
+			// the clip.
+			maxWidth: maxWidth === undefined ? undefined : Math.max(maxWidth - (focused ? 2 : 0), MIN_DOCK_WIDTH),
+		}),
+		PLAIN_THEME,
+		"border",
+	);
 	return focused ? `${FOCUS_MARKER} ${line}` : line;
 }
 
@@ -199,7 +314,7 @@ export function widgetHeader(
 	maxWidth?: number,
 ): string {
 	const agents = runs.flatMap((item) => item.agents);
-	const segments: string[] = [];
+	const pieces: DockPiece[] = [];
 	if (runs.length > 0) {
 		const runningAgents = agents.filter((a) => a.status === "running").length;
 		const queuedAgents = agents.filter((a) => a.status === "queued").length;
@@ -207,28 +322,36 @@ export function widgetHeader(
 		const completedAgents = agents.filter((a) => a.status === "completed").length;
 		// Zero counts are noise on a one-line dock: a finished run reads
 		// `3/3 done`, not `0 running · 3/3 done`.
-		if (runningAgents) segments.push(`${runningAgents} running`);
-		if (queuedAgents) segments.push(`${queuedAgents} queued`);
-		if (waitingAgents) segments.push(`${waitingAgents} waiting`);
-		if (completedAgents) segments.push(`${completedAgents}/${agents.length} done`);
+		if (runningAgents) pieces.push({ text: `${runningAgents} running`, kind: "status" });
+		if (queuedAgents) pieces.push({ text: `${queuedAgents} queued`, kind: "status" });
+		if (waitingAgents) pieces.push({ text: `${waitingAgents} waiting`, kind: "status" });
+		if (completedAgents) pieces.push({ text: `${completedAgents}/${agents.length} done`, kind: "status" });
 		// WP-3 on the single line (2026-09-14 round 2): a run parked awaiting plan
 		// approval surfaces as a `⚠ plan:<run8>` segment — the row-level badge is
 		// gone with the run tree, so the count row carries the signal.
 		const planPending = runs.find((item) => isPlanApprovalStatePending(item.run.planApproval));
-		if (planPending) segments.push(`⚠ plan:${shortId(planPending.run.runId)}`);
+		if (planPending) pieces.push({ text: `⚠ plan:${shortId(planPending.run.runId)}`, kind: "status" });
 	}
 	// Tier C: `schedSegment` is the ALREADY-BUILT `⏰ …` string (jobs, hidden
 	// count and clock are all injected upstream — buildWidgetLines); undefined
 	// means nothing schedules-related paints.
-	if (schedSegment) segments.push(schedSegment);
+	if (schedSegment) pieces.push({ text: schedSegment, kind: "meta" });
 	// Bug 021: the alerts badge is one more segment (no 🔔, capped at 99+).
 	const badge = notificationBadge(notificationCount)
 		.replace(/^\s*·\s*/, "")
 		.trim();
-	if (badge) segments.push(badge);
-	const head = runningGlyph ? `${runningGlyph} ${dockIdentity(dockSubject(runs))}` : dockIdentity(dockSubject(runs));
-	const left = segments.length > 0 ? `${head} · ${segments.join(" · ")}` : head;
-	return dockLine(dockTail(left, PLAIN_THEME, maxWidth), PLAIN_THEME, "border");
+	if (badge) pieces.push({ text: badge, kind: "meta" });
+	return dockLine(
+		dockRow({
+			glyph: runningGlyph,
+			subject: dockSubjectLabel(runs),
+			subjectUrl: latestArtifactsUrl(runs),
+			pieces,
+			maxWidth,
+		}),
+		PLAIN_THEME,
+		"border",
+	);
 }
 
 // ── Agent ordering (shared with the inline panel) ──────────────────────
@@ -413,10 +536,13 @@ export function buildWidgetLines(
 		// interactive run is active. The ⏰ segment stands alone as the row; with
 		// no schedules either there is NOTHING to paint — `[]`, never a bare
 		// hint and never the literal `undefined — ↓·enter` (live bug 2026-09-16).
-		const idle = idleWidgetLine(schedLine, focused);
+		const idle = idleWidgetLine(schedLine, focused, width);
 		return idle ? [truncate(idle, width)] : [];
 	}
-	const base = widgetHeader(runs, widgetActivityGlyph(runs), maxLines, notificationCount, schedLine, width);
+	// The focused ❯ prefix eats two columns of the same terminal row: budget
+	// for it here so the final truncate stays a safety net, never the clip.
+	const headerWidth = focused ? Math.max(width - 2, MIN_DOCK_WIDTH) : width;
+	const base = widgetHeader(runs, widgetActivityGlyph(runs), maxLines, notificationCount, schedLine, headerWidth);
 	return [truncate(focused ? `${FOCUS_MARKER} ${base}` : base, width)];
 }
 

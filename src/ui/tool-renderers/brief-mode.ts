@@ -7,7 +7,7 @@
  */
 
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
-import { formatDuration, formatTokens, truncLine } from "../format-helpers.ts";
+import { formatCount, formatDuration, formatTokens, truncLine } from "../format-helpers.ts";
 import { spinnerClockNow } from "../spinner.ts";
 import type { CrewTheme } from "../theme-adapter.ts";
 
@@ -100,7 +100,7 @@ function briefTeam(result: { content?: unknown[] }, theme: CrewTheme): string {
 		const total = records.length;
 		const duration = computeTotalDuration(records);
 		const tokens = computeTotalTokens(records);
-		return `${icon} ${completed}/${total} tasks · ${formatDuration(duration)} · ${formatTokens(tokens)} tok`;
+		return `${icon} ${completed}/${formatCount(total, "task")} · ${formatDuration(duration)} · ${formatTokens(tokens)} tok`;
 	}
 
 	// Fallback: compact status line

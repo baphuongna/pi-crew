@@ -319,12 +319,34 @@ export function setupRenderLoop(
 				);
 			}
 		};
+		// L2 (real-test 2026-10-07, report L2): rebuild-in-place, NEVER
+		// hard-delete. The health gates below used `invalidate(runId)`
+		// (entries.delete) on every tick for terminal/divergent runs — exactly
+		// what the FLICKER FIX invariant (run-snapshot-cache.ts scheduleRefresh
+		// docs + the onRunChange wiring above) forbids: for 1-n frames
+		// `snapshotCache.get(runId)` returned undefined and the widget/powerbar
+		// fell back to their disk-read branch around every run completion
+		// (visible flicker). Route through the coalesced ASYNC rebuild instead —
+		// the entry stays populated until the rebuild re-sets it in place. No
+		// renderScheduler.schedule() here: unlike the fs.watch onRunChange path
+		// we are ALREADY inside a renderTick, and list(20) keeps terminal runs
+		// in sessionManifests for many ticks, so a schedule() from the gates
+		// would reset lastEventAt on every tick and defeat the R1 idle stop
+		// (pinned by preload-idle-render.test.ts).
+		const refreshSnapshotInPlace = (runId: string): void => {
+			try {
+				snapshotCache.scheduleRefresh(runId);
+			} catch (error) {
+				logInternalError("register.renderLoop.snapshotRefresh", error, runId);
+			}
+		};
 		for (const run of sessionManifests) {
 			if (run.status !== "running") {
-				// GATE 1 — preloaded manifest says terminal. Purge any stale snapshot
-				// and clear previously-emitted health notifications so the dashboard
-				// stays clean (belt-and-suspenders with the FIX #1 fresh-read gate).
-				snapshotCache.invalidate(run.runId);
+				// GATE 1 — preloaded manifest says terminal. Refresh the snapshot in
+				// place (never delete) and clear previously-emitted health notifications
+				// so the dashboard stays clean (belt-and-suspenders with the FIX #1
+				// fresh-read gate).
+				refreshSnapshotInPlace(run.runId);
 				clearHealthNotifications(run.runId);
 				continue;
 			}
@@ -333,20 +355,25 @@ export function setupRenderLoop(
 				// (from lastPreloadedManifests) can lag the on-disk terminal
 				// transition; the manifest cache has a 500ms TTL + file watcher so it
 				// is the source of truth. A terminal run must NEVER reach
-				// maybeNotifyHealth. Also purge the stale snapshot + clear any
-				// previously-emitted health notification for this run.
+				// maybeNotifyHealth. Also refresh the stale snapshot in place
+				// (never delete) and clear any previously-emitted health
+				// notification for this run.
 				const freshManifest = ctx.getManifestCache(extensionCtx.cwd).get(run.runId);
 				if (freshManifest?.status !== "running") {
-					snapshotCache.invalidate(run.runId);
+					refreshSnapshotInPlace(run.runId);
 					clearHealthNotifications(run.runId);
 					continue;
 				}
-				const snapshot = snapshotCache.get(run.runId);
+				// L5: paint-path read through the read-only accessor — cached
+				// snapshot only; a lapsed TTL schedules the coalesced async refresh
+				// instead of ever rebuilding synchronously inside renderTick.
+				const snapshot = snapshotCache.readForRender(run.runId);
 				if (!snapshot) continue;
 				if (snapshot.manifest.status !== "running") {
-					// GATE 2 — a running snapshot paired with a now-terminal manifest is
-					// stale. Purge it so subsequent ticks get a fresh view, and clear.
-					snapshotCache.invalidate(run.runId);
+					// GATE 2 — a running manifest paired with a now-terminal snapshot is
+					// stale. Refresh it in place so subsequent ticks get the fresh view,
+					// and clear.
+					refreshSnapshotInPlace(run.runId);
 					clearHealthNotifications(run.runId);
 					continue;
 				}
@@ -357,10 +384,10 @@ export function setupRenderLoop(
 				// worker counted as active-without-heartbeat and fired a false
 				// "dead worker" (live: team_20260923100114, 01_explore parked on
 				// ask). Overlay FRESH statuses before summarizing; divergence also
-				// invalidates the stale cache entry so the next tick rebuilds it.
+				// schedules an in-place rebuild so the cache syncs off the tick.
 				const freshTasks = loadTasksWithRecovery(freshManifest.tasksPath, freshManifest.eventsPath, run.runId);
 				const overlaid = overlayFreshTaskStatuses(snapshot, freshTasks);
-				if (overlaid !== snapshot) snapshotCache.invalidate(run.runId);
+				if (overlaid !== snapshot) refreshSnapshotInPlace(run.runId);
 				const summary = summarizeHeartbeats(overlaid, { now });
 				const fingerprint = healthNotifyFingerprint(summary, overlaid.tasks.length);
 				const maybeNotifyHealth = (kind: string, count: number, title: string, body: string): void => {
@@ -424,13 +451,16 @@ export function setupRenderLoop(
 			// The next `renderTick` then saw `get() === undefined` for every run,
 			// so `activeWidgetRuns` dropped them to "(loading…)" until the async
 			// preload rebuilt the cache — an endless visible flicker. For a
-			// specific runId we now refresh-if-stale (stale-while-revalidate) so
-			// the widget always sees a populated snapshot; a no-runId tick does
-			// nothing (renderTick itself repaints; the cache's own
-			// run:state/worker:lifecycle subscription refreshes affected runs).
+			// specific runId we schedule the coalesced ASYNC refresh (L5,
+			// real-test 2026-10-07): refreshIfStale() did a SYNC full rebuild
+			// between paints (and a sync build for missing entries), blocking the
+			// event loop mid-render; scheduleRefresh keeps the entry populated and
+			// rebuilds off the tick. A no-runId tick does nothing (renderTick
+			// itself repaints; the cache's own run:state/worker:lifecycle
+			// subscription refreshes affected runs).
 			if (!runId) return;
 			try {
-				ctx.getRunSnapshotCache(extensionCtx.cwd).refreshIfStale(runId);
+				ctx.getRunSnapshotCache(extensionCtx.cwd).scheduleRefresh(runId);
 			} catch (error) {
 				logInternalError("register.renderScheduler.refresh", error, runId);
 			}
@@ -442,9 +472,9 @@ export function setupRenderLoop(
 	const unsubscribeRunEvents = runEventBus.onAny((event) => {
 		// bug-026 sub-issue C: evict terminal runs from the preloaded manifest
 		// frame so a stale "running" entry cannot persist for the session
-		// lifetime. Additive to the renderTick GATE 1 / FIX #1 / GATE 2 snapshot
-		// purges (which invalidate the snapshot cache) — those gates do not
-		// touch lastPreloadedManifests itself.
+		// lifetime. Additive to the renderTick GATE 1 / FIX #1 / GATE 2
+		// snapshot refreshes (which rebuild the snapshot cache entries in
+		// place) — those gates do not touch lastPreloadedManifests itself.
 		lastPreloadedManifests = applyTerminalRunEventToManifests(lastPreloadedManifests, event);
 		sched.schedule({
 			runId: event.runId,

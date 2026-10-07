@@ -31,7 +31,8 @@ test("install.mjs respects PI_TEAMS_HOME and writes default UI config", () => {
 			widgetPlacement: "bottom",
 			widgetMaxLines: 8,
 			powerbar: true,
-			dashboardPlacement: "center",
+			// L3 (2026-10-07): default placement tracks DEFAULT_UI ("right").
+			dashboardPlacement: "right",
 			dashboardWidth: 72,
 			dashboardLiveRefreshMs: 1000,
 			autoOpenDashboard: false,

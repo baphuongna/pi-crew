@@ -54,7 +54,10 @@ export const defaultConfig = {
     widgetPlacement: "bottom",
     widgetMaxLines: 8,
     powerbar: true,
-    dashboardPlacement: "center",
+    // L3 (2026-10-07 real-test review): tracks DEFAULT_UI.dashboardPlacement —
+    // enforced by test/unit/install-defaults-sync.test.ts (mutation: edit
+    // DEFAULT_UI without this file and that test goes red).
+    dashboardPlacement: "right",
     dashboardWidth: 72,
     dashboardLiveRefreshMs: 1000,
     autoOpenDashboard: false,

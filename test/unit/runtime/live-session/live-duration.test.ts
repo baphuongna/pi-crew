@@ -6,14 +6,13 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeLiveDurationMs, formatLiveDuration, type LiveActivity } from "../../../../src/ui/live-duration.ts";
+import { computeLiveDurationMs, type LiveActivity } from "../../../../src/ui/live-duration.ts";
 
 const NOW = 1_780_000_000_000; // fixed "now" for determinism
 
 test("running agent: now - startedAtMs (ms units)", () => {
 	const act: LiveActivity = { startedAtMs: NOW - 12_000 };
 	assert.equal(computeLiveDurationMs(act, NOW), 12_000);
-	assert.equal(formatLiveDuration(act, NOW), "12.0s");
 });
 
 test("completed agent: uses completedAtMs", () => {
@@ -64,8 +63,8 @@ test("BUG 1 regression: startedAtMs is a stray tiny positive (pre-epoch-ish) →
 	assert.ok(ms >= 0, `must never be negative, got ${ms}`);
 });
 
-test("formatLiveDuration never shows negative", () => {
-	assert.equal(formatLiveDuration({ startedAtMs: 0 }, NOW), "0.0s");
-	assert.equal(formatLiveDuration({ startedAtMs: NOW - 1_500 }, NOW), "1.5s");
-	assert.ok(!formatLiveDuration({ startedAtMs: NOW + 10_000 }, NOW).startsWith("-"), "no negative sign");
-});
+// L9 (2026-10-07): the `formatLiveDuration` export was deleted — it had zero
+// production importers and its raw-seconds output was the wire format the
+// dialect sweep retires. Display formatting now goes through `formatDuration`
+// (format-helpers.ts) over `computeLiveDurationMs`; see
+// test/unit/ui/panes-dialect.test.ts for the rendering-side pins.

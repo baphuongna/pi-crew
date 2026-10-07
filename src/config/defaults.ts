@@ -138,7 +138,14 @@ export const DEFAULT_UI = {
 	widgetMaxLines: 8,
 	inlinePanel: true,
 	powerbar: true,
-	dashboardPlacement: "center" as const,
+	// L3 (2026-10-07 real-test review): default "right" — the centered 90%
+	// overlay leaves both margins showing chopped background words (pi-tui's
+	// compositeTuiLine keeps base.before/base.after visible outside overlay
+	// bounds by design); the right-anchored panel covers them. Mirror updates:
+	// install.mjs + the two EFFECTIVE_DEFAULTS maps (handle-settings.ts,
+	// settings-overlay.ts) — install-defaults-sync.test.ts enforces the first,
+	// G17 lesson enforces the rest.
+	dashboardPlacement: "right" as const,
 	dashboardWidth: 72,
 	dashboardLiveRefreshMs: 1000,
 	autoOpenDashboard: false,

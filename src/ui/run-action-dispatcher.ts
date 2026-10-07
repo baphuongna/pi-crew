@@ -19,6 +19,7 @@ import type { MailboxDirection, MailboxMessage } from "../state/coordination/mai
 import { appendEventBuffered } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks } from "../state/stores/state-store.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { formatCount } from "./format-helpers.ts";
 
 export interface RunActionResult {
 	ok: boolean;
@@ -107,7 +108,7 @@ export async function dispatchMailboxAckAll(ctx: ExtensionContext, runId: string
 	}
 	return {
 		ok: true,
-		message: `Acknowledged ${count} messages.`,
+		message: `Acknowledged ${formatCount(count, "message")}.`,
 		data: { count },
 	};
 }

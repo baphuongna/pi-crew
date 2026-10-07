@@ -17,6 +17,7 @@
 import { isPlanApprovalPending } from "../../runtime/plan-approval.ts";
 import { deriveItemProgress } from "../../state/stores/plan-store.ts";
 import type { PlanItemStatus, TeamTaskState } from "../../state/types.ts";
+import { formatCount } from "../format-helpers.ts";
 import { ACTIVE, formatHint, statusIcon } from "../rail.ts";
 
 /**
@@ -99,7 +100,9 @@ export function planRevisionDiff(snapshot: RunUiSnapshot): string[] {
 		const beforeTasks = before.taskIds?.length ?? 0;
 		const currentTasks = item.taskIds?.length ?? 0;
 		if (before.status !== item.status || beforeTasks !== currentTasks) {
-			lines.push(`  ~ ${item.id} ${item.title ?? "?"} [${before.status}→${item.status} · ${beforeTasks}→${currentTasks} tasks]`);
+			lines.push(
+				`  ~ ${item.id} ${item.title ?? "?"} [${before.status}→${item.status} · ${beforeTasks}→${formatCount(currentTasks, "task")}]`,
+			);
 		}
 		prevItems.delete(item.id);
 	}
@@ -128,7 +131,7 @@ export function renderPlanPane(snapshot: RunUiSnapshot, options: PlanPaneOptions
 	const itemById = new Map(items.map((i) => [i.id, i]));
 
 	const pending = isPlanApprovalPending(snapshot.manifest);
-	const header = `Plan pane: ${current.title ?? "?"} @v${current.version} (${phases.length} phases · ${items.length} items)`;
+	const header = `Plan pane: ${current.title ?? "?"} @v${current.version} (${formatCount(phases.length, "phase")} · ${formatCount(items.length, "item")})`;
 	// Hint join format is the rail one (` · `, close/deny last). NOT routed
 	// through `formatHint` (yet): its `keyToken` upper-cases a bare letter
 	// (`n` → `N`) and the locked pane test

@@ -49,7 +49,8 @@ export function computeLiveDurationMs(activity: LiveActivity, nowMs: number = Da
 	return Number.isFinite(ms) && ms >= 0 ? ms : 0;
 }
 
-/** Format a live duration in seconds, e.g. `12.3s`. Returns `0.0s` for 0. */
-export function formatLiveDuration(activity: LiveActivity, nowMs: number = Date.now()): string {
-	return `${(computeLiveDurationMs(activity, nowMs) / 1000).toFixed(1)}s`;
-}
+// L9 note: the `formatLiveDuration` export was deleted (2026-10-07). It had
+// zero production importers — its raw-seconds `(ms/1000).toFixed(1)s` output
+// was exactly the wire format the dialect sweep retires; every live surface
+// now formats via `formatDuration` (format-helpers.ts) over
+// `computeLiveDurationMs`.

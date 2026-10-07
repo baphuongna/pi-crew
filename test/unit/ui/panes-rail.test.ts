@@ -361,10 +361,13 @@ test("cosmetic migration: summary lines that only changed frame language are unc
 		stripAnsi(renderSchedulesPane([scheduledJob()], NOW)[1] ?? "").includes("● nightly-build  cron 0 9 * * * · in 84m · ✓ · 12 runs"),
 		"schedules main row keeps all six columns + rhythm",
 	);
-	assert.ok(stripAnsi(renderPlanPane(snap)[0] ?? "") === "Plan pane: Ship it @v1 (1 phases · 2 items)", "plan header unchanged");
 	assert.ok(
-		stripAnsi(renderProgressPane(snap)[0] ?? "").includes("Progress pane: 1/2 completed · running=1 queued=0 failed=0"),
-		"progress summary unchanged",
+		stripAnsi(renderPlanPane(snap)[0] ?? "") === "Plan pane: Ship it @v1 (1 phase · 2 items)",
+		"plan header unchanged (L9: formatCount nouns)",
+	);
+	assert.ok(
+		stripAnsi(renderProgressPane(snap)[0] ?? "").includes("Progress pane: 1/2 completed · 1 running · 0 queued · 0 failed"),
+		"progress summary keeps the tally dialect (L7: count-first, no key=value)",
 	);
 	assert.ok(
 		stripAnsi(renderTranscriptPane(snap)[0] ?? "").startsWith("Output pane: "),

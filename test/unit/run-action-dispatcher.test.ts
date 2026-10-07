@@ -77,6 +77,26 @@ test("mailbox dispatchers compose ack and ack all", async () => {
 		const ackAll = await dispatchMailboxAckAll(run.ctx, run.runId);
 		assert.equal(ackAll.ok, true);
 		assert.match(ackAll.message, /Acknowledged/);
+		// L9: the count noun is pluralised (formatCount) — `N messages` for N>1.
+		// (The singular `1 message.` pin lives in the test below.)
+		assert.match(ackAll.message, /^Acknowledged \d+ messages\.$/);
+	} finally {
+		fs.rmSync(run.cwd, { recursive: true, force: true });
+	}
+});
+
+test("mailbox ack-all with a single message reads singular (L9 formatCount)", async () => {
+	const run = createRun();
+	try {
+		appendMailboxMessage(run.manifest, {
+			direction: "inbox",
+			from: "a",
+			to: "b",
+			body: "only one",
+		});
+		const ackAll = await dispatchMailboxAckAll(run.ctx, run.runId);
+		assert.equal(ackAll.ok, true);
+		assert.equal(ackAll.message, "Acknowledged 1 message.");
 	} finally {
 		fs.rmSync(run.cwd, { recursive: true, force: true });
 	}

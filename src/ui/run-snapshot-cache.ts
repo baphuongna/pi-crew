@@ -28,6 +28,14 @@ export interface RunSnapshotCache extends RunSnapshotCacheBase {
 	/** Task 17 (perf/review-2026-08-24): watcher-facing coalesced async refresh. */
 	scheduleRefresh(runId: string): void;
 	/**
+	 * L5 (real-test 2026-10-07): paint-path read — cached snapshot only.
+	 * NEVER sync-rebuilds: a lapsed TTL schedules the coalesced async refresh
+	 * (scheduleRefresh pipeline) instead of rebuilding on the paint path, and a
+	 * missing entry returns undefined without building. See the method doc on
+	 * the implementation for the staleness/Tier-11a contract.
+	 */
+	readForRender(runId: string): RunUiSnapshot | undefined;
+	/**
 	 * F13 (RR-018): true once dispose() has run. Callers that retain the cache
 	 * (RegistrationContext.getManifestCache/getRunSnapshotCache) use this to
 	 * recreate a FRESH instance even when the cwd is unchanged — a disposed
@@ -1148,6 +1156,30 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		 */
 		scheduleRefresh(runId: string): void {
 			scheduleCoalescedRefresh(runId);
+		},
+		/**
+		 * L5 (real-test 2026-10-07): read for the paint path. Returns the
+		 * CACHED snapshot (touching LRU/access) and NEVER sync-rebuilds — no
+		 * manifest/tasks parse, no agents.json read, no sha256 between paints.
+		 * When the entry's TTL has lapsed (the read-time proxy for "stamps may
+		 * look stale"), it schedules the EXISTING coalesced async refresh
+		 * (scheduleRefresh → 80ms coalesce → preloadStale); the actual stamp
+		 * comparison happens inside preloadStale, where a stamp-equal hit just
+		 * re-stamps the entry (no rebuild), so a quiet run costs one async stat
+		 * round per TTL window, off the paint path. A missing entry returns
+		 * undefined without building and without scheduling — callers render
+		 * their loading state and may call scheduleRefresh()/preloadStale()
+		 * themselves when they want the entry filled.
+		 * Tier 11a (read-your-writes) is preserved: refresh()/refreshIfStale()
+		 * below keep their sync build paths untouched for callers with a sync
+		 * reader immediately after write.
+		 */
+		readForRender(runId: string): RunUiSnapshot | undefined {
+			const entry = entries.get(runId);
+			if (!entry) return undefined;
+			const snapshot = touch(runId, entry);
+			if (Date.now() - entry.loadedAtMs >= ttlMs) scheduleCoalescedRefresh(runId);
+			return snapshot;
 		},
 		preloadStale,
 		preloadAllStale,

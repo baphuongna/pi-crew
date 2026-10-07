@@ -28,7 +28,7 @@
 import { matchesKey } from "@earendil-works/pi-tui";
 import type { LiveAgentHandle } from "../runtime/live-session/live-agent-manager.ts";
 import { truncate } from "../utils/visual.ts";
-import { formatCount } from "./format-helpers.ts";
+import { formatCount, formatDuration } from "./format-helpers.ts";
 import { computeLiveDurationMs } from "./live-duration.ts";
 import { canopyLine, formatHint, gaugeBar, RAIL, railLeaders, railLine, statusSlot } from "./rail.ts";
 import { spinnerFrame } from "./spinner.ts";
@@ -120,7 +120,9 @@ export class LiveConversationOverlay {
 
 	private refreshSummary(): void {
 		const act = this.handle.activity;
-		const summary = `${LiveConversationOverlay.SUMMARY_PREFIX}[${formatCount(act.turnCount ?? 0, "turn")} · ${formatCount(act.toolUses ?? 0, "tool")} · ${(computeLiveDurationMs(act, this.nowMs()) / 1000).toFixed(1)}s]`;
+		// L9: durations speak formatDuration (`5m44s`), never raw
+		// `(ms/1000).toFixed(1)s` seconds (`344.0s`).
+		const summary = `${LiveConversationOverlay.SUMMARY_PREFIX}[${formatCount(act.turnCount ?? 0, "turn")} · ${formatCount(act.toolUses ?? 0, "tool")} · ${formatDuration(computeLiveDurationMs(act, this.nowMs()))}]`;
 		const lastLine = this.cachedLines[this.cachedLines.length - 1];
 		if (lastLine?.startsWith(LiveConversationOverlay.SUMMARY_PREFIX)) {
 			this.cachedLines[this.cachedLines.length - 1] = summary;
@@ -270,7 +272,7 @@ export class LiveConversationOverlay {
 		if (act.maxTurns != null) parts.push(`turn ${act.turnCount ?? 0}/${act.maxTurns}`);
 		else if ((act.turnCount ?? 0) > 0) parts.push(`turn ${act.turnCount}`);
 		if ((act.toolUses ?? 0) > 0) parts.push(formatCount(act.toolUses ?? 0, "tool"));
-		parts.push(`${(computeLiveDurationMs(act, this.nowMs()) / 1000).toFixed(1)}s`);
+		parts.push(formatDuration(computeLiveDurationMs(act, this.nowMs())));
 		try {
 			const ctxPct = this.handle.session.getSessionStats?.()?.contextUsage?.percent;
 			if (ctxPct != null) {

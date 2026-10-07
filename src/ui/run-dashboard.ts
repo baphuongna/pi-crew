@@ -28,7 +28,7 @@ import { renderPlanPane } from "./dashboard-panes/plan-pane.ts";
 import { renderProgressPane } from "./dashboard-panes/progress-pane.ts";
 import { renderScheduleDetails, renderSchedulesPane } from "./dashboard-panes/schedules-pane.ts";
 import { renderTranscriptPane } from "./dashboard-panes/transcript-pane.ts";
-import { formatCount, teamWorkflowLabel } from "./format-helpers.ts";
+import { formatCount, formatDuration, formatTokens, teamWorkflowLabel } from "./format-helpers.ts";
 import { goalFlagSuffix } from "./goal-flag.ts";
 import { type DashboardKeyAction, dashboardActionForKey } from "./keybinding-map.ts";
 import { HelpOverlay } from "./overlays/help-overlay.ts";
@@ -228,14 +228,14 @@ function runListWindow(scrollOffset: number, count: number): RunListWindow {
 	return { slots, hasTop, hasBottom };
 }
 
+/** L7 (real-test 2026-10-07): agent age in the shared formatDuration dialect
+ *  (`5m44s`), rendered bare — the retired `age=` prefix was wire format.
+ *  Sub-second ages read `now` (quieter than `123ms` on a rail row). */
 function formatAge(iso: string | undefined): string | undefined {
 	if (!iso) return undefined;
 	const ms = Math.max(0, Date.now() - new Date(iso).getTime());
 	if (!Number.isFinite(ms)) return undefined;
-	if (ms < 1000) return "now";
-	if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
-	if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
-	return `${Math.floor(ms / 3_600_000)}h`;
+	return ms < 1000 ? "now" : formatDuration(ms);
 }
 
 function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?: RunSnapshotCache, resolve?: SnapshotResolver): string[] {
@@ -271,17 +271,21 @@ function readProgressPreview(run: TeamRunManifest, maxLines = 5, snapshotCache?:
 	}
 }
 
-function formatTokens(usage: UsageState | undefined): string | undefined {
+/**
+ * L7 (real-test 2026-10-07): TUI usage dialect — `↑1.0k ↓250 $0.012` —
+ * mirroring the compactUsage pattern in live-run-sidebar.ts (kept local
+ * because the sidebar's helper is module-private; do not edit that file).
+ * Replaces the retired `tok=…/in=…/out=…/cache=…/$…` wire format, which
+ * leaked log-line grammar onto rail rows and buried the numbers behind
+ * key=value prefixes. cacheRead/cacheWrite stay hidden (sidebar parity).
+ */
+function compactUsage(usage: UsageState | undefined): string | undefined {
 	if (!usage) return undefined;
-	const total = (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
-	if (!total) return undefined;
-	const compact = total >= 1000 ? `${(total / 1000).toFixed(total >= 10_000 ? 0 : 1)}k` : `${total}`;
-	const parts = [`tok=${compact}`];
-	if (usage.input) parts.push(`in=${usage.input}`);
-	if (usage.output) parts.push(`out=${usage.output}`);
-	if (usage.cacheRead) parts.push(`cache=${usage.cacheRead}`);
-	if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
-	return parts.join("/");
+	const parts: string[] = [];
+	if (usage.input) parts.push(`↑${formatTokens(usage.input)}`);
+	if (usage.output) parts.push(`↓${formatTokens(usage.output)}`);
+	if (usage.cost) parts.push(`$${usage.cost.toFixed(3)}`);
+	return parts.length ? parts.join(" ") : undefined;
 }
 
 function snapshotFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): RunUiSnapshot | undefined {
@@ -290,6 +294,38 @@ function snapshotFor(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): Ru
 	} catch {
 		return snapshotCache?.get(run.runId);
 	}
+}
+
+/**
+ * L5 (real-test 2026-10-07): paint-path snapshot read for the frame-local
+ * SnapshotResolver in `renderUnsafe`. Uses the cache's `readForRender`
+ * accessor when present — cached snapshot ONLY; a lapsed TTL schedules the
+ * coalesced async refresh off the paint path; a missing entry schedules one
+ * refresh so the pre-load rows fill on a later frame (sidebar precedent,
+ * live-run-sidebar.ts render()). Feature-detected because
+ * `RunDashboardOptions.snapshotCache` keeps the BASE interface
+ * (snapshot-types.ts): production wires the extended cache, while test mocks
+ * and legacy callers may implement only get/refreshIfStale — for those a
+ * plain get() keeps the render read-only. Keypress handlers and other
+ * read-your-writes sites keep `snapshotFor()` (sync refreshIfStale) — Tier 11a.
+ */
+function snapshotForRender(run: TeamRunManifest, snapshotCache?: RunSnapshotCache): RunUiSnapshot | undefined {
+	const cache = snapshotCache as
+		| (RunSnapshotCache & {
+				readForRender?: (runId: string) => RunUiSnapshot | undefined;
+				scheduleRefresh?: (runId: string) => void;
+		  })
+		| undefined;
+	if (typeof cache?.readForRender === "function") {
+		try {
+			const snapshot = cache.readForRender(run.runId);
+			if (!snapshot && typeof cache.scheduleRefresh === "function") cache.scheduleRefresh(run.runId);
+			return snapshot;
+		} catch {
+			return snapshotCache?.get(run.runId);
+		}
+	}
+	return snapshotCache?.get(run.runId);
 }
 
 /**
@@ -344,16 +380,16 @@ function usageForAgent(agent: CrewAgentRecord, task: TeamTaskState | undefined):
 function agentPreviewLine(agent: CrewAgentRecord, task: TeamTaskState | undefined, options: RunDashboardOptions): string {
 	const stats = [
 		agent.progress?.activityState,
-		options.showModel !== false && modelForAgent(agent, task) ? `model=${modelForAgent(agent, task)}` : undefined,
+		options.showModel !== false ? modelForAgent(agent, task) : undefined,
 		options.showTokens !== false
-			? (formatTokens(usageForAgent(agent, task)) ??
-				(agent.progress?.tokens !== undefined ? `tok=${agent.progress.tokens}` : undefined))
+			? (compactUsage(usageForAgent(agent, task)) ??
+				(agent.progress?.tokens !== undefined ? `↑${formatTokens(agent.progress.tokens)}` : undefined))
 			: undefined,
 		options.showTools !== false && agent.progress?.currentTool ? `tool=${agent.progress.currentTool}` : undefined,
 		options.showTools !== false && agent.toolUses !== undefined ? formatCount(agent.toolUses, "tool") : undefined,
-		agent.progress?.turns !== undefined ? `${agent.progress.turns} turns` : undefined,
+		agent.progress?.turns !== undefined ? formatCount(agent.progress.turns, "turn") : undefined,
 		agent.progress?.failedTool ? `failedTool=${agent.progress.failedTool}` : undefined,
-		agent.startedAt ? `age=${formatAge(agent.completedAt ?? agent.startedAt)}` : undefined,
+		agent.startedAt ? formatAge(agent.completedAt ?? agent.startedAt) : undefined,
 	].filter((part): part is string => Boolean(part));
 	const recent = agent.progress?.recentOutput?.at(-1);
 	const icon = iconForStatus(agent.status, {
@@ -394,7 +430,8 @@ function readAgentPreview(run: TeamRunManifest, maxLines = 5, options: RunDashbo
 				cost: number;
 			},
 		);
-		const header = formatTokens(totals) ? `Agents: ${formatTokens(totals)}` : "Agents:";
+		const usage = compactUsage(totals);
+		const header = usage ? `Agents: ${usage}` : "Agents:";
 		return [
 			header,
 			...agents.slice(0, maxLines).map((agent) => agentPreviewLine(agent, taskForAgent(tasks, agent), options)),
@@ -834,9 +871,12 @@ export class RunDashboard implements DashboardComponent {
 		// PERF (2026-08-24): snapshot resolution stat'd 7-8 files per run 6-8
 		// times per frame. Resolve once per frame into a local map and thread
 		// it through every render-path consumer below.
+		// L5 (real-test 2026-10-07): the resolver reads the cache ONLY
+		// (snapshotForRender → readForRender) — the sync refreshIfStale rebuild
+		// moved off the paint path; refreshes are coalesced + async.
 		const frameSnapshots = new Map<string, RunUiSnapshot | undefined>();
 		const snapshotOnce: SnapshotResolver = (run) => {
-			if (!frameSnapshots.has(run.runId)) frameSnapshots.set(run.runId, snapshotFor(run, this.options.snapshotCache));
+			if (!frameSnapshots.has(run.runId)) frameSnapshots.set(run.runId, snapshotForRender(run, this.options.snapshotCache));
 			return frameSnapshots.get(run.runId);
 		};
 		this.refreshRuns(snapshotOnce);

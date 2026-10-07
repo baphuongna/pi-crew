@@ -1,3 +1,4 @@
+import { formatCount } from "../format-helpers.ts";
 import { formatHint } from "../rail.ts";
 import type { RunUiSnapshot } from "../snapshot-types.ts";
 
@@ -8,24 +9,28 @@ export function renderMailboxPane(snapshot: RunUiSnapshot | undefined): string[]
 	const unread = mailbox.inboxUnread ?? 0;
 	const outgoing = mailbox.outboxPending ?? 0;
 	const attention = mailbox.needsAttention ?? 0;
-	const lines: string[] = [`Mailbox pane: inbox unread=${unread} · outbox pending=${outgoing} · attention=${attention}${approx}`];
-	// Kind-separated breakdown
+	// L7 dialect: counts speak the compactUsage TUI form (the `↑2.8k ↓3.7k`
+	// pattern from live-run-sidebar.ts), NOT the `unread=2` wire format. ↓ =
+	// received (inbox), ↑ = sent (outbox pending); ⚠ marks attention (the same
+	// pane-local warning glyph the steering line below already uses).
+	const lines: string[] = [`Mailbox pane: ↓${unread} unread · ↑${outgoing} pending · ⚠${attention} attention${approx}`];
+	// Kind-separated breakdown — every kind here is an inbox (received) count.
 	const kindParts: string[] = [];
 	const steer = mailbox.steerUnread ?? 0;
 	const followUp = mailbox.followUpUnread ?? 0;
 	const response = mailbox.responseUnread ?? 0;
 	const message = mailbox.messageUnread ?? 0;
-	if (steer > 0) kindParts.push(`steer=${steer}`);
-	if (followUp > 0) kindParts.push(`follow-up=${followUp}`);
-	if (response > 0) kindParts.push(`response=${response}`);
-	if (message > 0) kindParts.push(`message=${message}`);
+	if (steer > 0) kindParts.push(`↓${steer} steer`);
+	if (followUp > 0) kindParts.push(`↓${followUp} follow-up`);
+	if (response > 0) kindParts.push(`↓${response} response`);
+	if (message > 0) kindParts.push(`↓${message} message`);
 	if (kindParts.length > 0) {
 		lines.push(`  Breakdown: ${kindParts.join(" · ")}`);
 		if (steer > 0) {
 			lines.push("  ⚠ Urgent: steering messages require immediate attention.");
 		}
 		if (followUp > 0) {
-			lines.push(`  📋 ${followUp} follow-up(s) pending review.`);
+			lines.push(`  📋 ${formatCount(followUp, "follow-up")} pending review.`);
 		}
 	}
 	if (attention > 0) {

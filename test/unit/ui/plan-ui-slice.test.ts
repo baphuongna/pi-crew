@@ -187,7 +187,7 @@ test("pane diff (X): multi-revision diff — added/changed/dropped items vs revi
 	const lines = planRevisionDiff(snapshotWith(manifest, [v1, v2], [])).join("\n");
 	assert.match(lines, /v1 → v2/);
 	assert.match(lines, /\+ new Added/);
-	assert.match(lines, /~ keep Kept \[done→done · 0→1 tasks\]/);
+	assert.match(lines, /~ keep Kept \[done→done · 0→1 task\]/);
 	assert.match(lines, /- gone Gone \(dropped in v2\)/);
 	// No prior revision → honest single line.
 	const lone = planRecord(manifest, 1, []);

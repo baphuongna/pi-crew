@@ -186,6 +186,35 @@ test("dock: the row never exceeds the render width (40 / 80 / 120 columns)", () 
 	}
 });
 
+test("dock @40 (L9/T13): `2 running`/`3/5 done` stay WHOLE tokens — elision only at segment boundaries", () => {
+	// The T13 real-run sweep (report 2026-10-07) found the 40-column dock
+	// tearing the LAST status token (`1 runnin…`). The fix's budget priority:
+	// meta → subject (`…` at its boundary) → hint → whole pieces — the status
+	// words themselves are atomic at every width.
+	setWidgetScheduledJobsReader(() => []);
+	for (const width of [40, 36, 32, 28]) {
+		const lines = buildWidgetLines(FAKE_CWD, 0, 8, [dockRun()], 0, width, { now: T0 });
+		assert.equal(lines.length, 1, `@${width}: one row`);
+		const row = stripAnsi(lines[0]!);
+		assert.ok(visibleWidth(row) <= width, `@${width}: fits, got ${visibleWidth(row)}: ${JSON.stringify(row)}`);
+		assert.ok(!/(running|queued|waiting|done)…/.test(row), `@${width}: no mid-token status cut: ${JSON.stringify(row)}`);
+		for (const match of row.matchAll(/…/g)) {
+			const after = row.slice((match.index ?? 0) + 1);
+			assert.ok(
+				after === "" || after.startsWith(" · ") || after.startsWith("  ↓"),
+				`@${width}: ellipsis only at a segment boundary: ${JSON.stringify(row)}`,
+			);
+		}
+	}
+	// At 40 both count segments survive whole (subject and hint degrade first).
+	const at40 = stripAnsi(buildWidgetLines(FAKE_CWD, 0, 8, [dockRun()], 0, 40, { now: T0 })[0]!);
+	assert.ok(at40.includes("2 running") && at40.includes("3/5 done"), `both status segments whole @40: ${JSON.stringify(at40)}`);
+	// At 28 the `3/5 done` piece drops as a UNIT — never a partial `3/5 do…`.
+	const at28 = stripAnsi(buildWidgetLines(FAKE_CWD, 0, 8, [dockRun()], 0, 28, { now: T0 })[0]!);
+	assert.ok(at28.includes("2 running"), `@28 keeps the higher-priority status piece: ${JSON.stringify(at28)}`);
+	assert.ok(!at28.includes("3/5") || at28.includes("3/5 done"), `@28 drops the done piece whole: ${JSON.stringify(at28)}`);
+});
+
 test("dock component (real CrewWidgetComponent): one row, rail present, no card glyphs", () => {
 	setWidgetScheduledJobsReader(() => []);
 	const cwd = createTrackedTempDir("pi-crew-dock-rail-component-");

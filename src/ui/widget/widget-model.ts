@@ -55,10 +55,11 @@ export function activeWidgetRuns(
 		}
 	}
 
-	let runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
-	if (workspaceId) {
-		runs = runs.filter((run) => !run.ownerSessionId || run.ownerSessionId === workspaceId);
-	}
+	// L1 (ui-instability review 2026-10-07): the dock renders in EVERY session, so
+	// NO ownerSessionId display filter here — bystander terminals must see runs
+	// owned by other sessions (live evidence: 308 frames / 0 dock rendered).
+	// workspaceId stays in scope: crash recovery below is still session-scoped.
+	const runs = preloadedManifests ?? (manifestCache ? manifestCache.list(20) : listRecentRuns(cwd, 20));
 
 	return runs
 		.map((run) => {
