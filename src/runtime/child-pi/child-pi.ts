@@ -758,7 +758,7 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	// (non-hermetic) argv applies the --no-mcp floor at 1.0.4, while hermetic
 	// spawns (the default) are already MCP-clean via --no-extensions and consult
 	// no version-gated flag — skipping the probe there keeps every default-path
-	// spawn (and the unit-test surface paths) free of a real `pi --version`
+	// spawn — and the unit-test surface paths — free of a real `pi --version`
 	// child. An already-aborted signal skips too: prepareSpawnContext's B5
 	// guard below returns before the argv is ever consumed.
 	const versionedInput: ChildPiRunInput =
