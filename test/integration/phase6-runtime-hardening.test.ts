@@ -62,10 +62,18 @@ for (const [label, task] of [
 		const result = buildPiWorkerArgs({ task, agent });
 		try {
 			assert.ok(!result.args.some((arg) => arg.includes("Task:")), "no `Task:` positional may be emitted");
-			if (task.length > 0) {
-				assert.ok(!result.args.some((arg) => arg !== "@" && arg.includes(task)), "argv must not contain task text");
-			}
 			const taskArg = result.args.find((arg) => arg.startsWith("@"));
+			if (task.length > 0) {
+				// Random-path collision guard (CI 2026-10-07 macos/Node-24 red, docs-only
+				// diff): the `@<path>` arg legitimately carries the mkdtemp random path
+				// (6-char [a-zA-Z0-9] suffix, ~62^6); a suffix substring-colliding with a
+				// short task text (P ≈ 1/15k per run for 3 chars) is NOT a content leak.
+				// Scan every argv arg EXCEPT the @-file arg itself.
+				assert.ok(
+					!result.args.some((arg) => arg !== "@" && arg !== taskArg && arg.includes(task)),
+					"argv must not contain task text",
+				);
+			}
 			assert.ok(taskArg, "task must ride a @file inclusion arg");
 			const taskPath = taskArg!.slice(1);
 			assert.ok(taskPath.endsWith("task.md"));
