@@ -53,9 +53,10 @@ export { buildChildPiSpawnOptions, buildFinalChildPiSpawnOptions } from "./child
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
 export { ChildPiLineObserver } from "./child-pi-streams.ts";
 
-import { checkCrewDepth, cleanupTempDir } from "../model/pi-args.ts";
+import { checkCrewDepth, cleanupTempDir, resolveHermeticWorkers } from "../model/pi-args.ts";
 import { attachPostExitStdioGuard, trySignalChild } from "../process/post-exit-stdio-guard.ts";
 import { classifyProcessCrash } from "../recovery/crash-classification.ts";
+import { probePiVersion } from "./pi-version.ts";
 
 /** Maximum size (bytes) for the ChildPiLineObserver's line accumulation buffer.
  * When exceeded, the buffer is force-flushed to prevent unbounded memory growth
@@ -226,6 +227,15 @@ export interface ChildPiRunInput {
 	 *  buildPiWorkerArgs (--no-extensions). Env PI_CREW_HERMETIC_WORKERS
 	 *  overrides either way; default TRUE. */
 	hermeticWorkers?: boolean;
+	/** U9 (pi 1.0.4 version floor): host pi binary version for the argv
+	 *  builder's version-gated flags (--no-mcp at the 1.0.4 floor). runChildPi
+	 *  OVERWRITES this with the single-flight probePiVersion() result whenever
+	 *  this spawn can consume a version-gated flag (parity non-hermetic + not
+	 *  pre-aborted); on hermetic spawns (the default — no version-gated flag
+	 *  consulted) the field passes through untouched and the probe is SKIPPED,
+	 *  keeping default-path spawns (and unit-test surface paths) free of a real
+	 *  `pi --version` child. See child-pi/pi-version.ts for the floor registry. */
+	piVersion?: string | null;
 	/** Root directory for artifacts (used to validate transcriptPath). */
 	artifactsRoot?: string;
 	/** I5: run events JSONL path — threaded to the worker so its scratchpad
@@ -741,7 +751,19 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			brokerSpawn = undefined;
 		}
 	}
-	const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...input, brokerSpawn } : input, effectiveTask, depthEnv);
+	// U9 (pi 1.0.4 version floor): resolve the host pi binary's version ONCE per
+	// process (probePiVersion — single-flight memoized, injectable exec seam,
+	// never rejects) and thread it into the argv builder via input. Probed ONLY
+	// when this spawn can consume a version-gated flag: the parity
+	// (non-hermetic) argv applies the --no-mcp floor at 1.0.4, while hermetic
+	// spawns (the default) are already MCP-clean via --no-extensions and consult
+	// no version-gated flag — skipping the probe there keeps every default-path
+	// spawn (and the unit-test surface paths) free of a real `pi --version`
+	// child. An already-aborted signal skips too: prepareSpawnContext's B5
+	// guard below returns before the argv is ever consumed.
+	const versionedInput: ChildPiRunInput =
+		!input.signal?.aborted && !resolveHermeticWorkers(input.hermeticWorkers) ? { ...input, piVersion: await probePiVersion() } : input;
+	const spawnPrep = prepareSpawnContext(brokerSpawn ? { ...versionedInput, brokerSpawn } : versionedInput, effectiveTask, depthEnv);
 	if (spawnPrep.kind === "aborted") return spawnPrep.result;
 	const { spawnSpec, mergedEnv, tempDir, builtEnv, builtArgs } = spawnPrep.ctx;
 	// W2 (session-file recovery): resolve the worker's deterministic session

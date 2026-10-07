@@ -77,6 +77,13 @@
   metric `crew.classifier.decisions_total`); default-off never touches the registry (zero
   behavior change, test-pinned). Live-fire probe for post-credential runs:
   `scripts/probe-classifier.mjs`.
+- **Pi version floor + `--no-mcp` on parity spawns (U9)** — new `probePiVersion()` (single-flight
+  per process, ~5 s timeout, failure → null = unknown) probes the same binary worker spawns
+  use, plus hand-rolled `comparePiVersion` (no semver dependency — deliberate, see the module;
+  malformed → null, conservative). Non-hermetic parity spawns now append `--no-mcp` when the
+  host pi is ≥ 1.0.4 — disconnecting ambient MCP servers, strictly stronger than the U2-lite
+  `mcp__*` tool-cut (kept as the cross-version-safe baseline). Below the floor or unknown →
+  no flag; hermetic path unchanged.
 
 ### Fixed
 

@@ -285,6 +285,9 @@ export function prepareSpawnContext(
 		thinkingOverride: input.thinkingOverride,
 		systemPromptAppend: input.systemPromptAppend,
 		hermeticWorkers: input.hermeticWorkers,
+		// U9: version-gated flags (--no-mcp floor) — threaded by runChildPi's
+		// single-flight probe; undefined/null = unknown → builder emits nothing.
+		piVersion: input.piVersion,
 		// ADR-5 §3: depthOverride is pre-encoded into depthEnv by runChildPi
 		// (parent's record depth as base-env PI_CREW_DEPTH); forward it so the
 		// child env gets parentDepth+1 = the true grandchild depth.

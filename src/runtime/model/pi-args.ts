@@ -5,6 +5,7 @@ import type { AgentConfig } from "../../agents/agent-config.ts";
 import { getCrewEnvBool } from "../../config/env-vars.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { hasRunStateLayout, packageRoot, userPiRoot } from "../../utils/paths.ts";
+import { PI_NO_MCP_FLOOR, piVersionAtLeast } from "../child-pi/pi-version.ts";
 
 // U4 (pi 1.0.4 adoption): pi's CLI documents 7 thinking levels (docs/cli.md:70);
 // `max` completes the surface — frontmatter `thinking: max` previously fell
@@ -87,6 +88,16 @@ export interface BuildPiWorkerArgsInput {
 	 *  declarations, and `--skill` flags are unaffected (cli.md:186-191:
 	 *  explicit -e and --skill survive --no-extensions/--no-skills). */
 	hermeticWorkers?: boolean;
+	/** U9 (pi 1.0.4 version floor): the HOST pi binary's version as probed by
+	 *  `pi --version` (probePiVersion — single-flight memoized per process,
+	 *  injectable exec seam, never rejects), or null when unknown (probe
+	 *  failed/timed out/unparseable). PURE INPUT — the builder NEVER spawns:
+	 *  the async spawn path (runChildPi) awaits the memoized probe upstream and
+	 *  threads the resolved string|null down through here. Drives the
+	 *  version-gated flags registered in child-pi/pi-version.ts (`--no-mcp` at
+	 *  the 1.0.4 floor, parity spawns only); unknown/below-floor conservatively
+	 *  emits NOTHING — a pre-floor host's strict parser rejects unknown flags. */
+	piVersion?: string | null;
 }
 
 export interface BuildPiWorkerArgsResult {
@@ -399,8 +410,24 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		// be dead weight. Surface TUI panes strip argv flags after build
 		// (child-pi.ts stripHeadlessOnlyFlags), so this cut never reaches them.
 		const disallowed = new Set((input.agent.disallowedTools ?? []).map((t) => t.trim()).filter(Boolean));
-		if (!resolveHermeticWorkers(input.hermeticWorkers)) disallowed.add("mcp__" + "*");
+		const paritySpawn = !resolveHermeticWorkers(input.hermeticWorkers);
+		if (paritySpawn) disallowed.add("mcp__" + "*");
 		if (disallowed.size > 0) args.push("--exclude-tools", [...disallowed].join(","));
+		// U9 (version floor, registry PI_NO_MCP_FLOOR in child-pi/pi-version.ts;
+		// flag doc cli.md:198): parity spawn on a host pi >= 1.0.4 ALSO passes
+		// `--no-mcp` — "no servers connect, and there are no MCP tools or /mcp",
+		// strictly stronger than the mcp__* tool-cut above (servers never even
+		// handshake). Below the floor / unknown (null) / malformed piVersion →
+		// NO flag: pi's strict option parser rejects unknown flags with a
+		// nonzero exit, so guessing wrong would break every parity spawn. The
+		// mcp__* fold STAYS alongside — it is the cross-version-safe baseline
+		// (pre-1.0.4 hosts have no --no-mcp to lean on). Hermetic spawns never
+		// reach here (--no-extensions already makes them MCP-clean). Kept inside
+		// the else of disableTools like the fold (--no-tools already locks the
+		// whole surface). Surface TUI panes KEEP the flag — stripHeadlessOnlyFlags
+		// only strips --no-approve/--no-extensions, same treatment as
+		// --exclude-tools: parity semantics must not depend on spawn mode.
+		if (paritySpawn && piVersionAtLeast(input.piVersion, PI_NO_MCP_FLOOR)) args.push("--no-mcp");
 	}
 	// prompt-runtime extension luôn nạp (hạ tầng phối hợp — không phải cắt xén).
 	args.push("--extension", PROMPT_RUNTIME_EXTENSION_PATH);
