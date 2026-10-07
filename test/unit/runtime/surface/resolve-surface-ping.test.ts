@@ -31,10 +31,26 @@ import { pingSocketSync } from "../../../../src/runtime/surface/resolve-surface.
 const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const RESOLVE_SURFACE_SRC = path.join(MODULE_DIR, "..", "..", "..", "..", "src", "runtime", "surface", "resolve-surface.ts");
 
-/** Real listening unix socket on a throwaway tmp dir. */
+/** Real listening IPC endpoint on a throwaway path.
+ *
+ * unix: a real unix-domain socket under a tmp dir. win32: file-path IPC is
+ * unsupported, so use a named pipe (\\.\pipe\…) — same liveness semantics
+ * for connect-only probes. */
+function ipcListenPath(tag: string): string {
+	if (process.platform === "win32") {
+		return `\\\\.\\pipe\\pc-ping-${tag}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+	}
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pc-ping-${tag}-`));
+	return path.join(dir, "ping.sock");
+}
+
 function withLiveSocket<T>(fn: (socketPath: string) => T): T {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pc-ping-"));
-	const socketPath = path.join(dir, "ping.sock");
+	const socketPath = ipcListenPath("live");
+	const cleanup = () => {
+		if (process.platform !== "win32") {
+			fs.rmSync(path.dirname(socketPath), { recursive: true, force: true });
+		}
+	};
 	const server = net.createServer(() => {
 		// accept-and-forget — the liveness probe only needs connect()
 	});
@@ -43,7 +59,7 @@ function withLiveSocket<T>(fn: (socketPath: string) => T): T {
 		return fn(socketPath);
 	} finally {
 		server.close();
-		fs.rmSync(dir, { recursive: true, force: true });
+		cleanup();
 	}
 }
 
@@ -69,11 +85,13 @@ test("pingSocketSync: live socket → true from a forced-ESM child (--input-type
 });
 
 test("pingSocketSync: dead path (no listener) → false, fail-closed", () => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pc-ping-dead-"));
-	const deadPath = path.join(dir, "nothing-here.sock");
-	try {
+	const deadPath = ipcListenPath("dead");
+	if (process.platform !== "win32") {
+		// keep the parent dir for cleanup; on win32 the pipe name simply does
+		// not exist server-side.
 		assert.equal(pingSocketSync(deadPath, 2000), false, "dead socket path must fail closed");
-	} finally {
-		fs.rmSync(dir, { recursive: true, force: true });
+		fs.rmSync(path.dirname(deadPath), { recursive: true, force: true });
+	} else {
+		assert.equal(pingSocketSync(deadPath, 2000), false, "dead pipe path must fail closed");
 	}
 });

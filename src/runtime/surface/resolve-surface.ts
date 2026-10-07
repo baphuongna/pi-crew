@@ -86,9 +86,9 @@ const PING_WORKER_SRC = `
     ({ workerData, parentPort } = require("node:worker_threads"));
     net = require("node:net");
   } catch {
-    const wt = await import("node:worker_threads");
+    const wt = await import("node:worker_threads"); // LAZY:
     ({ workerData, parentPort } = wt);
-    net = await import("node:net");
+    net = await import("node:net"); // LAZY:
   }
   const flag = new Int32Array(workerData.sab);
   const done = (ok) => {
