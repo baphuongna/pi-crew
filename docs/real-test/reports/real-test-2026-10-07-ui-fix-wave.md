@@ -116,3 +116,25 @@ Tree integrity after every cycle: `git diff | sha256sum` = `e7e2a941…` (baseli
 
 - Gates 1–7 executed 2026-10-07 by adaptive-11-verifier (logs: `/tmp/adaptive11-cache/gate{1,2,3a,3b,4,5a,5b,6}*.log` + t13-frames.txt).
 - Mutation table from adaptive-09-test-engineer handoff (phase 3), full text: `.crew/artifacts/team_20261007152204_8c7041a6abbbf63a/results/adaptive-09-test-engineer.txt`.
+
+## Addendum — L10: plan-card flicker (fix cùng ngày, sau khi user restart)
+
+Symptom (user, sau restart bundle abe9baff): "UI phần plan hiển thị nháy nháy liên tục".
+Live root-cause (owner-config repro: tmux-pi tự dispatch run, 600 frames @0.2s):
+plan card đổi nội dung **544/599 mẫu (~4.5Hz)** — task row running painted
+`spinnerFrame("crew-task-list")` (braille quay 160ms) + `:spin=<bucket>` trong
+signature của tasks variant → rebuild toàn card mỗi spinner bucket, trái comment
+thiết kế "no spinner glyph — changes only on task transitions".
+
+Fix:
+- `src/ui/widget/task-list.ts` — running glyph tĩnh `▶` (braille frames bị cấm
+  trong plan card), bỏ import spinnerFrame.
+- `src/ui/widget/index.ts` — tasks variant strip `:spin=\d+` khỏi cache signature.
+- Pin: `task-list.test.ts` — glyph `▶` + doesNotMatch braille range +
+  determinism trong cùng elapsed-second; mutation-checked (revert → 1 fail đỏ).
+
+Gates: task-list 12/12 · test:critical 120/120 (30s, máy load 80+ do build song
+song — lần đỏ đầu thuần environmental) · typecheck/lint/format xanh · bundle
+cf7e5c25d00117bc22bfaec3ece4d942 + staleness OK.
+Live re-verify (cùng repro, 600 frames): content changes **36/513** (≈0.3Hz —
+chỉ elapsed 1Hz + task transitions), height ổn định 5 rows.

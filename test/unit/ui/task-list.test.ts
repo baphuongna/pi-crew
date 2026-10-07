@@ -2,8 +2,8 @@
  * Unit tests for the aboveEditor task list (task-list.ts) — the run's plan
  * painted in the RAIL card grammar: a `┏ PLAN ▸ <team/workflow>` canopy with
  * the progress gauge, one `┃` row per task in plan order with task numbers
- * (#1, #2, …), strikethrough for completed rows, spinner + elapsed + tokens
- * for the running row, `› blocked by #n` for queued tasks waiting on
+ * (#1, #2, …), strikethrough for completed rows, a STATIC ▶ glyph plus
+ * elapsed + tokens for the running row (no spinner — L-plan-flicker), `› blocked by #n` for queued tasks waiting on
  * dependencies, and a `┗ <counts>` cap.
  */
 
@@ -70,7 +70,7 @@ test("completed rows are dimmed and struck through", () => {
 	assert.ok(!row.includes("✓ 01"), "no legacy id-style row");
 });
 
-test("running row carries spinner, elapsed time and token counts", () => {
+test("running row carries a STATIC glyph (no spinner — L-plan-flicker), elapsed time and token counts", () => {
 	const started = new Date(Date.now() - 169_000).toISOString();
 	const lines = buildTaskListLines(
 		runWith([
@@ -82,8 +82,20 @@ test("running row carries spinner, elapsed time and token counts", () => {
 		120,
 	);
 	const row = lines[1] ?? "";
-	assert.match(row, /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] #1 Acquire plutonium/, "spinner glyph then number then title");
+	assert.match(row, /▶ #1 Acquire plutonium/, "static in-progress glyph then number then title");
 	assert.match(row, /\(2m 49s · ↑ 4\.1k ↓ 1\.2k\)/, "elapsed + token pair suffix");
+	// L-plan-flicker pin: the plan card must never paint braille animation —
+	// a rotating frame made the whole card repaint ~8Hz above the editor
+	// (live 2026-10-07: 544/599 content diffs at 0.2s sampling).
+	assert.doesNotMatch(row, /[\u2800-\u28FF]/, "no braille spinner frames in the plan card");
+});
+
+test("L-plan-flicker: plan card output is deterministic within one elapsed second", () => {
+	const started = new Date(Date.now() - 45_000).toISOString();
+	const state = runWith([task("01", "running", "Steady work", { startedAt: started, usage: { input: 300, output: 80 } })]);
+	const first = buildTaskListLines(state, 120);
+	const second = buildTaskListLines(state, 120);
+	assert.deepEqual(second, first, "consecutive builds with unchanged state must be byte-identical");
 });
 
 test("running row falls back to live agentProgress token total", () => {

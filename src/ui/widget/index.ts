@@ -322,13 +322,21 @@ class CrewWidgetComponent implements WidgetComponent {
 		// Task-list variant: the run's plan above the editor (task-list.ts).
 		// No panel state, no spinner glyph — the list changes only on task
 		// transitions, which the run signature already covers.
+		// L-plan-flicker (2026-10-07): `sigBase` carries `:spin=<bucket>` while
+		// any worker runs — keying this variant on it rebuilt the whole card
+		// every 160ms spinner bucket. Strip the animation fragment: the tasks
+		// card paints no animated glyph (task-list.ts running row is a static ▶),
+		// so a bucket change can never change its output. Live effect measured
+		// in the owner session: content diffs dropped from 544/599 samples at
+		// 0.2s to state-transition-rate only.
 		if (this.variant === "tasks") {
-			if (this.cacheSignature !== signature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
+			const tasksSignature = `${sigBase.replace(/:spin=\d+$/, "")}:${this.model.notificationCount ?? 0}`;
+			if (this.cacheSignature !== tasksSignature || width !== this.cachedWidth || this.cachedTheme !== this.theme) {
 				this.cachedBaseLines = buildTaskListLines(runs, width, this.theme);
 				this.cachedLines = this.colorize(this.cachedBaseLines, width);
 				this.cachedWidth = width;
 				this.cachedTheme = this.theme;
-				this.cacheSignature = signature;
+				this.cacheSignature = tasksSignature;
 				this.lastTruncateWidth = -1;
 			}
 			if (runs.length === 0) {

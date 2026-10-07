@@ -29,7 +29,6 @@ import type { TeamTaskState } from "../../state/types.ts";
 import { visibleWidth } from "../../utils/visual.ts";
 import { formatCount } from "../format-helpers.ts";
 import { canopyLine, gaugeBar, overflowHint, RAIL, railLine, statusSlot } from "../rail.ts";
-import { spinnerFrame } from "../spinner.ts";
 import { asCrewTheme, type CrewTheme } from "../theme-adapter.ts";
 import { shortRunLabel } from "./widget-model.ts";
 import type { WidgetRun } from "./widget-types.ts";
@@ -62,12 +61,21 @@ function taskTitle(task: TeamTaskState): string {
 	return (task.displayName ?? task.title ?? "").replace(/\s+/g, " ").trim();
 }
 
-/** pi-tasks status glyph per row: ✔ done (struck through), spinner for the
- *  actively executing task, ◼ parked/needs input, ◻ queued, ✗ dead. */
+/** pi-tasks status glyph per row: ✔ done (struck through), ▶ the actively
+ * executing task, ◼ parked/needs input, ◻ queued, ✗ dead.
+ *
+ * L-plan-flicker (2026-10-07 live probe, 600 frames @0.2s in the owner
+ * session): the running row previously painted `spinnerFrame()` — a braille
+ * frame rotating every 160ms — turning the whole card into a ~8Hz repaint
+ * above the editor ("nháy nháy liên tục"). The plan card is a LIST: per the
+ * variant's own design comment it must change only on task transitions, so
+ * the running glyph is STATIC (like ◼/◻) and the elapsed suffix carries
+ * liveness at 1s grain. The dock keeps its spinner — one animated row is
+ * intentional there. */
 function taskStatusIcon(task: TeamTaskState): string {
 	switch (task.status) {
 		case "running":
-			return spinnerFrame("crew-task-list");
+			return "▶";
 		case "queued":
 			return "◻";
 		case "waiting":
