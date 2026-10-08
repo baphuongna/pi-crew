@@ -357,7 +357,7 @@ test("plan card: `┏ PLAN ▸ <title>` canopy + gauge, `┃` rows (detail kept)
 	assert.match(lines[0] ?? "", /^┏ PLAN ▸ default\/build/, `canopy identity, got '${lines[0]}'`);
 	assert.ok(lines[0]!.includes("▕"), `gauge on the canopy where a bar fits, got '${lines[0]}'`);
 	assert.match(lines[1] ?? "", /^┃ ✔ #1 Design the flux capacitor/, "completed row keeps its icon on the rail");
-	assert.match(lines[2] ?? "", /^┃ [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] #2 Acquire plutonium \(.*↑ 4\.1k ↓ 1\.2k\)/, "running row keeps elapsed + tokens");
+	assert.match(lines[2] ?? "", /^┃ ▶ #2 Acquire plutonium \(.*↑ 4\.1k ↓ 1\.2k\)/, "running row keeps elapsed + tokens (L10: static ▶, never a braille frame)");
 	assert.match(lines[3] ?? "", /^┃ ◻ #3 Install flux capacitor › blocked by #2/, "queued row keeps `› blocked by #N`");
 	assert.match(lines.at(-1) ?? "", /^┗ 2 done · 1 in progress · 1 open$/, "counts cap via formatCount");
 	assert.ok(!lines.join("\n").includes("● "), "the legacy `● N tasks (…)` header is retired");
