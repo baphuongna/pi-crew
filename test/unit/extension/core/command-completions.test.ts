@@ -135,3 +135,29 @@ describe("suggestTaskIds", () => {
 		}
 	});
 });
+
+// L-crash (2026-10-08, P0): completion callbacks run inside pi's autocomplete
+// provider (CombinedAutocompleteProvider.getSuggestions), which does NOT catch
+// extension errors — a throw kills the whole pi process (live-caught:
+// uncaught_exception "Invalid runId: team_x/team-transcript" after the popup
+// raced typed input and glued a "/team-transcript" suffix onto the runId token).
+// Completion providers must degrade to null, never throw.
+describe("L-crash: completion providers must never throw", () => {
+	it("suggestTaskIds returns null for a path-unsafe runId (no throw)", async () => {
+		const glued = await suggestTaskIds("team_2026_team/team-transcript", "");
+		assert.equal(glued, null);
+		const slash = await suggestTaskIds("a/b", "0");
+		assert.equal(slash, null);
+		const traversal = await suggestTaskIds("../../etc", "");
+		assert.equal(traversal, null);
+	});
+
+	it("suggestRunIds does not throw for any prefix (fs errors degrade to null)", () => {
+		// Path-unsafe or weird prefixes are only used for filtering — must not throw.
+		assert.doesNotThrow(() => {
+			suggestRunIds("team_x/team-transcript");
+			suggestRunIds("../../etc/passwd");
+			suggestRunIds("\x00");
+		});
+	});
+});

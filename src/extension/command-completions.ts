@@ -53,31 +53,53 @@ function statusIcon(status: TeamRunManifest["status"]): string {
  * process cwd matches the session cwd.
  */
 export function suggestRunIds(_prefix: string, cwd?: string): AutocompleteItem[] | null {
-	const resolvedCwd = cwd ?? process.cwd();
-	const runs = listRecentRuns(resolvedCwd, MAX_RUN_SUGGESTIONS);
-	if (runs.length === 0) return null;
-	const items: AutocompleteItem[] = runs.map((run) => ({
-		value: run.runId,
-		label: run.runId,
-		description: `${statusIcon(run.status)} ${run.status} · ${run.team} · ${(run.goal ?? "").slice(0, 48)}`,
-	}));
-	return filterByPrefix(items, _prefix);
+	// L-crash (2026-10-08): completion callbacks run inside pi's autocomplete
+	// provider, which does not catch extension errors — never throw here.
+	try {
+		const resolvedCwd = cwd ?? process.cwd();
+		const runs = listRecentRuns(resolvedCwd, MAX_RUN_SUGGESTIONS);
+		if (runs.length === 0) return null;
+		const items: AutocompleteItem[] = runs.map((run) => ({
+			value: run.runId,
+			label: run.runId,
+			description: `${statusIcon(run.status)} ${run.status} · ${run.team} · ${(run.goal ?? "").slice(0, 48)}`,
+		}));
+		return filterByPrefix(items, _prefix);
+	} catch {
+		return null;
+	}
 }
 
-/** Suggest task IDs within a specific run (for /team-result <runId> <taskId>). */
+/**
+ * Suggest task IDs within a specific run (for /team-result <runId> <taskId>).
+ *
+ * L-crash (2026-10-08, P0): this runs inside pi's autocomplete provider
+ * (`CombinedAutocompleteProvider.getSuggestions`), which does NOT catch
+ * extension errors — a throw here kills the whole pi process (live-caught:
+ * uncaught_exception "Invalid runId: team_x/team-transcript" after the
+ * autocomplete popup raced typed input and glued a "/…" suffix onto the
+ * runId token; assertSafePathId correctly rejected it, but the throw
+ * escaped). Completion callbacks must NEVER throw: any failure -> null.
+ */
 export async function suggestTaskIds(runId: string, prefix: string, cwd?: string): Promise<AutocompleteItem[] | null> {
-	const resolvedCwd = cwd ?? process.cwd();
-	// Dynamic import to avoid pulling state-store into the hot command-registration path.
-	// LAZY: defer dynamic import of ../state/stores/state-store.ts to its call site.
-	const { loadRunManifestById } = await import("../state/stores/state-store.ts");
-	const loaded = loadRunManifestById(resolvedCwd, runId);
-	if (!loaded) return null;
-	const items: AutocompleteItem[] = loaded.tasks.map((task) => ({
-		value: task.id,
-		label: task.id,
-		description: `${task.status} · ${task.role} · ${task.title?.slice(0, 40) ?? ""}`,
-	}));
-	return filterByPrefix(items, prefix);
+	try {
+		const resolvedCwd = cwd ?? process.cwd();
+		// Dynamic import to avoid pulling state-store into the hot command-registration path.
+		// LAZY: defer dynamic import of ../state/stores/state-store.ts to its call site.
+		const { loadRunManifestById } = await import("../state/stores/state-store.ts");
+		const loaded = loadRunManifestById(resolvedCwd, runId);
+		if (!loaded) return null;
+		const items: AutocompleteItem[] = loaded.tasks.map((task) => ({
+			value: task.id,
+			label: task.id,
+			description: `${task.status} · ${task.role} · ${task.title?.slice(0, 40) ?? ""}`,
+		}));
+		return filterByPrefix(items, prefix);
+	} catch {
+		// Invalid runId (path-unsafe chars), import/state-store/cache failure —
+		// degrade to "no suggestions" instead of crashing the host process.
+		return null;
+	}
 }
 
 /** Suggest available teams for /team-run <team>. */

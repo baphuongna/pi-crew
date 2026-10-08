@@ -304,7 +304,10 @@ function renderViewerBase(state: ViewerState, width: number, lines: string[], ti
 	// and the full-wrap branch keep the exact count).
 	const totalLines = tailWindow ? skippedCount + visible.length : visualLines.length;
 	const totalLabel = tailWindow && skippedCount > 0 ? `≥ ${totalLines}` : `${totalLines}`;
-	const statusLine = `${totalLabel} lines · ${totalLines ? Math.round(((state.scroll + visible.length) / totalLines) * 100) : 100}% · auto-scroll ${state.autoScroll ? "on" : "off"}`;
+	// L-plural (2026-10-08): "1 lines" grammar slip live-caught in the transcript
+	// viewer footer — pluralize only from 2 (and keep "≥" prefix intact).
+	const linesWord = totalLines === 1 ? "line" : "lines";
+	const statusLine = `${totalLabel} ${linesWord} · ${totalLines ? Math.round(((state.scroll + visible.length) / totalLines) * 100) : 100}% · auto-scroll ${state.autoScroll ? "on" : "off"}`;
 	// RAIL frame (design system §2.E): `┏ NAME ▸ SUBJECT` canopy, `┃` body rows,
 	// `┗ <outcome/hint>` close. The rounded `╭─╮│╰─╯` box is retired. This
 	// viewer is a standalone overlay that paints its own frame, so the rail

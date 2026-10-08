@@ -138,3 +138,34 @@ song — lần đỏ đầu thuần environmental) · typecheck/lint/format xanh
 cf7e5c25d00117bc22bfaec3ece4d942 + staleness OK.
 Live re-verify (cùng repro, 600 frames): content changes **36/513** (≈0.3Hz —
 chỉ elapsed 1Hz + task transitions), height ổn định 5 rows.
+
+## Addendum 2 — 2026-10-08 livestream deep-review (bundle cf7e5c25)
+
+Surfaces: live-conversation overlay (`V`), agents-jobs browser (`b`), transcript
+viewer (`v`), dashboard nav @150/@80, sync + async dispatch.
+
+### P0 (FIXED, commit kế tiếp): autocomplete throw giết cả pi process
+- Live-caught: gõ `/team-transcript team_…` → popup completion race làm input
+  dính `/team-transcript` vào runId token → `assertSafePathId` (đúng) throw
+  `Invalid runId: team_x/team-transcript` → throw thoát ra ngoài
+  `CombinedAutocompleteProvider.getSuggestions` của pi core (không catch
+  extension errors) → **uncaught_exception, cả pi chết** (crashes.json
+  02:41:16Z, full stack qua dist/index.mjs mn/X2/L/vM).
+- Fix: `command-completions.ts` — `suggestTaskIds` + `suggestRunIds` wrap
+  try/catch → null; mọi completion provider không bao giờ throw. Pin test
+  10/10 (mutation: bỏ guard → `Invalid runId` throw đúng message).
+- Live re-verify (bundle 4f764574): gõ đúng chuỗi crash → pi sống, 0 crash
+  entry; flow hợp lệ vẫn gợi ý `01_explore/02_execute/03_verify`.
+
+### F1 (GAP, chưa fix — cần quyết định): live-conversation chết với child-process runtime
+- `V` (live-conversation) + live-section của agents browser đọc
+  `listLiveAgents()` — registry **in-process**, chỉ được ghi bởi
+  `live-session-runtime.ts`. Runtime mặc định (và bắt buộc với async) là
+  **child-process** → registry trống vĩnh viễn → "No live agent found for
+  this run." 100% (live-verified cả async lẫn sync run, kể cả khi agent đang
+  chạy thật). CONTEXT.md xác nhận live-session path FROZEN (ADR 2026-08-15).
+- Đề xuất: (a) khi `runtimeResolution.kind === "child-process"`, ẩn/disabled
+  key `V` + error message trỏ sang `v` (transcript viewer đọc file — hoạt
+  động tốt), hoặc (b) bridge live-agent qua broker. Không tự fix (ADR).
+
+### F2 (FIXED): "1 lines" plural slip trong transcript viewer footer.
