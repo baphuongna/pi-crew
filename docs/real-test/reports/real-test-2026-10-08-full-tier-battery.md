@@ -15,7 +15,7 @@ Machine: load 0.8–2 (ês sau build); mọi probe read-only với repo (trừ 1
 | T8 | ✅ | md5 đĩa = 4f764574; symlink ../pi-crew; node_modules md5 khớp |
 | T9a | ✅ 15 action | list/health/doctor/status/events/summary/graph/get/explain/worktrees/search/recommend/settings/api |
 | T9b | ✅ | sync ✓ · async ✓ (detached, không inline:true) · chain ✓ 2/2 handoff (bỏ workflow theo #44) · Agent ✓ · crew_agent bg + result ✓; steer_subagent SKIP-timing (5 lần bị completion-notification chặn cửa sổ — machinery steer chứng minh qua 9c/9g) |
-| T9b-W | ⚠️ **F-BAT1 (P1)** | ask/delegate/message ENOENT — CẢ sync lẫn async (2 run × 3 worker). Worker CÓ nhận PI_CREW_BROKER_SOCKET=/tmp/pi-crew-1000/pi-crew-4b3a061a.sock nhưng socket không tồn tại; ss: không listener nào; **XDG_RUNTIME_DIR absent trong env session user** (Paseo terminal) → path-divergence /tmp vs /run; graceful-degrade giữ run xanh (silent-failure class). Cần RCA + fix riêng. |
+| T9b-W | ⚠️→✅ **F-BAT1 (P1) — ĐÃ FIX `2e6d1d1f`** | ask/delegate/message ENOENT — CẢ sync lẫn async (2 run × 3 worker). Worker CÓ nhận PI_CREW_BROKER_SOCKET=/tmp/pi-crew-1000/pi-crew-4b3a061a.sock nhưng socket không tồn tại; ss: không listener nào; **XDG_RUNTIME_DIR absent trong env session user** (Paseo terminal) → path-divergence /tmp vs /run; graceful-degrade giữ run xanh (silent-failure class). RCA + fix xong trong ngày — xem docs/fixes/bug-021-fbat1-broker-socket-dir-swept.md |
 | T9c | ✅ | status details giữa chừng; steer leader-action (delivered + comply ×3); checkpoint (read); invalidate; cancel (+ownership guard từ chối đúng lần đầu, force lần sau); wait ≡ waitState ×3 |
 | T9e/9f | ✅ (light) | settings get/set/unset round-trip + restore; api read-manifest; create/delete/schedule/goal-loop SKIP (mutate thật / đắt — không code path nào thay đổi trong wave) |
 | T9g | ✅ TRIPLE | boot-window steer +0.5s: file 107B sống truncate-guard; PROBE_TOKEN_9G_ACK ×3 trong result; custom_message trong agent events |
@@ -27,11 +27,11 @@ Machine: load 0.8–2 (ês sau build); mọi probe read-only với repo (trừ 1
 | T13 | ✅ | plan card (▶ tĩnh, 0 braille, ticker 1s) · dock 2 dạng · dashboard @150/@80 right-anchor · HELP ▸ · SETTINGS ▸ · transcript; invariant sweep: undefined 0 · wire-format 0 · (loading 0 · "1 lines" 0 |
 
 ## Findings
-1. **F-BAT1 (P1, mở)** — worker coordination (ask/message/delegate) ENOENT live, sync lẫn async.
+1. **F-BAT1 (P1 — RESOLVED cùng ngày, commit `2e6d1d1f`)** — worker coordination (ask/message/delegate) ENOENT live, sync lẫn async.
    Bằng chứng: 2 run (sync team_…061857, async team_…061124) × 3 worker; env PI_CREW_BROKER_SOCKET=/tmp/pi-crew-1000/pi-crew-4b3a061a.sock (creds ĐÃ mint); socket file absent (dir trống, mtime 13:23); ss không listener; XDG_RUNTIME_DIR absent trong /proc/239495/environ (broker host fallback /tmp; các session trước bind /run/user/1000 — 2 socket stale 01:05). Unit broker suites xanh → vấn đề runtime/lifecycle, không phải protocol. Không đổi màu run (degrade) — đúng lớp "green nhưng chết".
-   Đề xuất RCA: (a) vì sao socket biến mất/không bind được dù start() await thành công; (b) env-divergence XDG_RUNTIME_DIR (user launch pi từ terminal không có biến); (c) sweep /tmp/pi-crew-* (unit battery chạy đồng thời có thể dọn nhầm socket sống — cần phân biệt).
+   **RCA hoàn chỉnh** (bug-021): (a) `/tmp/pi-crew-<uid>` fallback bị 3 sweep `pi-crew-*` rmSync nhầm socket sống; (b) stale-probe coi connect TIMEOUT là chết → unlink broker khỏe. **Fix**: fallback đổi tên `.pi-crew-broker-<uid>` (dot-prefix, sweep không match) + chỉ unlink khi ECONNREFUSED definitiva. Live E2E xanh: socket sống cả run, ask round-trip quote nguyên văn reply (run f519d2c7); acceptance từ chính session user sau restart (bundle 99c1a55b) — 0 ENOENT.
 2. **F-BAT2 (đã fix trong battery)** — dock-rail.test.ts pin braille runner cũ (L10 drift), T11a-4 bắt được; fix + 15/15.
 3. steer_subagent: SKIP-timing (5 attempt) — ghi nhận, không phải defect.
 
 ## Verdict
-**12.5/13 tier xanh** (T10c skip đúng lý do). Một P1 mở (F-BAT1) — coordination tools cần RCA trước release. Bundle 4f764574 + 5 commit local chờ push.
+**12.5/13 tier xanh** (T10c skip đúng lý do). P1 duy nhất (F-BAT1) đã RCA + fix + live-verify cùng ngày (`2e6d1d1f`, docs/fixes/bug-021) → battery đóng với **0 finding còn mở**. Bundle cuối `99c1a55b` (sau F-BAT1).
