@@ -63,7 +63,18 @@ export function getPerUserSocketDir(platform: NodeJS.Platform = process.platform
 	if (platform === "win32") return "";
 	const base = process.env.XDG_RUNTIME_DIR || os.tmpdir();
 	const uid = getCurrentUid();
-	return path.join(base, `pi-crew-${uid}`);
+	// F-BAT1 (2026-10-08, live-caught P1): when XDG_RUNTIME_DIR is ABSENT the
+	// base is /tmp — and THREE workspace sweeps scan /tmp for dirs named
+	// `pi-crew-*` (cleanupLegacyOrphanTempDirs, orphan temp reconciler, health
+	// zombie scan). A broker dir at /tmp/pi-crew-<uid> collides with that
+	// namespace and gets rmSync-ed as "debris" — killing the LIVE broker socket
+	// of every session launched without XDG_RUNTIME_DIR (live evidence:
+	// ask/message/delegate ENOENT in both sync and async runs while runs
+	// stayed green). The no-XDG fallback therefore uses a DOT-prefixed name
+	// (`.pi-crew-broker-<uid>`) which no `pi-crew-*` sweep matches. The XDG
+	// path keeps the original `pi-crew-<uid>` name (/run/user is never swept).
+	const leaf = process.env.XDG_RUNTIME_DIR ? `pi-crew-${uid}` : `.pi-crew-broker-${uid}`;
+	return path.join(base, leaf);
 }
 
 /** Resolve the broker endpoint for the given session.
@@ -122,6 +133,10 @@ export async function prepareBrokerSocketDir(sockPath: string): Promise<void> {
 export async function removeStaleBrokerSocket(
 	sockPath: string,
 	probeTimeoutMs: number = 250,
+	// Injectable for deterministic tests (the CrewBroker options.netModule
+	// precedent): a fake whose createConnection() never connects/errors pins
+	// the timeout branch without racing a real localhost connect.
+	netModule?: { createConnection: (path: string) => { once: (ev: string, fn: (arg?: unknown) => void) => void; destroy: () => void } },
 ): Promise<"removed" | "kept" | "absent" | "refused"> {
 	// Reject symlinks outright.
 	let st: Awaited<ReturnType<typeof fsp.lstat>>;
@@ -134,10 +149,10 @@ export async function removeStaleBrokerSocket(
 	}
 	if (st.isSymbolicLink()) return "refused";
 	// Bound the probe: connect with a short timeout. If anything answers, treat as live.
-	const live = await new Promise<boolean>((resolve) => {
+	const live = await new Promise<boolean | "refused">((resolve) => {
 		let settled = false;
-		const sock = net.createConnection(sockPath);
-		const finish = (v: boolean) => {
+		const sock = (netModule ?? net).createConnection(sockPath);
+		const finish = (v: boolean | "refused") => {
 			if (settled) return;
 			settled = true;
 			try {
@@ -148,11 +163,18 @@ export async function removeStaleBrokerSocket(
 			resolve(v);
 		};
 		sock.once("connect", () => finish(true));
-		sock.once("error", () => finish(false));
-		setTimeout(() => finish(false), probeTimeoutMs);
+		// F-BAT1 companion (2026-10-08): unlink is safe ONLY on a definitive
+		// ECONNREFUSED — the kernel rejects connect() on a socket whose
+		// listener is gone (owner died => fd closed => refused), so "refused"
+		// reliably means stale. A TIMEOUT (or any other error) means the
+		// listener is alive but slow to accept (busy event loop, backlog) —
+		// the previous code treated that as stale and UNLINKED A LIVE BROKER,
+		// leaving every later client with ENOENT forever.
+		sock.once("error", (err) => finish((err as NodeJS.ErrnoException).code === "ECONNREFUSED" ? "refused" : true));
+		setTimeout(() => finish(true), probeTimeoutMs);
 	});
-	if (live) return "kept";
-	// Stale: remove.
+	if (live !== "refused") return "kept";
+	// Stale (definitive ECONNREFUSED): remove.
 	try {
 		await fsp.unlink(sockPath);
 		return "removed";

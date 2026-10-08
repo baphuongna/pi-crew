@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.11.9] — F-BAT1: broker socket dir dodges /tmp pi-crew-* sweeps + stale-probe race (2026-10-08)
+
+Live-caught by the full-tier battery (T9b-W): worker coordination (`ask`/`message`/`delegate`)
+returned ENOENT in BOTH sync and async runs while the runs stayed green (graceful degrade —
+the exact silent-failure class the battery exists to catch).
+
+Two stacked root causes:
+
+1. **Namespace collision** — with `XDG_RUNTIME_DIR` absent (sessions launched from
+   non-login envs), the broker's per-user dir fell back to `/tmp/pi-crew-<uid>`, which
+   THREE /tmp workspace sweeps (`cleanupLegacyOrphanTempDirs`, the orphan temp
+   reconciler, the health zombie scan) pattern-match as `pi-crew-*` debris and `rmSync`
+   — deleting the LIVE broker socket dir. Sessions with XDG_RUNTIME_DIR were
+   unaffected (/run/user is never swept), which is why this only bit some launches.
+   Fix: the no-XDG fallback now uses `.pi-crew-broker-<uid>` (dot-prefixed — no sweep
+   matches). XDG path unchanged.
+2. **Stale-probe race** — `removeStaleBrokerSocket` treated a connect TIMEOUT as
+   "stale" and unlinked a HEALTHY (slow-to-accept) broker socket. Only a definitive
+   `ECONNREFUSED` (kernel rejects connect on a listener-less socket) may ever unlink.
+
+Live re-verified end-to-end on the fixed bundle: socket binds at
+`/tmp/.pi-crew-broker-1000/`, `ask` round-trip delivers the leader reply through
+dependency-context (worker quotes it verbatim), `message` notify delivered, socket
+survives the whole run. Pin suite `socket-path-fbat1.test.ts` (6 tests,
+mutation-checked both halves; single mutations are neutralized by the paired guard —
+defense-in-depth by design).
+
 ## [0.11.9] — UI instability fix wave L1–L9 (2026-10-07)
 
 Live-battery-driven fixes from the 2026-10-07 UI review
