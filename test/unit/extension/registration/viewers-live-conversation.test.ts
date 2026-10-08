@@ -177,7 +177,12 @@ test("M1-6 host: unknown keys are ignored (no scroll, no close)", async () => {
 		comp.handleInput("g");
 		const top = comp.render(80).join("\n");
 		comp.handleInput("z");
-		assert.equal(comp.render(80).join("\n"), top, "unknown key does not move the viewport");
+		// Header + summary lines carry a live elapsed-ms clock ("· Nms") that can
+		// bump one tick between the two renders; normalize it before demanding
+		// frame-identical output (the assertion targets viewport stability, not
+		// a frozen duration).
+		const freeze = (s: string) => s.replaceAll(/· \d+ms/g, "· Xms");
+		assert.equal(freeze(comp.render(80).join("\n")), freeze(top), "unknown key does not move the viewport");
 		assert.equal(host.doneCalls(), 0, "unknown key does not close the overlay");
 	} finally {
 		comp.dispose();
