@@ -103,18 +103,79 @@ describe("F-BAT1: removeStaleBrokerSocket unlinks ONLY on definitive ECONNREFUSE
 		server.close();
 	});
 
-	it("a DEAD endpoint (non-socket corpse at the path) is REMOVED via definitive ECONNREFUSED", async () => {
+	it("a DEAD endpoint (non-socket corpse at the path) is REMOVED — deterministically, no connect probe", async () => {
 		// Node's server.close() unlinks its own socket path, so the realistic
-		// corpse is a leftover non-socket file (or a socket whose owner was
-		// SIGKILLed after the file got detached) — connect() to it yields the
-		// definitive ECONNREFUSED the reclaimer needs.
+		// corpse is a leftover non-socket file. A regular file can NEVER be a
+		// live endpoint, so it is removed via the lstat branch without the
+		// connect probe — cross-platform by construction (connect() to a
+		// non-socket path is undefined: Linux ECONNREFUSED, macOS another
+		// errno — the CI 2026-10-08 lesson that broke the BSD path).
 		const sockPath = path.join(tmpBase, "probe-dead.sock");
 		fs.writeFileSync(sockPath, "corpse");
 
-		const verdict = await removeStaleBrokerSocket(sockPath);
+		// Even a netModule that would hang forever cannot protect a non-socket
+		// corpse — proves the removal does not ride the probe at all.
+		const neverResponds = {
+			createConnection: (_p: string) => ({
+				once: () => {
+					/* silent: probe must not even be consulted */
+				},
+				destroy: () => {},
+			}),
+		};
+		const verdict = await removeStaleBrokerSocket(sockPath, 5000, neverResponds as never);
 
-		assert.equal(verdict, "removed", "ECONNREFUSED is the one definitive stale signal");
+		assert.equal(verdict, "removed", "a non-socket entry is definitively stale");
 		assert.ok(!fs.existsSync(sockPath), "dead endpoint file must be reclaimed");
+	});
+
+	it("a dead SOCKET corpse (refused) is removed; the same socket under timeout is kept", async () => {
+		// A REAL socket file with no listener: bind a server, then RENAME the
+		// socket file — the inode stays a socket, the listener is gone.
+		const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), "pc-fbat1-corpse-"));
+		const livePath = path.join(srcDir, "live.sock");
+		const corpsePath = path.join(tmpBase, "probe-corpse.sock");
+		const server = net.createServer(() => {});
+		await new Promise<void>((resolve) => server.listen(livePath, resolve));
+		fs.renameSync(livePath, corpsePath);
+		server.close();
+		assert.ok(fs.statSync(corpsePath).isSocket(), "precondition: entry is a socket file");
+
+		// Injected probe: definitive ECONNREFUSED => removed.
+		const refused = {
+			createConnection: (_p: string) => ({
+				once: (ev: string, fn: (arg?: unknown) => void) => {
+					if (ev === "error") fn({ code: "ECONNREFUSED" });
+				},
+				destroy: () => {},
+			}),
+		};
+		assert.equal(await removeStaleBrokerSocket(corpsePath, 5000, refused as never), "removed");
+		assert.ok(!fs.existsSync(corpsePath), "refused socket corpse must be unlinked");
+
+		// Same shape, probe times out instead => kept (the F-BAT1 live-kill fix).
+		// The entry must again be a REAL socket file — a regular file would hit
+		// the deterministic lstat branch above and be removed.
+		const live2 = path.join(srcDir, "live2.sock");
+		const corpse2 = path.join(tmpBase, "probe-corpse2.sock");
+		const server2 = net.createServer(() => {});
+		await new Promise<void>((resolve) => server2.listen(live2, resolve));
+		fs.renameSync(live2, corpse2);
+		server2.close();
+		assert.ok(fs.statSync(corpse2).isSocket(), "precondition: corpse2 is a socket file");
+		fs.writeFileSync(corpsePath, "x");
+		const timedOut = {
+			createConnection: (_p: string) => ({
+				once: () => {
+					/* silent: only the timer can fire */
+				},
+				destroy: () => {},
+			}),
+		};
+		assert.equal(await removeStaleBrokerSocket(corpse2, 5, timedOut as never), "kept", "timeout on a socket entry must never unlink");
+		assert.ok(fs.existsSync(corpse2), "the socket corpse must survive a timed-out probe");
+		fs.rmSync(corpsePath, { force: true });
+		fs.rmSync(srcDir, { recursive: true, force: true });
 	});
 
 	it("an absent socket is reported absent (no throw)", async () => {

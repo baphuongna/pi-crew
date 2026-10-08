@@ -20,6 +20,12 @@ Two stacked root causes:
    "stale" and unlinked a HEALTHY (slow-to-accept) broker socket. Only a definitive
    `ECONNREFUSED` (kernel rejects connect on a listener-less socket) may ever unlink.
 
+   Cross-platform hardening (CI 2026-10-08, macOS catch): a NON-SOCKET entry at the
+   socket path (the classic leftover corpse) is now removed deterministically via
+   `lstat` — no connect probe — because connect() to a non-socket path is undefined
+   across kernels (Linux yields ECONNREFUSED, macOS a different errno). Sockets keep
+   the probe path: ECONNREFUSED → remove, timeout/other → keep.
+
 Live re-verified end-to-end on the fixed bundle: socket binds at
 `/tmp/.pi-crew-broker-1000/`, `ask` round-trip delivers the leader reply through
 dependency-context (worker quotes it verbatim), `message` notify delivered, socket

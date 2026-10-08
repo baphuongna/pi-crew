@@ -148,6 +148,24 @@ export async function removeStaleBrokerSocket(
 		throw e;
 	}
 	if (st.isSymbolicLink()) return "refused";
+	// A REGULAR FILE (or any non-socket entry) can never be a live endpoint —
+	// deterministically stale, remove it WITHOUT the connect probe. This is
+	// cross-platform: connect() to a non-socket path is undefined (Linux yields
+	// ECONNREFUSED, macOS yields a different errno), so relying on the probe
+	// here broke the CrewBroker stale-replace flow on BSD/macOS (CI 2026-10-08:
+	// crew-broker-stale-socket "refused/nonexistent stale endpoint is replaced
+	// once" + "recording-owned-path unlink only on stop()" — both pre-create a
+	// plain file as the corpse). Sockets keep the probe path below.
+	if (!st.isSocket()) {
+		try {
+			await fsp.unlink(sockPath);
+			return "removed";
+		} catch (e) {
+			const code = (e as NodeJS.ErrnoException).code;
+			if (code === "ENOENT") return "absent";
+			throw e;
+		}
+	}
 	// Bound the probe: connect with a short timeout. If anything answers, treat as live.
 	const live = await new Promise<boolean | "refused">((resolve) => {
 		let settled = false;
