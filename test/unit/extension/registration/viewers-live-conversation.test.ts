@@ -24,8 +24,8 @@ import { join } from "node:path";
 import { afterEach, test } from "node:test";
 import { liveConversationNotice, openLiveConversation } from "../../../../src/extension/registration/viewers.ts";
 import { clearLiveAgentsForTest, registerLiveAgent } from "../../../../src/runtime/live-session/live-agent-manager.ts";
-import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 import { createRunManifest, saveRunManifest } from "../../../../src/state/stores/state-store.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
 
 type HostComponent = {
 	render(width: number): string[];
