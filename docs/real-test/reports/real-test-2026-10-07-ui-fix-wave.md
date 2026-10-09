@@ -178,3 +178,41 @@ viewer (`v`), dashboard nav @150/@80, sync + async dispatch.
   legacy manifest, headless silent-false).
 
 ### F2 (FIXED): "1 lines" plural slip trong transcript viewer footer.
+
+### F-DCK1 (OBSERVED ONCE · UNREPRODUCED sau 6 probe có kiểm soát — 2026-10-09, chưa fix)
+
+**Hiện tượng gốc** (probe F1-verify, 09:05–09:08, user-scope /tmp, bundle 4ecf23cd):
+async run hoàn tất (manifest `completed`, active-run-index `[]`, dashboard đúng
+"3/3 completed") nhưng dock CREW đứng ở `1r · 2/3 done` hơn 2 phút sau completion —
+snapshot cache của widget không bao giờ nhận trạng thái terminal.
+
+**Điều kiện đặc thù của probe gốc (không tái lập được trọn vẹn)**: một chat turn
+đang **stream** đúng lúc run completion ("Working" active), đi kèm overlay
+dashboard + agent-picker + F1 notice + Escape spam + input pollution ("V",
+"am-dashboard" bị submit thành chat).
+
+**Kết quả 6 probe có kiểm soát (bundle 4ecf23cd, dock quan sát qua tmux frame):**
+
+| Probe | Scope | Điều kiện | Dock khi completion |
+|---|---|---|---|
+| A | project (git) | sạch | clear ✓ trong grace 8s |
+| B | user (non-git) | sạch | clear ✓ |
+| C | user | chat turn (kết thúc trước completion) | 3/3 rồi clear ✓ |
+| E | user | dài chat stream (kết thúc ~80s trước completion) | 3/3 rồi clear ✓ |
+| G | user | chat dài + run dispatch giữa stream | clear ✓ ngay tại completion |
+| H | user | stream tại dispatch (turn xong sớm) | clear ✓ |
+
+Overlay dashboard + `V` + notice được tái lập một phần (probe D) nhưng choreography
+tmux không tái tạo đúng trình tự gốc; overlap "completion TRONG lúc stream" không
+cưỡng ép được (turn luôn kết thúc trước run).
+
+**Giả thuyết còn mở (theo thứ tự khả nghi)**:
+1. Completion event rơi đúng cửa sổ chat-streaming → renderScheduler không đẩy
+   được frame terminal → widget giữ frame cuối "running" qua grace window.
+2. Tương tác notice/overlay tại transition terminal nuốt refresh cuối.
+3. UI-state đặc thù probe gốc (nhiều Escape + popup) — không thể loại trừ.
+
+**Quyết định**: KHÔNG fix mù — không repro thì không có RCA (nguyên tắc session).
+Đóng thành monitoring note; mở lại khi tái xuất với repro instrument
+(`PI_TEAMS_DEBUG=1`, log renderScheduler tick + snapshot stamps quanh completion).
+Đã chứng minh khỏe: dock clear ≤ grace 8s trên matrix scope × concurrency ở trên.
