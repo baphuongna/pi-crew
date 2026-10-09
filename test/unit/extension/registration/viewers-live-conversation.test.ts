@@ -22,8 +22,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import { openLiveConversation } from "../../../../src/extension/registration/viewers.ts";
+import { liveConversationNotice, openLiveConversation } from "../../../../src/extension/registration/viewers.ts";
 import { clearLiveAgentsForTest, registerLiveAgent } from "../../../../src/runtime/live-session/live-agent-manager.ts";
+import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import { createRunManifest, saveRunManifest } from "../../../../src/state/stores/state-store.ts";
 
 type HostComponent = {
 	render(width: number): string[];
@@ -108,6 +110,96 @@ function makeHost(): {
 		emit: (event) => emit(event),
 	};
 }
+
+/**
+ * Fake host for the F1 notice path: NO live agent registered (child-process /
+ * scaffold runs can never register one — that is the whole finding), an
+ * optional manifest on disk carrying `runtimeResolution`, and a notify capture.
+ */
+function makeNoticeHost(runtimeKind?: "child-process" | "scaffold" | "live-session"): {
+	ctx: unknown;
+	notices(): string[];
+	overlayOpened(): boolean;
+	runId: string;
+} {
+	const cwd = mkdtempSync(join(tmpdir(), "viewers-f1-"));
+	tmpDirs.push(cwd);
+	const team: TeamConfig = {
+		name: "test-team",
+		description: "Test team",
+		source: "builtin",
+		filePath: "test.team.md",
+		roles: [{ name: "executor", agent: "executor" }],
+	};
+	const created = createRunManifest({ cwd, team, goal: "f1 notice" });
+	if (runtimeKind) {
+		created.manifest.runtimeResolution = {
+			kind: runtimeKind,
+			requestedMode: "auto",
+			safety: "trusted",
+			available: true,
+			resolvedAt: new Date().toISOString(),
+		};
+		saveRunManifest(created.manifest);
+	}
+	const notices: string[] = [];
+	let overlayOpened = false;
+	const ctx = {
+		cwd,
+		hasUI: true,
+		ui: {
+			select: async () => undefined,
+			notify: (text: string) => notices.push(text),
+			custom: async () => {
+				overlayOpened = true;
+			},
+		},
+	};
+	return { ctx, notices: () => notices, overlayOpened: () => overlayOpened, runId: created.manifest.runId };
+}
+
+test("F1: liveConversationNotice routes non-live-session runtimes to the transcript viewer", () => {
+	for (const kind of ["child-process", "scaffold"] as const) {
+		const notice = liveConversationNotice(kind);
+		assert.ok(notice.includes(kind), `${kind} notice names the runtime`);
+		assert.ok(notice.includes("/team-transcript"), `${kind} notice points at the working surface`);
+	}
+	assert.equal(liveConversationNotice("live-session"), "No live agent found for this run.");
+	assert.equal(
+		liveConversationNotice(undefined),
+		"No live agent found for this run.",
+		"legacy manifests without runtimeResolution keep the old message",
+	);
+});
+
+test("F1: V on a child-process run answers with the routed notice (no dead end)", async () => {
+	const host = makeNoticeHost("child-process");
+	assert.equal(await openLiveConversation(host.ctx as never, host.runId), true, "notice path is handled (true)");
+	assert.equal(host.notices().length, 1, "exactly one notice");
+	assert.ok(host.notices()[0].includes("child-process"), "notice names the runtime");
+	assert.equal(host.overlayOpened(), false, "no overlay is built");
+});
+
+test("F1: V on a live-session run without a live agent keeps the classic message", async () => {
+	const host = makeNoticeHost("live-session");
+	assert.equal(await openLiveConversation(host.ctx as never, host.runId), true);
+	assert.deepEqual(host.notices(), ["No live agent found for this run."]);
+	assert.equal(host.overlayOpened(), false);
+});
+
+test("F1: V on a legacy run (no runtimeResolution on manifest) keeps the classic message", async () => {
+	const host = makeNoticeHost(); // manifest saved without runtimeResolution
+	assert.equal(await openLiveConversation(host.ctx as never, host.runId), true);
+	assert.deepEqual(host.notices(), ["No live agent found for this run."]);
+});
+
+test("F1: headless (hasUI false) stays silent-false — no notice, no overlay", async () => {
+	const host = makeNoticeHost("child-process");
+	const ctx = { ...(host.ctx as { cwd: string; hasUI: boolean; ui: unknown }), hasUI: false };
+	// openLiveConversation short-circuits on hasUI before touching listLiveAgents/manifest.
+	assert.equal(await openLiveConversation(ctx as never, host.runId), false);
+	assert.equal(host.notices().length, 0);
+});
 
 test("M1-6 host: scroll keys reach the overlay without closing it (g / G)", async () => {
 	const host = makeHost();

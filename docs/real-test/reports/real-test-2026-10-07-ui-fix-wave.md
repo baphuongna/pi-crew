@@ -157,15 +157,24 @@ viewer (`v`), dashboard nav @150/@80, sync + async dispatch.
 - Live re-verify (bundle 4f764574): gõ đúng chuỗi crash → pi sống, 0 crash
   entry; flow hợp lệ vẫn gợi ý `01_explore/02_execute/03_verify`.
 
-### F1 (GAP, chưa fix — cần quyết định): live-conversation chết với child-process runtime
+### F1 (GAP, RESOLVED 2026-10-08 — option a, runtime-aware notice): live-conversation chết với child-process runtime
 - `V` (live-conversation) + live-section của agents browser đọc
   `listLiveAgents()` — registry **in-process**, chỉ được ghi bởi
   `live-session-runtime.ts`. Runtime mặc định (và bắt buộc với async) là
   **child-process** → registry trống vĩnh viễn → "No live agent found for
   this run." 100% (live-verified cả async lẫn sync run, kể cả khi agent đang
   chạy thật). CONTEXT.md xác nhận live-session path FROZEN (ADR 2026-08-15).
-- Đề xuất: (a) khi `runtimeResolution.kind === "child-process"`, ẩn/disabled
-  key `V` + error message trỏ sang `v` (transcript viewer đọc file — hoạt
-  động tốt), hoặc (b) bridge live-agent qua broker. Không tự fix (ADR).
+- **Fix (option a — không đụng ADR frozen)**: `openLiveConversation` giờ đọc
+  `manifest.runtimeResolution.kind` khi không tìm thấy live agent — run
+  child-process/scaffold nhận notice hướng dẫn ("streams transcripts to disk —
+  press v or /team-transcript to follow along"), run live-session/legacy giữ
+  nguyên message cũ. Hợp đồng mới: return `true` khi đã trả lời bằng notice,
+  `false` chỉ còn nghĩa user cancel picker / headless — fall-through message ở
+  shared.ts (đã từng fire cả khi cancel) bị xóa. Agents-browser live-section
+  giữ nguyên empty-list trung thực (không phải dead-end).
+- Option (b) bridge live-agent qua broker: ghi nhận như hướng dài hạn nếu ADR
+  live-session ever unfreezes; hiện không làm.
+- Pins: `viewers-live-conversation.test.ts` +5 test (route notice theo kind,
+  legacy manifest, headless silent-false).
 
 ### F2 (FIXED): "1 lines" plural slip trong transcript viewer footer.

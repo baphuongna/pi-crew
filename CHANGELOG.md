@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.10] — F1: `V` live-conversation dead-end replaced with runtime-aware notice (2026-10-08)
+
+### Fixed
+
+- **F1 (full-tier battery 2026-10-08)** — `V` (live conversation) ended in
+  "No live agent found for this run." on **every** child-process/scaffold run
+  (i.e. the default runtime — the in-process live-agent registry is only ever
+  populated by the ADR-frozen live-session runtime). `openLiveConversation` now
+  reads `manifest.runtimeResolution.kind` when no live agent matches and answers
+  with an actionable notice instead: child-process/scaffold runs are pointed at
+  the transcript viewer (`v` from the dashboard / `/team-transcript` — streaming
+  from disk, works live); live-session and legacy manifests keep the classic
+  message. Contract change: the return flag now means handled vs
+  cancelled/headless — the shared.ts fall-through notification (which also fired
+  spuriously on picker-cancel) is gone. Agents-browser live section unchanged
+  (honest empty list, not a dead end). Pins: 5 new tests in
+  `viewers-live-conversation.test.ts` (kind-routed notices, legacy manifest,
+  headless silent-false).
+
 ## [0.11.9] — F-BAT1: broker socket dir dodges /tmp pi-crew-* sweeps + stale-probe race (2026-10-08)
 
 Live-caught by the full-tier battery (T9b-W): worker coordination (`ask`/`message`/`delegate`)

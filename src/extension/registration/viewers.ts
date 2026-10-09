@@ -10,6 +10,7 @@ import { requestRenderTarget } from "../../ui/pi-ui-compat.ts";
 import { asCrewTheme } from "../../ui/theme-adapter.ts";
 // Lazy-loaded: DurableTranscriptViewer is 658ms — only needed for /crew transcript command
 import type { DurableTranscriptViewer as DurableTranscriptViewerType } from "../../ui/transcript-viewer.ts";
+import { notifyCommandResult } from "./command-utils.ts";
 
 async function getViewer(): Promise<typeof DurableTranscriptViewerType> {
 	// LAZY: DurableTranscriptViewer is 658ms — only needed for /crew transcript.
@@ -68,6 +69,22 @@ export async function openTranscriptViewer(
 	return true;
 }
 
+/**
+ * F1 (2026-10-08 full-tier battery): notice shown when `V` (live conversation)
+ * finds no live agent for a run. With the default child-process runtime the
+ * in-process live-agent registry is ALWAYS empty by design — agents run as
+ * child Pis and stream transcripts to disk, and only the (ADR-frozen)
+ * live-session runtime ever registers handles. The old generic "No live agent
+ * found" therefore read as a bug on every child-process run. Route the user
+ * to the surface that works instead of a dead end.
+ */
+export function liveConversationNotice(runtimeKind: string | undefined): string {
+	if (runtimeKind === "child-process" || runtimeKind === "scaffold") {
+		return `Live conversation requires the live-session runtime; this run executes via ${runtimeKind} and streams transcripts to disk. Press v (dashboard) or /team-transcript to follow along.`;
+	}
+	return "No live agent found for this run.";
+}
+
 /** R2: Open live conversation overlay for a running live-session agent. */
 export async function openLiveConversation(
 	ctx: ExtensionCommandContext,
@@ -78,7 +95,14 @@ export async function openLiveConversation(
 	if (!selected || !ctx.hasUI) return false;
 	const liveAgents = listLiveAgents();
 	const handle = liveAgents.find((h) => h.runId === selected.runId && (selected.taskId ? h.taskId === selected.taskId : true));
-	if (!handle) return false;
+	if (!handle) {
+		// F1: runtime-aware notice instead of a dead-end error. Contract change:
+		// `true` now also covers "answered with a notice" — `false` means the
+		// user cancelled the picker (or no UI), so callers stay silent on false.
+		const manifest = loadRunManifestById(ctx.cwd, selected.runId);
+		await notifyCommandResult(ctx, liveConversationNotice(manifest?.manifest.runtimeResolution?.kind));
+		return true;
+	}
 	const theme = asCrewTheme({});
 	await ctx.ui.custom<undefined>(
 		(tui, _theme, _keybindings, done) => {

@@ -620,26 +620,16 @@ export async function openTeamDashboard(ctx: ExtensionContext): Promise<void> {
 			continue;
 		}
 		if (selection.action === "agent-transcript" && (await openTranscriptViewer(cmdCtx, selection.runId))) continue;
+		// F1 (2026-10-08): openLiveConversation now owns ALL not-found messaging
+		// with a runtime-aware notice (child-process/scaffold runs point at the
+		// transcript viewer; live-session runs keep "No live agent found"). Its
+		// old fall-through block here fired even on picker-cancel — removed.
 		if (selection.action === "agent-live" && (await openLiveConversation(cmdCtx, selection.runId))) continue;
 		// feat/agents-browser: `b` from the dashboard opens the unified Agents
 		// & Jobs overlay WITHOUT closing the loop — continue reopens the
 		// dashboard underneath, mirroring the transcript/live-conversation
 		// viewers. runId may be "" (no run selected — jobs-only view).
 		if (selection.action === "browser-open" && (await openAgentsJobsBrowser(cmdCtx))) continue;
-		if (selection.action === "agent-live") {
-			await notifyCommandResult(
-				cmdCtx,
-				commandText({
-					content: [
-						{
-							type: "text",
-							text: "No live agent found for this run.",
-						},
-					],
-				}),
-			);
-			continue;
-		}
 		const result =
 			selection.action === "api"
 				? await handleTeamTool(
