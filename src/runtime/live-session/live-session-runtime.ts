@@ -845,7 +845,6 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 						settingsManager: mod.SettingsManager.create(input.task.cwd, agentDir),
 					}
 				: {}),
-			...(input.modelRegistry ? { modelRegistry: input.modelRegistry } : {}),
 			...(resolvedModel ? { model: resolvedModel } : {}),
 			...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
 			// R3-12: cycling/visibility scope = the fallback chain (see helper).
