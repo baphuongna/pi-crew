@@ -67,6 +67,20 @@ export function registerRunPromise(runId: string): ActiveRunPromise {
 		reject = rej;
 	});
 	const entry: ActiveRunPromise = { promise, resolve, reject };
+	// RELIABILITY FIX 2026-10-10 (run team_20261010100956 incident): a run
+	// registered in a process with NO waitForRun waiter (background-runner
+	// mode — the runner awaits executeTeamRun directly, nothing races
+	// entry.promise) and later REJECTED (executeTeamRun's catch calls
+	// rejectRunPromise with the original error) left the rejection unobserved
+	// → Node unhandledRejection → the background-runner's guard aborted the
+	// whole runner AFTER its cleanup had already run (heartbeat stopped →
+	// stale-reconciler mass-cancelled every task). Attaching a no-op rejection
+	// handler marks the promise handled; consumers still observe the rejection
+	// through their own .then/.race attachments — this changes nothing for
+	// foreground waiters, it only stops a waiter-less rejection from killing
+	// the process. Run failures themselves remain fully reported through the
+	// normal executeTeamRun catch path (manifest failed + async.failed event).
+	promise.catch(() => undefined);
 	activeRunPromises.set(runId, entry);
 	return entry;
 }
