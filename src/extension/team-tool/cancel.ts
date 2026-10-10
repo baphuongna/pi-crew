@@ -392,12 +392,11 @@ export async function handleCancel(params: TeamToolParamsValue, ctx: TeamContext
 		}
 		ctx.abortForegroundRun?.(fresh.manifest.runId);
 		for (const taskId of abortResult.abortedIds) {
-			// REVIEW FIX (2026-09-10): reverted M2b buffered conversion. Although
-			// task.cancelled is a TERMINAL type (buffered terminal path bypasses
-			// the 20ms buffer), that path still resolves via a microtask chain
-			// (flushPromise.then(appendEvent)) — NOT same-tick. Cancel tests and
-			// the immediately-following updateRunStatus reader need same-tick
-			// durability, so plain sync appendEvent (base behavior).
+			// U2 (2026-10-10): kept SYNC — inside the withRunLockSync callback (cannot
+			// await) and each task.cancelled must precede the run.cancelled written by
+			// the updateRunStatus call below (audit order); an appends-after-lock
+			// restructure would invert that order. Cancel tests read events after
+			// handleCancel resolves (2026-09-10 M2b revert reason stands).
 			appendEvent(fresh.manifest.eventsPath, {
 				type: "task.cancelled",
 				runId: fresh.manifest.runId,

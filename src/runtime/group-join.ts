@@ -132,6 +132,9 @@ export function deliverGroupJoin(input: {
 				remaining,
 			},
 		});
+	// U2 (2026-10-10): kept SYNC — deliverGroupJoin is a sync API; group-join
+	// tests (and status display) fs.readFileSync(events.jsonl) immediately after
+	// it returns, so any delayed/async append would miss the events at read.
 	appendEvent(input.manifest.eventsPath, {
 		type: partial ? "agent.group_join.partial" : "agent.group_join.completed",
 		runId: input.manifest.runId,
@@ -145,6 +148,8 @@ export function deliverGroupJoin(input: {
 		},
 	});
 	if (existingMailbox)
+		// U2 (2026-10-10): kept SYNC — same sync-read contract as the completed/
+		// partial event above.
 		appendEvent(input.manifest.eventsPath, {
 			type: "agent.group_join.delivery_reused",
 			runId: input.manifest.runId,
