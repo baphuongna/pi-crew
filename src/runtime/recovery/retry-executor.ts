@@ -1,3 +1,4 @@
+import { logInternalError } from "../../utils/internal-error.ts";
 import { sleep } from "../../utils/sleep.ts";
 import { throwIfCancelled } from "../process/cancellation.ts";
 
@@ -28,6 +29,17 @@ export interface RetryHooks {
 	onRetryGivenUp?: (attempts: number, error: Error, info: RetryAttemptInfo) => void;
 	attemptId?: (attempt: number) => string;
 	signal?: AbortSignal;
+	/**
+	 * U6A (upgrade spec 2026-10-09 §U6 Phase A): async pre-gate consulted
+	 * after a failed attempt and BEFORE the next one is queued. Returning
+	 * false gives up exactly like non-retryable exhaustion (onRetryGivenUp +
+	 * throw of the ORIGINAL error — the gate itself can never introduce a new
+	 * failure). SOFT contract: a throwing/rejecting hook is swallowed and
+	 * treated as "retry" — a broken gate must never change retry behavior.
+	 * Consumer: dispatch-batch's ambient-noise classifier gate
+	 * (classifyAmbientNoiseGate), dormant unless runtime.classifierEnabled.
+	 */
+	shouldRetry?: (attempt: number, error: Error, info: RetryAttemptInfo) => boolean | Promise<boolean>;
 }
 
 export const DEFAULT_RETRY_POLICY: RetryPolicy = {
@@ -94,6 +106,23 @@ export async function executeWithRetry<T>(
 			if (attempt >= normalized.maxAttempts || !isRetryable(lastError, normalized)) {
 				hooks.onRetryGivenUp?.(attempt, lastError, info);
 				throw lastError;
+			}
+			// U6A: ambient-noise pre-gate — consulted once per failed attempt,
+			// after retryability, BEFORE the backoff sleep + next spawn. SOFT:
+			// hook errors are logged and treated as "retry" (fallback true), so
+			// the gate can only skip a queued retry, never break the loop.
+			if (hooks.shouldRetry) {
+				let gateDecision = true;
+				try {
+					gateDecision = await hooks.shouldRetry(attempt, lastError, info);
+				} catch (gateError) {
+					logInternalError("retry-executor.shouldRetry", gateError, "soft-fail: proceeding with the queued retry", "warn");
+					gateDecision = true;
+				}
+				if (gateDecision === false) {
+					hooks.onRetryGivenUp?.(attempt, lastError, info);
+					throw lastError;
+				}
 			}
 			const delay = calculateRetryDelay(attempt, normalized);
 			hooks.onAttemptFailed?.(attempt, lastError, delay, info);

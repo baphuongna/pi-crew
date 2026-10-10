@@ -46,11 +46,16 @@ export interface ClassifyRequest {
 }
 
 /** Structured result shape returned by modelRegistry.classify (never throws
- *  per model-registry.d.ts — but we still guard a throwing implementation). */
+ *  per model-registry.d.ts — but we still guard a throwing implementation).
+ *  U6A (spec 2026-10-09 §U6 Phase A): `confidence` is a passthrough — the
+ *  classify API documents answers "kèm confidence" (research §8.2); when a
+ *  provider reports it (top-level or per-answer `{value, confidence}`), we
+ *  surface it on the result + `crew.classifier.confidence` histogram. */
 export interface ClassifyCallResult {
 	answers?: Record<string, unknown>;
 	stopReason?: string;
 	errorMessage?: string;
+	confidence?: number;
 }
 
 /** Duck-typed host registry handle (mirrors ModelRegistryLike in
@@ -101,6 +106,10 @@ export interface ClassifyBoolResult {
 	/** Raw stopReason / errorMessage from the classify call, when one ran. */
 	stopReason: string | undefined;
 	errorMessage: string | undefined;
+	/** U6A: provider-reported answer confidence, when the registry supplied
+	 *  one (top-level `confidence` or per-answer `{value, confidence}`).
+	 *  Undefined on every fallback path and for bare-boolean answers. */
+	confidence: number | undefined;
 }
 
 /**
@@ -141,6 +150,24 @@ function outcomeMetric(
 	} catch (error) {
 		// Metric plumbing must never break the never-rejects contract.
 		logInternalError("classifier-service.metric", error, `outcome=${reason}`, "warn");
+	}
+}
+
+/** U6A: observe the provider-reported confidence when one was supplied.
+ *  Mirrors outcomeMetric's never-break contract. */
+function confidenceMetric(
+	metricRegistry: MetricRegistry | undefined,
+	confidence: number | undefined,
+	labels: Record<string, string> | undefined,
+): void {
+	if (confidence === undefined) return;
+	try {
+		metricRegistry
+			?.histogram("crew.classifier.confidence", "Classifier answer confidence when reported", [0.25, 0.5, 0.75, 0.9, 0.99])
+			.observe({ ...labels }, confidence);
+	} catch (error) {
+		// Metric plumbing must never break the never-rejects contract.
+		logInternalError("classifier-service.metric", error, `confidence=${confidence}`, "warn");
 	}
 }
 
@@ -191,6 +218,7 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 			usedModel: undefined,
 			stopReason: undefined,
 			errorMessage: undefined,
+			confidence: undefined,
 		};
 	}
 	// Credentialed classifiers only — the catalog (getModelsOfType) can list
@@ -210,6 +238,7 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 			usedModel: undefined,
 			stopReason: undefined,
 			errorMessage: undefined,
+			confidence: undefined,
 		};
 	}
 	if (!Array.isArray(available) || available.length === 0) {
@@ -226,6 +255,7 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 			usedModel: undefined,
 			stopReason: undefined,
 			errorMessage: undefined,
+			confidence: undefined,
 		};
 	}
 	// Prefer the configured model id; fall back to the first available
@@ -257,11 +287,36 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 				usedModel: undefined,
 				stopReason,
 				errorMessage,
+				confidence: undefined,
 			};
 		}
-		const answer = result?.answers?.[input.questionKey];
-		if (typeof answer !== "boolean") {
-			noteFailureMode("answer_missing", input.classifierModel, `answers[${input.questionKey}] is ${typeof answer}, expected boolean`);
+		const rawAnswer = result?.answers?.[input.questionKey];
+		// U6A: bool answers arrive either as a bare boolean or wrapped with a
+		// confidence reading (`{value: boolean, confidence: number}` — research
+		// §8.2 "typed choice/score/bool ... answers carry confidence"). Accept
+		// both shapes; everything else stays the answer_missing fallback.
+		let answer: boolean | undefined;
+		let confidence: number | undefined;
+		if (typeof rawAnswer === "boolean") {
+			answer = rawAnswer;
+		} else if (rawAnswer && typeof rawAnswer === "object" && !Array.isArray(rawAnswer)) {
+			const wrapped = rawAnswer as { value?: unknown; confidence?: unknown };
+			if (typeof wrapped.value === "boolean") {
+				answer = wrapped.value;
+				if (typeof wrapped.confidence === "number" && Number.isFinite(wrapped.confidence)) {
+					confidence = wrapped.confidence;
+				}
+			}
+		}
+		if (typeof result?.confidence === "number" && Number.isFinite(result.confidence) && confidence === undefined) {
+			confidence = result.confidence;
+		}
+		if (answer === undefined) {
+			noteFailureMode(
+				"answer_missing",
+				input.classifierModel,
+				`answers[${input.questionKey}] is ${typeof rawAnswer}, expected boolean`,
+			);
 			outcomeMetric(input.metricRegistry, "answer_missing", input.metricLabels);
 			return {
 				decision: input.fallback,
@@ -270,9 +325,11 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 				usedModel: undefined,
 				stopReason,
 				errorMessage,
+				confidence: undefined,
 			};
 		}
 		outcomeMetric(input.metricRegistry, "classified", input.metricLabels);
+		confidenceMetric(input.metricRegistry, confidence, input.metricLabels);
 		return {
 			decision: answer,
 			fromClassifier: true,
@@ -280,6 +337,7 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 			usedModel,
 			stopReason,
 			errorMessage,
+			confidence,
 		};
 	} catch (error) {
 		// The registry contract says classify never rejects, but a misbehaving
@@ -293,6 +351,7 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 			usedModel: undefined,
 			stopReason: undefined,
 			errorMessage: undefined,
+			confidence: undefined,
 		};
 	}
 }
