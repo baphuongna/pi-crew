@@ -46,6 +46,13 @@ export const DEFAULT_LIVE_SESSION = {
 	yieldPollIntervalMs: 500,
 	/** Maximum time to wait for session idle after prompt (ms). */
 	idleWaitTimeoutMs: 60_000,
+	/**
+	 * U4 hung-tool escape hatch: after the response timeout fires and the
+	 * cooperative abort() has been issued, how long to keep waiting for the
+	 * prompt() promise to settle before declaring the session hung (tool kept
+	 * the event loop / ignored the AbortSignal) and dropping the reference.
+	 */
+	hungToolGraceMs: 10_000,
 };
 
 export const DEFAULT_LOCKS = {

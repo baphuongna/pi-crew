@@ -111,6 +111,14 @@ export const TEAM_EVENT_TYPES = [
 	// classifier answer informed the retry-vs-skip decision (dormant unless
 	// runtime.classifierEnabled). Diagnostic only — never transitions state.
 	"task.retry_triage",
+	// U6A (upgrade spec 2026-10-09 §U6 Phase A): dispatch-batch ambient-noise
+	// gate decision — fired by classifyAmbientNoiseGate (retry-executor
+	// shouldRetry hook) ONLY when a real classifier answer informed the
+	// retry-vs-give-up decision (dormant unless runtime.classifierEnabled —
+	// same flag as task.retry_triage). Diagnostic only, never transitions
+	// state; every classifier failure mode falls back to proceed-with-retry
+	// without emitting this event.
+	"task.noise_gate",
 	// WP-2/R2 waiting-producer (ADR-0 2026-08-17-waiting-producer-ask item 10):
 	// `ask` tool lifecycle — requested on park acceptance, answered on delivery
 	// (mailbox or requeue+inject), timedout on deadline expiry (both the

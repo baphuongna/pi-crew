@@ -62,6 +62,14 @@ export interface LiveAgentHandle {
 	status: CrewAgentRecord["status"];
 	pendingSteers: string[];
 	pendingFollowUps: string[];
+	/**
+	 * U4 dispose normalization: once the underlying session has been disposed
+	 * (task finished / hung-tool escape / terminate), the handle is TERMINAL —
+	 * steer/followUp/resume are rejected clearly instead of silently queueing
+	 * messages into a dead session (the old asymmetric-dispose bug) or letting
+	 * registerLiveAgent replay pending queues into it.
+	 */
+	terminated?: boolean;
 	/** Phase 7: Pending IRC messages for this agent. */
 	pendingMessages: IrcMessage[];
 	/** G1-G6: Real-time activity tracking (in-memory only). */
@@ -100,6 +108,11 @@ export function registerLiveAgent(
 		pendingSteers: existing?.pendingSteers ?? [],
 		pendingFollowUps: existing?.pendingFollowUps ?? [],
 		pendingMessages: existing?.pendingMessages ?? [],
+		// U4: a re-register with a FRESH session revives the agentId (e.g. the
+		// D4 planning→execute handoff: a mock/placeholder handle registered first,
+		// the real session later). Any pending steer/followUp queued against the
+		// earlier handle below is routed to the NEW session on replay.
+		terminated: false,
 		activity: existing?.activity ?? {
 			activeTools: new Map(),
 			toolUses: 0,
@@ -161,9 +174,13 @@ export function registerLiveAgent(
 		handle.pendingFollowUps.length = 0;
 		for (const message of pending)
 			void handle.session
+				// U4: streamingBehavior is MANDATORY on every prompt() — without it a
+				// prompt that lands while the session is already streaming throws
+				// "Agent is already processing" (pi agent-session.js:1548).
 				.prompt(message, {
 					source: "api",
 					expandPromptTemplates: false,
+					streamingBehavior: "followUp",
 				})
 				.catch((error) => logInternalError("live-agent-manager.prompt", error, `agentId=${handle.agentId}`));
 	}
@@ -217,10 +234,49 @@ async function killLiveSessionProcessIfAlive(handle: LiveAgentHandle): Promise<v
 	}
 }
 
+/**
+ * U4 dispose normalization: dispose the underlying session AND make the
+ * handle terminal — drain any queued pendingSteers/pendingFollowUps (they can
+ * never be delivered to a disposed session) and set `terminated` so later
+ * steer/followUp calls are rejected clearly instead of queueing into a dead
+ * session. The handle itself stays in the registry for status/health/UI.
+ */
 export function disposeLiveAgentSession(agentIdOrTaskId: string): void {
 	const handle = getLiveAgent(agentIdOrTaskId);
 	if (!handle) return;
+	markLiveAgentHandleTerminated(handle);
 	safeDisposeLiveSession(handle);
+}
+
+/** Drain pending queues and mark a handle terminal (idempotent). */
+function markLiveAgentHandleTerminated(handle: LiveAgentHandle): void {
+	// Drain: queued messages must not replay into the disposed session later
+	// (registerLiveAgent preserves pending* across re-registrations).
+	handle.pendingSteers.length = 0;
+	handle.pendingFollowUps.length = 0;
+	handle.terminated = true;
+	handle.updatedAt = new Date().toISOString();
+	invalidateSortedLiveAgents();
+}
+
+/**
+ * U4 hung-tool escape hatch — drop-reference.
+ *
+ * Synchronous last resort for a session whose prompt() will never settle
+ * (tool/provider holds the turn and ignores AbortSignal): terminate the
+ * handle and REMOVE it from the registry WITHOUT awaiting abort().
+ * terminateLiveAgent's `await session.abort()` would itself hang on such a
+ * session; here only synchronous cleanup runs (drain → mark → dispose →
+ * unregister). Any background abort that eventually settles is harmless.
+ */
+export function dropLiveAgentReference(agentIdOrTaskId: string): LiveAgentHandle | undefined {
+	const handle = getLiveAgent(agentIdOrTaskId);
+	if (!handle) return undefined;
+	markLiveAgentHandleTerminated(handle);
+	safeDisposeLiveSession(handle);
+	liveAgents.delete(handle.agentId);
+	invalidateSortedLiveAgents();
+	return handle;
 }
 
 export async function terminateLiveAgent(
@@ -254,6 +310,7 @@ export async function terminateLiveAgent(
 	try {
 		await handle.session.abort?.();
 	} finally {
+		markLiveAgentHandleTerminated(handle);
 		safeDisposeLiveSession(handle);
 		liveAgents.delete(handle.agentId); // Move AFTER abort completes to prevent race
 		invalidateSortedLiveAgents();
@@ -377,6 +434,10 @@ export function getLiveAgentContextPercent(agentIdOrTaskId: string): number | nu
 export async function steerLiveAgent(agentIdOrTaskId: string, message: string): Promise<LiveAgentHandle> {
 	const handle = getLiveAgent(agentIdOrTaskId);
 	if (!handle) throw new Error(`Live agent '${agentIdOrTaskId}' is not registered in this process.`);
+	// U4 dispose normalization: explicit rejection — never silently queue into
+	// (or double-deliver via replay of) a disposed session.
+	if (handle.terminated)
+		throw new Error(`Live agent '${agentIdOrTaskId}' session was disposed (terminated); steer is no longer accepted.`);
 	if (typeof handle.session.steer !== "function") {
 		handle.pendingSteers.push(message);
 		return handle;
@@ -390,6 +451,8 @@ export async function steerLiveAgent(agentIdOrTaskId: string, message: string): 
 export async function followUpLiveAgent(agentIdOrTaskId: string, prompt: string): Promise<LiveAgentHandle> {
 	const handle = getLiveAgent(agentIdOrTaskId);
 	if (!handle) throw new Error(`Live agent '${agentIdOrTaskId}' is not registered in this process.`);
+	if (handle.terminated)
+		throw new Error(`Live agent '${agentIdOrTaskId}' session was disposed (terminated); follow-up is no longer accepted.`);
 	if (typeof handle.session.prompt !== "function") {
 		handle.pendingFollowUps.push(prompt);
 		return handle;
@@ -397,6 +460,8 @@ export async function followUpLiveAgent(agentIdOrTaskId: string, prompt: string)
 	await handle.session.prompt(prompt, {
 		source: "api",
 		expandPromptTemplates: false,
+		// U4: mandatory streamingBehavior — see registerLiveAgent replay note.
+		streamingBehavior: "followUp",
 	});
 	handle.updatedAt = new Date().toISOString();
 	invalidateSortedLiveAgents();
@@ -412,11 +477,15 @@ export async function stopLiveAgent(agentIdOrTaskId: string): Promise<LiveAgentH
 export async function resumeLiveAgent(agentIdOrTaskId: string, prompt: string): Promise<LiveAgentHandle> {
 	const handle = getLiveAgent(agentIdOrTaskId);
 	if (!handle) throw new Error(`Live agent '${agentIdOrTaskId}' is not registered in this process.`);
+	if (handle.terminated)
+		throw new Error(`Live agent '${agentIdOrTaskId}' session was disposed (terminated); resume requires a fresh session.`);
 	if (typeof handle.session.prompt !== "function") throw new Error(`Live agent '${agentIdOrTaskId}' does not expose prompt().`);
 	handle.status = "running";
 	await handle.session.prompt(prompt, {
 		source: "api",
 		expandPromptTemplates: false,
+		// U4: mandatory streamingBehavior — see registerLiveAgent replay note.
+		streamingBehavior: "followUp",
 	});
 	handle.status = "completed";
 	handle.updatedAt = new Date().toISOString();
@@ -514,7 +583,7 @@ export function sendIrcMessage(targetAgentId: string, message: IrcMessage): void
 	if (typeof handle.session.prompt === "function") {
 		const ircPrompt = `[Message from ${message.from}] ${message.content}`;
 		void handle.session
-			.prompt(ircPrompt, { source: "api", expandPromptTemplates: false })
+			.prompt(ircPrompt, { source: "api", expandPromptTemplates: false, streamingBehavior: "followUp" })
 			.catch((error) => logInternalError("live-agent-manager.irc-deliver", error, `agentId=${handle.agentId}`));
 	}
 }
@@ -559,6 +628,7 @@ export function broadcastIrcMessage(fromAgentId: string, message: IrcMessage): s
 				.prompt(ircPrompt, {
 					source: "api",
 					expandPromptTemplates: false,
+					streamingBehavior: "followUp",
 				})
 				.catch((error) => logInternalError("live-agent-manager.irc-broadcast", error, `agentId=${handle.agentId}`));
 		}
@@ -657,7 +727,7 @@ export async function respondAsBackground(
 	if (!delivered && typeof handle.session.prompt === "function") {
 		const promptText = `${deliveredTag}${awaitReply ? ` (reply correlation: ${corrId})` : ""}`;
 		void handle.session
-			.prompt(promptText, { source: "api", expandPromptTemplates: false })
+			.prompt(promptText, { source: "api", expandPromptTemplates: false, streamingBehavior: "followUp" })
 			.catch((error) => logInternalError("live-agent-manager.respondAsBackground", error, `agentId=${handle.agentId}`));
 		delivered = true;
 	}

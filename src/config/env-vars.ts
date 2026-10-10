@@ -455,6 +455,15 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "boolean",
 		doc: "R3-19/D5 hermetic worker spawn override: '1' forces --no-extensions on worker argv, '0' restores the old ambient-stack parity (discovered/configured/built-in extensions load); beats BuildPiWorkerArgsInput.hermeticWorkers / runtime.hermeticWorkers; default ON (pi-args.ts:resolveHermeticWorkers). Explicit -e prompt-runtime + agent extensions + --skill flags are unaffected (cli.md:186-191)",
 	},
+	PI_CREW_CHILD_PI_MODE: {
+		name: "PI_CREW_CHILD_PI_MODE",
+		doc: "U14 (upgrade-spec 2026-10-09) child-pi protocol v2 transport select: 'rpc' spawns task workers over pi --mode rpc (SDK RpcClient wire — steer receipts, clear_queue hygiene, multi-prompt reuse; child-pi-rpc.ts), 'json' / unset keeps the --mode json -p stdio path (phase-1 default; both modes fully regression-tested). Surface TUI panes are unaffected",
+	},
+	PI_CREW_CHILD_PI_POOL: {
+		name: "PI_CREW_CHILD_PI_POOL",
+		parser: "boolean",
+		doc: "U14 rpc worker process pool (phase 1, default OFF): '1' lets consecutive tasks of the SAME agent reuse one live idle rpc process (warm context — 1 process = 1 session, many prompts). Phase-1 limitation: per-run env control vars (broker token, steering file, scratchpad gates) and argv flags apply only to the FIRST task on the process; entries evict on exit/abort (child-pi-rpc.ts)",
+	},
 	PI_CREW_WORKER_TRANSPORT: {
 		name: "PI_CREW_WORKER_TRANSPORT",
 		doc: "W7 EXPERIMENTAL worker transport override: 'rpc' selects the prototype RPC frame-client (src/runtime/rpc/) at the run-worker seam (wired e2728f68; D1/DR2 also plumbs config runtime.workerTransport to the same seam — env WINS over config when set, invalid env fails safe to stdio); anything else/unset → config value, default stdio child-pi path (rpc-worker.ts resolveWorkerTransport)",

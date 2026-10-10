@@ -371,3 +371,77 @@ test("worker msg.send with non-notify/message kind → bad-params", async () => 
 		fs.rmSync(s.cwd, { recursive: true, force: true });
 	}
 });
+
+test("U5: msg.send carries a requestId and a retry with the SAME requestId dedups (resend idempotent)", async () => {
+	const s = await scaffoldRunningTask("reqid");
+	const { broker, socketPath } = await startBroker({ cwd: s.cwd });
+	try {
+		const token = broker.issueRunToken(s.runId, s.taskId);
+		const client = await rawConnect(socketPath);
+		try {
+			await hello(client, s.runId, s.taskId, token);
+			const requestId = `${s.runId}:${s.taskId}:retry-1`;
+			const first = await sendMsg(client, { to: s.siblingTaskId, body: "dm body", kind: "message", requestId }, "msg-u5-1");
+			assert.ok(first.result, `first send must succeed: ${JSON.stringify(first)}`);
+			assert.equal(first.result!.requestId, requestId, "the ack echoes the requestId");
+			assert.equal(first.result!.dedupedRecipients, 0);
+			// The retry (same requestId — a client retransmit after a lost ack).
+			const retry = await sendMsg(client, { to: s.siblingTaskId, body: "dm body (retry)", kind: "message", requestId }, "msg-u5-2");
+			assert.ok(retry.result, `retry must succeed: ${JSON.stringify(retry)}`);
+			assert.equal(retry.result!.dedupedRecipients, 1, "the resend reuses the existing row");
+			// Durable state: exactly ONE row in the target's mailbox, carrying the id.
+			const loaded = loadRunManifestById(s.cwd, s.runId)!;
+			const siblingInbox = readMailbox(loaded.manifest, "inbox", s.siblingTaskId).filter((m) => m.kind === "message");
+			assert.equal(siblingInbox.length, 1, "no duplicate row from the resend");
+			assert.equal(siblingInbox[0]!.requestId, requestId);
+			// Audit: the mailbox.send events record the requestId + dedup count.
+			const events = fs
+				.readFileSync(loaded.manifest.eventsPath, "utf-8")
+				.trim()
+				.split("\n")
+				.filter(Boolean)
+				.map((l) => JSON.parse(l) as Record<string, unknown>);
+			const sends = events.filter((e) => e.type === "mailbox.send") as Array<{ data?: Record<string, unknown> }>;
+			assert.equal(sends.length, 2, "one audit event per send (fresh + resend)");
+			assert.equal(sends[0]!.data?.deduped, 0);
+			assert.equal(sends[1]!.data?.deduped, 1);
+			assert.equal(sends[1]!.data?.requestId, requestId);
+		} finally {
+			client.close();
+		}
+	} finally {
+		await broker.stop();
+		fs.rmSync(s.cwd, { recursive: true, force: true });
+	}
+});
+
+test("U5: msg.send without a client requestId gets a broker-generated unique one", async () => {
+	const s = await scaffoldRunningTask("reqid-auto");
+	const { broker, socketPath } = await startBroker({ cwd: s.cwd });
+	try {
+		const token = broker.issueRunToken(s.runId, s.taskId);
+		const client = await rawConnect(socketPath);
+		try {
+			await hello(client, s.runId, s.taskId, token);
+			const first = await sendMsg(client, { to: s.siblingTaskId, body: "dm one", kind: "message" }, "msg-u5-a1");
+			const second = await sendMsg(client, { to: s.siblingTaskId, body: "dm two", kind: "message" }, "msg-u5-a2");
+			assert.ok(first.result && second.result);
+			const id1 = String(first.result!.requestId ?? "");
+			const id2 = String(second.result!.requestId ?? "");
+			assert.match(id1, new RegExp(`^${s.runId}:${s.taskId}:`), "generated ids use the {runId}:{taskId}:{seq} shape");
+			assert.notEqual(id1, id2, "generated ids are unique per send");
+			const loaded = loadRunManifestById(s.cwd, s.runId)!;
+			const rows = readMailbox(loaded.manifest, "inbox", s.siblingTaskId).filter((m) => m.kind === "message");
+			assert.deepEqual(
+				rows.map((m) => m.requestId),
+				[id1, id2],
+				"every durable row carries its send's requestId",
+			);
+		} finally {
+			client.close();
+		}
+	} finally {
+		await broker.stop();
+		fs.rmSync(s.cwd, { recursive: true, force: true });
+	}
+});

@@ -381,6 +381,15 @@ function parseRuntimeConfig(value: unknown): CrewRuntimeConfig | undefined {
 			};
 			return Object.values(parsed).some((v) => v !== undefined) ? parsed : undefined;
 		})(),
+		liveSession: (() => {
+			const l = asRecord(obj.liveSession);
+			if (!l) return undefined;
+			const parsed: NonNullable<CrewRuntimeConfig["liveSession"]> = {
+				responseTimeoutMs: parsePositiveInteger(l.responseTimeoutMs, LIMIT_CEILINGS.runtimeTaskTimeoutMs),
+				hungToolGraceMs: parsePositiveInteger(l.hungToolGraceMs, LIMIT_CEILINGS.runtimeTaskTimeoutMs),
+			};
+			return Object.values(parsed).some((v) => v !== undefined) ? parsed : undefined;
+		})(),
 		excludeContextBash: parseWithSchema(Type.Boolean(), obj.excludeContextBash),
 		handoffBudgetTokens: parseHandoffBudgetTokens(obj.handoffBudgetTokens),
 		agentExtensions: parseStringList(obj.agentExtensions),

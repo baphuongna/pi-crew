@@ -72,6 +72,13 @@ export interface MailboxMessage {
 	 *  Carried by `kind:"response"` entries; matches task.waiting.questionId —
 	 *  matching must be exact equality (never prefix/substring). */
 	questionId?: string;
+	/** U5 (2026-10-10): stable per-send idempotency key — uuid or
+	 *  `{runId}:{taskId}:{seq}`. Every append auto-stamps one when the caller
+	 *  omits it; resend-safe callers (broker msg.send) pass an explicit one so
+	 *  `appendMailboxMessageIdempotent` can dedup by (direction, requestId) in
+	 *  the SAME mailbox file (the durable analog of pi-durable's
+	 *  `tx.submissionByRequest()` exactly-once root-submit). */
+	requestId?: string;
 	acknowledgedAt?: string;
 	data?: Record<string, unknown>;
 	/** ID of the original message this is a reply to. */
@@ -89,6 +96,13 @@ export interface MailboxMessage {
 export interface MailboxDeliveryState {
 	messages: Record<string, MailboxMessageStatus>;
 	updatedAt: string;
+	/** U5 (2026-10-10): durable (direction, requestId) delivered index —
+	 *  key `${direction}:${requestId}` → id of the first message row that was
+	 *  consumed under it. Written by the worker inbox pickup
+	 *  (recordMailboxRequestIdDelivery) and read back after a restart so a
+	 *  redelivered/resent row is dropped (exactly-once pickup). Optional so
+	 *  pre-U5 delivery.json files parse unchanged. */
+	requestIds?: Record<string, string>;
 }
 
 export interface MailboxValidationIssue {
@@ -307,6 +321,7 @@ function parseMailboxMessage(raw: unknown, expectedDirection: MailboxDirection):
 		deliveryMode: isDeliveryMode(obj.deliveryMode) ? obj.deliveryMode : undefined,
 		taskId: typeof obj.taskId === "string" ? obj.taskId : undefined,
 		questionId: typeof obj.questionId === "string" ? obj.questionId : undefined,
+		requestId: typeof obj.requestId === "string" ? obj.requestId : undefined,
 		acknowledgedAt: typeof obj.acknowledgedAt === "string" ? obj.acknowledgedAt : undefined,
 		data,
 		replyTo: typeof obj.replyTo === "string" ? obj.replyTo : undefined,
@@ -519,6 +534,14 @@ export function readDeliveryState(manifest: TeamRunManifest): MailboxDeliverySta
 			messages,
 			updatedAt: typeof obj.updatedAt === "string" ? obj.updatedAt : new Date().toISOString(),
 		};
+		// U5: optional durable (direction, requestId) delivered index — absent
+		// in pre-U5 delivery.json files (treated as "nothing delivered yet").
+		if (obj.requestIds && typeof obj.requestIds === "object" && !Array.isArray(obj.requestIds)) {
+			const requestIds: Record<string, string> = {};
+			for (const [key, id] of Object.entries(obj.requestIds as Record<string, unknown>))
+				if (typeof id === "string") requestIds[key] = id;
+			if (Object.keys(requestIds).length > 0) state.requestIds = requestIds;
+		}
 		setDeliveryCacheEntry(filePath, { mtimeMs: stat.mtimeMs, size: stat.size, state });
 		return state;
 	} catch (error) {
@@ -640,6 +663,7 @@ function pruneDeliveryMessages(manifest: TeamRunManifest, state: MailboxDelivery
 	const entries = Object.entries(state.messages);
 	const ackedCount = entries.reduce((count, [, status]) => (status === "acknowledged" ? count + 1 : count), 0);
 	if (ackedCount > ACK_SWEEP_MIN_ACKS) sweepDeadAcknowledgements(manifest, state);
+	pruneDeliveredRequestIds(state);
 	const remaining = Object.entries(state.messages);
 	if (remaining.length <= MAX_DELIVERY_MESSAGES) return;
 	// Stable sort: within a status tier the previous insertion order (which is
@@ -677,6 +701,19 @@ function pruneDeliveryMessages(manifest: TeamRunManifest, state: MailboxDelivery
 	state.messages = Object.fromEntries(remaining.filter(([id]) => keptIds.has(id)));
 }
 
+/** U5: bound the durable (direction, requestId) delivered index. Keys insert
+ *  chronologically (first delivery under that requestId), so eviction keeps
+ *  the most recent MAX_DELIVERY_MESSAGES keys — dropping a key can only
+ *  re-enable delivery of an extremely old duplicate row, the same bounded
+ *  risk the messages map already accepts. */
+function pruneDeliveredRequestIds(state: MailboxDeliveryState): void {
+	if (!state.requestIds) return;
+	const keys = Object.keys(state.requestIds);
+	if (keys.length <= MAX_DELIVERY_MESSAGES) return;
+	const keep = new Set(keys.slice(keys.length - MAX_DELIVERY_MESSAGES));
+	for (const key of keys) if (!keep.has(key)) delete state.requestIds[key];
+}
+
 function writeDeliveryState(
 	manifest: TeamRunManifest,
 	state: MailboxDeliveryState,
@@ -704,29 +741,17 @@ function writeDeliveryState(
 	}
 }
 
-/**
- * Append a message to a run's or task's mailbox.
- *
- * SECURITY NOTE: The `from` field is caller-declared — there is no cryptographic
- * sender authentication. This is acceptable because `appendMailboxMessage` is an
- * internal API only callable from within the pi-crew process (no external input).
- * All callers (handleSteer, handleRespond, handleFollowUp) derive `from` from
- * authenticated context (session role, task assignment).
- *
- * If pi-crew ever exposes mailbox writes to external/untrusted input, sender
- * authentication (HMAC or session key) must be added.
- */
-export function appendMailboxMessage(
-	manifest: TeamRunManifest,
-	message: Omit<MailboxMessage, "id" | "runId" | "createdAt" | "status"> & {
-		id?: string;
-		status?: MailboxMessageStatus;
-	},
-): MailboxMessage {
-	if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
-	else ensureRunMailbox(manifest);
-	const createdAt = new Date().toISOString();
-	const complete: MailboxMessage = {
+/** U5 (2026-10-10): shared message construction for every append path.
+ *  Auto-stamps a unique `requestId` (`req_<uuid>`) when the caller omits one
+ *  so EVERY mailbox row carries one (receiver dedup keys on it); callers
+ *  that need resend idempotency pass an explicit stable id instead. */
+type MailboxAppendInput = Omit<MailboxMessage, "id" | "runId" | "createdAt" | "status"> & {
+	id?: string;
+	status?: MailboxMessageStatus;
+};
+
+function buildMailboxMessage(manifest: TeamRunManifest, message: MailboxAppendInput, createdAt: string): MailboxMessage {
+	return {
 		// RR-021 WI-4.3j: randomUUID instead of Date.now()+Math.random() —
 		// collision-free under the msg_ prefix, no clock-ordering leakage.
 		id: message.id ?? `msg_${randomUUID()}`,
@@ -742,6 +767,10 @@ export function appendMailboxMessage(
 		deliveryMode: message.deliveryMode,
 		taskId: message.taskId,
 		questionId: message.questionId,
+		// U5: every send carries a requestId — explicit (idempotent senders)
+		// or auto-stamped uuid (one per row; still unique per send).
+		requestId: message.requestId ?? `req_${randomUUID()}`,
+		acknowledgedAt: message.acknowledgedAt,
 		data: message.data,
 		replyTo: message.replyTo,
 		replyFrom: message.replyFrom,
@@ -749,6 +778,25 @@ export function appendMailboxMessage(
 		repliedAt: message.repliedAt,
 		replyContent: message.replyContent,
 	};
+}
+
+/**
+ * Append a message to a run's or task's mailbox.
+ *
+ * SECURITY NOTE: The `from` field is caller-declared — there is no cryptographic
+ * sender authentication. This is acceptable because `appendMailboxMessage` is an
+ * internal API only callable from within the pi-crew process (no external input).
+ * All callers (handleSteer, handleRespond, handleFollowUp) derive `from` from
+ * authenticated context (session role, task assignment).
+ *
+ * If pi-crew ever exposes mailbox writes to external/untrusted input, sender
+ * authentication (HMAC or session key) must be added.
+ */
+export function appendMailboxMessage(manifest: TeamRunManifest, message: MailboxAppendInput): MailboxMessage {
+	if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
+	else ensureRunMailbox(manifest);
+	const createdAt = new Date().toISOString();
+	const complete = buildMailboxMessage(manifest, message, createdAt);
 	// ST-3: collapse to ONE lock namespace (.flock) for ALL mailbox-file
 	// operations — sync append, async append, and full-file rewrite. Previously
 	// this used withEventLogLockSync (.mkdirlock) while async append used an
@@ -846,39 +894,11 @@ export function appendFollowUpMessage(
  * steering/follow-up delivery. readDeliveryState/writeDeliveryState remain
  * sync but are cheap thanks to the FIND-01 delivery cache.
  */
-export async function appendMailboxMessageAsync(
-	manifest: TeamRunManifest,
-	message: Omit<MailboxMessage, "id" | "runId" | "createdAt" | "status"> & {
-		id?: string;
-		status?: MailboxMessageStatus;
-	},
-): Promise<MailboxMessage> {
+export async function appendMailboxMessageAsync(manifest: TeamRunManifest, message: MailboxAppendInput): Promise<MailboxMessage> {
 	if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
 	else ensureRunMailbox(manifest);
 	const createdAt = new Date().toISOString();
-	const complete: MailboxMessage = {
-		// RR-021 WI-4.3j: randomUUID instead of Date.now()+Math.random() —
-		// collision-free under the msg_ prefix, no clock-ordering leakage.
-		id: message.id ?? `msg_${randomUUID()}`,
-		runId: manifest.runId,
-		direction: message.direction,
-		from: message.from,
-		to: message.to,
-		body: message.body,
-		createdAt,
-		status: message.status ?? "queued",
-		kind: message.kind,
-		priority: message.priority,
-		deliveryMode: message.deliveryMode,
-		taskId: message.taskId,
-		questionId: message.questionId,
-		data: message.data,
-		replyTo: message.replyTo,
-		replyFrom: message.replyFrom,
-		replyDeadline: message.replyDeadline,
-		repliedAt: message.repliedAt,
-		replyContent: message.replyContent,
-	};
+	const complete = buildMailboxMessage(manifest, message, createdAt);
 	const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
 	await withFileLockAsync(mbFile, async () => {
 		await fs.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
@@ -955,6 +975,126 @@ export async function appendFollowUpMessageAsync(
 	});
 }
 
+// ============================================================================
+// U5 (2026-10-10): requestId idempotency — every send carries a unique
+// requestId; resend-safe senders reuse the SAME one and are deduped per
+// target mailbox by (direction, requestId) via an in-lock row scan (the
+// durable analog of pi-durable's `tx.submissionByRequest()` exactly-once
+// root-submit, per upgrade-spec U5).
+// ============================================================================
+
+export interface IdempotentMailboxAppendResult {
+	message: MailboxMessage;
+	/** true when an existing (direction, requestId) row in the SAME mailbox
+	 *  file was reused — NO new row, NO delivery-state write, NO observer
+	 *  notification (the original append already did all three). */
+	deduped: boolean;
+}
+
+/** Row-level (direction, requestId) match against one mailbox file — the
+ *  same keying findMailboxMessageByRequestId exposes. Checks the U5
+ *  top-level field and the legacy `data.requestId` shape (group_join). */
+function findRequestIdRowInFile(filePath: string, direction: MailboxDirection, requestId: string): MailboxMessage | undefined {
+	return safeReadMailboxFile(filePath, direction).find(
+		(message) => message.requestId === requestId || message.data?.requestId === requestId,
+	);
+}
+
+function recordDeliveryEntry(manifest: TeamRunManifest, complete: MailboxMessage, createdAt: string): void {
+	withFileLockSync(deliveryFile(manifest, true), () => {
+		const delivery = readDeliveryState(manifest);
+		delivery.messages[complete.id] = complete.status;
+		delivery.updatedAt = createdAt;
+		writeDeliveryState(manifest, delivery);
+	});
+}
+
+/** U5: idempotent SYNC append — if the target mailbox file already holds a
+ *  row with this (direction, requestId), return that row (deduped) without
+ *  writing anything. The check-then-append runs INSIDE the mailbox file lock
+ *  so two concurrent sends with the same requestId cannot both append. */
+export function appendMailboxMessageIdempotent(
+	manifest: TeamRunManifest,
+	message: MailboxAppendInput & { requestId: string },
+): IdempotentMailboxAppendResult {
+	if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
+	else ensureRunMailbox(manifest);
+	const createdAt = new Date().toISOString();
+	const complete = buildMailboxMessage(manifest, message, createdAt);
+	const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
+	let stored: MailboxMessage | undefined;
+	withFileLockSync(mbFile, () => {
+		const existing = findRequestIdRowInFile(mbFile, complete.direction, message.requestId);
+		if (existing) {
+			stored = existing;
+			return;
+		}
+		fs.appendFileSync(mbFile, `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
+		rotateMailboxFileIfNeeded(mbFile);
+	});
+	if (stored) return { message: stored, deduped: true };
+	recordDeliveryEntry(manifest, complete, createdAt);
+	notifyMailboxAppended(complete);
+	return { message: complete, deduped: false };
+}
+
+/** U5: async twin of appendMailboxMessageIdempotent for the broker fan-out
+ *  path (withFileLockAsync — promise-chain, no sleepSync stall). The
+ *  delivery RMW keeps the cross-process sync lock, mirroring
+ *  appendMailboxMessageAsync. */
+export async function appendMailboxMessageIdempotentAsync(
+	manifest: TeamRunManifest,
+	message: MailboxAppendInput & { requestId: string },
+): Promise<IdempotentMailboxAppendResult> {
+	if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
+	else ensureRunMailbox(manifest);
+	const createdAt = new Date().toISOString();
+	const complete = buildMailboxMessage(manifest, message, createdAt);
+	const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
+	let stored: MailboxMessage | undefined;
+	await withFileLockAsync(mbFile, async () => {
+		const existing = findRequestIdRowInFile(mbFile, complete.direction, message.requestId);
+		if (existing) {
+			stored = existing;
+			return;
+		}
+		await fs.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
+		rotateMailboxFileIfNeeded(mbFile);
+	});
+	if (stored) return { message: stored, deduped: true };
+	recordDeliveryEntry(manifest, complete, createdAt);
+	notifyMailboxAppended(complete);
+	return { message: complete, deduped: false };
+}
+
+/** U5: durable receiver-side dedup record — the worker inbox pickup marks the
+ *  messages it surfaced as consumed: `messages[id] = "acknowledged"` (the F09
+ *  durable record; the inbox line itself never flips status) plus the
+ *  `${direction}:${requestId}` index. Both survive restart, so a later poll
+ *  (fresh process, empty seen-set) still drops them. */
+export interface MailboxRequestIdDeliveryRecord {
+	direction: MailboxDirection;
+	messageId: string;
+	/** Optional: rows without a requestId (pre-U5 legacy) only get the
+	 *  by-id acknowledged record. */
+	requestId?: string;
+}
+
+export function recordMailboxRequestIdDelivery(manifest: TeamRunManifest, records: MailboxRequestIdDeliveryRecord[]): MailboxDeliveryState {
+	return withFileLockSync(deliveryFile(manifest, true), () => {
+		const delivery = readDeliveryState(manifest);
+		for (const record of records) {
+			delivery.messages[record.messageId] = "acknowledged";
+			if (record.requestId) (delivery.requestIds ??= {})[`${record.direction}:${record.requestId}`] = record.messageId;
+		}
+		delivery.updatedAt = new Date().toISOString();
+		// Pickup is terminal for that message on the worker side — full durability
+		// (same rationale as acknowledgeMailboxMessage).
+		writeDeliveryState(manifest, delivery, { durability: "full" });
+		return delivery;
+	});
+}
+
 export function listMailboxByKind(manifest: TeamRunManifest, kind: MailboxMessageKind, direction?: MailboxDirection): MailboxMessage[] {
 	const messages = direction
 		? readAllMessages(manifest, direction)
@@ -964,8 +1104,16 @@ export function listMailboxByKind(manifest: TeamRunManifest, kind: MailboxMessag
 	return messages.filter((message) => message.kind === kind || message.data?.kind === kind);
 }
 
-export function findMailboxMessageByRequestId(manifest: TeamRunManifest, requestId: string): MailboxMessage | undefined {
-	return readMailbox(manifest).find((message) => message.data?.requestId === requestId);
+export function findMailboxMessageByRequestId(
+	manifest: TeamRunManifest,
+	requestId: string,
+	scope?: { direction?: MailboxDirection; taskId?: string },
+): MailboxMessage | undefined {
+	// U5: also match the top-level `requestId` field (new sends) alongside the
+	// legacy `data.requestId` shape (group_join) so one lookup covers both.
+	const matches = (message: MailboxMessage) => message.requestId === requestId || message.data?.requestId === requestId;
+	if (scope) return readMailbox(manifest, scope.direction, scope.taskId).find(matches);
+	return readMailbox(manifest).find(matches);
 }
 
 export function readMailboxMessage(manifest: TeamRunManifest, messageId: string): MailboxMessage | undefined {

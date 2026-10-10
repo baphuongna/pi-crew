@@ -123,6 +123,17 @@ export interface CrewRuntimeConfig {
 		maxReminders?: number;
 		reminderPrompt?: string;
 	};
+	/**
+	 * U4 (live-session v2): tunables for the in-process live-session worker.
+	 * `responseTimeoutMs` bounds one prompt() wall-clock (default
+	 * DEFAULT_LIVE_SESSION.responseTimeoutMs); `hungToolGraceMs` is how long
+	 * the escape hatch waits for the cooperatively-aborted prompt to settle
+	 * before dropping the session reference and failing the task.
+	 */
+	liveSession?: {
+		responseTimeoutMs?: number;
+		hungToolGraceMs?: number;
+	};
 	/** Policy for per-role runtime selection. Not sensitive — safe to keep in project config. */
 	isolationPolicy?: {
 		/** Roles that should use child-process for crash isolation. Default: no roles. */

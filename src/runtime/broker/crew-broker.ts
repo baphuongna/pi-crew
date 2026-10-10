@@ -25,7 +25,12 @@ import { randomUUID } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
-import { appendMailboxMessageAsync, type MailboxMessage, registerMailboxAppendObserver } from "../../state/coordination/mailbox.ts";
+import {
+	appendMailboxMessageAsync,
+	appendMailboxMessageIdempotentAsync,
+	type MailboxMessage,
+	registerMailboxAppendObserver,
+} from "../../state/coordination/mailbox.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
@@ -936,6 +941,13 @@ export class CrewBroker {
 		}
 		const messageId = `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 		const fromField = isWorker ? conn.taskId! : (conn.taskId ?? conn.runId);
+		// U5 (2026-10-10): every send carries a unique requestId — client-supplied
+		// (idempotent retries reuse the SAME one) or broker-generated
+		// `{runId}:{sender}:{uuid}`. The durable (direction, requestId) index in
+		// delivery.json + the idempotent append below make resend-after-resume a
+		// no-op instead of a duplicate delivery.
+		const requestId = parsed.requestId ?? `${manifest.runId}:${fromField}:${randomUUID()}`;
+		let dedupedRecipients = 0;
 		let durable = false;
 		try {
 			// PERF (2026-08-24): to:"all" with 50 tasks used to run 50 sequential
@@ -947,7 +959,7 @@ export class CrewBroker {
 			for (let i = 0; i < targets.length; i += CHUNK) {
 				const results = await Promise.allSettled(
 					targets.slice(i, i + CHUNK).map((target) =>
-						appendMailboxMessageAsync(manifest, {
+						appendMailboxMessageIdempotentAsync(manifest, {
 							id: `${messageId}_${target.label}`,
 							direction: "inbox",
 							from: fromField,
@@ -958,9 +970,13 @@ export class CrewBroker {
 							priority: parsed.priority ?? "normal",
 							deliveryMode: "next_turn",
 							replyTo: parsed.replyTo,
+							requestId,
 						}),
 					),
 				);
+				for (const r of results) {
+					if (r.status === "fulfilled" && r.value.deduped) dedupedRecipients++;
+				}
 				const failure = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
 				if (failure) throw failure.reason;
 			}
@@ -968,6 +984,32 @@ export class CrewBroker {
 		} catch (err) {
 			this.sendError(conn, id, "durable-failed", (err as Error).message);
 			return;
+		}
+		// U5: one bounded audit event per send — requestId + dedup count make the
+		// exactly-once chain auditable end-to-end (mailbox.send → worker
+		// mailbox.pickup → mailbox.pickup_deduped). Never the body. Failure is
+		// non-fatal: the mailbox rows are the source of truth.
+		try {
+			await appendEventAsync(manifest.eventsPath, {
+				type: "mailbox.send",
+				runId: manifest.runId,
+				taskId: fromField,
+				message: `Mailbox send ${dedupedRecipients > 0 ? "(resend, deduped) " : ""}to ${targets.length} recipient(s).`,
+				data: {
+					requestId,
+					messageId,
+					recipients: targets.length,
+					deduped: dedupedRecipients,
+					kind: parsed.kind ?? "message",
+					to: isWorker ? (typeof parsed.to === "string" ? parsed.to : "group") : "orchestrator",
+				},
+			});
+		} catch (err) {
+			logInternalError(
+				"crew-broker.msg.mailbox-send-event",
+				err instanceof Error ? err : new Error(String(err)),
+				`runId=${conn.runId}`,
+			);
 		}
 		// Task 5b (spec §15.2 wake): a worker message addressed to the parent
 		// appends a bounded `worker.message` run event so the host-side event
@@ -986,6 +1028,8 @@ export class CrewBroker {
 						to: "parent",
 						kind: parsed.kind ?? "message",
 						...(parsed.subject !== undefined ? { subject: parsed.subject } : {}),
+						// U5: correlate the wake event with the durable send.
+						requestId,
 					},
 				});
 			} catch (err) {
@@ -998,7 +1042,9 @@ export class CrewBroker {
 		}
 		this.sendResult(conn, id, {
 			messageId,
+			requestId,
 			recipientCount: targets.length,
+			dedupedRecipients,
 			durableStatus: durable ? "ok" : "failed",
 			liveDeliveryStatus: "ok",
 		});

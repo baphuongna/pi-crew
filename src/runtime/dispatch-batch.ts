@@ -21,6 +21,8 @@ import type { TaskAttemptState, TeamRunManifest, TeamTaskState } from "../state/
 import { logInternalError } from "../utils/internal-error.ts";
 import type { WorkflowConfig, WorkflowStep } from "../workflows/workflow-config.ts";
 import { isDelegateShadowTask } from "./broker/delegate/shadow-lifecycle.ts";
+import { classifyAmbientNoiseGate } from "./classifier/ambient-noise-gate.ts";
+import { resolveClassifierEnabled, resolveClassifierModel } from "./classifier/classifier-service.ts";
 import { readCrewAgents, recordFromTask, saveCrewAgents } from "./crew-agent-records.ts";
 import { appendDeadletter } from "./deadletter.ts";
 import { classifyHeartbeat, DEFAULT_GRADIENT_THRESHOLDS } from "./heartbeat/heartbeat-gradient.ts";
@@ -764,6 +766,17 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 		// so the counter accumulates across retry attempts × model fallbacks.
 		const policy = retryPolicyFromConfig(input.reliability);
 		const spawnBudget: SpawnBudget = { count: 0, max: policy.maxTotalSpawns ?? 0 };
+		// U6A (spec 2026-10-09 §U6 Phase A): ambient-noise vs real-failure
+		// classifier gate on the retry loop. Dormant unless
+		// runtime.classifierEnabled (default FALSE — same flag as child-executor's
+		// retry-triage; env PI_CREW_CLASSIFIER_ENABLED beats config). Disabled
+		// path passes NO hook at all: zero behavior change, zero registry touch.
+		// Every classifier failure mode (opencode unconfigured, classify throw,
+		// stopReason error) falls back inside classifyAmbientNoiseGate to
+		// proceed-with-retry — the gate can only SKIP a queued retry, never fail
+		// the task with a new error.
+		const noiseGateEnabled = resolveClassifierEnabled(input.runtimeConfig?.classifierEnabled);
+		const noiseGateModel = resolveClassifierModel(input.runtimeConfig?.classifierModel);
 		const baseInput = {
 			manifest: ctx.manifest,
 			tasks: ctx.tasks,
@@ -890,6 +903,25 @@ export async function dispatchBatch(ctx: SchedulerContext, decision: DispatchBat
 				policy,
 				{
 					signal: runController.signal,
+					// U6A: only consulted between attempts (never on attempt 1) and only
+					// when the gate is enabled — see noiseGateEnabled note above. The
+					// gate never rejects (soft-fail inside classifyAmbientNoiseGate and
+					// inside executeWithRetry's shouldRetry guard).
+					shouldRetry: noiseGateEnabled
+						? (attempt, error) =>
+								classifyAmbientNoiseGate({
+									enabled: true,
+									modelRegistry: input.modelRegistry,
+									classifierModel: noiseGateModel,
+									failureSummary: error.message,
+									attempt,
+									maxAttempts: policy.maxAttempts,
+									eventsPath: ctx.manifest.eventsPath,
+									runId: ctx.manifest.runId,
+									taskId: task.id,
+									metricRegistry: input.metricRegistry,
+								}).then((gate) => gate.proceedWithRetry)
+						: undefined,
 					attemptId: (attempt) => `${ctx.manifest.runId}:${task.id}:attempt-${attempt}`,
 					onAttemptFailed: (attempt, error, delayMs, info) => {
 						lastAttemptId = info.attemptId;
