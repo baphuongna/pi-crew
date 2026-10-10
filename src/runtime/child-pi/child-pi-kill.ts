@@ -1,7 +1,7 @@
 /**
  * child-pi-kill.ts — Kill/escape path for child Pi worker processes.
  *
- * Extracted from child-pi.ts (H-7 decomposition, step 2). Zero behavior change.
+ * Extracted from child-pi.ts (H-7 decomposition, step 2).
  *
  * Responsibilities:
  *   - appendBoundedTail(): bounded concatenation with truncation marker.
@@ -13,6 +13,15 @@
  *
  * The activeChildrenMap and hardKillTimers Map are kept here (not re-exported)
  * because they are tightly coupled to the kill lifecycle.
+ *
+ * U15 (upgrade-spec 2026-10-09): every child registered via registerActiveChild
+ * is ALSO adopted into the OwnedProcess registry (owned-process.ts) — kills then
+ * route through the escalating group dispose (SIGTERM → poll → SIGKILL → cap →
+ * warn give-up) instead of a one-shot fire-and-forget signal pair, and the
+ * root-exit drain-reconcile reaps backgrounded descendants. The background
+ * zombie scanner and the child-side PI_CREW_PARENT_PID guard are KEPT as the
+ * complementary layers (owner-side catchable exits vs child-side leader-death
+ * backstop — see spec U15 "Complementary" note).
  */
 
 import type { ChildProcess } from "node:child_process";
@@ -21,12 +30,19 @@ import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { TailCaptureStage } from "../compaction/compact-stages/tail-capture-stage.ts";
 import { HARD_KILL_MS } from "./child-pi-constants.ts";
+import { adoptOwnedProcess, disposeAllOwnedProcesses, type OwnedProcess } from "./owned-process.ts";
 
 const MAX_CAPTURE_BYTES = DEFAULT_CHILD_PI.maxCaptureBytes;
 
 // Active children bookkeeping. Mutated by registerActiveChild/unregisterActiveChild.
 const activeChildProcesses = new Map<number, ChildProcess>();
 const childHardKillTimers = new Map<number, NodeJS.Timeout>();
+
+// U15: adopted OwnedProcess handles by pid. Filled by registerActiveChild;
+// entries survive root exit on purpose (the owned process owns the drain-
+// reconcile of backgrounded descendants) and are pruned by the scanner below
+// once the owner reaches its terminal state.
+const ownedByPid = new Map<number, OwnedProcess>();
 
 // Periodic cleanup of dead child process entries to prevent memory leaks.
 // If a child process never emits exit/close (zombie), the entry would leak.
@@ -38,14 +54,30 @@ setInterval(() => {
 			activeChildProcesses.delete(pid);
 		}
 	}
+	// U15: prune adopted owners that reached terminal state (group confirmed
+	// gone via dispose or drain-reconcile). Non-terminal owners stay routable.
+	for (const [pid, owner] of ownedByPid) {
+		if (owner.terminated) ownedByPid.delete(pid);
+	}
 }, 60_000).unref();
 
 /** Register a newly-spawned child so it can be tracked + killed on shutdown. */
 export function registerActiveChild(pid: number, child: ChildProcess): void {
 	activeChildProcesses.set(pid, child);
+	// U15: adopt into the owned-process registry so kill paths escalate through
+	// group dispose. Group leadership is resolved inside adoptOwnedProcess
+	// (authoritative /proc check on Linux — the rpc branch child, spawned
+	// without detached, lands on the single-process fallback automatically).
+	ownedByPid.set(pid, adoptOwnedProcess(child, { name: `child-pi:${pid}` }));
 }
 
-/** Remove a child from the active set once it has exited (or before kill). */
+/**
+ * Remove a child from the active set once it has exited (or before kill).
+ *
+ * NOTE (U15): this does NOT drop the adopted OwnedProcess handle — the owner
+ * still owes a drain-reconcile for backgrounded descendants after the root
+ * exit. The owned entry is pruned by the scanner once terminal.
+ */
 export function unregisterActiveChild(pid: number): void {
 	activeChildProcesses.delete(pid);
 }
@@ -94,6 +126,16 @@ function spawnTaskkillSafe(pid: number): void {
 
 export function killProcessPid(pid: number): void {
 	if (!Number.isInteger(pid) || pid <= 0) return;
+	// U15: adopted children escalate through the owned dispose ladder
+	// (SIGTERM group → poll → SIGKILL group → cap → warn give-up) instead of
+	// the one-shot signal pair below. External pid-only callers that never
+	// registered (live-session agents, cancel paths on stale pids) keep the
+	// legacy one-shot behavior unchanged.
+	const owned = ownedByPid.get(pid);
+	if (owned) {
+		void owned.dispose();
+		return;
+	}
 	try {
 		if (process.platform === "win32") {
 			// 3.8: Windows path uses taskkill /T /F (force kill the entire tree).
@@ -168,6 +210,16 @@ export function killProcessTree(pid: number | undefined, child?: ChildProcess): 
 		/* diagnostic best-effort */
 	}
 	if (!pid || !Number.isInteger(pid) || pid <= 0) return;
+	// U15: route adopted children through the escalating owned dispose. This
+	// deliberately BYPASSES the `child.exitCode !== null` early-out below: a
+	// dead root can still have live backgrounded descendants in its group, and
+	// dispose() is the component that knows (groupAlive is its source of truth;
+	// a terminal owner settles as a no-op via the PID-recycle guard).
+	const owned = ownedByPid.get(pid);
+	if (owned) {
+		void owned.dispose();
+		return;
+	}
 	if (child && child.exitCode !== null) return;
 	killProcessPid(pid);
 	child?.once("exit", () => clearHardKillTimer(pid));
@@ -176,5 +228,10 @@ export function killProcessTree(pid: number | undefined, child?: ChildProcess): 
 export function terminateActiveChildPiProcesses(): number {
 	const entries = [...activeChildProcesses.entries()];
 	for (const [pid, child] of entries) killProcessTree(pid, child);
+	// U15: also reap owners whose active-set entry is already gone (root exited,
+	// backgrounded descendants mid-drain). Fire-and-forget by design — the sync
+	// SIGTERM prefix is delivered immediately; the ladder completes while the
+	// shutdown path drains, and the postmortem registry covers a hard exit.
+	void disposeAllOwnedProcesses();
 	return entries.length;
 }
