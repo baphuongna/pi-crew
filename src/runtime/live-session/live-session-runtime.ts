@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { resolveToolPolicy } from "../../agents/agent-config.ts";
 import type { CrewRuntimeConfig } from "../../config/config.ts";
@@ -55,6 +56,7 @@ import {
 import { applyLiveAgentControlRequest, applyLiveAgentControlRequests, type LiveAgentControlCursor } from "./live-agent-control.ts";
 import {
 	disposeLiveAgentSession,
+	dropLiveAgentReference,
 	listLiveAgents,
 	markLiveAgentCompleted,
 	registerLiveAgent,
@@ -168,6 +170,21 @@ export interface LiveSessionPlannedResult {
 
 type LiveSessionModule = Record<string, unknown> & {
 	createAgentSession?: (options?: Record<string, unknown>) => Promise<{ session: LiveSessionLike; modelFallbackMessage?: string }>;
+	/**
+	 * U4 fast path: build the expensive services (ModelRuntime +
+	 * SettingsManager + reloaded ResourceLoader) ONCE per (cwd, mcp-mode,
+	 * context) and fan out cheap per-task sessions from it via
+	 * createAgentSessionFromServices. Measured on pi 1.0.4/1.1.0: services
+	 * ≈224ms one-time, each child session 0.5–1.5ms vs ≈2240ms for the old
+	 * full reload-per-worker path (probe /tmp/pi-crew-embed-probe/).
+	 */
+	createAgentSessionServices?: (options?: Record<string, unknown>) => Promise<Record<string, unknown>>;
+	createAgentSessionFromServices?: (options?: Record<string, unknown>) => Promise<{
+		session: LiveSessionLike;
+		modelFallbackMessage?: string;
+	}>;
+	/** Supplies the built-in mcp extension factory for MCP-permitted roles. */
+	createMcpExtension?: (options?: Record<string, unknown>) => unknown;
 	DefaultResourceLoader?: new (options: Record<string, unknown>) => { reload?: () => Promise<void> };
 	SessionManager?: {
 		inMemory?: (cwd?: string) => unknown;
@@ -192,7 +209,183 @@ type LiveSessionLike = {
 	modelRuntime?: {
 		registerNativeProvider?: (provider: unknown) => void;
 	};
+	/** U4 recursion guard (layer 1): public SDK accessor for loaded extension paths. */
+	extensionRunner?: { getExtensionPaths?: () => string[] };
 };
+
+/**
+ * U4 — shared live-session services bundle.
+ *
+ * `createAgentSessionServices` performs the expensive one-time work
+ * (ModelRuntime.create + settings + DefaultResourceLoader.reload with full
+ * extension/skill/theme discovery). Bundles are cached per (cwd, agentDir,
+ * mcp-permission, context-files) — the axes that change WHAT the loader
+ * discovers — so the first live worker in a mode pays the bundle cost and
+ * every subsequent worker in the same mode creates its session in ~1ms.
+ */
+interface LiveSessionServicesBundle {
+	cwd: string;
+	agentDir: string;
+	mcpPermitted: boolean;
+	loadContextFiles: boolean;
+	/** SDK AgentSessionServices ({cwd, agentDir, modelRuntime, settingsManager, resourceLoader, diagnostics}). */
+	services: Record<string, unknown>;
+	resourceLoader: Record<string, unknown>;
+	createdAtMs: number;
+}
+
+/** Cap: each bundle holds a ModelRuntime + loader (~15MB heap) — bound the cache. */
+const MAX_LIVE_SESSION_SERVICES_BUNDLES = 8;
+
+const liveSessionServicesCache = new Map<string, Promise<LiveSessionServicesBundle>>();
+
+function liveSessionServicesCacheKey(cwd: string, agentDir: string, mcpPermitted: boolean, loadContextFiles: boolean): string {
+	return [pathResolve(cwd), pathResolve(agentDir), mcpPermitted ? "mcp" : "nomcp", loadContextFiles ? "ctx" : "noctx"].join("|");
+}
+
+function pathResolve(input: string): string {
+	try {
+		return path.resolve(input);
+	} catch {
+		return input;
+	}
+}
+
+/** Test seam: inspect the services bundle cache. */
+export function liveSessionServicesCacheStatsForTest(): { size: number; keys: string[] } {
+	return { size: liveSessionServicesCache.size, keys: [...liveSessionServicesCache.keys()] };
+}
+
+/** Test seam: drop all cached bundles (hermetic tests must not share bundles). */
+export function clearLiveSessionServicesCacheForTest(): void {
+	liveSessionServicesCache.clear();
+}
+
+/**
+ * Get-or-build the shared services bundle. Failures delete the cache slot so a
+ * later task can retry the build instead of latching a rejected promise.
+ */
+async function getOrCreateLiveSessionServices(
+	mod: LiveSessionModule,
+	input: { cwd: string; agentDir: string; mcpPermitted: boolean; loadContextFiles: boolean },
+): Promise<LiveSessionServicesBundle> {
+	const key = liveSessionServicesCacheKey(input.cwd, input.agentDir, input.mcpPermitted, input.loadContextFiles);
+	let entry = liveSessionServicesCache.get(key);
+	if (!entry) {
+		if (liveSessionServicesCache.size >= MAX_LIVE_SESSION_SERVICES_BUNDLES) {
+			// FIFO eviction — bundles are stateless services, evicting only drops
+			// the warm cache (a later task rebuilds).
+			const oldest = liveSessionServicesCache.keys().next().value;
+			if (oldest !== undefined) liveSessionServicesCache.delete(oldest);
+		}
+		entry = (async () => {
+			const services = await mod.createAgentSessionServices!({
+				cwd: input.cwd,
+				agentDir: input.agentDir,
+				resourceLoaderOptions: {
+					// U4 recursion kill switch (layer 0, loader level): NO discovered/
+					// settings/package extensions load in the child — so the pi-crew
+					// host extension itself cannot load+initialize inside a worker.
+					noExtensions: true,
+					noPromptTemplates: true,
+					noThemes: true,
+					noContextFiles: !input.loadContextFiles,
+					...(input.mcpPermitted && typeof mod.createMcpExtension === "function"
+						? {
+								// G2: MCP-permitted (write-capable) roles inherit the parent's
+								// MCP servers via the built-in mcp extension ONLY — pinned
+								// inline, nothing else loads alongside it.
+								extensionFactories: [
+									{
+										name: "mcp",
+										factory: mod.createMcpExtension(),
+										builtin: true,
+										replaceable: true,
+									},
+								],
+								additionalExtensionPaths: ["builtin:mcp"],
+							}
+						: {}),
+				},
+			});
+			const resourceLoader = asRecord(services?.resourceLoader);
+			if (!resourceLoader) throw new Error("createAgentSessionServices returned no resourceLoader");
+			return {
+				cwd: input.cwd,
+				agentDir: input.agentDir,
+				mcpPermitted: input.mcpPermitted,
+				loadContextFiles: input.loadContextFiles,
+				services,
+				resourceLoader,
+				createdAtMs: Date.now(),
+			};
+		})();
+		entry.catch(() => liveSessionServicesCache.delete(key));
+		liveSessionServicesCache.set(key, entry);
+	}
+	return entry;
+}
+
+/**
+ * U4 — per-task delegating ResourceLoader.
+ *
+ * The shared bundle's loader is reloaded once, but the SYSTEM prompt is
+ * per-task (liveSystemPrompt embeds runId/taskId/role/agent). The SDK's
+ * systemPromptOverride is a loader-level option evaluated at reload() time,
+ * so a shared loader would latch the FIRST task's prompt. This wrapper
+ * delegates all reload-derived state (extensions/skills/prompts/themes) to
+ * the shared loader while serving per-task system-prompt values — the
+ * AgentSession reads the prompt through getSystemPrompt() at build time.
+ */
+export function buildPerTaskResourceLoader(
+	sharedLoader: Record<string, unknown>,
+	overrides: { systemPrompt: string },
+): Record<string, unknown> {
+	const delegate = <T>(method: string, fallback: T): ((...args: unknown[]) => T) => {
+		const fn = sharedLoader[method];
+		return typeof fn === "function" ? (fn as (...args: unknown[]) => T).bind(sharedLoader) : () => fallback;
+	};
+	const emptyExtensions = { extensions: [], errors: [], warnings: [], runtime: undefined };
+	const emptySkillDiag = { skills: [], diagnostics: [] };
+	const emptyPromptDiag = { prompts: [], diagnostics: [] };
+	const emptyThemeDiag = { themes: [], diagnostics: [] };
+	const emptyAgentsFiles = { agentsFiles: [] };
+	return {
+		getExtensions: delegate("getExtensions", emptyExtensions),
+		getSkills: delegate("getSkills", emptySkillDiag),
+		getPrompts: delegate("getPrompts", emptyPromptDiag),
+		getThemes: delegate("getThemes", emptyThemeDiag),
+		getAgentsFiles: delegate("getAgentsFiles", emptyAgentsFiles),
+		getSystemPrompt: () => overrides.systemPrompt,
+		getSystemPromptSource: () => undefined,
+		getAppendSystemPrompt: delegate("getAppendSystemPrompt", [] as string[]),
+		getAppendSystemPromptSources: delegate("getAppendSystemPromptSources", [] as unknown[]),
+		extendResources: delegate("extendResources", undefined),
+		reload: delegate("reload", Promise.resolve()) as unknown as (options?: unknown) => Promise<void>,
+	};
+}
+
+/** Extension paths the U4 loader is allowed to load per MCP permission. */
+export function allowedLiveExtensionPaths(mcpPermitted: boolean): string[] {
+	return mcpPermitted ? ["builtin:mcp"] : [];
+}
+
+/**
+ * U4 recursion guard layer 1 (post-creation assert, evals harness pattern):
+ * list extension paths that loaded but were not sanctioned. `filterActiveTools`
+ * remains layer 2 — it only prunes the ACTIVE tool set, it does not unload
+ * extension code.
+ */
+export function collectForeignExtensions(session: LiveSessionLike | undefined, allowedPaths: readonly string[]): string[] {
+	const runner = session?.extensionRunner;
+	if (typeof runner?.getExtensionPaths !== "function") return [];
+	try {
+		const allowed = new Set(allowedPaths);
+		return runner.getExtensionPaths().filter((extensionPath: string) => !allowed.has(extensionPath));
+	} catch {
+		return [];
+	}
+}
 
 function appendTranscript(filePath: string | undefined, event: unknown): void {
 	if (!filePath) return;
@@ -537,6 +730,13 @@ export function liveSystemPrompt(input: LiveSessionSpawnInput): string {
 function filterActiveTools(session: LiveSessionLike, agent: AgentConfig, role?: string): void {
 	if (typeof session.getActiveToolNames !== "function" || typeof session.setActiveToolsByName !== "function") return;
 	const recursiveTools = new Set(["team", "Team", "Agent", "get_subagent_result", "steer_subagent"]);
+	// U4 hung-tool mitigation (a) "builtin-tools-only": hard floor on the
+	// active set — built-in tools (bash honors AbortSignal via killProcessTree),
+	// MCP tools for MCP-permitted roles, and pi-crew's own custom tools. Any
+	// other tool name (extension drift the loader-level guard missed) is
+	// dropped from the ACTIVE set here (layer 2).
+	const builtinFloor = new Set(["read", "bash", "edit", "write", "grep", "find", "ls", "powershell", "submit_result", "irc"]);
+	const mcpPermitted = mcpPermittedForRole(role);
 	// F1 unify (v0.8.0): use the shared resolveToolPolicy so this path agrees
 	// with child-pi (pi-args.ts). Before this, live-session used frontmatter
 	// only and ignored role-config entirely — so a builtin explorer on the
@@ -547,7 +747,13 @@ function filterActiveTools(session: LiveSessionLike, agent: AgentConfig, role?: 
 	const allowed = policy.tools?.length ? new Set(policy.tools) : undefined;
 	const active = session
 		.getActiveToolNames()
-		.filter((name) => !recursiveTools.has(name) && !disallowed?.has(name) && (!allowed || allowed.has(name)));
+		.filter(
+			(name) =>
+				!recursiveTools.has(name) &&
+				!disallowed?.has(name) &&
+				(!allowed || allowed.has(name)) &&
+				(builtinFloor.has(name) || (mcpPermitted && name.startsWith("mcp__"))),
+		);
 	session.setActiveToolsByName(active);
 }
 
@@ -565,14 +771,44 @@ function usageFromStats(stats: unknown): UsageState | undefined {
 		: undefined;
 }
 
-async function promptWithTimeout(session: LiveSessionLike, text: string, timeoutMs: number, label: string): Promise<boolean> {
+/**
+ * U4 hung-tool escape hatch marker error. Thrown when a timed-out prompt did
+ * NOT settle even after the cooperative session.abort() + grace window — i.e.
+ * a tool or provider call is holding the turn and ignoring the AbortSignal
+ * (in-process abort is cooperative-only; see agent-loop.ts:798-830).
+ */
+export class LiveSessionHungToolError extends Error {
+	constructor(
+		label: string,
+		readonly timeoutMs: number,
+		readonly graceMs: number,
+	) {
+		super(
+			`${label} hung: prompt did not settle within ${graceMs}ms after the ${timeoutMs}ms timeout and cooperative abort — dropping session reference and failing the task (escape hatch).`,
+		);
+		this.name = "LiveSessionHungToolError";
+	}
+}
+
+async function promptWithTimeout(
+	session: LiveSessionLike,
+	text: string,
+	timeoutMs: number,
+	label: string,
+	hungToolGraceMs = DEFAULT_LIVE_SESSION.hungToolGraceMs,
+): Promise<boolean> {
 	// CORE-11: pass an AbortSignal into session.prompt so the underlying prompt is
 	// genuinely cancelled on timeout instead of being abandoned by Promise.race.
+	// U4: streamingBehavior is MANDATORY on every prompt() — without it a prompt
+	// landing while the session is already streaming throws "Agent is already
+	// processing" (pi agent-session.js:1548). "followUp" queues the message to
+	// run after the in-flight turn instead of erroring.
 	const ac = new AbortController();
 	const promptPromise = session.prompt?.(text, {
 		source: "api",
 		expandPromptTemplates: false,
 		signal: ac.signal,
+		streamingBehavior: "followUp",
 	});
 	if (!promptPromise) return false;
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -588,6 +824,27 @@ async function promptWithTimeout(session: LiveSessionLike, text: string, timeout
 			}),
 		]);
 		return true;
+	} catch (error) {
+		const messageText = error instanceof Error ? error.message : String(error);
+		if (messageText.includes("timed out")) {
+			// U4 escape hatch: abort() is cooperative — a tool that ignores the
+			// AbortSignal keeps the prompt() promise pending forever. Wait a bounded
+			// grace for a settle; if none arrives, surface the distinct hung-tool
+			// error so the caller can drop the session reference and fail the task
+			// instead of leaking a stuck slot.
+			const settledEarly = await Promise.race([
+				promptPromise.then(
+					() => true,
+					() => true,
+				),
+				new Promise<boolean>((resolve) => {
+					const graceTimer = setTimeout(() => resolve(false), hungToolGraceMs);
+					graceTimer.unref?.();
+				}),
+			]);
+			if (!settledEarly) throw new LiveSessionHungToolError(label, timeoutMs, hungToolGraceMs);
+		}
+		throw error;
 	} finally {
 		if (timer) clearTimeout(timer);
 	}
@@ -630,6 +887,11 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 
 	const isCurrent = input.isCurrent ?? (() => true);
 	let streamOut: StreamingOutputHandle | undefined;
+	// U4 escape hatch state: set when a timed-out prompt failed to settle even
+	// after cooperative abort — the finally block then TERMINATES (abort +
+	// dispose + unregister) the handle instead of the soft dispose, so a
+	// tool/provider call holding the event loop cannot keep a registry slot.
+	let hungToolEscalated = false;
 
 	// G1: Capture yield result from custom tool callback
 	let customToolYieldResult: YieldResult | undefined;
@@ -650,11 +912,14 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 				],
 			},
 		};
-		const mockSession = {
-			steer: async () => undefined,
-			prompt: async () => undefined,
-			abort: async () => undefined,
-		};
+		// U4 (D4 fix): the mock session deliberately exposes NO steer/prompt/abort —
+		// a steer/followUp arriving in the planning window (between this mock
+		// registration and the real session's registerLiveAgent for the same
+		// agentId) must be QUEUED on the handle (steerLiveAgent falls back to
+		// pendingSteers) so registerLiveAgent can route it to the real session on
+		// re-registration. The previous no-op {steer,prompt,abort} stub silently
+		// swallowed those messages (lost, not doubled).
+		const mockSession = {};
 		registerLiveAgent(
 			{
 				agentId,
@@ -692,6 +957,11 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		if (isCurrent()) input.onOutput?.(stdout);
 		updateLiveAgentStatus(agentId, "completed");
 		markLiveAgentCompleted(agentId);
+		// U4 dispose normalization: the mock handle is terminal too — drain any
+		// pending steer/followUp that arrived during the mock window and mark the
+		// handle terminated so later steers are rejected clearly instead of
+		// queueing forever against a mock that will never run again.
+		disposeLiveAgentSession(agentId);
 		return {
 			available: true,
 			exitCode: 0,
@@ -767,6 +1037,39 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		// loader: the MCP extension(s) are dropped from the child's extension
 		// list for non-permitted roles (no MCP code load, no server connect).
 		const mcpPermitted = mcpPermittedForRole(input.task.role);
+		// U4 fast path availability: shared services bundle + fromServices. Any
+		// missing export (foreign/older SDK) falls back to the legacy per-worker
+		// DefaultResourceLoader path below, unchanged.
+		const sharedServicesAvailable =
+			Boolean(agentDir) &&
+			typeof mod.createAgentSessionServices === "function" &&
+			typeof mod.createAgentSessionFromServices === "function" &&
+			typeof mod.SessionManager?.inMemory === "function";
+		let sharedBundle: LiveSessionServicesBundle | undefined;
+		if (sharedServicesAvailable) {
+			// U4: one services bundle per (cwd, agentDir, mcp-mode, context-files).
+			// The bundle's loader is reloaded ONCE; per-task system prompts are
+			// served by a delegating wrapper (see buildPerTaskResourceLoader) at
+			// session creation, so nothing per-task latches into the shared bundle.
+			sharedBundle = await getOrCreateLiveSessionServices(mod, {
+				cwd: input.task.cwd,
+				agentDir: agentDir!,
+				mcpPermitted,
+				loadContextFiles: input.runtimeConfig?.inheritContext === true,
+			});
+			// G2 degraded-enforcement warning (fast path): MCP-permitted role but
+			// the SDK no longer exports createMcpExtension → the builtin:mcp pin
+			// cannot be armed; surface the fail-open instead of drifting silently.
+			if (mcpPermitted && typeof mod.createMcpExtension !== "function") {
+				appendEventFireAndForget(input.manifest.eventsPath, {
+					type: "task.mcp_enforcement_degraded",
+					runId: input.manifest.runId,
+					taskId: input.task.id,
+					message: `G2 MCP policy NOT enforced for role "${input.task.role ?? "unknown"}" (U4 fast path): pi SDK does not export createMcpExtension — this worker will NOT inherit the parent's MCP servers.`,
+					data: { role: input.task.role ?? null, reason: "createMcpExtension-missing" },
+				});
+			}
+		}
 		let resourceLoader: unknown;
 		// F1 (v0.7.9) NOTE: `agent.excludeExtensions` is applied on the
 		// child-pi path (see `pi-args.ts`). The live-session path loads
@@ -775,7 +1078,7 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		// v0.7.9, the denylist is honored on the default async path only;
 		// the live-session path (opt-in via `runtime.preferLiveSession`)
 		// ignores it. This is a documented limitation, not a silent bug.
-		if (mod.DefaultResourceLoader && agentDir) {
+		if (!sharedServicesAvailable && mod.DefaultResourceLoader && agentDir) {
 			resourceLoader = new mod.DefaultResourceLoader({
 				cwd: input.task.cwd,
 				agentDir,
@@ -794,10 +1097,12 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		// stopped exporting DefaultResourceLoader, or agentDir unresolvable),
 		// enforcement silently degrades to fail-open — surface it instead of
 		// letting a version drift quietly re-expose the parent's MCP servers.
-		const g2DegradationReason = g2EnforcementDegradationReason({
-			mcpPermitted,
-			resourceLoaderAvailable: Boolean(mod.DefaultResourceLoader && agentDir),
-		});
+		const g2DegradationReason = sharedServicesAvailable
+			? undefined
+			: g2EnforcementDegradationReason({
+					mcpPermitted,
+					resourceLoaderAvailable: Boolean(mod.DefaultResourceLoader && agentDir),
+				});
 		if (g2DegradationReason) {
 			appendEventFireAndForget(input.manifest.eventsPath, {
 				type: "task.mcp_enforcement_degraded",
@@ -864,27 +1169,71 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		const customTools = [submitResultTool, ircTool];
 
 		const sessionCreateStart = Date.now();
-		const created = await mod.createAgentSession({
-			cwd: input.task.cwd,
-			...(agentDir ? { agentDir } : {}),
-			...(resourceLoader ? { resourceLoader } : {}),
-			...(mod.SessionManager?.inMemory
-				? {
-						sessionManager: mod.SessionManager.inMemory(input.task.cwd),
-					}
-				: {}),
-			...(mod.SettingsManager?.create && agentDir
-				? {
-						settingsManager: mod.SettingsManager.create(input.task.cwd, agentDir),
-					}
-				: {}),
-			...(resolvedModel ? { model: resolvedModel } : {}),
-			...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
-			// R3-12: cycling/visibility scope = the fallback chain (see helper).
-			...(scopedSessionModels.length > 0 ? { scopedModels: scopedSessionModels } : {}),
-			customTools,
-		});
+		let created: { session: LiveSessionLike; modelFallbackMessage?: string };
+		if (sharedBundle) {
+			// U4 fast path: createAgentSessionFromServices fans a cheap child
+			// session out of the shared bundle. The per-task system prompt rides
+			// a delegating loader wrapper (the shared loader's systemPromptOverride
+			// latches at reload time and cannot vary per task).
+			created = await mod.createAgentSessionFromServices!({
+				services: {
+					...sharedBundle.services,
+					resourceLoader: buildPerTaskResourceLoader(sharedBundle.resourceLoader, {
+						systemPrompt: liveSystemPrompt(input),
+					}),
+				},
+				sessionManager: mod.SessionManager!.inMemory!(input.task.cwd),
+				...(resolvedModel ? { model: resolvedModel } : {}),
+				...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
+				// R3-12: cycling/visibility scope = the fallback chain (see helper).
+				...(scopedSessionModels.length > 0 ? { scopedModels: scopedSessionModels } : {}),
+				customTools,
+			});
+		} else {
+			created = await mod.createAgentSession({
+				cwd: input.task.cwd,
+				...(agentDir ? { agentDir } : {}),
+				...(resourceLoader ? { resourceLoader } : {}),
+				...(mod.SessionManager?.inMemory
+					? {
+							sessionManager: mod.SessionManager.inMemory(input.task.cwd),
+						}
+					: {}),
+				...(mod.SettingsManager?.create && agentDir
+					? {
+							settingsManager: mod.SettingsManager.create(input.task.cwd, agentDir),
+						}
+					: {}),
+				...(resolvedModel ? { model: resolvedModel } : {}),
+				...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
+				// R3-12: cycling/visibility scope = the fallback chain (see helper).
+				...(scopedSessionModels.length > 0 ? { scopedModels: scopedSessionModels } : {}),
+				customTools,
+			});
+		}
 		session = created.session;
+		// U4 recursion guard layer 1 (assert, evals harness pattern): the child
+		// session must have loaded ONLY sanctioned extensions — nothing for
+		// non-MCP roles, exactly `builtin:mcp` for MCP-permitted ones. A
+		// violation means the loader-level kill switch (noExtensions) failed and
+		// the pi-crew host extension (recursion risk) or a foreign extension
+		// loaded inside the worker → fail the task loudly. filterActiveTools
+		// remains layer 2 for tool-surface drift.
+		if (sharedBundle) {
+			const foreignExtensions = collectForeignExtensions(session, allowedLiveExtensionPaths(mcpPermitted));
+			if (foreignExtensions.length > 0) {
+				appendEventFireAndForget(input.manifest.eventsPath, {
+					type: "live-session.foreign_extension_blocked",
+					runId: input.manifest.runId,
+					taskId: input.task.id,
+					message: `U4 recursion guard: child session loaded unsanctioned extension(s) ${foreignExtensions.join(", ")} — failing task.`,
+					data: { foreignExtensions, allowed: allowedLiveExtensionPaths(mcpPermitted) },
+				});
+				throw new Error(
+					`live-session recursion guard: child session loaded unsanctioned extension(s): ${foreignExtensions.join(", ")}`,
+				);
+			}
+		}
 		// U3: register the test-only provider override (faux E2E seam) before
 		// anything streams. No-op in production (modelProviderOverride stays
 		// undefined there).
@@ -898,6 +1247,9 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			data: {
 				elapsedMs: Date.now() - sessionCreateStart,
 				modelFallbackMessage: created.modelFallbackMessage,
+				// U4: true = child session came from the shared services bundle
+				// (fast path, ~ms); false = legacy full loader reload (~2.2s).
+				sharedServices: Boolean(sharedBundle),
 			},
 		});
 		filterActiveTools(session, input.agent, input.task.role);
@@ -1125,11 +1477,14 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			},
 		});
 
-		// Phase 3: Wrap session.prompt with timeout for graceful cancellation
-		const sessionTimeoutMs = DEFAULT_LIVE_SESSION.responseTimeoutMs;
+		// Phase 3: Wrap session.prompt with timeout for graceful cancellation.
+		// U4: runtime.liveSession.responseTimeoutMs / hungToolGraceMs override the
+		// defaults (DEFAULT_LIVE_SESSION) for testability and operator control.
+		const sessionTimeoutMs = input.runtimeConfig?.liveSession?.responseTimeoutMs ?? DEFAULT_LIVE_SESSION.responseTimeoutMs;
+		const hungToolGraceMs = input.runtimeConfig?.liveSession?.hungToolGraceMs ?? DEFAULT_LIVE_SESSION.hungToolGraceMs;
 		try {
 			await liveAgentContext.run({ agentId, modelRef: resolvedModelRef ?? "" }, () =>
-				promptWithTimeout(session!, effectivePrompt, sessionTimeoutMs, "Live-session"),
+				promptWithTimeout(session!, effectivePrompt, sessionTimeoutMs, "Live-session", hungToolGraceMs),
 			);
 		} catch (promptError) {
 			const msg = promptError instanceof Error ? promptError.message : String(promptError);
@@ -1197,8 +1552,10 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 							schemaReminder,
 							Math.min(sessionTimeoutMs, DEFAULT_LIVE_SESSION.idleWaitTimeoutMs),
 							"Live-session schema reminder",
+							hungToolGraceMs,
 						);
-					} catch {
+					} catch (schemaError) {
+						if (schemaError instanceof LiveSessionHungToolError) throw schemaError;
 						/* ignore */
 					}
 					await new Promise((resolve) => setTimeout(resolve, DEFAULT_LIVE_SESSION.yieldPollIntervalMs));
@@ -1239,8 +1596,12 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 						reminder,
 						Math.min(sessionTimeoutMs, DEFAULT_LIVE_SESSION.idleWaitTimeoutMs),
 						"Live-session yield reminder",
+						hungToolGraceMs,
 					);
-				} catch {
+				} catch (reminderError) {
+					// U4: a hung reminder prompt propagates the escape hatch to the outer
+					// handler; ordinary reminder failures just end the reminder loop.
+					if (reminderError instanceof LiveSessionHungToolError) throw reminderError;
 					break;
 				} finally {
 					// Restore previous tools even if reminder prompt times out/throws.
@@ -1298,6 +1659,32 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			},
 		};
 	} catch (error) {
+		// U4 hung-tool escape hatch (drop-reference + fail task): a timed-out
+		// prompt that ignored the cooperative abort can never settle — emit the
+		// dedicated event, terminate (abort + dispose + unregister) the handle,
+		// and fail the task WITHOUT awaiting the abandoned prompt promise.
+		if (error instanceof LiveSessionHungToolError) {
+			hungToolEscalated = true;
+			appendEventFireAndForget(input.manifest.eventsPath, {
+				type: "live-session.hung_tool_escape",
+				runId: input.manifest.runId,
+				taskId: input.task.id,
+				message: `Hung tool/provider escape hatch: ${error.message}`,
+				data: { timeoutMs: error.timeoutMs, graceMs: error.graceMs, agentId },
+			});
+			updateLiveAgentStatus(agentId, "failed");
+			// drop-reference (synchronous — never awaits the stuck abort): drain +
+			// terminate + dispose + UNREGISTER, so the hung session holds no slot.
+			dropLiveAgentReference(agentId);
+			return {
+				available: true,
+				exitCode: 1,
+				stdout: stdoutTail.value().trim(),
+				stderr: error.message,
+				jsonEvents,
+				error: error.message,
+			};
+		}
 		const message = error instanceof Error ? error.message : String(error);
 
 		// Phase 8: Log diagnostics on failure
@@ -1341,11 +1728,19 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 		if (onSignalAbort) input.signal?.removeEventListener("abort", onSignalAbort);
 		if (controlTimer) clearInterval(controlTimer);
 		streamOut?.close();
-		if (input.signal?.aborted) {
+		if (hungToolEscalated) {
+			// U4 hung-tool escape (drop-reference): synchronous removal only —
+			// terminateLiveAgent awaits session.abort() which can itself hang on
+			// a stuck session. Idempotent no-op when the outer catch already dropped.
+			dropLiveAgentReference(agentId);
+		} else if (input.signal?.aborted) {
 			await terminateLiveAgent(agentId, "cancelled", appendEvent, input.manifest.eventsPath);
 		} else {
-			// Dispose the session to free resources, but keep the handle in the registry
-			// for resume/follow-up. Removing the handle entirely breaks steer/followUp/resume.
+			// U4 dispose normalization: dispose the session AND make the handle
+			// terminal (drain pendingSteers/pendingFollowUps, reject later steers
+			// clearly). The handle stays in the registry for status/health/UI —
+			// but steer/followUp/resume on it now fail fast instead of silently
+			// queueing into the disposed session.
 			disposeLiveAgentSession(agentId);
 		}
 

@@ -101,11 +101,13 @@ export async function applyLiveAgentControlRequest(input: {
 		await session.prompt?.(request.message ?? "Please continue with the follow-up request.", {
 			source: "api",
 			expandPromptTemplates: false,
+			streamingBehavior: "followUp",
 		});
 	else if (request.operation === "resume")
 		await session.prompt?.(request.message ?? "Please resume and report final status.", {
 			source: "api",
 			expandPromptTemplates: false,
+			streamingBehavior: "followUp",
 		});
 	else if (request.operation === "stop") await session.abort?.();
 	return true;

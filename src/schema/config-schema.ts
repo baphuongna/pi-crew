@@ -116,6 +116,19 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 				{ additionalProperties: false },
 			),
 		),
+		// U4 (live-session v2): tunables for the in-process live-session worker —
+		// responseTimeoutMs bounds one prompt() wall-clock; hungToolGraceMs is
+		// the escape hatch's settle-grace after a cooperative abort. Behavior
+		// picks, not authority — no sensitive mark.
+		liveSession: Type.Optional(
+			Type.Object(
+				{
+					responseTimeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
+					hungToolGraceMs: Type.Optional(Type.Integer({ minimum: 1 })),
+				},
+				{ additionalProperties: false },
+			),
+		),
 		excludeContextBash: Type.Optional(Type.Boolean()),
 		// Handoff budget: est-token (chars/4) cap on the dynamic.dependencyContext
 		// prompt layer. Matches parseHandoffBudgetTokens in config-validation.ts
