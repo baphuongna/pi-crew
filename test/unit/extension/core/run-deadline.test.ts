@@ -133,3 +133,40 @@ test("resolveRunDeadline: no ctx.signal — deadline timer still works", async (
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	assert.equal(signal.aborted, true);
 });
+
+// ─── RELIABILITY FIX 2026-10-10 (bug #2): watch-only timer mode ────
+
+test("resolveRunDeadline watch-only: timer is NOT armed — deadline expiry never aborts the signal", async () => {
+	const dir = fs.mkdtempSync(path.join(realTmp, "rd-watch-"));
+	createdTmpDirs.push(dir);
+	const ctx = makeCtx(dir);
+	const { signal, timer, deadlineMs } = resolveRunDeadline(ctx, { timeoutMs: 50 }, {}, { timer: "watch-only" });
+	assert.equal(deadlineMs, 50, "deadlineMs still resolved — the watch (waitForRun timeoutMs) keeps the bound");
+	assert.equal(timer, undefined, "no abort timer is armed in watch-only mode");
+	assert.equal(signal.aborted, false);
+	// Well past the deadline — a watch expiry must NEVER cancel the run.
+	await new Promise((resolve) => setTimeout(resolve, 120));
+	assert.equal(signal.aborted, false, "deadline expiry must not abort the run signal in watch-only mode");
+});
+
+test("resolveRunDeadline watch-only: genuine caller abort STILL cancels the run", () => {
+	const dir = fs.mkdtempSync(path.join(realTmp, "rd-watch-cancel-"));
+	createdTmpDirs.push(dir);
+	const callerController = new AbortController();
+	const ctx = makeCtx(dir, callerController.signal);
+	const { signal } = resolveRunDeadline(ctx, { timeoutMs: 3_600_000 }, {}, { timer: "watch-only" });
+	assert.equal(signal.aborted, false);
+	callerController.abort();
+	assert.equal(signal.aborted, true, "caller-initiated abort still propagates in watch-only mode");
+});
+
+test("resolveRunDeadline default keeps the abort timer armed (direct-await paths unchanged)", async () => {
+	const dir = fs.mkdtempSync(path.join(realTmp, "rd-default-armed-"));
+	createdTmpDirs.push(dir);
+	const ctx = makeCtx(dir);
+	const { signal, timer } = resolveRunDeadline(ctx, { timeoutMs: 50 }, {});
+	assert.ok(timer, "default mode arms the abort timer (DWF/goal-loop/inline deadline semantics)");
+	assert.equal(signal.aborted, false);
+	await new Promise((resolve) => setTimeout(resolve, 120));
+	assert.equal(signal.aborted, true);
+});

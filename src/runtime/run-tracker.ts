@@ -142,6 +142,20 @@ export function rejectRunPromise(runId: string, reason: unknown): void {
 	}
 }
 
+/** Identity matcher for waitForRun's timeout error — thrown by BOTH wait
+ *  paths (the promise-race fast path and the polling slow path) as
+ *  `waitForRun timed out after <N>ms`. Callers use it to distinguish "the
+ *  WATCH window expired — the run itself may still be executing" from real
+ *  wait failures (run not found, corrupt state). RELIABILITY FIX 2026-10-10
+ *  (bug #2): a watch expiry must be reported as a partial-watch, never
+ *  conflated with a run failure. Message identity — run-tracker exports no
+ *  error class (plain Error), mirroring lock-busy.ts's matcher precedent. */
+const WAIT_FOR_RUN_TIMEOUT_MESSAGE = /^waitForRun timed out after \d+ms$/;
+
+export function isWaitForRunTimeoutError(error: unknown): boolean {
+	return error instanceof Error && WAIT_FOR_RUN_TIMEOUT_MESSAGE.test(error.message);
+}
+
 function raceRunPromise(entry: ActiveRunPromise, timeoutMs: number, deadline: number): Promise<RunWaitResult> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const remaining = Math.max(0, deadline - Date.now());
