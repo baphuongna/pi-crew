@@ -239,7 +239,11 @@ function validateGateCommand(command: string): void {
 	validateAllowedGateCommands(normalized, command);
 }
 
-async function executeCommand(
+/** U13 (upgrade spec 2026-10-09): exported so the deterministic verify_gate
+ *  engine (verify-gate.ts) reuses the SAME hardened command runner the
+ *  verifier flow already uses — command validation, sanitized env, process-
+ *  group kill, output cap, timeout. Additive export, no behavior change. */
+export async function executeCommand(
 	command: string,
 	cwd: string,
 	timeoutMs: number = 120000,

@@ -222,10 +222,16 @@ test("purgeStaleActiveRunIndex: fresh manifest (updatedAt within threshold) is k
 // ─── Test 3: running run with dead worker PID → reconciled (marked failed) ─
 //
 // CHARACTERIZATION: a running run whose async worker PID is genuinely dead is
-// reconciled — its manifest is marked "failed" and running tasks are cancelled.
-// This is the primary stale-run repair path. This behavior MUST be preserved
+// reconciled — its manifest is marked "failed". This behavior MUST be preserved
 // when currentSessionId filtering is added (currentSessionId===undefined → no
 // skip → same repair).
+//
+// U9 (upgrade-spec 2026-10-09 — reconcile-at-open fast-path, 2026-10-10): the
+// TASK-level outcome for this no-live-claim case intentionally CHANGED from
+// "cancelled" to "queued": the fast-path requeues interrupted tasks (attempt /
+// deps / partial state preserved) so the failed-marked run stays resumable,
+// instead of the verdict tree cancelling them. Runs WITH a live claim keep the
+// old verdict-tree semantics.
 test("reconcileAllStaleRuns: a running run with a dead worker PID is reconciled (marked failed)", async () => {
 	const dir = createTrackedTempDir("pi-crew-char-reconcile-");
 	try {
@@ -270,9 +276,10 @@ test("reconcileAllStaleRuns: a running run with a dead worker PID is reconciled 
 		const reloaded = loadRunManifestById(dir, running.runId);
 		assert.equal(reloaded?.manifest.status, "failed", "stale run manifest must be marked failed after reconciliation");
 
-		// The running task must now be cancelled.
+		// U9: the interrupted task must be REQUEUED (attempt state preserved), not
+		// cancelled — the fast-path keeps the failed-marked run resumable.
 		const reloadedTask = reloaded?.tasks.find((t) => t.id === tasks[0].id);
-		assert.equal(reloadedTask?.status, "cancelled", "running task must be cancelled after reconciliation");
+		assert.equal(reloadedTask?.status, "queued", "running task must be requeued (not cancelled) by the U9 fast-path");
 	} finally {
 		removeTrackedTempDir(dir);
 	}

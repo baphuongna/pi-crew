@@ -39,10 +39,23 @@ export interface ClassifierBoolQuestion {
 	criteria?: { true: string; false: string };
 }
 
+/** U6B (upgrade spec 2026-10-09 §U6 Phase B): one typed SCORE question — the
+ *  graded sibling of {@link ClassifierBoolQuestion}, used by the verifier
+ *  pre-gate. Mirrors pi-ai's ClassifierScoreQuestion (pi-ai dist/types.d.ts:
+ *  {type:"score", instructions, criteria: string[]}); answers arrive as the
+ *  ClassifierScoreAnswer shape {type:"score", score, confidence} — score is
+ *  the graded 0..1 reading, confidence the provider-reported certainty. */
+export interface ClassifierScoreQuestion {
+	type: "score";
+	instructions: string;
+	/** Rubric anchors for the 0..1 scale, ordered decisive (1.0) → useless (0.0). */
+	criteria: string[];
+}
+
 /** Request body for modelRegistry.classify(model, request). */
 export interface ClassifyRequest {
 	state: Record<string, unknown>;
-	questions: Record<string, ClassifierBoolQuestion>;
+	questions: Record<string, ClassifierBoolQuestion | ClassifierScoreQuestion>;
 }
 
 /** Structured result shape returned by modelRegistry.classify (never throws
@@ -109,6 +122,43 @@ export interface ClassifyBoolResult {
 	/** U6A: provider-reported answer confidence, when the registry supplied
 	 *  one (top-level `confidence` or per-answer `{value, confidence}`).
 	 *  Undefined on every fallback path and for bare-boolean answers. */
+	confidence: number | undefined;
+}
+
+export interface ClassifyScoreInput {
+	/** Host-process model registry handle (ctx.modelRegistry, threaded unknown). */
+	modelRegistry: unknown;
+	/** Configured classifier model id ("provider/id"). */
+	classifierModel: string;
+	/** Key under `questions` carrying the score question. */
+	questionKey: string;
+	question: ClassifierScoreQuestion;
+	/** JSON state the classifier reasons about (keep small + low-cardinality). */
+	state: Record<string, unknown>;
+	/** Caller-provided fallback score — returned on EVERY failure mode. */
+	fallback: number;
+	/** Optional metric registry (counter created on demand, dispatch-batch style). */
+	metricRegistry?: MetricRegistry;
+	/** Extra low-cardinality labels for the calls_total counter. */
+	metricLabels?: Record<string, string>;
+}
+
+export interface ClassifyScoreResult {
+	/** Effective graded reading: the classifier score, or the caller fallback. */
+	score: number;
+	/** True ONLY when a real classifier answer informed the score. */
+	fromClassifier: boolean;
+	/** Which branch produced the outcome (diagnostics + metric label). */
+	reason: ClassifierOutcomeReason;
+	/** Classifier model id actually used (undefined on every fallback path). */
+	usedModel: string | undefined;
+	/** Raw stopReason / errorMessage from the classify call, when one ran. */
+	stopReason: string | undefined;
+	errorMessage: string | undefined;
+	/** Provider-reported answer confidence (answer-level or top-level), when
+	 *  supplied. The pi-ai ClassifierScoreAnswer shape marks confidence
+	 *  REQUIRED, but a defensive read tolerates its absence. Undefined on
+	 *  every fallback path. */
 	confidence: number | undefined;
 }
 
@@ -200,26 +250,56 @@ export function resolveClassifierModel(explicit?: string): string {
 }
 
 /**
- * Ask ONE bool question of a host-process classifier. NEVER REJECTS — every
- * failure mode (no registry, no credentialed classifier, thrown error,
- * stopReason !== "stop", missing/non-boolean answer) returns the
- * caller-provided fallback with {@link ClassifyBoolResult.fromClassifier}
- * false, after a log-once note + metric counter increment.
+ * Internal shared pipeline for the typed classify wrappers (U6B): resolves a
+ * usable classifier and runs ONE classify call, returning either the raw
+ * answer for the question key or a fallback marker with the outcome reason.
+ * Every registry-level failure mode (missing registry, zero credentialed
+ * classifiers, thrown call, non-"stop" stopReason) logs once + counts its
+ * metric here; answer interpretation (classified / answer_missing) stays
+ * with the typed wrappers so each keeps its own acceptance shape. The
+ * observable behavior of classifyBool is unchanged by the extraction (its
+ * landed tests are the equivalence guard).
  */
-export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBoolResult> {
+interface ClassifyPipelineInput {
+	/** Host-process model registry handle (ctx.modelRegistry, threaded unknown). */
+	modelRegistry: unknown;
+	/** Configured classifier model id ("provider/id"). */
+	classifierModel: string;
+	/** Key under `questions` carrying the typed question. */
+	questionKey: string;
+	question: ClassifierBoolQuestion | ClassifierScoreQuestion;
+	/** JSON state the classifier reasons about (keep small + low-cardinality). */
+	state: Record<string, unknown>;
+	/** Optional metric registry (counter created on demand, dispatch-batch style). */
+	metricRegistry?: MetricRegistry;
+	/** Extra low-cardinality labels for the calls_total counter. */
+	metricLabels?: Record<string, string>;
+}
+
+interface ClassifyPipelineOk {
+	status: "ok";
+	/** Raw answers[questionKey] value — the wrapper decides the acceptance shape. */
+	rawAnswer: unknown;
+	/** Top-level result.confidence passthrough, when finite. */
+	topLevelConfidence: number | undefined;
+	stopReason: string | undefined;
+	errorMessage: string | undefined;
+	usedModel: string;
+}
+
+interface ClassifyPipelineFallback {
+	status: "fallback";
+	reason: ClassifierOutcomeReason;
+	stopReason: string | undefined;
+	errorMessage: string | undefined;
+}
+
+async function runClassifyQuestion(input: ClassifyPipelineInput): Promise<ClassifyPipelineOk | ClassifyPipelineFallback> {
 	const registry = asClassifierRegistry(input.modelRegistry);
 	if (!registry || typeof registry.getAvailableOfType !== "function" || typeof registry.classify !== "function") {
 		noteFailureMode("registry_missing", input.classifierModel, "model registry absent or lacks the classifier surface");
 		outcomeMetric(input.metricRegistry, "registry_missing", input.metricLabels);
-		return {
-			decision: input.fallback,
-			fromClassifier: false,
-			reason: "registry_missing",
-			usedModel: undefined,
-			stopReason: undefined,
-			errorMessage: undefined,
-			confidence: undefined,
-		};
+		return { status: "fallback", reason: "registry_missing", stopReason: undefined, errorMessage: undefined };
 	}
 	// Credentialed classifiers only — the catalog (getModelsOfType) can list
 	// models whose provider has no key on this host (R2.3: 6 catalog entries,
@@ -231,15 +311,7 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 	} catch (error) {
 		noteFailureMode("classify_threw", input.classifierModel, `getAvailableOfType threw: ${String(error)}`);
 		outcomeMetric(input.metricRegistry, "classify_threw", input.metricLabels);
-		return {
-			decision: input.fallback,
-			fromClassifier: false,
-			reason: "classify_threw",
-			usedModel: undefined,
-			stopReason: undefined,
-			errorMessage: undefined,
-			confidence: undefined,
-		};
+		return { status: "fallback", reason: "classify_threw", stopReason: undefined, errorMessage: undefined };
 	}
 	if (!Array.isArray(available) || available.length === 0) {
 		noteFailureMode(
@@ -248,15 +320,7 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 			"getAvailableOfType('classifier') is empty — no credentialed classifier",
 		);
 		outcomeMetric(input.metricRegistry, "no_classifier_available", input.metricLabels);
-		return {
-			decision: input.fallback,
-			fromClassifier: false,
-			reason: "no_classifier_available",
-			usedModel: undefined,
-			stopReason: undefined,
-			errorMessage: undefined,
-			confidence: undefined,
-		};
+		return { status: "fallback", reason: "no_classifier_available", stopReason: undefined, errorMessage: undefined };
 	}
 	// Prefer the configured model id; fall back to the first available
 	// candidate so a renamed catalog id still gets a usable classifier.
@@ -280,78 +344,171 @@ export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBo
 				`classify stopReason=${stopReason ?? "undefined"}${errorMessage ? ` errorMessage=${errorMessage}` : ""}`,
 			);
 			outcomeMetric(input.metricRegistry, "stop_reason_error", input.metricLabels);
-			return {
-				decision: input.fallback,
-				fromClassifier: false,
-				reason: "stop_reason_error",
-				usedModel: undefined,
-				stopReason,
-				errorMessage,
-				confidence: undefined,
-			};
+			return { status: "fallback", reason: "stop_reason_error", stopReason, errorMessage };
 		}
-		const rawAnswer = result?.answers?.[input.questionKey];
-		// U6A: bool answers arrive either as a bare boolean or wrapped with a
-		// confidence reading (`{value: boolean, confidence: number}` — research
-		// §8.2 "typed choice/score/bool ... answers carry confidence"). Accept
-		// both shapes; everything else stays the answer_missing fallback.
-		let answer: boolean | undefined;
-		let confidence: number | undefined;
-		if (typeof rawAnswer === "boolean") {
-			answer = rawAnswer;
-		} else if (rawAnswer && typeof rawAnswer === "object" && !Array.isArray(rawAnswer)) {
-			const wrapped = rawAnswer as { value?: unknown; confidence?: unknown };
-			if (typeof wrapped.value === "boolean") {
-				answer = wrapped.value;
-				if (typeof wrapped.confidence === "number" && Number.isFinite(wrapped.confidence)) {
-					confidence = wrapped.confidence;
-				}
-			}
-		}
-		if (typeof result?.confidence === "number" && Number.isFinite(result.confidence) && confidence === undefined) {
-			confidence = result.confidence;
-		}
-		if (answer === undefined) {
-			noteFailureMode(
-				"answer_missing",
-				input.classifierModel,
-				`answers[${input.questionKey}] is ${typeof rawAnswer}, expected boolean`,
-			);
-			outcomeMetric(input.metricRegistry, "answer_missing", input.metricLabels);
-			return {
-				decision: input.fallback,
-				fromClassifier: false,
-				reason: "answer_missing",
-				usedModel: undefined,
-				stopReason,
-				errorMessage,
-				confidence: undefined,
-			};
-		}
-		outcomeMetric(input.metricRegistry, "classified", input.metricLabels);
-		confidenceMetric(input.metricRegistry, confidence, input.metricLabels);
+		const topLevelConfidence =
+			typeof result?.confidence === "number" && Number.isFinite(result.confidence) ? result.confidence : undefined;
 		return {
-			decision: answer,
-			fromClassifier: true,
-			reason: "classified",
-			usedModel,
+			status: "ok",
+			rawAnswer: result?.answers?.[input.questionKey],
+			topLevelConfidence,
 			stopReason,
 			errorMessage,
-			confidence,
+			usedModel,
 		};
 	} catch (error) {
 		// The registry contract says classify never rejects, but a misbehaving
 		// implementation must still not take the orchestrator down with it.
 		noteFailureMode("classify_threw", input.classifierModel, `classify threw: ${String(error)}`);
 		outcomeMetric(input.metricRegistry, "classify_threw", input.metricLabels);
+		return { status: "fallback", reason: "classify_threw", stopReason: undefined, errorMessage: undefined };
+	}
+}
+
+/**
+ * Ask ONE bool question of a host-process classifier. NEVER REJECTS — every
+ * failure mode (no registry, no credentialed classifier, thrown error,
+ * stopReason !== "stop", missing/non-boolean answer) returns the
+ * caller-provided fallback with {@link ClassifyBoolResult.fromClassifier}
+ * false, after a log-once note + metric counter increment.
+ */
+export async function classifyBool(input: ClassifyBoolInput): Promise<ClassifyBoolResult> {
+	const outcome = await runClassifyQuestion(input);
+	if (outcome.status === "fallback") {
 		return {
 			decision: input.fallback,
 			fromClassifier: false,
-			reason: "classify_threw",
+			reason: outcome.reason,
 			usedModel: undefined,
-			stopReason: undefined,
-			errorMessage: undefined,
+			stopReason: outcome.stopReason,
+			errorMessage: outcome.errorMessage,
 			confidence: undefined,
 		};
 	}
+	const rawAnswer = outcome.rawAnswer;
+	// U6A: bool answers arrive either as a bare boolean or wrapped with a
+	// confidence reading (`{value: boolean, confidence: number}` — research
+	// §8.2 "typed choice/score/bool ... answers carry confidence"). Accept
+	// both shapes; everything else stays the answer_missing fallback.
+	let answer: boolean | undefined;
+	let confidence: number | undefined;
+	if (typeof rawAnswer === "boolean") {
+		answer = rawAnswer;
+	} else if (rawAnswer && typeof rawAnswer === "object" && !Array.isArray(rawAnswer)) {
+		const wrapped = rawAnswer as { value?: unknown; confidence?: unknown };
+		if (typeof wrapped.value === "boolean") {
+			answer = wrapped.value;
+			if (typeof wrapped.confidence === "number" && Number.isFinite(wrapped.confidence)) {
+				confidence = wrapped.confidence;
+			}
+		}
+	}
+	if (outcome.topLevelConfidence !== undefined && confidence === undefined) {
+		confidence = outcome.topLevelConfidence;
+	}
+	if (answer === undefined) {
+		noteFailureMode("answer_missing", input.classifierModel, `answers[${input.questionKey}] is ${typeof rawAnswer}, expected boolean`);
+		outcomeMetric(input.metricRegistry, "answer_missing", input.metricLabels);
+		return {
+			decision: input.fallback,
+			fromClassifier: false,
+			reason: "answer_missing",
+			usedModel: undefined,
+			stopReason: outcome.stopReason,
+			errorMessage: outcome.errorMessage,
+			confidence: undefined,
+		};
+	}
+	outcomeMetric(input.metricRegistry, "classified", input.metricLabels);
+	confidenceMetric(input.metricRegistry, confidence, input.metricLabels);
+	return {
+		decision: answer,
+		fromClassifier: true,
+		reason: "classified",
+		usedModel: outcome.usedModel,
+		stopReason: outcome.stopReason,
+		errorMessage: outcome.errorMessage,
+		confidence,
+	};
+}
+
+/**
+ * Ask ONE score question of a host-process classifier (U6B — the graded
+ * sibling of {@link classifyBool}, consumer: verifier pre-gate). NEVER
+ * REJECTS — every failure mode (no registry, no credentialed classifier,
+ * thrown error, stopReason !== "stop", missing/non-numeric answer) returns
+ * the caller-provided fallback score with
+ * {@link ClassifyScoreResult.fromClassifier} false, after a log-once note +
+ * metric counter increment. A malformed or unconfigured classifier can only
+ * degrade to the caller fallback — it can never fail a task.
+ */
+export async function classifyScore(input: ClassifyScoreInput): Promise<ClassifyScoreResult> {
+	const outcome = await runClassifyQuestion(input);
+	if (outcome.status === "fallback") {
+		return {
+			score: input.fallback,
+			fromClassifier: false,
+			reason: outcome.reason,
+			usedModel: undefined,
+			stopReason: outcome.stopReason,
+			errorMessage: outcome.errorMessage,
+			confidence: undefined,
+		};
+	}
+	const rawAnswer = outcome.rawAnswer;
+	// Real pi-ai shape (ClassifierScoreAnswer): {type:"score", score: number,
+	// confidence: number} — the type marks confidence REQUIRED, but a
+	// defensive read tolerates its absence. A bare-number answer and the U6A
+	// wrapped {value, confidence} shape are accepted for symmetry with
+	// classifyBool; everything else stays the answer_missing fallback.
+	let score: number | undefined;
+	let confidence: number | undefined;
+	if (typeof rawAnswer === "number" && Number.isFinite(rawAnswer)) {
+		score = rawAnswer;
+	} else if (rawAnswer && typeof rawAnswer === "object" && !Array.isArray(rawAnswer)) {
+		const wrapped = rawAnswer as { score?: unknown; value?: unknown; confidence?: unknown };
+		const candidate =
+			typeof wrapped.score === "number" && Number.isFinite(wrapped.score)
+				? wrapped.score
+				: typeof wrapped.value === "number" && Number.isFinite(wrapped.value)
+					? wrapped.value
+					: undefined;
+		if (candidate !== undefined) {
+			score = candidate;
+			if (typeof wrapped.confidence === "number" && Number.isFinite(wrapped.confidence)) {
+				confidence = wrapped.confidence;
+			}
+		}
+	}
+	if (outcome.topLevelConfidence !== undefined && confidence === undefined) {
+		confidence = outcome.topLevelConfidence;
+	}
+	if (score === undefined) {
+		noteFailureMode(
+			"answer_missing",
+			input.classifierModel,
+			`answers[${input.questionKey}] is ${typeof rawAnswer}, expected score number`,
+		);
+		outcomeMetric(input.metricRegistry, "answer_missing", input.metricLabels);
+		return {
+			score: input.fallback,
+			fromClassifier: false,
+			reason: "answer_missing",
+			usedModel: undefined,
+			stopReason: outcome.stopReason,
+			errorMessage: outcome.errorMessage,
+			confidence: undefined,
+		};
+	}
+	outcomeMetric(input.metricRegistry, "classified", input.metricLabels);
+	confidenceMetric(input.metricRegistry, confidence, input.metricLabels);
+	return {
+		score,
+		fromClassifier: true,
+		reason: "classified",
+		usedModel: outcome.usedModel,
+		stopReason: outcome.stopReason,
+		errorMessage: outcome.errorMessage,
+		confidence,
+	};
 }

@@ -455,6 +455,10 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "boolean",
 		doc: "R3-19/D5 hermetic worker spawn override: '1' forces --no-extensions on worker argv, '0' restores the old ambient-stack parity (discovered/configured/built-in extensions load); beats BuildPiWorkerArgsInput.hermeticWorkers / runtime.hermeticWorkers; default ON (pi-args.ts:resolveHermeticWorkers). Explicit -e prompt-runtime + agent extensions + --skill flags are unaffected (cli.md:186-191)",
 	},
+	PI_CREW_STATE_BACKEND: {
+		name: "PI_CREW_STATE_BACKEND",
+		doc: "U8 (upgrade-spec 2026-10-09) run-state store backend select: 'sqlite' stores manifest+tasks+worker-status in <runId>/state.sqlite via node:sqlite with ONE transaction per batch write (all-or-nothing; manifest.json/tasks.json stay written as read-side mirrors for legacy consumers — loads read the db); unset or any other value keeps the default JSON file backend. events.jsonl audit spine unchanged in both modes (state-store.ts / sqlite-run-state.ts isSqliteStateBackend)",
+	},
 	PI_CREW_CHILD_PI_MODE: {
 		name: "PI_CREW_CHILD_PI_MODE",
 		doc: "U14 (upgrade-spec 2026-10-09) child-pi protocol v2 transport select: 'rpc' spawns task workers over pi --mode rpc (SDK RpcClient wire — steer receipts, clear_queue hygiene, multi-prompt reuse; child-pi-rpc.ts), 'json' / unset keeps the --mode json -p stdio path (phase-1 default; both modes fully regression-tested). Surface TUI panes are unaffected",
@@ -476,6 +480,17 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 	PI_CREW_CLASSIFIER_MODEL: {
 		name: "PI_CREW_CLASSIFIER_MODEL",
 		doc: "P2-1 classifier model id override ('provider/id', catalog ids only — availability depends on provider credentials at runtime): beats runtime.classifierModel; unset/blank → config value, default 'opencode/jev-1.13-free' (classifier-service.ts:resolveClassifierModel)",
+	},
+	PI_CREW_VERIFY_GATE: {
+		name: "PI_CREW_VERIFY_GATE",
+		parser: "boolean",
+		doc: "U13 deterministic verifier pre-gate override: '0' disables running the deterministic verify_gate checks (typecheck / test:critical via package.json scripts) before a verifier-role worker spawn — the LLM verifier then always spawns exactly as pre-U13; '1' forces it on. Default ON (gate PASS skips the LLM verifier spawn; FAILED/INCONCLUSIVE spawns it with the gate results in the prompt) (runtime/verification/verify-gate.ts resolveVerifyGateEnabled)",
+	},
+	PI_CREW_VERIFY_GATE_TIMEOUT_MS: {
+		name: "PI_CREW_VERIFY_GATE_TIMEOUT_MS",
+		parser: "int",
+		default: "120000",
+		doc: "U13 per-check timeout in ms for the deterministic verify_gate pre-gate commands. Invalid/≤0 → 120000, mirroring runPhaseGates (runtime/verification/verify-gate.ts resolveVerifyGateTimeoutMs)",
 	},
 	PI_CREW_RPC_DIALOG_ANSWER: {
 		name: "PI_CREW_RPC_DIALOG_ANSWER",
