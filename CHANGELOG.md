@@ -1,6 +1,42 @@
 # Changelog
 
-## [Unreleased] — Upgrade Wave 3: U7 events view layer, U8 sqlite state, U9 reconcile-at-open, U6B classifier pre-gate, U13 verify_gate (2026-10-10)
+## [0.11.12] — Upgrade Wave 2: U4 live-session v2, U5 mailbox dedup, U6A classifier triage, U14 rpc mode, U15 OwnedProcess (2026-10-10)
+
+Wave 2 of the upgrade-spec program. One commit per spec; test:critical 120/0,
+full npm test 0 fail (unit 8842/8845 + integration 139/143, gated skips only),
+bundle rebuilt fresh; wave-2 review 0 MAJOR with MINOR-1..4 pool/env hardening
+landed as follow-up. Waves 2+3 released together as 0.11.12.
+
+### Changed
+
+- **U4** — live-session v2: shared services bundle (one lazy build, sessions
+  from `createAgentSessionFromServices` — measured init drop ~2240ms → <50ms
+  via `session_created.elapsedMs`), two-layer recursion guard (loader-level
+  noExtensions + foreign-extension assert), `streamingBehavior` on every
+  prompt path, normalized dispose (drain pendingSteers, terminated handles
+  reject steer), D4 planning-window steer-loss fix (placeholder session
+  queues and replays to the real session), hung-tool drop-reference escape.
+- **U5** — mailbox `requestId` dedup: every send carries a unique requestId,
+  receivers dedup by (direction, requestId) durably, resend-after-resume is
+  idempotent (7/7 tests).
+- **U14** — child-pi protocol v2: `--mode rpc` transport (steer receipts,
+  isStreaming-gated steer + clear_queue before prompt, type-filtered event
+  subscription, absolute bundle cliPath), 18/18 tests; pool reuse opt-in
+  (`PI_CREW_CHILD_PI_POOL`, default off). MINOR-1..4: busy-alive pool entries
+  never evicted, drain ceiling gated on pool flag, run-scoped named listeners
+  detached in settle(), env-splice canary.
+- **U15** — OwnedProcess port: process-group ownership (detached spawn →
+  group-kill), escalating dispose with hard cap, root-exit drain-reconcile,
+  pid-recycle guard, postmortem registry; 11/11 tests.
+
+### Added
+
+- **U6A** — classifier retry-triage flag (`classifierEnabled`, default off):
+  confidence passthrough + histogram + `task.noise_gate` events, soft-fail on
+  every branch (12 tests).
+
+
+## [0.11.12] — Upgrade Wave 3 (con't): U7 events view layer, U8 sqlite state, U9 reconcile-at-open, U6B classifier pre-gate, U13 verify_gate (2026-10-10)
 
 Wave 3 of the upgrade-spec program (`pi-crew-upgrade-spec-2026-10-09.md`), branch
 `upgrade/wave-3`, one commit per spec. Final gate: unit 8934 tests (8925 pass;
