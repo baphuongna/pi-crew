@@ -21,7 +21,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getCrewEnv } from "../../config/env-vars.ts";
-import { appendEvent } from "../../state/event-log/event-log.ts";
+import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
@@ -181,11 +181,13 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	// require, fs, child_process). Cloning a hostile repo and running its workflow = arbitrary
 	// code execution. Default-deny project workflows unless the user explicitly opts in via
 	// PI_CREW_TRUST_PROJECT_DWF=1. Builtin and user workflows proceed without restriction.
+	// U2 (2026-10-10): awaited appendEventAsync — the 2026-09-10 M2a revert
+	// was required by BUFFERED (20ms-delayed) writes; awaiting the direct async
+	// append keeps the read-your-writes contract (resume flow, dwf-setresult
+	// tests, status display all read events only after runDynamicWorkflow
+	// resolves) while dropping the sleepSync event-loop block.
 	if (workflow.source === "project" && getCrewEnv("PI_CREW_TRUST_PROJECT_DWF") !== "1") {
-		// REVIEW FIX (2026-09-10): DWF lifecycle events reverted from M2a
-		// buffered conversion — runner sites are read back synchronously
-		// (dwf-setresult tests, resume flow, status display after run end).
-		appendEvent(eventsPath, {
+		await appendEventAsync(eventsPath, {
 			type: "dwf.trust_denied",
 			runId: manifest.runId,
 			data: { workflow: workflow.name, source: workflow.source, script: scriptPath },
@@ -195,7 +197,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		);
 	}
 
-	appendEvent(eventsPath, {
+	await appendEventAsync(eventsPath, {
 		type: "dwf.started",
 		runId: manifest.runId,
 		data: { workflow: workflow.name, script: scriptPath },
@@ -208,7 +210,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	const dwfStore = new DwfStore(manifest.stateRoot);
 	const resumedState = dwfStore.load();
 	if (resumedState) {
-		appendEvent(eventsPath, {
+		await appendEventAsync(eventsPath, {
 			type: "dwf.resumed",
 			runId: manifest.runId,
 			data: {
@@ -285,7 +287,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		}
 	} catch (error) {
 		logInternalError("dynamic-workflow-runner.run", error, `runId=${manifest.runId}, workflow=${workflow.name}`);
-		appendEvent(eventsPath, {
+		await appendEventAsync(eventsPath, {
 			type: "dwf.failed",
 			runId: manifest.runId,
 			data: {
@@ -320,7 +322,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	// last open phase is always terminated before dwf.completed.
 	const phaseState = getWorkflowPhaseState(ctx);
 	if (phaseState?.currentPhase !== undefined) {
-		appendEvent(eventsPath, {
+		await appendEventAsync(eventsPath, {
 			type: "dwf.phase_completed",
 			runId: manifest.runId,
 			data: { phase: phaseState.currentPhase },
@@ -328,7 +330,7 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 		phaseState.currentPhase = undefined;
 	}
 
-	appendEvent(eventsPath, {
+	await appendEventAsync(eventsPath, {
 		type: "dwf.completed",
 		runId: manifest.runId,
 		data: { workflow: workflow.name, summaryArtifact: summary.path },

@@ -370,6 +370,12 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				// in flight when it trips (they are killed by the cap abort below).
 				if (agentCount >= maxAgentCalls) {
 					// Durable record (dwf.log is the registered workflow-log event type).
+					// U2 (2026-10-10): kept SYNC — ctx closures are exercised DIRECTLY by
+					// unit tests that readEvents() synchronously right after the call
+					// (dynamic-workflow-context.test.ts rounds 12/14/18); no await boundary
+					// exists between a ctx call and those readers. The runner-level
+					// lifecycle events (dwf.started/completed/failed) ARE migrated —
+					// awaited appendEventAsync in dynamic-workflow-runner.ts.
 					appendEvent(manifest.eventsPath, {
 						type: "dwf.log",
 						runId: manifest.runId,
@@ -773,10 +779,12 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			// Idempotency: same phase title → no event, no state change.
 			if (title === phaseState.currentPhase) return;
 			// Close out the previous open phase BEFORE the new one opens.
-			// REVIEW FIX (2026-09-10): reverted M2a buffered conversion — phase
-			// transitions are low-frequency AND read back synchronously (tests,
-			// checkpoint resume; dwf-setresult rounds 12/14/18 assert the events
-			// file immediately after the run).
+			// U2 (2026-10-10): kept SYNC — ctx closures are exercised DIRECTLY by
+			// unit tests that readEvents() synchronously right after the call
+			// (dynamic-workflow-context.test.ts); no await boundary exists between a
+			// ctx call and those readers. The runner-level lifecycle events ARE
+			// migrated (awaited appendEventAsync in dynamic-workflow-runner.ts).
+			// Close out the previous open phase BEFORE the new one opens.
 			if (phaseState.currentPhase !== undefined) {
 				appendEvent(manifest.eventsPath, {
 					type: "dwf.phase_completed",
@@ -800,7 +808,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 					);
 				}
 			}
-			// REVIEW FIX (2026-09-10): reverted M2a buffered conversion — see phase_completed.
+			// U2 (2026-10-10): kept SYNC — see the phase_completed note above.
 			appendEvent(manifest.eventsPath, {
 				type: "dwf.phase_started",
 				runId: manifest.runId,
@@ -815,7 +823,7 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 			if (wfState.logs.length < 1000) {
 				wfState.logs.push(text);
 			}
-			// REVIEW FIX (2026-09-10): reverted M2a buffered conversion — see phase().
+			// U2 (2026-10-10): kept SYNC — see the phase_completed note above.
 			appendEvent(manifest.eventsPath, {
 				type: "dwf.log",
 				runId: manifest.runId,

@@ -491,6 +491,11 @@ export function createRunManifest(params: {
 				`saveManifestAndTasksAtomicSync: manifestWritten=${result.manifestWritten}, tasksWritten=${result.tasksWritten}${cause}`,
 			);
 	}
+	// U2 (2026-10-10): kept SYNC — run birth anchor with an EXPLICIT seq:1.
+	// createRunManifest is a sync API whose callers may immediately append more
+	// events in the same tick (e.g. updateRunStatus(run.running)); a delayed
+	// run.created would let those reserve seq 1 from the sidecar first —
+	// duplicate seq + inverted audit order. Critical-path same-tick durability.
 	appendEvent(paths.eventsPath, {
 		type: "run.created",
 		runId: paths.runId,
@@ -910,6 +915,10 @@ export function updateRunStatus(
 	// allowTerminalExit for its legitimate cancelled→running transition.
 	const saved = saveRunManifest(updated, { allowTerminalExit: options.allowTerminalExit });
 	if (saved.status !== status) {
+		// U2 (2026-10-10): kept SYNC (both updateRunStatus events) — public sync
+		// API; same-poll status readers and the 2026-09-10 WI-2.2/M2 remediation
+		// (b6eba80f) require same-tick event visibility, and callers may append
+		// more events in this same tick that must order around run.<status>.
 		appendEvent(saved.eventsPath, {
 			type: "run.terminal_preserved",
 			runId: saved.runId,
@@ -929,6 +938,8 @@ export function updateRunStatus(
 			/* non-critical */
 		}
 	}
+	// U2 (2026-10-10): kept SYNC — see the run.terminal_preserved note above
+	// (same-tick visibility for same-poll status readers; b6eba80f).
 	appendEvent(updated.eventsPath, {
 		type: `run.${status}`,
 		runId: updated.runId,

@@ -2,7 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readCrewAgents, saveCrewAgents } from "../runtime/crew-agent-records.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../runtime/process-status.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
-import { appendEvent, readEventsCursor, type TeamEvent } from "../state/event-log/event-log.ts";
+import { appendEventAsync, readEventsCursor, type TeamEvent } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
@@ -130,7 +130,10 @@ export async function markDeadAsyncRunIfNeeded(
 		if (!fresh || !isActiveRunStatus(fresh.manifest.status)) return undefined;
 		const failed = updateRunStatus(fresh.manifest, "failed", message);
 		markActiveTasksAndAgentsFailed(failed, message);
-		appendEvent(failed.eventsPath, {
+		// U2 (2026-10-10): awaited async append — the lock callback is async; the
+		// event lands after run.failed (sync updateRunStatus write above) in file
+		// order and is durable before the notifier tick resolves.
+		await appendEventAsync(failed.eventsPath, {
 			type: "async.died",
 			runId: failed.runId,
 			message,

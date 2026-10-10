@@ -18,6 +18,10 @@ export function appendTaskAttentionEvent(input: AppendTaskAttentionInput): boole
 			`${event.taskId ?? ""}:${event.data?.reason ?? ""}:${event.data?.activityState ?? ""}` === dedupKey,
 	);
 	if (duplicate) return false;
+	// U2 (2026-10-10): kept SYNC — the dedup check above reads the events tail
+	// in the SAME call; an async/delayed write would let a rapid second
+	// attention call (before the flush lands) pass dedup and emit a duplicate.
+	// Same-tick write makes read-your-own-writes load-bearing for correctness.
 	appendEvent(input.manifest.eventsPath, {
 		type: "task.attention",
 		runId: input.manifest.runId,

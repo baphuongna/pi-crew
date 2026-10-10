@@ -124,6 +124,15 @@ export interface LiveSessionSpawnInput {
 	workspaceId: string;
 	/** Phase 2: Output schema for validating yield data. */
 	outputSchema?: unknown;
+	/**
+	 * U3 test seam: optional pi-ai `Provider`-like object registered on the
+	 * created session's ModelRuntime immediately after session creation, before
+	 * anything streams. Lets tests run the REAL in-process live-session worker
+	 * key-free and network-free against `@earendil-works/pi-ai/providers/faux`
+	 * (tests construct the provider and pass it here; runtime code never
+	 * imports the faux module). Must stay undefined in production runs.
+	 */
+	modelProviderOverride?: unknown;
 }
 
 export interface LiveSessionRunResult {
@@ -179,6 +188,10 @@ type LiveSessionLike = {
 	bindExtensions?: (bindings?: Record<string, unknown>) => Promise<void>;
 	getActiveToolNames?: () => string[];
 	setActiveToolsByName?: (names: string[]) => void;
+	/** U3 test-seam surface: SDK AgentSession exposes its ModelRuntime here. */
+	modelRuntime?: {
+		registerNativeProvider?: (provider: unknown) => void;
+	};
 };
 
 function appendTranscript(filePath: string | undefined, event: unknown): void {
@@ -198,6 +211,26 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function isString(value: unknown): value is string {
 	return typeof value === "string";
+}
+
+/**
+ * U3 test seam: register a caller-supplied pi-ai `Provider` on the created
+ * session's ModelRuntime right after creation. Passive by design — no faux
+ * import lives in runtime code; tests construct the provider and pass it via
+ * `LiveSessionSpawnInput.modelProviderOverride`. No-op when no override is
+ * supplied or the session does not expose a ModelRuntime with
+ * `registerNativeProvider` (older/foreign SDK shapes).
+ */
+function applyModelProviderOverride(session: LiveSessionLike | undefined, provider: unknown): void {
+	if (!session || !provider) return;
+	const runtime = asRecord(session.modelRuntime);
+	const register = runtime?.registerNativeProvider;
+	if (typeof register !== "function") return;
+	try {
+		register.call(runtime, provider);
+	} catch (error) {
+		logInternalError("live-session.model-provider-override", error, "registerNativeProvider failed");
+	}
 }
 
 /**
@@ -845,7 +878,6 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 						settingsManager: mod.SettingsManager.create(input.task.cwd, agentDir),
 					}
 				: {}),
-			...(input.modelRegistry ? { modelRegistry: input.modelRegistry } : {}),
 			...(resolvedModel ? { model: resolvedModel } : {}),
 			...(effectiveThinking ? { thinkingLevel: effectiveThinking } : {}),
 			// R3-12: cycling/visibility scope = the fallback chain (see helper).
@@ -853,6 +885,10 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 			customTools,
 		});
 		session = created.session;
+		// U3: register the test-only provider override (faux E2E seam) before
+		// anything streams. No-op in production (modelProviderOverride stays
+		// undefined there).
+		applyModelProviderOverride(session, input.modelProviderOverride);
 		// P7 (perf): fire-and-forget — return value not needed, blocks the
 		// event loop less than the sync appendEvent under file-lock contention.
 		appendEventFireAndForget(input.manifest.eventsPath, {

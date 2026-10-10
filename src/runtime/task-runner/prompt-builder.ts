@@ -49,7 +49,7 @@ export function coordinationBridgeInstructions(task: TeamTaskState, opts?: { inc
 		"- Do not resolve cross-worker conflicts silently. Escalate via mailbox/result with: file/symbol, conflicting task if known, proposed owner, and safest next step.",
 		"- If nudged, answer with current status, blocker, or smallest next step.",
 		"- Treat inherited/dependency context as reference-only; do not continue the parent conversation directly.",
-		"- Completion handoff should include: DONE/FAILED, summary, changed/read files, verification evidence, and remaining risks.",
+		"- Completion handoff must use the structured 6-section template (Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context): mark DONE/FAILED and split Done·In Progress·Blocked under Progress, list changed/read files and verification evidence under Critical Context, and surface remaining risks as Next Steps.",
 	].join("\n");
 }
 
@@ -303,9 +303,19 @@ export function promptSkillMode(): "index" | "full" {
 	return getCrewEnv("PI_CREW_PROMPT_SKILLS") === "full" ? "full" : "index";
 }
 
-/** Estimated tokens (chars/4 — the in-tree heuristic; no tokenizer dep). */
-export function estimateTokens(chars: number): number {
-	return Math.round(chars / 4);
+/** Estimated tokens (chars/4 — the in-tree heuristic; no tokenizer dep).
+ *  U10 measured-token anchor: when a REAL measurement is available (message_end
+ *  usage / task result usage persisted on `TeamTaskState.usage`, threaded into
+ *  the dependency context by `aggregateUsage`), the effective estimate is
+ *  `max(heuristic, measured)` — a real measurement can only TIGHTEN the
+ *  estimate, never loosen it, so a budget sized in effective tokens is never
+ *  exceeded when measured usage is larger than the heuristic (spec U10
+ *  acceptance). Callers without a measurement keep the plain heuristic.
+ *  Mirrors `measureHandoffTokens` in src/runtime/task-output-context.ts
+ *  (duplicated, not imported — see the sync note there). */
+export function estimateTokens(chars: number, measuredTokens?: number): number {
+	const heuristic = Math.round(chars / 4);
+	return measuredTokens === undefined ? heuristic : Math.max(heuristic, measuredTokens);
 }
 
 export async function renderTaskPrompt(
@@ -380,7 +390,7 @@ export async function renderTaskPrompt(
 		"Task:",
 		sanitizeTaskText(step.task.replaceAll("{goal}", manifest.goal)),
 		"",
-		"When your task is complete, structure your final output using this handoff template:",
+		"When your task is complete, structure your final output using this handoff template (Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context — U10 pinned sections):",
 		HANDOFF_TEMPLATE,
 	].join("\n");
 

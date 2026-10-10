@@ -5,7 +5,8 @@ import { DEFAULT_PATHS } from "../../config/defaults.ts";
 import { appendHookEvent, executeHook } from "../../hooks/registry.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { discoverRunLockFiles, sweepStaleLocks, withRunLock, withRunLockSync } from "../../state/coordination/locks.ts";
-import { appendEvent, scanSequence } from "../../state/event-log/event-log.ts";
+import type { AppendTeamEvent } from "../../state/event-log/event-log.ts";
+import { appendEvent, appendEventAsync, scanSequence } from "../../state/event-log/event-log.ts";
 import { readActiveRunRegistry, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import {
 	loadRunManifestById,
@@ -158,28 +159,41 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 	// may have completed/cancelled the run in the meantime. Re-read inside the
 	// lock and derive every write from the FRESH snapshot; never reset a run that
 	// reached a terminal status.
+	// U2 (2026-10-10): recovery lifecycle events are captured under the sync run
+	// lock (payload derived from the fresh snapshot, as R14-4 requires) but
+	// appended via the awaited async primitive AFTER the lock — the sync lock
+	// callback cannot await, and awaiting outside keeps the read-your-writes
+	// contract (recovery-hooks tests read events.jsonl synchronously right after
+	// applyRecoveryPlan resolves) while dropping the sleepSync event-loop block.
+	let lifecycle: { eventsPath: string; event: AppendTeamEvent } | undefined;
 	withRunLockSync(loaded.manifest, () => {
 		const fresh = loadRunManifestById(ctx.cwd, plan.runId); // NOTE: inside withRunLockSync - consistent read
 		if (!fresh) throw new Error(`Run '${plan.runId}' not found.`);
 		if (fresh.manifest.status === "completed" || fresh.manifest.status === "failed" || fresh.manifest.status === "cancelled") {
 			// Run reached a terminal status while the recovery hook was running —
 			// do NOT reset it (no task reset, no status change).
-			appendEvent(fresh.manifest.eventsPath, {
-				type: "crew.run.recovery_skipped",
-				runId: plan.runId,
-				message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
-				data: { status: fresh.manifest.status },
-			});
+			lifecycle = {
+				eventsPath: fresh.manifest.eventsPath,
+				event: {
+					type: "crew.run.recovery_skipped",
+					runId: plan.runId,
+					message: `Recovery skipped: run is already '${fresh.manifest.status}'`,
+					data: { status: fresh.manifest.status },
+				},
+			};
 			return;
 		}
 		appendHookEvent(fresh.manifest, hookReport);
 		if (hookReport.outcome === "block") {
-			appendEvent(fresh.manifest.eventsPath, {
-				type: "crew.run.recovery_blocked",
-				runId: plan.runId,
-				message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
-				data: { hookOutcome: "block", reason: hookReport.reason },
-			});
+			lifecycle = {
+				eventsPath: fresh.manifest.eventsPath,
+				event: {
+					type: "crew.run.recovery_blocked",
+					runId: plan.runId,
+					message: `Recovery blocked by hook: ${hookReport.reason ?? "run_recovery hook blocked the operation."}`,
+					data: { hookOutcome: "block", reason: hookReport.reason },
+				},
+			};
 			return;
 		}
 
@@ -203,17 +217,21 @@ export async function applyRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionC
 				: task,
 		);
 		saveRunTasks(fresh.manifest, tasks);
-		appendEvent(fresh.manifest.eventsPath, {
-			type: "crew.run.resumed",
-			runId: plan.runId,
-			message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
-			data: {
-				recoveredFromSeq: plan.lastEventSeq,
-				resumableTasks: plan.resumableTasks,
+		lifecycle = {
+			eventsPath: fresh.manifest.eventsPath,
+			event: {
+				type: "crew.run.resumed",
+				runId: plan.runId,
+				message: `Recovered ${plan.resumableTasks.length} interrupted task(s).`,
+				data: {
+					recoveredFromSeq: plan.lastEventSeq,
+					resumableTasks: plan.resumableTasks,
+				},
 			},
-		});
+		};
 		registry?.counter("crew.run.count", "Total runs by status").inc({ status: "resumed" });
 	});
+	if (lifecycle) await appendEventAsync(lifecycle.eventsPath, lifecycle.event);
 }
 
 export function declineRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionContext, "cwd">): void {
@@ -226,6 +244,10 @@ export function declineRecoveryPlan(plan: RecoveryPlan, ctx: Pick<ExtensionConte
 		const fresh = loadRunManifestById(ctx.cwd, plan.runId); // NOTE: inside withRunLockSync - consistent read
 		if (!fresh) return;
 		// Log the event first — if appendEvent fails, state remains consistent.
+		// U2 (2026-10-10): kept SYNC — this event must land on disk BEFORE the
+		// run.cancelled written by the updateRunStatus call below it (audit order:
+		// decline reason precedes the terminal status); declineRecoveryPlan is a
+		// sync API with no await boundary to flush an async append.
 		appendEvent(fresh.manifest.eventsPath, {
 			type: "crew.run.recovery_declined",
 			runId: plan.runId,
@@ -335,6 +357,9 @@ export function cancelOrphanedRuns(
 			if (!fresh) return;
 			if (fresh.manifest.status !== "running" && fresh.manifest.status !== "blocked") {
 				// Status changed between initial check (line 109) and acquiring the lock — normal concurrent update, not an orphan
+				// U2 (2026-10-10): kept SYNC — cancelOrphanedRuns is a sync API (returns
+				// {cancelled,skipped} synchronously to session-start callers); no await
+				// boundary exists to flush an async append before those callers read events.
 				appendEvent(loaded.manifest.eventsPath, {
 					type: "crew.run.orphan_skip",
 					runId: manifest.runId,
@@ -374,6 +399,9 @@ export function cancelOrphanedRuns(
 				}
 			}
 			updateRunStatus(fresh.manifest, "cancelled", `Orphaned run: owner session ${ownerId} no longer exists`);
+			// U2 (2026-10-10): kept SYNC — must land AFTER run.cancelled (updateRunStatus
+			// above, still sync) for audit order, and cancelOrphanedRuns is a sync API
+			// with no await boundary to flush an async append.
 			appendEvent(fresh.manifest.eventsPath, {
 				type: "crew.run.orphan_cancelled",
 				runId: manifest.runId,
@@ -768,7 +796,10 @@ export async function reconcileAllStaleRuns(
 					void terminateLiveAgentsForRun(fresh.manifest.runId, "failed", appendEvent, fresh.manifest.eventsPath).catch((error) =>
 						logInternalError("crash-recovery.reconcile.terminate", error, `runId=${fresh.manifest.runId}`, "warn"),
 					);
-					appendEvent(fresh.manifest.eventsPath, {
+					// U2 (2026-10-10): awaited async append — the lock callback is async; the
+					// event lands after run.failed (sync updateRunStatus write above) in file
+					// order and is durable before reconcileAllStaleRuns resolves.
+					await appendEventAsync(fresh.manifest.eventsPath, {
 						type: "crew.run.reconciled_stale",
 						runId,
 						message: result.detail,

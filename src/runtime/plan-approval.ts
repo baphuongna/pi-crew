@@ -11,7 +11,7 @@
 import * as fs from "node:fs";
 import type { CrewRuntimeConfig } from "../config/config.ts";
 import { parsePlannerPlanOutput } from "../extension/plan-orchestrate.ts";
-import { appendEvent } from "../state/event-log/event-log.ts";
+import { appendEventAsync } from "../state/event-log/event-log.ts";
 import { appendPlanRevision, getCurrentPlanRecord, setPlanApproval } from "../state/stores/plan-store.ts";
 import { saveRunManifestAsync } from "../state/stores/state-store.ts";
 import type { PlanRecord, TeamRunManifest, TeamTaskState } from "../state/types.ts";
@@ -122,7 +122,10 @@ export async function ensurePlanApprovalRequested(manifest: TeamRunManifest, tas
 		plan: record ? { id: record.id, version: record.version } : manifest.plan,
 	};
 	await saveRunManifestAsync(updated);
-	appendEvent(updated.eventsPath, {
+	// U2 (2026-10-10): awaited async append — async fn with no same-tick reader;
+	// durable before ensurePlanApprovalRequested resolves (plan-approval tests
+	// read events after the await boundary).
+	await appendEventAsync(updated.eventsPath, {
 		type: "plan.approval_required",
 		runId: updated.runId,
 		taskId: planTask?.id,
