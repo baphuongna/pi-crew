@@ -16,6 +16,12 @@
  *     FALSE / model default "opencode/jev-1.13-free")
  *   - metric counter increments with outcome labels (fake MetricRegistry)
  *
+ * U6B additions (spec §U6 Phase B, classifyScore — the score-question
+ * variant used by the verifier pre-gate):
+ *   - real pi-ai answer shape {type:"score", score, confidence} → classified
+ *   - wrapped {value, confidence} + bare-number answers accepted defensively
+ *   - answer missing / non-numeric → fallback; never-rejects preserved
+ *
  * Env tests mutate process.env and restore in finally (no leakage).
  */
 
@@ -29,6 +35,7 @@ import {
 	__test__classifierLoggedFailureModes,
 	__test__resetClassifierLogOnce,
 	classifyBool,
+	classifyScore,
 	DEFAULT_CLASSIFIER_MODEL,
 	resolveClassifierEnabled,
 	resolveClassifierModel,
@@ -371,4 +378,175 @@ test("[cls-14] log-once writes to stderr exactly once per failure mode", async (
 	assert.equal(logged.length, 1, `expected exactly one stderr line for the failure mode, got ${logged.length}`);
 	// Tempdir reference keeps os/path imports honest in CI (no unused-import lint).
 	assert.ok(typeof path.join(os.tmpdir(), "x") === "string" && typeof fs.statSync === "function");
+});
+
+// ─── U6B: classifyScore (score-question variant, spec §U6 Phase B) ───────
+
+const SCORE_QUESTION = {
+	type: "score" as const,
+	instructions: "Score how decisively the structured state alone establishes a pass.",
+	criteria: ["1.0 — evidence conclusively proves the pass", "0.5 — mixed evidence", "0.0 — nothing usable"],
+};
+
+const scoreArgs = {
+	classifierModel: "opencode/jev-1.13-free",
+	questionKey: "decisive",
+	question: SCORE_QUESTION,
+	state: { verdict: "PASS", evidenceLines: ["exit 0"], changedFiles: ["src/a.ts"] },
+	fallback: 0,
+};
+
+test("[cls-15] score variant: real pi-ai answer shape {type:'score', score, confidence} → classified", async () => {
+	const registry = fakeRegistry({
+		available: [{ provider: "opencode", id: "jev-1.13-free" }],
+		classifyImpl: async () => ({
+			answers: { decisive: { type: "score", score: 0.93, confidence: 0.91 } },
+			stopReason: "stop",
+		}),
+	});
+	const result = await classifyScore({ ...scoreArgs, modelRegistry: registry });
+	assert.equal(result.fromClassifier, true);
+	assert.equal(result.score, 0.93, "classifier score replaces the fallback");
+	assert.equal(result.confidence, 0.91, "pi-ai score answers carry a REQUIRED confidence — surfaced");
+	assert.equal(result.reason, "classified");
+	assert.equal(result.usedModel, "opencode/jev-1.13-free");
+	// The request carries the score question under the caller's key with the
+	// pi-ai shape: criteria is a string ARRAY (bool uses a {true,false} map).
+	const request = registry.calls[0]!.request as { state: Record<string, unknown>; questions: Record<string, unknown> };
+	const question = request.questions.decisive as { type: string; criteria: string[] };
+	assert.equal(question.type, "score");
+	assert.ok(Array.isArray(question.criteria) && question.criteria.length === 3);
+	assert.equal(request.state.verdict, "PASS");
+});
+
+test("[cls-16] score variant: wrapped {value, confidence} and bare-number answers accepted defensively", async () => {
+	const wrapped = fakeRegistry({
+		available: [{ provider: "opencode", id: "jev-1.13-free" }],
+		classifyImpl: async () => ({
+			answers: { decisive: { value: 0.8, confidence: 0.7 } },
+			stopReason: "stop",
+		}),
+	});
+	const wrappedResult = await classifyScore({ ...scoreArgs, modelRegistry: wrapped });
+	assert.equal(wrappedResult.fromClassifier, true, "U6A-wrapped {value, confidence} shape accepted");
+	assert.equal(wrappedResult.score, 0.8);
+	assert.equal(wrappedResult.confidence, 0.7);
+
+	const bare = fakeRegistry({
+		available: [{ provider: "opencode", id: "jev-1.13-free" }],
+		classifyImpl: async () => ({ answers: { decisive: 0.55 }, stopReason: "stop" }),
+	});
+	const bareResult = await classifyScore({ ...scoreArgs, modelRegistry: bare });
+	assert.equal(bareResult.fromClassifier, true, "bare-number answer accepted");
+	assert.equal(bareResult.score, 0.55);
+	assert.equal(bareResult.confidence, undefined, "no confidence in a bare number");
+});
+
+test("[cls-17] score variant: top-level result.confidence passthrough when the answer lacks one", async () => {
+	const registry = fakeRegistry({
+		available: [{ provider: "opencode", id: "jev-1.13-free" }],
+		classifyImpl: async () => ({ answers: { decisive: 0.9 }, stopReason: "stop", confidence: 0.85 }),
+	});
+	const result = await classifyScore({ ...scoreArgs, modelRegistry: registry });
+	assert.equal(result.fromClassifier, true);
+	assert.equal(result.score, 0.9);
+	assert.equal(result.confidence, 0.85, "top-level confidence fills the absent answer-level one");
+});
+
+test("[cls-18] score variant: answer missing / non-numeric → caller fallback score (answer_missing)", async () => {
+	const missing = await classifyScore({
+		...scoreArgs,
+		modelRegistry: fakeRegistry({
+			available: [{ provider: "opencode", id: "jev-1.13-free" }],
+			classifyImpl: async () => ({ answers: {}, stopReason: "stop" }),
+		}),
+	});
+	assert.equal(missing.reason, "answer_missing");
+	assert.equal(missing.fromClassifier, false);
+	assert.equal(missing.score, 0, "caller fallback score returned");
+
+	const nonNumeric = await classifyScore({
+		...scoreArgs,
+		modelRegistry: fakeRegistry({
+			available: [{ provider: "opencode", id: "jev-1.13-free" }],
+			classifyImpl: async () => ({ answers: { decisive: "high" }, stopReason: "stop" }),
+		}),
+	});
+	assert.equal(nonNumeric.reason, "answer_missing");
+	assert.equal(nonNumeric.score, 0);
+});
+
+test("[cls-19] score variant: provider unconfigured / stopReason error / classify threw / registry missing → soft fallback", async () => {
+	// getAvailableOfType → [] (opencode unconfigured on this host — the live R2.3 shape).
+	const unconfigured = await classifyScore({
+		...scoreArgs,
+		modelRegistry: fakeRegistry({ available: [] }),
+		fallback: 0.25,
+	});
+	assert.equal(unconfigured.reason, "no_classifier_available");
+	assert.equal(unconfigured.score, 0.25, "caller fallback score returned — never rejects");
+
+	const stopError = await classifyScore({
+		...scoreArgs,
+		modelRegistry: fakeRegistry({
+			available: [{ provider: "opencode", id: "jev-1.13-free" }],
+			classifyImpl: async () => ({
+				answers: {},
+				stopReason: "error",
+				errorMessage: "Provider is not configured: opencode",
+			}),
+		}),
+		fallback: 0.5,
+	});
+	assert.equal(stopError.reason, "stop_reason_error");
+	assert.equal(stopError.score, 0.5);
+	assert.equal(stopError.errorMessage, "Provider is not configured: opencode");
+
+	const threw = await classifyScore({
+		...scoreArgs,
+		modelRegistry: fakeRegistry({
+			available: [{ provider: "opencode", id: "jev-1.13-free" }],
+			classifyImpl: async () => {
+				throw new Error("boom");
+			},
+		}),
+		fallback: 0.75,
+	});
+	assert.equal(threw.reason, "classify_threw");
+	assert.equal(threw.score, 0.75);
+
+	const noRegistry = await classifyScore({ ...scoreArgs, modelRegistry: undefined, fallback: 0.1 });
+	assert.equal(noRegistry.reason, "registry_missing");
+	assert.equal(noRegistry.score, 0.1);
+});
+
+test("[cls-20] score variant: metric counter + confidence histogram via a real MetricRegistry", async () => {
+	const metricRegistry = createMetricRegistry();
+	await classifyScore({
+		...scoreArgs,
+		modelRegistry: fakeRegistry({ available: [] }),
+		metricRegistry,
+		metricLabels: { consumer: "verifier_pre_gate" },
+	});
+	await classifyScore({
+		...scoreArgs,
+		modelRegistry: fakeRegistry({
+			available: [{ provider: "opencode", id: "jev-1.13-free" }],
+			classifyImpl: async () => ({
+				answers: { decisive: { type: "score", score: 0.95, confidence: 0.9 } },
+				stopReason: "stop",
+			}),
+		}),
+		metricRegistry,
+		metricLabels: { consumer: "verifier_pre_gate" },
+	});
+	const snapshot = JSON.stringify(metricRegistry.snapshot());
+	assert.ok(snapshot.includes("crew.classifier.calls_total"));
+	assert.ok(
+		snapshot.includes('"outcome":"no_classifier_available"') && snapshot.includes('"consumer":"verifier_pre_gate"'),
+		"fallback outcome labels recorded for the score variant",
+	);
+	assert.ok(snapshot.includes('"outcome":"classified"'), "classified outcome recorded");
+	assert.ok(snapshot.includes("crew.classifier.confidence"), "confidence histogram observed");
+	metricRegistry.dispose();
 });
