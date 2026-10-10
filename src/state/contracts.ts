@@ -254,6 +254,11 @@ export const TEAM_EVENT_TYPES = [
 	"run.exported",
 	"run.forget_requested",
 	"run.goal_achievement",
+	// RELIABILITY FIX 2026-10-10 (run team_20261010100956 incident): run.lock
+	// contention observed by a scheduler merge site (mergeUnitResult /
+	// terminaliseRunWithDrain) that is being retried with back-off — diagnostic
+	// only; never transitions run state.
+	"run.lock_retry",
 	"run.resume_requested",
 	// SDD-3 W-C G4 (team-tool.ts handleResume): forced resume of a FOREIGN-owned
 	// run — ownership was bypassed with force:true (liveness was NOT bypassable;

@@ -22,6 +22,24 @@ export interface RunDeadline {
 /** Fallback deadline when no config or param override is available: 1 hour. */
 export const DEFAULT_RUN_DEADLINE_MS = 3_600_000;
 
+/** Options for resolveRunDeadline. */
+export interface RunDeadlineOptions {
+	/** "abort" (default): arm the deadline timer that ABORTS the controller —
+	 *  deadline expiry cancels the run (direct-await paths: DWF, goal-loop,
+	 *  inline scaffold — the deadline IS the execution bound).
+	 *
+	 *  "watch-only": do NOT arm the abort timer. The deadline bounds only the
+	 *  caller's WATCH (waitForRun timeoutMs). Genuine caller cancels
+	 *  (ctx.signal abort outside a session switch, startForegroundRun callback
+	 *  abort) STILL abort the controller and cancel the run — deadline expiry
+	 *  alone never does. RELIABILITY FIX 2026-10-10 (wave-2 chain incident, run
+	 *  team_20261010045718): the foreground lane's armed timer was aborting
+	 *  executeTeamRun's signal at the 60-minute watch boundary — chain steps
+	 *  reported "partial" AND the still-healthy child run was cancelled. The
+	 *  watch is a timer; the cancel must be a caller decision. */
+	timer?: "abort" | "watch-only";
+}
+
 /**
  * Resolve a unified run deadline with a shared AbortController.
  *
@@ -49,6 +67,7 @@ export function resolveRunDeadline<T extends object>(
 	ctx: Pick<TeamContext, "cwd" | "signal">,
 	params: T,
 	config?: PiTeamsConfig,
+	options?: RunDeadlineOptions,
 ): RunDeadline {
 	const timeoutMs = (params as { timeoutMs?: number }).timeoutMs;
 	const effectiveConfig = config ?? loadConfig(ctx.cwd).config;
@@ -94,8 +113,10 @@ export function resolveRunDeadline<T extends object>(
 	// otherwise every run leaves a dangling 1h timer retaining ctx/params in closure.
 	// Same abort-after-exit guard as above: the timer may fire after workers
 	// already exited and their spawn-signal listeners are gone — Node can throw.
+	// "watch-only" (bug #2 fix): the timer is NOT armed — the deadline bounds the
+	// watch only, so the controller can only be aborted by a real caller cancel.
 	let timer: NodeJS.Timeout | undefined;
-	if (deadlineMs > 0) {
+	if (deadlineMs > 0 && options?.timer !== "watch-only") {
 		timer = setTimeout(() => safeAbort(controller, "run-deadline.timer"), deadlineMs);
 		timer.unref?.();
 	}

@@ -29,6 +29,10 @@ export interface TeamToolDetails {
 	taskId?: string;
 	questionId?: string;
 	waiting?: boolean;
+	/** RELIABILITY FIX 2026-10-10 (bug #2): set when the foreground run's WATCH
+	 * window expired (waitForRun timeout) — the run itself was NOT cancelled
+	 * and keeps executing; the async notifier reports completion later. */
+	partialWatch?: boolean;
 	/** Structured data for programmatic consumption (e.g. TUI widgets). */
 	data?: Record<string, unknown>;
 }

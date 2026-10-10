@@ -71,7 +71,7 @@ import * as path from "node:path";
 import { t } from "../../i18n.ts";
 import { hasAsyncStartMarker } from "../../runtime/async-marker.ts";
 import { checkProcessLiveness, isActiveRunStatus } from "../../runtime/process-status.ts";
-import { registerRunPromise, waitForRun } from "../../runtime/run-tracker.ts";
+import { isWaitForRunTimeoutError, registerRunPromise, waitForRun } from "../../runtime/run-tracker.ts";
 import { collectRunMetrics } from "../../state/stores/run-metrics.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { effectiveRunConfig } from "./config-patch.ts";
@@ -709,7 +709,14 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 	const executeWorkers = runtime.kind !== "scaffold";
 	if (executeWorkers && ctx.startForegroundRun) {
 		// CORE-8: unified deadline — resolves params > config > 1h default.
-		const fgDeadline = resolveRunDeadline(ctx, params, executedConfig);
+		// RELIABILITY FIX 2026-10-10 (bug #2, wave-2 chain incident run
+		// team_20261010045718): the foreground deadline is WATCH-ONLY. The armed
+		// abort timer used to cancel executeTeamRun's signal at the watch
+		// boundary (60m default) — chain steps reported "partial" AND the
+		// still-healthy child run was cancelled. waitForRun's own timeout still
+		// bounds the watch (partial-watch result below); real caller cancels
+		// (ctx.signal / foreground-run callback abort) still cancel the run.
+		const fgDeadline = resolveRunDeadline(ctx, params, executedConfig, { timer: "watch-only" });
 		// F1 register/await race fix (2026-09-12): the waitForRun below runs
 		// immediately after startForegroundRun returns (void), while
 		// executeTeamRunCore registers its promise only after several awaits —
@@ -842,6 +849,35 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 			});
 		} catch (waitError: unknown) {
 			const waitErrMsg = errorMessage(waitError);
+			// RELIABILITY FIX 2026-10-10 (bug #2): a waitForRun WATCH expiry is NOT a
+			// run failure — with the watch-only deadline the run keeps executing in
+			// the foreground lane (exactly like the detached case) and the async
+			// notifier reports completion later. Report a partial-watch instead of an
+			// error so chain wrappers map the still-running step to "partial"
+			// without anyone reading this as "the run was cancelled/failed".
+			if (isWaitForRunTimeoutError(waitError)) {
+				return result(
+					[
+						`pi-crew run still running (watch window expired): ${updatedManifest.runId}`,
+						`Team: ${team.name}`,
+						`Workflow: ${workflow.name}`,
+						`Watch: ${waitErrMsg} — the run was NOT cancelled and keeps executing.`,
+						"",
+						"You will be notified when the run finishes.",
+						`Check status with: team action=status runId=${updatedManifest.runId}`,
+						`Wait again with: team action=wait runId=${updatedManifest.runId}`,
+						`State: ${updatedManifest.stateRoot}`,
+					].join("\n"),
+					{
+						action: "run",
+						status: "ok",
+						runId: updatedManifest.runId,
+						artifactsRoot: updatedManifest.artifactsRoot,
+						partialWatch: true,
+					},
+					false,
+				);
+			}
 			return result(
 				[
 					`pi-crew run timed out or failed: ${updatedManifest.runId}`,

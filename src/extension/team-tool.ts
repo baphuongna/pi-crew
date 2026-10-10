@@ -493,7 +493,7 @@ async function resumeDynamicWorkflowRun(
 		return result(
 			[
 				`Resumed dynamic-workflow run ${dwfResult.manifest.runId}.`,
-				`Status: ${dwfResult.manifest.status}`,
+				`Status: ${dwfResult.manifest.status} — resumed execution returned`,
 				dwfResult.manifest.summary ? `Result: ${dwfResult.manifest.summary}` : undefined,
 			]
 				.filter((line): line is string => line !== undefined)
@@ -819,6 +819,13 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 					}
 				: task,
 		);
+		// RELIABILITY FIX 2026-10-10 (bug #3): count the tasks actually re-queued at
+		// resume so the result message can report what happened (work re-dispatched
+		// vs "run was already terminal, nothing to resume") instead of a bare
+		// "Status: completed" that reads as "everything finished instantly".
+		const requeuedCount = recovered.tasks.filter(
+			(task) => task.status === "failed" || task.status === "cancelled" || task.status === "skipped" || task.status === "running",
+		).length;
 		saveRunTasks(runtimeManifest, resetTasks);
 		const replay = replayPendingMailboxMessages(runtimeManifest);
 		await appendEventAsync(runtimeManifest.eventsPath, {
@@ -874,6 +881,7 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			kind: "execute" as const,
 			runtimeManifest: executingManifest,
 			resetTasks,
+			requeuedCount,
 			executeWorkers,
 			resumeSkillOverride,
 			runtime,
@@ -909,12 +917,32 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 		// Finding 8: resume is the legitimate terminal-exit flow.
 		isResume: true,
 	});
+	// RELIABILITY FIX 2026-10-10 (bug #3, wave-2/wave-3 observations): the old
+	// message printed a bare "Status: completed" which read as "the whole run
+	// just finished" even when the resume had re-queued real work that kept
+	// executing. Report the truth: what the resumed execution returned, how
+	// much work was re-queued at resume, and the per-status task breakdown.
+	const statusLine =
+		executed.manifest.status === "completed"
+			? "completed — resumed execution finished (all tasks terminal)"
+			: executed.manifest.status === "running"
+				? "running — resumed dispatch is still executing"
+				: `${executed.manifest.status} — resumed execution ended in this state`;
+	const taskCounts = executed.tasks.reduce<Record<string, number>>((acc, task) => {
+		acc[task.status] = (acc[task.status] ?? 0) + 1;
+		return acc;
+	}, {});
+	const countsText = Object.entries(taskCounts)
+		.map(([status, count]) => `${count} ${status}`)
+		.join(", ");
 	return result(
 		[
 			`Resumed run ${executed.manifest.runId}.`,
-			`Status: ${executed.manifest.status}`,
-			`Tasks: ${executed.tasks.length}`,
+			`Status: ${statusLine}`,
+			`Resumed work: ${decision.requeuedCount} task(s) re-queued${decision.requeuedCount === 0 ? " (run was already terminal — nothing to resume)" : ""}`,
+			`Tasks: ${executed.tasks.length} (${countsText})`,
 			`Artifacts: ${executed.manifest.artifactsRoot}`,
+			`Check live status with: team action=status runId=${executed.manifest.runId}`,
 		].join("\n"),
 		{
 			action: "resume",

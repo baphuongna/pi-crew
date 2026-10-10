@@ -16,12 +16,12 @@
  * team-runner.ts would create a cycle).
  */
 import { flushPendingAtomicWrites } from "../state/atomic-write.ts";
-import { withRunLock } from "../state/coordination/locks.ts";
 import { appendEventAsync } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { aggregateUsage, formatTokens } from "../state/usage.ts";
 import { logInternalError } from "../utils/internal-error.ts";
+import { MERGE_LOCK_BUSY_RETRY_DELAYS_MS, withRunLockBusyRetryAsync } from "./broker/protocol/lock-busy.ts";
 import { saveCrewAgents } from "./crew-agent-records.ts";
 import { cancelNonTerminalTasks, markBlocked } from "./dispatch-batch.ts";
 import { isNonTerminalTaskStatus, mergeTaskUpdatesPreservingTerminal } from "./merge-gate.ts";
@@ -136,25 +136,41 @@ export async function terminaliseRunWithDrain(
 	if (validResults.length > 0) {
 		// Merge under the run lock — same pattern as mergeUnitResult:
 		// flush pending writes, load disk state, merge artifacts + tasks,
-		// save atomically.
-		const mergeResult = await withRunLock(ctx.manifest, async () => {
-			flushPendingAtomicWrites();
-			const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
-			const diskManifest = disk?.manifest ?? ctx.manifest;
-			const reconciledArtifacts = mergeArtifacts([
-				...diskManifest.artifacts,
-				...validResults.flatMap((item) => item.manifest.artifacts),
-			]);
-			const resultManifest = updateRunStatus(
-				{ ...diskManifest, artifacts: reconciledArtifacts },
-				"running",
-				"Merged in-flight results during failed-task abort.",
-			);
-			const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
-			await saveRunManifestAsync(resultManifest);
-			await saveRunTasksAsync(resultManifest, resultTasks);
-			return { resultManifest, resultTasks };
-		});
+		// save atomically. RELIABILITY FIX 2026-10-10: bare withRunLock here had
+		// the same contention-fatal flaw as mergeUnitResult (see merge-loop.ts) —
+		// a busy run.lock on this abort path would surface as an unhandled
+		// rejection downstream. Bounded busy-retry + run.lock_retry event now.
+		const mergeResult = await withRunLockBusyRetryAsync(
+			ctx.manifest,
+			MERGE_LOCK_BUSY_RETRY_DELAYS_MS,
+			async () => {
+				flushPendingAtomicWrites();
+				const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+				const diskManifest = disk?.manifest ?? ctx.manifest;
+				const reconciledArtifacts = mergeArtifacts([
+					...diskManifest.artifacts,
+					...validResults.flatMap((item) => item.manifest.artifacts),
+				]);
+				const resultManifest = updateRunStatus(
+					{ ...diskManifest, artifacts: reconciledArtifacts },
+					"running",
+					"Merged in-flight results during failed-task abort.",
+				);
+				const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
+				await saveRunManifestAsync(resultManifest);
+				await saveRunTasksAsync(resultManifest, resultTasks);
+				return { resultManifest, resultTasks };
+			},
+			(attempt, delayMs, error) => {
+				// Best-effort observability only — a failed event append must not break the retry.
+				appendEventAsync(ctx.manifest.eventsPath, {
+					type: "run.lock_retry",
+					runId: ctx.manifest.runId,
+					message: `run.lock contention during abort drain merge (attempt ${attempt}); retrying in ${delayMs}ms: ${error.message}`,
+					data: { attempt, delayMs, site: "terminaliseRunWithDrain" },
+				}).catch(() => undefined);
+			},
+		);
 		ctx.manifest = mergeResult.resultManifest;
 		ctx.tasks = mergeResult.resultTasks;
 	}

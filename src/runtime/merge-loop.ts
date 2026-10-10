@@ -13,10 +13,11 @@
  * keeping it here avoids a merge-loop ↔ finalize-run import cycle.
  */
 import { flushPendingAtomicWrites } from "../state/atomic-write.ts";
-import { withRunLock } from "../state/coordination/locks.ts";
+import { appendEventAsync } from "../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifestAsync, saveRunTasksAsync, updateRunStatus } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { classifyFatalFsError } from "../utils/fs-errno.ts";
+import { MERGE_LOCK_BUSY_RETRY_DELAYS_MS, withRunLockBusyRetryAsync } from "./broker/protocol/lock-busy.ts";
 import { cancelNonTerminalTasks } from "./dispatch-batch.ts";
 import { mergeTaskUpdatesPreservingTerminal } from "./merge-gate.ts";
 import type { SchedulerContext, SchedulerDecision } from "./scheduler-context.ts";
@@ -86,40 +87,67 @@ export async function mergeUnitResult(ctx: SchedulerContext): Promise<SchedulerD
 	// not the arbitrary order in which mapConcurrent returned results.
 	// Read committed manifest from disk inside the lock so artifact merge is based
 	// on committed state, not in-memory state that may differ from disk.
-	const mergeResult = await withRunLock(ctx.manifest, async () => {
-		// NEW-D1: flush any pending coalesced atomic writes before reading from
-		// disk. Without this, a worker's async manifest save (coalesced by
-		// atomic-write) may not be committed yet, causing a lost-update on the
-		// merge read. flushPendingAtomicWrites forces all queued writes to disk.
-		flushPendingAtomicWrites();
-		const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
-		const diskManifest = disk?.manifest ?? ctx.manifest;
-		const diskArtifacts = diskManifest.artifacts;
-		const reconciledArtifacts = mergeArtifacts([...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat());
-		// R15-2: only force "running" when the disk manifest is NON-terminal
-		// (queued/planning/running/blocked). If the disk status is already terminal
-		// (cancelled/failed/completed — an external cancel or reconciler write
-		// landing during the batch), PRESERVE that terminal status: forcing
-		// "running" would legally erase it (contracts.ts allows cancelled/failed/
-		// completed → running) and the loop would never observe the disk-terminal
-		// (CANCEL-1/CANCEL-2 only catch worker-reported cancel or signal abort).
-		const mergedBase = { ...diskManifest, artifacts: reconciledArtifacts };
-		const resultManifest = isRunTerminalPreserved(diskManifest.status)
-			? mergedBase
-			: updateRunStatus(mergedBase, "running", "Merged task updates from parallel batch.");
-		// CANCEL-1: use the freshly-loaded disk tasks as the merge base instead
-		// of the in-memory `tasks` closure variable. The in-memory tasks reflect
-		// only team-runner's view; an external cancel (handleCancel, background
-		// race with SIGTERM arriving after cancel wrote but before merge ran)
-		// writes 'cancelled' to disk.tasks — using disk.tasks as base preserves
-		// that cancellation through the merge instead of overwriting it with the
-		// stale in-memory view. disk was loaded inside this lock, so it reflects
-		// the freshest committed state.
-		const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
-		await saveRunManifestAsync(resultManifest);
-		await saveRunTasksAsync(resultManifest, resultTasks);
-		return { resultManifest, resultTasks };
-	});
+	// RELIABILITY FIX 2026-10-10 (run team_20261010100956 incident): the merge
+	// used a bare withRunLock. Under run.lock contention (a second writer —
+	// stale reconciler, resumed runner, or a slow ENOSPC-degraded writer —
+	// holding run.lock past the acquire retry budget) withRunLock throws the
+	// plain "Run 'run.lock' is locked by another operation." error, which
+	// escaped executeTeamRun's catch → rejectRunPromise → an UNHANDLED promise
+	// rejection (no waitForRun waiter in background-runner mode) → the runner's
+	// unhandledRejection guard killed the whole runner mid-run. The merge now
+	// retries transient contention with back-off (logging a run.lock_retry
+	// event per attempt); only after the bounded schedule is exhausted does
+	// the busy error propagate for the run-level handler to classify. Non-busy
+	// errors (real faults) keep their existing fatal path — this is NOT a
+	// swallow-all.
+	const mergeResult = await withRunLockBusyRetryAsync(
+		ctx.manifest,
+		MERGE_LOCK_BUSY_RETRY_DELAYS_MS,
+		async () => {
+			// NEW-D1: flush any pending coalesced atomic writes before reading from
+			// disk. Without this, a worker's async manifest save (coalesced by
+			// atomic-write) may not be committed yet, causing a lost-update on the
+			// merge read. flushPendingAtomicWrites forces all queued writes to disk.
+			flushPendingAtomicWrites();
+			const disk = loadRunManifestById(ctx.manifest.cwd, ctx.manifest.runId);
+			const diskManifest = disk?.manifest ?? ctx.manifest;
+			const diskArtifacts = diskManifest.artifacts;
+			const reconciledArtifacts = mergeArtifacts([...diskArtifacts, ...validResults.map((item) => item.manifest.artifacts)].flat());
+			// R15-2: only force "running" when the disk manifest is NON-terminal
+			// (queued/planning/running/blocked). If the disk status is already terminal
+			// (cancelled/failed/completed — an external cancel or reconciler write
+			// landing during the batch), PRESERVE that terminal status: forcing
+			// "running" would legally erase it (contracts.ts allows cancelled/failed/
+			// completed → running) and the loop would never observe the disk-terminal
+			// (CANCEL-1/CANCEL-2 only catch worker-reported cancel or signal abort).
+			const mergedBase = { ...diskManifest, artifacts: reconciledArtifacts };
+			const resultManifest = isRunTerminalPreserved(diskManifest.status)
+				? mergedBase
+				: updateRunStatus(mergedBase, "running", "Merged task updates from parallel batch.");
+			// CANCEL-1: use the freshly-loaded disk tasks as the merge base instead
+			// of the in-memory `tasks` closure variable. The in-memory tasks reflect
+			// only team-runner's view; an external cancel (handleCancel, background
+			// race with SIGTERM arriving after cancel wrote but before merge ran)
+			// writes 'cancelled' to disk.tasks — using disk.tasks as base preserves
+			// that cancellation through the merge instead of overwriting it with the
+			// stale in-memory view. disk was loaded inside this lock, so it reflects
+			// the freshest committed state.
+			const resultTasks = mergeTaskUpdatesPreservingTerminal(disk?.tasks ?? ctx.tasks, validResults);
+			await saveRunManifestAsync(resultManifest);
+			await saveRunTasksAsync(resultManifest, resultTasks);
+			return { resultManifest, resultTasks };
+		},
+		(attempt, delayMs, error) => {
+			// Best-effort observability only — a failed event append (e.g. the same
+			// degraded disk that caused the contention) must not break the retry.
+			appendEventAsync(ctx.manifest.eventsPath, {
+				type: "run.lock_retry",
+				runId: ctx.manifest.runId,
+				message: `run.lock contention during unit merge (attempt ${attempt}); retrying in ${delayMs}ms: ${error.message}`,
+				data: { attempt, delayMs, site: "mergeUnitResult" },
+			}).catch(() => undefined);
+		},
+	);
 	ctx.manifest = mergeResult.resultManifest;
 	ctx.tasks = mergeResult.resultTasks;
 	ctx.settledMerge = { taskIds: completedUnit.taskIds, result: resultToMerge };

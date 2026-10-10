@@ -343,3 +343,31 @@ test("registerRunPromise is idempotent: a second registration returns the SAME e
 		clearRunPromisesForTest();
 	}
 });
+
+test("RELIABILITY 2026-10-10: a waiter-less rejectRunPromise must NOT surface as an unhandled rejection", async () => {
+	// Incident team_20261010100956: background-runner mode registers the run
+	// promise but NOTHING awaits it (no waitForRun waiter). When
+	// executeTeamRun's catch called rejectRunPromise, the rejection was
+	// unobserved → Node unhandledRejection → the runner's guard killed the
+	// whole runner AFTER cleanup had already run. registerRunPromise now
+	// attaches a no-op rejection handler (handled ≠ swallowed: waiters still
+	// observe rejections through their own attachments).
+	const runId = "waiter-less-rejection-run";
+	let unhandled = 0;
+	const onUnhandled = (): void => {
+		unhandled++;
+	};
+	process.on("unhandledRejection", onUnhandled);
+	try {
+		const entry = registerRunPromise(runId);
+		entry.reject(new Error("boom: no waiter holds this promise"));
+		// Give the microtask + possible unhandledRejection detection window time.
+		await wait(150);
+		assert.equal(unhandled, 0, "rejection with no waiter must not raise unhandledRejection");
+		// A LATE waiter still observes the rejection (handled ≠ hidden).
+		await assert.rejects(() => entry.promise);
+	} finally {
+		process.off("unhandledRejection", onUnhandled);
+		clearRunPromisesForTest();
+	}
+});
