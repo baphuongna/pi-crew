@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.11.13] — Reliability: runner survives run.lock contention + 2 fixes from live wave runs (2026-10-10)
+
+Three reliability fixes discovered while shipping Waves 1-3 of the upgrade-spec
+program (each bug reproduced live against a real team run today).
+
+### Fixed
+
+- **Runner death on run.lock contention (critical)** — the background runner
+  died with an unhandled rejection when `mergeUnitResult` hit
+  `Run 'run.lock' is locked by another operation`, which stopped heartbeats
+  and let the stale-reconciler mass-cancel workers as pid_dead (killed the
+  Wave-3 run mid-flight). Merge sites now treat lock-contention as retryable
+  (backoff + event log); fatal errors still reach the deadletter path. New
+  2-writer contention tests (merge-loop-lock-contention.test.ts).
+- **Chain/foreground watch-timeout no longer cancels child runs** — a 60-min
+  watch window expiring now reports partial-watch only; the child run keeps
+  running (previously: chain steps got their run cancelled).
+- **`resume` reports real status** — resuming a run replied "Status:
+  completed" instantly while the work continued for hours; it now reports
+  the actual state and re-queued work.
+
+# Changelog
+
 ## [0.11.12] — Upgrade Wave 2: U4 live-session v2, U5 mailbox dedup, U6A classifier triage, U14 rpc mode, U15 OwnedProcess (2026-10-10)
 
 Wave 2 of the upgrade-spec program. One commit per spec; test:critical 120/0,
