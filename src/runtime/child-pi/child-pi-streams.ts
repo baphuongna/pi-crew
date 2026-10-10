@@ -130,6 +130,28 @@ export function compactChildPiEvent(event: unknown): unknown | undefined {
 	return record.type ? { type: record.type } : undefined;
 }
 
+/**
+ * U14 (child-pi protocol v2): `true` when the event is the FINAL assistant
+ * event of a run — an assistant `message_end` with stopReason "stop" and no
+ * pending toolCall part. Shared by BOTH transports (the json stdout funnel in
+ * child-pi.ts and the rpc event subscription in child-pi-rpc.ts) so the
+ * final-drain arming condition cannot drift between modes.
+ *
+ * Extracted from child-pi.ts (U14) — pure motion, zero behavior change.
+ */
+export function isFinalAssistantEvent(event: unknown): boolean {
+	const obj = asRecord(event);
+	if (obj?.type !== "message_end") return false;
+	const message = asRecord(obj.message);
+	const role = message?.role;
+	if (role !== undefined && role !== "assistant") return false;
+	const stopReason =
+		typeof message?.stopReason === "string" ? message.stopReason : typeof obj.stopReason === "string" ? obj.stopReason : undefined;
+	if (stopReason !== undefined && stopReason !== "stop") return false;
+	const content = Array.isArray(message?.content) ? message.content : [];
+	return !content.some((part) => asRecord(part)?.type === "toolCall");
+}
+
 function displayTextFromCompactEvent(event: unknown): string | undefined {
 	const record = asRecord(event);
 	if (!record) return undefined;
@@ -297,27 +319,55 @@ export class ChildPiLineObserver {
 			parsed = undefined;
 		}
 		if (parsed !== undefined) {
-			const rawTexts = extractText(parsed);
-			if (rawTexts.length > 0) {
-				// F9: trim from the front if the push would exceed the cap. Slice's
-				// second arg excludes the index, so this drops the oldest entries
-				// while keeping the freshly pushed tail.
-				this.rawTextEvents.push(...rawTexts);
-				const rawOverflow = this.rawTextEvents.length - ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
-				if (rawOverflow > 0) this.rawTextEvents.splice(0, rawOverflow);
-				// Also capture raw assistant text as intermediate findings — the last raw
-				// text may be a partial answer before the worker ran out of budget.
-				const last = rawTexts[rawTexts.length - 1];
-				if (last.trim().length > 0) {
-					this.intermediateFindings.push(last.trim());
-					const findingsOverflow = this.intermediateFindings.length - ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
-					if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
-				}
+			this.processParsedEvent(parsed);
+		} else {
+			// OPT-PHASE2: construct the non-JSON fallback directly when parsing failed,
+			// so a broken line triggers exactly ONE (failed) parse instead of two.
+			this.dispatchCompact(nonJsonLineResult(line));
+		}
+	}
+
+	/**
+	 * U14 (child-pi protocol v2): feed an ALREADY-PARSED agent event through
+	 * the exact same pipeline as a parsed stdout JSON line — raw assistant-text
+	 * extraction, compaction, onJsonEvent dispatch, transcript append, and
+	 * display-line emission. The rpc transport (child-pi-rpc.ts) receives
+	 * parsed event objects from RpcClient.onEvent (the RpcClient owns the
+	 * stdout JSONL wire), so this is its entry into the observer. Non-object
+	 * values are dropped (parity with the non-JSON text fallback, which never
+	 * reaches this path).
+	 */
+	observeEvent(event: unknown): void {
+		if (event === null || typeof event !== "object") return;
+		this.processParsedEvent(event);
+	}
+
+	/** Shared post-parse pipeline for BOTH transports (text lines + rpc events). */
+	private processParsedEvent(parsed: unknown): void {
+		const rawTexts = extractText(parsed);
+		if (rawTexts.length > 0) {
+			// F9: trim from the front if the push would exceed the cap. Slice's
+			// second arg excludes the index, so this drops the oldest entries
+			// while keeping the freshly pushed tail.
+			this.rawTextEvents.push(...rawTexts);
+			const rawOverflow = this.rawTextEvents.length - ChildPiLineObserver.MAX_RAW_TEXT_EVENTS;
+			if (rawOverflow > 0) this.rawTextEvents.splice(0, rawOverflow);
+			// Also capture raw assistant text as intermediate findings — the last raw
+			// text may be a partial answer before the worker ran out of budget.
+			const last = rawTexts[rawTexts.length - 1];
+			if (last.trim().length > 0) {
+				this.intermediateFindings.push(last.trim());
+				const findingsOverflow = this.intermediateFindings.length - ChildPiLineObserver.MAX_INTERMEDIATE_FINDINGS;
+				if (findingsOverflow > 0) this.intermediateFindings.splice(0, findingsOverflow);
 			}
 		}
-		// OPT-PHASE2: construct the non-JSON fallback directly when parsing failed,
-		// so a broken line triggers exactly ONE (failed) parse instead of two.
-		const compact = parsed !== undefined ? compactChildPiLine(line, parsed) : nonJsonLineResult(line);
+		// (preParsed is always defined here — the line-based JSON.parse happened
+		// in emitLine; the rpc path never had a line at all.)
+		this.dispatchCompact(compactChildPiLine("", parsed));
+	}
+
+	/** Dispatch a compacted line/event to the consumer callbacks + transcript. */
+	private dispatchCompact(compact: { persistedLine: string; event?: unknown; displayLine?: string; json: boolean }): void {
 		if (compact.event !== undefined) {
 			try {
 				this.input.onJsonEvent?.(compact.event);

@@ -9,6 +9,8 @@
  */
 
 import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
+import type { ChildPiRunInput } from "./child-pi.ts";
 
 /** Post-exit window during which stdio is guarded against late writes. */
 export const POST_EXIT_STDIO_GUARD_MS = DEFAULT_CHILD_PI.postExitStdioGuardMs;
@@ -48,3 +50,25 @@ export const MAX_TOOL_INPUT_CHARS = DEFAULT_CHILD_PI.maxToolInputChars;
 
 /** Maximum characters for general compactable content (used by TruncationStage). */
 export const MAX_COMPACT_CONTENT_CHARS = DEFAULT_CHILD_PI.maxCompactContentChars;
+
+/**
+ * Effective no-response timeout for a child run: env
+ * PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS (bounded to [1s, 1h] — FIX Round 14: a
+ * hostile/accidental value like 1 or 999_999_999 must neither disable the
+ * timeout nor cause instant kills) beats ChildPiRunInput.responseTimeoutMs
+ * beats the DEFAULT_CHILD_PI default.
+ *
+ * U14: extracted from the json branch's inline copy so the rpc transport
+ * (child-pi-rpc.ts) resolves the EXACT same budget — the watchdog timing is
+ * part of the bảng KHÔNG ĐỔI contract and must not drift between transports.
+ */
+export function resolveResponseTimeoutMs(input: Pick<ChildPiRunInput, "responseTimeoutMs">): number {
+	const RESPONSE_TIMEOUT_MIN_MS = 1_000;
+	const RESPONSE_TIMEOUT_MAX_MS = 3_600_000;
+	const responseTimeoutEnv = Number.parseInt(getCrewEnv("PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS") ?? "", 10);
+	const envInRange =
+		Number.isFinite(responseTimeoutEnv) &&
+		responseTimeoutEnv >= RESPONSE_TIMEOUT_MIN_MS &&
+		responseTimeoutEnv <= RESPONSE_TIMEOUT_MAX_MS;
+	return envInRange ? responseTimeoutEnv : (input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS);
+}

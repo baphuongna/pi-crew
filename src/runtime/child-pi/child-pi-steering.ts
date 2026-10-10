@@ -16,6 +16,15 @@ import * as fs from "node:fs";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { killProcessTree } from "./child-pi-kill.ts";
 
+/** The wrap-up advisory delivered at the soft turn limit. Shared by BOTH
+ * transports so the wording stays single-sourced:
+ *   - json mode: appended to the steering JSONL file the child polls
+ *     (PI_CREW_STEERING_FILE) inside onTurnEnd below.
+ *   - rpc mode (U14): sent over the wire via RpcClient.steer() from
+ *     child-pi-rpc.ts, gated by isStreaming (an idle steer would QUEUE and
+ *     poison the NEXT run — PoC nuance 1, upgrade-spec 2026-10-09 U14). */
+export const STEER_WRAP_UP_MESSAGE = "You have reached your turn limit. Wrap up immediately — provide your final answer now.";
+
 /** Action emitted by the controller when a `turn_end` event is processed. */
 export type SteeringAction =
 	| { kind: "steer" }
@@ -65,14 +74,7 @@ export class ChildPiSteeringController {
 			// a failed write must NOT kill the worker.
 			if (steeringFile) {
 				try {
-					fs.appendFileSync(
-						steeringFile,
-						JSON.stringify({
-							type: "steer",
-							message: "You have reached your turn limit. Wrap up immediately — provide your final answer now.",
-						}) + "\n",
-						"utf-8",
-					);
+					fs.appendFileSync(steeringFile, JSON.stringify({ type: "steer", message: STEER_WRAP_UP_MESSAGE }) + "\n", "utf-8");
 				} catch (err) {
 					logInternalError("child-pi.steer-write-failed", err instanceof Error ? err : new Error(String(err)), `pid=${pid}`);
 				}

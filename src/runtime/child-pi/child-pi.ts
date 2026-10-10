@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { loadConfig } from "../../config/config.ts";
-import { getCrewEnv } from "../../config/env-vars.ts";
 import type { PiTeamsConfig } from "../../config/types.ts";
 import { registerChildProcess, unregisterChildProcess } from "../../extension/crew-cleanup.ts";
 import type { WorkerExitStatus } from "../../state/types.ts";
@@ -18,12 +17,23 @@ import { classifyOnExit, getSurfaceRuntimeController, makeTerminalEventProbe } f
 import type { SurfaceGateEnvSnapshot } from "../surface/resolve-surface.ts";
 import type { SurfaceProvider } from "../surface/surface-provider.ts";
 import { prepareSurfaceSpawn, type SurfaceExitInfo, type SurfaceSpawnOutcome, waitForSurfaceExit } from "../surface/surface-spawn.ts";
-import { FINAL_DRAIN_MS, HARD_KILL_MS, POST_EXIT_STDIO_GUARD_MS, RESPONSE_TIMEOUT_MS } from "./child-pi-constants.ts";
+import {
+	FINAL_DRAIN_MS,
+	HARD_KILL_MS,
+	POST_EXIT_STDIO_GUARD_MS,
+	RESPONSE_TIMEOUT_MS,
+	resolveResponseTimeoutMs,
+} from "./child-pi-constants.ts";
 import { clearHardKillTimer, killProcessTree, registerActiveChild, unregisterActiveChild } from "./child-pi-kill.ts";
+// U14 (child-pi protocol v2): the rpc transport branch — opt-in via
+// PI_CREW_CHILD_PI_MODE=rpc; json stays the default transport (phase 1).
+import { resolveChildPiRpcMode, tryChildPiRpcRun } from "./child-pi-rpc.ts";
 import { buildFinalChildPiSpawnOptions, prepareSpawnContext } from "./child-pi-spawn.ts";
 import { ChildPiSteeringController } from "./child-pi-steering.ts";
 // Internal helpers for active-child bookkeeping (extracted to child-pi-kill.ts).
-import { ChildPiLineObserver } from "./child-pi-streams.ts";
+// U14: isFinalAssistantEvent moved to child-pi-streams.ts (shared by BOTH
+// transports) and is re-exported below to keep the module surface stable.
+import { ChildPiLineObserver, isFinalAssistantEvent } from "./child-pi-streams.ts";
 // Phase 2.3: the six timer constructs moved to child-pi-timers.ts (pure motion).
 import { createChildPiTimers } from "./child-pi-timers.ts";
 import { runMockChildPi } from "./mock-fixtures.ts";
@@ -51,7 +61,7 @@ export {
 // owns the canary + filter + spread sequence; lives in child-pi-spawn.ts.
 export { buildChildPiSpawnOptions, buildFinalChildPiSpawnOptions } from "./child-pi-spawn.ts";
 // ── Re-export from child-pi-streams.ts (H-7 decomposition step 4) ──
-export { ChildPiLineObserver } from "./child-pi-streams.ts";
+export { ChildPiLineObserver, isFinalAssistantEvent } from "./child-pi-streams.ts";
 
 import { checkCrewDepth, cleanupTempDir, resolveHermeticWorkers } from "../model/pi-args.ts";
 import { attachPostExitStdioGuard, trySignalChild } from "../process/post-exit-stdio-guard.ts";
@@ -397,19 +407,6 @@ async function observeStdoutChunk(input: ChildPiRunInput, text: string): Promise
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
-
-function isFinalAssistantEvent(event: unknown): boolean {
-	const obj = asRecord(event);
-	if (obj?.type !== "message_end") return false;
-	const message = asRecord(obj.message);
-	const role = message?.role;
-	if (role !== undefined && role !== "assistant") return false;
-	const stopReason =
-		typeof message?.stopReason === "string" ? message.stopReason : typeof obj.stopReason === "string" ? obj.stopReason : undefined;
-	if (stopReason !== undefined && stopReason !== "stop") return false;
-	const content = Array.isArray(message?.content) ? message.content : [];
-	return !content.some((part) => asRecord(part)?.type === "toolCall");
 }
 
 /**
@@ -789,6 +786,17 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 	// awaited) or null → fall through to the classic headless spawn below.
 	const surfaceResult = await trySurfaceBranch(input, depthEnv, builtArgs, mergedEnv, builtEnv, tempDir);
 	if (surfaceResult) return surfaceResult;
+	// U14 (child-pi protocol v2 — upgrade-spec 2026-10-09): `--mode rpc`
+	// transport, opt-in via PI_CREW_CHILD_PI_MODE=rpc (json remains the
+	// phase-1 default — the flag is the BOTH-directions regression lever).
+	// Returns null when rpc cannot run here (no absolute cli script) so the
+	// json branch below stays the fail-safe path. Surface TUI panes are
+	// unaffected — trySurfaceBranch consumed builtArgs above and never
+	// reaches this point in surface mode.
+	if (resolveChildPiRpcMode()) {
+		const rpcResult = await tryChildPiRpcRun({ input, effectiveTask, ctx: spawnPrep.ctx, workerSession, sessionRecoveryEnabled });
+		if (rpcResult) return rpcResult;
+	}
 	try {
 		return await new Promise<ChildPiRunResult>((resolve) => {
 			// Compose the final SpawnOptions: canary + filter + spread are now
@@ -841,19 +849,10 @@ export async function runChildPi(input: ChildPiRunInput): Promise<ChildPiRunResu
 			let finalDrainFiredMonotonicMs: number | undefined;
 			const spawnMonotonicMs = performance.now();
 			let finalAssistantEventMonotonicMs: number | undefined;
-			// FIX (Round 14): Bound the env-controlled response timeout to
-			// [1_000ms, 3_600_000ms] (1s–1h) so a hostile or accidental value
-			// (e.g. 1, or 999_999_999) cannot disable the timeout or cause
-			// instant kills. Out-of-range values fall back to the input or
-			// built-in default.
-			const RESPONSE_TIMEOUT_MIN_MS = 1_000;
-			const RESPONSE_TIMEOUT_MAX_MS = 3_600_000;
-			const responseTimeoutEnv = Number.parseInt(getCrewEnv("PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS") ?? "", 10);
-			const envInRange =
-				Number.isFinite(responseTimeoutEnv) &&
-				responseTimeoutEnv >= RESPONSE_TIMEOUT_MIN_MS &&
-				responseTimeoutEnv <= RESPONSE_TIMEOUT_MAX_MS;
-			const responseTimeoutMs = envInRange ? responseTimeoutEnv : (input.responseTimeoutMs ?? RESPONSE_TIMEOUT_MS);
+			// FIX (Round 14) — the env-override bounds live in
+			// resolveResponseTimeoutMs (child-pi-constants.ts, U14: shared with the
+			// rpc transport so watchdog budgets cannot drift between modes).
+			const responseTimeoutMs = resolveResponseTimeoutMs(input);
 			let responseTimeoutHit = false;
 			let forcedFinalDrain = false;
 			let abortRequested = input.signal?.aborted === true;
