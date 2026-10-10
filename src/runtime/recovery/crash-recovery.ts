@@ -15,7 +15,7 @@ import {
 	saveRunTasks,
 	updateRunStatus,
 } from "../../state/stores/state-store.ts";
-import type { TeamTaskState } from "../../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
@@ -26,7 +26,13 @@ import { terminateLiveAgentsForRun } from "../live-session/live-agent-manager.ts
 import type { ManifestCache } from "../manifest-cache.ts";
 import { checkProcessLiveness } from "../process-status.ts";
 import { mapConcurrent } from "../scheduling/parallel-utils.ts";
-import { isIntentionalWait, isPlanApprovalPendingEffective, type ReconcileResult, reconcileStaleRun } from "../stale-reconciler.ts";
+import {
+	hasLiveRunClaim,
+	isIntentionalWait,
+	isPlanApprovalPendingEffective,
+	type ReconcileResult,
+	reconcileStaleRun,
+} from "../stale-reconciler.ts";
 
 export interface RecoveryPlan {
 	runId: string;
@@ -134,7 +140,17 @@ export function detectInterruptedRuns(
 		// NOTE: no withRunLock — best-effort only; concurrent writes may cause inconsistency
 		const loaded = loadRunManifestById(cwd, manifest.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 		if (!loaded) continue;
-		const resumableTasks = loaded.tasks.filter((task) => shouldRecoverTask(task, deadMs)).map((task) => task.id);
+		// U9 (upgrade-spec 2026-10-09 — reconcile-at-open fast-path DETECTION): a
+		// dead detached runner PID + no live active-run-registry claim is
+		// AUTHORITATIVE crash evidence. The deadMs heartbeat-staleness wait in
+		// shouldRecoverTask exists to protect runs whose liveness we cannot probe
+		// (foreground/no-PID runs); for a dead async runner it only delays an
+		// interrupted run from becoming actionable by the full deadMs (300s).
+		// Skip the wait here so a crashed run is resumable the moment it is opened.
+		const fastPathEligible = loaded.manifest.async?.pid !== undefined && !hasLiveRunClaim(loaded.manifest.runId, loaded.manifest);
+		const resumableTasks = loaded.tasks
+			.filter((task) => (fastPathEligible ? task.status === "running" : shouldRecoverTask(task, deadMs)))
+			.map((task) => task.id);
 		if (!resumableTasks.length) continue;
 		plans.push({
 			runId: manifest.runId,
@@ -725,6 +741,108 @@ export function purgeStaleActiveRunIndex(
 	return { purged, kept };
 }
 
+/**
+ * U9 (upgrade-spec 2026-10-09): reconcile-at-open FAST-PATH result — the
+ * durable-scheduler-inspired "1 pass" that replaces the verdict tree for
+ * crashed runs WITHOUT a live claim. `event` is appended by the CALLER via the
+ * async primitive after the sync writes land (U2 discipline — mirrors
+ * applyRecoveryPlan's `lifecycle` pattern; the run lock is held by the caller).
+ */
+export interface ReconcileAtOpenFastPathOutcome {
+	result: ReconcileResult;
+	eventsPath: string;
+	event: AppendTeamEvent;
+}
+
+/**
+ * U9 (upgrade-spec 2026-10-09): reconcile-at-open fast-path.
+ *
+ * When a run is opened after a crash and there is NO live claim (dead async
+ * runner PID + no live active-run-registry entry), ONE pass requeues every
+ * `running` task → `queued`, PRESERVING attempt/deps/partial state (attempts,
+ * checkpoint, claim, artifacts, usage — only per-attempt transient fields are
+ * reset, mirroring applyRecoveryPlan), then marks the run `failed` so later
+ * reconcile passes leave the requeued tasks alone (the failed status is
+ * load-bearing idempotency: reconcileAllStaleRuns only visits running/blocked
+ * runs, so the fast-path fires exactly once; a later `team resume` requeues
+ * failed/cancelled/skipped/running → queued and re-executes what remains).
+ *
+ * G12 preserved: a run WITH a live claim NEVER takes this path — callers fall
+ * through to the full stale-reconciler verdict tree
+ * (healthy/waiting_answer/pid_dead/...), unchanged. Intentional waits (plan
+ * approval / pending ask) are likewise left to the verdict tree. Runs without
+ * an async runner PID (foreground/live-session) also defer — their liveness
+ * evidence is the registry entry plus heartbeat staleness, which the verdict
+ * tree already weighs.
+ *
+ * MUST be called under the run lock on a freshly-loaded state (the
+ * reconcileAllStaleRuns call site does exactly that). Returns undefined when
+ * the fast-path does not apply (live claim / intentional wait / no async PID /
+ * nothing left in `running` — the idempotent re-entry case).
+ */
+export function applyReconcileAtOpenFastPath(
+	loaded: { manifest: TeamRunManifest; tasks: TeamTaskState[] },
+	now = Date.now(),
+): ReconcileAtOpenFastPathOutcome | undefined {
+	const { manifest } = loaded;
+	const pid = manifest.async?.pid;
+	// Only a dead, well-formed detached-runner PID is authoritative crash
+	// evidence. No PID (foreground/live-session runs) → verdict tree.
+	if (pid === undefined || !Number.isInteger(pid) || pid <= 0) return undefined;
+	if (checkProcessLiveness(pid).alive) return undefined; // live claim → verdict tree
+	if (hasLiveRunClaim(manifest.runId, manifest)) return undefined; // G12: never touch a claimed run
+	// Intentional waits (plan approval / pending ask within TTL) are not crashes.
+	if (isIntentionalWait(manifest, now)) return undefined;
+	const runningTasks = loaded.tasks.filter((task) => task.status === "running");
+	if (runningTasks.length === 0) return undefined; // idempotent: nothing to requeue
+
+	const requeued = new Set(runningTasks.map((task) => task.id));
+	const tasks = loaded.tasks.map((task) =>
+		requeued.has(task.id)
+			? {
+					...task,
+					status: "queued" as const,
+					startedAt: undefined,
+					finishedAt: undefined,
+					error: undefined,
+					heartbeat: undefined,
+					// WP-2/R2 discipline (same as applyRecoveryPlan): a requeued task must
+					// not resume parked ask state.
+					waiting: undefined,
+					// attempt/deps/partial state PRESERVED (attempts, checkpoint, claim,
+					// artifacts, usage, modelAttempts) — only per-attempt transient
+					// fields above are reset, exactly like applyRecoveryPlan.
+				}
+			: task,
+	);
+	saveRunTasks(manifest, tasks);
+	updateRunStatus(
+		manifest,
+		"failed",
+		`Interrupted: async runner dead (no live claim); ${runningTasks.length} task(s) requeued for resume`,
+	);
+	return {
+		result: {
+			runId: manifest.runId,
+			verdict: "requeued_no_claim",
+			repaired: true,
+			detail: `No live claim (async pid ${pid} dead, no live registry entry); requeued ${runningTasks.length} running task(s) → queued for resume (attempt state preserved); run marked failed so later reconcile passes leave it resumable`,
+			repairedTasks: tasks,
+		},
+		eventsPath: manifest.eventsPath,
+		event: {
+			type: "crew.run.resumed",
+			runId: manifest.runId,
+			message: `Reconcile-at-open fast-path: requeued ${runningTasks.length} interrupted task(s) for resume (no live claim).`,
+			data: {
+				fastPath: true,
+				requeuedTasks: [...requeued],
+				recoveredFromSeq: scanSequence(manifest.eventsPath),
+			},
+		},
+	};
+}
+
 export async function reconcileAllStaleRuns(
 	cwd: string,
 	manifestCache: ManifestCache,
@@ -773,6 +891,21 @@ export async function reconcileAllStaleRuns(
 						repaired: false,
 						detail: "Plan approval is pending; stale reconciliation skipped",
 					});
+					return;
+				}
+				// U9 (upgrade-spec 2026-10-09): reconcile-at-open FAST-PATH. A crashed run
+				// with NO live claim (dead async runner PID + no live registry entry) is
+				// requeued in one pass instead of going through the verdict tree, whose
+				// pid_dead branch would CANCEL the running tasks and destroy resume
+				// eligibility. Runs WITH a live claim (or intentional waits / no async
+				// PID) skip this and keep the full verdict-tree semantics, unchanged.
+				const fastPath = applyReconcileAtOpenFastPath(fresh, now);
+				if (fastPath) {
+					// Async lifecycle append AFTER the sync saveRunTasks/updateRunStatus
+					// writes (U2 discipline — same ordering as the verdict branch below:
+					// run.failed lands first, then the fast-path recovery record).
+					await appendEventAsync(fastPath.eventsPath, fastPath.event);
+					out.push(fastPath.result);
 					return;
 				}
 				const result = reconcileStaleRun(fresh.manifest, fresh.tasks, now);

@@ -38,7 +38,19 @@ const ORPHAN_TEMP_SCAN_BATCH_SIZE = 50;
 export interface ReconcileResult {
 	runId: string;
 	/** What was found and what action was taken */
-	verdict: "healthy" | "blocked_awaiting_approval" | "waiting_answer" | "result_exists" | "pid_dead" | "pid_alive_stale" | "no_status";
+	verdict:
+		| "healthy"
+		| "blocked_awaiting_approval"
+		| "waiting_answer"
+		| "result_exists"
+		| "pid_dead"
+		| "pid_alive_stale"
+		| "no_status"
+		/** U9 (upgrade-spec 2026-10-09): reconcile-at-open fast-path fired — no
+		 *  live claim (dead async runner PID + no live registry entry), running
+		 *  tasks requeued → queued (attempt/deps/partial state preserved) and the
+		 *  run marked failed-for-resume instead of cancelled by the verdict tree. */
+		| "requeued_no_claim";
 	/** Whether repair was applied */
 	repaired: boolean;
 	/** Human-readable detail */
@@ -378,6 +390,29 @@ function findLiveRegistryEntry(runId: string): ActiveRunRegistryEntry | undefine
 		logInternalError("stale-reconciler", new Error(`active-run registry consult failed for ${runId}: ${err}`), undefined, "warn");
 		return undefined;
 	}
+}
+
+/**
+ * U9 (upgrade-spec 2026-10-09 — reconcile-at-open fast-path): does ANY live
+ * claim exist for this run RIGHT NOW? Two independent signals, either ⇒ live:
+ *   1. a LIVE active-run-registry entry (registerActiveRun fires at dispatch;
+ *      activeRunEntries() applies terminal-status, dead-async-PID and
+ *      30-min-freshness filtering itself — an entry found here means a live
+ *      session/runner owns the run), or
+ *   2. the detached async runner PID is alive (authoritative process probe —
+ *      ESRCH/ENOENT dead, EPERM alive).
+ * A run with NEITHER signal cannot have a worker executing tasks right now,
+ * so requeueing its `running` tasks can never double-dispatch a live worker.
+ * This is the G12-preserving precondition for the crash-recovery fast-path:
+ * a run WITH a live claim always defers to the full verdict tree instead.
+ * Registry read failures fail-open (undefined ⇒ "no registry claim"), mirroring
+ * findLiveRegistryEntry/G24: a broken registry must not shield runs forever.
+ */
+export function hasLiveRunClaim(runId: string, manifest: TeamRunManifest): boolean {
+	if (findLiveRegistryEntry(runId)) return true;
+	const pid = manifest.async?.pid;
+	if (pid !== undefined && Number.isInteger(pid) && pid > 0 && checkProcessLiveness(pid).alive) return true;
+	return false;
 }
 
 function repairStaleRun(manifest: TeamRunManifest, tasks: TeamTaskState[], reason: string): TeamTaskState[] {
