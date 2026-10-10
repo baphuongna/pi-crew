@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] — Upgrade Wave 3: U7 events view layer, U8 sqlite state, U9 reconcile-at-open, U6B classifier pre-gate, U13 verify_gate (2026-10-10)
+
+Wave 3 of the upgrade-spec program (`pi-crew-upgrade-spec-2026-10-09.md`), branch
+`upgrade/wave-3`, one commit per spec. Final gate: unit 8934 tests (8925 pass;
+4 shard/snapshot registrations fixed and re-verified green; 2 load-flakes green in
+isolation), integration 144/0 fail, typecheck + lint clean, `dist/index.mjs` rebuilt
+fresh with every wave-3 string-literal marker verified in-bundle.
+
+### Added
+
+- **U7** — events state source view layer: `eventsStateSource(runId)`
+  CommittedStateSource adapter (snapshot = one full parse to the current seq; frames =
+  `readEventsCursor` tail-follow batches; >100-frame backlog or inode change → ONE
+  root-replacement resync). `run-snapshot-cache` opt-in `{ eventsState: { pollMs } }`
+  shares ONE unref'd poll interval per entry; browser tick CPU 6.98ms → 0.41ms.
+  `events.jsonl` is never written — pure derived view. (665b443a)
+- **U8** — opt-in sqlite run-state backend: `PI_CREW_STATE_BACKEND=sqlite` stores
+  manifest + tasks + worker-status in `<runId>/state.sqlite` via `node:sqlite` with
+  ONE transaction per batch write (all-or-nothing); JSON files stay written as
+  read-side mirrors for legacy consumers while loads read the db. The `events.jsonl`
+  audit spine is unchanged in both modes. (ae49628f)
+- **U9** — reconcile-at-open fast-path: crashed runs with NO live claim (dead async
+  pid + no live registry entry) requeue `running`→`queued` in ONE locked pass
+  (attempt / checkpoint / deps / partial state preserved) and the run is marked
+  `failed`-for-resume; the verdict tree now only runs for live-claim runs. Interrupted-
+  run detection latency 300000ms → 1-9ms. New reconcile verdict `requeued_no_claim`.
+  (456c9283)
+- **U6B** — classifier verifier pre-gate: score-question variant consults the ambient
+  classifier before a verifier-role spawn (block score ≥ 0.9 / confidence ≥ 0.8);
+  soft-fail — every classifier error path escalates to the LLM verifier. (6b6c0aca)
+- **U13** — deterministic `verify_gate` pre-gate + tool: verifier-role spawns first run
+  the package.json-script checks (typecheck / test:critical) via
+  `ctx.executeTool("bash", ...)` with per-check timeout (`PI_CREW_VERIFY_GATE`,
+  `PI_CREW_VERIFY_GATE_TIMEOUT_MS`, default 120s); PASS skips the LLM verifier spawn,
+  FAILED/INCONCLUSIVE spawns it with the gate results in the prompt. (ef67cd04)
+
+### Fixed (wave-3 gate remediation)
+
+- env-vars registry snapshot now includes the wave-3 keys (`PI_CREW_STATE_BACKEND`,
+  `PI_CREW_VERIFY_GATE`, `PI_CREW_VERIFY_GATE_TIMEOUT_MS`).
+- shard-partition table registers the new `test/unit/registration/` dir (U13 test).
+- import sort in `sqlite-run-state.test.ts` (biome organizeImports).
+
 ## [0.11.11] — Upgrade Wave 1: U1 dead-option, U2 buffered events, U3 key-free E2E, U10 measured-token handoff (2026-10-10)
 
 Wave 1 of the upgrade-spec program (`pi-crew-upgrade-spec-2026-10-09.md`, verified over
