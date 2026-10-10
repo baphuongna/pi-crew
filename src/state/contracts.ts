@@ -279,6 +279,11 @@ export const TEAM_EVENT_TYPES = [
 	"task.model_dropped",
 	"task.mcp_enforcement_degraded",
 	"task.output_validation",
+	// U13/U6B (upgrade wave 3, 2026-10-10): deterministic verifier pre-gate
+	// decision — emitted by verify-gate/classifier-pre-gate when a task's
+	// verifier spawn was skipped (deterministic pass / classifier block) or
+	// carried gate context. Observability only; no run/task state transition.
+	"task.verifier_pre_gate",
 	"task.steer_queued",
 	"task.steer_dropped",
 	"task.surface_lost",
