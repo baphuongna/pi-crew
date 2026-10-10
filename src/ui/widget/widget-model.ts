@@ -14,7 +14,7 @@ import { reconcileAllStaleRuns } from "../../runtime/recovery/crash-recovery.ts"
 import type { TeamRunManifest } from "../../state/types.ts";
 import { goalFlagSuffix } from "../goal-flag.ts";
 import { ACTIVE, RAIL, shortId } from "../rail.ts";
-import type { RunSnapshotCache } from "../snapshot-types.ts";
+import type { RunSnapshotCache, RunUiSnapshot } from "../snapshot-types.ts";
 import type { WidgetRun } from "./widget-types.ts";
 
 let lastStaleReconcileAt = 0;
@@ -64,7 +64,18 @@ export function activeWidgetRuns(
 	return runs
 		.map((run) => {
 			try {
-				const snapshot = snapshotCache?.get(run.runId);
+				// U7 (spec 2026-10-09): prefer the committed-state read when the
+				// cache exposes it. `readForRender` returns the SAME cached
+				// snapshot `get` would (identical render — parity), but a lapsed
+				// TTL schedules the coalesced ASYNC refresh (80ms batch → stamp
+				// check → rebuild only when files changed) instead of waiting for
+				// an external poller to notice. Structural check: legacy callers
+				// and test doubles may implement only `get`.
+				const committed = snapshotCache as
+					| { readForRender?: (runId: string) => RunUiSnapshot | undefined; get?: (runId: string) => RunUiSnapshot | undefined }
+					| undefined;
+				const snapshot =
+					typeof committed?.readForRender === "function" ? committed.readForRender(run.runId) : snapshotCache?.get(run.runId);
 				if (snapshot) {
 					return {
 						run: snapshot.manifest,

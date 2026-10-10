@@ -53,10 +53,14 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { matchesKey } from "@earendil-works/pi-tui";
+import { listRecentRuns } from "../extension/run-index.ts";
 import { getScheduledJobs, getScheduledJobsHiddenCountView } from "../extension/team-tool/handle-schedule.ts";
 import { readCrewAgents } from "../runtime/crew-agent-records.ts";
 import type { CrewAgentRecord } from "../runtime/crew-agent-runtime.ts";
 import type { LiveAgentHandle } from "../runtime/live-session/live-agent-manager.ts";
+import type { ManifestCache } from "../runtime/manifest-cache.ts";
+import { createManifestCache } from "../runtime/manifest-cache.ts";
+import { isDisplayActiveRun } from "../runtime/process-status.ts";
 import type { ScheduledJob } from "../runtime/scheduling/scheduler.ts";
 import { surfaceGateEnvSnapshot } from "../runtime/surface/resolve-surface.ts";
 import { getTaskUsage } from "../runtime/usage-tracker.ts";
@@ -70,6 +74,7 @@ import { renderAgentsPane } from "./dashboard-panes/agents-pane.ts";
 import { renderScheduleDetails, schedulesHiddenJobsHintLine } from "./dashboard-panes/schedules-pane.ts";
 import { computeLiveDurationMs } from "./live-duration.ts";
 import { CURSOR, canopyLine, formatHint, overflowHint, RAIL, railLeaders, railLine } from "./rail.ts";
+import { createRunSnapshotCache, type RunSnapshotCache } from "./run-snapshot-cache.ts";
 import type { RunUiSnapshot } from "./snapshot-types.ts";
 import { spinnerFrame } from "./spinner.ts";
 import { iconForStatus } from "./status-colors.ts";
@@ -124,6 +129,17 @@ export interface AgentsJobsBrowserOptions {
 	rows?: number;
 	/** Test seam: replace the live-agent data source. */
 	agentsProvider?: () => AgentsBrowserAgentEntry[];
+	/**
+	 * U7 (spec 2026-10-09): committed-state caches for the DEFAULT data path
+	 * (no agentsProvider). Inject to share the host's caches; when omitted the
+	 * browser lazily creates its OWN pair — snapshot cache with the opt-in
+	 * events-state layer (derived view over events.jsonl: snapshot + tail-follow
+	 * frames via the existing readEventsCursor watermark cursor) — so the 400ms
+	 * refresh tick reads COMMITTED snapshots instead of re-parsing
+	 * manifests + agents.json from disk every tick.
+	 */
+	manifestCache?: ManifestCache;
+	snapshotCache?: RunSnapshotCache;
 	/** Wired by viewers.ts: open the DurableTranscriptViewer overlay for an agent (the `/crew transcript` experience). */
 	onOpenTranscript?: (entry: { runId: string; taskId: string }) => void;
 	/** Test seam: replace the job data source (G17 provider by default). */
@@ -142,6 +158,10 @@ export interface AgentsJobsBrowserOptions {
 
 const REFRESH_TTL_MS_DEFAULT = 600;
 const POLL_INTERVAL_MS = 400;
+/** U7: legacy-discovery cadence — every Nth data reload (≈ N × refresh TTL
+ *  while the overlay is open) also runs the lenient run-index scan for runs
+ *  the cache validators cannot see. Steady-state ticks stay cache-only. */
+const LEGACY_DISCOVERY_TICKS = 12;
 /** Body height clamp — mirrors the dashboard's stable-height lesson: a
  *  fluctuating line count shifts the overlay anchor every frame. */
 const MIN_BODY = 8;
@@ -247,10 +267,32 @@ export class AgentsJobsBrowser {
 	private notice: { text: string; until: number } | undefined;
 	private pollTimer: ReturnType<typeof setInterval> | undefined;
 	private readonly manifests = new Map<string, TeamRunManifest | null>();
+	/** U7: committed-state caches (default data path only). */
+	private readonly manifestCache?: ManifestCache;
+	private readonly snapshotCache?: RunSnapshotCache;
+	/** True when THIS browser created the cache (dispose must tear it down). */
+	private readonly ownsManifestCache: boolean;
+	private readonly ownsSnapshotCache: boolean;
+	/** Data reloads since construction (legacy-discovery cadence). */
+	private reloadCount = 0;
 
 	constructor(options: AgentsJobsBrowserOptions) {
 		this.options = options;
 		this.theme = options.theme ?? asCrewTheme(undefined);
+		// U7: the DEFAULT data path reads committed snapshots (cache reads, no
+		// disk per tick) driven by the events-state layer's frames; the legacy
+		// per-tick disk re-parse stays ONLY for the agentsProvider test seam.
+		if (!options.agentsProvider) {
+			this.ownsManifestCache = options.manifestCache === undefined;
+			this.ownsSnapshotCache = options.snapshotCache === undefined;
+			this.manifestCache = options.manifestCache ?? createManifestCache(options.cwd);
+			this.snapshotCache =
+				options.snapshotCache ?? createRunSnapshotCache(options.cwd, { eventsState: { pollMs: POLL_INTERVAL_MS } });
+			this.discoverRuns();
+		} else {
+			this.ownsManifestCache = false;
+			this.ownsSnapshotCache = false;
+		}
 		this.refreshData(true);
 		this.pollTimer = setInterval(() => {
 			if (this.closed) return;
@@ -298,6 +340,10 @@ export class AgentsJobsBrowser {
 			clearInterval(this.pollTimer);
 			this.pollTimer = undefined;
 		}
+		// U7: tear down the caches this browser created (timer + events-state
+		// sources with it). Injected caches stay alive — the host still uses them.
+		if (this.ownsSnapshotCache) this.snapshotCache?.dispose?.();
+		if (this.ownsManifestCache) this.manifestCache?.dispose();
 	}
 
 	// Retired with the p key (2026-09-14): kept for the future "focus the
@@ -319,23 +365,68 @@ export class AgentsJobsBrowser {
 		const at = this.nowMs();
 		if (!force && ttl > 0 && at - this.cachedAt < ttl) return;
 		this.cachedAt = at;
-		const agents = this.loadAgents();
+		const agents = this.loadAgents(force);
 		const { jobs, hiddenCount } = this.loadJobs();
 		this.hiddenCount = hiddenCount;
 		this.cachedEntries = [...agents, ...jobs.map((job) => ({ kind: "job" as const, job }))];
 		if (this.selected >= this.cachedEntries.length) this.selected = Math.max(0, this.cachedEntries.length - 1);
 	}
 
-	private loadAgents(): AgentsBrowserAgentEntry[] {
+	private loadAgents(force = false): AgentsBrowserAgentEntry[] {
 		if (this.options.agentsProvider) {
 			return [...this.options.agentsProvider()].sort((a, b) => statusRank(a.status) - statusRank(b.status));
 		}
-		// FIX (live probe 2026-09-14): read the SAME pipeline the widget counts
-		// use — activeWidgetRuns() over `.crew/state/runs/*/agents.json` — NOT the
-		// in-process live-agent registry. Agent-tool subagents (foreground AND
-		// background) run as child processes and never registerLiveAgent() in this
-		// process, so the registry listed nothing while the widget said "1 running".
-		// Source parity with the widget also means the counts can never disagree.
+		// U7 (spec 2026-10-09): committed-state path — the widget pipeline over
+		// the manifest cache (stat-gated parse-if-changed) + snapshot cache
+		// (events-state frames → coalesced async refresh). A refresh tick now
+		// costs in-memory snapshot reads + a few stats; the per-tick
+		// listRecentRuns + readCrewAgents disk re-parse is gone. Parity: the
+		// SAME activeWidgetRuns projection the old path used, so the counts can
+		// never disagree with the widget.
+		if (this.manifestCache && this.snapshotCache) {
+			try {
+				const runs = activeWidgetRuns(
+					this.options.cwd,
+					this.manifestCache,
+					this.snapshotCache,
+					undefined,
+					this.options.workspaceId,
+				);
+				this.discoverRuns();
+				const nowMs = this.nowMs();
+				// Legacy-parity fallback: runs the cache pipeline cannot SEE (run-index
+				// accepts hand-written/minimal manifests that state-store and
+				// manifest-cache validators reject). At construct/invalidate (force)
+				// plus every LEGACY_DISCOVERY_TICKS-th reload, run the legacy
+				// listRecentRuns discovery and read agents.json directly for uncovered
+				// active runs — steady-state ticks stay cache-only.
+				this.reloadCount += 1;
+				if (force || this.reloadCount % LEGACY_DISCOVERY_TICKS === 1) {
+					this.appendLegacyUncoveredRuns(runs, nowMs);
+				}
+				const entries: AgentsBrowserAgentEntry[] = [];
+				for (const { run, agents } of runs) {
+					for (const record of agents) {
+						entries.push({
+							kind: "agent",
+							runId: run.runId,
+							taskId: record.taskId,
+							role: record.role || record.agent || "agent",
+							agentName: record.agent,
+							status: record.status,
+							tokPerSec: recordTokPerSec(record, nowMs),
+							record,
+							manifest: run,
+						});
+					}
+				}
+				return entries.sort((a, b) => statusRank(a.status) - statusRank(b.status));
+			} catch (error) {
+				logInternalError("agents-browser.loadAgents", error as Error);
+				return [];
+			}
+		}
+		// Legacy path (agent-tool subagents etc.): direct disk read.
 		let runs: ReturnType<typeof activeWidgetRuns> = [];
 		try {
 			runs = activeWidgetRuns(this.options.cwd, undefined, undefined, undefined, this.options.workspaceId);
@@ -361,6 +452,61 @@ export class AgentsJobsBrowser {
 			}
 		}
 		return entries.sort((a, b) => statusRank(a.status) - statusRank(b.status));
+	}
+
+	/**
+	 * U7: legacy-parity discovery — listRecentRuns (the lenient run-index scan
+	 * the pre-U7 default path used every tick) for ACTIVE runs the committed
+	 * path did not cover, reading agents.json directly for each. Normally a
+	 * no-op (the caches cover every validator-clean run); it exists so
+	 * hand-written/minimal manifests that state-store + manifest-cache reject
+	 * stay visible exactly as before.
+	 */
+	private appendLegacyUncoveredRuns(runs: ReturnType<typeof activeWidgetRuns>, nowMs: number): void {
+		try {
+			const covered = new Set(runs.map((item) => item.run.runId));
+			for (const run of listRecentRuns(this.options.cwd, 20)) {
+				if (covered.has(run.runId)) continue;
+				if (run.status !== "running" && run.status !== "queued") continue;
+				try {
+					const agents = readCrewAgents(run);
+					if (isDisplayActiveRun(run, agents, nowMs)) runs.push({ run, agents });
+				} catch {
+					/* unreadable — skip */
+				}
+			}
+		} catch {
+			/* non-fatal — next cadence tick retries */
+		}
+	}
+
+	/**
+	 * U7: seed the snapshot cache for runs not yet populated. Missing entries
+	 * are primed through the SYNC build path ONCE per run (Tier 11a
+	 * read-your-writes — the construct-time sync contract the legacy per-tick
+	 * disk read provided); afterwards every tick reads committed snapshots and
+	 * only the events-state frames / TTL refresh the entries.
+	 */
+	private discoverRuns(): void {
+		if (!this.manifestCache || !this.snapshotCache) return;
+		try {
+			const runs = this.manifestCache.list(20).filter((run) => run.status === "running" || run.status === "queued");
+			for (const run of runs) {
+				if (this.snapshotCache.get(run.runId)) continue;
+				try {
+					this.snapshotCache.refreshIfStale(run.runId);
+				} catch {
+					/* unreadable run — the async preload below retries */
+				}
+			}
+			const runIds = runs.map((run) => run.runId);
+			if (runIds.length > 0)
+				void this.snapshotCache.preloadAllStale(runIds).catch(() => {
+					/* best-effort preload; next cadence tick retries */
+				});
+		} catch {
+			/* non-fatal — next tick retries */
+		}
 	}
 
 	private loadJobs(): { jobs: ScheduledJob[]; hiddenCount: number } {

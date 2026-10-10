@@ -12,6 +12,7 @@ import { loadPlanRecords, planFilePath } from "../state/stores/plan-store.ts";
 import { loadRunManifestById, loadRunManifestByIdAsync } from "../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { extractDwfPhaseState } from "./dwf-phase-display.ts";
+import { type EventsStateSource, eventsStateSource } from "./events-state-source.ts";
 import { runEventBus } from "./run-event-bus.ts";
 import type {
 	RunSnapshotCache as RunSnapshotCacheBase,
@@ -80,12 +81,37 @@ interface CacheEntry {
 	lastAccessMs: number;
 }
 
+/** U7: one attached events-state source + its frame unsubscribe handle. */
+interface SourceSub {
+	source: EventsStateSource;
+	unsub: () => void;
+}
+
 export interface RunSnapshotCacheOptions {
 	ttlMs?: number;
 	maxEntries?: number;
 	recentEvents?: number;
 	recentOutputLines?: number;
+	/**
+	 * U7 (spec 2026-10-09): opt-in events-state layer. When set, each built
+	 * entry gets a shared `EventsStateSource` (derived view over the run's
+	 * events.jsonl — snapshot + tail-follow frames via the existing
+	 * readEventsCursor watermark cursor) and ONE unref'd interval tail-follows
+	 * every attached source; frames route through the SAME 80ms coalesced →
+	 * async stamp-gated refresh pipeline as the run event bus (never a sync
+	 * rebuild, never a delete — the flicker-fix contract holds). Slice
+	 * computation is UNCHANGED (parity): recentEvents/cancellationReason still
+	 * come from the cache's own tail read, because the cursor path only
+	 * carries seq-stamped events. Default (unset): zero new I/O, zero timers —
+	 * byte-identical behavior.
+	 */
+	eventsState?: { pollMs?: number } | true;
 }
+
+/** Default events-state tail-follow cadence (ms) — matches the legacy
+ *  agents-jobs-browser POLL_INTERVAL_MS it replaces, at a fraction of the
+ *  per-tick cost (stat + delta bytes vs full manifest+agents reparse). */
+const EVENTS_STATE_POLL_MS_DEFAULT = 400;
 
 function zeroStamp(): FileStamp {
 	return { mtimeMs: 0, size: 0 };
@@ -888,8 +914,56 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			}
 			if (!key) key = entries.keys().next().value;
 			if (!key) break;
-			entries.delete(key);
+			dropEntry(key);
 		}
+	}
+
+	// ── U7: events-state layer (opt-in) ──────────────────────────────────
+	const eventsStateEnabled = options.eventsState !== undefined;
+	const eventsStatePollMs =
+		(typeof options.eventsState === "object" ? options.eventsState?.pollMs : undefined) ?? EVENTS_STATE_POLL_MS_DEFAULT;
+	const sourceSubs = new Map<string, SourceSub>();
+	function attachEventsSource(runId: string, eventsPath: string): void {
+		if (!eventsStateEnabled || sourceSubs.has(runId)) return;
+		const source = eventsStateSource(runId, eventsPath);
+		// Frames → the EXISTING coalesced async refresh (80ms batch → preloadStale
+		// → stamp check). A frame for a run whose entry was dropped is ignored;
+		// a stamp-equal refresh re-stamps in place (no rebuild), so a quiet run
+		// costs one async stat round per coalesce window.
+		const unsub = source.subscribe(() => {
+			if (entries.has(runId)) scheduleCoalescedRefresh(runId);
+		});
+		sourceSubs.set(runId, { source, unsub });
+	}
+	function detachEventsSource(runId: string): void {
+		const sub = sourceSubs.get(runId);
+		if (!sub) return;
+		sourceSubs.delete(runId);
+		sub.unsub();
+		sub.source.dispose();
+	}
+	function detachAllEventsSources(): void {
+		for (const runId of [...sourceSubs.keys()]) detachEventsSource(runId);
+	}
+	function dropEntry(runId: string): void {
+		entries.delete(runId);
+		detachEventsSource(runId);
+	}
+	let eventsStateTimer: ReturnType<typeof setInterval> | undefined;
+	if (eventsStateEnabled) {
+		eventsStateTimer = setInterval(() => {
+			for (const sub of sourceSubs.values()) {
+				try {
+					// Tail-follow every attached run's events.jsonl. Cheap on an
+					// unchanged log (stat + ring-served cursor read); discovered
+					// batches become frames → coalesced refresh above.
+					sub.source.poll();
+				} catch {
+					/* non-fatal — next tick retries */
+				}
+			}
+		}, eventsStatePollMs);
+		eventsStateTimer.unref();
 	}
 
 	function build(runId: string, previous?: CacheEntry): CacheEntry {
@@ -944,6 +1018,7 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			...(isPlanUiEnabled() ? { plans: loadPlanRecords(loaded.manifest) } : {}),
 		};
 		const stamps = stampsFor(loaded.manifest, agents);
+		attachEventsSource(runId, loaded.manifest.eventsPath);
 		const sliceSignatures = computeSliceSignatures(base);
 		const snapshot: RunUiSnapshot = {
 			...base,
@@ -1003,6 +1078,7 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			...(isPlanUiEnabled() ? { plans: loadPlanRecords(loaded.manifest) } : {}),
 		};
 		const stamps = await stampsForAsync(loaded.manifest, agents);
+		attachEventsSource(runId, loaded.manifest.eventsPath);
 		const sliceSignatures = computeSliceSignatures(base);
 		const snapshot: RunUiSnapshot = {
 			...base,
@@ -1184,8 +1260,11 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 		preloadStale,
 		preloadAllStale,
 		invalidate(runId?: string): void {
-			if (runId) entries.delete(runId);
-			else entries.clear();
+			if (runId) dropEntry(runId);
+			else {
+				entries.clear();
+				detachAllEventsSources();
+			}
 		},
 		snapshotsByKey(): Map<string, RunUiSnapshot> {
 			return new Map([...entries.entries()].map(([key, entry]) => [key, entry.snapshot]));
@@ -1196,6 +1275,11 @@ export function createRunSnapshotCache(cwd: string, options: RunSnapshotCacheOpt
 			if (disposed) return;
 			disposed = true;
 			unsubscribe();
+			if (eventsStateTimer) {
+				clearInterval(eventsStateTimer);
+				eventsStateTimer = undefined;
+			}
+			detachAllEventsSources();
 			inFlightRefreshes.clear();
 			entries.clear();
 		},
