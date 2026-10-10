@@ -270,3 +270,34 @@ test("U8 backend select: PI_CREW_STATE_BACKEND=sqlite opts in; unset/json/garbag
 		else process.env.PI_CREW_STATE_BACKEND = prev;
 	}
 });
+
+test("U8 review fix: handle cache is LRU — a hit refreshes recency, hot run survives the cap", () => {
+	__test__closeAllSqliteStores();
+	const roots: string[] = [];
+	try {
+		const hot = makeStateRoot();
+		roots.push(hot);
+		const cold = makeStateRoot();
+		roots.push(cold);
+		const hotHandle = getSqliteRunStateStore(hot);
+		getSqliteRunStateStore(cold); // opened AFTER hot — FIFO would evict hot first
+		// Touch the hot root again — recency moves it to the back of the cache.
+		assert.equal(getSqliteRunStateStore(hot), hotHandle, "hit returns the same handle");
+		// Fill the cache to the cap (32) with cold roots; the next open evicts
+		// the least-recently-touched entry, which must be `cold`, not `hot`.
+		while (__test__sqliteStoreCacheSize() < 32) {
+			const root = makeStateRoot();
+			roots.push(root);
+			getSqliteRunStateStore(root);
+		}
+		const overflow = makeStateRoot();
+		roots.push(overflow);
+		getSqliteRunStateStore(overflow);
+		assert.ok(!hotHandle.isClosed, "the recently-touched hot handle must survive the eviction");
+		// And a get for the hot root still returns the SAME live handle.
+		assert.equal(getSqliteRunStateStore(hot), hotHandle);
+	} finally {
+		__test__closeAllSqliteStores();
+		for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+	}
+});

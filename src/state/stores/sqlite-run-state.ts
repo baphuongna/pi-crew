@@ -325,8 +325,9 @@ export class SqliteRunStateStore {
 // ── Process-wide handle cache ─────────────────────────────────────────────
 // Saves are frequent (persistSingleTaskUpdate ~500ms); reopen+pragma+prepare
 // per call would waste the hot path. Cache one open store per stateRoot,
-// FIFO-bounded (each entry pins a file handle; runs are few in prod but
-// tests create many tmp dirs).
+// LRU-bounded (each entry pins a file handle; runs are few in prod but
+// tests create many tmp dirs) — a HIT refreshes recency so a hot run is
+// never evicted+reopened while cold roots linger (review MINOR-3).
 const SQLITE_STORE_CACHE_MAX = 32;
 const sqliteStores = new Map<string, SqliteRunStateStore>();
 
@@ -343,7 +344,13 @@ function evictOldestSqliteStore(): void {
 /** Get (or open) the cached sqlite run-state store for a stateRoot. */
 export function getSqliteRunStateStore(stateRoot: string): SqliteRunStateStore {
 	const existing = sqliteStores.get(stateRoot);
-	if (existing && !existing.isClosed) return existing;
+	if (existing && !existing.isClosed) {
+		// LRU: move-to-back on hit (Map keeps insertion order; eviction takes
+		// the FRONT = least-recently-touched).
+		sqliteStores.delete(stateRoot);
+		sqliteStores.set(stateRoot, existing);
+		return existing;
+	}
 	const store = new SqliteRunStateStore(stateRoot);
 	sqliteStores.delete(stateRoot);
 	sqliteStores.set(stateRoot, store);
