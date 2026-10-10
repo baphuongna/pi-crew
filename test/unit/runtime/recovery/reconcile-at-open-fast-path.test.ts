@@ -390,3 +390,54 @@ test("U9 fast-path: no async PID (foreground run) never takes the fast path", as
 		}
 	});
 });
+
+// ─── G: stale `waiting` task requeues with the running ones (review round-2 MINOR-1) ──
+
+test("U9 fast-path: an abandoned `waiting` task (ask past TTL / waitState lost) is requeued, not stranded", async () => {
+	await withIsolatedHome(async () => {
+		const dir = createTrackedTempDir("pi-crew-u9-wait-");
+		try {
+			const deadPid = await reapDeadPid();
+			// No manifest waitState — the crash lost it (or the ask aged past
+			// WAITING_TTL), so isIntentionalWait declines and the parked task is
+			// just an abandoned in-flight task of the dead runner.
+			const { manifest, tasks } = setupCrashedRun(dir, { asyncPid: deadPid });
+			const parked = {
+				...tasks[1],
+				status: "waiting" as const,
+				finishedAt: undefined,
+				waiting: {
+					questionId: "q-abandoned",
+					askedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(), // > WAITING_TTL 24h
+					deadline: Date.now() - 60_000,
+					timeoutSec: 3600,
+				},
+			};
+			saveRunTasks(manifest, [tasks[0], parked]);
+
+			const results = await reconcileAllStaleRuns(dir, makeStubCache([manifest]), Date.now());
+			const mine = results.filter((r) => r.runId === manifest.runId);
+			assert.equal(mine.length, 1);
+			assert.equal(mine[0].verdict, "requeued_no_claim");
+
+			const reloaded = loadRunManifestById(dir, manifest.runId)!;
+			assert.equal(reloaded.manifest.status, "failed");
+			const running = reloaded.tasks.find((t) => t.id === tasks[0].id)!;
+			const wasWaiting = reloaded.tasks.find((t) => t.id === parked.id)!;
+			assert.equal(running.status, "queued", "running task requeued as before");
+			assert.equal(wasWaiting.status, "queued", "abandoned waiting task must be requeued too — `team resume` requeues queued, not waiting");
+			assert.equal(wasWaiting.waiting, undefined, "no parked wait state on the requeued task");
+			assert.equal(wasWaiting.heartbeat, undefined);
+			assert.deepEqual(wasWaiting.attempts, parked.attempts, "attempt history preserved");
+
+			const resumedEvent = readEvents(reloaded.manifest.eventsPath).find(
+				(e) => e.type === "crew.run.resumed" && (e.data as { fastPath?: boolean })?.fastPath === true,
+			);
+			const requeuedIds = (resumedEvent?.data as { requeuedTasks?: string[] })?.requeuedTasks ?? [];
+			assert.ok(requeuedIds.includes(parked.id), "event lists the waiting task id");
+			assert.equal(requeuedIds.length, 2, "both interrupted tasks listed");
+		} finally {
+			removeTrackedTempDir(dir);
+		}
+	});
+});

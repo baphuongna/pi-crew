@@ -778,7 +778,7 @@ export interface ReconcileAtOpenFastPathOutcome {
  * MUST be called under the run lock on a freshly-loaded state (the
  * reconcileAllStaleRuns call site does exactly that). Returns undefined when
  * the fast-path does not apply (live claim / intentional wait / no async PID /
- * nothing left in `running` — the idempotent re-entry case).
+ * nothing left in `running`/`waiting` — the idempotent re-entry case).
  */
 export function applyReconcileAtOpenFastPath(
 	loaded: { manifest: TeamRunManifest; tasks: TeamTaskState[] },
@@ -793,10 +793,15 @@ export function applyReconcileAtOpenFastPath(
 	if (hasLiveRunClaim(manifest.runId, manifest)) return undefined; // G12: never touch a claimed run
 	// Intentional waits (plan approval / pending ask within TTL) are not crashes.
 	if (isIntentionalWait(manifest, now)) return undefined;
-	const runningTasks = loaded.tasks.filter((task) => task.status === "running");
-	if (runningTasks.length === 0) return undefined; // idempotent: nothing to requeue
+	// `waiting` tasks requeue alongside `running` ones (review round-2 MINOR-1):
+	// an ask parked past WAITING_TTL — or whose waitState was lost in the crash —
+	// is NOT an intentional wait (isIntentionalWait above already declined), and
+	// `team resume` only requeues failed/cancelled/skipped/running, so leaving a
+	// `waiting` task inside the failed run would strand it for manual repair.
+	const requeueEligible = loaded.tasks.filter((task) => task.status === "running" || task.status === "waiting");
+	if (requeueEligible.length === 0) return undefined; // idempotent: nothing to requeue
 
-	const requeued = new Set(runningTasks.map((task) => task.id));
+	const requeued = new Set(requeueEligible.map((task) => task.id));
 	const tasks = loaded.tasks.map((task) =>
 		requeued.has(task.id)
 			? {
@@ -819,21 +824,21 @@ export function applyReconcileAtOpenFastPath(
 	updateRunStatus(
 		manifest,
 		"failed",
-		`Interrupted: async runner dead (no live claim); ${runningTasks.length} task(s) requeued for resume`,
+		`Interrupted: async runner dead (no live claim); ${requeueEligible.length} task(s) requeued for resume`,
 	);
 	return {
 		result: {
 			runId: manifest.runId,
 			verdict: "requeued_no_claim",
 			repaired: true,
-			detail: `No live claim (async pid ${pid} dead, no live registry entry); requeued ${runningTasks.length} running task(s) → queued for resume (attempt state preserved); run marked failed so later reconcile passes leave it resumable`,
+			detail: `No live claim (async pid ${pid} dead, no live registry entry); requeued ${requeueEligible.length} interrupted task(s) (running or abandoned waiting) → queued for resume (attempt state preserved); run marked failed so later reconcile passes leave it resumable`,
 			repairedTasks: tasks,
 		},
 		eventsPath: manifest.eventsPath,
 		event: {
 			type: "crew.run.resumed",
 			runId: manifest.runId,
-			message: `Reconcile-at-open fast-path: requeued ${runningTasks.length} interrupted task(s) for resume (no live claim).`,
+			message: `Reconcile-at-open fast-path: requeued ${requeueEligible.length} interrupted task(s) for resume (no live claim).`,
 			data: {
 				fastPath: true,
 				requeuedTasks: [...requeued],
