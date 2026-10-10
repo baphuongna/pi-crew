@@ -455,6 +455,10 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		parser: "boolean",
 		doc: "R3-19/D5 hermetic worker spawn override: '1' forces --no-extensions on worker argv, '0' restores the old ambient-stack parity (discovered/configured/built-in extensions load); beats BuildPiWorkerArgsInput.hermeticWorkers / runtime.hermeticWorkers; default ON (pi-args.ts:resolveHermeticWorkers). Explicit -e prompt-runtime + agent extensions + --skill flags are unaffected (cli.md:186-191)",
 	},
+	PI_CREW_STATE_BACKEND: {
+		name: "PI_CREW_STATE_BACKEND",
+		doc: "U8 (upgrade-spec 2026-10-09) run-state store backend select: 'sqlite' stores manifest+tasks+worker-status in <runId>/state.sqlite via node:sqlite with ONE transaction per batch write (all-or-nothing; manifest.json/tasks.json stay written as read-side mirrors for legacy consumers — loads read the db); unset or any other value keeps the default JSON file backend. events.jsonl audit spine unchanged in both modes (state-store.ts / sqlite-run-state.ts isSqliteStateBackend)",
+	},
 	PI_CREW_CHILD_PI_MODE: {
 		name: "PI_CREW_CHILD_PI_MODE",
 		doc: "U14 (upgrade-spec 2026-10-09) child-pi protocol v2 transport select: 'rpc' spawns task workers over pi --mode rpc (SDK RpcClient wire — steer receipts, clear_queue hygiene, multi-prompt reuse; child-pi-rpc.ts), 'json' / unset keeps the --mode json -p stdio path (phase-1 default; both modes fully regression-tested). Surface TUI panes are unaffected",

@@ -25,6 +25,7 @@ import type { RunModelContext, TeamRunManifest, TeamTaskState } from "../types.t
 import { CURRENT_SCHEMA_VERSION } from "../types.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
 import { extractTaskArray, loadTasksWithRecovery, loadTasksWithRecoveryAsync, quarantineCorruptFile } from "./manifest-io.ts";
+import { closeSqliteRunStateStore, getSqliteRunStateStore, isSqliteStateBackend, sqliteDbPath } from "./sqlite-run-state.ts";
 
 export { loadManifestWithRecovery, loadTasksWithRecovery } from "./manifest-io.ts";
 
@@ -210,7 +211,12 @@ function resolveRunStateRoot(cwd: string, runId: string): string | undefined {
 		// semantics: ENOENT is fine, only symlink/escape violations throw) — so
 		// existence must be probed explicitly. Without this, the primary root
 		// always "wins" with a phantom path and the fallback can never run.
-		if (!fs.existsSync(path.join(scopedPath, DEFAULT_PATHS.state.manifestFile))) continue;
+		// U8 (2026-10-10): a sqlite-backend run also accepts state.sqlite as a
+		// birth marker — a crash between the sqlite commit and the manifest.json
+		// mirror write must not make the run invisible to by-ID resolution.
+		if (!fs.existsSync(path.join(scopedPath, DEFAULT_PATHS.state.manifestFile)) && !fs.existsSync(sqliteDbPath(scopedPath))) {
+			continue;
+		}
 		try {
 			resolveRealContainedPath(runsRoot, runId);
 		} catch {
@@ -554,6 +560,13 @@ export function saveRunManifest(manifest: TeamRunManifest, options?: { allowTerm
 	// it, broker loadRunManifestById is a cross-process reader, and the
 	// statSync-based cache repopulation below needs the real post-write
 	// mtime/size). The 50ms coalesce window broke all three.
+	// U8 (2026-10-10): sqlite backend — the db is the authoritative manifest
+	// store (1 tx per save); the atomicWriteJson below becomes a read-side
+	// mirror for consumers that still read manifest.json directly. Load paths
+	// read the db; events.jsonl is untouched either way.
+	if (isSqliteStateBackend()) {
+		getSqliteRunStateStore(manifest.stateRoot).saveManifest(effective);
+	}
 	atomicWriteJson(manifestPath, effective);
 	// FIX: Re-populate cache with actual mtime/size so loadRunManifestById
 	// doesn't miss the cache on next read. Without this, every load until
@@ -587,6 +600,11 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest, options?: 
 	invalidateRunCache(manifest.stateRoot);
 	const manifestPath = path.join(manifest.stateRoot, "manifest.json");
 	const effective = preserveDiskTerminalStatus(manifest, options?.allowTerminalExit);
+	// U8 (2026-10-10): sqlite backend — db is authoritative (1 tx); the json
+	// write below is the read-side mirror. See saveRunManifest for rationale.
+	if (isSqliteStateBackend()) {
+		getSqliteRunStateStore(manifest.stateRoot).saveManifest(effective);
+	}
 	await atomicWriteJsonAsync(manifestPath, effective);
 	// FIX: Re-populate cache with actual mtime/size. See saveRunManifest.
 	// RACE GUARD: another concurrent async save (OPT-02) may unlink+rewrite
@@ -623,7 +641,7 @@ export async function saveRunManifestAsync(manifest: TeamRunManifest, options?: 
  */
 function shouldPersistTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): boolean {
 	if (tasks.length > 0) return true;
-	const existing = extractTaskArray(readJsonFile<unknown>(manifest.tasksPath));
+	const existing = loadExistingTasksForGuard(manifest);
 	if (existing.length > 0) {
 		logInternalError(
 			"state-store",
@@ -636,6 +654,17 @@ function shouldPersistTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): 
 		return false;
 	}
 	return true;
+}
+
+/** U8 (2026-10-10): existing tasks for the ST-4 empty-over-nonempty guard —
+ * the sqlite db (authoritative) when that backend is enabled and populated,
+ * else tasks.json. */
+function loadExistingTasksForGuard(manifest: TeamRunManifest): TeamTaskState[] {
+	if (isSqliteStateBackend() && fs.existsSync(sqliteDbPath(manifest.stateRoot))) {
+		const fromDb = getSqliteRunStateStore(manifest.stateRoot).loadTasks();
+		if (fromDb.length > 0) return fromDb;
+	}
+	return extractTaskArray(readJsonFile<unknown>(manifest.tasksPath));
 }
 
 export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]): void {
@@ -654,6 +683,11 @@ export function saveRunTasks(manifest: TeamRunManifest, tasks: TeamTaskState[]):
 		return;
 	}
 
+	// U8 (2026-10-10): sqlite backend — db is authoritative (1 tx, full task-set
+	// replace); the atomicWriteJson below is the read-side mirror.
+	if (isSqliteStateBackend()) {
+		getSqliteRunStateStore(manifest.stateRoot).saveTasks(tasks);
+	}
 	atomicWriteJson(manifest.tasksPath, tasks, { compact: true });
 	// FIX: Re-populate cache with actual mtime/size for manifest and tasks.
 	// Note: We re-read manifest from disk to get its current mtime/size
@@ -774,6 +808,11 @@ export async function saveRunTasksAsync(manifest: TeamRunManifest, tasks: TeamTa
 	} catch {
 		return;
 	}
+	// U8 (2026-10-10): sqlite backend — db is authoritative (1 tx); the async
+	// json write below is the read-side mirror.
+	if (isSqliteStateBackend()) {
+		getSqliteRunStateStore(manifest.stateRoot).saveTasks(tasks);
+	}
 	await atomicWriteJsonAsync(manifest.tasksPath, tasks, { compact: true });
 }
 
@@ -806,6 +845,17 @@ async function saveManifestAndTasksAtomic(manifest: TeamRunManifest, tasks: Team
 			// written before tasks. If a crash occurs between writes, manifest is
 			// the older timestamp which stale-reconciler uses to detect inconsistency.
 			invalidateRunCache(manifest.stateRoot);
+			// U8 (2026-10-10): sqlite backend — THE batch primitive. manifest +
+			// tasks commit together in ONE transaction (all-or-nothing): a crash
+			// mid-batch can never leave a new manifest beside stale tasks (or the
+			// reverse). The two atomic writes below become read-side mirrors for
+			// consumers that still read the json files directly; load paths read
+			// the db, so a crash between the tx and the mirrors still reopens clean.
+			if (isSqliteStateBackend()) {
+				getSqliteRunStateStore(manifest.stateRoot).saveManifestAndTasks(manifest, tasks);
+				manifestWritten = true;
+				tasksWritten = true;
+			}
 			await atomicWriteJsonAsync(path.join(manifest.stateRoot, "manifest.json"), manifest);
 			manifestWritten = true;
 			await atomicWriteJsonAsync(manifest.tasksPath, tasks, { compact: true });
@@ -832,6 +882,16 @@ function saveManifestAndTasksAtomicSync(manifest: TeamRunManifest, tasks: TeamTa
 		withRunLockSync(manifest, () => {
 			// FIX: Invalidate cache BEFORE writes to prevent stale cache serving.
 			invalidateRunCache(manifest.stateRoot);
+			// U8 (2026-10-10): sqlite backend — THE batch primitive (see the async
+			// twin above): manifest + tasks commit in ONE transaction, then the
+			// json writes below mirror for legacy readers. Flags flip after the
+			// AUTHORITATIVE tx commit so createRunManifest does not report a false
+			// failure when only a mirror write is interrupted.
+			if (isSqliteStateBackend()) {
+				getSqliteRunStateStore(manifest.stateRoot).saveManifestAndTasks(manifest, tasks);
+				manifestWritten = true;
+				tasksWritten = true;
+			}
 			atomicWriteJson(path.join(manifest.stateRoot, "manifest.json"), manifest);
 			manifestWritten = true;
 			atomicWriteJson(manifest.tasksPath, tasks, { compact: true });
@@ -875,6 +935,19 @@ const DISK_TERMINAL_STATUSES: ReadonlySet<TeamRunManifest["status"]> = new Set([
  * just completed — pinned by resume-cancel.test.ts) are LEGITIMATE and pass
  * through; they are governed by canTransitionRunStatus at the updateRunStatus
  * layer. Returns the effective manifest to persist. */
+/** U8 (2026-10-10): authoritative "disk" manifest for the terminal-preserve
+ * guard — the sqlite db when that backend is enabled (and populated), else
+ * manifest.json. Returns undefined / throws exactly like the previous inline
+ * file read when nothing readable exists (fresh create). */
+function readRawDiskManifest(stateRoot: string): TeamRunManifest | undefined {
+	if (isSqliteStateBackend() && fs.existsSync(sqliteDbPath(stateRoot))) {
+		const fromDb = getSqliteRunStateStore(stateRoot).loadManifest();
+		if (fromDb) return fromDb;
+	}
+	const raw = fs.readFileSync(path.join(stateRoot, "manifest.json"), "utf-8");
+	return raw ? (JSON.parse(raw) as TeamRunManifest) : undefined;
+}
+
 function preserveDiskTerminalStatus(manifest: TeamRunManifest, allowTerminalExit: boolean | undefined): TeamRunManifest {
 	if (allowTerminalExit) return manifest;
 	// Terminal→terminal re-decisions pass through (governed by
@@ -882,11 +955,11 @@ function preserveDiskTerminalStatus(manifest: TeamRunManifest, allowTerminalExit
 	// ONLY to the erase class: a NON-terminal incoming status over terminal disk.
 	if (DISK_TERMINAL_STATUSES.has(manifest.status)) return manifest;
 	try {
-		const manifestPath = path.join(manifest.stateRoot, "manifest.json");
 		// Raw read (no cache): cross-process cancel writes must be seen NOW.
-		const raw = fs.readFileSync(manifestPath, "utf-8");
-		const disk = JSON.parse(raw) as TeamRunManifest;
-		if (!DISK_TERMINAL_STATUSES.has(disk.status) || disk.status === manifest.status) return manifest;
+		// U8: under the sqlite backend the db is authoritative and can be one
+		// write ahead of the manifest.json mirror after a crash.
+		const disk = readRawDiskManifest(manifest.stateRoot);
+		if (!disk || !DISK_TERMINAL_STATUSES.has(disk.status) || disk.status === manifest.status) return manifest;
 		return { ...manifest, status: disk.status, summary: disk.summary, updatedAt: disk.updatedAt };
 	} catch {
 		return manifest; // no disk manifest yet (create) or unreadable — normal write
@@ -1001,6 +1074,10 @@ export async function unloadRun(stateRoot: string): Promise<void> {
 	// some in-process reader has a stale reference, the next cache lookup
 	// misses (generation mismatch) and re-reads from disk.
 	invalidateRunCache(stateRoot);
+	// U8 (2026-10-10): release the cached sqlite handle for this run so a
+	// later access reopens fresh (and close() checkpoints + drops the WAL
+	// sidecars). No-op for the json backend and for never-opened roots.
+	closeSqliteRunStateStore(stateRoot);
 }
 
 /**
@@ -1061,6 +1138,34 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 	if (!stateRoot) return undefined;
 	const manifestPath = path.join(stateRoot, "manifest.json");
 	const tasksPath = path.join(stateRoot, "tasks.json");
+
+	// U8 (2026-10-10): sqlite backend — the db is authoritative. Read manifest
+	// + tasks from ONE consistent snapshot; manifest.json/tasks.json are
+	// read-side mirrors and may be one write behind after a crash (that is
+	// the durability win over the two-file json backend). Legacy runs (no db
+	// or empty db — created before the backend was enabled) fall through to
+	// the unchanged JSON path below. The manifest cache is intentionally
+	// bypassed here: a fresh db snapshot is cheap and always consistent.
+	if (isSqliteStateBackend() && fs.existsSync(sqliteDbPath(stateRoot))) {
+		const loaded = getSqliteRunStateStore(stateRoot).loadManifestAndTasks();
+		if (loaded) {
+			if (loaded.manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+				logInternalError(
+					"state-store",
+					new Error(
+						`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${loaded.manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+					),
+					undefined,
+					"warn",
+				);
+			}
+			if (!validateRunManifestPaths(cwd, runId, loaded.manifest, stateRoot, tasksPath)) return undefined;
+			return { manifest: loaded.manifest, tasks: loaded.tasks };
+		}
+		// No manifest row yet: either a json-created legacy run (mirror exists,
+		// JSON path below serves it) or a pre-birth crash (nothing anywhere —
+		// the JSON path below also returns undefined). Fall through.
+	}
 
 	let manifestStat: fs.Stats;
 	try {
@@ -1222,6 +1327,29 @@ export async function loadRunManifestByIdAsync(
 	if (!stateRoot) return undefined;
 	const manifestPath = path.join(stateRoot, "manifest.json");
 	const tasksPath = path.join(stateRoot, "tasks.json");
+
+	// U8 (2026-10-10): sqlite backend — async twin of the sync read-through
+	// above: db is authoritative (one consistent snapshot), mirrors and legacy
+	// json runs fall through to the unchanged JSON path below.
+	if (isSqliteStateBackend() && fs.existsSync(sqliteDbPath(stateRoot))) {
+		const loaded = getSqliteRunStateStore(stateRoot).loadManifestAndTasks();
+		if (loaded) {
+			if (loaded.manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+				logInternalError(
+					"state-store",
+					new Error(
+						`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${loaded.manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+					),
+					undefined,
+					"warn",
+				);
+			}
+			if (!validateRunManifestPaths(cwd, runId, loaded.manifest, stateRoot, tasksPath)) return undefined;
+			return { manifest: loaded.manifest, tasks: loaded.tasks };
+		}
+		// No manifest row yet — fall through to the JSON path (legacy run or
+		// pre-birth crash; see the sync twin above).
+	}
 
 	let manifestStat: fs.Stats;
 	try {
