@@ -158,6 +158,11 @@ const REGISTRY_SNAPSHOT: readonly string[] = [
 	"PI_CREW_SNAPSHOT_HMAC_KEY",
 	"PI_CREW_SNAPSHOT_HMAC_STRICT",
 	"PI_CREW_STATE_ROOT",
+	// wave-3 additions (upgrade-spec 2026-10-09): U8 sqlite backend select,
+	// U13 deterministic verify_gate pre-gate + timeout
+	"PI_CREW_STATE_BACKEND",
+	"PI_CREW_VERIFY_GATE",
+	"PI_CREW_VERIFY_GATE_TIMEOUT_MS",
 	"PI_CREW_TEST_REAL_MODEL",
 	"PI_CREW_TOOLING_429_NOTE",
 	"PI_CREW_MAX_OUTPUT_TOKENS",

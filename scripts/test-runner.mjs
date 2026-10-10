@@ -117,6 +117,7 @@ export const SHARD_DIR_WEIGHTS = {
 	schema: 121,
 	docs: 91,
 	runtime: 80,
+	registration: 80, // 1 file (verify-gate-tool.test.ts, wave-3 U13) — in-process, no spawns
 	state: 63,
 	config: 55,
 	security: 55,

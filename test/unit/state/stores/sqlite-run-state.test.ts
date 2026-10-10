@@ -16,12 +16,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import {
+	__test__closeAllSqliteStores,
+	__test__sqliteStoreCacheSize,
 	closeSqliteRunStateStore,
 	getSqliteRunStateStore,
 	isSqliteStateBackend,
 	SqliteRunStateStore,
-	__test__closeAllSqliteStores,
-	__test__sqliteStoreCacheSize,
 	sqliteDbPath,
 } from "../../../../src/state/stores/sqlite-run-state.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../../../src/state/types.ts";
