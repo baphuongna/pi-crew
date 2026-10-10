@@ -120,7 +120,11 @@ interface SourceInternals {
 	forceDispose(): void;
 }
 
-function createEventsStateSource(runId: string, eventsPath: string, options: EventsStateSourceOptions = {}): EventsStateSource {
+function createEventsStateSource(
+	runId: string,
+	eventsPath: string,
+	options: EventsStateSourceOptions = {},
+): EventsStateSource & SourceInternals {
 	const windowSize = Math.max(1, options.recentEvents ?? DEFAULT_RECENT_EVENTS_WINDOW);
 	const maxBufferedFrames = Math.max(1, options.maxBufferedFrames ?? MAX_BUFFERED_FRAMES_DEFAULT);
 	const batchEvents = Math.max(1, options.frameBatchEvents ?? FRAME_BATCH_EVENTS_DEFAULT);
