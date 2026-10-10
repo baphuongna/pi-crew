@@ -37,6 +37,10 @@
  *   --ui-spam           emit extension_ui_request events at boot (consumer
  *                       type-filter regression)
  *   --stale-steer       make the FIRST clear_queue return one stale steering
+ *                        entry (pre-prompt drain regression)
+ *   --settle-delay-ms=N  hold agent_settled N ms past the final assistant
+ *                        event (message_end) — models a slow settle that a
+ *                        pool-bound consumer must NOT drain-kill (MINOR-2)
  *                       text (clear-before-prompt hygiene regression)
  *   --handled-first-prompt  first prompt answers disposition "handled"
  *   --log=PATH          append a JSONL trace of every received command (with
@@ -47,7 +51,7 @@ import * as fs from "node:fs";
 import process from "node:process";
 
 function parseArgs(argv) {
-	const opts = { runMs: 50, turns: 1, turnEndPhase: "pre", garbageFirst: false, uiSpam: false, staleSteer: false, handledFirstPrompt: false, log: undefined };
+	const opts = { runMs: 50, turns: 1, turnEndPhase: "pre", garbageFirst: false, uiSpam: false, staleSteer: false, handledFirstPrompt: false, settleDelayMs: 0, log: undefined };
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--run-ms") opts.runMs = Number(argv[++i]) || 50;
@@ -57,6 +61,7 @@ function parseArgs(argv) {
 		else if (a === "--ui-spam") opts.uiSpam = true;
 		else if (a === "--stale-steer") opts.staleSteer = true;
 		else if (a === "--handled-first-prompt") opts.handledFirstPrompt = true;
+		else if (a === "--settle-delay-ms") opts.settleDelayMs = Number(argv[++i]) || 0;
 		else if (a === "--log") opts.log = argv[++i];
 		else if (a.startsWith("--")) {
 			// Swallow known pi flags WITH values (mirror fake-pi.mjs tolerance).
@@ -133,7 +138,15 @@ function startRun(id, message, runMsOverride) {
 		if (opts.turnEndPhase === "pre") {
 			for (let i = 0; i < opts.turns; i++) emit({ type: "turn_end" });
 		}
-		settleRun(false);
+		if (opts.settleDelayMs > 0) {
+			// MINOR-2 regression knob: hold agent_settled back past the final
+			// assistant event above — a slow settle that must NOT trip the
+			// consumer's final-drain SIGTERM ceiling on a pool-bound process.
+			// `running` stays true so a mid-window steer still reports started.
+			setTimeout(() => settleRun(false), opts.settleDelayMs);
+		} else {
+			settleRun(false);
+		}
 	}, runMs);
 }
 

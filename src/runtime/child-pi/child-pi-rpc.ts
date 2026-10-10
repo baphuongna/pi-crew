@@ -41,10 +41,14 @@
  *     fires the graceful `client.abort()` receipt AND the existing
  *     kill-tree escalation unchanged.
  *   - pool (PHASE 1, default OFF via PI_CREW_CHILD_PI_POOL): consecutive
- *     tasks of the same agent may REUSE a live idle rpc process (1 process =
- *     1 session, MANY prompts — PoC proven). Phase-1 limitation: per-run env
- *     control vars (broker token, steering file, scratchpad gates) are pinned
- *     at first spawn; argv flags apply only to the first task.
+ *     runs sharing one pool KEY may REUSE a live idle rpc process (1 process
+ *     = 1 session, MANY prompts — PoC proven). The key is agentId — the
+ *     task-runner path passes task.id (child-executor.ts), so in practice
+ *     that means RETRIES of one task; the delegate-spawn path keys by the
+ *     stable subId and is the only true same-agent cross-task reuse today.
+ *     Phase-1 limitation: per-run env control vars (broker token, steering
+ *     file, scratchpad gates) are pinned at first spawn; argv flags apply
+ *     only to the first task.
  *
  * Mode selection: PI_CREW_CHILD_PI_MODE=rpc opts a spawn into this transport
  * (json remains the default until the wave-2 full-suite gate flips it — the
@@ -174,22 +178,28 @@ function poolKeyFor(input: ChildPiRunInput): string {
 }
 
 /**
- * Take a pooled client for reuse when it is alive AND idle. Dead/busy entries
- * are evicted (a busy process belongs to a run that never settled — the
- * watchdog owns it; a fresh spawn is safer than waiting on it).
+ * Take a pooled client for reuse when it is alive AND idle. MINOR-1
+ * (wave-2 review) hardening: liveness and idleness are SEPARATE conditions.
+ * A BUSY-but-alive entry belongs to a run that has not settled — its process
+ * must NOT be stopped or evicted here (phase-1 dispatch is sequential, but
+ * phase-2 crash-resume/concurrent same-key runs reach exactly this path;
+ * evicting would SIGTERM the in-flight run's process). Dead entries are
+ * evicted (the watchdog owns their failure); busy entries are left in place
+ * and the caller falls back to a fresh spawn.
  */
 function acquirePooledRpcClient(key: string): RpcPoolEntry | undefined {
 	const entry = rpcPool.get(key);
 	if (!entry) return undefined;
 	const stdin = entry.proc.stdin;
-	const alive = entry.proc.exitCode === null && entry.proc.signalCode === null && !!stdin && !stdin.destroyed && entry.idle;
-	if (!alive) {
+	const procAlive = entry.proc.exitCode === null && entry.proc.signalCode === null && !!stdin && !stdin.destroyed;
+	if (!procAlive) {
 		rpcPool.delete(key);
 		void entry.client.stop().catch(() => {
 			/* eviction best-effort — the kill-tree/watchdog owns the rest */
 		});
 		return undefined;
 	}
+	if (!entry.idle) return undefined; // busy-but-alive: NEVER evict/stop
 	entry.idle = false;
 	return entry;
 }
@@ -207,6 +217,59 @@ export function clearRpcPool(): void {
 		});
 	}
 	rpcPool.clear();
+}
+
+/**
+ * MINOR-3 (wave-2 review): process-scoped exit hook for pooled processes,
+ * attached ONCE per process (WeakSet guard — reuse runs must not stack
+ * hooks): evicts the pool entry and releases the GLOBAL registrations
+ * (active-child / hard-kill timer / cleanup registry). Needed because the
+ * run-scoped handlers are detached at settle while the warm process
+ * deliberately OUTLIVES its runs — something process-scoped must own the
+ * cleanup when the shared process finally dies (idle in the pool, during a
+ * later run, or at clearRpcPool()). Unregister calls are idempotent, so a
+ * double fire alongside a still-attached run-scoped exit handler is safe.
+ */
+const poolExitHookedProcs = new WeakSet<object>();
+function attachPoolExitHook(poolKey: string, proc: ChildProcess): void {
+	if (poolExitHookedProcs.has(proc)) return;
+	poolExitHookedProcs.add(proc);
+	proc.once("exit", () => {
+		const entry = rpcPool.get(poolKey);
+		if (entry?.proc === proc) rpcPool.delete(poolKey);
+		if (proc.pid) {
+			unregisterActiveChild(proc.pid);
+			clearHardKillTimer(proc.pid);
+			unregisterChildProcess(proc.pid);
+		}
+	});
+}
+
+/** MINOR-4 marker var — see verifyRpcSpawnEnvSplice (never allowlisted). */
+const RPC_ENV_SPLICE_CANARY = "PI_CREW_RPC_ENV_SPLICE_CANARY";
+
+/**
+ * MINOR-4 (wave-2 review): the env-splice contract below assumes RpcClient
+ * start() spawns in its SYNCHRONOUS prefix. If a future SDK delays the spawn
+ * past its first await, process.env has already been RESTORED and the child
+ * silently inherits the FULL parent env — regressing the allowlist/per-task
+ * key scoping model. Post-spawn canary: the parent env temporarily carries a
+ * marker var that is ABSENT from the allowlisted childEnv; if /proc/<pid>/environ
+ * (Linux only — best-effort elsewhere) still shows it AFTER start() resolved
+ * (the RPC wire answered, so exec has happened and environ is stable), the
+ * splice did not cover the actual spawn → the caller kills the child and
+ * fails loudly instead of leaking. Exported for unit tests.
+ */
+export function verifyRpcSpawnEnvSplice(proc: ChildProcess | null): boolean {
+	if (!proc?.pid || process.platform !== "linux") return true;
+	let environ: string;
+	try {
+		environ = fs.readFileSync(`/proc/${proc.pid}/environ`, "utf-8");
+	} catch {
+		return true; // unobservable (raced exit, permissions) — best-effort
+	}
+	const leaked = environ.split("\0").some((entry) => entry.startsWith(`${RPC_ENV_SPLICE_CANARY}=`));
+	return !leaked;
 }
 
 // ── Run orchestrator ─────────────────────────────────────────────────────
@@ -288,13 +351,22 @@ async function runRpcSession(
 		// start(), before its first await, so restoring before awaiting keeps
 		// the splice invisible to every other reader of process.env (single
 		// JS thread — no interleaving is possible inside this sync block).
+		// MINOR-4: the canary below pins that assumption — if a future SDK
+		// moves the spawn past its first await, verifyRpcSpawnEnvSplice()
+		// detects the leaked full-parent-env child post-spawn (see below).
 		const savedEnv = process.env;
+		delete childEnv[RPC_ENV_SPLICE_CANARY]; // belt & braces — never allowlisted
+		savedEnv[RPC_ENV_SPLICE_CANARY] = "1";
 		let startPromise: Promise<void>;
-		process.env = childEnv as unknown as NodeJS.ProcessEnv;
 		try {
-			startPromise = client.start();
+			process.env = childEnv as unknown as NodeJS.ProcessEnv;
+			try {
+				startPromise = client.start();
+			} finally {
+				process.env = savedEnv;
+			}
 		} finally {
-			process.env = savedEnv;
+			delete savedEnv[RPC_ENV_SPLICE_CANARY];
 		}
 		try {
 			await startPromise;
@@ -354,6 +426,45 @@ async function runRpcSession(
 			},
 		};
 	}
+	// MINOR-4: post-spawn canary (start() resolved = the RPC wire answered =
+	// exec happened, so /proc/<pid>/environ is stable). A canary hit means the
+	// sync-spawn assumption broke and the child carries the FULL parent env —
+	// kill it immediately and fail loudly; never register or prompt it.
+	if (!pooled && !verifyRpcSpawnEnvSplice(child)) {
+		killProcessTree(child.pid, child);
+		const message =
+			"RPC env allowlist splice failed post-spawn verification (child inherited the full parent env — SDK spawn contract drifted); process killed";
+		try {
+			input.onLifecycleEvent?.({
+				type: "spawn_error",
+				pid: child.pid,
+				error: message,
+				ts: new Date().toISOString(),
+			});
+		} catch {
+			/* listener errors never mask the leak failure */
+		}
+		return {
+			exitCode: null,
+			stdout: "",
+			stderr: "",
+			error: message,
+			exitStatus: {
+				exitCode: null,
+				cancelled: false,
+				timedOut: false,
+				killed: true,
+				cleanupErrors: [],
+				finalDrainMs: input.finalDrainMs ?? FINAL_DRAIN_MS,
+				crashClass: classifyProcessCrash({
+					exitCode: null,
+					cancelled: false,
+					timedOut: false,
+					spawnError: new Error(message),
+				}).crashClass,
+			},
+		};
+	}
 
 	// ── registration (same bookkeeping as the json branch) ────────────────
 	if (!pooled) {
@@ -364,13 +475,9 @@ async function runRpcSession(
 	}
 	if (child.pid) input.onSpawn?.(child.pid);
 	input.onLifecycleEvent?.({ type: "spawned", pid: child.pid, ts: new Date().toISOString() });
-	// Pool eviction hook: the entry dies with the process, whoever killed it.
-	if (pooled) {
-		child.once("exit", () => {
-			const entry = rpcPool.get(poolKey);
-			if (entry?.proc === child) rpcPool.delete(poolKey);
-		});
-	}
+	// Pool-scoped exit hook (MINOR-3): eviction + global unregistration, ONCE
+	// per process — the entry dies with the process, whoever killed it.
+	if (pooled) attachPoolExitHook(poolKey, child);
 
 	// The run's pool entry: the ACQUIRED reuse target, or — on a fresh spawn
 	// that finishes cleanly with the pool enabled — an entry REGISTERED at
@@ -506,12 +613,25 @@ async function runRpcSession(
 				settled = true;
 				clearAll();
 				clearPostExitGuard();
+				// MINOR-3 (wave-2 review): a pooled process deliberately OUTLIVES its
+				// run — detach every run-scoped listener NOW so (a) the settled run
+				// never receives a second exit/close lifecycle event when the shared
+				// process dies later, (b) a stale handler cannot re-arm this run's
+				// no-response timer from a LATER run's traffic, and (c) listeners do
+				// not accumulate per reuse. Process-scoped cleanup (pool eviction +
+				// global unregistration) rides attachPoolExitHook instead. Removal
+				// during a handler's own dispatch is safe (future emits only).
+				unsubscribeEvents();
+				child.stderr?.removeListener("data", onStderrData);
+				child.removeListener("error", onChildError);
+				child.removeListener("exit", onChildExit);
+				child.removeListener("close", onChildClose);
+				input.signal?.removeEventListener("abort", abort);
+				input.signal?.removeEventListener("abort", onParentAbort);
 				if (poolEntry) releasePooledRpcClient(poolKey, poolEntry);
 				return lineObserver
 					.flush()
 					.then(async () => {
-						input.signal?.removeEventListener("abort", abort);
-						input.signal?.removeEventListener("abort", onParentAbort);
 						try {
 							cleanupTempDir(ctx.tempDir);
 						} catch (error) {
@@ -540,8 +660,6 @@ async function runRpcSession(
 							flushError,
 							`result=${JSON.stringify({ exitCode: result.exitCode })}`,
 						);
-						input.signal?.removeEventListener("abort", abort);
-						input.signal?.removeEventListener("abort", onParentAbort);
 						try {
 							cleanupTempDir(ctx.tempDir);
 						} catch (error) {
@@ -602,11 +720,8 @@ async function runRpcSession(
 				// dead entries on the acquire side's behalf.
 				if (!poolEntry && resolveChildPiRpcPoolEnabled() && child.exitCode === null && child.stdin && !child.stdin.destroyed) {
 					poolEntry = { client, proc: child, idle: false };
-					rpcPool.set(poolKey, poolEntry);
-					child.once("exit", () => {
-						const entry = rpcPool.get(poolKey);
-						if (entry?.proc === child) rpcPool.delete(poolKey);
-					});
+				rpcPool.set(poolKey, poolEntry);
+					attachPoolExitHook(poolKey, child);
 				}
 				if (poolEntry) {
 					// Warm path (acquired OR just registered): the process STAYS alive
@@ -671,10 +786,16 @@ async function runRpcSession(
 					if (!isFinalAssistantEvent(event) || childExited || settled || hasFinalDrainTimer()) return;
 					finalAssistantEventMonotonicMs = performance.now();
 					sawFinalAssistant = true;
-					finalDrainArmed = true;
-					// Pooled processes must NOT be SIGTERM'd by the drain ceiling —
-					// their completion signal is agent_settled (noResponse backstop).
-					if (!pooled) armFinalDrain();
+					// MINOR-2 (wave-2 review): the drain ceiling must not apply when
+					// the pool is ENABLED — a FRESH spawn under PI_CREW_CHILD_PI_POOL=1
+					// registers into the pool at agent_settled and must survive a
+					// settle slower than finalDrainMs (the no-response timer stays
+					// the backstop). Gating on the acquired `pooled` param alone
+					// SIGTERM'd exactly those fresh spawns and silently cost warm reuse.
+					if (!pooled && !resolveChildPiRpcPoolEnabled()) {
+						finalDrainArmed = true;
+						armFinalDrain();
+					}
 				} catch (error) {
 					logInternalError("child-pi.rpc-event", error instanceof Error ? error : new Error(String(error)), `pid=${child.pid}`);
 				}
@@ -682,12 +803,15 @@ async function runRpcSession(
 
 			// stderr is owned by RpcClient (its buffer feeds our excerpts); a
 			// second listener only mirrors into the bounded tail — additive.
-			child.stderr?.on("data", (chunk: Buffer) => {
+			// MINOR-3: run-scoped (named for the settle() detach).
+			const onStderrData = (chunk: Buffer): void => {
 				if (!steeringController.isHardAbortInitiated()) restartNoResponseTimer();
 				stderrTail.push(chunk.toString("utf-8"));
-			});
+			};
+			child.stderr?.on("data", onStderrData);
 
-			child.on("error", (error) => {
+			// MINOR-3: run-scoped (named for the settle() detach).
+			const onChildError = (error: Error): void => {
 				const stderr = stderrTail.value();
 				const processError = new Error(
 					`RPC child Pi process error: ${error.message}. Stderr: ${redactExcerpt(stderr, 500) || "(none)"}`,
@@ -719,9 +843,10 @@ async function runRpcSession(
 						}).crashClass,
 					},
 				});
-			});
+			};
+			child.on("error", onChildError);
 
-			child.on("exit", (code, signal) => {
+			const onChildExit = (code: number | null, signal: NodeJS.Signals | null): void => {
 				const stderr = stderrTail.value();
 				if (child.pid) {
 					unregisterActiveChild(child.pid);
@@ -768,9 +893,10 @@ async function runRpcSession(
 						hardMs: HARD_KILL_MS,
 					});
 				}
-			});
+			};
+			child.on("exit", onChildExit);
 
-			child.on("close", (exitCode) => {
+			const onChildClose = (exitCode: number | null): void => {
 				const stderr = stderrTail.value();
 				if (child.pid) {
 					unregisterActiveChild(child.pid);
@@ -829,7 +955,8 @@ async function runRpcSession(
 						crashClass: crashClassification.crashClass,
 					},
 				});
-			});
+			};
+			child.on("close", onChildClose);
 
 			input.signal?.addEventListener("abort", abort, { once: true });
 
