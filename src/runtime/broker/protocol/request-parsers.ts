@@ -61,6 +61,11 @@ export interface MsgSendParams {
 	/** Task 5b (§15.2): short subject echoed into the worker.message wake
 	 * event (bounded like the tool-side MSG_SUBJECT_MAX_CHARS). */
 	subject?: string;
+	/** U5 (2026-10-10): client-supplied idempotency key — a msg.send retried
+	 *  with the SAME requestId is deduped per target mailbox (no duplicate
+	 *  rows; the broker returns the existing message). Charset-bounded like
+	 *  cross-extension-rpc's requestId to keep it a safe log/mailbox token. */
+	requestId?: string;
 }
 
 export function parseMsgSendParams(value: unknown): MsgSendParams | undefined {
@@ -81,7 +86,9 @@ export function parseMsgSendParams(value: unknown): MsgSendParams | undefined {
 	}
 	const replyTo = typeof v.replyTo === "string" ? v.replyTo : undefined;
 	const subject = typeof v.subject === "string" && v.subject.length > 0 && v.subject.length <= 256 ? v.subject : undefined;
-	return { to: to as string | string[] | "all", body: v.body, kind, priority, replyTo, subject };
+	const rawRequestId = v.requestId;
+	const requestId = typeof rawRequestId === "string" && /^[\w:.-]{1,256}$/.test(rawRequestId) ? rawRequestId : undefined;
+	return { to: to as string | string[] | "all", body: v.body, kind, priority, replyTo, subject, requestId };
 }
 
 export interface MsgInboxParams {
