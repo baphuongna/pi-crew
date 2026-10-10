@@ -221,6 +221,125 @@ describe("handoff budget — purity / L4 composition", () => {
 	});
 });
 
+describe("handoff budget — U10 measured-token anchor", () => {
+	// U10 (spec 2026-10-09): when a dep carries measured usage (message_end
+	// usage persisted on TeamTaskState.usage → aggregateUsage → entry.usage),
+	// the budget measures EFFECTIVE tokens = max(chars/4 heuristic, Σ measured
+	// outputTokens of FULL-form deps). Measured can only TIGHTEN (never
+	// loosen); absent usage falls back to the pure heuristic unchanged.
+
+	test("budget-overflow: measured usage > heuristic forces the trim and keeps the render within budget", () => {
+		// 4000-char summary renders ≈ 4.1k chars → est ≈ 1030 ≤ 1200 budget:
+		// the heuristic alone would NOT trim. The worker reports 3000 measured
+		// output tokens → effective 3000 > 1200 → the trim MUST fire and the
+		// final render must fit the budget by BOTH measures.
+		const fatMeasured = dep("dep-m", 4000, { usage: { inputTokens: 900, outputTokens: 3000, durationMs: 1000 } });
+		const ctx = context([fatMeasured], "run-u10a");
+		const heuristicOnly = renderDependencyOutputContext(context([dep("dep-m", 4000, { usage: undefined })], "run-u10a"), {
+			budgetTokens: 1200,
+		});
+		assert.ok(!heuristicOnly.includes("[trimmed,"), "precondition: without usage the heuristic does not trim");
+		const out = renderDependencyOutputContext(ctx, { budgetTokens: 1200 });
+		assert.ok(out.includes("[trimmed, 4000 chars total]"), "measured > heuristic must trigger the trim");
+		assert.ok(out.includes("full output: artifacts/run-u10a/results/dep-m.txt"), "compact pointer emitted");
+		// The pinned acceptance: the budget is NEVER exceeded in the measured
+		// direction — after the trim no full-form dep remains, so the effective
+		// measure collapses to the (small) heuristic of the compact render.
+		assert.ok(estimateTokens(out.length) <= 1200, `render est ${estimateTokens(out.length)} must fit`);
+		assert.ok(estimateTokens(out.length, 0) <= 1200, "effective measure (no full-form deps left) fits");
+		// ...while the WOULD-BE uncapped render exceeds the budget on the
+		// effective measure (max(heuristic, measured) = 3000).
+		const uncapped = renderDependencyOutputContext(ctx, { budgetTokens: 0 });
+		assert.ok(estimateTokens(uncapped.length, 3000) > 1200, "uncapped render exceeds budget once measured usage is counted");
+	});
+
+	test("before/after token distribution: measured anchor moves the layer under the budget", () => {
+		// Three deps, 3000 chars each (block ≈ 3.1k chars → full render
+		// ≈ 9.5k chars ≈ 2370 est). Budget 2000. Baseline (BEFORE, heuristic
+		// decision): the trim keeps dep-1+dep-2 full, compacts dep-3
+		// (est ≈ 1580 ≤ 2000) — note dep() stamps a default 200-token usage on
+		// deps 1 and 3, which stays far below the heuristic and changes nothing.
+		// AFTER (measured anchor on dep-2):
+		//  - dep-2 reports 1500 → Σ measured (200+1500=1700) ≤ 2000 → SAME
+		//    render as before (the anchor never loosens, never over-trims below
+		//    the heuristic slack);
+		//  - dep-2 reports 1900 → Σ measured (200+1900=2100) > 2000 → the
+		//    distribution shifts DOWN one notch (dep-2 also compacted,
+		//    est ≈ 890) — the measured token count, not chars/4, now governs.
+		const mk = (dep2OutputTokens?: number): DependencyContextEntry[] => [
+			dep("dep-1", 3000),
+			dep(
+				"dep-2",
+				3000,
+				dep2OutputTokens === undefined
+					? { usage: undefined }
+					: { usage: { inputTokens: 10, outputTokens: dep2OutputTokens, durationMs: 5 } },
+			),
+			dep("dep-3", 3000),
+		];
+		const before = renderDependencyOutputContext(context(mk(), "run-u10b"), { budgetTokens: 2000 });
+		const afterWithinSlack = renderDependencyOutputContext(context(mk(1500), "run-u10b"), { budgetTokens: 2000 });
+		const afterOver = renderDependencyOutputContext(context(mk(1900), "run-u10b"), { budgetTokens: 2000 });
+		// Baseline distribution: dep-1/dep-2 full, dep-3 compacted.
+		assert.ok(before.includes("[trimmed, 3000 chars total]"), "baseline trims the last dep (declaration order)");
+		assert.ok(!before.includes("full output: artifacts/run-u10b/results/dep-1.txt"), "dep-1 stays full (baseline)");
+		assert.ok(!before.includes("full output: artifacts/run-u10b/results/dep-2.txt"), "dep-2 stays full (baseline)");
+		// Measured within the heuristic slack: identical TRIM DECISION (the only
+		// byte difference is dep-2's own Usage metadata line — strip it and the
+		// renders are byte-identical: dep-1/dep-2 full, dep-3 compacted).
+		const stripUsage = (s: string): string => s.replace(/^Usage: .*\n\n/gm, "");
+		assert.equal(stripUsage(afterWithinSlack), stripUsage(before), "measured ≤ heuristic slack must not change the trim decision");
+		// Measured past the slack: the anchor compacts dep-2 as well.
+		assert.ok(afterOver.includes("full output: artifacts/run-u10b/results/dep-2.txt"), "Σ measured > budget compacts dep-2");
+		assert.ok(afterOver.includes("full output: artifacts/run-u10b/results/dep-3.txt"), "dep-3 stays compacted");
+		assert.ok(estimateTokens(afterOver.length) <= 2000, `shifted-down render fits (est ${estimateTokens(afterOver.length)})`);
+		assert.ok(afterOver.length < before.length, "over-slack measured shrinks the injected layer");
+	});
+
+	test("fallback: absent usage keeps the pure chars/4 heuristic path", () => {
+		const noUsage = dep("dep-f", 4000, { usage: undefined });
+		const out = renderDependencyOutputContext(context([noUsage], "run-u10c"), { budgetTokens: 1200 });
+		assert.ok(!out.includes("[trimmed,"), "no usage → heuristic-only decision (est 1030 ≤ 1200, untrimmed)");
+		const spills = renderDependencyOutputContext(context([dep("dep-f", 5000, { usage: undefined })], "run-u10c"), {
+			budgetTokens: 1200,
+		});
+		assert.ok(spills.includes("[trimmed, 5000 chars total]"), "no usage → heuristic still trims when est spills");
+	});
+
+	test("measured smaller than heuristic never loosens the budget (max floor)", () => {
+		// est ≈ 2000 > budget 1500, worker reports only 100 output tokens —
+		// the render must be trimmed EXACTLY like the heuristic-only case.
+		const withSmallUsage = renderDependencyOutputContext(
+			context([dep("dep-s", 8000, { usage: { inputTokens: 50, outputTokens: 100, durationMs: 5 } })], "run-u10d"),
+			{ budgetTokens: 1500 },
+		);
+		const heuristicOnly = renderDependencyOutputContext(context([dep("dep-s", 8000, { usage: undefined })], "run-u10d"), {
+			budgetTokens: 1500,
+		});
+		assert.ok(withSmallUsage.includes("[trimmed, 8000 chars total]"), "trim fires despite small measured usage");
+		assert.equal(withSmallUsage, heuristicOnly, "max() floor: measured < heuristic cannot admit more content");
+	});
+
+	test("compact (budgetTrimmed) deps are not charged measured usage — trim always terminates in a fit", () => {
+		// dep-huge has a TINY inline body (200 chars) but reports 500_000
+		// measured output tokens; dep-fat is 4000 chars with 3000 measured.
+		// Budget 1200: the anchor must compact BOTH (500k > any budget), and the
+		// all-compact render must fit — compact deps are never charged.
+		const ctx = context(
+			[
+				dep("dep-huge", 200, { usage: { inputTokens: 1, outputTokens: 500_000, durationMs: 1 } }),
+				dep("dep-fat", 4000, { usage: { inputTokens: 900, outputTokens: 3000, durationMs: 1000 } }),
+			],
+			"run-u10e",
+		);
+		const out = renderDependencyOutputContext(ctx, { budgetTokens: 1200 });
+		assert.ok(out.includes("full output: artifacts/run-u10e/results/dep-huge.txt"), "dep-huge compacted");
+		assert.ok(out.includes("[trimmed, 4000 chars total]"), "dep-fat compacted");
+		assert.ok(estimateTokens(out.length, 0) <= 1200, `all-compact render fits (est ${estimateTokens(out.length)})`);
+		assert.ok(!out.includes("Structured results:"), "compact form drops structuredResults");
+	});
+});
+
 describe("handoff budget — integration with prompt breakdown", () => {
 	test("sections['dynamic.dependencyContext'] reflects the capped render", async () => {
 		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "handoff-budget-"));

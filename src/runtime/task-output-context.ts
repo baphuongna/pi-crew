@@ -548,9 +548,12 @@ function sanitizeFencedBody(body: string): string {
 	return body.replace(DEPENDENCY_CONTROL_CHAR_PATTERN, "").replace(/<\/dependency-context/g, "&lt;/dependency-context");
 }
 
-// ── Handoff budget (est-token cap on this layer) ─────────────────────────────
+// ── Handoff budget (effective-token cap on this layer: chars/4 heuristic ──
+// anchored upward by measured worker usage — U10) ─────────────────────────
 
-/** Default est-token budget for the dynamic.dependencyContext layer. */
+/** Default effective-token budget for the dynamic.dependencyContext layer
+ *  (tokens as measured by the chars/4 heuristic, floored by measured worker
+ *  usage where available — U10). */
 export const DEFAULT_HANDOFF_BUDGET_TOKENS = 1800;
 /** Budget ceiling: a resolved budget above this is treated as the off-switch
  *  (same semantics as ≤0 — clearly not a real handoff cap, so render
@@ -562,14 +565,56 @@ export const HANDOFF_SUMMARY_HEAD_CHARS = 240;
 /** Strict integer env syntax — "12abc" must NOT parse as 12. */
 const HANDOFF_BUDGET_ENV_RE = /^[+-]?\d+$/;
 
-/** Est tokens = chars/4 — the same heuristic as `estimateTokens` in
+/** Est tokens = chars/4 — the same heuristic as `estimateTokens(chars)` in
  *  src/runtime/task-runner/prompt-builder.ts (SR-02 breakdown). Duplicated
  *  here instead of imported: importing prompt-builder would pull its
  *  retrieval/workspace-tree graph into every task-output-context consumer
  *  (post-execution, aggregate outputs) for a one-line heuristic. Keep the
- *  two in sync if either changes. */
+ *  two in sync if either changes; the U10 max(heuristic, measured) combine
+ *  rule mirrors prompt-builder's `estimateTokens(chars, measuredTokens)`. */
 function estimateHandoffTokens(chars: number): number {
 	return Math.round(chars / 4);
+}
+
+/** U10 measured-token anchor: Σ measured `usage.outputTokens` over the deps
+ *  still rendered in FULL form. The usage record is the worker's REAL
+ *  tokenizer measurement (message_end usage persisted on the task state via
+ *  child-executor `parsedOutput?.usage ?? sessionUsage`, surfaced onto each
+ *  entry by `aggregateUsage`) — not an estimate. Only the model's OUTPUT
+ *  tokens count: they upper-bound the tokens of the result text whose
+ *  (≤32KB-truncated) inline rendering is what this layer injects downstream
+ *  (the session's INPUT tokens say nothing about the size of the text being
+ *  injected). Charging the upper bound is deliberately conservative per spec
+ *  U10's acceptance: when the worker reports MORE tokens than the heuristic,
+ *  the measured number governs (trim fires at least as early); the recovery
+ *  path is the compact form's artifact pointer.
+ *
+ *  Compact (`budgetTrimmed`) deps are deliberately NOT charged: their inline
+ *  body is a ≤240-char head + pointer, no longer the worker's output, so the
+ *  chars/4 heuristic on the small head is the honest measure — otherwise an
+ *  output-heavy dep could never fit any budget even fully trimmed. */
+function measuredHandoffTokens(context: DependencyOutputContext): number {
+	let measured = 0;
+	for (const dep of context.dependencies) {
+		if (dep.budgetTrimmed) continue;
+		measured += dep.usage?.outputTokens ?? 0;
+	}
+	return measured;
+}
+
+/** Measure a candidate context in EFFECTIVE tokens (U10): the chars/4
+ *  heuristic on the rendered body, floored by the measured-token anchor —
+ *  `max(heuristic, Σ measured output tokens of full-form deps)`, mirroring
+ *  the render byte-for-byte (same parts builder; `.trim()` matches the render
+ *  join). The max rule mirrors `estimateTokens(chars, measuredTokens)` in
+ *  prompt-builder.ts: a real measurement can only TIGHTEN the estimate
+ *  (spec U10 — the budget must never be exceeded when measured usage is
+ *  larger than the heuristic), never loosen it below the heuristic. */
+function measureHandoffTokens(context: DependencyOutputContext): number {
+	return Math.max(
+		estimateHandoffTokens(buildDependencyOutputBodyParts(context).join("\n").trim().length),
+		measuredHandoffTokens(context),
+	);
 }
 
 /** Budget active iff it is a positive finite number at or below the ceiling;
@@ -668,18 +713,19 @@ function buildDependencyOutputBodyParts(context: DependencyOutputContext): strin
 	return parts;
 }
 
-/** Measure a candidate context in est tokens (chars/4), mirroring the render
- *  byte-for-byte (same parts builder; `.trim()` matches the render join). */
-function measureHandoffTokens(context: DependencyOutputContext): number {
-	return estimateHandoffTokens(buildDependencyOutputBodyParts(context).join("\n").trim().length);
-}
-
 /**
- * Handoff budget: trim the dependency-output context to an est-token
- * (chars/4) budget. PURE — no I/O, no env reads (callers pass the resolved
- * budget from {@link resolveHandoffBudgetTokens}); returns the input
- * reference unchanged when the budget is off (≤0 or >1_000_000) or the
- * context already fits.
+ * Handoff budget: trim the dependency-output context to an EFFECTIVE-token
+ * budget (U10). Effective tokens = max(chars/4 heuristic on the rendered
+ * body, Σ measured `usage.outputTokens` of full-form deps — real tokenizer
+ * numbers from message_end usage persisted on the task state). Measured
+ * usage can only tighten: when a worker reports MORE tokens than the
+ * heuristic estimates, the measured number governs and the trim fires at
+ * least as early as before (spec U10 acceptance — the budget is never
+ * exceeded in that direction); when usage is absent the pure heuristic
+ * applies unchanged (fallback). PURE — no I/O, no env reads (callers pass
+ * the resolved budget from {@link resolveHandoffBudgetTokens}); returns the
+ * input reference unchanged when the budget is off (≤0 or >1_000_000) or
+ * the context already fits.
  *
  * Trim policy (declaration order): dependencies are probed from ALL-full
  * downward — the largest prefix of dependencies that still fits keeps its

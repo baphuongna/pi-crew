@@ -184,25 +184,39 @@ export function validateTaskPacket(packet: TaskPacket): TaskPacketValidationResu
 }
 
 /**
- * Structured handoff template for task completion reports.
- * Distilled from ECC dmux-workflows pattern — workers use this format
- * so verifiers and downstream consumers can parse output predictably.
+ * Structured handoff template for task completion reports (U10).
+ * Restructured to the 6 PINNED sections of durable's SUMMARIZATION_PROMPT
+ * (pi-durable compaction.ts:68-103 — Goal / Constraints & Preferences /
+ * Progress (Done·In Progress·Blocked) / Key Decisions / Next Steps /
+ * Critical Context), ported per spec U10 so downstream workers and the
+ * leader can parse output predictably. The R3-2 `### Provenance` identity
+ * footer is retained as the final section — it is an orthogonal pinned
+ * contract (worker PI_* self-report, see task-handoff-provenance.test.ts),
+ * not one of the 6 content sections.
  */
 export const HANDOFF_TEMPLATE = [
 	"## Handoff",
 	"",
-	"### Summary",
-	"<!-- 2-3 sentences describing what was done -->",
+	"### Goal",
+	"<!-- One line: the goal this task served, from the Task Packet objective -->",
 	"",
-	"### Files Changed",
-	"<!-- List each file changed with brief description -->",
-	"<!-- - path/to/file.ts: description -->",
+	"### Constraints & Preferences",
+	"<!-- Constraints that shaped the work: branch/commit policy, file ownership, style, risk tiers -->",
 	"",
-	"### Tests / Verification",
-	"<!-- What tests pass? What was manually verified? -->",
+	"### Progress",
+	"<!-- Report the state of the work in three groups, each as bullet lists:",
+	"Done: completed items, with file paths",
+	"In Progress: items underway when this task ended",
+	"Blocked: blockers, with the exact reason and owner -->",
 	"",
-	"### Follow-ups",
-	"<!-- Any remaining issues or next steps -->",
+	"### Key Decisions",
+	"<!-- Decisions made and why, with file:line anchors where useful -->",
+	"",
+	"### Next Steps",
+	"<!-- Remaining work, follow-ups, and the recommended next action -->",
+	"",
+	"### Critical Context",
+	"<!-- Verification evidence (commands + outcomes), changed/read files, risks the next worker must know -->",
 	"",
 	"### Provenance",
 	"<!-- Self-report your runtime identity (pre-set in your bash tool env, one line): PI_SESSION_ID, PI_SESSION_FILE, PI_MODEL, PI_PROVIDER, PI_REASONING_LEVEL — e.g. `session=<id> model=<provider>/<model> reasoning=<level>` -->",
@@ -292,6 +306,13 @@ function parseMixedContent(section: string): string[] {
  * Parse structured handoff data from agent output text.
  * Looks for the "## Handoff" heading and extracts subsections.
  * Returns empty arrays for sections not found.
+ *
+ * U10 note: targets the LEGACY section names (Summary / Files Changed /
+ * Tests / Verification / Follow-ups) for backward compatibility with
+ * outputs persisted before the 6-section template; the current
+ * HANDOFF_TEMPLATE (Goal / Constraints & Preferences / Progress /
+ * Key Decisions / Next Steps / Critical Context) has no dedicated parser
+ * yet — see spec U10 follow-ups.
  */
 export function parseHandoffFromOutput(output: string): ParsedHandoff {
 	if (!output || typeof output !== "string") {
