@@ -116,6 +116,8 @@ export interface EventsStateSource {
 interface SourceInternals {
 	poll(): number;
 	resync(): EventsStateSnapshot;
+	/** Eviction-only hard teardown — bypasses the refcount (see below). */
+	forceDispose(): void;
 }
 
 function createEventsStateSource(runId: string, eventsPath: string, options: EventsStateSourceOptions = {}): EventsStateSource {
@@ -149,28 +151,43 @@ function createEventsStateSource(runId: string, eventsPath: string, options: Eve
 	/** STORAGE SCAN (spec U7): one parse of the (tail-capped) log to the
 	 *  current seq. No event replay — the root is rebuilt from storage. */
 	function rootBuild(): void {
-		let scanned: TeamEvent[] = [];
+		let scanned: TeamEvent[] | undefined;
 		let scannedSeq = 0;
 		try {
 			const cursor = readEventsCursor(eventsPath, {});
 			scanned = cursor.events;
 			scannedSeq = cursor.nextSeq;
 		} catch {
-			/* unreadable/missing log — keep the empty root */
+			/* unreadable log (EISDIR/EACCES mid-rotation, …) — keep the last
+			 * committed state (the empty root at creation) instead of wiping
+			 * committed events/seq on a transient read error (review MINOR-1). */
+		}
+		if (scanned !== undefined && scanned.length === 0 && scannedSeq === 0 && (seq > 0 || events.length > 0) && !fs.existsSync(eventsPath)) {
+			// readEventsCursor reports a MISSING log as an empty cursor — but a
+			// log that carried committed events a beat ago and now does not exist
+			// is a transient disappearance (run dir moving / the rename→wx-create
+			// window of rotation), NOT a compaction to empty. Keep the committed
+			// state — same policy as poll()'s miss-file branch — and keep the inode
+			// stamp so the next poll re-detects the rewrite and retries the resync.
+			scanned = undefined;
 		}
 		// Stamp the inode/size the root was built from so the FIRST poll after
 		// an external rewrite (rotation/compaction) already triggers a resync
-		// instead of learning the inode one poll late.
-		try {
-			const stat = fs.statSync(eventsPath);
-			lastIno = stat.ino;
-			lastSize = stat.size;
-		} catch {
-			lastIno = -1;
-			lastSize = -1;
+		// instead of learning the inode one poll late. Stamp ONLY on a successful
+		// scan — on a failed scan keep the previous stamp so the next poll
+		// re-detects the rewrite and RETRIES the resync.
+		if (scanned !== undefined) {
+			try {
+				const stat = fs.statSync(eventsPath);
+				lastIno = stat.ino;
+				lastSize = stat.size;
+			} catch {
+				lastIno = -1;
+				lastSize = -1;
+			}
+			events = scanned.slice(-windowSize);
+			seq = scannedSeq;
 		}
-		events = scanned.slice(-windowSize);
-		seq = scannedSeq;
 		resynced = true;
 		version += 1;
 	}
@@ -276,6 +293,18 @@ function createEventsStateSource(runId: string, eventsPath: string, options: Eve
 			listeners.clear();
 			if (entry && entry.source === source) registry.delete(eventsPath);
 		},
+		// Eviction path (review MINOR-2): the registry's hard cap must dispose
+		// the entry REGARDLESS of refcount. Going through the refcounted
+		// dispose() above would only decrement an entry the eviction already
+		// deleted from the registry — leaving holders with an "undead" source
+		// and making the next eventsStateSource() call open a DUPLICATE
+		// tail-follow cursor on the same log.
+		forceDispose(): void {
+			disposed = true;
+			listeners.clear();
+			const entry = registry.get(eventsPath);
+			if (entry && entry.source === source) registry.delete(eventsPath);
+		},
 	};
 	return source;
 }
@@ -283,7 +312,7 @@ function createEventsStateSource(runId: string, eventsPath: string, options: Eve
 // ─── Shared registry (get-or-create per events log) ────────────────────────
 
 interface RegistryEntry {
-	source: EventsStateSource;
+	source: EventsStateSource & SourceInternals;
 	refs: number;
 }
 
@@ -303,14 +332,15 @@ export function eventsStateSource(runId: string, eventsPath: string, options: Ev
 	}
 	// Hard cap: live sources are tiny, but a pathological session (hundreds
 	// of short-lived runs) must not accumulate. Evict the oldest-registered
-	// entry wholesale; its holders keep a disposed no-op source and the next
+	// entry wholesale via forceDispose() (refcount-blind, review MINOR-2):
+	// its holders keep a disposed no-op source and the next
 	// eventsStateSource() call for that path creates a fresh one.
 	if (registry.size >= REGISTRY_MAX_LIVE_SOURCES) {
 		const oldestKey = registry.keys().next().value;
 		if (oldestKey !== undefined) {
 			const evicted = registry.get(oldestKey);
 			registry.delete(oldestKey);
-			evicted?.source.dispose();
+			evicted?.source.forceDispose();
 		}
 	}
 	const source = createEventsStateSource(runId, eventsPath, options);

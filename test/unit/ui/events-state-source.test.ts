@@ -286,3 +286,64 @@ test("registry: stats accumulate polls/frames/events", async () => {
 	source.dispose();
 	await waitFor(() => true); // keep async helper exercised in this file
 });
+
+// ── Review MINOR-1/2 (2026-10-10) ─────────────────────────────────────────
+
+test("resync: a transiently unreadable log KEEPS the committed state (no empty-snapshot beat)", () => {
+	appendEvents(1, 2);
+	const source = eventsStateSource("run-u7", eventsPath());
+	assert.equal(source.poll(), 0, "creation already scanned to the current seq");
+	const before = source.snapshot();
+	assert.equal(before.seq, 2);
+
+	// Transient disappearance mid-resync (run dir moving / the rename→wx
+	// window of rotation): the log is momentarily GONE — readEventsCursor
+	// reports that as an EMPTY cursor, which must not wipe the committed state
+	// back to the empty root (parity with poll()'s miss-file branch).
+	fs.rmSync(eventsPath());
+	const afterResync = source.resync();
+	assert.equal(afterResync.seq, before.seq, "seq kept on a failed scan");
+	assert.equal(afterResync.events.length, before.events.length, "committed window kept on a failed scan");
+	assert.equal(source.stats().resyncs, 1, "the resync attempt still counts");
+
+	// The spine reappears (new inode, further ahead) — the next poll must
+	// re-detect the rewrite (stamp was NOT consumed by the failed scan) and
+	// rebuild the root from the recovered log.
+	fs.writeFileSync(eventsPath(), [line(1), line(2), line(3)].join(""), { flag: "wx" });
+	assert.equal(source.poll(), 1, "the rewrite resync counts as one frame");
+	const recovered = source.snapshot();
+	assert.equal(recovered.seq, 3);
+	assert.equal(recovered.events.length, 3);
+	source.dispose();
+});
+
+test("registry: cap eviction FORCE-disposes the oldest entry even while other holders keep refs", () => {
+	const baseline = eventsStateSourceRegistrySize();
+	appendEvents(1, 2);
+	const a1 = eventsStateSource("run-u7", eventsPath());
+	const a2 = eventsStateSource("run-u7", eventsPath()); // refs = 2
+	assert.equal(a1, a2);
+
+	// Fill the registry to its cap and keep pushing (a handful beyond the cap
+	// keeps the eviction deterministic regardless of leftover baseline) — the
+	// oldest-registered entries, including `a`, are evicted. The eviction must
+	// HARD-dispose the instance: a refcounted dispose() would merely decrement
+	// refs on an entry already deleted from the registry, leaving holders with
+	// an "undead" source and the next get-or-create a DUPLICATE cursor.
+	for (let i = 0; i < 72; i += 1) {
+		eventsStateSource(`run-fill-${i}`, path.join(tmpDir, `fill-${i}.events.jsonl`));
+	}
+	assert.equal(eventsStateSourceRegistrySize(), baseline + 64);
+
+	appendEvents(3, 1);
+	assert.equal(a1.poll(), 0, "evicted source is disposed — no more tail-follow");
+	assert.equal(a2.poll(), 0, "second holder shares the same disposed instance");
+
+	const fresh = eventsStateSource("run-u7", eventsPath());
+	assert.notEqual(fresh, a1, "a NEW source is created after the eviction");
+	assert.equal(fresh.snapshot().seq, 3, "the fresh source reparses the log from storage");
+	fresh.dispose();
+	a2.dispose(); // no-op on the disposed instance; must not throw
+	// fresh's own refcount hit zero — its registry entry drops (back below cap).
+	assert.equal(eventsStateSourceRegistrySize(), baseline + 63);
+});
