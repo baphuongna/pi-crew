@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.11.11] — Upgrade Wave 1: U1 dead-option, U2 buffered events, U3 key-free E2E, U10 measured-token handoff (2026-10-10)
+
+Wave 1 of the upgrade-spec program (`pi-crew-upgrade-spec-2026-10-09.md`, verified over
+10 research/verify rounds). Four independent specs, one commit each; `test:critical`
+120/0, full suite 8752/8778 (22 pre-existing env failures, proven on pristine HEAD),
+`dist/index.mjs` rebuilt fresh in-tree.
+
+### Changed
+
+- **U1** — removed the dead `modelRegistry` option from the `createAgentSession` call
+  (live-session-runtime): the option never existed in any pi SDK release; model control
+  stays on `model` + `scopedModels`. (19c3f54c)
+- **U2** — migrated the remaining hot sync `appendEvent` call-sites to async/buffered
+  primitives (12 of 39; 27 kept sync by documented contract — forcing all was previously
+  reverted by CI, b6eba80f/3a748640). Real-SIGTERM test proves buffered events survive
+  graceful shutdown (40/40); buffered writer ≈30-45x sync throughput. (37edbc83)
+- **U10** — dependency-context handoff budgets now anchor on the worker's *measured*
+  token usage (message_end) instead of the chars/4 heuristic (never loosens, max-floor
+  preserved), and the worker handoff template follows the pinned 6-section structure
+  (Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps /
+  Critical Context) rendered verbatim. (25f96120)
+
+### Added
+
+- **U3** — key-free, network-free E2E seam for the in-process live-session worker via
+  pi-ai `fauxProvider`: scripted responses (ok / tool-use / error / retry) run inside
+  an unshared netns with zero auth env vars. Foundation for U4/U11 embedded-tier tests.
+  (bdebf179)
+
+# Changelog
+
 ## [0.11.10] — F1: `V` live-conversation dead-end replaced with runtime-aware notice (2026-10-08)
 
 ### Fixed
