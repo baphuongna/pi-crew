@@ -15,6 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RegistrationContext } from "./registration-types.ts";
 import { registerSubagentTools } from "./subagent-tools.ts";
 import { registerTeamTool } from "./team-tool.ts";
+import { registerVerifyGateTool } from "./verify-gate-tool.ts";
 
 /**
  * Register all pi-crew tools on the ExtensionAPI.
@@ -46,5 +47,11 @@ export function registerPiTools(pi: ExtensionAPI, ctx: RegistrationContext): voi
 		startForegroundRun: (subCtx, runner, runId) =>
 			ctx.startForegroundRun(subCtx as Parameters<typeof ctx.startForegroundRun>[0], runner, runId),
 		batchBarrier: ctx.batchBarrier,
+	});
+	// U13 (upgrade spec 2026-10-09): deterministic verifier pre-gate tool —
+	// codemode exposure (hidden from the model, callable via ctx.executeTool
+	// by other tools); the verifier spawn site consumes the same engine.
+	registerVerifyGateTool(pi, {
+		getMetricRegistry: () => ctx.observabilityState.metricRegistry,
 	});
 }

@@ -481,6 +481,17 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_CLASSIFIER_MODEL",
 		doc: "P2-1 classifier model id override ('provider/id', catalog ids only — availability depends on provider credentials at runtime): beats runtime.classifierModel; unset/blank → config value, default 'opencode/jev-1.13-free' (classifier-service.ts:resolveClassifierModel)",
 	},
+	PI_CREW_VERIFY_GATE: {
+		name: "PI_CREW_VERIFY_GATE",
+		parser: "boolean",
+		doc: "U13 deterministic verifier pre-gate override: '0' disables running the deterministic verify_gate checks (typecheck / test:critical via package.json scripts) before a verifier-role worker spawn — the LLM verifier then always spawns exactly as pre-U13; '1' forces it on. Default ON (gate PASS skips the LLM verifier spawn; FAILED/INCONCLUSIVE spawns it with the gate results in the prompt) (runtime/verification/verify-gate.ts resolveVerifyGateEnabled)",
+	},
+	PI_CREW_VERIFY_GATE_TIMEOUT_MS: {
+		name: "PI_CREW_VERIFY_GATE_TIMEOUT_MS",
+		parser: "int",
+		default: "120000",
+		doc: "U13 per-check timeout in ms for the deterministic verify_gate pre-gate commands. Invalid/≤0 → 120000, mirroring runPhaseGates (runtime/verification/verify-gate.ts resolveVerifyGateTimeoutMs)",
+	},
 	PI_CREW_RPC_DIALOG_ANSWER: {
 		name: "PI_CREW_RPC_DIALOG_ANSWER",
 		doc: "W7 EXPERIMENTAL dialog auto-answer policy for RPC-mode extension_ui_request dialogs (select/confirm/input/editor): 'cancel' (default) answers {cancelled:true} — universal safe answer; 'block' leaves the server promise pending (debug). Auto-confirm deliberately NOT implemented (security); invalid → 'cancel' (rpc-worker.ts resolveDialogAnswerPolicy)",

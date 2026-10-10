@@ -1,9 +1,11 @@
 import type { AgentConfig } from "../agents/agent-config.ts";
 import type { CrewLimitsConfig, CrewRuntimeConfig } from "../config/config.ts";
 import type { MetricRegistry } from "../observability/metric-registry.ts";
+import { appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { ArtifactDescriptor, OperationTerminalEvidence, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import type { WorkflowStep } from "../workflows/workflow-config.ts";
+import { resolveClassifierEnabled, resolveClassifierModel } from "./classifier/classifier-service.ts";
 import type { CrewRuntimeKind } from "./crew-agent-runtime.ts";
 import { registerStreamBridge } from "./event-stream-bridge.ts";
 import type { ModelAttemptSummary } from "./model/model-fallback.ts";
@@ -15,6 +17,7 @@ import { finalizeTaskResult, type TaskExecutionResult } from "./task-runner/post
 import { prepareTaskExecutionContext } from "./task-runner/pre-execution.ts";
 import { cleanResultText } from "./task-runner/result-utils.ts";
 import { runScaffoldTask } from "./task-runner/scaffold-executor.ts";
+import { renderVerifyGateSummary, resolveVerifyGateEnabled, runVerifierGatePreGate } from "./verification/verify-gate.ts";
 import { registerYieldTool } from "./yield-handler.ts";
 
 // Register the submit_result tool handler so subprocess events can extract yield data.
@@ -106,6 +109,106 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 		const prepared = await prepareTaskExecutionContext(input, manifest, streamBridge);
 		if (prepared.kind === "cancelled") return prepared.result;
 		const ctx = prepared.ctx;
+		// ── U13 (upgrade spec 2026-10-09): deterministic verifier pre-gate ──
+		// For verifier-role tasks, run the deterministic gate (typecheck /
+		// test:critical via package.json scripts, subprocess executor) BEFORE
+		// spawning the LLM verifier worker:
+		//   - gate PASS → SKIP the spawn: terminalize the task as completed
+		//     with the gate evidence as its result (spec acceptance: "một run
+		//     verification với gate xanh không spawn LLM verifier");
+		//   - gate FAILED/INCONCLUSIVE (+ U6B classifier layer on the latter)
+		//     → spawn the LLM verifier as today, with the gate results appended
+		//     to its prompt (it diagnoses; it does not re-derive exit codes).
+		// Disabled by PI_CREW_VERIFY_GATE=0; scaffold runtime never gates.
+		if (ctx.task.role === "verifier" && ctx.runtimeKind !== "scaffold" && resolveVerifyGateEnabled()) {
+			const preGate = await runVerifierGatePreGate({
+				cwd: ctx.task.cwd,
+				signal: input.signal,
+				classifier: {
+					enabled: resolveClassifierEnabled(input.runtimeConfig?.classifierEnabled),
+					modelRegistry: input.modelRegistry,
+					classifierModel: resolveClassifierModel(input.runtimeConfig?.classifierModel),
+					eventsPath: manifest.eventsPath,
+					runId: manifest.runId,
+					taskId: ctx.task.id,
+				},
+				metricRegistry: input.metricRegistry,
+			});
+			// Diagnostic event (task.verifier_pre_gate — U6B's event type; the
+			// TEAM_EVENT_TYPES registry entry stays report-only pending a
+			// src/state/** lane, same as classifier-pre-gate's own appends).
+			appendEventFireAndForget(manifest.eventsPath, {
+				type: "task.verifier_pre_gate",
+				runId: manifest.runId,
+				taskId: ctx.task.id,
+				message: preGate.decision.skipVerifier
+					? `Deterministic verify_gate ${preGate.outcome.verdict} — LLM verifier spawn SKIPPED (${preGate.decision.reason})`
+					: `Deterministic verify_gate ${preGate.outcome.verdict} — LLM verifier spawns with gate context (${preGate.decision.reason})`,
+				data: {
+					verdict: preGate.outcome.verdict,
+					decision: preGate.decision,
+					evidenceLines: preGate.outcome.evidenceLines,
+					...(preGate.preGate ? { classifierAction: preGate.preGate.action } : {}),
+				},
+			});
+			if (preGate.decision.skipVerifier) {
+				// Terminalize WITHOUT spawning: synthesize the branch result (gate
+				// summary as the task result artifact + stdout) and reuse the full
+				// finalizer — events, hooks, persistence, verification evidence.
+				const summary = renderVerifyGateSummary(preGate.outcome, preGate.decision.reason);
+				const resultArtifact = writeArtifact(manifest.artifactsRoot, {
+					kind: "result",
+					relativePath: `results/${ctx.task.id}.txt`,
+					content: `${summary}\n`,
+					producer: ctx.task.id,
+				});
+				ctx.task = {
+					...ctx.task,
+					// Provenance: this verdict came from the deterministic gate, not a
+					// model attempt (U6B mount note: evaluator/model provenance marker).
+					diagnostics: {
+						...(ctx.task.diagnostics ?? {}),
+						verifyGate: {
+							verdict: preGate.outcome.verdict,
+							reason: preGate.decision.reason,
+							evidenceLines: preGate.outcome.evidenceLines,
+						},
+					},
+				};
+				return await finalizeTaskResult(ctx, {
+					resultArtifact,
+					logArtifact: undefined,
+					transcriptArtifact: undefined,
+					exitCode: 0,
+					error: undefined,
+					modelAttempts: [],
+					parsedOutput: undefined,
+					finalStdout: summary,
+					transcriptPath: undefined,
+					terminalEvidence: [],
+					startupEvidence: ctx.startupEvidence,
+				});
+			}
+			if (preGate.promptContext) {
+				// Spawn proceeds — attach the gate results to the verifier prompt
+				// (both channels: full prompt + the user-message half). The prompt
+				// artifact was written in pre-execution with the PRE-gate prompt;
+				// rewrite it so the persisted artifact matches what the worker saw.
+				ctx.prompt = `${ctx.prompt}\n\n${preGate.promptContext}`;
+				if (ctx.userPrompt !== undefined) ctx.userPrompt = `${ctx.userPrompt}\n\n${preGate.promptContext}`;
+				if (ctx.promptArtifact) {
+					ctx.promptArtifact = writeArtifact(manifest.artifactsRoot, {
+						kind: "prompt",
+						// Same relative-path convention pre-execution used
+						// (prompts/<taskId>.md) — ArtifactDescriptor carries only the
+						// absolute path, so the rewrite re-derives the relative path.
+						relativePath: `prompts/${ctx.task.id}.md`,
+						content: `${ctx.prompt}\n`,
+						producer: ctx.task.id,
+					});
+				}
+			}
+		}
 		// Destructure mutable fields for branch closures + sync-back
 		let task = ctx.task;
 		let tasks = ctx.tasks;
