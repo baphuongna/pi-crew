@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.46] — broker hygiene: token off the child env (stdin handshake) + crew-broker split (2026-10-27)
+
+Follow-up wave to the 0.11.45 security hardening: closes the LOW-1 residual (broker token in child env) and pays
+structural debt (crew-broker.ts at 1970/2000 wc-gate) before it blocks further work.
+
+**Changed — broker token now travels over spawn stdin, off the child env (LOW-1 closure).** Headless JSON workers
+receive the per-task compound `PI_CREW_BROKER_TOKEN` as a single `buildBrokerStdinLine` v2 payload written to the
+child's stdin right after spawn (heap → pipe → heap — same shape as the F4 background-runner handshake), instead of
+`/proc/<pid>/environ`-visible env. `PI_CREW_BROKER_SOCKET`/`RUN_ID`/`TASK_ID` stay in env (non-secret, needed by the
+worker bootstrap to bind + validate the payload). The worker-side reader (`startChildBrokerClientAsync`) activates
+only when the env token is absent, binds the payload by runId + taskId, cross-checks the socket path, and never
+throws — any mismatch leaves the worker creds-less exactly like today. RPC-mode workers (`--mode rpc` argv guard)
+and surface TUI panes keep the env/launch-script routes untouched. Rollback gate `PI_CREW_BROKER_STDIN=0` restores
+the legacy env route on both sides bit-for-bit. Backward-compat matrix pinned by tests: old-parent→new-worker (env
+route), new-parent→new-worker (stdin), rollback, garbage/wrong-run/socket-mismatch payloads, silent stdin.
+
+**Changed — `handleDelegateRequest` extracted from crew-broker.ts (1970 → 1693 lines).** Pure move into
+`src/runtime/broker/crew-broker-delegate-request.ts` via the same deps-object pattern as `protocol/wait-resolve.ts`;
+public `CrewBroker` API unchanged, zero test churn (diff audit: byte-identical modulo `this.`→`deps.` + dedent).
+Re-opens ~300 lines of wc-gate headroom. `scripts/check-lazy-imports.mjs` budget 539 → 540 (new static graph node
+from the split; dynamic import is not an escape — the single-file bundle walks `import()` edges too).
+
 ## [0.11.45] — security hardening wave: worktree git-injection class closed + verified review fixes (2026-10-27)
 
 ### Security hardening wave — worktree git-injection (MED-1) + verified review fixes
