@@ -260,7 +260,16 @@ function resolvePiCliScript(): string | undefined {
 		process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "@earendil-works", "pi-coding-agent") : undefined,
 		process.env.APPDATA ? path.join(process.env.APPDATA, "npm", "node_modules", "@mariozechner", "pi-coding-agent") : undefined,
 		path.dirname(fileURLToPath(import.meta.url)),
-		process.cwd(),
+		// E2 (fix-wave 16): the process.cwd() root is deliberately REMOVED.
+		// findPiPackageJsonFrom matches package.json by NAME only (no version or
+		// signature check), so a booby-trapped working directory carrying a fake
+		// package.json (name=@earendil-works/pi-coding-agent + bin) would get its
+		// attacker binary spawned with the worker env — which carries the
+		// inference-broker token. Legitimate installs stay covered by the roots
+		// above (argv1 package root, `npm root -g`, %APPDATA%\npm, and the
+		// import.meta install-dir walk, which still scans every ancestor
+		// node_modules chain via findPiPackageJsonFrom) plus the bare-"pi" PATH
+		// fallback in getPiSpawnCommand.
 	].filter((entry): entry is string => Boolean(entry));
 
 	for (const root of roots) {

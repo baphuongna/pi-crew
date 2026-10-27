@@ -12,7 +12,7 @@
 
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -144,6 +144,48 @@ test("stale: recording-owned-path unlink only on stop()", async () => {
 	await broker.stop();
 	// After stop(), the file must be unlinked.
 	assert.equal(existsSync(sockPath), false, "broker must unlink the recorded socket on stop()");
+});
+
+test("stale: stop() must NOT unlink a socket rebound by another server", async () => {
+	// [3] stop-unlink race (2026-10-26): the socket path is deterministic per
+	// sessionId. If broker-1's leaf is unlinked (crash-cleanup sweep, another
+	// process) and a SECOND listener binds the same path, broker-1's stop()
+	// must not delete the second listener's socket. The unlink is gated on a
+	// dev+ino identity pin captured at listen() time; a rebound leaf is a new
+	// inode, so the identity check fails and stop() leaves the path alone.
+	const sockPath = tempSocketPath("rebind-race");
+	const broker1 = new CrewBroker({ sessionId: "session-rebind", socketPath: sockPath, enabled: true });
+	await broker1.start();
+	assert.ok(existsSync(sockPath), "broker-1 socket exists after start()");
+	const st1 = lstatSync(sockPath);
+
+	// Simulate the rebind: unlink broker-1's leaf, then a second server binds
+	// the SAME path (what a restarted broker on the same sessionId would do).
+	unlinkSync(sockPath);
+	const server2 = net.createServer(() => {
+		/* accept and ignore */
+	});
+	await new Promise<void>((resolve, reject) => {
+		server2.once("error", reject);
+		server2.listen(sockPath, () => resolve());
+	});
+	try {
+		const st2 = lstatSync(sockPath);
+		assert.notEqual(st1.ino, st2.ino, "sanity: rebound socket must be a new inode");
+
+		await broker1.stop();
+
+		// broker-1's stop() must NOT have removed the second server's socket.
+		assert.ok(existsSync(sockPath), "rebound socket must survive broker-1 stop()");
+		assert.equal(lstatSync(sockPath).ino, st2.ino, "surviving leaf must still be server-2's inode");
+	} finally {
+		await new Promise<void>((resolve) => server2.close(() => resolve()));
+		try {
+			unlinkSync(sockPath);
+		} catch {
+			/* already gone */
+		}
+	}
 });
 
 test("stale: start() is idempotent (returns the same server)", async () => {

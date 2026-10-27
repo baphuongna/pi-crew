@@ -90,6 +90,7 @@ import {
 } from "./protocol/request-parsers.ts";
 import { recordWaitPolicyRejection, waitAuthError } from "./protocol/wait-auth.ts";
 import { handleWaitResolve } from "./protocol/wait-resolve.ts";
+import { captureSocketIdentity, type SocketIdentity, stopServerAndRemoveSocket } from "./socket-stop.ts";
 import { pushWaitingToForegroundWaiter } from "./wait-push.ts";
 import { WaitStatusCache } from "./wait-status-cache.ts";
 
@@ -144,6 +145,10 @@ export class CrewBroker {
 	private readonly taskTokens = new Map<string, BrokerToken>();
 	private server: net.Server | null = null;
 	private resolvedSocketPath: string | null = null;
+	/** [3] stop-unlink race: dev+ino of the leaf we created, captured right
+	 *  after listen() succeeded. stop() removes the path only while this
+	 *  still matches (a rebound leaf is a new inode); see socket-stop.ts. */
+	private socketIdentity: SocketIdentity | null = null;
 	private stopped = false;
 	private startingPromise: Promise<void> | null = null;
 	private readonly connections = new Set<ServerConnection>();
@@ -350,6 +355,13 @@ export class CrewBroker {
 			}
 		});
 
+		// 4.5 [3] stop-unlink race: pin the fresh leaf's identity so stop()
+		//     can prove it still owns the path before removing it (win32
+		//     named pipes have no fs leaf — nothing to pin).
+		if (process.platform !== "win32") {
+			this.socketIdentity = await captureSocketIdentity(sockPath);
+		}
+
 		// 5. Tighten socket permissions on POSIX. Node's net module has no
 		//    `mode` option (unlike `fs`), so we chmod after listen() succeeds.
 		if (process.platform !== "win32") {
@@ -432,43 +444,46 @@ export class CrewBroker {
 		}
 		this.connections.clear();
 
-		// 2. Close the server itself.
-		if (this.server) {
-			await new Promise<void>((resolve) => {
-				const srv = this.server;
+		// 2+4. Close the server AND remove the socket path in one
+		//      ownership-gated step. [3] stop-unlink race: libuv unlinks the
+		//      bind path BY NAME when the listening handle closes, so the
+		//      unlink/shield decision must wrap the close itself — see
+		//      broker/socket-stop.ts. We never touch any other path and
+		//      never `process.kill` anything.
+		const srv = this.server;
+		this.server = null;
+		const sockPath = this.resolvedSocketPath ?? this.options.socketPath;
+		const closeServer = () =>
+			new Promise<void>((resolve) => {
 				if (!srv) return resolve();
 				srv.close(() => resolve());
 				// If the server is not currently listening, close() resolves
 				// synchronously — guard with a hard timeout for safety.
 				setTimeout(() => resolve(), 250).unref();
 			});
-			this.server = null;
+		if (sockPath && process.platform !== "win32") {
+			const outcome = await stopServerAndRemoveSocket(sockPath, this.socketIdentity, closeServer);
+			if (outcome === "shielded-foreign" || outcome === "unshielded-foreign") {
+				// Path exists but is not provably ours (rebound or never bound):
+				// we did not remove it — any corpse is left for
+				// removeStaleBrokerSocket at the next start (fail-safe design).
+				logInternalError(
+					"crew-broker.stop.unlink-skipped",
+					new Error(`socket path not provably owned (${outcome}); left for removeStaleBrokerSocket`),
+					`path=${redactSecretString(sockPath)}`,
+				);
+			}
+		} else {
+			await closeServer();
 		}
+		this.resolvedSocketPath = null;
+		this.socketIdentity = null;
 
 		// 3. Clear the token map. This is the single point where the heap
 		//    state for runIds is wiped. No persistence to clean up.
 		this.tokens.clear();
 		// Task 10: drop the taskId → token index with it.
 		this.taskTokens.clear();
-
-		// 4. Unlink the recorded socket file IF we created it. We never
-		//    touch any other path. We also never `process.kill` anything.
-		const sockPath = this.resolvedSocketPath ?? this.options.socketPath;
-		if (sockPath && process.platform !== "win32") {
-			try {
-				await fsp.unlink(sockPath);
-			} catch (err) {
-				const code = (err as NodeJS.ErrnoException).code;
-				if (code !== "ENOENT") {
-					logInternalError(
-						"crew-broker.stop.unlink-failed",
-						err instanceof Error ? err : new Error(String(err)),
-						`path=${redactSecretString(sockPath)}`,
-					);
-				}
-			}
-		}
-		this.resolvedSocketPath = null;
 	}
 
 	// Connection lifecycle
@@ -759,15 +774,7 @@ export class CrewBroker {
 			}
 		}
 
-		// Bounded identity checks. taskId must be a non-empty string.
-		if (typeof taskId !== "string" || taskId.length === 0 || taskId.length > 256) {
-			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
-			return;
-		}
-		if (typeof runId !== "string" || runId.length === 0 || runId.length > 256) {
-			this.sendErrorAndClose(conn, id, "auth", "hello rejected");
-			return;
-		}
+		// taskId/runId/token bounds (non-empty, ≤256) are enforced upstream by isHelloParams — protocol/request-parsers.ts.
 
 		// Bind connection identity and ack. Ack never includes the token.
 		conn.authed = true;

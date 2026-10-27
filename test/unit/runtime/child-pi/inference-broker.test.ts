@@ -7,7 +7,8 @@
  *       the worker token; anthropic-version preserved; the real key never
  *       appears in any client-visible byte.
  *   (c) PER-WORKER: unique tokens; budget 429; revoke/revokeAll kill-switch;
- *       re-register replaces (kills) the old token.
+ *       re-register replaces (kills) the old token; the token map is keyed
+ *       by SHA-256 digest, never the raw secret (constant-time discipline).
  *   (d) SCOPED DIR: models.json reroutes anthropic to the broker with
  *       $PI_CREW_INFERENCE_TOKEN interpolation; NO auth.json; 0o600/0o700.
  *   (e) WIRING: buildFinalChildPiSpawnOptions with an active broker passes
@@ -24,6 +25,7 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -31,6 +33,7 @@ import * as path from "node:path";
 import test from "node:test";
 import { buildFinalChildPiSpawnOptions } from "../../../../src/runtime/child-pi/child-pi-spawn.ts";
 import {
+	__inferenceBrokerTokenMapKeysForTests,
 	__resetInferenceBrokerForTests,
 	getInferenceBrokerSnapshot,
 	INFERENCE_BROKER_ENABLE_ENV,
@@ -344,6 +347,19 @@ test("(c4) revokeAll flips every worker off", async () => {
 		assert.ok(n >= 2, `revokeAll must report the revoked workers (got ${n})`);
 		const res = await brokerFetch(fn.baseUrl, fn.token, { model: "x", messages: [] });
 		assert.equal(res.status, 401);
+	});
+});
+
+test("(c5) constant-time discipline: the token map is keyed by SHA-256 digest, never the raw token", async () => {
+	await withBroker(async (fn) => {
+		const keys = __inferenceBrokerTokenMapKeysForTests();
+		assert.equal(keys.length, 1, "one registered worker → one token-map entry");
+		assert.ok(!keys.includes(fn.token), "the RAW token must never appear as a map key");
+		assert.deepEqual(
+			keys,
+			[createHash("sha256").update(fn.token, "utf8").digest("hex")],
+			"the key must be the SHA-256 hex digest of the token (crew-broker-tokens pattern)",
+		);
 	});
 });
 

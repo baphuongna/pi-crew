@@ -122,10 +122,61 @@ export async function prepareBrokerSocketDir(sockPath: string): Promise<void> {
 	}
 }
 
+/** Literal-escaping helper for building filesystem-name regexes. */
+function escapeRegExp(literal: string): string {
+	return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * B-LOW1: sweep `${sockPath}.stopping.<pid>.<hex>` shield corpses left by
+ * broker/socket-stop.ts. stopServerAndRemoveSocket renames a foreign/unpinned
+ * socket leaf aside across the libuv close-unlink window and renames it back
+ * afterwards; a crash between those renames strands the shield forever — the
+ * plain removeStaleBrokerSocket flow only ever looks at `sockPath` itself, so
+ * the corpses previously accumulated one per crashed stop.
+ *
+ * A corpse is removed ONLY when the pid embedded in its name is provably dead
+ * (process.kill(pid, 0) → ESRCH). EPERM/any other signal result means the pid
+ * is alive (or its liveness cannot be proven) — the shield is kept (fail-safe:
+ * a live broker may still restore it). Best-effort: never throws.
+ */
+async function sweepStoppingShields(sockPath: string): Promise<void> {
+	if (process.platform === "win32") return; // named pipes have no fs leaves
+	const dir = path.dirname(sockPath);
+	const pattern = new RegExp(`^${escapeRegExp(path.basename(sockPath))}\\.stopping\\.(\\d+)\\.[0-9a-f]{1,32}$`);
+	let entries: string[];
+	try {
+		entries = await fsp.readdir(dir);
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		const match = pattern.exec(entry);
+		if (!match) continue;
+		const pid = Number.parseInt(match[1]!, 10);
+		if (!Number.isInteger(pid) || pid <= 0) continue;
+		try {
+			process.kill(pid, 0);
+			continue; // pid alive — keep the shield
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code;
+			if (code !== "ESRCH") continue; // cannot prove dead — keep
+		}
+		try {
+			await fsp.unlink(path.join(dir, entry));
+		} catch {
+			/* best-effort */
+		}
+	}
+}
+
 /** Connect-then-unlink stale socket (herdr pattern). If a live broker is
  *  listening, leave the endpoint intact (EADDRINUSE will surface on bind).
  *  If a stale file exists with no listener, remove it. If the path is a
  *  symlink, refuse rather than follow.
+ *
+ *  Also sweeps `${sockPath}.stopping.*` shield corpses whose recorded pid is
+ *  dead (B-LOW1 — see sweepStoppingShields).
  *
  *  Returns "removed" when the stale entry was unlinked, "kept" when a live
  *  listener was detected, "absent" when no entry existed, "refused"
@@ -138,6 +189,9 @@ export async function removeStaleBrokerSocket(
 	// the timeout branch without racing a real localhost connect.
 	netModule?: { createConnection: (path: string) => { once: (ev: string, fn: (arg?: unknown) => void) => void; destroy: () => void } },
 ): Promise<"removed" | "kept" | "absent" | "refused"> {
+	// B-LOW1: sweep stranded stop-shields first (best-effort, never affects the
+	// sockPath verdict below).
+	await sweepStoppingShields(sockPath);
 	// Reject symlinks outright.
 	let st: Awaited<ReturnType<typeof fsp.lstat>>;
 	try {

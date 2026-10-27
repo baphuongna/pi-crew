@@ -57,6 +57,11 @@ const identityByPid = new Map<number, ProcIdentity>();
 // Wave 11a injection seam (same shape as zombie-scanner.ts `__test`): tests seed
 // identity snapshots and swap the group reaper without a real child process.
 let reapGroupImpl: typeof reapGroup = reapGroup;
+// Wave 16 (E1): injectable /proc identity reader for killProcessPid's PID-recycle
+// re-validation — tests simulate a recycled starttime without racing the OS for
+// a real pid reuse. registerActiveChild deliberately keeps the REAL reader (its
+// identityByPid snapshot is production /proc state, not a test fixture).
+let readProcIdentityImpl: typeof readProcIdentity = readProcIdentity;
 export const __test = {
 	/** Seed the exit-time identity snapshot for a pid (as registerActiveChild would). */
 	seedIdentity(pid: number, identity: ProcIdentity | undefined): void {
@@ -70,6 +75,10 @@ export const __test = {
 	/** Replace the group reaper (undefined restores the real one). */
 	setReapGroup(fn: typeof reapGroup | undefined): void {
 		reapGroupImpl = fn ?? reapGroup;
+	},
+	/** Replace the /proc identity reader used by killProcessPid's E1 re-validation (undefined restores the real one). */
+	setReadProcIdentity(fn: typeof readProcIdentity | undefined): void {
+		readProcIdentityImpl = fn ?? readProcIdentity;
 	},
 };
 
@@ -173,9 +182,24 @@ export function killProcessPid(pid: number): void {
 		void owned.dispose();
 		return;
 	}
+	// E1 (fix-wave 16): baseline the pid's /proc starttime (stat field 22) while
+	// it is alive at kill entry; the hard-kill timer below re-reads it and
+	// refuses to signal a CHANGED starttime — the original process exited during
+	// the grace window and an unrelated process recycled the pid. Effectively
+	// Linux-only: Windows has no /proc (readProcIdentity → undefined ⇒ no
+	// baseline ⇒ the timer keeps the pre-wave unconditional behavior — see the
+	// win32 branch note below), and /proc-less POSIX (macOS) degrades the same
+	// way. Deliberately NOT the registration-snapshot pattern (identityByPid):
+	// external pid-only callers — live-session agents, cancel paths on stale
+	// pids — have no registration to consult.
+	const baselineStarttime = process.platform === "win32" ? undefined : readProcIdentityImpl(pid)?.starttime;
 	try {
 		if (process.platform === "win32") {
 			// 3.8: Windows path uses taskkill /T /F (force kill the entire tree).
+			// E1 note: Windows has no /proc, so no starttime baseline/re-validation
+			// is possible here — behavior stays exactly as before. taskkill /T /F on
+			// a recycled pid fails harmlessly ("process not found"), so the residual
+			// recycle window is not actionable on this platform.
 			// taskkill itself can silently fail (PID gone, permission denied, etc.)
 			// so verify after 2s and log a warning if the process is still alive.
 			spawnTaskkillSafe(pid);
@@ -213,6 +237,26 @@ export function killProcessPid(pid: number): void {
 		}
 		clearHardKillTimer(pid);
 		const hardKillTimer = setTimeout(() => {
+			// E1: PID-recycle re-validation immediately before the hard kill —
+			// guards BOTH the group kill (-pid) below and the absolute-pid fallback
+			// inside its catch. Skip ONLY on a proven mismatch (baseline known AND
+			// current known AND different): an unreadable current value means the pid
+			// is already gone (the kill below reports ESRCH exactly as before) or
+			// /proc is unavailable on this platform (there was never a baseline to
+			// compare against).
+			const currentStarttime = readProcIdentityImpl(pid)?.starttime;
+			if (baselineStarttime !== undefined && currentStarttime !== undefined && currentStarttime !== baselineStarttime) {
+				logInternalError(
+					"child-pi.sigkill-pid-recycled",
+					new Error(
+						`starttime changed between SIGTERM and the hard-kill timer (${baselineStarttime} → ${currentStarttime}) — pid was recycled, skipping hard kill of the unrelated new occupant`,
+					),
+					`pid=${pid}`,
+					"warn",
+				);
+				childHardKillTimers.delete(pid);
+				return;
+			}
 			try {
 				process.kill(-pid, "SIGKILL");
 			} catch (error) {

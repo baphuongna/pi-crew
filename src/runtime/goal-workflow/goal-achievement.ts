@@ -24,6 +24,7 @@ import { spawnSync } from "node:child_process";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { findRepoRoot } from "../../utils/paths.ts";
 import type { WorkflowConfig } from "../../workflows/workflow-config.ts";
+import { buildGitSafeEnv, hardenGitArgs } from "../../worktree/git-hardening.ts";
 
 /**
  * Roles whose job is to EDIT project source/test files (changes that appear in
@@ -54,7 +55,15 @@ export function isGitWorkingTreeClean(cwd: string): { clean: boolean; repoRoot: 
 		const repoRoot = findRepoRoot(cwd);
 		if (!repoRoot) return { clean: "unknown", repoRoot: undefined };
 		// `git status --porcelain` → empty stdout means a clean working tree.
-		const res = spawnSync("git", ["-C", repoRoot, "status", "--porcelain"], { encoding: "utf8", timeout: 5_000 });
+		// R-A5 (MED-1): previously spawnSync inherited the FULL process.env —
+		// API keys could leak to config-reachable helpers git spawns. Now the
+		// sanitized env + hardenGitArgs (cwd is the trusted manifest repo root,
+		// so no gitdir-pointer guard is needed here).
+		const res = spawnSync("git", hardenGitArgs(["-C", repoRoot, "status", "--porcelain"]), {
+			encoding: "utf-8",
+			timeout: 5_000,
+			env: buildGitSafeEnv(),
+		});
 		if (res.error || res.status !== 0) return { clean: "unknown", repoRoot: undefined };
 		return { clean: res.stdout.trim().length === 0, repoRoot };
 	} catch {

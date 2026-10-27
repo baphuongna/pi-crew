@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Security hardening wave — worktree git-injection (MED-1) + verified review fixes
+
+Cold-verified adversarial review of v0.11.44 surfaced one CONFIRMED code-exec class finding (git config/hook injection
+in worker-controlled worktrees) plus two same-class bypass vectors found while fixing it. This wave closes the full
+attack surface, not just the original report.
+
+**Fixed — git config/hook injection via worker-controlled worktrees (MED-1, CONFIRMED).** Every git invocation that
+runs with `cwd` inside a worktree is now routed through `src/worktree/git-hardening.ts`:
+`-c core.fsmonitor=false -c core.hooksPath= -c core.attributesFile=` (empty `hooksPath` neutralizes
+prepare-commit-msg/post-commit that `--no-verify` does not block), `--no-textconv --no-ext-diff` on `diff`,
+`--no-verify` on `commit`, plus `GIT_CONFIG_NOSYSTEM=1` and a shared `buildGitSafeEnv()` (drops `process.env`
+inheritance and `GIT_CONFIG_SYSTEM`). A gitdir-pointer guard (`verifyWorktreeGitdirPointer` + per-command
+`assertWorktreePointerTrusted`) defeats `.git`-pointer hijack and the R-A3 TOCTOU (pointer flipped mid-chain aborts
+the chain as corrupted). Covers `cleanup.ts`, `worktree-manager.ts` (incl. diff-capture fns R-A1), `post-execution.ts`
+read-lane probe (R-A2 — previously raw git with full env secrets), `branch-freshness.ts`, `goal-achievement.ts`.
+Regression tests use live poisoned-config fixtures (fsmonitor/hooks/textconv/filter.clean/diff.external) and assert
+no marker execution. Residual (documented in-code): filter definitions in genuinely-trusted global config remain
+executable — required for commit identity.
+
+**Fixed — broker `stop()` unlink race (R-MINOR-2).** Socket leaf identity (`dev`/`ino`) is pinned right after
+`listen()` in the new `src/runtime/broker/socket-stop.ts`; `stop()` unlinks only while it still owns the inode,
+renames the leaf aside while closing, restores only if the path is still `ENOENT` (B-LOW2), and stale
+`.stopping.<pid>.*` shields are swept once their pid is dead (B-LOW1).
+
+**Fixed — kill-timer PID-recycle window (E1).** `killProcessPid` snapshots `/proc/<pid>/stat` starttime at entry and
+re-validates before the 3s SIGKILL (group + absolute-pid fallback); proven mismatch skips the kill with a warn log.
+win32//proc-less platforms keep legacy behavior (documented).
+
+**Changed — inference-broker token map keyed by SHA-256 digest (R-LOW-4).** Raw secrets are no longer map keys nor
+retained broker-side after registration, matching `crew-broker-tokens` constant-time discipline.
+
+**Changed — pi CLI resolution no longer falls back to `process.cwd()` (E2).** A planted `package.json` matching the
+pi package name could otherwise be spawned as a worker with broker-token env in degenerate installs.
+
+**Docs — corrected the R7-9 trust-model comment** in `cross-extension-rpc.ts` (`rpc:run` is the only mutating channel
+accepting unsigned RPCs — rate-limited + cwd-contained; live-control rejects all unsigned ops), and removed the dead
+hello length-check shadowed by `isHelloParams` bounds (crew-broker.ts back under the wc-gate ceiling).
+
+**CI — nightly now runs `npm audit --audit-level=high` (signal-only, `continue-on-error`) and `test:coverage`**
+(first workflow to execute the existing coverage script; job timeout 30→45 min).
+
+**Tests:** worktree suites 92/92, task-runner 213/213, socket/goal suites 146/146, `test:critical` 125/125,
+`tsc --noEmit` + biome + wc-gate all clean.
+
 ## [0.11.44] — fix wave 16: full-backlog burn-down — liveness wiring everywhere + rmSync sweep complete + T-6(b) harden (2026-10-26)
 
 Wave 15 left three open ends: the health-monitor/widget/powerbar/session-summary surfaces still judged liveness from

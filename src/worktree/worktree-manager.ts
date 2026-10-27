@@ -11,6 +11,14 @@ import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
+import {
+	assertWorktreePointerTrusted,
+	buildGitSafeEnv,
+	hardenGitArgs,
+	resolveTrustedGitDir,
+	verifyWorktreeGitdirPointer,
+	worktreeTrustCheck,
+} from "./git-hardening.ts";
 
 export interface PreparedTaskWorkspace {
 	cwd: string;
@@ -46,85 +54,29 @@ export interface WorktreeDiffStat {
 function git(cwd: string, args: string[]): string {
 	// SECURITY: PI_* and PI_CREW_* wildcards removed — they could match secret vars like PI_PASSWORD.
 	// Git operations do not need PI_CREW_* execution-control vars.
-	return execFileSync("git", args, {
+	// MED-1: hardened — config-injection overrides via hardenGitArgs (git-hardening.ts).
+	// R-A3: re-verify the gitdir pointer before EVERY command whose cwd sits
+	// inside a linked worktree (TOCTOU: a live worker can flip the `.git`
+	// pointer after an entry-level check passed). The assert throws OUTSIDE the
+	// execFile try so callers land in their "worktree corrupted" handling.
+	assertWorktreePointerTrusted(cwd);
+	return execFileSync("git", hardenGitArgs(args), {
 		cwd,
 		encoding: "utf-8",
 		stdio: ["ignore", "pipe", "pipe"],
-		env: {
-			...sanitizeEnvSecrets(process.env, {
-				allowList: [
-					"PATH",
-					"HOME",
-					"USER",
-					...WINDOWS_ESSENTIAL_ENV_VARS,
-					"SHELL",
-					"TERM",
-					"LANG",
-					"LC_ALL",
-					"LC_COLLATE",
-					"LC_CTYPE",
-					"LC_MESSAGES",
-					"XDG_CONFIG_HOME",
-					"XDG_DATA_HOME",
-					"XDG_CACHE_HOME",
-					"NVM_BIN",
-					"NVM_DIR",
-					"NODE_PATH",
-					"GIT_CONFIG_GLOBAL",
-					"GIT_CONFIG_SYSTEM",
-					"GIT_AUTHOR_NAME",
-					"GIT_AUTHOR_EMAIL",
-					"GIT_COMMITTER_NAME",
-					"GIT_COMMITTER_EMAIL",
-				],
-			}),
-			LANG: "en_US.UTF-8",
-			LC_ALL: "en_US.UTF-8",
-		},
+		env: buildGitSafeEnv("en_US.UTF-8"),
 		windowsHide: true,
 	}).trim();
 }
 
-/** Build the sanitized env object shared by all git operations. */
-function gitEnv(): Record<string, string> {
-	return {
-		...sanitizeEnvSecrets(process.env, {
-			allowList: [
-				"PATH",
-				"HOME",
-				"USER",
-				...WINDOWS_ESSENTIAL_ENV_VARS,
-				"SHELL",
-				"TERM",
-				"LANG",
-				"LC_ALL",
-				"LC_COLLATE",
-				"LC_CTYPE",
-				"LC_MESSAGES",
-				"XDG_CONFIG_HOME",
-				"XDG_DATA_HOME",
-				"XDG_CACHE_HOME",
-				"NVM_BIN",
-				"NVM_DIR",
-				"NODE_PATH",
-				"GIT_CONFIG_GLOBAL",
-				"GIT_CONFIG_SYSTEM",
-				"GIT_AUTHOR_NAME",
-				"GIT_AUTHOR_EMAIL",
-				"GIT_COMMITTER_NAME",
-				"GIT_COMMITTER_EMAIL",
-			],
-		}),
-		LANG: "en_US.UTF-8",
-		LC_ALL: "en_US.UTF-8",
-	};
-}
-
 async function gitAsync(cwd: string, args: string[]): Promise<string> {
-	const { stdout } = await execFileAsync("git", args, {
+	// MED-1: same hardening as the sync git() helper (see git-hardening.ts).
+	// R-A3: per-command gitdir re-verify (see git() above).
+	assertWorktreePointerTrusted(cwd);
+	const { stdout } = await execFileAsync("git", hardenGitArgs(args), {
 		cwd,
 		encoding: "utf-8",
-		env: gitEnv(),
+		env: buildGitSafeEnv("en_US.UTF-8"),
 		windowsHide: true,
 	});
 	return stdout.trim();
@@ -481,14 +433,11 @@ function branchExists(repoRoot: string, branch: string): { local: boolean; remot
 		logInternalError("worktree.branch-local.sync", error, `branch=${branch}`, "debug");
 	}
 	if (local) return { local: true, remoteOnly: false };
-	// Check remote-tracking branch
+	// Check remote-tracking branch (R-A7: routed through the hardened git()
+	// helper — sanitized env + hardenGitArgs uniformity; repoRoot cwd is a
+	// trusted main-repo context, no exec vector was reachable raw either).
 	try {
-		const out = execFileSync("git", ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${branch}`], {
-			cwd: repoRoot,
-			encoding: "utf-8",
-			stdio: ["ignore", "pipe", "pipe"],
-			windowsHide: true,
-		}).trim();
+		const out = git(repoRoot, ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${branch}`]);
 		return { local: false, remoteOnly: out.length > 0 };
 	} catch {
 		return { local: false, remoteOnly: false };
@@ -497,10 +446,9 @@ function branchExists(repoRoot: string, branch: string): { local: boolean; remot
 
 function pruneStaleWorktrees(repoRoot: string): void {
 	try {
-		execFileSync("git", ["worktree", "prune"], {
-			cwd: repoRoot,
-			stdio: "ignore",
-		});
+		// R-A7 (uniformity): previously a raw execFileSync with the FULL
+		// process.env — now the hardened helper (sanitized env; repoRoot cwd).
+		git(repoRoot, ["worktree", "prune"]);
 	} catch {
 		/* best-effort */
 	}
@@ -534,15 +482,9 @@ async function branchExistsAsync(repoRoot: string, branch: string): Promise<{ lo
 		logInternalError("worktree.branch-local.async", error, `branch=${branch}`, "debug");
 	}
 	if (local) return { local: true, remoteOnly: false };
-	// Check remote-tracking branch
+	// Check remote-tracking branch (R-A7: hardened helper, see branchExists).
 	try {
-		const out = (
-			await execFileAsync("git", ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${branch}`], {
-				cwd: repoRoot,
-				encoding: "utf-8",
-				windowsHide: true,
-			})
-		).stdout.trim();
+		const out = await gitAsync(repoRoot, ["for-each-ref", "--format=%(refname)", `refs/remotes/*/${branch}`]);
 		return { local: false, remoteOnly: out.length > 0 };
 	} catch {
 		return { local: false, remoteOnly: false };
@@ -565,10 +507,8 @@ async function pruneStaleWorktreesAsync(repoRoot: string): Promise<void> {
 	if (inFlight) return inFlight;
 	const p = (async () => {
 		try {
-			await execFileAsync("git", ["worktree", "prune"], {
-				cwd: repoRoot,
-				windowsHide: true,
-			});
+			// R-A7 (uniformity): sanitized env via the hardened helper.
+			await gitAsync(repoRoot, ["worktree", "prune"]);
 		} catch {
 			/* best-effort */
 		}
@@ -1045,6 +985,21 @@ export function prepareTaskWorkspace(
 		worktreeExists = false;
 	}
 	if (worktreeExists) {
+		// MED-1 gitdir-hijack guard: before ANY git runs with cwd inside this
+		// worktree, its `.git` pointer must resolve to the git-REGISTERED admin dir
+		// (registry: <commonGitDir>/worktrees/<name>/gitdir — trusted main-repo state).
+		// A worker with write access to the worktree can repoint the pointer at a
+		// poisoned gitdir; fail closed instead of executing its config.
+		const commonGitDir = resolveTrustedGitDir(repoRoot);
+		if (!commonGitDir) {
+			throw new Error(`Cannot resolve the trusted git dir for ${repoRoot}; refusing to reuse worktree at ${worktreePath}`);
+		}
+		const gitdirCheck = verifyWorktreeGitdirPointer(worktreePath, commonGitDir);
+		if (!gitdirCheck.ok) {
+			throw new Error(
+				`Refusing to reuse worktree at ${worktreePath}: gitdir pointer check failed (${gitdirCheck.reason}) — possible tampering. Remove the worktree manually or run cleanup with force=true.`,
+			);
+		}
 		let currentBranch: string;
 		try {
 			currentBranch = git(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -1228,6 +1183,18 @@ export async function prepareTaskWorkspaceAsync(
 		worktreeExists = false;
 	}
 	if (worktreeExists) {
+		// MED-1 gitdir-hijack guard (async mirror): verify the `.git` pointer
+		// against the trusted worktree registry BEFORE any cwd-inside git call.
+		const commonGitDir = resolveTrustedGitDir(repoRoot);
+		if (!commonGitDir) {
+			throw new Error(`Cannot resolve the trusted git dir for ${repoRoot}; refusing to reuse worktree at ${worktreePath}`);
+		}
+		const gitdirCheck = verifyWorktreeGitdirPointer(worktreePath, commonGitDir);
+		if (!gitdirCheck.ok) {
+			throw new Error(
+				`Refusing to reuse worktree at ${worktreePath}: gitdir pointer check failed (${gitdirCheck.reason}) — possible tampering. Remove the worktree manually or run cleanup with force=true.`,
+			);
+		}
 		let currentBranch: string;
 		try {
 			currentBranch = await gitAsync(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -1344,7 +1311,32 @@ export async function prepareTaskWorkspaceAsync(
 	}
 }
 
+/** R-A1 (MED-1 follow-up): fail-closed capture guard. `git diff` (and
+ *  `--stat`/`--numstat`) runs `filter.<x>.clean` when it hashes modified
+ *  content whose `.gitattributes` assigns a filter, so a worker planting
+ *  `.gitattributes filter=fx` plus a flipped `.git` pointer to a poisoned
+ *  gitdir config could execute the filter payload in the orchestrator context
+ *  (hardenGitArgs does NOT neutralize filter definitions — there is no
+ *  --no-filters for diff). The pointer guard therefore runs INSIDE every
+ *  capture function so every caller is covered; on mismatch NO git runs and
+ *  the fail-safe result (empty diff / zero stat) is returned. */
+function captureGuardOk(worktreePath: string, fn: string): boolean {
+	const trust = worktreeTrustCheck(worktreePath);
+	if (trust.kind === "worktree" && !trust.ok) {
+		logInternalError(
+			"worktree.capture.gitdirMismatch",
+			new Error(`worktree corrupted — skipping ${fn} for ${worktreePath}: ${trust.reason}`),
+			`worktreePath=${worktreePath}`,
+		);
+		return false;
+	}
+	return true;
+}
+
 export function captureWorktreeDiffStat(worktreePath: string): WorktreeDiffStat {
+	if (!captureGuardOk(worktreePath, "captureWorktreeDiffStat")) {
+		return { filesChanged: 0, insertions: 0, deletions: 0, diffStat: "" };
+	}
 	try {
 		const diffStat = git(worktreePath, ["diff", "--stat"]);
 		const numstat = git(worktreePath, ["diff", "--numstat"]);
@@ -1364,6 +1356,9 @@ export function captureWorktreeDiffStat(worktreePath: string): WorktreeDiffStat 
 }
 
 export async function captureWorktreeDiffStatAsync(worktreePath: string): Promise<WorktreeDiffStat> {
+	if (!captureGuardOk(worktreePath, "captureWorktreeDiffStatAsync")) {
+		return { filesChanged: 0, insertions: 0, deletions: 0, diffStat: "" };
+	}
 	try {
 		const diffStat = await gitAsync(worktreePath, ["diff", "--stat"]);
 		const numstat = await gitAsync(worktreePath, ["diff", "--numstat"]);
@@ -1383,6 +1378,9 @@ export async function captureWorktreeDiffStatAsync(worktreePath: string): Promis
 }
 
 export function captureWorktreeDiff(worktreePath: string): string {
+	if (!captureGuardOk(worktreePath, "captureWorktreeDiff")) {
+		return "";
+	}
 	try {
 		return git(worktreePath, ["diff", "--stat"]) + "\n\n" + git(worktreePath, ["diff"]);
 	} catch (error) {
@@ -1392,6 +1390,9 @@ export function captureWorktreeDiff(worktreePath: string): string {
 }
 
 export async function captureWorktreeDiffAsync(worktreePath: string): Promise<string> {
+	if (!captureGuardOk(worktreePath, "captureWorktreeDiffAsync")) {
+		return "";
+	}
 	try {
 		const [stat, full] = await Promise.all([gitAsync(worktreePath, ["diff", "--stat"]), gitAsync(worktreePath, ["diff"])]);
 		return stat + "\n\n" + full;
@@ -1524,27 +1525,50 @@ function captureAgentWorktreeRecovery(manifest: TeamRunManifest, worktreePath: s
  * worktree/branch leak never crashes a workflow.
  */
 export function cleanupAgentWorktree(manifest: TeamRunManifest, worktreePath: string, branch?: string): void {
-	// Capture diff as artifact (best-effort).
+	// MED-1 gitdir-hijack guard: run git with cwd INSIDE the worktree only when its
+	// `.git` pointer matches the trusted registry (see git-hardening.ts). On mismatch
+	// skip the diff/status/recovery capture (log loudly) — removal below still
+	// happens, but only via the trusted main-repo cwd.
+	let gitdirOk = false;
 	try {
-		const diff = captureWorktreeDiff(worktreePath);
-		if (diff.trim() && !diff.startsWith("Failed to capture worktree diff")) {
-			writeArtifact(manifest.artifactsRoot, {
-				kind: "diff",
-				relativePath: `wf/worktree-diff-${Date.now()}-${randomBytes(2).toString("hex")}.diff`,
-				content: diff,
-				producer: "dynamic-workflow",
-			});
-		}
-	} catch (error) {
-		logInternalError("worktree.agent-cleanup.diff", error, `worktreePath=${worktreePath}`);
+		const agentRepoRoot = findGitRoot(manifest.cwd);
+		const agentCommonGitDir = resolveTrustedGitDir(agentRepoRoot);
+		gitdirOk = agentCommonGitDir !== undefined && verifyWorktreeGitdirPointer(worktreePath, agentCommonGitDir).ok;
+	} catch {
+		gitdirOk = false;
 	}
-	// R36-M1: `git diff` above cannot see untracked files — capture them too, or
-	// the force-remove below destroys the agent's new files with NO artifact.
-	try {
-		const dirtyStatus = git(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
-		if (/^\?\? /m.test(dirtyStatus)) captureAgentWorktreeRecovery(manifest, worktreePath, dirtyStatus);
-	} catch (error) {
-		logInternalError("worktree.agent-cleanup.status", error, `worktreePath=${worktreePath}`);
+	if (!gitdirOk) {
+		logInternalError(
+			"worktree.agent-cleanup.gitdirMismatch",
+			new Error(
+				`gitdir pointer check failed for ${worktreePath} — skipping diff/recovery capture; removing via main-repo git only (MED-1)`,
+			),
+			`runId=${manifest.runId}`,
+		);
+	}
+	if (gitdirOk) {
+		// Capture diff as artifact (best-effort).
+		try {
+			const diff = captureWorktreeDiff(worktreePath);
+			if (diff.trim() && !diff.startsWith("Failed to capture worktree diff")) {
+				writeArtifact(manifest.artifactsRoot, {
+					kind: "diff",
+					relativePath: `wf/worktree-diff-${Date.now()}-${randomBytes(2).toString("hex")}.diff`,
+					content: diff,
+					producer: "dynamic-workflow",
+				});
+			}
+		} catch (error) {
+			logInternalError("worktree.agent-cleanup.diff", error, `worktreePath=${worktreePath}`);
+		}
+		// R36-M1: `git diff` above cannot see untracked files — capture them too, or
+		// the force-remove below destroys the agent's new files with NO artifact.
+		try {
+			const dirtyStatus = git(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
+			if (/^\?\? /m.test(dirtyStatus)) captureAgentWorktreeRecovery(manifest, worktreePath, dirtyStatus);
+		} catch (error) {
+			logInternalError("worktree.agent-cleanup.status", error, `worktreePath=${worktreePath}`);
+		}
 	}
 	// Remove worktree (best-effort). Try git first, then fall back to fs.rm.
 	try {
@@ -1579,26 +1603,49 @@ export function cleanupAgentWorktree(manifest: TeamRunManifest, worktreePath: st
 
 /** Async version of cleanupAgentWorktree — caches findGitRoot and yields during git operations. */
 export async function cleanupAgentWorktreeAsync(manifest: TeamRunManifest, worktreePath: string, branch?: string): Promise<void> {
-	// Capture diff as artifact (best-effort).
+	// MED-1 gitdir-hijack guard: run git with cwd INSIDE the worktree only when its
+	// `.git` pointer matches the trusted registry (see git-hardening.ts). On mismatch
+	// skip the diff/status/recovery capture (log loudly) — removal below still
+	// happens, but only via the trusted main-repo cwd.
+	let gitdirOk = false;
 	try {
-		const diff = await captureWorktreeDiffAsync(worktreePath);
-		if (diff.trim() && !diff.startsWith("Failed to capture worktree diff")) {
-			writeArtifact(manifest.artifactsRoot, {
-				kind: "diff",
-				relativePath: `wf/worktree-diff-${Date.now()}-${randomBytes(2).toString("hex")}.diff`,
-				content: diff,
-				producer: "dynamic-workflow",
-			});
-		}
-	} catch (error) {
-		logInternalError("worktree.agent-cleanup.diff", error, `worktreePath=${worktreePath}`);
+		const agentRepoRoot = await findGitRootAsync(manifest.cwd);
+		const agentCommonGitDir = resolveTrustedGitDir(agentRepoRoot);
+		gitdirOk = agentCommonGitDir !== undefined && verifyWorktreeGitdirPointer(worktreePath, agentCommonGitDir).ok;
+	} catch {
+		gitdirOk = false;
 	}
-	// R36-M1: async mirror — untracked files are invisible to `git diff`.
-	try {
-		const dirtyStatus = await gitAsync(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
-		if (/^\?\? /m.test(dirtyStatus)) captureAgentWorktreeRecovery(manifest, worktreePath, dirtyStatus);
-	} catch (error) {
-		logInternalError("worktree.agent-cleanup.status", error, `worktreePath=${worktreePath}`);
+	if (!gitdirOk) {
+		logInternalError(
+			"worktree.agent-cleanup.gitdirMismatch",
+			new Error(
+				`gitdir pointer check failed for ${worktreePath} — skipping diff/recovery capture; removing via main-repo git only (MED-1)`,
+			),
+			`runId=${manifest.runId}`,
+		);
+	}
+	if (gitdirOk) {
+		// Capture diff as artifact (best-effort).
+		try {
+			const diff = await captureWorktreeDiffAsync(worktreePath);
+			if (diff.trim() && !diff.startsWith("Failed to capture worktree diff")) {
+				writeArtifact(manifest.artifactsRoot, {
+					kind: "diff",
+					relativePath: `wf/worktree-diff-${Date.now()}-${randomBytes(2).toString("hex")}.diff`,
+					content: diff,
+					producer: "dynamic-workflow",
+				});
+			}
+		} catch (error) {
+			logInternalError("worktree.agent-cleanup.diff", error, `worktreePath=${worktreePath}`);
+		}
+		// R36-M1: async mirror — untracked files are invisible to `git diff`.
+		try {
+			const dirtyStatus = await gitAsync(worktreePath, ["-c", "core.quotePath=false", "status", "--porcelain", "-uall"]);
+			if (/^\?\? /m.test(dirtyStatus)) captureAgentWorktreeRecovery(manifest, worktreePath, dirtyStatus);
+		} catch (error) {
+			logInternalError("worktree.agent-cleanup.status", error, `worktreePath=${worktreePath}`);
+		}
 	}
 	// Resolve repoRoot once and reuse (cache optimization).
 	let repoRoot: string | undefined;

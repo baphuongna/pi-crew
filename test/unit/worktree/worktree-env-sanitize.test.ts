@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sanitizeEnvSecrets } from "../../../src/utils/env-filter.ts";
+import { buildGitSafeEnv } from "../../../src/worktree/git-hardening.ts";
 
 test("sanitizeEnvSecrets strips secret env vars", () => {
 	const env = {
@@ -79,4 +80,39 @@ test("sanitizeEnvSecrets with no allowList uses deny-list mode", () => {
 	// Secret keys are omitted entirely in deny-list mode
 	assert.equal(sanitized.MY_API_KEY, undefined);
 	assert.equal(sanitized.SECRET_TOKEN, undefined);
+});
+
+// --- R-A4: pins for the SHARED git env builder (buildGitSafeEnv, replaces
+// the per-module GIT_SAFE_ENV copies in cleanup.ts / worktree-manager.ts /
+// branch-freshness.ts). ---
+
+test("R-A4: buildGitSafeEnv strips secrets, drops GIT_CONFIG_SYSTEM, forces GIT_CONFIG_NOSYSTEM", () => {
+	const saved = { ...process.env };
+	process.env.W108_MED1_API_KEY = "sk-leak-me";
+	process.env.GIT_CONFIG_SYSTEM = "/attacker/controlled/system.gitconfig";
+	process.env.GIT_CONFIG_GLOBAL = "/user/global.gitconfig";
+	try {
+		const env = buildGitSafeEnv();
+		// Secrets never reach the git child process.
+		assert.equal(env.W108_MED1_API_KEY, undefined);
+		// R-A4(a): GIT_CONFIG_SYSTEM is NOT forwarded — a forwarded value would
+		// defeat GIT_CONFIG_NOSYSTEM on git>=2.32.
+		assert.equal(env.GIT_CONFIG_SYSTEM, undefined);
+		assert.equal(env.GIT_CONFIG_NOSYSTEM, "1");
+		// R-A4(b): GIT_CONFIG_GLOBAL stays forwarded (commit identity) with the
+		// documented residual (trusted-config filter definitions stay executable).
+		assert.equal(env.GIT_CONFIG_GLOBAL, "/user/global.gitconfig");
+		// Locale pinned per variant.
+		assert.equal(env.LANG, "C");
+		assert.equal(env.LC_ALL, "C");
+		assert.equal(buildGitSafeEnv("en_US.UTF-8").LC_ALL, "en_US.UTF-8");
+		// Essentials survive.
+		assert.equal(typeof env.PATH, "string");
+	} finally {
+		delete process.env.W108_MED1_API_KEY;
+		delete process.env.GIT_CONFIG_SYSTEM;
+		if (saved.GIT_CONFIG_SYSTEM !== undefined) process.env.GIT_CONFIG_SYSTEM = saved.GIT_CONFIG_SYSTEM;
+		if (saved.GIT_CONFIG_GLOBAL === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+		else process.env.GIT_CONFIG_GLOBAL = saved.GIT_CONFIG_GLOBAL;
+	}
 });

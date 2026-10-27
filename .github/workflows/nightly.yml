@@ -32,7 +32,7 @@ jobs:
   full-suite:
     name: ubuntu-latest / Node 22 (full suite)
     runs-on: ubuntu-latest
-    timeout-minutes: 30  # cap to 30min — if slower, gate fails; investigate
+    timeout-minutes: 45  # cap raised 30→45 (2026-10-26): test:coverage step added on top of test:full; if slower, gate fails; investigate
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -52,7 +52,7 @@ jobs:
       - name: Run full test suite (unit + integration + slow tier)
         # WI-3.1: this exercises `test:full` = test:unit + test:integration
         # (default 300s timeout) + test:integration:slow (3 known-slow tests,
-        # 600s timeout). Capped at 30min by job-level timeout.
+        # 600s timeout). Capped by job-level timeout.
         run: |
           echo "=== Start: $(date -u) ==="
           time npm run test:full
@@ -61,3 +61,21 @@ jobs:
           # WI-3.0c: explicit env marker so nightly runs on a defined runner
           # (ubuntu-latest + Node 22). Future: pin to a hosted runner spec.
           PI_CREW_CI_MODE: "nightly"
+      - name: Supply-chain audit (high and above)
+        # Signal-only on purpose (continue-on-error): npm audit's registry DB
+        # churns independently of our lockfile, and a transitive advisory we
+        # cannot immediately fix must not red the nightly matrix for everyone.
+        # A HIGH/CRITICAL finding still surfaces here for triage the next
+        # morning; fix work is tracked separately (no auto-fix in CI).
+        continue-on-error: true
+        run: npm audit --audit-level=high
+      - name: Run unit tests with coverage
+        # package.json `test:coverage` (node --test --experimental-test-coverage,
+        # concurrency 4) predates this step but was run by no workflow — the
+        # coverage report (stderr summary + process exit) was never produced
+        # anywhere, so coverage rot was invisible between release cycles.
+        # Nightly is the right cadence: same runner as test:full, off-peak.
+        run: |
+          echo "=== Coverage start: $(date -u) ==="
+          time npm run test:coverage
+          echo "=== Coverage end: $(date -u) ==="

@@ -4,10 +4,15 @@ import * as path from "node:path";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
 import type { TeamRunManifest } from "../state/types.ts";
-import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
-import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
+import {
+	assertWorktreePointerTrusted,
+	buildGitSafeEnv,
+	hardenGitArgs,
+	resolveTrustedGitDir,
+	verifyWorktreeGitdirPointer,
+} from "./git-hardening.ts";
 
 export interface WorktreeCleanupResult {
 	removed: string[];
@@ -17,39 +22,16 @@ export interface WorktreeCleanupResult {
 	committedBranches: string[];
 }
 
-// SECURITY: PI_* and PI_CREW_* wildcards removed — they could match secret vars like PI_PASSWORD.
-// Git operations do not need PI_CREW_* execution-control vars.
-const GIT_SAFE_ENV = {
-	...sanitizeEnvSecrets(process.env, {
-		allowList: [
-			"PATH",
-			"HOME",
-			"USER",
-			...WINDOWS_ESSENTIAL_ENV_VARS,
-			"SHELL",
-			"TERM",
-			"LANG",
-			"LC_ALL",
-			"LC_COLLATE",
-			"LC_CTYPE",
-			"LC_MESSAGES",
-			"XDG_CONFIG_HOME",
-			"XDG_DATA_HOME",
-			"XDG_CACHE_HOME",
-			"NVM_BIN",
-			"NVM_DIR",
-			"NODE_PATH",
-			"GIT_CONFIG_GLOBAL",
-			"GIT_CONFIG_SYSTEM",
-			"GIT_AUTHOR_NAME",
-			"GIT_AUTHOR_EMAIL",
-			"GIT_COMMITTER_NAME",
-			"GIT_COMMITTER_EMAIL",
-		],
-	}),
-	LANG: "C",
-	LC_ALL: "C",
-};
+// MED-1 / R-A4: shared sanitized env for every git spawn (see
+// buildGitSafeEnv in git-hardening.ts — allowList-based secret stripping,
+// GIT_CONFIG_NOSYSTEM=1, GIT_CONFIG_SYSTEM dropped from the allowlist,
+// GIT_CONFIG_GLOBAL kept for commit identity with the documented residual
+// that trusted-config filter definitions remain executable).
+// Built per call (not module-load) so late env changes (tests, config reload)
+// are honored.
+function gitSafeEnv(): Record<string, string> {
+	return buildGitSafeEnv();
+}
 
 function sanitizeBranchPart(value: string): string {
 	return (
@@ -66,12 +48,20 @@ function sanitizeFilename(value: string): string {
 }
 
 function git(cwd: string, args: string[]): string {
+	// R-A3: re-verify the gitdir pointer before EVERY command whose cwd sits
+	// inside a linked worktree (TOCTOU: the entry-level guard in
+	// cleanupRunWorktrees can be invalidated by a still-live worker flipping
+	// the `.git` pointer mid-chain). Throws OUTSIDE the execFile try so the
+	// error propagates unwrapped into the existing "corrupted" handling paths.
+	assertWorktreePointerTrusted(cwd);
 	try {
-		return execFileSync("git", args, {
+		// MED-1: harden EVERY git invocation (config-injection overrides +
+		// diff/commit neutralizers). See src/worktree/git-hardening.ts.
+		return execFileSync("git", hardenGitArgs(args), {
 			cwd,
+			env: gitSafeEnv(),
 			encoding: "utf-8",
 			stdio: ["ignore", "pipe", "pipe"],
-			env: GIT_SAFE_ENV,
 			windowsHide: true,
 		}).trim();
 	} catch (error) {
@@ -116,6 +106,9 @@ export function cleanupRunWorktrees(
 		committedBranches: [],
 	};
 	if (!fs.existsSync(worktreeRoot)) return result;
+	// MED-1: resolve the TRUSTED git common dir once (from the orchestrator-owned
+	// main repo — never from inside a worktree) for the per-entry gitdir guard.
+	const trustedGitDir = resolveTrustedGitDir(manifest.cwd);
 
 	// M3 fix: use withFileTypes to avoid race between readdirSync and statSync.
 	// Rely on Dirent.isDirectory() instead of a separate statSync to eliminate TOCTOU window.
@@ -127,6 +120,46 @@ export function cleanupRunWorktrees(
 		if (options.signal?.aborted) break;
 		const worktreePath = path.join(worktreeRoot, entry.name);
 		if (options.signal?.aborted) break;
+		// MED-1 gitdir-hijack guard: a worker can rewrite the worktree `.git`
+		// pointer file to an attacker-controlled directory whose poisoned `config`
+		// would execute hooks/filters/fsmonitor in the orchestrator context. Before
+		// ANY git runs with cwd inside the worktree, the pointer must resolve to the
+		// git-registered admin dir (see src/worktree/git-hardening.ts). On mismatch
+		// NO git runs from inside; removal is only attempted (force) from the
+		// trusted main-repo cwd, and the worktree is otherwise preserved.
+		const gitdirCheck = trustedGitDir
+			? verifyWorktreeGitdirPointer(worktreePath, trustedGitDir)
+			: { ok: false, reason: `main repository git dir not found under ${manifest.cwd}` };
+		if (!gitdirCheck.ok) {
+			logInternalError(
+				"cleanup.worktree.gitdirMismatch",
+				new Error(`Refusing to run git inside ${worktreePath}: ${gitdirCheck.reason}`),
+				`runId=${manifest.runId}`,
+			);
+			if (options.force) {
+				let removed = false;
+				try {
+					git(manifest.cwd, ["worktree", "remove", "--force", worktreePath]);
+					removed = true;
+				} catch {
+					try {
+						fs.rmSync(worktreePath, { recursive: true, force: true });
+						removed = true;
+					} catch {
+						/* keep as preserved */
+					}
+				}
+				if (removed) {
+					result.removed.push(worktreePath);
+					continue;
+				}
+			}
+			result.preserved.push({
+				path: worktreePath,
+				reason: `worktree corrupted — gitdir pointer check failed (${gitdirCheck.reason}); no git executed inside; inspect manually or remove with force=true`,
+			});
+			continue;
+		}
 		const dirty = isDirty(worktreePath);
 		const branchName = `pi-crew/${manifest.runId}/${sanitizeBranchPart(entry.name)}`;
 		const safeBranchName = sanitizeBranchPart(entry.name);
@@ -156,13 +189,9 @@ export function cleanupRunWorktrees(
 			try {
 				// Issue 2 fix: verify status before and after add to ensure atomicity
 				const statusBefore = git(worktreePath, ["status", "--porcelain"]);
-				execFileSync("git", ["add", "-A"], {
-					cwd: worktreePath,
-					encoding: "utf-8",
-					stdio: ["ignore", "pipe", "pipe"],
-					env: GIT_SAFE_ENV,
-					windowsHide: true,
-				});
+				// MED-1: routed through the hardened git() helper (fsmonitor/hooksPath
+				// disabled) — a worker-planted config must not execute on `git add`.
+				git(worktreePath, ["add", "-A"]);
 				// Verify no unexpected changes were added (only staged the original dirty files)
 				const statusAfterAdd = git(worktreePath, ["status", "--porcelain"]);
 				if (statusAfterAdd !== statusBefore) {
@@ -177,37 +206,21 @@ export function cleanupRunWorktrees(
 				if (safeDesc.includes("\n")) {
 					safeDesc = safeDesc.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]+/g, " ");
 				}
-				execFileSync("git", ["commit", "-m", `pi-crew: ${safeDesc}`], {
-					cwd: worktreePath,
-					encoding: "utf-8",
-					stdio: ["ignore", "pipe", "pipe"],
-					env: GIT_SAFE_ENV,
-					windowsHide: true,
-				});
+				// MED-1: --no-verify + hooksPath= neutralize every commit hook
+				// (pre-commit/commit-msg/prepare-commit-msg/post-commit).
+				git(worktreePath, ["commit", "-m", `pi-crew: ${safeDesc}`]);
 				// Issue 1 fix: check signal before branch creation
 				if (options.signal?.aborted) break;
 				// Create branch in the main repo pointing to this worktree's HEAD
 				let branchError: Error | null = null;
 				try {
-					execFileSync("git", ["branch", branchName], {
-						cwd: worktreePath,
-						encoding: "utf-8",
-						stdio: ["ignore", "pipe", "pipe"],
-						env: GIT_SAFE_ENV,
-						windowsHide: true,
-					});
+					git(worktreePath, ["branch", branchName]);
 				} catch (err) {
 					branchError = err instanceof Error ? err : new Error(String(err));
 					// Branch already exists — use timestamp suffix
 					const tsBranch = `${branchName}-${Date.now()}`;
 					try {
-						execFileSync("git", ["branch", tsBranch], {
-							cwd: worktreePath,
-							encoding: "utf-8",
-							stdio: ["ignore", "pipe", "pipe"],
-							env: GIT_SAFE_ENV,
-							windowsHide: true,
-						});
+						git(worktreePath, ["branch", tsBranch]);
 					} catch (err2) {
 						// Both branch attempts failed — accumulate error for outer catch
 						const err2_msg = err2 instanceof Error ? err2.message : String(err2);

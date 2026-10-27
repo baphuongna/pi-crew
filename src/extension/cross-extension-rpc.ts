@@ -165,12 +165,21 @@ function on(events: EventBusLike, channel: string, handler: (raw: unknown) => un
 // pi-crew:rpc:live-control, and the realtime pi-crew:live-control channel) are
 // accessible to any extension on the shared event bus. Mitigations: rate
 // limiting, explicit intent, operation allowlist, cwd containment validation,
-// and HMAC origin signing (see rpc-hmac.ts). Trust model (R7-9): without a
-// valid HMAC signature every RPC surface is read-only — the request/response
-// channels enforce this via RPC_ALLOWED_OPERATIONS, and the realtime
-// pi-crew:live-control channel rejects any operation outside
-// LIVE_CONTROL_UNAUTHENTICATED_OPERATIONS (currently ALL of them, since
-// steer/stop/resume/follow-up are mutating) with a warn log and no publish.
+// and HMAC origin signing (see rpc-hmac.ts). Trust model (R7-9) — what a
+// publisher WITHOUT a valid HMAC signature may do:
+//   - pi-crew:rpc:run is the ONLY mutating channel that accepts unsigned
+//     requests. This is deliberate (SEC-03, test-pinned backward-compat):
+//     each call is rate-limited (RPC_RATE_LIMIT_MAX requests per
+//     RPC_RATE_LIMIT_WINDOW_MS — 5/60s), the payload is filtered to the
+//     ALLOWED_RPC_RUN_KEYS allowlist (unknown keys are stripped before
+//     handleTeamTool ever sees them), and config.cwd must pass containment
+//     validation (inside the project directory).
+//   - The remaining request/response channels are read-only for unsigned
+//     publishers, enforced via RPC_ALLOWED_OPERATIONS.
+//   - The realtime pi-crew:live-control channel rejects ALL unsigned
+//     operations — LIVE_CONTROL_UNAUTHENTICATED_OPERATIONS is the empty set
+//     (steer/stop/resume/follow-up are all mutating) — with a warn log and no
+//     publish.
 
 export function registerPiCrewRpc(
 	events: EventBusLike | undefined,

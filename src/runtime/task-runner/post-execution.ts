@@ -30,6 +30,8 @@ import type {
 	UsageState,
 	VerificationEvidence,
 } from "../../state/types.ts";
+import { logInternalError } from "../../utils/internal-error.ts";
+import { buildGitSafeEnv, hardenGitArgs, worktreeTrustCheck } from "../../worktree/git-hardening.ts";
 import { captureWorktreeDiffAsync, captureWorktreeDiffStatAsync } from "../../worktree/worktree-manager.ts";
 import { appendTaskAttentionEvent } from "../attention-events.ts";
 import { extractCommandTrace } from "../command-trace.ts";
@@ -150,16 +152,48 @@ const DRIFT_BLOCK_MARKER = /DRIFT-BLOCK\b/i;
  * READ-ONLY lanes — any entry (modified OR untracked) is an unexpected
  * mutation. Returns undefined when the tree is clean or git fails (fail-open:
  * a broken probe must not break task finalization). Note-only, never a fail.
+ * R-A2 exception: a FAILED GITDIR-POINTER GUARD is not a broken probe but a
+ * live corruption signal — it reports a mutation note (see body).
  */
 export async function detectReadLaneMutation(worktreePath: string): Promise<NonNullable<TeamTaskState["unexpectedMutation"]> | undefined> {
 	try {
+		// R-A2 (MED-1 follow-up): this probe used to be a raw execFile with the
+		// FULL process.env — API keys could leak to worker-planted fsmonitor /
+		// hook config reachable from the probed worktree. It now routes through
+		// the MED-1 hardening: hardenGitArgs config-injection overrides, the
+		// sanitized git env (no process.env inheritance), and the gitdir-pointer
+		// guard. Guard failure is fail-safe TOWARD REPORTING a mutation: a
+		// corrupted `.git` pointer in a READ-ONLY lane is itself a lane
+		// violation (the worker rewrote something it must not touch), so it
+		// surfaces as a note + internal log instead of a clean verdict.
+		const trust = worktreeTrustCheck(worktreePath);
+		if (trust.kind === "worktree" && !trust.ok) {
+			logInternalError(
+				"post-execution.readLane.gitdirMismatch",
+				new Error(`Refusing to run the mutation probe inside ${worktreePath}: ${trust.reason}`),
+				`worktreePath=${worktreePath}`,
+			);
+			return {
+				filesChanged: 0,
+				sample: [`worktree corrupted — gitdir pointer check failed (${trust.reason}); no git executed`],
+			};
+		}
 		// W10-8 one-shot git probe per read-only task — child_process is
 		// already in the platform; dynamic keeps it off the static import graph.
 		// LAZY: see above
 		const { execFile } = await import("node:child_process");
 		const out: string = await new Promise((resolve, reject) => {
-			execFile("git", ["status", "--porcelain"], { cwd: worktreePath, encoding: "utf-8", timeout: 10_000 }, (err, stdout) =>
-				err ? reject(err) : resolve(stdout),
+			execFile(
+				"git",
+				hardenGitArgs(["status", "--porcelain"]),
+				{
+					cwd: worktreePath,
+					env: buildGitSafeEnv(),
+					encoding: "utf-8",
+					timeout: 10_000,
+					windowsHide: true,
+				},
+				(err, stdout) => (err ? reject(err) : resolve(stdout)),
 			);
 		});
 		const entries = out

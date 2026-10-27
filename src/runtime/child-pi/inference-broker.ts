@@ -36,7 +36,11 @@
  * Anthropic usage events; per-worker in-flight cap; revoke(workerKey) /
  * revokeAll() kill-switch (revoked token → 401 on the NEXT request; in-flight
  * requests are allowed to drain — killing sockets mid-stream corrupts
- * transcripts without adding security, the token is already dead).
+ * transcripts without adding security, the token is already dead). The token
+ * map is keyed by the SHA-256 digest of each token, never the raw secret
+ * (constant-time discipline, same pattern as crew-broker-tokens.ts); after
+ * registerInferenceWorker hands the raw token to the caller, the broker
+ * retains only its digest.
  *
  * Honest boundary: the broker protects the REUSABLE CREDENTIAL channel only.
  * A worker can still read other host files (~/.ssh, ~/.aws, ~/.pi/agent/
@@ -88,13 +92,25 @@ const STRIP_RESPONSE_HEADERS = new Set(["content-encoding", "content-length", "t
 
 interface WorkerEntry {
 	workerKey: string;
-	token: string;
+	/** SHA-256 hex digest of the worker token — the RAW secret is handed to
+	 *  the caller by registerInferenceWorker and never retained here
+	 *  (constant-time discipline, fix-wave TASK [5]). */
+	tokenDigest: string;
 	revoked: boolean;
 	requests: number;
 	inputTokens: number;
 	outputTokens: number;
 	inFlight: number;
 	maxTokens: number;
+}
+
+/** Map key for the per-worker token registry: the SHA-256 hex digest of the
+ * token, NEVER the raw secret — mirrors BrokerTokenRegistry.hashToken
+ * (runtime/broker/crew-broker-tokens.ts). Hashed locally with the identical
+ * implementation instead of importing the registry class, so this module's
+ * static import graph is untouched. */
+function tokenKey(token: string): string {
+	return crypto.createHash("sha256").update(token, "utf8").digest("hex");
 }
 
 export interface InferenceBrokerSnapshot {
@@ -121,7 +137,7 @@ interface BrokerState {
 	server: http.Server;
 	port: number;
 	routes: Map<string, ProviderRoute>; // by path prefix ("/anthropic", "/openai")
-	workers: Map<string, WorkerEntry>; // by token
+	workers: Map<string, WorkerEntry>; // by SHA-256 token digest (never the raw secret)
 	byKey: Map<string, WorkerEntry>; // by workerKey
 	scopedAgentDir: string;
 }
@@ -381,7 +397,7 @@ async function handleRequest(
 		}
 		// (1) Auth — fail-closed, generic errors (never echo tokens).
 		const token = extractToken(req);
-		const worker = token ? ctx.workers.get(token) : undefined;
+		const worker = token ? ctx.workers.get(tokenKey(token)) : undefined;
 		if (!worker || worker.revoked) {
 			deny(res, 401, "invalid or revoked inference token");
 			return;
@@ -535,13 +551,22 @@ export function registerInferenceWorker(workerKey: string): string {
 	const existing = broker.byKey.get(workerKey);
 	if (existing) {
 		existing.revoked = true;
-		broker.workers.delete(existing.token);
+		broker.workers.delete(existing.tokenDigest);
 		broker.byKey.delete(workerKey);
 	}
 	const token = crypto.randomBytes(32).toString("hex");
 	const maxTokens = getCrewEnvInt(INFERENCE_BUDGET_ENV) ?? 0;
-	const entry: WorkerEntry = { workerKey, token, revoked: false, requests: 0, inputTokens: 0, outputTokens: 0, inFlight: 0, maxTokens };
-	broker.workers.set(token, entry);
+	const entry: WorkerEntry = {
+		workerKey,
+		tokenDigest: tokenKey(token),
+		revoked: false,
+		requests: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		inFlight: 0,
+		maxTokens,
+	};
+	broker.workers.set(entry.tokenDigest, entry);
 	broker.byKey.set(workerKey, entry);
 	return token;
 }
@@ -574,7 +599,7 @@ export function revokeInferenceWorker(workerKey: string): boolean {
 	const entry = broker.byKey.get(workerKey);
 	if (!entry) return false;
 	entry.revoked = true;
-	broker.workers.delete(entry.token);
+	broker.workers.delete(entry.tokenDigest);
 	broker.byKey.delete(workerKey);
 	return true;
 }
@@ -615,4 +640,11 @@ export function stopInferenceBroker(): void {
 /** @internal Reset module state — TESTS ONLY (never call in production paths). */
 export function __resetInferenceBrokerForTests(): void {
 	stopInferenceBroker();
+}
+
+/** @internal TESTS ONLY — the live token-map keys. By construction these are
+ * SHA-256 digests (see tokenKey); the suite pins that no RAW token ever
+ * appears as a map key (constant-time discipline). */
+export function __inferenceBrokerTokenMapKeysForTests(): string[] {
+	return broker ? [...broker.workers.keys()] : [];
 }
