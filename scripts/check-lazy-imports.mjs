@@ -163,7 +163,17 @@ const BUDGETS = {
 		// contract and must hand the SIGTERM out before it returns, so an await
 		// point (dynamic import) at the call site is exactly the shape that loses
 		// the pid to a subsequent PID reuse.
-		maxFiles: 537,
+		// v0.11.45 MED-1 (2026-10-27): 537 → 539 — worktree/git-hardening.ts
+		// (sync git env/argv hardening helpers buildGitSafeEnv/hardenGitArgs/
+		// worktreeTrustCheck; statically imported by cleanup.ts,
+		// worktree-manager.ts, branch-freshness.ts, task-runner/post-execution.ts
+		// and goal-workflow/goal-achievement.ts — every one is a SYNC call on the
+		// git-invocation path, so a dynamic import at the call site is not a
+		// legal shape) + broker/socket-stop.ts (ownership-gated socket teardown;
+		// statically imported by crew-broker.ts which is already in the graph).
+		// No lazy route exists: this walk follows dynamic import() edges too,
+		// because the single-file esbuild bundle ships everything it reaches.
+		maxFiles: 539,
 		forbid: ["test/", "scripts/", "docs/", "dist/"],
 	},
 };

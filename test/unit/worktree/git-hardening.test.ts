@@ -39,6 +39,28 @@ function initGitRepo(dir: string) {
 	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], { cwd: dir });
 }
 
+/**
+ * Rewrite a worktree `.git` pointer file win32-safely.
+ *
+ * Git for Windows marks the pointer file HIDDEN (`core.hideDotFiles` defaults
+ * to `dotGitOnly`, which covers a file named exactly `.git`), and libuv opens
+ * O_CREAT|O_TRUNC files with CreateFile CREATE_ALWAYS — Windows refuses that
+ * open with EPERM when the existing file carries an attribute the new open
+ * does not request (long-standing nodejs/node#3331 family). `chmodSync` is
+ * useless here: on win32 it only clears the READ-ONLY bit, never the hidden
+ * bit. The safe universal shape is delete + recreate (a fresh file carries no
+ * attributes). Same path, same content, identical semantics on POSIX.
+ */
+function writeGitPointer(worktreeRoot: string, content: string): void {
+	const dotGit = path.join(worktreeRoot, ".git");
+	try {
+		fs.unlinkSync(dotGit);
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+	}
+	fs.writeFileSync(dotGit, content, "utf-8");
+}
+
 // --- hardenGitArgs (pure) ---
 
 test("hardenGitArgs prefixes every command with the config-injection overrides", () => {
@@ -134,7 +156,7 @@ test("R-A3: assertWorktreePointerTrusted is a no-op for repo roots and non-git d
 		fs.mkdirSync(path.join(wt, "sub"), { recursive: true });
 		assert.doesNotThrow(() => assertWorktreePointerTrusted(path.join(wt, "sub")));
 		// Hijack → throws worktree-corrupted.
-		fs.writeFileSync(path.join(wt, ".git"), "gitdir: /tmp/evil\n", "utf-8");
+		writeGitPointer(wt, "gitdir: /tmp/evil\n");
 		assert.throws(() => assertWorktreePointerTrusted(wt), /worktree corrupted/);
 		assert.throws(() => assertWorktreePointerTrusted(path.join(wt, "sub")), /worktree corrupted/);
 		// Restore, then a plain non-git dir → no-git, no throw.
@@ -202,13 +224,13 @@ test("verifyWorktreeGitdirPointer rejects a hijacked pointer, .git directory, an
 		fs.mkdirSync(evil, { recursive: true });
 		fs.writeFileSync(path.join(evil, "HEAD"), "ref: refs/heads/main\n", "utf-8");
 		const originalPointer = fs.readFileSync(path.join(wt, ".git"), "utf-8");
-		fs.writeFileSync(path.join(wt, ".git"), `gitdir: ${evil}\n`, "utf-8");
+		writeGitPointer(wt, `gitdir: ${evil}\n`);
 		let check = verifyWorktreeGitdirPointer(wt, gitDir);
 		assert.equal(check.ok, false, "hijacked pointer must fail");
 		assert.match(check.reason, /does not match the registered gitdir|hijack/);
 
 		// 2. restore pointer, then replace .git FILE with a DIRECTORY → fail
-		fs.writeFileSync(path.join(wt, ".git"), originalPointer, "utf-8");
+		writeGitPointer(wt, originalPointer);
 		fs.renameSync(path.join(wt, ".git"), path.join(wt, ".git-pointer-backup"));
 		fs.mkdirSync(path.join(wt, ".git"), { recursive: true });
 		check = verifyWorktreeGitdirPointer(wt, gitDir);

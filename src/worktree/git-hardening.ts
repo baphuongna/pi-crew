@@ -200,38 +200,53 @@ export function resolveTrustedGitDir(startPath: string): string | undefined {
  *    POISONED definition (gitdir hijack) is what the pointer guards block.
  */
 export function buildGitSafeEnv(locale: "C" | "en_US.UTF-8" = "C"): Record<string, string> {
+	const allowList = [
+		"PATH",
+		"HOME",
+		"USER",
+		...WINDOWS_ESSENTIAL_ENV_VARS,
+		"SHELL",
+		"TERM",
+		"LANG",
+		"LC_ALL",
+		"LC_COLLATE",
+		"LC_CTYPE",
+		"LC_MESSAGES",
+		"XDG_CONFIG_HOME",
+		"XDG_DATA_HOME",
+		"XDG_CACHE_HOME",
+		"NVM_BIN",
+		"NVM_DIR",
+		"NODE_PATH",
+		"GIT_CONFIG_GLOBAL",
+		"GIT_EXEC_PATH",
+		"GIT_AUTHOR_NAME",
+		"GIT_AUTHOR_EMAIL",
+		"GIT_COMMITTER_NAME",
+		"GIT_COMMITTER_EMAIL",
+	];
+	// R-A4 win32 fix (CI run 40467894728): process.env enumeration is
+	// CASE-PRESERVING on Windows (GitHub runners carry `Path`, `SystemRoot`,
+	// `ComSpec`), while the allowlist above is exact-match — so PATH silently
+	// vanished from git's env on win32. Re-key each enumerated entry to the
+	// allowlist's canonical casing before filtering (keys not in the allowlist
+	// are dropped by the filter either way). Neutral everywhere else: POSIX
+	// names of interest are already uppercase, and win32 env lookup is
+	// case-insensitive, so the child git process is unaffected by re-casing.
+	const canonicalCase = new Map<string, string>();
+	for (const entry of allowList) canonicalCase.set(entry.toUpperCase(), entry);
+	const normalizedEnv: Record<string, string> = {};
+	for (const [key, value] of Object.entries(process.env)) {
+		if (value === undefined) continue;
+		normalizedEnv[canonicalCase.get(key.toUpperCase()) ?? key] = value;
+	}
 	return {
-		...sanitizeEnvSecrets(process.env, {
-			allowList: [
-				"PATH",
-				"HOME",
-				"USER",
-				...WINDOWS_ESSENTIAL_ENV_VARS,
-				"SHELL",
-				"TERM",
-				"LANG",
-				"LC_ALL",
-				"LC_COLLATE",
-				"LC_CTYPE",
-				"LC_MESSAGES",
-				"XDG_CONFIG_HOME",
-				"XDG_DATA_HOME",
-				"XDG_CACHE_HOME",
-				"NVM_BIN",
-				"NVM_DIR",
-				"NODE_PATH",
-				"GIT_CONFIG_GLOBAL",
-				"GIT_EXEC_PATH",
-				"GIT_AUTHOR_NAME",
-				"GIT_AUTHOR_EMAIL",
-				"GIT_COMMITTER_NAME",
-				"GIT_COMMITTER_EMAIL",
-			],
-		}),
+		...sanitizeEnvSecrets(normalizedEnv, { allowList }),
 		LANG: locale,
 		LC_ALL: locale,
 		// MED-1: never read the system-wide gitconfig for worktree operations —
-		// shrinks the config surface a poisoned environment could reach.
+		// shrinks the config surface a poisoned environment could reach. Set
+		// UNCONDITIONALLY on every platform (git for Windows honours it too).
 		GIT_CONFIG_NOSYSTEM: "1",
 	};
 }
