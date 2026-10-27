@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.47] — live-session split: model/prompt clusters out of live-session-runtime.ts (2026-10-27)
+
+**Changed — `live-session-runtime.ts` (1971 → 1634 lines).** The file sat 29 lines under the 2000-line wc-gate LIMIT,
+blocking further live-session work. Pure move into `src/runtime/live-session/live-session-prompt-models.ts` (368
+lines): `LiveSessionSpawnInput`, `LiveSessionLike`, `ROLE_INTENSITY` and 13 model-resolution/prompt-building helpers
+(`resolveScopeModelsPatterns`, `resolveScopedSessionModels`, `resolveParentModelFromRegistry`, `liveSystemPrompt`,
+`filterActiveTools`, …). Byte-identical audit PASS (336 moved lines, modulo added `export` keywords). Public surface
+preserved via re-exports — zero test churn. `scripts/check-lazy-imports.mjs` budget 540 → 541 (new static node from
+the split; zero new reachability). Gates: tsc/lint/wc-gate/lazy green, targeted unit 64/64, live-session-faux-e2e
+4/4, test:critical green.
+
 ## [0.11.46] — broker hygiene: token off the child env (stdin handshake) + crew-broker split (2026-10-27)
 
 Follow-up wave to the 0.11.45 security hardening: closes the LOW-1 residual (broker token in child env) and pays
