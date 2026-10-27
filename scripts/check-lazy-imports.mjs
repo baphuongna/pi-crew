@@ -173,7 +173,12 @@ const BUDGETS = {
 		// statically imported by crew-broker.ts which is already in the graph).
 		// No lazy route exists: this walk follows dynamic import() edges too,
 		// because the single-file esbuild bundle ships everything it reaches.
-		maxFiles: 539,
+		// wc-gate ITEM C (2026-10-27): 539 → 540 — broker/crew-broker-delegate-request.ts
+		// (delegate.request handler body moved OUT of crew-broker.ts for the wc-gate
+		// LIMIT; statically imported by crew-broker.ts which is already in the graph,
+		// same shape as socket-stop.ts above — pure file-count growth from the split,
+		// zero new reachability).
+		maxFiles: 540,
 		forbid: ["test/", "scripts/", "docs/", "dist/"],
 	},
 };
