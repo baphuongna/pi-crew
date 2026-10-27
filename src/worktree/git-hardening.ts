@@ -29,6 +29,10 @@
  *     `<commonGitDir>/worktrees/<name>/gitdir`, written by git itself and stored in
  *     the trusted main repo). NOTE: admin dir names are NOT derivable from the
  *     worktree basename — git uniquifies collisions (`task9` → `task91`).
+ *  3. `verifyForeignWorktreeLinkage()` (R-A3b) — fallback for linked worktrees
+ *     with NO trusted `.git` anchor above them (foreign sibling shape: main repo
+ *     and worktree live as peers, e.g. test fixtures under os.tmpdir()). Verifies
+ *     the two-way pointer/backlink pair; see the SECURITY NOTE on the helper.
  *
  * KNOWN RESIDUAL (documented): a `filter.<x>.clean` DEFINITION in a genuinely
  * trusted config cannot be neutralized (`git add` has no --no-filters and
@@ -40,6 +44,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
+import { logInternalError } from "../utils/internal-error.ts";
 
 /**
  * `-c` overrides prepended to every hardened git invocation.
@@ -127,9 +132,11 @@ function sameGitPath(a: string, b: string): boolean {
 /**
  * Resolve the TRUSTED git (common) dir for a repository path by walking up the
  * directory tree from `startPath` — the same discovery git performs, but using
- * only orchestrator-owned directories (a worktree `.git` pointer is never
- * consulted from an untrusted directory because `startPath` must be the trusted
- * main-repo cwd/repoRoot, never the worktree itself).
+ * only trusted directories (a worktree `.git` pointer is never consulted from
+ * an untrusted directory because `startPath` is either the trusted main-repo
+ * cwd/repoRoot (strict path) or a shape-validated `<main>` root derived from
+ * the pointer target in the foreign-worktree fallback — never the worktree
+ * itself).
  *
  * Handles: `.git` directory (normal repo), `.git` file (linked worktree or
  * submodule → parse `gitdir:`), and follows `commondir` so a repo root that is
@@ -275,6 +282,11 @@ export type WorktreeTrust =
  *    walking up from the worktree's PARENT — pi-crew worktrees live under
  *    `<repoRoot>/.crew/state/worktrees/…`, so the walk anchors at the
  *    orchestrator-owned main repo (never at the worktree's own pointer).
+ *    If the walk finds NO anchor (foreign sibling shape — the worktree and
+ *    its main repo are peers outside any orchestrator-owned tree, e.g. test
+ *    fixtures under os.tmpdir()), the R-A3b mutual-linkage fallback decides
+ *    instead of failing closed unconditionally (see
+ *    {@link verifyForeignWorktreeLinkage}).
  *
  * Cost: a few lstats + the registry scan in verifyWorktreeGitdirPointer —
  * deliberately paid before EVERY worktree-cwd git command so a live worker
@@ -300,11 +312,102 @@ export function worktreeTrustCheck(cwd: string): WorktreeTrust {
 	}
 	if (worktreeRoot === undefined) return { kind: "repo" };
 	const trustedGitDir = resolveTrustedGitDir(path.dirname(worktreeRoot));
-	if (!trustedGitDir) {
-		return { kind: "worktree", ok: false, reason: `cannot resolve a trusted git dir above ${worktreeRoot}` };
+	if (trustedGitDir) {
+		const check = verifyWorktreeGitdirPointer(worktreeRoot, trustedGitDir);
+		return { kind: "worktree", ok: check.ok, reason: check.reason };
 	}
-	const check = verifyWorktreeGitdirPointer(worktreeRoot, trustedGitDir);
-	return { kind: "worktree", ok: check.ok, reason: check.reason };
+	// R-A3b foreign-worktree fallback: no trusted anchor above the worktree
+	// (strict-walk territory ends here). Decide via the weaker mutual-linkage
+	// verification instead of failing closed unconditionally — fixes the
+	// 0.11.45 regression where snapshotDirtyWorktree threw "cannot resolve a
+	// trusted git dir above …" for sibling-shaped worktree fixtures.
+	const fallback = verifyForeignWorktreeLinkage(worktreeRoot);
+	if (fallback.ok) {
+		logInternalError(
+			"worktree.trust.foreignFallback",
+			new Error("foreign linked worktree accepted via mutual-linkage fallback (no trusted anchor above)"),
+			`worktreePath=${worktreeRoot}`,
+		);
+	}
+	return { kind: "worktree", ok: fallback.ok, reason: fallback.reason };
+}
+
+/**
+ * R-A3b foreign-worktree fallback: mutual-linkage verification for linked
+ * worktrees whose parent-walk finds NO trusted `.git` anchor (the worktree and
+ * its main repo are SIBLINGS — the shape of test fixtures like
+ * `test/integration/worktree-snapshot-*`, or apps embedding these helpers
+ * against a repo outside the orchestrator's tree).
+ *
+ * Checks, in order (fail closed on any mismatch):
+ *  1. the worktree `.git` pointer file parses to `gitdir: <target>`;
+ *  2. SHAPE: `<target>` must be `<main>/.git/worktrees/<id>` — the layout git
+ *     itself writes for a registered linked worktree (anything else is not a
+ *     shape git produces and is rejected without further reads);
+ *  3. the two-way link, delegated to {@link verifyWorktreeGitdirPointer} with
+ *     the pointer-derived candidate root: the admin backlink
+ *     `<main>/.git/worktrees/<id>/gitdir` must point back at this worktree's
+ *     `.git` AND the pointer must resolve to exactly that registered admin dir
+ *     (realpath-normalized on both ends, identical to the strict path).
+ *
+ * SECURITY NOTE — this branch is strictly WEAKER than the strict parent-walk:
+ * an attacker controlling both endpoints in its own tree can fabricate a
+ * coherent pointer/backlink pair (the two-way link alone cannot distinguish
+ * that from a genuine git registration). It is accepted because non-owned
+ * paths do not occur in pi-crew's production runtime — pi-crew only runs git
+ * inside OWNED roots (`<repoRoot>/.crew/state/worktrees/…`, which always take
+ * the strict branch) and the main repo itself. The fallback exists to keep
+ * snapshot/cleanup capability for legitimately-shaped foreign worktrees
+ * (tests, embedded hosts) WITHOUT reopening the owned-root gitdir-hijack
+ * vector (MED-1).
+ */
+function verifyForeignWorktreeLinkage(worktreePath: string): WorktreeGitdirCheck {
+	const dotGit = path.join(worktreePath, ".git");
+	let stat: fs.Stats;
+	try {
+		stat = fs.lstatSync(dotGit);
+	} catch {
+		return { ok: false, reason: `.git pointer missing at ${dotGit}` };
+	}
+	if (stat.isSymbolicLink()) {
+		return { ok: false, reason: `.git at ${worktreePath} is a symlink (expected a plain pointer file)` };
+	}
+	if (!stat.isFile()) {
+		return { ok: false, reason: `.git at ${worktreePath} is a directory (expected a linked-worktree pointer file)` };
+	}
+	let match: RegExpMatchArray | null = null;
+	try {
+		match = fs.readFileSync(dotGit, "utf-8").match(/^gitdir:\s*(.+)$/m);
+	} catch {
+		/* unreadable pointer → fail below */
+	}
+	if (!match) {
+		return { ok: false, reason: `.git pointer at ${dotGit} has no gitdir entry` };
+	}
+	const target = match[1]!.trim();
+	const absTarget = path.isAbsolute(target) ? target : path.resolve(worktreePath, target);
+	// Shape gate: pointer target must name a git-style admin dir
+	// `<main>/.git/worktrees/<id>` (relative targets resolved against the
+	// worktree, same as verifyWorktreeGitdirPointer).
+	const worktreesSegment = path.dirname(absTarget); // <main>/.git/worktrees
+	const dotGitSegment = path.dirname(worktreesSegment); // <main>/.git
+	const candidateMain = path.dirname(dotGitSegment); // <main>
+	if (path.basename(worktreesSegment) !== "worktrees" || path.basename(dotGitSegment) !== ".git") {
+		return { ok: false, reason: `.git pointer target ${absTarget} is not a <main>/.git/worktrees/<id> admin dir` };
+	}
+	// The candidate root's `.git` anchor must actually exist at that level —
+	// deliberately NOT a walk-up: an unrelated repo above the named root must
+	// never become the trust anchor of a pointer-chosen path.
+	try {
+		fs.statSync(path.join(candidateMain, ".git"));
+	} catch {
+		return { ok: false, reason: `pointer target root ${candidateMain} has no .git anchor` };
+	}
+	const candidateCommon = resolveTrustedGitDir(candidateMain);
+	if (!candidateCommon) {
+		return { ok: false, reason: `pointer target root ${candidateMain} has no resolvable common git dir` };
+	}
+	return verifyWorktreeGitdirPointer(worktreePath, candidateCommon);
 }
 
 /**

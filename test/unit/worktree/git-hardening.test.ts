@@ -287,3 +287,103 @@ test("verifyWorktreeGitdirPointer rejects a symlinked .git pointer", {
 		await removeDirWithRetry(repo);
 	}
 });
+
+// --- R-A3b: foreign-worktree mutual-linkage fallback (v0.11.45 fix 3) ---
+// Fixture shape mirrors test/integration/worktree-snapshot-*: main repo and
+// linked worktree are SIBLINGS under os.tmpdir() — no trusted `.git` anchor
+// exists above the worktree, so the strict parent-walk cannot anchor and the
+// fallback must decide (previously: "cannot resolve a trusted git dir above …").
+
+/**
+ * Build the foreign-sibling fixture: main repo in one tmp root, worktree in a
+ * completely separate tmp root (no shared ancestor below os.tmpdir()).
+ */
+async function makeForeignWorktreeFixture(prefix: string): Promise<{ repo: string; wtBase: string; wt: string }> {
+	const repo = makeRepoTemp(`${prefix}-main-`);
+	initGitRepo(repo);
+	const wtBase = makeRepoTemp(`${prefix}-wtroot-`);
+	const wt = path.join(wtBase, "wt");
+	execFileSync("git", ["worktree", "add", "-q", wt, "HEAD"], { cwd: repo });
+	return { repo, wtBase, wt };
+}
+
+async function removeForeignFixture(repo: string, wtBase: string): Promise<void> {
+	// `git worktree remove` from the main repo would ALSO pass now, but direct
+	// dir removal is enough for teardown and matches the integration helpers.
+	await removeDirWithRetry(repo);
+	await removeDirWithRetry(wtBase);
+}
+
+// POSIX-guard: the shape gate reasons contain path text; the fallback logic
+// itself is cross-platform, but this suite pins POSIX separators for clarity.
+test("R-A3b: foreign sibling worktree passes via mutual-linkage fallback and git status runs", {
+	skip: process.platform === "win32" ? "POSIX-only fixture shape" : false,
+}, async () => {
+	const { repo, wtBase, wt } = await makeForeignWorktreeFixture("pi-crew-gh-fb-ok");
+	try {
+		// Strict walk finds NO anchor above the worktree (wtBase is a plain dir).
+		assert.equal(resolveTrustedGitDir(wtBase), undefined, "fixture sanity: no anchor above the worktree");
+		const trust = worktreeTrustCheck(wt);
+		if (trust.kind !== "worktree") assert.fail(`expected worktree trust, got ${trust.kind}`);
+		assert.equal(trust.ok, true, `foreign worktree must pass via fallback: ${trust.reason}`);
+		assert.doesNotThrow(() => assertWorktreePointerTrusted(wt));
+		// Subdir inside the worktree → anchored at the worktree root, still ok.
+		fs.mkdirSync(path.join(wt, "sub"), { recursive: true });
+		assert.doesNotThrow(() => assertWorktreePointerTrusted(path.join(wt, "sub")));
+		// Git must actually work in the worktree (the integration-fixture shape).
+		const status = execFileSync("git", ["status", "--porcelain"], { cwd: wt, encoding: "utf-8" });
+		assert.equal(status.trim(), "", "git status must run cleanly in the foreign worktree");
+	} finally {
+		await removeForeignFixture(repo, wtBase);
+	}
+});
+
+test("R-A3b: foreign worktree with a fabricated gitdir lacking the backlink fails closed", {
+	skip: process.platform === "win32" ? "POSIX-only fixture shape" : false,
+}, async () => {
+	const { repo, wtBase, wt } = await makeForeignWorktreeFixture("pi-crew-gh-fb-bad");
+	try {
+		// Attacker-built admin dir: correct <main>/.git/worktrees/<id> SHAPE, but
+		// no gitdir backlink pointing at the worktree (registry entry incomplete).
+		const evilBase = makeRepoTemp("pi-crew-gh-fb-evil-");
+		try {
+			const evilAdmin = path.join(evilBase, ".git", "worktrees", "w1");
+			fs.mkdirSync(evilAdmin, { recursive: true });
+			fs.writeFileSync(path.join(evilAdmin, "HEAD"), "ref: refs/heads/main\n", "utf-8");
+			writeGitPointer(wt, `gitdir: ${evilAdmin}\n`);
+			const trust = worktreeTrustCheck(wt);
+			if (trust.kind !== "worktree") assert.fail(`expected worktree trust, got ${trust.kind}`);
+			assert.equal(trust.ok, false, "mutual linkage without a backlink must fail");
+			assert.match(trust.reason, /not a registered worktree/);
+			assert.throws(() => assertWorktreePointerTrusted(wt), /worktree corrupted/);
+		} finally {
+			await removeDirWithRetry(evilBase);
+		}
+	} finally {
+		await removeForeignFixture(repo, wtBase);
+	}
+});
+
+test("R-A3b: foreign worktree pointer that is not a <main>/.git/worktrees/<id> shape fails closed", {
+	skip: process.platform === "win32" ? "POSIX-only fixture shape" : false,
+}, async () => {
+	const { repo, wtBase, wt } = await makeForeignWorktreeFixture("pi-crew-gh-fb-shape");
+	try {
+		// 1. pointer to a random dir — not an admin-dir shape at all.
+		writeGitPointer(wt, "gitdir: /tmp/evil-random-dir\n");
+		let trust = worktreeTrustCheck(wt);
+		if (trust.kind !== "worktree") assert.fail(`expected worktree trust, got ${trust.kind}`);
+		assert.equal(trust.ok, false, "non-admin pointer shape must fail");
+		assert.match(trust.reason, /is not a <main>\/\.git\/worktrees/);
+
+		// 2. shape-valid target whose root has no .git anchor (dangling path).
+		writeGitPointer(wt, "gitdir: /nonexistent-root-42/.git/worktrees/w1\n");
+		trust = worktreeTrustCheck(wt);
+		if (trust.kind !== "worktree") assert.fail(`expected worktree trust, got ${trust.kind}`);
+		assert.equal(trust.ok, false, "dangling pointer root must fail");
+		assert.match(trust.reason, /has no \.git anchor/);
+		assert.throws(() => assertWorktreePointerTrusted(wt), /worktree corrupted/);
+	} finally {
+		await removeForeignFixture(repo, wtBase);
+	}
+});
