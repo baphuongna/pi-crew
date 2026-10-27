@@ -178,7 +178,12 @@ const BUDGETS = {
 		// LIMIT; statically imported by crew-broker.ts which is already in the graph,
 		// same shape as socket-stop.ts above — pure file-count growth from the split,
 		// zero new reachability).
-		maxFiles: 540,
+		// wc-gate live-session split (2026-10-27): 540 → 541 —
+		// live-session/live-session-prompt-models.ts (model/prompt cluster moved OUT
+		// of live-session-runtime.ts for the wc-gate LIMIT; statically imported by
+		// live-session-runtime.ts which is already in the graph — same shape, pure
+		// file-count growth from the split, zero new reachability).
+		maxFiles: 541,
 		forbid: ["test/", "scripts/", "docs/", "dist/"],
 	},
 };
