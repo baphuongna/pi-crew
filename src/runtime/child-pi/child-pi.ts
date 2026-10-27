@@ -852,7 +852,18 @@ async function runChildPiInner(input: ChildPiRunInput): Promise<ChildPiRunResult
 			// R6-8: modelChain threads the candidate chain for provider-key scoping.
 			// v0.11.38 W10-1: workerCacheSplit — headless single-run workers opt into
 			// short prompt-cache retention (see PI_CACHE_RETENTION_ENV).
-			const spawnOptions = buildFinalChildPiSpawnOptions(input.cwd, mergedEnv, builtEnv, input.model, input.modelChain, true);
+			// LOW-1 closure: ctx.brokerStdinPayload (when present) switches stdin to
+			// "pipe" + strips PI_CREW_BROKER_TOKEN from the child env — the token
+			// travels over the stdin pipe right after spawn instead (heap → pipe → heap).
+			const spawnOptions = buildFinalChildPiSpawnOptions(
+				input.cwd,
+				mergedEnv,
+				builtEnv,
+				input.model,
+				input.modelChain,
+				true,
+				spawnPrep.ctx.brokerStdinPayload,
+			);
 			// v0.11.36 OS boundary: when the sandbox is on, the headless spawn is
 			// wrapped in bwrap. Mounts: cwd RW (the worker edits the project), the
 			// scoped inference agent dir RW (pi writes session state under it), and
@@ -908,6 +919,26 @@ async function runChildPiInner(input: ChildPiRunInput): Promise<ChildPiRunResult
 					error: "spawn returned no pid",
 					ts: new Date().toISOString(),
 				});
+			}
+			// LOW-1 closure: hand the worker its broker credential over stdin — one
+			// buildBrokerStdinLine JSON line (v2, per-task compound token), then close
+			// the pipe. Mirror of the F4 async-runner handshake; the worker-side
+			// reader (crew-broker-child.ts via stdin-handshake.readStdinFirstLine)
+			// binds it by runId + taskId. Best-effort in BOTH directions: any write
+			// failure (EPIPE on a fast-exiting child, destroyed stream) leaves the
+			// worker creds-less exactly like a broker-less spawn — never throws out
+			// of the spawn path.
+			if (spawnPrep.ctx.brokerStdinPayload) {
+				try {
+					child.stdin?.write(spawnPrep.ctx.brokerStdinPayload);
+				} catch {
+					/* best-effort: worker proceeds creds-less */
+				}
+				try {
+					child.stdin?.end();
+				} catch {
+					/* EPIPE: child already died — spawn error handling owns that */
+				}
 			}
 			// P0-1: O(1)-amortized bounded accumulators (segment ring) — replaces the O(n²)
 			// appendBoundedTail rebuild-per-line pattern that re-scanned 512 KiB every line.

@@ -50,6 +50,17 @@ export function parseStdinBrokerPayload(raw: string, expectedRunId: string): Std
 	}
 }
 
+/** LOW-1 residual closure (2026-10-27): the ONE line a spawner writes to a
+ * worker's stdin carrying PER-TASK compound broker tokens. Moved here from
+ * async-runner.ts (which re-exports for API stability) so BOTH writer sides —
+ * the detached background runner AND the main child-pi spawn path — share the
+ * pure protocol piece and cannot drift from the reader parser below (a
+ * writer/reader drift silently breaks coordination). Compound (runId+taskId)
+ * tokens only: wait.* rejects bare-runId tokens (ADR-0 item 6). */
+export function buildBrokerStdinLine(runId: string, socketPath: string, tasks: Record<string, string>): string {
+	return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
+}
+
 /** Read the FIRST stdin line with a hard cap. Resolves undefined for: no
  * stdin / TTY / silence past the timeout / oversize / error. Never throws,
  * never destroys stdin (leaves it paused for the rest of boot). */

@@ -198,6 +198,10 @@ const CREW_ENV_FORWARDING_DECL: Record<string, CrewEnvForwardDecision> = {
 		reason: "per-task compound broker token via built.env/pipe (F4) — secret, never allowlisted",
 	},
 	PI_CREW_BROKER_TASK_ID: { kind: "child-write", reason: "child-pi-spawn broker handshake" },
+	PI_CREW_BROKER_STDIN: {
+		kind: "host-only",
+		reason: "LOW-1 closure broker-credential transport gate — read by the host spawner (child-pi-spawn .resolveBrokerStdinHandshakeEnabled) to pick env vs stdin route; the worker-side mirror read (crew-broker-child .resolveBrokerStdinFallbackEnabled) is defense-in-depth for the rollback case and needs NO ambient forwarding (parent decision fully determines the route; forwarding would churn the pinned BASE_ALLOWLIST)",
+	},
 	PI_CREW_INFERENCE_BROKER: {
 		kind: "gap",
 		reason: "v0.11.31 inference broker toggle — resolved in the PARENT only (ensureInferenceBroker); deliberately never forwarded to children (a child re-starting its own broker would be nonsensical)",

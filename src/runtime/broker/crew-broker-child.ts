@@ -15,7 +15,9 @@
  */
 
 import type * as net from "node:net";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { type BrokerEventFrame, CrewBrokerClient, type CrewBrokerClientOptions } from "./crew-broker-client.ts";
+import { parseStdinBrokerPayload, readStdinFirstLine } from "./stdin-handshake.ts";
 
 export interface ChildBrokerClientHandle {
 	/** True once the client has completed the handshake. */
@@ -37,6 +39,9 @@ export interface StartChildBrokerClientOptions {
 	netModule?: typeof net;
 	/** Test seam: override client construction. */
 	clientFactory?: (opts: CrewBrokerClientOptions) => CrewBrokerClient;
+	/** Test seam: override the stdin first-line read for the LOW-1 fallback
+	 *  (defaults to stdin-handshake.readStdinFirstLine on real process.stdin). */
+	readStdinLine?: () => Promise<string | undefined>;
 }
 
 const NOOP_HANDLE: ChildBrokerClientHandle = {
@@ -85,4 +90,57 @@ export function startChildBrokerClient(options: StartChildBrokerClientOptions = 
 			await client.close();
 		},
 	};
+}
+
+/** True when this process was booted as an RPC-mode worker (pi --mode rpc):
+ * its stdin IS the JSONL protocol channel and must never be consumed by the
+ * credential handshake. Those spawns keep the token in env (the RPC branch of
+ * child-pi.ts never strips it), so the fallback below is unreachable there
+ * anyway — this guard is defense-in-depth against hybrid/old-parent skew. */
+function argvIndicatesRpcMode(): boolean {
+	return process.argv.includes("--mode") && process.argv.includes("rpc");
+}
+
+/** LOW-1 residual closure (2026-10-27): async wrapper used by the worker
+ * bootstrap (prompt-runtime Feature 2b). Identical contract to
+ * {@link startChildBrokerClient}, plus: when the env token is ABSENT but the
+ * socket/run/task identity env IS present (new parent on the stdin-handshake
+ * default), read the single buildBrokerStdinLine payload off stdin (bounded,
+ * never throws) and merge the per-task token into a COPY of the env before
+ * connecting. Ordering matrix:
+ *   - new parent + new worker → token via stdin (env stays secret-free);
+ *   - old parent → new worker → env token present → env route, stdin untouched;
+ *   - new parent + PI_CREW_BROKER_STDIN=0 → env token present → env route;
+ *   - payload missing/invalid/wrong-run/socket-mismatch → creds-less no-op
+ *     handle (same as today), never a throw.
+ * The sync {@link startChildBrokerClient} stays untouched (env-only) so every
+ * existing caller/test keeps its exact behavior. */
+export async function startChildBrokerClientAsync(options: StartChildBrokerClientOptions = {}): Promise<ChildBrokerClientHandle> {
+	let env = options.env ?? process.env;
+	const socketPath = env.PI_CREW_BROKER_SOCKET;
+	const runId = env.PI_CREW_BROKER_RUN_ID;
+	const taskId = env.PI_CREW_BROKER_TASK_ID;
+	if (socketPath && runId && taskId && !env.PI_CREW_BROKER_TOKEN && resolveBrokerStdinFallbackEnabled() && !argvIndicatesRpcMode()) {
+		try {
+			const raw = await (options.readStdinLine ?? readStdinFirstLine)();
+			const payload = raw ? parseStdinBrokerPayload(raw, runId) : undefined;
+			// socketPath cross-check: the payload must describe the SAME socket the
+			// parent announced via env (both are parent-controlled, but a mismatch
+			// means skew/garbage — refuse rather than connect with mixed creds).
+			const token = payload?.socketPath === socketPath ? payload.tasks[taskId] : undefined;
+			if (token) {
+				env = { ...env, PI_CREW_BROKER_TOKEN: token };
+			}
+		} catch {
+			/* best-effort: fall through creds-less (previous behavior) */
+		}
+	}
+	return startChildBrokerClient({ ...options, env });
+}
+
+/** Worker-side mirror of the parent gate (child-pi-spawn
+ * .resolveBrokerStdinHandshakeEnabled): PI_CREW_BROKER_STDIN=0 keeps the
+ * fallback OFF so a forced rollback is env-only on both sides. Default ON. */
+function resolveBrokerStdinFallbackEnabled(): boolean {
+	return getCrewEnv("PI_CREW_BROKER_STDIN") !== "0";
 }

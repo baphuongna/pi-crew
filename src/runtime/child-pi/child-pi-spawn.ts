@@ -20,10 +20,12 @@ import type { SpawnOptions } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { childPiBaseAllowlist } from "../../config/env-allowlist-registry.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { isScratchpadEnabledForRole } from "../../config/role-tools.ts";
 import { buildScopedAllowList, providerEnvKeys, sanitizeEnvSecrets } from "../../utils/env-filter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
+import { buildBrokerStdinLine } from "../broker/stdin-handshake.ts";
 import { buildPiWorkerArgs, createSafeTempDir, getPiTempBase } from "../model/pi-args.ts";
 import { getPiSpawnCommand } from "../pi-spawn.ts";
 import { findLatestScratchpadSnapshot } from "../scratchpad/snapshot-lookup.ts";
@@ -43,6 +45,19 @@ import {
 // a worker that exits after one task). Surface panes and RPC warm sessions do
 // NOT set this (their sessions persist and benefit from long-lived cache).
 export const PI_CACHE_RETENTION_ENV = "PI_CACHE_RETENTION";
+
+/** LOW-1 residual closure (2026-10-27): when the inter-pi broker credentials
+ * are present, the per-task compound TOKEN travels over the spawn stdin pipe
+ * (one `buildBrokerStdinLine` payload, heap → pipe → heap — same shape as the
+ * F4 background-runner handshake) instead of the child env. Set
+ * PI_CREW_BROKER_STDIN=0 to roll back to the legacy env route (token in
+ * built.env, stdin stays "ignore"). Default ON. Only the headless JSON spawn
+ * branch consumes the payload: the RPC branch (stdin is the JSONL protocol
+ * channel) and the surface TUI panes keep the env route, so their env is
+ * untouched. */
+export function resolveBrokerStdinHandshakeEnabled(): boolean {
+	return getCrewEnv("PI_CREW_BROKER_STDIN") !== "0";
+}
 
 // ── Env allowlist (base set always passed to children) ──────────────────
 // Provider API keys are injected dynamically via buildScopedAllowList() only
@@ -258,6 +273,7 @@ export function buildFinalChildPiSpawnOptions(
 	model?: string,
 	modelChain?: (string | undefined)[],
 	workerCacheSplit?: boolean,
+	stdinBrokerPayload?: string,
 ): SpawnOptions {
 	// (a) Canary: builtEnv must contain ONLY PI_CREW_*/PI_TEAMS_* keys.
 	assertOnlyControlEnvKeys(builtEnv);
@@ -287,7 +303,18 @@ export function buildFinalChildPiSpawnOptions(
 	if (workerCacheSplit) {
 		spawnOptions.env[PI_CACHE_RETENTION_ENV] = "short";
 	}
-	// (d) Return the composed SpawnOptions for spawn(...).
+	// (d) LOW-1 closure: when the caller will hand the broker token to the child
+	// over the stdin pipe (headless JSON branch — it passes the payload it got
+	// from prepareSpawnContext), switch stdin from "ignore" to "pipe" and strip
+	// the secret from the env as defense-in-depth (prepareSpawnContext already
+	// omits it; the delete guards direct builtEnv constructions in tests/callers
+	// that still carry it). RPC branch / surface workerEnv snapshots call
+	// WITHOUT this param → env keeps the token and nothing else changes.
+	if (stdinBrokerPayload !== undefined) {
+		spawnOptions.stdio = ["pipe", "pipe", "pipe"];
+		delete spawnOptions.env.PI_CREW_BROKER_TOKEN;
+	}
+	// (e) Return the composed SpawnOptions for spawn(...).
 	return spawnOptions;
 }
 
@@ -310,6 +337,12 @@ export interface SpawnContext {
 	builtEnv: Record<string, string | undefined>;
 	/** v0.11.31: inference-broker worker key that owns this spawn's token (cleanup/revoke bookkeeping). */
 	inferenceWorkerKey?: string;
+	/** LOW-1 closure: one-line broker credential payload to write to the
+	 * child's stdin right after spawn (headless JSON branch ONLY — the RPC
+	 * branch owns stdin for its JSONL protocol and surface panes are TTY).
+	 * Present ⇒ PI_CREW_BROKER_TOKEN is NOT in builtEnv (token travels
+	 * heap → pipe → heap instead). Undefined ⇒ legacy env route. */
+	brokerStdinPayload?: string;
 }
 
 /**
@@ -364,6 +397,9 @@ export function prepareSpawnContext(
 	// a per-spawn unique.
 	const inferenceSnapshot = requireInferenceBrokerIfEnabled();
 	let inferenceWorkerKey: string | undefined;
+	// LOW-1 closure: stdin handshake payload for the headless JSON branch (see
+	// the brokerSpawn block below). Undefined = env route (legacy/rollback).
+	let brokerStdinPayload: string | undefined;
 	if (inferenceSnapshot.active) {
 		// v0.11.36: the agentId derivation is SHARED with the exit-revoke wrapper
 		// (runChildPi finally) via inferenceWorkerKeyForAgent — both sides must
@@ -415,11 +451,23 @@ export function prepareSpawnContext(
 	// Phase 0 inter-pi broker: inject socket path + token (control-namespace keys,
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
 	// credentials for this run — i.e. the broker is enabled AND this run is
-	// eligible. The token is heap-only on the parent; the child receives it
-	// solely through env. NEVER persisted to disk.
+	// eligible. NEVER persisted to disk.
+	// LOW-1 closure: by default the TOKEN leaves the env entirely — it rides the
+	// spawn stdin pipe as a single buildBrokerStdinLine payload (ctx
+	// .brokerStdinPayload; the headless JSON branch pipes stdin and writes it
+	// right after spawn). SOCKET/RUN_ID/TASK_ID stay in env (non-secret, needed
+	// by the worker bootstrap to bind + validate the stdin payload). Rollback
+	// gate PI_CREW_BROKER_STDIN=0 (or a legacy shape without runId/taskId to
+	// bind the payload to) keeps the env route bit-for-bit.
 	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
 		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
-		built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+		if (resolveBrokerStdinHandshakeEnabled() && input.runId && input.agentId) {
+			brokerStdinPayload = buildBrokerStdinLine(input.runId, input.brokerSpawn.socketPath, {
+				[input.agentId]: input.brokerSpawn.token,
+			});
+		} else {
+			built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
+		}
 		// runId/taskId are threaded unconditionally above (I5); nothing to add here.
 	}
 	// WP-9 (R9): the worker self-reporting channel env is UNCONDITIONAL —
@@ -499,6 +547,7 @@ export function prepareSpawnContext(
 			tempDir: built.tempDir,
 			builtEnv: built.env,
 			inferenceWorkerKey,
+			...(brokerStdinPayload !== undefined ? { brokerStdinPayload } : {}),
 		},
 	};
 }

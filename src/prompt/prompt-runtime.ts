@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import { getCrewEnv } from "../config/env-vars.ts";
 import { defineTool, type ToolDefinition } from "../extension/pi-api.ts";
-import { startChildBrokerClient } from "../runtime/broker/crew-broker-child.ts";
+import { type ChildBrokerClientHandle, startChildBrokerClientAsync } from "../runtime/broker/crew-broker-child.ts";
 import { CrewBrokerClient } from "../runtime/broker/crew-broker-client.ts";
 import { hasLiveControlRealtimeListeners } from "../runtime/live-session/live-control-realtime.ts";
 import { checkReplyToRequesterOrigin, type MailboxMessage, readAllMailboxMessages } from "../state/coordination/mailbox.ts";
@@ -1191,7 +1191,14 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// deliver pushed steers with the SAME sanitize + pi.sendMessage path as the
 	// file poll above. The file poll remains the durable fallback; a broker
 	// connect failure is invisible to the worker.
-	const brokerHandle = startChildBrokerClient({
+	// LOW-1 closure: the registration hook is SYNC, but the credential source
+	// may now be the spawn stdin pipe (one buildBrokerStdinLine line) — resolve
+	// the async bootstrap into a placeholder handle and swap it in when ready.
+	// A session_shutdown racing the (bounded ≤2s) stdin read closes whichever
+	// handle is live at that moment, and the late arrival closes itself.
+	let brokerHandle: ChildBrokerClientHandle = { active: false, close: async () => undefined };
+	let brokerShutdownSeen = false;
+	startChildBrokerClientAsync({
 		onSteer: (rawMessage, id) => {
 			// FIX-S1: cross-channel dedup. The broker persists every steer to
 			// the steering JSONL (durable) AND pushes it via the mailbox
@@ -1212,12 +1219,18 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 			}
 			pi.sendMessage({ customType: "crew-steer", content: sanitized.message, display: false }, { deliverAs: "steer" });
 		},
-	});
+	})
+		.then((handle) => {
+			brokerHandle = handle;
+			if (brokerShutdownSeen) void brokerHandle.close().catch(() => undefined);
+		})
+		.catch(() => undefined);
 	// Close the broker connection on session shutdown to avoid leaking the
 	// persistent socket / reconnect timer. Fire-and-forget: the socket is
 	// already .unref()'d so it never blocks event-loop exit; errors are
 	// swallowed because teardown failures during shutdown are harmless.
 	pi.on("session_shutdown", () => {
+		brokerShutdownSeen = true;
 		void brokerHandle.close().catch(() => undefined);
 	});
 

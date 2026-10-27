@@ -29,6 +29,7 @@ import {
 	setActiveBrokerIssuer,
 } from "../../../../src/runtime/broker/broker-issuer.ts";
 import { BrokerTokenRegistry } from "../../../../src/runtime/broker/crew-broker-tokens.ts";
+import { buildBrokerStdinLine, parseStdinBrokerPayload } from "../../../../src/runtime/broker/stdin-handshake.ts";
 
 // ---------------------------------------------------------------------------
 // Singleton state hygiene — restore whatever was registered before this suite.
@@ -67,9 +68,15 @@ function makeGatedIssuer(registry: BrokerTokenRegistry, socketPath: string, enab
 	};
 }
 
-/** Replicates the child env-injection rule from child-pi-spawn.ts:263-271.
- *  Only when both socketPath and token are present are the control-namespace
- *  keys populated. Used to prove the issued credentials are spawn-compatible. */
+/** Replicates the child env-injection rule from child-pi-spawn.ts. Since the
+ * LOW-1 closure (2026-10-27) the DEFAULT route carries the token over the
+ * spawn stdin pipe (buildBrokerStdinLine payload — see crew-broker-child
+ * -stdin.test.ts + child-pi-broker-stdin.test.ts); THIS mirror pins the
+ * ENV route, which remains the live behavior for: the rollback gate
+ * (PI_CREW_BROKER_STDIN=0) and identity-less spawns (no runId+agentId to
+ * bind a payload). Only when both socketPath and token are present are the
+ * control-namespace keys populated. Used to prove the issued credentials are
+ * spawn-compatible. */
 function buildChildBrokerEnv(
 	creds: BrokerSpawnCredentials | undefined,
 	runId: string | undefined,
@@ -218,6 +225,32 @@ test("disabled-path: a credentials object missing the token yields no TOKEN key 
 	const env = buildChildBrokerEnv(malformed, "run-1", "task-1");
 	assert.equal("PI_CREW_BROKER_SOCKET" in env, false);
 	assert.equal("PI_CREW_BROKER_TOKEN" in env, false);
+});
+
+// ---------------------------------------------------------------------------
+// LOW-1 closure (2026-10-27): the DEFAULT transport is the spawn stdin pipe.
+// The issued credentials must produce a payload the worker-side reader
+// (parseStdinBrokerPayload) accepts verbatim, bound to runId + taskId.
+// ---------------------------------------------------------------------------
+
+test("stdin route: issued creds round-trip through buildBrokerStdinLine → parseStdinBrokerPayload", () => {
+	const registry = new BrokerTokenRegistry();
+	const issuer = makeRegistryBackedIssuer(registry, "/tmp/broker-stdin.sock");
+	return issuer("run-stdin", "task-stdin").then((creds) => {
+		assert.ok(creds);
+		const line = buildBrokerStdinLine("run-stdin", creds!.socketPath, { "task-stdin": creds!.token });
+		assert.ok(line.endsWith("\n") && line.indexOf("\n") === line.length - 1, "exactly one newline-terminated line");
+		const parsed = parseStdinBrokerPayload(line.trim(), "run-stdin");
+		assert.ok(parsed, "worker reader must accept the writer format verbatim");
+		assert.deepEqual(parsed, {
+			v: 2,
+			runId: "run-stdin",
+			socketPath: "/tmp/broker-stdin.sock",
+			tasks: { "task-stdin": creds!.token },
+		});
+		// The transported token must still authenticate (registry cross-check).
+		assert.equal(registry.matches("run-stdin", "task-stdin", parsed!.tasks["task-stdin"]), true);
+	});
 });
 
 // ---------------------------------------------------------------------------

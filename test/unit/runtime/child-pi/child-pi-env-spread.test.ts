@@ -146,3 +146,36 @@ describe("buildFinalChildPiSpawnOptions: PI_CREW_* / PI_TEAMS_* control keys rea
 		assert.doesNotThrow(() => assertOnlyControlEnvKeys({ PI_CREW_FOO: "1", PI_TEAMS_BAR: "2" }));
 	});
 });
+
+// ── LOW-1 closure (2026-10-27): stdin handshake payload param ───────────
+// When the caller will deliver the broker token over the spawn stdin pipe
+// (headless JSON branch — 7th param), buildFinalChildPiSpawnOptions must
+// switch stdin from "ignore" to "pipe" and strip the token from the final
+// env (defense-in-depth over prepareSpawnContext's omission). Without the
+// param, behavior is bit-for-bit unchanged (tests above pin that).
+describe("buildFinalChildPiSpawnOptions: stdinBrokerPayload param (LOW-1)", () => {
+	it("pipes stdin and strips PI_CREW_BROKER_TOKEN from the final env when a payload is passed", () => {
+		const spawnOptions = buildFinalChildPiSpawnOptions(CWD, MERGED_ENV, { ...CONTROL_KEYS }, undefined, undefined, true, '{"v":2}\n');
+		const env = spawnOptions.env as Record<string, string | undefined>;
+		const stdio = spawnOptions.stdio as string[];
+		assert.equal(stdio[0], "pipe", "stdin must be a pipe when the broker token rides stdin");
+		assert.equal(stdio[1], "pipe");
+		assert.equal(stdio[2], "pipe");
+		assert.equal(env.PI_CREW_BROKER_TOKEN, undefined, "token must never reach the child env on the stdin route");
+		// Non-secret identity keys must survive the strip.
+		assert.equal(env.PI_CREW_BROKER_SOCKET, CONTROL_KEYS.PI_CREW_BROKER_SOCKET);
+		assert.equal(env.PI_CREW_BROKER_RUN_ID, CONTROL_KEYS.PI_CREW_BROKER_RUN_ID);
+		assert.equal(env.PI_CREW_BROKER_TASK_ID, CONTROL_KEYS.PI_CREW_BROKER_TASK_ID);
+	});
+
+	it("keeps stdin=ignore and the env token when NO payload is passed (legacy/rollback route)", () => {
+		const spawnOptions = buildFinalChildPiSpawnOptions(CWD, MERGED_ENV, { ...CONTROL_KEYS });
+		const stdio = spawnOptions.stdio as string[];
+		assert.equal(stdio[0], "ignore", "no payload → legacy stdin=ignore");
+		assert.equal(
+			(spawnOptions.env as Record<string, string | undefined>).PI_CREW_BROKER_TOKEN,
+			CONTROL_KEYS.PI_CREW_BROKER_TOKEN,
+			"no payload → legacy env token route",
+		);
+	});
+});

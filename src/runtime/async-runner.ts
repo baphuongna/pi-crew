@@ -11,6 +11,7 @@ import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { packageRoot } from "../utils/paths.ts";
 import { redactSecretString } from "../utils/redaction.ts";
+import { buildBrokerStdinLine } from "./broker/stdin-handshake.ts";
 import { registerWorker, unregisterWorker } from "./orphan-worker-registry.ts";
 import { PEER_DEP_DIR_ENV, resolvePeerDepDir } from "./peer-dep.ts";
 
@@ -215,13 +216,10 @@ export function forwardModelControlEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEn
 }
 
 /** F4 v2: the ONE line written to the background-runner's stdin carrying
- * PER-TASK compound broker tokens (see stdin-handshake.ts for why compound —
- * ADR-0 item 6 rejects bare-runId tokens for wait.*). Kept pure + exported so
- * tests pin the WRITER format against the READER parser — a drift between
- * the two silently breaks coordination for every async run. */
-export function buildBrokerStdinLine(runId: string, socketPath: string, tasks: Record<string, string>): string {
-	return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
-}
+ * PER-TASK compound broker tokens. MOVED to broker/stdin-handshake.ts (pure
+ * protocol piece, shared with the child-pi spawn writer — LOW-1 closure);
+ * re-exported here so the writer API and existing test imports stay stable. */
+export { buildBrokerStdinLine } from "./broker/stdin-handshake.ts";
 
 /**
  * IN-PROCESS ASYNC TEST SEAM (kills two classes of test pain):
