@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.45] — security hardening wave: worktree git-injection class closed + verified review fixes (2026-10-27)
 
 ### Security hardening wave — worktree git-injection (MED-1) + verified review fixes
 
