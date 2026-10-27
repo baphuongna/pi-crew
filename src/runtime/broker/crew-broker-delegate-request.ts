@@ -43,14 +43,14 @@ import { loadRunManifestById, saveRunTasks } from "../../state/stores/state-stor
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { type GrandchildSpawnResult, spawnDelegateGrandchild } from "../delegate-spawn.ts";
 import { resolveCrewMaxDepth } from "../model/pi-args.ts";
-import { NestedSlotBudget } from "../scheduling/nested-slots.ts";
+import type { NestedSlotBudget } from "../scheduling/nested-slots.ts";
 import { evaluateDelegateAdmission } from "../spawn-policy.ts";
-import { DelegateAbortRegistry } from "./delegate/delegate-abort.ts";
-import { type DelegateEventTarget, type DelegateEventType } from "./delegate/delegate-event.ts";
+import type { DelegateAbortRegistry } from "./delegate/delegate-abort.ts";
+import type { DelegateEventTarget, DelegateEventType } from "./delegate/delegate-event.ts";
 import { delegateTerminalEvent, finalizeDelegateResult } from "./delegate/delegate-finalize.ts";
 import { promoteShadowToRunning } from "./delegate/shadow-lifecycle.ts";
-import { type CrewBrokerOptions, type ServerConnection } from "./protocol/connection-state.ts";
-import { type LockBusyOutcome } from "./protocol/lock-busy.ts";
+import type { CrewBrokerOptions, ServerConnection } from "./protocol/connection-state.ts";
+import type { LockBusyOutcome } from "./protocol/lock-busy.ts";
 import { parseDelegateRequestParams } from "./protocol/request-parsers.ts";
 
 /** Options slice the delegate handler reads off the broker's RESOLVED

@@ -1,17 +1,21 @@
 /**
- * child-pi-broker-stdin.test.ts — LOW-1 residual closure (2026-10-27).
+ * child-pi-broker-stdin.test.ts — LOW-1 residual closure (2026-10-27;
+ * OPT-IN since v0.11.48 after the live battery caught the reader path killing
+ * real headless workers — see resolveBrokerStdinHandshakeEnabled doc block).
  *
  * Pins the spawn side of the stdin broker-credential handshake on the MAIN
  * worker spawn path (mirror of the F4 background-runner handshake):
  *
- *   1. Gate default (PI_CREW_BROKER_STDIN unset): prepareSpawnContext puts
+ *   1. Gate is OPT-IN: PI_CREW_BROKER_STDIN exactly '1' enables the stdin
+ *      route; unset/'0'/anything else keeps the legacy env route (default).
+ *   2. Opt-in gate PI_CREW_BROKER_STDIN=1: prepareSpawnContext puts
  *      SOCKET/RUN_ID/TASK_ID in built.env but NOT the TOKEN; the token rides
  *      ctx.brokerStdinPayload (one buildBrokerStdinLine v2 line, per-task
  *      compound shape) and buildFinalChildPiSpawnOptions(payload) switches
  *      stdin to "pipe" + strips any sneak-in token from the final env.
- *   2. Rollback gate PI_CREW_BROKER_STDIN=0: token back in built.env, no
+ *   3. Default (unset) and explicit '0': token back in built.env, no
  *      payload, stdin stays "ignore" — bit-for-bit legacy behavior.
- *   3. No brokerSpawn / identity-less brokerSpawn (no runId+agentId to bind
+ *   4. No brokerSpawn / identity-less brokerSpawn (no runId+agentId to bind
  *      the payload) → legacy env route.
  *
  * Pure-function tests: prepareSpawnContext does NOT spawn — fast + hermetic.
@@ -96,26 +100,26 @@ function prepWithBroker(opts?: { agentId?: string | null; runId?: string | null 
 // ── Gate resolution ──────────────────────────────────────────────────────
 
 describe("resolveBrokerStdinHandshakeEnabled (PI_CREW_BROKER_STDIN gate)", () => {
-	it("defaults ON when unset, ON for any non-'0' value, OFF exactly for '0'", () => {
-		withGate(undefined, () => assert.equal(resolveBrokerStdinHandshakeEnabled(), true));
-		withGate("1", () => assert.equal(resolveBrokerStdinHandshakeEnabled(), true));
-		withGate("true", () => assert.equal(resolveBrokerStdinHandshakeEnabled(), true));
+	it("OPT-IN since v0.11.48: OFF when unset, OFF for any non-'1' value, ON exactly for '1'", () => {
+		withGate(undefined, () => assert.equal(resolveBrokerStdinHandshakeEnabled(), false));
 		withGate("0", () => assert.equal(resolveBrokerStdinHandshakeEnabled(), false));
+		withGate("true", () => assert.equal(resolveBrokerStdinHandshakeEnabled(), false));
+		withGate("1", () => assert.equal(resolveBrokerStdinHandshakeEnabled(), true));
 	});
 });
 
-// ── Default route: token over stdin, env stays token-free ────────────────
+// ── Opt-in route (gate=1): token over stdin, env stays token-free ───────
 
-describe("prepareSpawnContext: stdin handshake default (gate on)", () => {
+describe("prepareSpawnContext: stdin handshake opt-in (gate=1)", () => {
 	after(() => {
 		delete process.env.PI_CREW_BROKER_STDIN;
 	});
 
 	it("omits PI_CREW_BROKER_TOKEN from built.env; SOCKET/RUN_ID/TASK_ID stay", () => {
-		withGate(undefined, () => {
+		withGate("1", () => {
 			const { builtEnv, dir } = prepWithBroker();
 			try {
-				assert.equal(builtEnv.PI_CREW_BROKER_TOKEN, undefined, "secret must NOT travel via env on the default route");
+				assert.equal(builtEnv.PI_CREW_BROKER_TOKEN, undefined, "secret must NOT travel via env on the opt-in stdin route");
 				assert.equal(builtEnv.PI_CREW_BROKER_SOCKET, BROKER_SPAWN.socketPath);
 				assert.equal(builtEnv.PI_CREW_BROKER_RUN_ID, RUN_ID);
 				assert.equal(builtEnv.PI_CREW_BROKER_TASK_ID, AGENT_ID);
@@ -126,7 +130,7 @@ describe("prepareSpawnContext: stdin handshake default (gate on)", () => {
 	});
 
 	it("ctx.brokerStdinPayload is ONE v2 line with the exact single-task compound shape", () => {
-		withGate(undefined, () => {
+		withGate("1", () => {
 			const { ctx, dir } = prepWithBroker();
 			try {
 				const payload = ctx.brokerStdinPayload;
@@ -148,7 +152,7 @@ describe("prepareSpawnContext: stdin handshake default (gate on)", () => {
 	});
 
 	it("buildFinalChildPiSpawnOptions(payload): stdin pipes + token stripped even when builtEnv sneaks one in", () => {
-		withGate(undefined, () => {
+		withGate("1", () => {
 			const { ctx, dir } = prepWithBroker();
 			try {
 				const spawnOptions = buildFinalChildPiSpawnOptions(
@@ -178,16 +182,16 @@ describe("prepareSpawnContext: stdin handshake default (gate on)", () => {
 
 // ── Rollback route: gate=0 keeps the legacy env behavior bit-for-bit ────
 
-describe("prepareSpawnContext: rollback gate PI_CREW_BROKER_STDIN=0", () => {
+describe("prepareSpawnContext: DEFAULT route (gate unset) keeps the legacy env behavior bit-for-bit", () => {
 	it("token stays in built.env, NO payload, spawnOptions keep stdin=ignore + env token", () => {
-		withGate("0", () => {
+		withGate(undefined, () => {
 			const { ctx, dir } = prepWithBroker();
 			try {
-				assert.equal(ctx.builtEnv.PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token, "rollback: token via env");
-				assert.equal(ctx.brokerStdinPayload, undefined, "rollback: no stdin payload");
+				assert.equal(ctx.builtEnv.PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token, "default legacy route: token via env");
+				assert.equal(ctx.brokerStdinPayload, undefined, "default legacy route: no stdin payload");
 				const spawnOptions = buildFinalChildPiSpawnOptions(dir, ctx.mergedEnv, ctx.builtEnv, undefined, undefined, true);
 				const stdio = spawnOptions.stdio as string[];
-				assert.equal(stdio[0], "ignore", "rollback: stdin stays ignore");
+				assert.equal(stdio[0], "ignore", "default legacy route: stdin stays ignore");
 				assert.equal((spawnOptions.env as Record<string, string | undefined>).PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token);
 			} finally {
 				fs.rmSync(dir, { recursive: true, force: true });
@@ -200,7 +204,7 @@ describe("prepareSpawnContext: rollback gate PI_CREW_BROKER_STDIN=0", () => {
 
 describe("prepareSpawnContext: identity-less brokerSpawn cannot bind a payload", () => {
 	it("no runId → env token route even with the gate on", () => {
-		withGate(undefined, () => {
+		withGate("1", () => {
 			const { ctx, dir } = prepWithBroker({ runId: null });
 			try {
 				assert.equal(ctx.builtEnv.PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token, "payload needs runId to bind — env fallback");
@@ -212,7 +216,7 @@ describe("prepareSpawnContext: identity-less brokerSpawn cannot bind a payload",
 	});
 
 	it("no agentId → env token route even with the gate on", () => {
-		withGate(undefined, () => {
+		withGate("1", () => {
 			const { ctx, dir } = prepWithBroker({ agentId: null });
 			try {
 				assert.equal(

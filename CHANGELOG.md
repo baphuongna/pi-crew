@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.48] — HOTFIX: stdin broker-credential gate flipped OPT-IN — fixes silent worker death (2026-10-28)
+
+**Fixed — v0.11.46/0.11.47 regression: every headless JSON worker on the default route exited 0 with zero stdout.**
+The LOW-1 stdin handshake shipped in 0.11.46 with the gate default-ON. On real Pi hosts, the moment the worker-side
+stdin reader activated (`startChildBrokerClientAsync` → `readStdinFirstLine`: env broker identity present, env token
+absent, gate on — the default shape of every team-run worker), the whole `pi --mode json -p` process exited 0 silently
+(~1.2s, 0 stdout bytes, retry ×3, run failed). CI never caught it: unit tests inject the `readStdinLine` seam and never
+run `process.stdin` inside a real pi process; the live battery (real-test-pi-crew T7) caught it — which is also why this
+release ships with that battery re-run green (3/3 tasks + `message` round-trip through the legacy env route).
+
+`PI_CREW_BROKER_STDIN` is now **OPT-IN** (`"1"` enables the stdin route; unset/`0`/anything else keeps the legacy env
+route on BOTH sides, bit-for-bit pre-0.11.46 behavior). The LOW-1 closure code (writer, reader, payload v2) stays for
+re-enabling after the reader path is root-caused.
+
+Also adds `test/integration/broker-stdin-reader-liveworker.test.ts` — a LIVE regression test that spawns a real `pi`
+worker with the exact env shape that died and asserts non-zero stdout (skips where no `pi` binary exists, e.g. CI
+containers that run the fake-pi fixtures), plus incidental biome fixes (`useImportType` ×5, `noUselessTernary`) in
+crew-broker-delegate-request.ts / surface-worker.ts.
+
 ## [0.11.47] — live-session split: model/prompt clusters out of live-session-runtime.ts (2026-10-27)
 
 **Changed — `live-session-runtime.ts` (1971 → 1634 lines).** The file sat 29 lines under the 2000-line wc-gate LIMIT,

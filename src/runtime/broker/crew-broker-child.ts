@@ -139,8 +139,11 @@ export async function startChildBrokerClientAsync(options: StartChildBrokerClien
 }
 
 /** Worker-side mirror of the parent gate (child-pi-spawn
- * .resolveBrokerStdinHandshakeEnabled): PI_CREW_BROKER_STDIN=0 keeps the
- * fallback OFF so a forced rollback is env-only on both sides. Default ON. */
+ * .resolveBrokerStdinHandshakeEnabled). **OPT-IN since v0.11.48** (live
+ * battery caught the reader path killing real headless workers — see the
+ * parent gate's doc block): the default is now OFF, so a new parent that set
+ * the env token travels the legacy env route. PI_CREW_BROKER_STDIN=1 opts
+ * BOTH sides into the stdin route. */
 function resolveBrokerStdinFallbackEnabled(): boolean {
-	return getCrewEnv("PI_CREW_BROKER_STDIN") !== "0";
+	return getCrewEnv("PI_CREW_BROKER_STDIN") === "1";
 }

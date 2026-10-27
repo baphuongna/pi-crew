@@ -7,8 +7,9 @@
  *      → the single buildBrokerStdinLine payload is read off stdin, validated
  *      against runId + socketPath, and the per-task token reaches the client.
  *   2. OLD parent → NEW worker: env token present → stdin NEVER read.
- *   3. New parent + rollback gate PI_CREW_BROKER_STDIN=0 (env token present
- *      via the parent's rollback route) → env route, stdin never read.
+ *   3. Gate is OPT-IN since v0.11.48: PI_CREW_BROKER_STDIN unset (default)
+ *      or '0' → the stdin fallback never activates (env route is the default
+ *      again; '1' opts in).
  *   4. Garbage / wrong-run / socket-mismatch / missing-task payloads and a
  *      silent stdin → creds-less NOOP handle, never a throw, caller env never
  *      mutated.
@@ -79,7 +80,7 @@ async function withGate(value: string | undefined, fn: () => Promise<void> | voi
 
 describe("startChildBrokerClientAsync: stdin fallback (env token absent)", () => {
 	it("reads the payload, binds runId+socket, and connects with the per-task token", async () => {
-		await withGate(undefined, async () => {
+		await withGate("1", async () => {
 			const captured: CrewBrokerClientOptions[] = [];
 			let stdinReads = 0;
 			const handle = await startChildBrokerClientAsync({
@@ -102,7 +103,7 @@ describe("startChildBrokerClientAsync: stdin fallback (env token absent)", () =>
 	});
 
 	it("does NOT mutate the caller's env object (token merge lands on a copy)", async () => {
-		await withGate(undefined, async () => {
+		await withGate("1", async () => {
 			const callerEnv = { ...IDENTITY_ENV };
 			await startChildBrokerClientAsync({
 				env: callerEnv,
@@ -132,7 +133,7 @@ describe("startChildBrokerClientAsync: env token wins, stdin untouched", () => {
 		});
 	});
 
-	it("rollback gate PI_CREW_BROKER_STDIN=0 + missing env token → stdin fallback disabled (creds-less)", async () => {
+	it("gate OFF (default unset / explicit 0) + missing env token → stdin fallback disabled (creds-less)", async () => {
 		await withGate("0", async () => {
 			const handle = await startChildBrokerClientAsync({
 				env: { ...IDENTITY_ENV },
@@ -162,7 +163,51 @@ describe("startChildBrokerClientAsync: invalid payloads fall back creds-less", (
 
 	for (const [name, line] of cases) {
 		it(`${name} → NOOP handle, no throw, factory not invoked`, async () => {
-			await withGate(undefined, async () => {
+			await withGate("1", async () => {
+				const captured: CrewBrokerClientOptions[] = [];
+				const handle = await startChildBrokerClientAsync({
+					env: { ...IDENTITY_ENV },
+					readStdinLine: async () => line,
+					clientFactory: captureFactory(captured),
+				});
+				assert.equal(captured.length, 0, "no client without a token");
+				assert.equal(handle.active, false);
+				await handle.close();
+			});
+		});
+	}
+
+	it("gate DEFAULT (unset) since v0.11.48 + missing env token → stdin fallback disabled (creds-less)", async () => {
+		await withGate(undefined, async () => {
+			const handle = await startChildBrokerClientAsync({
+				env: { ...IDENTITY_ENV },
+				readStdinLine: async () => {
+					throw new Error("gate=0 must disable the stdin fallback");
+				},
+				clientFactory: captureFactory([]),
+			});
+			assert.equal(handle.active, false, "creds-less NOOP handle");
+			await handle.close();
+		});
+	});
+});
+
+// ── 4. Invalid payloads → creds-less NOOP, never a throw ────────────────
+
+describe("startChildBrokerClientAsync: invalid payloads fall back creds-less", () => {
+	const cases: Array<[string, string | undefined]> = [
+		["garbage line", "not-json-at-all"],
+		["wrong version", buildBrokerStdinLine(RUN, SOCKET, { [TASK]: TOKEN }).replace('"v":2', '"v":3')],
+		["wrong runId (cross-run containment)", buildBrokerStdinLine("run_OTHER", SOCKET, { [TASK]: TOKEN })],
+		["socket mismatch", buildBrokerStdinLine(RUN, "/tmp/other.sock", { [TASK]: TOKEN })],
+		["missing task entry", buildBrokerStdinLine(RUN, SOCKET, { "other-task": TOKEN })],
+		["empty tasks map", buildBrokerStdinLine(RUN, SOCKET, {})],
+		["silent stdin (timeout/EOF)", undefined],
+	];
+
+	for (const [name, line] of cases) {
+		it(`${name} → NOOP handle, no throw, factory not invoked`, async () => {
+			await withGate("1", async () => {
 				const captured: CrewBrokerClientOptions[] = [];
 				const handle = await startChildBrokerClientAsync({
 					env: { ...IDENTITY_ENV },
@@ -191,7 +236,7 @@ describe("startChildBrokerClientAsync: invalid payloads fall back creds-less", (
 
 describe("startChildBrokerClientAsync: stdin-safety guards", () => {
 	it("RPC-mode argv (--mode rpc) → stdin never read", async () => {
-		await withGate(undefined, async () => {
+		await withGate("1", async () => {
 			const prevArgv = process.argv;
 			process.argv = [...prevArgv, "--mode", "rpc"];
 			try {

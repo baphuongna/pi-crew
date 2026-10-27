@@ -182,7 +182,7 @@ export function parentAlive(pid: number, expectedStartTime: string | undefined, 
 		// workers at the first 5s tick.
 		readerThrew = true;
 	}
-	if (readerThrew) return expectedStartTime ? false : true;
+	if (readerThrew) return !expectedStartTime;
 	// Reader returned "no entry" (default /proc reader ENOENT = dead on
 	// Linux) — dead-parent detection stays intact.
 	if (stat === undefined) return false;

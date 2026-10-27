@@ -46,17 +46,24 @@ import {
 // NOT set this (their sessions persist and benefit from long-lived cache).
 export const PI_CACHE_RETENTION_ENV = "PI_CACHE_RETENTION";
 
-/** LOW-1 residual closure (2026-10-27): when the inter-pi broker credentials
- * are present, the per-task compound TOKEN travels over the spawn stdin pipe
- * (one `buildBrokerStdinLine` payload, heap → pipe → heap — same shape as the
- * F4 background-runner handshake) instead of the child env. Set
- * PI_CREW_BROKER_STDIN=0 to roll back to the legacy env route (token in
- * built.env, stdin stays "ignore"). Default ON. Only the headless JSON spawn
- * branch consumes the payload: the RPC branch (stdin is the JSONL protocol
- * channel) and the surface TUI panes keep the env route, so their env is
- * untouched. */
+/** LOW-1 residual closure (2026-10-27, DISABLED-DEFAULT 2026-10-28 v0.11.48):
+ * when the inter-pi broker credentials are present, the per-task compound TOKEN
+ * can travel over the spawn stdin pipe (one `buildBrokerStdinLine` payload,
+ * heap → pipe → heap — same shape as the F4 background-runner handshake)
+ * instead of the child env. **EXPERIMENTAL / OPT-IN since v0.11.48**: the
+ * worker-side stdin reader path (startChildBrokerClientAsync →
+ * readStdinFirstLine) was caught by the live battery (real-test-pi-crew T7)
+ * making REAL headless JSON workers exit 0 silently with zero stdout — only
+ * when the reader activates (env broker identity + no env token + gate ON).
+ * Unit tests missed it because they inject the `readStdinLine` seam instead of
+ * running process.stdin in a real pi process. Until that is root-caused, the
+ * default is OFF (legacy env route, bit-for-bit pre-0.11.46 behavior); set
+ * PI_CREW_BROKER_STDIN=1 to opt the parent into the stdin route. Only the
+ * headless JSON spawn branch consumes the payload: the RPC branch (stdin is
+ * the JSONL protocol channel) and the surface TUI panes keep the env route,
+ * so their env is untouched either way. */
 export function resolveBrokerStdinHandshakeEnabled(): boolean {
-	return getCrewEnv("PI_CREW_BROKER_STDIN") !== "0";
+	return getCrewEnv("PI_CREW_BROKER_STDIN") === "1";
 }
 
 // ── Env allowlist (base set always passed to children) ──────────────────
@@ -452,12 +459,13 @@ export function prepareSpawnContext(
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
 	// credentials for this run — i.e. the broker is enabled AND this run is
 	// eligible. NEVER persisted to disk.
-	// LOW-1 closure: by default the TOKEN leaves the env entirely — it rides the
+	// LOW-1 closure (OPT-IN since v0.11.48): when PI_CREW_BROKER_STDIN=1 the
+	// TOKEN leaves the env entirely — it rides the
 	// spawn stdin pipe as a single buildBrokerStdinLine payload (ctx
 	// .brokerStdinPayload; the headless JSON branch pipes stdin and writes it
 	// right after spawn). SOCKET/RUN_ID/TASK_ID stay in env (non-secret, needed
-	// by the worker bootstrap to bind + validate the stdin payload). Rollback
-	// gate PI_CREW_BROKER_STDIN=0 (or a legacy shape without runId/taskId to
+	// by the worker bootstrap to bind and validate the stdin payload). Default
+	// (gate off, or a legacy shape without runId/taskId to
 	// bind the payload to) keeps the env route bit-for-bit.
 	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
 		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;

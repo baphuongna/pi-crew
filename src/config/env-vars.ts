@@ -668,7 +668,7 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 	},
 	PI_CREW_BROKER_STDIN: {
 		name: "PI_CREW_BROKER_STDIN",
-		doc: "LOW-1 closure (2026-10-27) broker-credential transport gate: unset/non-'0' (default) sends the per-task compound PI_CREW_BROKER_TOKEN to the headless JSON worker over the spawn STDIN pipe (one buildBrokerStdinLine v2 payload; heap → pipe → heap — child-pi-spawn.ts writer, crew-broker-child.ts startChildBrokerClientAsync reader) so the token never appears in the child env; '0' rolls back to the legacy env route (token in built.env, stdin stays 'ignore') on BOTH sides. RPC-mode workers and surface TUI panes are unaffected (they keep the env route; the worker-side stdin read skips --mode rpc argv and TTY stdin by design)",
+		doc: "LOW-1 closure (2026-10-27) broker-credential transport gate, OPT-IN since v0.11.48 (2026-10-28): '1' sends the per-task compound PI_CREW_BROKER_TOKEN to the headless JSON worker over the spawn STDIN pipe (one buildBrokerStdinLine v2 payload; heap → pipe → heap — child-pi-spawn.ts writer, crew-broker-child.ts startChildBrokerClientAsync reader) so the token never appears in the child env; unset/any-other-value (default) keeps the LEGACY ENV ROUTE (token in built.env, stdin stays 'ignore') on BOTH sides — the stdin reader path was caught by the live battery (real-test-pi-crew T7) killing real headless workers with a silent exit 0 and is disabled-by-default until root-caused. RPC-mode workers and surface TUI panes are unaffected (they keep the env route; the worker-side stdin read skips --mode rpc argv and TTY stdin by design)",
 	},
 	PI_CREW_GUEST: {
 		name: "PI_CREW_GUEST",
