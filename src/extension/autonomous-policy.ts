@@ -203,10 +203,10 @@ export function registerAutonomousPolicy(pi: ExtensionAPI): void {
 		if (!autonomous.enabled) return undefined;
 		if (!autonomous.injectPolicy) return undefined;
 		const prompt = typeof event.prompt === "string" ? event.prompt : "";
-			// `prompt` is absent on turns with no user text (bg-task notifications, goal
-			// continuations, timer turns); unguarded it reaches prompt.toLowerCase() and throws.
-			return {
-				systemPrompt: appendAutonomousPolicy(event.systemPrompt, prompt, autonomous, cwd),
+		// `prompt` is absent on turns with no user text (bg-task notifications, goal
+		// continuations, timer turns); unguarded it reaches prompt.toLowerCase() and throws.
+		return {
+			systemPrompt: appendAutonomousPolicy(event.systemPrompt, prompt, autonomous, cwd),
 		};
 	});
 }

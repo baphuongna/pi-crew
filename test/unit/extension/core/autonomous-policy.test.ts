@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendAutonomousPolicy, buildAutonomousPolicy, detectTeamIntent } from "../../../../src/extension/autonomous-policy.ts";
+import {
+	appendAutonomousPolicy,
+	buildAutonomousPolicy,
+	detectTeamIntent,
+	registerAutonomousPolicy,
+} from "../../../../src/extension/autonomous-policy.ts";
 
 test("detectTeamIntent detects default, custom, and task-list signals", () => {
 	assert.deepEqual(detectTeamIntent("autoteam refactor this"), ["implementation"]);
@@ -33,4 +38,53 @@ test("appendAutonomousPolicy appends to system prompt", () => {
 	const prompt = appendAutonomousPolicy("base", "quick fix bug");
 	assert.match(prompt, /^base/);
 	assert.match(prompt, /fastFix/);
+});
+
+// ── registerAutonomousPolicy hook: promptless turns (PR #64 regression) ──
+// `BeforeAgentStartEvent.prompt` is typed `string` but ABSENT at runtime on
+// turns with no user text (background-task notifications, goal continuations,
+// timer turns). Unguarded it reached detectTeamIntent → prompt.toLowerCase()
+// and threw — silently SKIPPING the delegation policy on exactly the
+// autonomous turns where no human is present to correct the decision
+// (0.11.44 → 0.11.48; caught by GH#64).
+
+type Hook = (event: unknown) => { systemPrompt: string } | undefined;
+
+function registerHook(): Hook {
+	const handlers: Record<string, Hook> = {};
+	const fakePi = {
+		on: (name: string, fn: Hook) => {
+			handlers[name] = fn;
+		},
+	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
+	registerAutonomousPolicy(fakePi);
+	const hook = handlers["before_agent_start"];
+	assert.ok(hook, "before_agent_start handler must be registered");
+	return hook;
+}
+
+test("before_agent_start WITHOUT prompt: no throw, policy still injected (PR #64)", () => {
+	const hook = registerHook();
+	// No `prompt` key at all — the runtime shape of promptless turns.
+	const result = hook({
+		systemPrompt: "BASE",
+		systemPromptOptions: { cwd: "/tmp" },
+	});
+	assert.ok(result, "handler must return a systemPrompt result");
+	assert.match(result.systemPrompt, /^BASE/);
+	assert.match(result.systemPrompt, /pi-crew Delegation Policy/, "policy block must be injected on promptless turns");
+	assert.match(result.systemPrompt, /Decision Table/);
+});
+
+test("before_agent_start WITH prompt: unchanged behavior (PR #64 guard is a no-op)", () => {
+	const hook = registerHook();
+	const result = hook({
+		systemPrompt: "BASE",
+		prompt: "autoteam refactor this",
+		systemPromptOptions: { cwd: "/tmp" },
+	});
+	assert.ok(result);
+	assert.match(result.systemPrompt, /pi-crew Delegation Policy/);
+	// intent detection still works on the real prompt (implementation hint)
+	assert.match(result.systemPrompt, /team='implementation'/);
 });
