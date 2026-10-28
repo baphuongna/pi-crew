@@ -380,7 +380,10 @@ describe("startChildBrokerClientAsync: default handshake transport is fd3 (never
 // resolves undefined (never throws — old-parent skew: gate flag set but no
 // 4th stdio entry), and a >64 KiB no-newline fd aborts undefined.
 
-describe("readFirstLineFromFd: fd mechanics (worker-side fd3 reader)", () => {
+// win32: readFirstLineFromFd short-circuits to undefined by design (the fd3
+// spawn pipe + fs fd-stream semantics are POSIX-only; brokered spawn is
+// auto-disabled on Windows anyway) — the fd PLUMBING subtests are POSIX-only.
+describe("readFirstLineFromFd: fd mechanics (worker-side fd3 reader)", { skip: process.platform === "win32" }, () => {
 	it("file-backed fd with a valid line → first line delivered, trailing bytes ignored", async () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fd3-read-"));
 		try {

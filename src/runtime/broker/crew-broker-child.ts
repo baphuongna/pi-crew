@@ -52,10 +52,10 @@ const NOOP_HANDLE: ChildBrokerClientHandle = {
 
 export function startChildBrokerClient(options: StartChildBrokerClientOptions = {}): ChildBrokerClientHandle {
 	const env = options.env ?? process.env;
-	const socketPath = env.PI_CREW_BROKER_SOCKET;
-	const token = env.PI_CREW_BROKER_TOKEN;
-	const runId = env.PI_CREW_BROKER_RUN_ID;
-	const taskId = env.PI_CREW_BROKER_TASK_ID;
+	const socketPath = getCrewEnv("PI_CREW_BROKER_SOCKET", env);
+	const token = getCrewEnv("PI_CREW_BROKER_TOKEN", env);
+	const runId = getCrewEnv("PI_CREW_BROKER_RUN_ID", env);
+	const taskId = getCrewEnv("PI_CREW_BROKER_TASK_ID", env);
 	if (!socketPath || !token || !runId || !taskId) {
 		return NOOP_HANDLE;
 	}
@@ -134,10 +134,17 @@ function argvIndicatesRpcMode(): boolean {
  * existing caller/test keeps its exact behavior. */
 export async function startChildBrokerClientAsync(options: StartChildBrokerClientOptions = {}): Promise<ChildBrokerClientHandle> {
 	let env = options.env ?? process.env;
-	const socketPath = env.PI_CREW_BROKER_SOCKET;
-	const runId = env.PI_CREW_BROKER_RUN_ID;
-	const taskId = env.PI_CREW_BROKER_TASK_ID;
-	if (socketPath && runId && taskId && !env.PI_CREW_BROKER_TOKEN && resolveBrokerStdinFallbackEnabled(env) && !argvIndicatesRpcMode()) {
+	const socketPath = getCrewEnv("PI_CREW_BROKER_SOCKET", env);
+	const runId = getCrewEnv("PI_CREW_BROKER_RUN_ID", env);
+	const taskId = getCrewEnv("PI_CREW_BROKER_TASK_ID", env);
+	if (
+		socketPath &&
+		runId &&
+		taskId &&
+		!getCrewEnv("PI_CREW_BROKER_TOKEN", env) &&
+		resolveBrokerStdinFallbackEnabled(env) &&
+		!argvIndicatesRpcMode()
+	) {
 		try {
 			const raw = await (options.readHandshakeLine ?? (() => readFirstLineFromFd(BROKER_HANDSHAKE_FD)))();
 			const payload = raw ? parseStdinBrokerPayload(raw, runId) : undefined;
