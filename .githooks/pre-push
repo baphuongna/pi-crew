@@ -51,6 +51,21 @@ if [ "$pushes_main" = "1" ]; then
 		echo "[pre-push]    Fix the failures above, or bypass with 'git push --no-verify' (CI still gates)."
 		exit 1
 	fi
+
+	# Pre-publish battery (2026-10-28, born from the v0.11.46/0.11.47
+	# silent-worker incident): the LIVE real-Pi gate. One command, tiers
+	# path-triggered from the diff (T1/T3/T11j always; T7 spawns a real
+	# pi -p fast-fix smoke when spawn-affecting paths changed). Evidence lands
+	# in .crew/audit/battery.jsonl. There is NO tier selection here on purpose —
+	# a gate the agent may choose to skip is a gate that will be skipped.
+	# No pi binary (CI-like hosts): PI_CREW_BATTERY_SKIP=1 records the skip in
+	# the audit trail; a silent skip fails.
+	echo "[pre-push] push to main: running the pre-publish battery (live real-Pi gate)…"
+	if ! node scripts/pre-publish-battery.mjs; then
+		echo "[pre-push] ✋ push blocked: pre-publish battery RED (see .crew/audit/battery.jsonl)."
+		echo "[pre-push]    Gate KHÔNG CHẠY = KHÔNG PUBLISH — fix, or bypass with 'git push --no-verify' (CI still gates) and record WHY."
+		exit 1
+	fi
 fi
 
 echo "[pre-push] gates green."

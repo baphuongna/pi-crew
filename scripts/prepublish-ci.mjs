@@ -131,12 +131,21 @@ export function runWithCleanEnv({ command, args = [], env = process.env, cwd = R
 }
 
 /**
- * Run `npm run ci` (overridable for tests) with the scrubbed environment.
+ * Run the pre-publish battery (live real-Pi gate — scripts/pre-publish-battery.mjs,
+ * wired here since the v0.11.46/0.11.47 silent-worker incident) and THEN
+ * `npm run ci` (overridable for tests), both with the scrubbed environment.
+ * Battery first: it fails in ~2-4 min (incl. the T7 live smoke) while the
+ * full CI gate takes ~15 — fail fast preserves the publisher's attention.
  *
  * @param {{ env?: NodeJS.ProcessEnv, npmArgs?: string[] }} [options]
  * @returns {Promise<number>} exit code to propagate to `npm publish`
  */
 export async function main({ env = process.env, npmArgs = ["run", "ci"] } = {}) {
+	const battery = await runWithCleanEnv({ command: process.execPath, args: [path.join(path.dirname(SELF), "pre-publish-battery.mjs")], env });
+	if (battery.code !== 0) {
+		console.error("prepublish-ci: pre-publish BATTERY RED — publish blocked before the CI gate ran.");
+		return battery.code;
+	}
 	const invocation = npmInvocation(env);
 	const { code } = await runWithCleanEnv({ command: invocation.command, args: [...invocation.args, ...npmArgs], env });
 	return code;
