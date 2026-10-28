@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 0.11.46/47 incident ROOT-CAUSED & CLOSED: fd0 handshake race, fd3 dedicated pipe (2026-10-28)
+## [0.11.49] — 0.11.46/47 incident ROOT-CAUSED & CLOSED: fd0 handshake race → fd3 dedicated pipe; T7 nonce binding; review fix wave (2026-10-28)
 
 **Root cause (dynamically confirmed 5/5 + on-disk leak proof).** pi's `readPipedStdin` (main.js:52-65) consumes ALL
 piped stdin as PROMPT CONTENT in every mode except `--mode rpc`. The v0.11.46 stdin handshake rode fd0 and raced it
@@ -23,7 +23,7 @@ warns >60 KiB). Worker-side fallback gate reads the RESOLVED env (`options.env ?
 identity reads; fd-mechanics tests skip on win32 (reader short-circuits there by design; brokered spawn is
 auto-disabled on Windows).
 
-## [Unreleased — earlier 2026-10-28] — cold-verified review fix wave: stdin-route dead-wire repair, T7 nonce binding, gate hardening (2026-10-28)
+### Also in this release (earlier 2026-10-28) — cold-verified review fix wave (2026-10-28)
 
 **Fixed (MAJOR) — the `PI_CREW_BROKER_STDIN=1` opt-in route was dead-wired end-to-end (review + 3-agent cold-verification, dynamically proven).**
 Two compounding defects: (1) the parent never re-wrote the flag into the child's `built.env` (registry kind `host-only` strips
