@@ -1,6 +1,8 @@
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as path from "node:path";
+import { loadConfig } from "../../config/config.ts";
+import { LIMIT_CEILINGS } from "../../config/config-validation.ts";
 import { DEFAULT_CACHE, DEFAULT_PATHS } from "../../config/defaults.ts";
 import { errors } from "../../errors.ts";
 import type { TeamConfig } from "../../teams/team-config.ts";
@@ -433,6 +435,24 @@ export function createTasksFromWorkflow(
 	});
 }
 
+/**
+ * Admission cap for {@link createRunManifest}: the effective
+ * `limits.maxTasksPerRun` from loaded config, falling back to the hard
+ * ceiling LIMIT_CEILINGS.maxTasksPerRun — no parsed config value can exceed
+ * the ceiling (config-validation clamps it), so a manifest beyond the ceiling
+ * is invalid regardless of config. Config-load failure degrades to the
+ * ceiling only (an admission check must never itself block run creation on a
+ * config read problem; loadConfig surfaces its own warnings separately).
+ */
+function resolveMaxTasksPerRunAdmissionCap(cwd: string): number {
+	try {
+		const configured = loadConfig(cwd).config.limits?.maxTasksPerRun;
+		return typeof configured === "number" && Number.isFinite(configured) ? configured : LIMIT_CEILINGS.maxTasksPerRun;
+	} catch {
+		return LIMIT_CEILINGS.maxTasksPerRun;
+	}
+}
+
 export function createRunManifest(params: {
 	cwd: string;
 	team: TeamConfig;
@@ -458,6 +478,20 @@ export function createRunManifest(params: {
 	const paths = createRunPaths(params.cwd, params.runId);
 	const now = (params.now ? params.now() : new Date()).toISOString();
 	const tasks = params.workflow ? createTasksFromWorkflow(paths.runId, params.workflow, params.team, params.cwd, params.goal) : [];
+	// Fix-wave C (2026-10-28): PRE-DISPATCH admission gate for
+	// limits.maxTasksPerRun. evaluateCrewPolicy only runs at finalize
+	// (finalize-run.ts), so an oversized manifest was previously fully
+	// DISPATCHED and only blocked after the run ended. createRunManifest is the
+	// single funnel where every normal run entry (team-tool run/parallel,
+	// goal-loop turns) materializes its task manifest BEFORE dispatch, so the
+	// cap is refused here — before any state directory or event is written.
+	// Mid-run dynamic task growth remains owned by the finalize-time policy.
+	const maxTasksPerRunCap = resolveMaxTasksPerRunAdmissionCap(params.cwd);
+	if (tasks.length > maxTasksPerRunCap) {
+		throw errors.config(
+			`Refusing to admit run '${params.workflow?.name ?? params.team.name}': manifest has ${tasks.length} tasks, exceeding limits.maxTasksPerRun=${maxTasksPerRunCap}. Reduce the task count or raise 'limits.maxTasksPerRun' in pi-crew config (hard ceiling ${LIMIT_CEILINGS.maxTasksPerRun}).`,
+		);
+	}
 	const manifest: TeamRunManifest = {
 		schemaVersion: CURRENT_SCHEMA_VERSION,
 		runId: paths.runId,

@@ -129,7 +129,7 @@ export async function startChildBrokerClientAsync(options: StartChildBrokerClien
 	const socketPath = env.PI_CREW_BROKER_SOCKET;
 	const runId = env.PI_CREW_BROKER_RUN_ID;
 	const taskId = env.PI_CREW_BROKER_TASK_ID;
-	if (socketPath && runId && taskId && !env.PI_CREW_BROKER_TOKEN && resolveBrokerStdinFallbackEnabled() && !argvIndicatesRpcMode()) {
+	if (socketPath && runId && taskId && !env.PI_CREW_BROKER_TOKEN && resolveBrokerStdinFallbackEnabled(env) && !argvIndicatesRpcMode()) {
 		try {
 			const raw = await (options.readStdinLine ?? readStdinFirstLine)();
 			const payload = raw ? parseStdinBrokerPayload(raw, runId) : undefined;
@@ -155,7 +155,12 @@ export async function startChildBrokerClientAsync(options: StartChildBrokerClien
  * BOTH sides into the stdin route — FIX-1 (2026-10-28): the spawner now
  * re-writes the flag into the child's built.env ("child-write" registry
  * kind), so an opt-in parent actually reaches this mirror gate (previously
- * the flag died with the ambient-env strip and this fallback was dead-wired). */
-function resolveBrokerStdinFallbackEnabled(): boolean {
-	return getCrewEnv("PI_CREW_BROKER_STDIN") === "1";
+ * the flag died with the ambient-env strip and this fallback was dead-wired).
+ * Seam (2026-10-28): the gate reads the RESOLVED env — the same source as
+ * the identity vars above (`options.env ?? process.env`, threaded through
+ * getCrewEnv's env param) — so spawn-env delivery (FIX-1 writes the flag
+ * into the child's built.env) is pinnable in tests via options.env without
+ * mutating process.env. */
+function resolveBrokerStdinFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+	return getCrewEnv("PI_CREW_BROKER_STDIN", env) === "1";
 }
