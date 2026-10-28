@@ -48,17 +48,22 @@ export const PI_CACHE_RETENTION_ENV = "PI_CACHE_RETENTION";
 
 /** LOW-1 residual closure (2026-10-27, DISABLED-DEFAULT 2026-10-28 v0.11.48):
  * when the inter-pi broker credentials are present, the per-task compound TOKEN
- * can travel over the spawn stdin pipe (one `buildBrokerStdinLine` payload,
- * heap → pipe → heap — same shape as the F4 background-runner handshake)
- * instead of the child env. **EXPERIMENTAL / OPT-IN since v0.11.48**: the
- * worker-side stdin reader path (startChildBrokerClientAsync →
- * readStdinFirstLine) was caught by the live battery (real-test-pi-crew T7)
- * making REAL headless JSON workers exit 0 silently with zero stdout — only
- * when the reader activates (env broker identity + no env token + gate ON).
- * Unit tests missed it because they inject the `readStdinLine` seam instead of
- * running process.stdin in a real pi process. Until that is root-caused, the
- * default is OFF (legacy env route, bit-for-bit pre-0.11.46 behavior); set
- * PI_CREW_BROKER_STDIN=1 to opt the parent into the stdin route.
+ * can travel over a DEDICATED fd3 spawn pipe (one `buildBrokerStdinLine`
+ * payload, heap → stdio[3] → heap — fd0 stays "ignore") instead of the child
+ * env. **EXPERIMENTAL / OPT-IN since v0.11.48**: the first attempt (v0.11.46/47)
+ * rode fd0 and was caught by the live battery (real-test-pi-crew T7) making
+ * REAL headless JSON workers exit 0 silently with zero stdout. Root cause
+ * (2026-10-28): pi@1.0.4 `readPipedStdin()` (dist/main.js:52-65) consumes ALL
+ * piped stdin as PROMPT CONTENT in every mode except --mode rpc — the fd0
+ * handshake raced it three ways (token JSON merged into the prompt = secret
+ * leak; stream-ended creds-less silence; reader pause() before EOF → pi's
+ * await readPipedStdin() deadlock → SIGTERM exit 0 with takeOverStdout
+ * buffering stdout to ~0 bytes). The fix moves the handshake to fd3
+ * (stdio entry 4); fd0 returns to "ignore" (pre-0.11.46 shape), killing every
+ * race ordering. Unit tests missed the original because they inject the
+ * `readHandshakeLine` seam instead of running the fd reader in a real pi
+ * process. The gate stays OPT-IN (legacy env route bit-for-bit pre-0.11.46);
+ * set PI_CREW_BROKER_STDIN=1 to opt the parent into the fd3 route.
  *
  * FIX-1 dead-wire repair (2026-10-28): when this gate is ON and broker
  * credentials exist, prepareSpawnContext (1) WRITES PI_CREW_BROKER_STDIN="1"
@@ -70,10 +75,10 @@ export const PI_CACHE_RETENTION_ENV = "PI_CACHE_RETENTION";
  * (2) puts the TOKEN in built.env for BOTH branches — the RPC branch (stdin
  * is the JSONL protocol channel) and surface TUI panes compose WITHOUT the
  * payload, so only that env write hands them the credential (a token in
- * their env also disarms the worker stdin fallback — safe by design).
+ * their env also disarms the worker fd3 fallback — safe by design).
  * Only the headless JSON branch composes WITH ctx.brokerStdinPayload, and
  * buildFinalChildPiSpawnOptions strips the token from the FINAL env there
- * (defense-in-depth) — on that branch alone the token rides the stdin pipe.
+ * (defense-in-depth) — on that branch alone the token rides the fd3 pipe.
  * Gate OFF: no flag, no payload, token via env — bit-for-bit legacy. */
 export function resolveBrokerStdinHandshakeEnabled(): boolean {
 	return getCrewEnv("PI_CREW_BROKER_STDIN") === "1";
@@ -323,15 +328,23 @@ export function buildFinalChildPiSpawnOptions(
 	if (workerCacheSplit) {
 		spawnOptions.env[PI_CACHE_RETENTION_ENV] = "short";
 	}
-	// (d) LOW-1 closure: when the caller will hand the broker token to the child
-	// over the stdin pipe (headless JSON branch — it passes the payload it got
-	// from prepareSpawnContext), switch stdin from "ignore" to "pipe" and strip
-	// the secret from the env as defense-in-depth (prepareSpawnContext already
-	// omits it; the delete guards direct builtEnv constructions in tests/callers
-	// that still carry it). RPC branch / surface workerEnv snapshots call
-	// WITHOUT this param → env keeps the token and nothing else changes.
+	// (d) LOW-1 closure → FD-3 (2026-10-28): when the caller will hand the
+	//     broker token to the headless JSON child over the DEDICATED fd3 pipe
+	//     (it passes the payload it got from prepareSpawnContext), add the 4th
+	//     stdio entry ("pipe") and strip the secret from the env as
+	//     defense-in-depth (prepareSpawnContext already omits it; the delete
+	//     guards direct builtEnv constructions in tests/callers that still
+	//     carry it). fd0 stays "ignore" — the pre-0.11.46 shape: pi@1.0.4
+	//     readPipedStdin (dist/main.js:52-65) consumes ALL piped fd0 bytes as
+	//     PROMPT CONTENT in every mode except --mode rpc, so the earlier fd0
+	//     handshake raced it three ways (token JSON merged into the prompt =
+	//     secret leak; creds-less silence; pause() → readPipedStdin deadlock →
+	//     SIGTERM exit 0 with ~0 stdout — the 0.11.46/47 live incident).
+	//     fd0=ignore kills every ordering: fd3 is a dedicated pipe pi never
+	//     touches. RPC branch / surface workerEnv snapshots call WITHOUT this
+	//     param → env keeps the token, 3-entry stdio, nothing else changes.
 	if (stdinBrokerPayload !== undefined) {
-		spawnOptions.stdio = ["pipe", "pipe", "pipe"];
+		spawnOptions.stdio = ["ignore", "pipe", "pipe", "pipe"];
 		delete spawnOptions.env.PI_CREW_BROKER_TOKEN;
 	}
 	// (e) Return the composed SpawnOptions for spawn(...).
@@ -358,12 +371,14 @@ export interface SpawnContext {
 	/** v0.11.31: inference-broker worker key that owns this spawn's token (cleanup/revoke bookkeeping). */
 	inferenceWorkerKey?: string;
 	/** LOW-1 closure: one-line broker credential payload to write to the
-	 * child's stdin right after spawn (headless JSON branch ONLY — the RPC
-	 * branch owns stdin for its JSONL protocol and surface panes are TTY).
-	 * Present ⇒ the headless compose strips PI_CREW_BROKER_TOKEN from the
-	 * FINAL child env (buildFinalChildPiSpawnOptions); builtEnv still carries
-	 * the token for the RPC/surface call sites, which compose WITHOUT this
-	 * payload and keep the env route. Undefined ⇒ env route everywhere. */
+	 * child's DEDICATED fd3 pipe (stdio entry 4) right after spawn — headless
+	 * JSON branch ONLY (the RPC branch owns stdin for its JSONL protocol and
+	 * surface panes are TTY; fd0 stays "ignore" for every branch). Present ⇒
+	 * the headless compose adds the 4th stdio entry and strips
+	 * PI_CREW_BROKER_TOKEN from the FINAL child env
+	 * (buildFinalChildPiSpawnOptions); builtEnv still carries the token for
+	 * the RPC/surface call sites, which compose WITHOUT this payload and keep
+	 * the env route. Undefined ⇒ env route everywhere, 3-entry stdio. */
 	brokerStdinPayload?: string;
 }
 
@@ -474,15 +489,16 @@ export function prepareSpawnContext(
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
 	// credentials for this run — i.e. the broker is enabled AND this run is
 	// eligible. NEVER persisted to disk.
-	// LOW-1 closure (OPT-IN since v0.11.48; FIX-1 dead-wire repair 2026-10-28):
-	// when PI_CREW_BROKER_STDIN=1 the headless JSON spawn branch delivers the
-	// token over the spawn stdin pipe as a single buildBrokerStdinLine payload
-	// (ctx.brokerStdinPayload) and buildFinalChildPiSpawnOptions strips it from
-	// the FINAL env there. The token still lands in built.env for every
-	// brokered spawn — the RPC/surface call sites compose without the payload
-	// and need the env credential. SOCKET/RUN_ID/TASK_ID stay in env
+	// LOW-1 closure (OPT-IN since v0.11.48; FIX-1 dead-wire repair 2026-10-28;
+	// FD-3 transport 2026-10-28): when PI_CREW_BROKER_STDIN=1 the headless
+	// JSON spawn branch delivers the token over a DEDICATED fd3 pipe (4th
+	// stdio entry; ctx.brokerStdinPayload — fd0 stays "ignore") as a single
+	// buildBrokerStdinLine payload, and buildFinalChildPiSpawnOptions strips
+	// it from the FINAL env there. The token still lands in built.env for
+	// every brokered spawn — the RPC/surface call sites compose without the
+	// payload and need the env credential. SOCKET/RUN_ID/TASK_ID stay in env
 	// (non-secret, needed by the worker bootstrap to bind and validate the
-	// stdin payload). Default (gate off) keeps the env route bit-for-bit.
+	// fd3 payload). Default (gate off) keeps the env route bit-for-bit.
 	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
 		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
 		const brokerStdinRoute = resolveBrokerStdinHandshakeEnabled();
@@ -498,10 +514,10 @@ export function prepareSpawnContext(
 		// branch (child-pi-rpc.ts) and surface TUI panes (child-pi.ts
 		// trySurfaceBranch) compose WITHOUT the payload — their stdin is the
 		// JSONL protocol channel / a TTY — so only this env write hands them the
-		// credential (a token in their env also disarms the worker stdin
-		// fallback — safe). The headless JSON branch composes WITH the payload
-		// below, and buildFinalChildPiSpawnOptions strips the token from the
-		// FINAL env there — on that branch alone the token rides the stdin pipe.
+		// credential (a token in their env also disarms the worker fd3 fallback
+		// — safe). The headless JSON branch composes WITH the payload below, and
+		// buildFinalChildPiSpawnOptions strips the token from the FINAL env
+		// there — on that branch alone the token rides the fd3 pipe.
 		built.env.PI_CREW_BROKER_TOKEN = input.brokerSpawn.token;
 		if (brokerStdinRoute && input.runId && input.agentId) {
 			brokerStdinPayload = buildBrokerStdinLine(input.runId, input.brokerSpawn.socketPath, {

@@ -3,26 +3,30 @@
  * OPT-IN since v0.11.48 after the live battery caught the reader path killing
  * real headless workers — see resolveBrokerStdinHandshakeEnabled doc block).
  *
- * Pins the spawn side of the stdin broker-credential handshake on the MAIN
- * worker spawn path (mirror of the F4 background-runner handshake):
+ * Pins the spawn side of the FD-3 broker-credential handshake on the MAIN
+ * worker spawn path (dedicated stdio[3] pipe — NOT fd0):
  *
- *   1. Gate is OPT-IN: PI_CREW_BROKER_STDIN exactly '1' enables the stdin
+ *   1. Gate is OPT-IN: PI_CREW_BROKER_STDIN exactly '1' enables the fd3
  *      route; unset/'0'/anything else keeps the legacy env route (default).
  *   2. Opt-in gate PI_CREW_BROKER_STDIN=1: prepareSpawnContext writes the
  *      flag "1" + SOCKET/RUN_ID/TASK_ID + TOKEN into built.env (FIX-1
  *      2026-10-28: RPC/surface call sites compose WITHOUT the payload, so the
  *      env write is their only credential) AND binds ctx.brokerStdinPayload
  *      (one buildBrokerStdinLine v2 line); buildFinalChildPiSpawnOptions
- *      (payload) switches stdin to "pipe" + strips the token from the FINAL
- *      child env (defense-in-depth).
+ *      (payload) composes stdio = ["ignore","pipe","pipe","pipe"] — fd0 back
+ *      to the pre-0.11.46 "ignore" shape (pi@1.0.4 readPipedStdin consumed
+ *      ALL piped fd0 as PROMPT CONTENT — the 0.11.46/47 silent-death root
+ *      cause) + a DEDICATED fd3 pipe for the payload — and strips the token
+ *      from the FINAL child env (defense-in-depth).
  *   3. Default (unset) and explicit '0': token back in built.env, no
- *      payload, stdin stays "ignore" — bit-for-bit legacy behavior.
+ *      payload, 3-entry stdio with fd0 "ignore" — bit-for-bit legacy.
  *   4. No brokerSpawn / identity-less brokerSpawn (no runId+agentId to bind
  *      the payload) → legacy env route.
  *   5. FIX-1 env matrix (composed-path, per branch): gate ON + headless
- *      compose = flag "1" + token ABSENT + stdin pipe; gate ON + RPC/surface
- *      compose (no payload) = flag "1" + token PRESENT; gate OFF = flag
- *      absent + token present + no payload (bit-for-bit legacy).
+ *      compose = flag "1" + token ABSENT + 4-entry stdio (fd3 pipe); gate ON
+ *      + RPC/surface compose (no payload) = flag "1" + token PRESENT +
+ *      3-entry stdio; gate OFF = flag absent + token present + no payload
+ *      (bit-for-bit legacy).
  *
  * Pure-function tests: prepareSpawnContext does NOT spawn — fast + hermetic.
  * The writer format is pinned against the reader parser via
@@ -169,7 +173,7 @@ describe("prepareSpawnContext: stdin handshake opt-in (gate=1)", () => {
 		});
 	});
 
-	it("buildFinalChildPiSpawnOptions(payload): stdin pipes + token stripped even when builtEnv sneaks one in", () => {
+	it("buildFinalChildPiSpawnOptions(payload): fd3 pipe composed + token stripped even when builtEnv sneaks one in", () => {
 		withGate("1", () => {
 			const { ctx, dir } = prepWithBroker();
 			try {
@@ -183,9 +187,14 @@ describe("prepareSpawnContext: stdin handshake opt-in (gate=1)", () => {
 					ctx.brokerStdinPayload,
 				);
 				const stdio = spawnOptions.stdio as string[];
-				assert.equal(stdio[0], "pipe", "stdin must be a pipe when the payload is delivered via stdin");
+				// FD-3 (2026-10-28): fd0 returns to "ignore" (pre-0.11.46 shape) so
+				// pi@1.0.4 readPipedStdin can never race/merge the payload into the
+				// prompt — the payload travels on the DEDICATED 4th stdio entry.
+				assert.equal(stdio.length, 4, "payload route composes a 4-entry stdio table");
+				assert.equal(stdio[0], "ignore", "fd0 must be ignore — fd0 belongs to pi (readPipedStdin), never the handshake");
 				assert.equal(stdio[1], "pipe");
 				assert.equal(stdio[2], "pipe");
+				assert.equal(stdio[3], "pipe", "fd3 is the dedicated handshake pipe");
 				const env = spawnOptions.env as Record<string, string | undefined>;
 				assert.equal(env.PI_CREW_BROKER_TOKEN, undefined, "defense-in-depth: token never reaches the child env");
 				assert.equal(
@@ -206,15 +215,16 @@ describe("prepareSpawnContext: stdin handshake opt-in (gate=1)", () => {
 // ── Rollback route: gate=0 keeps the legacy env behavior bit-for-bit ────
 
 describe("prepareSpawnContext: DEFAULT route (gate unset) keeps the legacy env behavior bit-for-bit", () => {
-	it("token stays in built.env, NO payload, spawnOptions keep stdin=ignore + env token", () => {
+	it("token stays in built.env, NO payload, spawnOptions keep 3-entry stdio (fd0 ignore) + env token", () => {
 		withGate(undefined, () => {
 			const { ctx, dir } = prepWithBroker();
 			try {
 				assert.equal(ctx.builtEnv.PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token, "default legacy route: token via env");
-				assert.equal(ctx.brokerStdinPayload, undefined, "default legacy route: no stdin payload");
+				assert.equal(ctx.brokerStdinPayload, undefined, "default legacy route: no fd3 payload");
 				const spawnOptions = buildFinalChildPiSpawnOptions(dir, ctx.mergedEnv, ctx.builtEnv, undefined, undefined, true);
 				const stdio = spawnOptions.stdio as string[];
-				assert.equal(stdio[0], "ignore", "default legacy route: stdin stays ignore");
+				assert.equal(stdio.length, 3, "legacy route must NOT add the 4th stdio entry");
+				assert.equal(stdio[0], "ignore", "default legacy route: fd0 stays ignore");
 				assert.equal((spawnOptions.env as Record<string, string | undefined>).PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token);
 			} finally {
 				fs.rmSync(dir, { recursive: true, force: true });
@@ -287,7 +297,7 @@ describe("prepareSpawnContext: identity-less brokerSpawn cannot bind a payload",
 // Gate OFF must stay bit-for-bit legacy: no flag, no payload, token in env.
 
 describe("FIX-1 env matrix: composed spawn options per branch", () => {
-	it("gate ON + headless-JSON compose (with payload): flag '1', token ABSENT, stdin=pipe", () => {
+	it("gate ON + headless-JSON compose (with payload): flag '1', token ABSENT, 4-entry stdio (fd0 ignore, fd3 pipe)", () => {
 		withGate("1", () => {
 			const { ctx, dir } = prepWithBroker();
 			try {
@@ -303,9 +313,12 @@ describe("FIX-1 env matrix: composed spawn options per branch", () => {
 				);
 				const env = spawnOptions.env as Record<string, string | undefined>;
 				assert.equal(env.PI_CREW_BROKER_STDIN, "1");
-				assert.equal(env.PI_CREW_BROKER_TOKEN, undefined, "token rides the stdin pipe, not env");
+				assert.equal(env.PI_CREW_BROKER_TOKEN, undefined, "token rides the fd3 pipe, not env");
 				assert.equal(env.PI_CREW_BROKER_SOCKET, BROKER_SPAWN.socketPath);
-				assert.equal((spawnOptions.stdio as string[])[0], "pipe");
+				const stdio = spawnOptions.stdio as string[];
+				assert.equal(stdio.length, 4);
+				assert.equal(stdio[0], "ignore", "fd0 stays ignore — pi owns fd0 (readPipedStdin)");
+				assert.equal(stdio[3], "pipe", "payload target is stdio[3], NOT stdin");
 			} finally {
 				fs.rmSync(dir, { recursive: true, force: true });
 			}

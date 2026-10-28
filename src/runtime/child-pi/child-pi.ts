@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { Writable } from "node:stream";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { loadConfig } from "../../config/config.ts";
 import type { PiTeamsConfig } from "../../config/types.ts";
@@ -280,13 +281,15 @@ export interface ChildPiRunInput {
 	 * in the parent's in-memory `Map<runId, token>` and in the child's env.
 	 * NEVER persisted to manifest, events, mailbox, or any run-dir file.
 	 *
-	 * OPT-IN stdin route (PI_CREW_BROKER_STDIN=1, FIX-1 2026-10-28): the token
+	 * OPT-IN fd3 route (PI_CREW_BROKER_STDIN=1, FIX-1 2026-10-28): the token
 	 * is still written into built.env for every brokered spawn — RPC/surface
 	 * branches compose WITHOUT the payload and need the env credential, but
 	 * the headless JSON branch composes WITH ctx.brokerStdinPayload and
 	 * `buildFinalChildPiSpawnOptions` strips the token from the FINAL child
-	 * env there — on that branch alone the token rides the spawn stdin pipe
-	 * (heap → pipe → heap) instead.
+	 * env there — on that branch alone the token rides the DEDICATED fd3 pipe
+	 * (stdio entry 4; heap → fd3 → heap) instead. fd0 stays "ignore"
+	 * (pre-0.11.46 shape) so pi@1.0.4 readPipedStdin can never race or merge
+	 * the credential into the worker prompt.
 	 */
 	brokerSpawn?: { socketPath: string; token: string };
 	/**
@@ -860,9 +863,10 @@ async function runChildPiInner(input: ChildPiRunInput): Promise<ChildPiRunResult
 			// R6-8: modelChain threads the candidate chain for provider-key scoping.
 			// v0.11.38 W10-1: workerCacheSplit — headless single-run workers opt into
 			// short prompt-cache retention (see PI_CACHE_RETENTION_ENV).
-			// LOW-1 closure: ctx.brokerStdinPayload (when present) switches stdin to
-			// "pipe" + strips PI_CREW_BROKER_TOKEN from the child env — the token
-			// travels over the stdin pipe right after spawn instead (heap → pipe → heap).
+			// LOW-1 closure → FD-3: ctx.brokerStdinPayload (when present) adds the
+			// DEDICATED fd3 pipe (4th stdio entry; fd0 stays "ignore") + strips
+			// PI_CREW_BROKER_TOKEN from the child env — the token travels over
+			// stdio[3] right after spawn instead (heap → fd3 → heap).
 			const spawnOptions = buildFinalChildPiSpawnOptions(
 				input.cwd,
 				mergedEnv,
@@ -928,22 +932,29 @@ async function runChildPiInner(input: ChildPiRunInput): Promise<ChildPiRunResult
 					ts: new Date().toISOString(),
 				});
 			}
-			// LOW-1 closure: hand the worker its broker credential over stdin — one
-			// buildBrokerStdinLine JSON line (v2, per-task compound token), then close
-			// the pipe. Mirror of the F4 async-runner handshake; the worker-side
-			// reader (crew-broker-child.ts via stdin-handshake.readStdinFirstLine)
-			// binds it by runId + taskId. Best-effort in BOTH directions: any write
-			// failure (EPIPE on a fast-exiting child, destroyed stream) leaves the
-			// worker creds-less exactly like a broker-less spawn — never throws out
-			// of the spawn path.
+			// LOW-1 closure → FD-3 (2026-10-28): hand the worker its broker
+			// credential over the DEDICATED fd3 pipe (stdio[3]) — one
+			// buildBrokerStdinLine JSON line (v2, per-task compound token), then
+			// close our write end. fd0 is "ignore" (pre-0.11.46 shape): pi@1.0.4
+			// readPipedStdin consumes ALL piped fd0 bytes as PROMPT CONTENT in
+			// every mode except --mode rpc, so the earlier fd0 handshake raced it
+			// three ways (token JSON leaked into the prompt / creds-less silence /
+			// pause() deadlock → SIGTERM exit 0 with ~0 stdout — the 0.11.46/47
+			// live incident). The worker-side reader (crew-broker-child.ts via
+			// stdin-handshake.readFirstLineFromFd) binds the payload by runId +
+			// taskId. Best-effort in BOTH directions: any write failure (EPIPE on
+			// a fast-exiting child, destroyed stream, missing stdio[3] entry)
+			// leaves the worker creds-less exactly like a broker-less spawn —
+			// never throws out of the spawn path.
 			if (spawnPrep.ctx.brokerStdinPayload) {
+				const fd3 = child.stdio[3] as Writable | null | undefined;
 				try {
-					child.stdin?.write(spawnPrep.ctx.brokerStdinPayload);
+					fd3?.write(spawnPrep.ctx.brokerStdinPayload);
 				} catch {
 					/* best-effort: worker proceeds creds-less */
 				}
 				try {
-					child.stdin?.end();
+					fd3?.end();
 				} catch {
 					/* EPIPE: child already died — spawn error handling owns that */
 				}

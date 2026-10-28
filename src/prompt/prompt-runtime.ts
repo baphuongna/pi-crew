@@ -1191,10 +1191,11 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 	// deliver pushed steers with the SAME sanitize + pi.sendMessage path as the
 	// file poll above. The file poll remains the durable fallback; a broker
 	// connect failure is invisible to the worker.
-	// LOW-1 closure: the registration hook is SYNC, but the credential source
-	// may now be the spawn stdin pipe (one buildBrokerStdinLine line) — resolve
+	// LOW-1 closure → FD-3: the registration hook is SYNC, but the credential
+	// source may now be the DEDICATED fd3 spawn pipe (one buildBrokerStdinLine
+	// line — fd0 stays "ignore"; pi@1.0.4 readPipedStdin owns fd0) — resolve
 	// the async bootstrap into a placeholder handle and swap it in when ready.
-	// A session_shutdown racing the (bounded ≤2s) stdin read closes whichever
+	// A session_shutdown racing the (bounded ≤2s) fd3 read closes whichever
 	// handle is live at that moment, and the late arrival closes itself.
 	let brokerHandle: ChildBrokerClientHandle = { active: false, close: async () => undefined };
 	let brokerShutdownSeen = false;

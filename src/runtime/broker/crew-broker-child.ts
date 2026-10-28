@@ -17,7 +17,7 @@
 import type * as net from "node:net";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { type BrokerEventFrame, CrewBrokerClient, type CrewBrokerClientOptions } from "./crew-broker-client.ts";
-import { parseStdinBrokerPayload, readStdinFirstLine } from "./stdin-handshake.ts";
+import { BROKER_HANDSHAKE_FD, parseStdinBrokerPayload, readFirstLineFromFd } from "./stdin-handshake.ts";
 
 export interface ChildBrokerClientHandle {
 	/** True once the client has completed the handshake. */
@@ -39,9 +39,10 @@ export interface StartChildBrokerClientOptions {
 	netModule?: typeof net;
 	/** Test seam: override client construction. */
 	clientFactory?: (opts: CrewBrokerClientOptions) => CrewBrokerClient;
-	/** Test seam: override the stdin first-line read for the LOW-1 fallback
-	 *  (defaults to stdin-handshake.readStdinFirstLine on real process.stdin). */
-	readStdinLine?: () => Promise<string | undefined>;
+	/** Test seam: override the handshake first-line read for the LOW-1 fd3
+	 *  fallback (defaults to stdin-handshake.readFirstLineFromFd(3) on the
+	 *  dedicated spawn stdio pipe — NOT fd0, which pi owns for its prompt). */
+	readHandshakeLine?: () => Promise<string | undefined>;
 }
 
 const NOOP_HANDLE: ChildBrokerClientHandle = {
@@ -108,20 +109,27 @@ function argvIndicatesRpcMode(): boolean {
 /** LOW-1 residual closure (2026-10-27): async wrapper used by the worker
  * bootstrap (prompt-runtime Feature 2b). Identical contract to
  * {@link startChildBrokerClient}, plus: when the env token is ABSENT but the
- * socket/run/task identity env IS present (opt-in parent on the stdin route —
+ * socket/run/task identity env IS present (opt-in parent on the fd3 route —
  * FIX-1 re-writes the flag into the child's built.env, without which this
  * fallback was dead-wired), read the single buildBrokerStdinLine payload off
- * stdin (bounded, never throws) and merge the per-task token into a COPY of
- * the env before connecting. Ordering matrix (post FIX-1, 2026-10-28 — the
- * gate is OPT-IN and the spawner writes flag + token into built.env for every
- * brokered spawn; only the headless JSON compose strips the token):
+ * the DEDICATED fd3 handshake pipe (bounded, never throws) and merge the
+ * per-task token into a COPY of the env before connecting. FD-3
+ * (2026-10-28, root-cause fix): pi@1.0.4 readPipedStdin consumes ALL piped
+ * fd0 bytes as PROMPT CONTENT in every mode except --mode rpc — the old
+ * fd0 handshake raced it three ways (token JSON leaked into the worker
+ * prompt; creds-less silence; pause() deadlock → SIGTERM exit 0 with ~0
+ * stdout — the 0.11.46/47 live incident), so the spawner now writes the
+ * payload to a dedicated stdio[3] pipe and this reader reads fd 3, never
+ * fd0. Ordering matrix (post FIX-1, 2026-10-28 — the gate is OPT-IN and the
+ * spawner writes flag + token into built.env for every brokered spawn; only
+ * the headless JSON compose strips the token):
  *   - opt-in parent (PI_CREW_BROKER_STDIN=1) + headless JSON worker → flag
- *     set, token ABSENT from env → token via stdin (env stays secret-free);
+ *     set, token ABSENT from env → token via fd3 (env stays secret-free);
  *   - opt-in parent + RPC / surface worker → flag set, token PRESENT in env
- *     → env route, stdin untouched (their stdin is the protocol channel/TTY);
+ *     → env route, fd3 untouched (their stdin is the protocol channel/TTY);
  *   - legacy parent (gate off/unset) → env token present → env route;
- *   - payload missing/invalid/wrong-run/socket-mismatch → creds-less no-op
- *     handle (same as today), never a throw.
+ *   - payload missing/invalid/wrong-run/socket-mismatch/unreadable fd3 →
+ *     creds-less no-op handle (same as today), never a throw.
  * The sync {@link startChildBrokerClient} stays untouched (env-only) so every
  * existing caller/test keeps its exact behavior. */
 export async function startChildBrokerClientAsync(options: StartChildBrokerClientOptions = {}): Promise<ChildBrokerClientHandle> {
@@ -131,7 +139,7 @@ export async function startChildBrokerClientAsync(options: StartChildBrokerClien
 	const taskId = env.PI_CREW_BROKER_TASK_ID;
 	if (socketPath && runId && taskId && !env.PI_CREW_BROKER_TOKEN && resolveBrokerStdinFallbackEnabled(env) && !argvIndicatesRpcMode()) {
 		try {
-			const raw = await (options.readStdinLine ?? readStdinFirstLine)();
+			const raw = await (options.readHandshakeLine ?? (() => readFirstLineFromFd(BROKER_HANDSHAKE_FD)))();
 			const payload = raw ? parseStdinBrokerPayload(raw, runId) : undefined;
 			// socketPath cross-check: the payload must describe the SAME socket the
 			// parent announced via env (both are parent-controlled, but a mismatch

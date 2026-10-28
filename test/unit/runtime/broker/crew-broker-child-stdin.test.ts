@@ -1,22 +1,37 @@
 /**
  * crew-broker-child-stdin.test.ts — LOW-1 residual closure (2026-10-27),
- * worker side: startChildBrokerClientAsync's stdin fallback.
+ * worker side: startChildBrokerClientAsync's fd3 fallback.
+ *
+ * FD-3 TRANSPORT (2026-10-28, root-cause fix): the fallback no longer reads
+ * fd0 — pi@1.0.4 readPipedStdin consumes ALL piped fd0 bytes as PROMPT
+ * CONTENT in every mode except --mode rpc, so the fd0 handshake raced it
+ * three ways (token JSON leaked into the prompt = ordering-2 secret leak;
+ * stream-ended creds-less silence; pause() → readPipedStdin deadlock →
+ * SIGTERM exit 0 with ~0 stdout = ordering-3, the 0.11.46/47 live
+ * incident). The default reader is now stdin-handshake.readFirstLineFromFd(3)
+ * on the DEDICATED spawn stdio pipe (child-pi-spawn composes a 4-entry
+ * stdio table; fd0 stays "ignore").
  *
  * Matrix pinned here (backward-compat both directions):
  *   1. NEW parent → NEW worker: env has SOCKET/RUN_ID/TASK_ID but NO token
- *      → the single buildBrokerStdinLine payload is read off stdin, validated
+ *      → the single buildBrokerStdinLine payload is read off fd3, validated
  *      against runId + socketPath, and the per-task token reaches the client.
- *   2. OLD parent → NEW worker: env token present → stdin NEVER read (even
+ *   2. OLD parent → NEW worker: env token present → fd3 never read (even
  *      when the gate flag is '1' — the env token always wins).
  *   3. Gate is OPT-IN since v0.11.48: PI_CREW_BROKER_STDIN unset (default)
- *      or '0' → the stdin fallback never activates (env route is the default
+ *      or '0' → the fd3 fallback never activates (env route is the default
  *      again; '1' opts in).
  *   4. Garbage / wrong-run / socket-mismatch / missing-task payloads and a
- *      silent stdin → creds-less NOOP handle, never a throw, caller env never
+ *      silent fd3 → creds-less NOOP handle, never a throw, caller env never
  *      mutated.
- *   5. RPC-mode argv guard: `--mode rpc` in process.argv → stdin never read
- *      (stdin is the JSONL protocol channel there).
- *   6. No broker identity env at all → NOOP without touching stdin.
+ *   5. RPC-mode argv guard: `--mode rpc` in process.argv → fd3 never read
+ *      (stdin is the JSONL protocol channel there; the RPC branch keeps the
+ *      env-token route).
+ *   6. No broker identity env at all → NOOP without touching any fd.
+ *   7. DEFAULT SEAM: without readHandshakeLine injected, the fallback reads
+ *      fd 3 — NEVER process.stdin (fd0). With no fd3 pipe in this test
+ *      process the read resolves undefined and the worker degrades
+ *      creds-less; process.stdin is pinned untouched.
  *
  * Seam (2026-10-28): the gate reads the RESOLVED env (options.env ??
  * process.env) — the same source as the identity vars — so every gate case
@@ -24,21 +39,31 @@
  * delivery shape FIX-1 wires (the spawner re-writes the flag into the
  * child's built.env), and it makes the tests immune to ambient worker-env
  * noise. ONE ambient-compat test mutates process.env to pin the
- * no-options.env branch. Reader-size cases near the 64 KiB abort boundary of
- * readStdinFirstLine live here too — the writer-side >60 KiB LOUD warn is
- * pinned in stdin-broker-handshake.test.ts (FIX-3) and is NOT duplicated.
+ * no-options.env branch. Reader-boundary cases near the 64 KiB abort
+ * boundary of readStdinFirstLine live here too — the writer-side >60 KiB
+ * LOUD warn is pinned in stdin-broker-handshake.test.ts (FIX-3) and is NOT
+ * duplicated.
  *
- * All fallback tests inject the stdin line via the readStdinLine seam; the
- * reader-boundary tests swap process.stdin for a fake (descriptor restored in
- * finally) — no real process.stdin is ever consumed.
+ * All fallback tests inject the fd3 line via the readHandshakeLine seam; the
+ * reader-boundary tests swap process.stdin for a fake (descriptor restored
+ * in finally) — no real process.stdin is ever consumed.
  */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, it } from "node:test";
 
 import { startChildBrokerClient, startChildBrokerClientAsync } from "../../../../src/runtime/broker/crew-broker-child.ts";
 import type { CrewBrokerClient, CrewBrokerClientOptions } from "../../../../src/runtime/broker/crew-broker-client.ts";
-import { buildBrokerStdinLine, parseStdinBrokerPayload, readStdinFirstLine } from "../../../../src/runtime/broker/stdin-handshake.ts";
+import {
+	BROKER_HANDSHAKE_FD,
+	buildBrokerStdinLine,
+	parseStdinBrokerPayload,
+	readFirstLineFromFd,
+	readStdinFirstLine,
+} from "../../../../src/runtime/broker/stdin-handshake.ts";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────
 
@@ -113,7 +138,7 @@ describe("startChildBrokerClientAsync: stdin fallback (env token absent)", () =>
 		let stdinReads = 0;
 		const handle = await startChildBrokerClientAsync({
 			env: { ...GATED_IDENTITY_ENV },
-			readStdinLine: async () => {
+			readHandshakeLine: async () => {
 				stdinReads++;
 				return buildBrokerStdinLine(RUN, SOCKET, { [TASK]: TOKEN });
 			},
@@ -133,7 +158,7 @@ describe("startChildBrokerClientAsync: stdin fallback (env token absent)", () =>
 		const callerEnv = { ...GATED_IDENTITY_ENV };
 		await startChildBrokerClientAsync({
 			env: callerEnv,
-			readStdinLine: async () => buildBrokerStdinLine(RUN, SOCKET, { [TASK]: TOKEN }),
+			readHandshakeLine: async () => buildBrokerStdinLine(RUN, SOCKET, { [TASK]: TOKEN }),
 			clientFactory: captureFactory([]),
 		});
 		assert.equal(callerEnv.PI_CREW_BROKER_TOKEN, undefined, "caller env must stay token-free");
@@ -147,7 +172,7 @@ describe("startChildBrokerClientAsync: env token wins, stdin untouched", () => {
 		const captured: CrewBrokerClientOptions[] = [];
 		const handle = await startChildBrokerClientAsync({
 			env: { ...IDENTITY_ENV, PI_CREW_BROKER_STDIN: "1", PI_CREW_BROKER_TOKEN: "legacy-env-token" },
-			readStdinLine: async () => {
+			readHandshakeLine: async () => {
 				throw new Error("stdin must NOT be read when the env token is present");
 			},
 			clientFactory: captureFactory(captured),
@@ -159,7 +184,7 @@ describe("startChildBrokerClientAsync: env token wins, stdin untouched", () => {
 	it("gate '0' via options.env + missing env token → stdin fallback disabled (creds-less)", async () => {
 		const handle = await startChildBrokerClientAsync({
 			env: { ...IDENTITY_ENV, PI_CREW_BROKER_STDIN: "0" },
-			readStdinLine: async () => {
+			readHandshakeLine: async () => {
 				throw new Error("gate=0 must disable the stdin fallback");
 			},
 			clientFactory: captureFactory([]),
@@ -187,7 +212,7 @@ describe("startChildBrokerClientAsync: invalid payloads fall back creds-less", (
 			const captured: CrewBrokerClientOptions[] = [];
 			const handle = await startChildBrokerClientAsync({
 				env: { ...GATED_IDENTITY_ENV },
-				readStdinLine: async () => line,
+				readHandshakeLine: async () => line,
 				clientFactory: captureFactory(captured),
 			});
 			assert.equal(captured.length, 0, "no client without a token");
@@ -199,7 +224,7 @@ describe("startChildBrokerClientAsync: invalid payloads fall back creds-less", (
 	it("gate DEFAULT (unset in the injected env) since v0.11.48 + missing env token → stdin fallback disabled (creds-less)", async () => {
 		const handle = await startChildBrokerClientAsync({
 			env: { ...IDENTITY_ENV }, // gate key entirely absent → opt-out default
-			readStdinLine: async () => {
+			readHandshakeLine: async () => {
 				throw new Error("unset gate must disable the stdin fallback");
 			},
 			clientFactory: captureFactory([]),
@@ -232,7 +257,7 @@ describe("startChildBrokerClientAsync: ambient compat (no options.env → gate r
 			const captured: CrewBrokerClientOptions[] = [];
 			let stdinReads = 0;
 			const handle = await startChildBrokerClientAsync({
-				readStdinLine: async () => {
+				readHandshakeLine: async () => {
 					stdinReads++;
 					return buildBrokerStdinLine(RUN, SOCKET, { [TASK]: TOKEN });
 				},
@@ -255,7 +280,7 @@ describe("startChildBrokerClientAsync: stdin-safety guards", () => {
 		try {
 			const handle = await startChildBrokerClientAsync({
 				env: { ...GATED_IDENTITY_ENV },
-				readStdinLine: async () => {
+				readHandshakeLine: async () => {
 					throw new Error("RPC-mode workers own stdin — must never read it");
 				},
 				clientFactory: captureFactory([]),
@@ -277,7 +302,7 @@ describe("startChildBrokerClientAsync: stdin-safety guards", () => {
 		try {
 			const handle = await startChildBrokerClientAsync({
 				env: { ...GATED_IDENTITY_ENV },
-				readStdinLine: async () => {
+				readHandshakeLine: async () => {
 					throw new Error("equals-form --mode=rpc must be detected as RPC mode — stdin must never be read");
 				},
 				clientFactory: captureFactory([]),
@@ -292,13 +317,134 @@ describe("startChildBrokerClientAsync: stdin-safety guards", () => {
 	it("no broker identity env at all (gate ON) → NOOP without reading stdin", async () => {
 		const handle = await startChildBrokerClientAsync({
 			env: { PI_CREW_BROKER_STDIN: "1" }, // gate on, but zero identity → nothing to bind
-			readStdinLine: async () => {
+			readHandshakeLine: async () => {
 				throw new Error("no identity env → nothing to bind, stdin must not be read");
 			},
 			clientFactory: captureFactory([]),
 		});
 		assert.equal(handle.active, false);
 		await handle.close();
+	});
+});
+
+// ── 6b. DEFAULT SEAM: fd3, never fd0 ────────────────────────────────────
+//
+// Without the readHandshakeLine seam, the fallback must read fd 3 (the
+// dedicated spawn stdio pipe) — NEVER process.stdin/fd0: pi@1.0.4
+// readPipedStdin owns fd0 and consumed ALL piped stdin as PROMPT CONTENT
+// (the 0.11.46/47 silent-death + token-leak root cause). In this test
+// process there is no fd3 spawn pipe, so the bounded reader resolves
+// undefined and the handle degrades creds-less — process.stdin untouched.
+
+describe("startChildBrokerClientAsync: default handshake transport is fd3 (never fd0)", () => {
+	it("no seam + gate '1' + identity + no env token → bounded fd3 read, creds-less NOOP here, process.stdin untouched", async () => {
+		// A stdin stand-in that FAILS the test if anything subscribes to it.
+		const tripwire = {
+			isTTY: false,
+			destroyed: false,
+			readable: true,
+			on: (event: string): void => {
+				throw new Error(`fd0 must never be read by the fd3 fallback (got process.stdin on('${event}'))`);
+			},
+			removeListener: (): void => undefined,
+			pause: (): void => undefined,
+		};
+		const desc = Object.getOwnPropertyDescriptor(process, "stdin");
+		if (!desc) throw new Error("process.stdin descriptor missing — cannot install the tripwire");
+		Object.defineProperty(process, "stdin", { value: tripwire, writable: true, enumerable: desc.enumerable, configurable: true });
+		try {
+			const captured: CrewBrokerClientOptions[] = [];
+			const handle = await startChildBrokerClientAsync({
+				env: { ...GATED_IDENTITY_ENV },
+				clientFactory: captureFactory(captured),
+			});
+			assert.equal(captured.length, 0, "no fd3 pipe in this process → creds-less NOOP, never a throw");
+			assert.equal(handle.active, false);
+			await handle.close();
+		} finally {
+			Object.defineProperty(process, "stdin", desc);
+		}
+	});
+
+	it("BROKER_HANDSHAKE_FD is 3 (spawn stdio entry 4 — the compose contract child-pi-spawn pins)", () => {
+		assert.equal(BROKER_HANDSHAKE_FD, 3);
+	});
+});
+
+// ── 6c. readFirstLineFromFd: fd mechanics (file-backed fds) ─────────────
+//
+// The newline/oversize/timeout logic is the shared readFirstLineFromStream
+// core already pinned by the readStdinFirstLine boundary tests below; these
+// pin the fd PLUMBING: a real fd delivers the first line (exactly like the
+// fd3 spawn pipe), an empty EOF fd resolves undefined fast, a CLOSED fd
+// resolves undefined (never throws — old-parent skew: gate flag set but no
+// 4th stdio entry), and a >64 KiB no-newline fd aborts undefined.
+
+describe("readFirstLineFromFd: fd mechanics (worker-side fd3 reader)", () => {
+	it("file-backed fd with a valid line → first line delivered, trailing bytes ignored", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fd3-read-"));
+		try {
+			const file = path.join(dir, "payload.txt");
+			fs.writeFileSync(file, `${buildBrokerStdinLine(RUN, SOCKET, { [TASK]: TOKEN })}TRAILING-GARBAGE-AFTER-FIRST-LINE\n`);
+			const fd = fs.openSync(file, "r");
+			try {
+				const raw = await readFirstLineFromFd(fd, 1000);
+				const parsed = raw ? parseStdinBrokerPayload(raw, RUN) : undefined;
+				assert.ok(parsed, "file-backed fd must deliver the full first line");
+				assert.equal(parsed!.tasks[TASK], TOKEN);
+			} finally {
+				fs.closeSync(fd);
+			}
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("empty EOF fd → undefined (creds-less downstream), fast — no timeout wait", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fd3-read-"));
+		try {
+			const file = path.join(dir, "empty.txt");
+			fs.writeFileSync(file, "");
+			const fd = fs.openSync(file, "r");
+			const t0 = Date.now();
+			try {
+				assert.equal(await readFirstLineFromFd(fd, 1000), undefined);
+				assert.ok(Date.now() - t0 < 900, `EOF must resolve without waiting the timeout (took ${Date.now() - t0}ms)`);
+			} finally {
+				fs.closeSync(fd);
+			}
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("CLOSED fd → undefined, never a throw (old-parent skew: flag set but no 4th stdio entry)", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fd3-read-"));
+		try {
+			const file = path.join(dir, "x.txt");
+			fs.writeFileSync(file, "irrelevant\n");
+			const fd = fs.openSync(file, "r");
+			fs.closeSync(fd);
+			assert.equal(await readFirstLineFromFd(fd, 500), undefined);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it(">64 KiB with NO newline → aborts undefined (same cap as readStdinFirstLine)", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-fd3-read-"));
+		try {
+			const file = path.join(dir, "oversize.txt");
+			fs.writeFileSync(file, "x".repeat(70 * 1024));
+			const fd = fs.openSync(file, "r");
+			try {
+				assert.equal(await readFirstLineFromFd(fd, 1000), undefined);
+			} finally {
+				fs.closeSync(fd);
+			}
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 
