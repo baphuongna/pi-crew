@@ -25,9 +25,17 @@
  * matching the real-test-pi-crew decision table): spawn a REAL `pi -p`
  * session that dispatches one trivial fast-fix team run, then verify the run
  * from its on-disk events — NOT from the agent's prose:
- *   - a run.completed event for a run created after battery start
+ *   - a run.completed event for the run created by THIS dispatch. The goal
+ *     carries a per-invocation nonce (`[t7-nonce:<uuid>]`); only run dirs
+ *     whose events.jsonl contain that nonce are judged, so a concurrent run
+ *     (another crew, another terminal) can never be judged in its place.
  *   - ZERO occurrences of the v0.11.46 silent-death fingerprint
  *     ("empty-or-stderr-only-result") anywhere in that run's events
+ *   - a NON-TERMINAL run (no run.completed/run.failed) is a FAIL — checked
+ *     BEFORE the killed/hung diagnosis so it can never be shadowed. On any
+ *     fail a capped tail of the dispatch's own stdout/stderr is recorded in
+ *     the failure reason and the audit entry (the 0.11.46 class death was
+ *     silent in production logs).
  *
  * If no `pi` binary is available (CI containers run fake-pi fixtures), the
  * tier SKIPS ONLY when PI_CREW_BATTERY_SKIP=1 is explicitly set (the caller
@@ -45,6 +53,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,7 +64,10 @@ const AUDIT_FILE = path.join(AUDIT_DIR, "battery.jsonl");
 const RUNS_DIR = path.join(REPO, ".crew", "state", "runs");
 
 /** Paths whose changes require the live smoke (T7) — mirrors the
- * real-test-pi-crew decision table's spawn-affecting rows. */
+ * real-test-pi-crew decision table's spawn-affecting rows, plus (2026-10-28
+ * cold-verify gap closure) the durable-state / workflow-engine src/ subtrees
+ * and scripts/ itself: gate changes must live-test the gate (the nonce-binding
+ * commit deliberately triggers T7 on its own pre-push). */
 const T7_TRIGGERS = [
 	/^src\/runtime\//,
 	/^src\/prompt\//,
@@ -63,9 +75,11 @@ const T7_TRIGGERS = [
 	/^src\/extension\//,
 	/^src\/schema\//,
 	/^src\/ui\//,
+	/^src\/(state|utils|agents|teams|workflows|hooks|observability)\//,
 	/^dist\//,
 	/^workflows\//,
 	/^agents\//,
+	/^scripts\//,
 	/^\.github\/workflows\//,
 ];
 
@@ -94,7 +108,14 @@ function run(cmd, args, opts = {}) {
 /** All paths changed since the previous tag PLUS uncommitted work. */
 function changedPaths() {
 	const head = run("git", ["rev-parse", "HEAD"]).stdout.trim();
-	const tags = run("git", ["tag", "--sort=-creatordate"]).stdout.split("\n").filter(Boolean);
+	const tags = run("git", ["tag", "--sort=-creatordate"])
+		.stdout.split("\n")
+		.filter(Boolean)
+		// Only release-shaped tags (vX.Y.Z) are valid diff bases — any other tag
+		// (marker/tmp tags) would shrink the diff window to a near-empty set and
+		// silently un-trigger T7. No matching tag at all → conservative trigger
+		// (see the no-prevTag branch below).
+		.filter((t) => /^v\d+\.\d+\.\d+$/.test(t));
 	let prevTag;
 	for (const t of tags) {
 		const sha = run("git", ["rev-list", "-1", t]).stdout.trim();
@@ -114,8 +135,19 @@ function changedPaths() {
 	}
 	const status = run("git", ["status", "--porcelain"]).stdout;
 	for (const line of status.split("\n")) {
-		const f = line.slice(3).trim();
-		if (f) paths.add(f);
+		const entry = line.slice(3).trim();
+		if (!entry) continue;
+		if (entry.includes(" -> ")) {
+			// Staged rename "R  old -> new": BOTH sides are changed paths. Plain
+			// slice(3) would keep "old -> new" as one mangled path that matches
+			// no trigger pattern — renames would silently un-trigger T7.
+			for (const side of entry.split(" -> ")) {
+				const p = side.trim().replace(/^"(.*)"$/, "$1");
+				if (p) paths.add(p);
+			}
+		} else {
+			paths.add(entry);
+		}
 	}
 	return { prevTag, paths: [...paths] };
 }
@@ -126,12 +158,17 @@ function piAvailable() {
 }
 
 /** Run one REAL pi -p dispatch of a trivial fast-fix team run and judge it
- * from the on-disk run state created after `startMs`. */
+ * from the on-disk run state created after `startMs`. The dispatched goal
+ * carries a per-invocation nonce (`[t7-nonce:<uuid>]`); ONLY run dirs whose
+ * events.jsonl contain that nonce are judged — a concurrent run (another
+ * crew, another terminal) can never be mistaken for the smoke's own run,
+ * which was the old candidates[0] newest-mtime race. */
 function t7LiveSmoke(cleanEnv, startMs) {
 	return new Promise((resolve) => {
+		const nonce = `t7-nonce:${randomUUID()}`;
 		const prompt =
 			'Call the team tool exactly once: action="run" team="fast-fix" workflow="fast-fix" async=false ' +
-			'with goal "Reply with exactly one word: OK. Do not run any tests." ' +
+			`with goal "Reply with exactly one word: OK. Do not run any tests. [${nonce}]" ` +
 			"Report the final run status only.";
 		const child = spawn("pi", ["-p", prompt], {
 			cwd: REPO,
@@ -143,13 +180,30 @@ function t7LiveSmoke(cleanEnv, startMs) {
 			killed = true;
 			child.kill("SIGKILL");
 		}, 420_000);
+		// The dispatch's own output is the ONLY forensics we get when the smoke
+		// dies before creating a run — keep a capped tail of it. NOT debug-gated:
+		// the v0.11.46 class death was silent in production logs.
+		const CAP = 64 * 1024;
+		let stdout = "";
+		let stderr = "";
+		child.stdout?.on("data", (chunk) => {
+			stdout = (stdout + String(chunk)).slice(-CAP);
+		});
+		child.stderr?.on("data", (chunk) => {
+			stderr = (stderr + String(chunk)).slice(-CAP);
+		});
+		const tails = () => {
+			const tail = (s) => (s.length > 1500 ? `…${s.slice(-1500)}` : s);
+			return stdout || stderr ? { stdoutTail: tail(stdout), stderrTail: tail(stderr) } : {};
+		};
 		child.on("error", (e) => {
 			clearTimeout(timer);
-			resolve({ ok: false, reason: `spawn pi failed: ${e.message}`, runId: undefined });
+			resolve({ ok: false, reason: `spawn pi failed: ${e.message}`, runId: undefined, nonce, ...tails() });
 		});
-		child.on("close", () => {
+		child.on("close", (code) => {
 			clearTimeout(timer);
-			// Judge from disk: newest run dirs created after battery start.
+			// Judge from disk: run dirs created after battery start, bound to THIS
+			// dispatch by the nonce embedded in the goal.
 			let candidates = [];
 			try {
 				candidates = readdirSync(RUNS_DIR)
@@ -158,20 +212,41 @@ function t7LiveSmoke(cleanEnv, startMs) {
 					.filter((c) => c.mtime >= startMs - 60_000)
 					.sort((a, b) => b.mtime - a.mtime);
 			} catch {
-				resolve({ ok: false, reason: "no run dir created — the dispatch never reached team-runner", runId: undefined });
+				resolve({ ok: false, reason: `no run dir created — the dispatch never reached team-runner (pi exit ${code})`, runId: undefined, nonce, ...tails() });
 				return;
 			}
 			if (candidates.length === 0) {
-				resolve({ ok: false, reason: "no run dir created after battery start", runId: undefined });
+				resolve({ ok: false, reason: `no run dir created after battery start (pi exit ${code})`, runId: undefined, nonce, ...tails() });
 				return;
 			}
-			const runId = candidates[0].dir;
+			const bound = [];
+			for (const c of candidates) {
+				try {
+					if (readFileSync(path.join(RUNS_DIR, c.dir, "events.jsonl"), "utf8").includes(nonce)) bound.push(c);
+				} catch {
+					// no / unreadable events.jsonl → cannot contain the nonce → not ours.
+				}
+			}
+			if (bound.length === 0) {
+				resolve({
+					ok: false,
+					reason:
+						`dispatch never created a run: no candidate run dir (mtime ≥ battery start−60s) contains the dispatch nonce — ` +
+						`the smoke died before team-runner recorded it (pi exit ${code})`,
+					runId: undefined,
+					nonce,
+					...tails(),
+				});
+				return;
+			}
+			// Newest nonce-bound dir = this dispatch's run.
+			const runId = bound[0].dir;
 			const eventsPath = path.join(RUNS_DIR, runId, "events.jsonl");
 			let events = "";
 			try {
 				events = readFileSync(eventsPath, "utf8");
 			} catch {
-				resolve({ ok: false, reason: `run ${runId} has no events.jsonl`, runId });
+				resolve({ ok: false, reason: `run ${runId} has no events.jsonl`, runId, nonce, ...tails() });
 				return;
 			}
 			if (events.includes("empty-or-stderr-only-result")) {
@@ -179,19 +254,28 @@ function t7LiveSmoke(cleanEnv, startMs) {
 					ok: false,
 					reason: `SILENT-DEATH FINGERPRINT (empty-or-stderr-only-result) present in run ${runId} — this is the v0.11.46 class regression`,
 					runId,
+					nonce,
+					...tails(),
 				});
 				return;
 			}
 			const completed = /"type":"run\.completed"/.test(events);
 			const failed = /"type":"run\.failed"/.test(events);
+			// Terminal-state check FIRST: a non-terminal run is a FAIL no matter what
+			// happened to the pi process — the old order let the killed/hung branch
+			// shadow the no-terminal diagnosis.
 			if (completed && !failed) {
-				resolve({ ok: true, reason: "run completed clean", runId });
+				resolve({ ok: true, reason: "run completed clean", runId, nonce });
 			} else if (failed) {
-				resolve({ ok: false, reason: `run ${runId} FAILED (see ${eventsPath})`, runId });
-			} else if (killed) {
-				resolve({ ok: false, reason: "pi process hung >420s and was killed", runId });
+				resolve({ ok: false, reason: `run ${runId} FAILED (see ${eventsPath})`, runId, nonce, ...tails() });
 			} else {
-				resolve({ ok: false, reason: `run ${runId} has no terminal event (no run.completed/run.failed)`, runId });
+				resolve({
+					ok: false,
+					reason: `run ${runId} has no terminal event (no run.completed/run.failed)${killed ? " — pi process hung >420s and was killed" : ""}`,
+					runId,
+					nonce,
+					...tails(),
+				});
 			}
 		});
 	});
@@ -259,11 +343,19 @@ async function main() {
 		if (!t7.ok) {
 			allOk = false;
 			fail(`T7 live smoke FAILED: ${t7.reason}`);
+			// Forensics the caller would otherwise never see (the dispatch's own
+			// output was piped, not inherited — zero listeners meant silence).
+			if (t7.stdoutTail) log(`T7 dispatch stdout tail:\n${t7.stdoutTail}`);
+			if (t7.stderrTail) log(`T7 dispatch stderr tail:\n${t7.stderrTail}`);
 		} else {
 			log(`T7: PASS (${t7.reason}, runId=${t7.runId})`);
 		}
 	}
 
+	const t7Entry = { runId: t7.runId ?? null, reason: t7.reason };
+	if (t7.nonce) t7Entry.nonce = t7.nonce; // cross-checkable in the run's events.jsonl
+	if (t7.stdoutTail) t7Entry.stdoutTail = t7.stdoutTail;
+	if (t7.stderrTail) t7Entry.stderrTail = t7.stderrTail;
 	const entry = {
 		ts: new Date().toISOString(),
 		version,
@@ -271,7 +363,7 @@ async function main() {
 		prevTag,
 		changedPaths: paths.length,
 		tiers,
-		t7: { runId: t7.runId ?? null, reason: t7.reason },
+		t7: t7Entry,
 		result: allOk ? "pass" : "fail",
 	};
 	try {

@@ -96,21 +96,30 @@ export function startChildBrokerClient(options: StartChildBrokerClientOptions = 
  * its stdin IS the JSONL protocol channel and must never be consumed by the
  * credential handshake. Those spawns keep the token in env (the RPC branch of
  * child-pi.ts never strips it), so the fallback below is unreachable there
- * anyway — this guard is defense-in-depth against hybrid/old-parent skew. */
+ * anyway — this guard is defense-in-depth against hybrid/old-parent skew.
+ * FIX-2 (2026-10-28): match BOTH argv spellings — the pi-args builder emits
+ * the two-argv form ("--mode rpc"), but wrappers/users can pass the equals
+ * form ("--mode=rpc"); a spelling miss here would let the fallback eat a
+ * protocol line off the RPC JSONL channel. */
 function argvIndicatesRpcMode(): boolean {
-	return process.argv.includes("--mode") && process.argv.includes("rpc");
+	return process.argv.includes("--mode=rpc") || (process.argv.includes("--mode") && process.argv.includes("rpc"));
 }
 
 /** LOW-1 residual closure (2026-10-27): async wrapper used by the worker
  * bootstrap (prompt-runtime Feature 2b). Identical contract to
  * {@link startChildBrokerClient}, plus: when the env token is ABSENT but the
- * socket/run/task identity env IS present (new parent on the stdin-handshake
- * default), read the single buildBrokerStdinLine payload off stdin (bounded,
- * never throws) and merge the per-task token into a COPY of the env before
- * connecting. Ordering matrix:
- *   - new parent + new worker → token via stdin (env stays secret-free);
- *   - old parent → new worker → env token present → env route, stdin untouched;
- *   - new parent + PI_CREW_BROKER_STDIN=0 → env token present → env route;
+ * socket/run/task identity env IS present (opt-in parent on the stdin route —
+ * FIX-1 re-writes the flag into the child's built.env, without which this
+ * fallback was dead-wired), read the single buildBrokerStdinLine payload off
+ * stdin (bounded, never throws) and merge the per-task token into a COPY of
+ * the env before connecting. Ordering matrix (post FIX-1, 2026-10-28 — the
+ * gate is OPT-IN and the spawner writes flag + token into built.env for every
+ * brokered spawn; only the headless JSON compose strips the token):
+ *   - opt-in parent (PI_CREW_BROKER_STDIN=1) + headless JSON worker → flag
+ *     set, token ABSENT from env → token via stdin (env stays secret-free);
+ *   - opt-in parent + RPC / surface worker → flag set, token PRESENT in env
+ *     → env route, stdin untouched (their stdin is the protocol channel/TTY);
+ *   - legacy parent (gate off/unset) → env token present → env route;
  *   - payload missing/invalid/wrong-run/socket-mismatch → creds-less no-op
  *     handle (same as today), never a throw.
  * The sync {@link startChildBrokerClient} stays untouched (env-only) so every
@@ -141,9 +150,12 @@ export async function startChildBrokerClientAsync(options: StartChildBrokerClien
 /** Worker-side mirror of the parent gate (child-pi-spawn
  * .resolveBrokerStdinHandshakeEnabled). **OPT-IN since v0.11.48** (live
  * battery caught the reader path killing real headless workers — see the
- * parent gate's doc block): the default is now OFF, so a new parent that set
+ * parent gate's doc block): the default is OFF, so a legacy parent that set
  * the env token travels the legacy env route. PI_CREW_BROKER_STDIN=1 opts
- * BOTH sides into the stdin route. */
+ * BOTH sides into the stdin route — FIX-1 (2026-10-28): the spawner now
+ * re-writes the flag into the child's built.env ("child-write" registry
+ * kind), so an opt-in parent actually reaches this mirror gate (previously
+ * the flag died with the ambient-env strip and this fallback was dead-wired). */
 function resolveBrokerStdinFallbackEnabled(): boolean {
 	return getCrewEnv("PI_CREW_BROKER_STDIN") === "1";
 }

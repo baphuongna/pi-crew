@@ -50,13 +50,27 @@ describe("prepublish-ci: scrubCrewEnv", () => {
 		assert.equal(clean.PI_CREWISH_THING, "keep-me");
 	});
 
-	it("(i-b) preserves the test-suite knob PI_CREW_TEST_NO_HOME_ISOLATION verbatim", () => {
-		const clean = scrubCrewEnv({ PI_CREW_TEST_NO_HOME_ISOLATION: "1", PI_CREW_TASK_ID: "t" });
+	it("(i-b) preserves the preserved test/battery knobs verbatim", () => {
+		const clean = scrubCrewEnv({ PI_CREW_TEST_NO_HOME_ISOLATION: "1", PI_CREW_BATTERY_SKIP: "1", PI_CREW_TASK_ID: "t" });
 
 		for (const key of PRESERVED_CREW_ENV_KEYS) {
-			assert.equal(clean[key], "1", `${key} must survive the scrub (sandboxes without a writable HOME need it)`);
+			assert.equal(clean[key], "1", `${key} must survive the scrub (sandboxes without a writable HOME / battery skip-hatch need it)`);
 		}
 		assert.equal(clean.PI_CREW_TASK_ID, undefined);
+	});
+
+	it("(i-c) preserves PI_CREW_BATTERY_SKIP — the battery's documented explicit-skip flag", () => {
+		// When the battery fails on a host without a `pi` binary it tells the
+		// caller to set exactly this variable; if the npm path (prepublish-ci →
+		// battery) scrubbed it, the documented escape hatch would be dead.
+		const clean = scrubCrewEnv({ PI_CREW_BATTERY_SKIP: "1", PI_CREW_BROKER_RUN_ID: "team_x" });
+
+		assert.equal(
+			clean.PI_CREW_BATTERY_SKIP,
+			"1",
+			"PI_CREW_BATTERY_SKIP must survive the scrub (battery failure message tells the caller to set it)",
+		);
+		assert.equal(clean.PI_CREW_BROKER_RUN_ID, undefined);
 	});
 
 	it("(ii) an env with no crew keys comes back equivalent (and unmutated)", () => {

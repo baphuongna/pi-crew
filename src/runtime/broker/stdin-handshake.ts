@@ -12,8 +12,12 @@
  *
  * Pure protocol pieces live here (not in background-runner.ts, which runs
  * `await main()` at module scope) so tests can import them without booting
- * the runner.
+ * the runner. buildBrokerStdinLine additionally carries ONE LOUD oversize
+ * diagnostic (FIX-3, 2026-10-28) — stderr-only, never throws, never blocks
+ * the write.
  */
+
+import { logInternalError } from "../../utils/internal-error.ts";
 
 /** The one-line payload async-runner writes to the runner's stdin carrying
  * PER-TASK compound tokens. v2 (ADR-0 2026-08-17 item 6): wait.* accepts
@@ -56,9 +60,32 @@ export function parseStdinBrokerPayload(raw: string, expectedRunId: string): Std
  * the detached background runner AND the main child-pi spawn path — share the
  * pure protocol piece and cannot drift from the reader parser below (a
  * writer/reader drift silently breaks coordination). Compound (runId+taskId)
- * tokens only: wait.* rejects bare-runId tokens (ADR-0 item 6). */
+ * tokens only: wait.* rejects bare-runId tokens (ADR-0 item 6).
+ *
+ * FIX-3 (2026-10-28): LOUD oversize diagnostic at the single construction
+ * point shared by BOTH writers. The worker-side reader (readStdinFirstLine)
+ * aborts once its buffer passes 64 KiB without a newline — a payload built
+ * from ~2.5k tasks (~131 KiB observed live) silently loses EVERY task's
+ * broker creds (ask/message/mailbox/steer degrade to file-poll) with zero
+ * trace in production. Warn at 60 KiB (below the reader cap, far above any
+ * sane task fanout) — NOT gated on PI_CREW_DEBUG: this is a "your creds
+ * will be lost" operational alarm, not a debug trace. The line is still
+ * returned (and written by the caller) — never blocked. */
+export const BROKER_STDIN_LINE_WARN_BYTES = 60 * 1024;
+
 export function buildBrokerStdinLine(runId: string, socketPath: string, tasks: Record<string, string>): string {
-	return `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
+	const line = `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
+	if (line.length > BROKER_STDIN_LINE_WARN_BYTES) {
+		logInternalError(
+			"stdin-handshake.oversize-payload",
+			new Error(
+				`broker stdin handshake line is ${line.length} bytes — the worker reader aborts past 64 KiB, so EVERY task loses its broker creds (ask/message/mailbox/steer fall back to file-poll)`,
+			),
+			`${Object.keys(tasks).length} tasks on run ${runId}; shrink the task fanout or split the run`,
+			"warn",
+		);
+	}
+	return line;
 }
 
 /** Read the FIRST stdin line with a hard cap. Resolves undefined for: no

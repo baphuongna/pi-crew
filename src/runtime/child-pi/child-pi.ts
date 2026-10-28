@@ -279,6 +279,14 @@ export interface ChildPiRunInput {
 	 * value issued by the parent's CrewBroker at spawn time; it lives only
 	 * in the parent's in-memory `Map<runId, token>` and in the child's env.
 	 * NEVER persisted to manifest, events, mailbox, or any run-dir file.
+	 *
+	 * OPT-IN stdin route (PI_CREW_BROKER_STDIN=1, FIX-1 2026-10-28): the token
+	 * is still written into built.env for every brokered spawn — RPC/surface
+	 * branches compose WITHOUT the payload and need the env credential, but
+	 * the headless JSON branch composes WITH ctx.brokerStdinPayload and
+	 * `buildFinalChildPiSpawnOptions` strips the token from the FINAL child
+	 * env there — on that branch alone the token rides the spawn stdin pipe
+	 * (heap → pipe → heap) instead.
 	 */
 	brokerSpawn?: { socketPath: string; token: string };
 	/**

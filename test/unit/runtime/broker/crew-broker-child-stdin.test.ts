@@ -255,6 +255,30 @@ describe("startChildBrokerClientAsync: stdin-safety guards", () => {
 		});
 	});
 
+	it("FIX-2: RPC-mode argv equals-form (--mode=rpc) → stdin never read", async () => {
+		await withGate("1", async () => {
+			const prevArgv = process.argv;
+			// The pi-args builder emits the two-argv form ("--mode rpc"), but
+			// wrappers/users can pass the equals form — before FIX-2 only the
+			// two-argv form matched and a "--mode=rpc" worker would have its
+			// protocol channel eaten by the credential fallback.
+			process.argv = [...prevArgv, "--mode=rpc"];
+			try {
+				const handle = await startChildBrokerClientAsync({
+					env: { ...IDENTITY_ENV },
+					readStdinLine: async () => {
+						throw new Error("equals-form --mode=rpc must be detected as RPC mode — stdin must never be read");
+					},
+					clientFactory: captureFactory([]),
+				});
+				assert.equal(handle.active, false);
+				await handle.close();
+			} finally {
+				process.argv = prevArgv;
+			}
+		});
+	});
+
 	it("no broker identity env at all → NOOP without reading stdin", async () => {
 		await withGate(undefined, async () => {
 			const handle = await startChildBrokerClientAsync({

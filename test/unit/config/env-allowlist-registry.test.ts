@@ -248,6 +248,20 @@ test("C-1 secret safety: the generated allowlist stays validator-clean with an e
 	assert.doesNotThrow(() => sanitizeEnvSecrets({}, { allowList: BASE_ALLOWLIST }));
 });
 
+test("FIX-1 (2026-10-28): PI_CREW_BROKER_STDIN is child-write — re-written into built.env by the spawner, never ambient-forwarded", () => {
+	// The worker-side mirror gate (crew-broker-child) reads its OWN
+	// process.env; ambient forwarding never reaches the child, so the ONLY
+	// channel that wires the opt-in route through is the spawner's explicit
+	// built.env write. "child-write" is the exact registry semantic for that.
+	// (Previously "host-only" with a reason claiming the parent decision fully
+	// determines the route — wrong in practice: without the child write the
+	// worker fallback was dead-wired and every opt-in spawn stayed creds-less.)
+	const decision = crewEnvForwardingDecisions().PI_CREW_BROKER_STDIN;
+	assert.equal(decision?.kind, "child-write");
+	assert.ok(!BACKGROUND_RUNNER_ENV_ALLOWLIST.includes("PI_CREW_BROKER_STDIN"), "never ambient-forwarded to the runner");
+	assert.ok(!BASE_ALLOWLIST.includes("PI_CREW_BROKER_STDIN"), "never ambient-forwarded to child-pi");
+});
+
 test("C-1 gap report: known runner-read gaps are surfaced explicitly (not silently forwarded)", () => {
 	const gaps = crewEnvForwardingGapReport().map((g) => g.name);
 	// Pin a representative sample — the full list lives in the registry table.

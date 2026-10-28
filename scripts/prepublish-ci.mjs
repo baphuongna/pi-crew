@@ -43,10 +43,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const CREW_ENV_PREFIXES = ["PI_CREW_", "PI_TEAMS_"];
 
 /**
- * Crew-prefixed keys that must SURVIVE the scrub: test-suite knobs (not
- * runtime control plane) that a sandboxed environment may legitimately need.
+ * Crew-prefixed keys that must SURVIVE the scrub: test-suite knobs and the
+ * battery's own explicit-skip flag (not runtime control plane) that a
+ * sandboxed environment may legitimately need.
+ *
+ * `PI_CREW_BATTERY_SKIP` (2026-10-28, cold-verify fix): when the battery
+ * fails on a host without a `pi` binary it tells the caller to set exactly
+ * this variable — but the npm path (prepublish-ci → battery) scrubbed it,
+ * so the documented escape hatch was dead. Preserve it verbatim; the
+ * battery records the skip in its audit trail either way.
  */
-export const PRESERVED_CREW_ENV_KEYS = ["PI_CREW_TEST_NO_HOME_ISOLATION"];
+export const PRESERVED_CREW_ENV_KEYS = ["PI_CREW_TEST_NO_HOME_ISOLATION", "PI_CREW_BATTERY_SKIP"];
 
 const SELF = fileURLToPath(import.meta.url);
 export const REPO_ROOT = path.resolve(path.dirname(SELF), "..");

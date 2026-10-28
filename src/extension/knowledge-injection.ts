@@ -474,6 +474,10 @@ export function registerKnowledgeInjection(pi: ExtensionAPI): void {
 		const cwd = typeof options.cwd === "string" ? options.cwd : process.cwd();
 		const fragment = buildKnowledgeFragment(cwd);
 		if (!fragment) return undefined;
-		return { systemPrompt: `${event.systemPrompt}${fragment}` };
+		// FIX-8 (GH #64 wave, defense-in-depth): `systemPrompt` is typed `string`
+		// and the runner always sets it, but coerce anyway — the output is built
+		// FROM it, so an undefined would stringify as a literal "undefined" prefix.
+		const systemPrompt = typeof event.systemPrompt === "string" ? event.systemPrompt : "";
+		return { systemPrompt: `${systemPrompt}${fragment}` };
 	});
 }

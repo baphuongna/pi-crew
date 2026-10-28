@@ -1356,6 +1356,13 @@ export default function registerPiTeamsPromptRuntime(pi: ExtensionAPI): void {
 
 	// ── Prompt rewriting (existing) ────────────────────────────────────────
 	pi.on("before_agent_start", (event) => {
+		// FIX-8 (GH #64 wave, defense-in-depth): `systemPrompt` is typed `string`
+		// and the runner always sets it. If a host ever hands a non-string through,
+		// SKIP the rewrite entirely — coercing "" here would REPLACE the real
+		// system prompt with a blank one (this handler strips sections), unlike
+		// the append-only hooks (autonomous-policy / knowledge-injection) which
+		// safely coerce "".
+		if (typeof event.systemPrompt !== "string") return;
 		const inheritProjectContext = readBooleanEnvAny(PI_CREW_INHERIT_PROJECT_CONTEXT_ENV, PI_TEAMS_INHERIT_PROJECT_CONTEXT_ENV);
 		const inheritSkills = readBooleanEnvAny(PI_CREW_INHERIT_SKILLS_ENV, PI_TEAMS_INHERIT_SKILLS_ENV);
 		if (inheritProjectContext === undefined && inheritSkills === undefined) return;

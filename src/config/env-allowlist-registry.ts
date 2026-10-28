@@ -199,8 +199,8 @@ const CREW_ENV_FORWARDING_DECL: Record<string, CrewEnvForwardDecision> = {
 	},
 	PI_CREW_BROKER_TASK_ID: { kind: "child-write", reason: "child-pi-spawn broker handshake" },
 	PI_CREW_BROKER_STDIN: {
-		kind: "host-only",
-		reason: "LOW-1 closure broker-credential transport gate — read by the host spawner (child-pi-spawn .resolveBrokerStdinHandshakeEnabled) to pick env vs stdin route; the worker-side mirror read (crew-broker-child .resolveBrokerStdinFallbackEnabled) is defense-in-depth for the rollback case and needs NO ambient forwarding (parent decision fully determines the route; forwarding would churn the pinned BASE_ALLOWLIST)",
+		kind: "child-write",
+		reason: "LOW-1 broker-credential transport gate — read by the HOST spawner (child-pi-spawn .resolveBrokerStdinHandshakeEnabled) to pick env vs stdin route, then RE-WRITTEN by that spawner into every brokered child's built.env ('1') so the worker-side mirror gate (crew-broker-child .resolveBrokerStdinFallbackEnabled, which reads its OWN process.env) actually sees it — ambient forwarding never reaches the child, so child-write is the only channel that wires the route through (FIX-1 2026-10-28). Never ambient-allowlisted: route selection is per-spawn",
 	},
 	PI_CREW_INFERENCE_BROKER: {
 		kind: "gap",

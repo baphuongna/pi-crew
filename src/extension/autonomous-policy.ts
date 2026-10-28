@@ -205,8 +205,12 @@ export function registerAutonomousPolicy(pi: ExtensionAPI): void {
 		const prompt = typeof event.prompt === "string" ? event.prompt : "";
 		// `prompt` is absent on turns with no user text (bg-task notifications, goal
 		// continuations, timer turns); unguarded it reaches prompt.toLowerCase() and throws.
+		// FIX-8 (GH #64 wave, defense-in-depth): `systemPrompt` is typed `string`
+		// and the runner always sets it, but coerce anyway — the output is built
+		// FROM it, so an undefined would stringify as a literal "undefined" prefix.
+		const systemPrompt = typeof event.systemPrompt === "string" ? event.systemPrompt : "";
 		return {
-			systemPrompt: appendAutonomousPolicy(event.systemPrompt, prompt, autonomous, cwd),
+			systemPrompt: appendAutonomousPolicy(systemPrompt, prompt, autonomous, cwd),
 		};
 	});
 }

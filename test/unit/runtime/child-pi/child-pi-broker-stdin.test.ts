@@ -8,15 +8,21 @@
  *
  *   1. Gate is OPT-IN: PI_CREW_BROKER_STDIN exactly '1' enables the stdin
  *      route; unset/'0'/anything else keeps the legacy env route (default).
- *   2. Opt-in gate PI_CREW_BROKER_STDIN=1: prepareSpawnContext puts
- *      SOCKET/RUN_ID/TASK_ID in built.env but NOT the TOKEN; the token rides
- *      ctx.brokerStdinPayload (one buildBrokerStdinLine v2 line, per-task
- *      compound shape) and buildFinalChildPiSpawnOptions(payload) switches
- *      stdin to "pipe" + strips any sneak-in token from the final env.
+ *   2. Opt-in gate PI_CREW_BROKER_STDIN=1: prepareSpawnContext writes the
+ *      flag "1" + SOCKET/RUN_ID/TASK_ID + TOKEN into built.env (FIX-1
+ *      2026-10-28: RPC/surface call sites compose WITHOUT the payload, so the
+ *      env write is their only credential) AND binds ctx.brokerStdinPayload
+ *      (one buildBrokerStdinLine v2 line); buildFinalChildPiSpawnOptions
+ *      (payload) switches stdin to "pipe" + strips the token from the FINAL
+ *      child env (defense-in-depth).
  *   3. Default (unset) and explicit '0': token back in built.env, no
  *      payload, stdin stays "ignore" — bit-for-bit legacy behavior.
  *   4. No brokerSpawn / identity-less brokerSpawn (no runId+agentId to bind
  *      the payload) → legacy env route.
+ *   5. FIX-1 env matrix (composed-path, per branch): gate ON + headless
+ *      compose = flag "1" + token ABSENT + stdin pipe; gate ON + RPC/surface
+ *      compose (no payload) = flag "1" + token PRESENT; gate OFF = flag
+ *      absent + token present + no payload (bit-for-bit legacy).
  *
  * Pure-function tests: prepareSpawnContext does NOT spawn — fast + hermetic.
  * The writer format is pinned against the reader parser via
@@ -115,14 +121,26 @@ describe("prepareSpawnContext: stdin handshake opt-in (gate=1)", () => {
 		delete process.env.PI_CREW_BROKER_STDIN;
 	});
 
-	it("omits PI_CREW_BROKER_TOKEN from built.env; SOCKET/RUN_ID/TASK_ID stay", () => {
+	it("FIX-1: built.env carries flag '1' + token + identity for BOTH routes; payload binds", () => {
 		withGate("1", () => {
-			const { builtEnv, dir } = prepWithBroker();
+			const { builtEnv, ctx, dir } = prepWithBroker();
 			try {
-				assert.equal(builtEnv.PI_CREW_BROKER_TOKEN, undefined, "secret must NOT travel via env on the opt-in stdin route");
+				// FIX-1 (2026-10-28 dead-wire repair): the token is written into
+				// built.env on EVERY branch — the RPC/surface call sites compose
+				// WITHOUT the payload, so this env write is their ONLY credential
+				// source. The headless compose strips it from the FINAL env
+				// (pinned below + in the matrix describe); built.env itself is not
+				// the child env.
+				assert.equal(builtEnv.PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token);
+				assert.equal(
+					builtEnv.PI_CREW_BROKER_STDIN,
+					"1",
+					"worker mirror gate reads the CHILD env — spawner must write the flag (was dead-wired)",
+				);
 				assert.equal(builtEnv.PI_CREW_BROKER_SOCKET, BROKER_SPAWN.socketPath);
 				assert.equal(builtEnv.PI_CREW_BROKER_RUN_ID, RUN_ID);
 				assert.equal(builtEnv.PI_CREW_BROKER_TASK_ID, AGENT_ID);
+				assert.ok(ctx.brokerStdinPayload, "opt-in + identity → payload present");
 			} finally {
 				fs.rmSync(dir, { recursive: true, force: true });
 			}
@@ -170,6 +188,11 @@ describe("prepareSpawnContext: stdin handshake opt-in (gate=1)", () => {
 				assert.equal(stdio[2], "pipe");
 				const env = spawnOptions.env as Record<string, string | undefined>;
 				assert.equal(env.PI_CREW_BROKER_TOKEN, undefined, "defense-in-depth: token never reaches the child env");
+				assert.equal(
+					env.PI_CREW_BROKER_STDIN,
+					"1",
+					"FIX-1: the opt-in flag must survive the headless compose (worker fallback gate)",
+				);
 				assert.equal(env.PI_CREW_BROKER_SOCKET, BROKER_SPAWN.socketPath, "non-secret identity keys stay");
 				assert.equal(env.PI_CREW_BROKER_RUN_ID, RUN_ID);
 				assert.equal(env.PI_CREW_BROKER_TASK_ID, AGENT_ID);
@@ -244,6 +267,80 @@ describe("prepareSpawnContext: identity-less brokerSpawn cannot bind a payload",
 				assert.equal(res.ctx.builtEnv.PI_CREW_BROKER_TOKEN, undefined);
 				assert.equal(res.ctx.builtEnv.PI_CREW_BROKER_SOCKET, undefined);
 				assert.equal(res.ctx.brokerStdinPayload, undefined);
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
+		});
+	});
+});
+
+// ── FIX-1 env matrix: composed spawn options per spawn branch ────────────
+//
+// The three call sites compose buildFinalChildPiSpawnOptions differently:
+//   - headless JSON branch (child-pi.ts run()): passes ctx.brokerStdinPayload
+//     + workerCacheSplit=true → stdin becomes a pipe and the token is
+//     stripped from the FINAL env (it rides the pipe instead);
+//   - RPC branch (child-pi-rpc.ts) and surface branch (child-pi.ts
+//     trySurfaceBranch): NO payload → stdin stays "ignore" and the env token
+//     survives (their stdin is the JSONL protocol channel / a TTY — the env
+//     write from prepareSpawnContext is their ONLY credential source).
+// Gate OFF must stay bit-for-bit legacy: no flag, no payload, token in env.
+
+describe("FIX-1 env matrix: composed spawn options per branch", () => {
+	it("gate ON + headless-JSON compose (with payload): flag '1', token ABSENT, stdin=pipe", () => {
+		withGate("1", () => {
+			const { ctx, dir } = prepWithBroker();
+			try {
+				assert.ok(ctx.brokerStdinPayload, "precondition: payload bound");
+				const spawnOptions = buildFinalChildPiSpawnOptions(
+					dir,
+					ctx.mergedEnv,
+					ctx.builtEnv,
+					undefined,
+					undefined,
+					true,
+					ctx.brokerStdinPayload,
+				);
+				const env = spawnOptions.env as Record<string, string | undefined>;
+				assert.equal(env.PI_CREW_BROKER_STDIN, "1");
+				assert.equal(env.PI_CREW_BROKER_TOKEN, undefined, "token rides the stdin pipe, not env");
+				assert.equal(env.PI_CREW_BROKER_SOCKET, BROKER_SPAWN.socketPath);
+				assert.equal((spawnOptions.stdio as string[])[0], "pipe");
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
+		});
+	});
+
+	it("gate ON + RPC/surface compose (NO payload — child-pi-rpc.ts / trySurfaceBranch call shape): flag '1', token PRESENT, stdin=ignore", () => {
+		withGate("1", () => {
+			const { ctx, dir } = prepWithBroker();
+			try {
+				assert.ok(ctx.brokerStdinPayload, "precondition: payload bound on the prep side");
+				// Exactly the RPC call-site shape: no payload, no cache split — the
+				// token must survive in the composed env (the RPC/surface child
+				// never receives the payload write).
+				const spawnOptions = buildFinalChildPiSpawnOptions(dir, ctx.mergedEnv, ctx.builtEnv, undefined);
+				const env = spawnOptions.env as Record<string, string | undefined>;
+				assert.equal(env.PI_CREW_BROKER_STDIN, "1");
+				assert.equal(env.PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token, "env write is the RPC/surface credential source");
+				assert.equal((spawnOptions.stdio as string[])[0], "ignore");
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
+		});
+	});
+
+	it("gate OFF default: flag ABSENT, token PRESENT, no payload (bit-for-bit legacy)", () => {
+		withGate(undefined, () => {
+			const { ctx, dir } = prepWithBroker();
+			try {
+				assert.equal(ctx.brokerStdinPayload, undefined);
+				const spawnOptions = buildFinalChildPiSpawnOptions(dir, ctx.mergedEnv, ctx.builtEnv, undefined, undefined, true);
+				const env = spawnOptions.env as Record<string, string | undefined>;
+				assert.equal(env.PI_CREW_BROKER_STDIN, undefined, "flag must NOT leak into the child env when the gate is off");
+				assert.equal(env.PI_CREW_BROKER_TOKEN, BROKER_SPAWN.token);
+				assert.equal((spawnOptions.stdio as string[])[0], "ignore");
 			} finally {
 				fs.rmSync(dir, { recursive: true, force: true });
 			}

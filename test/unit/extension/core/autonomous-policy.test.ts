@@ -58,7 +58,7 @@ function registerHook(): Hook {
 		},
 	} as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI;
 	registerAutonomousPolicy(fakePi);
-	const hook = handlers["before_agent_start"];
+	const hook = handlers.before_agent_start;
 	assert.ok(hook, "before_agent_start handler must be registered");
 	return hook;
 }
@@ -87,4 +87,21 @@ test("before_agent_start WITH prompt: unchanged behavior (PR #64 guard is a no-o
 	assert.match(result.systemPrompt, /pi-crew Delegation Policy/);
 	// intent detection still works on the real prompt (implementation hint)
 	assert.match(result.systemPrompt, /team='implementation'/);
+});
+
+test("before_agent_start WITHOUT systemPrompt: no literal 'undefined' in output (FIX-8)", () => {
+	const hook = registerHook();
+	// No `prompt` AND no `systemPrompt` key — the hostile/legacy event shape
+	// FIX-8 guards against. `systemPrompt` is typed `string` and the runner
+	// always sets it, but if it ever leaked through undefined, the unguarded
+	// template `${event.systemPrompt}\n\n…` would start with the literal
+	// string "undefined".
+	const result = hook({ systemPromptOptions: { cwd: "/tmp" } });
+	assert.ok(result, "handler must still return a systemPrompt result");
+	assert.equal(
+		result.systemPrompt.includes("undefined"),
+		false,
+		"coerced empty base must not leak the literal 'undefined' into the system prompt",
+	);
+	assert.match(result.systemPrompt, /pi-crew Delegation Policy/, "policy block still injected on the coerced-empty base");
 });

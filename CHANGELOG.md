@@ -1,5 +1,55 @@
 # Changelog
 
+## [Unreleased] — cold-verified review fix wave: stdin-route dead-wire repair, T7 nonce binding, gate hardening (2026-10-28)
+
+**Fixed (MAJOR) — the `PI_CREW_BROKER_STDIN=1` opt-in route was dead-wired end-to-end (review + 3-agent cold-verification, dynamically proven).**
+Two compounding defects: (1) the parent never re-wrote the flag into the child's `built.env` (registry kind `host-only` strips
+the ambient value), so the worker-side mirror gate (`resolveBrokerStdinFallbackEnabled`, which reads the child's OWN
+`process.env`) could never activate — the stdin payload was written and never read, leaving every opt-in worker creds-less
+(`NOOP_HANDLE`: no ask/message/mailbox/steer, no broker audit). (2) the token was omitted from `built.env` for ALL
+branches, but only the headless-JSON branch delivers the payload — RPC (`child-pi-rpc.ts`) and surface-pane spawns compose
+without it, so their children got neither token nor payload. Unit tests masked both: they flip the gate by mutating
+`process.env` in-process, bypassing the spawn-env plumbing (structural seam: `startChildBrokerClientAsync` honors
+`options.env` for identity vars but the gate reads ambient `process.env`).
+
+Repair: `prepareSpawnContext` now writes `PI_CREW_BROKER_STDIN="1"` into `built.env` when the host gate is ON (registry
+kind → `child-write`) and puts the token in `built.env` for every brokered spawn; only the headless compose (payload
+present) strips it from the FINAL env (`buildFinalChildPiSpawnOptions`), so RPC/surface keep the env route — a token in
+their env also disarms their stdin fallback (their stdin is the JSONL protocol / a TTY). Gate OFF: bit-for-bit legacy.
+New composed-path tests assert the flag/token/payload matrix across all three call sites (no live-reader assertions — the
+0.11.46 reader exit-0 death is still open, default stays OPT-IN). Misleading docblocks + the factually-wrong registry
+rationale ("parent decision fully determines the route") corrected. `argvIndicatesRpcMode` now also matches the
+`--mode=rpc` equals-form.
+
+**Fixed (MAJOR) — T7 live-smoke judged the WRONG run (newest-mtime race → false PASS).** The battery's T7 tier picked
+`candidates[0]` (newest run dir ≥ start−60s) with zero binding to its own dispatch — a concurrent team run created in the
+window got judged instead (two real run dirs on this host measured 25 ms apart), and the `pi -p` dispatch stdout/stderr
+was piped with zero listeners, so a silent smoke death left no forensics. Now the dispatched goal carries a per-invocation
+nonce (`[t7-nonce:<uuid>]`); only run dirs whose `events.jsonl` contain that nonce are judged, zero nonce dirs = FAIL, a
+non-terminal run is a FAIL checked before the killed/hung diagnosis, and a capped tail (64 KB) of the dispatch's own
+stdout/stderr is recorded in the failure reason, audit entry, and log output.
+
+**Fixed (minor) — battery gate fail-open trigger paths.** `changedPaths()` now filters diff-base tags to release semver
+(`^v\d+\.\d+\.\d+$` — a near-HEAD non-release tag previously shrank the diff window and silently un-triggered T7) and
+parses `git status --porcelain` renames (`R old -> new`) into BOTH paths instead of one mangled string.
+`prepublish-ci.mjs` now preserves `PI_CREW_BATTERY_SKIP` through the npm `prepublishOnly` path (the documented skip
+hatch was dead there — the battery's own failure message recommended a var its caller stripped).
+
+**Changed — T7 trigger coverage gaps closed** (`src/state|utils|agents|teams|workflows|hooks|observability`, `scripts/`):
+cold-verification found the workflow-engine src subtrees and the gate's own scripts/ were invisible to the live gate; gate
+changes now live-test the gate (this commit deliberately triggers T7 on its own pre-push).
+
+**Changed — `before_agent_start` `systemPrompt` hardening (defense-in-depth).** Cold-verification refuted reachability
+(`systemPrompt` is required in every host type def and synthesized by a runner getter, unlike `prompt` which arrives via
+caller args — the GH #64 root cause), but the asymmetry was real: `autonomous-policy.ts` and `knowledge-injection.ts`
+now coerce non-strings to `""` (append-only output, safe); `prompt-runtime.ts` SKIPS the rewrite instead (coercing `""`
+there would blank a real system prompt — it strips sections). No behavior change on any current host.
+
+**Added — LOUD oversize diagnostic in `buildBrokerStdinLine`.** The reader aborts past 64 KiB without a newline; a
+~2.5k-task manifest (~131 KiB measured live — pipe chunks make the effective Linux boundary ~2× the coded cap)
+silently stripped EVERY task's broker creds. The writer now warns at 60 KiB via `logInternalError` (not PI_CREW_DEBUG-
+gated); the line is still written, never blocked.
+
 ## [0.11.48] — HOTFIX: stdin broker-credential gate flipped OPT-IN — fixes silent worker death (2026-10-28)
 
 **Fixed — v0.11.46/0.11.47 regression: every headless JSON worker on the default route exited 0 with zero stdout.**
