@@ -1,6 +1,29 @@
 # Changelog
 
-## [Unreleased] — cold-verified review fix wave: stdin-route dead-wire repair, T7 nonce binding, gate hardening (2026-10-28)
+## [Unreleased] — 0.11.46/47 incident ROOT-CAUSED & CLOSED: fd0 handshake race, fd3 dedicated pipe (2026-10-28)
+
+**Root cause (dynamically confirmed 5/5 + on-disk leak proof).** pi's `readPipedStdin` (main.js:52-65) consumes ALL
+piped stdin as PROMPT CONTENT in every mode except `--mode rpc`. The v0.11.46 stdin handshake rode fd0 and raced it
+three ways: (1) token JSON merged into the worker prompt — **secret leak, proven in a live transcript** (the model
+reasoned about the credential line); (2) stream-ended creds-less silence; (3) our reader's `pause()` before EOF
+drain deadlocking pi's boot await → **self-initiated exit 0** (not parent SIGTERM as first modeled) with
+`takeOverStdout`-buffered ~0-byte stdout — the exact incident signature (~1.2s, 0 stdout, ×3 retry).
+
+**Fix:** brokered child-pi workers now get a DEDICATED pipe as stdio entry 4 (fd3); the payload is written there
+and read by `readFirstLineFromFd`. fd0 returns to `"ignore"` (pre-0.11.46 shape), killing every race ordering. The
+detached background RUNNER keeps fd0 (plain node process, no race). Gate stays OPT-IN (`PI_CREW_BROKER_STDIN=1`);
+default route bit-for-bit unchanged. **Evidence:** pre-fix gate-ON matrix on pi@1.0.4: 5/5 silent death; post-fix
+2/2 alive (106-110 KB stdout, ~3.2 s, zero leak) — full inversion. Live-worker integration 2/2 on pi 1.4.0 with
+REPO-SRC extension proven via argv capture; security review 9/9 invariants.
+
+**Also:** `maxTasksPerRun` is now enforced at manifest admission (pre-dispatch) instead of only at finalize —
+oversized manifests were fully dispatched and >~2.5k-task handshake lines silently lose broker creds (writer now
+warns >60 KiB). Worker-side fallback gate reads the RESOLVED env (`options.env ?? process.env` via `getCrewEnv`)
+— closing the test seam that masked the earlier dead-wire. `check:env-vars` registry compliance for all 8 broker
+identity reads; fd-mechanics tests skip on win32 (reader short-circuits there by design; brokered spawn is
+auto-disabled on Windows).
+
+## [Unreleased — earlier 2026-10-28] — cold-verified review fix wave: stdin-route dead-wire repair, T7 nonce binding, gate hardening (2026-10-28)
 
 **Fixed (MAJOR) — the `PI_CREW_BROKER_STDIN=1` opt-in route was dead-wired end-to-end (review + 3-agent cold-verification, dynamically proven).**
 Two compounding defects: (1) the parent never re-wrote the flag into the child's `built.env` (registry kind `host-only` strips
