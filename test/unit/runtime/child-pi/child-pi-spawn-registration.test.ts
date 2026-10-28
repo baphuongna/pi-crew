@@ -33,9 +33,7 @@ test("RT-11: every spawn() call site is followed by registerChildProcess", () =>
 	// Harden (2026-10-28): strip comments FIRST — a docblock phrase like
 	// "brokered spawn (RPC/surface branches…)" matches /spawn\s*\(/ and
 	// inflates the site count, failing the push gate on a comment-only diff.
-	const codeOnly = childPiSrc
-		.replace(/\/\*[\s\S]*?\*\//g, "")
-		.replace(/^\s*\/\/.*$/gm, "");
+	const codeOnly = childPiSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 	const spawnCallPattern = /(^|\s)spawn\s*\(/gm;
 	const spawnMatches = codeOnly.match(spawnCallPattern);
 	assert.ok(spawnMatches && spawnMatches.length >= 1, "expected at least one spawn() call in child-pi.ts");
