@@ -31,8 +31,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const PROMPT_RUNTIME = path.join(REPO_ROOT, "src/prompt/prompt-runtime.ts");
@@ -115,5 +115,8 @@ test("live worker (real pi): default broker env must NOT silently exit with zero
 	// The v0.11.46/v0.11.47 regression: exit 0 with 0 stdout bytes in ~1s.
 	// Post-v0.11.48 the default gate keeps the reader off, so the worker
 	// streams its session + agent events like pre-0.11.46.
-	assert.ok(run.stdoutBytes > 0, `worker died silently (exit=${run.exitCode}, stdout=0 bytes) — stdin reader regression is back; stderr tail: ${run.stderrTail}`);
+	assert.ok(
+		run.stdoutBytes > 0,
+		`worker died silently (exit=${run.exitCode}, stdout=0 bytes) — stdin reader regression is back; stderr tail: ${run.stderrTail}`,
+	);
 });
