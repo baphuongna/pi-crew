@@ -202,8 +202,11 @@ export function registerAutonomousPolicy(pi: ExtensionAPI): void {
 		const autonomous = effectiveAutonomousConfig(loaded.config.autonomous);
 		if (!autonomous.enabled) return undefined;
 		if (!autonomous.injectPolicy) return undefined;
-		return {
-			systemPrompt: appendAutonomousPolicy(event.systemPrompt, event.prompt, autonomous, cwd),
+		const prompt = typeof event.prompt === "string" ? event.prompt : "";
+			// `prompt` is absent on turns with no user text (bg-task notifications, goal
+			// continuations, timer turns); unguarded it reaches prompt.toLowerCase() and throws.
+			return {
+				systemPrompt: appendAutonomousPolicy(event.systemPrompt, prompt, autonomous, cwd),
 		};
 	});
 }
