@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentConfig } from "../../agents/agent-config.ts";
+import { resolveToolPolicy } from "../../agents/agent-config.ts";
 import { getCrewEnv, getCrewEnvBool } from "../../config/env-vars.ts";
 import { atomicWriteFile } from "../../state/atomic-write.ts";
 import { hasRunStateLayout, packageRoot, userPiRoot } from "../../utils/paths.ts";
@@ -383,19 +384,16 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 	if (input.agent.disableTools === true) {
 		args.push("--no-tools"); // capability-locked agents giữ hành vi (goal-judge)
 	} else {
-		// AgentConfig.tools is string[] (parseToolsField normalizes the
-		// frontmatter CSV), but inline/runtime-constructed agents may still
-		// carry the raw CSV string — normalize both.
-		const rawTools: unknown = input.agent.tools;
-		const declared =
-			typeof rawTools === "string"
-				? rawTools
-						.split(",")
-						.map((t) => t.trim())
-						.filter(Boolean)
-				: Array.isArray(rawTools)
-					? rawTools.map((t) => String(t).trim()).filter(Boolean)
-					: [];
+		// S-7 (w4b security fix): the tool surface is now emitted from the unified
+		// resolveToolPolicy — the SAME seam live-session's filterActiveTools
+		// consumes — instead of the raw frontmatter declaration. This brings the
+		// source-aware allowlist precedence, the additive role denylist, and the
+		// read_only execution-tool floor (bash/edit/write stripped + excluded for
+		// default-deny/custom read-only roles regardless of frontmatter) onto the
+		// child spawn path. Role comes from input.role (the teamRole / spawn role);
+		// resolveToolPolicy normalizes the raw CSV-string form internally.
+		const policy = resolveToolPolicy(input.agent, input.role ?? input.agent.name);
+		const declared = policy.tools ?? [];
 		if (declared.length > 0) {
 			// L2-3 (pi 1.1.0 `+name` modifier syntax) — OPT-IN via
 			// PI_CREW_TOOLS_MODIFIERS=1, default OFF. Decision rationale (Wave A,
@@ -421,7 +419,10 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		// buildSubagentToolAllowlist của pi-interactive-subagents index.ts:809-811).
 		// B2 (fix round 1): `disallowedTools:` frontmatter is a
 		// declaration-driven denylist (opt-in like `tools:`) — NOT the
-		// role-based policy D5 removed.
+		// role-based policy D5 removed. S-7 (w4b): the set now starts from
+		// resolveToolPolicy's excludeTools — which ALREADY merges
+		// agent.disallowedTools + the additive role denylist + the read_only
+		// execution-tool floor — so every policy cut reaches the child argv.
 		// U2-lite (pi 1.0.4 `--tools` semantics drift): on 1.0.4, `--tools` no
 		// longer cuts MCP — ambient MCP servers stay connected on parity
 		// (NON-hermetic) spawns. Fold `mcp__*` into the exclude list to restore
@@ -437,7 +438,7 @@ export function buildPiWorkerArgs(input: BuildPiWorkerArgsInput): BuildPiWorkerA
 		// `--no-tools` already locks the whole tool surface, an extra cut would
 		// be dead weight. Surface TUI panes strip argv flags after build
 		// (child-pi.ts stripHeadlessOnlyFlags), so this cut never reaches them.
-		const disallowed = new Set((input.agent.disallowedTools ?? []).map((t) => t.trim()).filter(Boolean));
+		const disallowed = new Set((policy.excludeTools ?? []).map((t) => t.trim()).filter(Boolean));
 		const paritySpawn = !resolveHermeticWorkers(input.hermeticWorkers);
 		if (paritySpawn) disallowed.add("mcp__" + "*");
 		if (disallowed.size > 0) args.push("--exclude-tools", [...disallowed].join(","));

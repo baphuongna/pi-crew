@@ -59,17 +59,24 @@ describe("resolveToolPolicy — allowlist precedence", () => {
 		assert.deepEqual(policy.tools, ["read", "bash", "edit"]);
 	});
 
-	it("user/project agent: frontmatter allowlist wins over role-config", () => {
+	it("user/project agent: frontmatter allowlist wins over role-config, MINUS the S-7 read_only execution floor", () => {
 		// A custom auditor agent (user source) with its own tools list. The
 		// frontmatter is authoritative (user intent), even if a matching role
-		// exists with a different set.
+		// exists with a different set. S-7 (w4b): permissionForRole("auditor") is
+		// default-deny read_only, so the execution tools are stripped from the
+		// resolved allowlist and merged into the additive denylist — untrusted
+		// (or even trusted) frontmatter can no longer arm bash on a read_only
+		// tier; the non-execution declarations still win over the role-config.
 		const agent = makeAgent({
 			source: "project",
 			name: "auditor",
 			tools: ["read", "grep", "find", "bash"],
 		});
 		const policy = resolveToolPolicy(agent, "auditor");
-		assert.deepEqual(policy.tools, ["read", "grep", "find", "bash"]);
+		assert.deepEqual(policy.tools, ["read", "grep", "find"], "bash stripped by the S-7 floor");
+		for (const t of ["bash", "edit", "write"]) {
+			assert.ok(policy.excludeTools?.includes(t), `S-7 floor must denylist ${t}`);
+		}
 	});
 
 	it("user/project agent: role-config is the fallback when frontmatter omits tools", () => {
@@ -172,6 +179,8 @@ describe("resolveToolPolicy — cross-path consistency", () => {
 		const b = resolveToolPolicy(agent, "auditor");
 		assert.deepEqual(a, b);
 		assert.deepEqual(a.tools, ["read", "grep"]);
-		assert.deepEqual(a.excludeTools, ["web"]);
+		// Merge order pinned: declared/role denylist first ("web"), then the S-7
+		// execution-tool floor (bash/edit/write) — additive, never weakened.
+		assert.deepEqual(a.excludeTools, ["web", "bash", "edit", "write"]);
 	});
 });

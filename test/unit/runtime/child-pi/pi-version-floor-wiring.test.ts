@@ -29,7 +29,11 @@ import { cleanupStateRoot } from "../../../helpers/rm-retry.ts";
 
 function agent(fields: Partial<AgentConfig> = {}): AgentConfig {
 	return {
-		name: "test-agent",
+		// S-7 (w4b): write-tier role name (WRITE_ROLES "agent") — these tests pin
+		// U9 version-floor wiring for a NON-floor role; under the old "test-agent"
+		// name the default-deny read_only tier added the execution-tool floor
+		// (--exclude-tools bash,edit,write) even on hermetic spawns.
+		name: "agent",
 		description: "test",
 		source: "dynamic",
 		filePath: "/test",

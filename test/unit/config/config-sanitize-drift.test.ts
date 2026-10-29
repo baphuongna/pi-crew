@@ -77,6 +77,9 @@ const EXPECTED_SENSITIVE_PATHS = [
 	"runtime.inheritContext",
 	"runtime.agentExtensions",
 	"runtime.isolationPolicy",
+	// w4b (U11 third in-process routing knob — user-only like runtime.mode /
+	// runtime.isolationPolicy; project config may not enable/role-extend it).
+	"runtime.embeddedWorkers",
 	"worktree.setupHook",
 	"worktree.seedPaths",
 	"goalWrap",

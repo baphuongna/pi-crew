@@ -8,7 +8,12 @@ import { buildPiWorkerArgs } from "../../../../src/runtime/model/pi-args.ts";
 
 function agent(fields: Partial<AgentConfig> = {}): AgentConfig {
 	return {
-		name: "test-agent",
+		// S-7 (w4b): write-tier role name (WRITE_ROLES "agent") — the fixture pins
+		// D5/parity/version-floor argv for a NON-floor role; the read_only floor
+		// has its own suite. With the old "test-agent" name the resolver's
+		// default-deny tier (read_only) fired the execution-tool floor and added
+		// bash/edit/write to --exclude-tools on every spawn.
+		name: "agent",
 		description: "test",
 		source: "dynamic",
 		filePath: "/test",

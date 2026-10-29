@@ -8,7 +8,10 @@ import { buildPiWorkerArgs, resolveCrewMaxDepth } from "../../../../src/runtime/
 
 function agent(fields: Partial<AgentConfig> = {}): AgentConfig {
 	return {
-		name: "test-agent",
+		// S-7 (w4b): write-tier role name (WRITE_ROLES "agent") — the D5 loadout
+		// pins below assert the NON-floor passthrough surface; the read_only
+		// execution-tool floor has its own suite at the bottom of this file.
+		name: "agent",
 		description: "test",
 		source: "dynamic",
 		filePath: "/test",
@@ -161,4 +164,96 @@ test("GAP-1: declared extensions from dynamic/project sources are stripped (SEC-
 // Cap giữ để chống runaway recursion.
 test("default max depth is 4 (child creates child creates child creates child)", () => {
 	assert.equal(resolveCrewMaxDepth(undefined, {}), 4);
+});
+
+// ─── S-7 (w4b security fix): read_only execution-tool floor on the child argv ───
+// A role classified read_only by permissionForRole (incl. default-deny custom
+// names) must never receive bash/edit/write — regardless of frontmatter — and
+// the child spawn path must emit the SAME resolved policy live-session uses.
+
+import { resolveToolPolicy } from "../../../../src/agents/agent-config.ts";
+
+const EXECUTION_FLOOR = ["bash", "edit", "write"] as const;
+
+test("S-7 (d): read_only role + frontmatter tools:[bash,read] → bash stripped and excluded", () => {
+	const { args } = buildPiWorkerArgs({
+		task: "Task: x",
+		agent: agent({ name: "researcher", tools: ["bash", "read"] }),
+		role: "researcher", // unknown name → permissionForRole default-deny read_only
+		env: {},
+	});
+	const idx = args.indexOf("--tools");
+	assert.ok(idx >= 0, "declared allowlist still emitted");
+	const allow = args[idx + 1]!.split(",");
+	assert.ok(allow.includes("read"), "non-execution declared tool survives");
+	assert.ok(!allow.includes("bash"), "bash must be stripped from the allowlist");
+	const xIdx = args.indexOf("--exclude-tools");
+	assert.ok(xIdx >= 0, "floor must ride --exclude-tools");
+	const denied = new Set(args[xIdx + 1]!.split(","));
+	for (const t of EXECUTION_FLOOR) assert.ok(denied.has(t), `${t} must be in the floor denylist`);
+});
+
+test("S-7 (e): worker role keeps D5 passthrough — declared bash stays on argv, no floor excludes", () => {
+	const policy = resolveToolPolicy(agent({ tools: ["bash", "read"] }), "worker");
+	assert.deepEqual(policy.tools, ["bash", "read"], "write-tier frontmatter passthrough unchanged (D5)");
+	assert.equal(policy.excludeTools, undefined, "no floor denylist for write-tier roles");
+	const { args } = buildPiWorkerArgs({
+		task: "Task: x",
+		agent: agent({ tools: ["bash", "read"] }),
+		role: "worker",
+		env: {},
+	});
+	const idx = args.indexOf("--tools");
+	assert.ok(idx >= 0, "--tools must be present");
+	const allow = args[idx + 1]!.split(",");
+	assert.ok(allow.includes("bash") && allow.includes("read"), "declared tools passthrough (worker = WRITE_ROLES)");
+	assert.ok(!args.includes("--exclude-tools"), "no --exclude-tools for a write-tier role");
+});
+
+test("S-7: floor holds in additive modifier mode too (+read,+grep without bash; explicit excludes)", () => {
+	const { args } = buildPiWorkerArgs({
+		task: "Task: x",
+		agent: agent({ name: "researcher", tools: "bash,read,grep" as unknown as AgentConfig["tools"] }),
+		role: "researcher",
+		env: { PI_CREW_TOOLS_MODIFIERS: "1" },
+		piVersion: "1.1.0",
+	});
+	const idx = args.indexOf("--tools");
+	assert.equal(args[idx + 1], "+read,+grep", "bash stripped before modifier emission (additive mode keeps default surface)");
+	const xIdx = args.indexOf("--exclude-tools");
+	assert.ok(xIdx >= 0, "floor denylist rides --exclude-tools (load-bearing in additive mode)");
+	const denied = args[xIdx + 1]!.split(",");
+	for (const t of EXECUTION_FLOOR) assert.ok(denied.includes(t), `${t} must be denied`);
+});
+
+test("S-7: wildcard '*' expansion on a read_only role cannot arm execution tools", () => {
+	const policy = resolveToolPolicy(agent({ name: "researcher", tools: "*" as unknown as AgentConfig["tools"] }), "researcher");
+	assert.ok(
+		policy.tools?.every((t) => !EXECUTION_FLOOR.includes(t as (typeof EXECUTION_FLOOR)[number])),
+		"no bash/edit/write after expansion",
+	);
+	for (const t of EXECUTION_FLOOR) assert.ok(policy.excludeTools?.includes(t), `${t} denied`);
+});
+
+test("S-7: F10 underscore role normalization — 'test_engineer' classifies write-tier (no floor)", () => {
+	const policy = resolveToolPolicy(agent({ tools: ["bash", "read"] }), "test_engineer");
+	assert.ok(policy.tools?.includes("bash"), "hyphenated WRITE role written with underscore must keep bash");
+	assert.ok(!policy.excludeTools?.includes("bash"), "no floor denylist entry (role config web-exclude still applies)");
+});
+
+test("S-7: denylist cannot be weakened by frontmatter omission (read_only + no tools declared)", () => {
+	// Silent frontmatter on a read_only role: no --tools allowlist, but the
+	// floor STILL excludes the execution tools on the child argv.
+	const policy = resolveToolPolicy(agent({ name: "researcher", tools: undefined }), "researcher");
+	assert.equal(policy.tools, undefined, "no allowlist appears from nowhere");
+	for (const t of EXECUTION_FLOOR) assert.ok(policy.excludeTools?.includes(t), `${t} denied`);
+	const { args } = buildPiWorkerArgs({
+		task: "Task: x",
+		agent: agent({ name: "researcher" }),
+		role: "researcher",
+		env: {},
+	});
+	assert.ok(!args.includes("--tools"), "silent frontmatter keeps the full-default allowlist shape");
+	const xIdx = args.indexOf("--exclude-tools");
+	assert.ok(xIdx >= 0, "floor still emits --exclude-tools");
 });

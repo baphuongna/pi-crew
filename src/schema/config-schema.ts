@@ -158,7 +158,17 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 			),
 		),
 		// U11 (hybrid 2-tier worker model): per-role embedded-tier opt-in.
-		// DEFAULT-OFF — behavior pick, not authority (no sensitive mark).
+		// DEFAULT-OFF. USER-ONLY (sensitive mark, w4b security fix): this is the
+		// THIRD in-process routing knob alongside runtime.mode and
+		// runtime.isolationPolicy (both already sensitive). An embedded-routed
+		// worker's Pi session runs IN-PROCESS in the host pi process, where the
+		// two deterministic host protections do not exist — the PI_CREW_SANDBOX=bwrap
+		// OS boundary is resolved only on the child spawn path (child-pi.ts) and
+		// the env allowlist scrub (sanitizeEnvSecrets) exists only for child envs —
+		// so enabling/role-extending it from untrusted config silently voids the
+		// user's sandbox opt-in and can expose host env/FS to bash-capable roles.
+		// The user-tier config file remains the product knob; project config and
+		// run params (same sensitive walk) may not set it.
 		embeddedWorkers: Type.Optional(
 			Type.Object(
 				{
@@ -167,7 +177,7 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 					maxConcurrent: Type.Optional(Type.Integer({ minimum: 1 })),
 					faultThreshold: Type.Optional(Type.Integer({ minimum: 1 })),
 				},
-				{ additionalProperties: false },
+				{ additionalProperties: false, sensitive: true },
 			),
 		),
 		modelFallback: Type.Optional(PiTeamsModelFallbackConfigSchema),

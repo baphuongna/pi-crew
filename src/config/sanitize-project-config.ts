@@ -1,4 +1,5 @@
 import { collectSensitiveConfigPaths } from "../schema/sensitive-config-paths.ts";
+import { getCrewEnv } from "./env-vars.ts";
 import type { ConfigValidationResult, PiTeamsConfig } from "./types.ts";
 
 /**
@@ -43,6 +44,14 @@ export function projectOverrideWarning(projectPath: string, dottedPath: string):
  * `limits.maxConcurrentWorkers` deliberately has NO entry: the schema already
  * bounds it (Type.Integer minimum 1, reader-side sanity ceilings) and a project
  * can only lower it — i.e. tighten — so no drop is needed (ADR Wave 1A).
+ *
+ * `runtime.embeddedWorkers` deliberately has NO entry either (w4b): the whole
+ * block is sensitive-marked in the schema (user-only), so the unconditional
+ * walk above already drops it from the project tier — there is no residual
+ * project-tier surface to guard-tier. Do not re-add conditional entries for
+ * it; if the block ever loses its sensitive mark, routing to the in-process
+ * embedded tier becomes project-settable again, which is the bug class this
+ * table exists to prevent.
  */
 export const CONDITIONAL_PROJECT_DROPS: Record<string, (value: unknown) => boolean> = {
 	// Legacy exception (ADR Decision 3, folded in here): only `=== false`
@@ -170,3 +179,49 @@ export function sanitizeProjectConfig(projectPath: string, userConfig: PiTeamsCo
 
 /** @internal — direct-test seam for Phase 2.2 extraction target (refactor-plan step 1.9c). */
 export const __test__sanitizeProjectConfig = sanitizeProjectConfig;
+
+// ─── w4b defense-in-depth: the embedded tier must not void the sandbox opt-in ───
+// A project/user config can route a role onto the U11 EMBEDDED tier
+// (runtime.embeddedWorkers), where the worker's Pi session runs IN-PROCESS in
+// the host pi process. Both deterministic host protections live ONLY on the
+// child spawn path: the PI_CREW_SANDBOX=bwrap OS boundary (child-pi.ts
+// resolveSandboxConfig → sandbox.ts) and the env allowlist secret scrub
+// (child-pi-spawn.ts sanitizeEnvSecrets). An embedded-routed task never
+// reaches either — so while the sandbox posture is ON, routing to the
+// in-process tier silently voids the user's explicit opt-in. The schema now
+// removes the PROJECT tier's authority to enable embeddedWorkers; this gate is
+// the second layer: even a USER-tier enable must refuse to route while the
+// sandbox is on (fail closed, like resolveSandboxConfig itself).
+
+/**
+ * FAIL-CLOSED: must the embedded tier refuse routing because a sandbox
+ * posture is configured?
+ *
+ * Mirrors resolveSandboxConfig's value handling (sandbox.ts): `""` and `"0"
+ * mean OFF; ANY other non-empty value means sandbox intent — `"bwrap"` is the
+ * active boundary, and unrecognized values throw on the child path entirely
+ * (refusing embedded routing for them too is the same fail-closed posture:
+ * the user asked for containment and must never get the unprotected in-process
+ * tier instead).
+ *
+ * CONSUMER (required follow-up wiring, outside this wave's file ownership):
+ * `planEmbeddedTier` (src/runtime/task-runner/hybrid-tier.ts) must call this
+ * FIRST and, when true, emit a visible `tier.decision` warning event (reason
+ * "sandbox-opt-in", route subprocess) and return undefined — the task stays
+ * on the subprocess tier, which resolveSandboxConfig actually wraps. Until
+ * wired, the gate is exported + unit-tested but not yet consulted by the
+ * routing seam.
+ */
+export function embeddedTierRefusedBySandbox(env: NodeJS.ProcessEnv = process.env): boolean {
+	const raw = (getCrewEnv("PI_CREW_SANDBOX", env) ?? "").trim();
+	return raw !== "" && raw !== "0";
+}
+
+/**
+ * Human-visible refusal message for the gate above (single wording shared by
+ * the event emission and tests, so the warning cannot drift from the gate).
+ */
+export function embeddedTierSandboxRefusalReason(env: NodeJS.ProcessEnv = process.env): string {
+	const raw = (getCrewEnv("PI_CREW_SANDBOX", env) ?? "").trim();
+	return `Embedded tier refused: PI_CREW_SANDBOX='${raw}' is set — the in-process embedded tier has no bwrap OS boundary and no child-env secret scrub, so routing would void the sandbox opt-in; the task stays on the subprocess tier (which the sandbox wraps)`;
+}

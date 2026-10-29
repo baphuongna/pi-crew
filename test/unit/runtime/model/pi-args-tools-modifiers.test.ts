@@ -24,7 +24,10 @@ import { buildPiWorkerArgs } from "../../../../src/runtime/model/pi-args.ts";
 
 function agent(fields: Partial<AgentConfig> = {}): AgentConfig {
 	return {
-		name: "test-agent",
+		// S-7 (w4b): write-tier role name (WRITE_ROLES "agent") — this file pins
+		// the L2-3 modifier-syntax emission for a NON-floor role; the read_only
+		// execution-tool floor has its own suite.
+		name: "agent",
 		description: "test",
 		source: "dynamic",
 		filePath: "/test",

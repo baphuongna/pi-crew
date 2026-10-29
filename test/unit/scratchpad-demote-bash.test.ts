@@ -76,14 +76,21 @@ test("P2 (d): flag ON — executor (scratchpad-armed, no allowlist) gets bash de
 	assert.ok(policy.excludeTools?.includes("bash"), "executor must denylist bash when flag on");
 });
 
-test("P2 (e): flag ON — NON-scratchpad roles keep bash (lever is scoped to scratchpad roles)", () => {
+test("P2 (e): flag ON — lever stays scoped to scratchpad-armed roles (S-7 floor supersedes the old reviewer exemplar)", () => {
 	process.env[FLAG] = "1";
-	// Wave-3 Chain A removed bash from explorer entirely, so reviewer is the
-	// exemplar bash-bearing non-scratchpad role. They must be untouched by the
-	// demote lever (no sh() fallback, so removing bash would break them).
+	// Historical exemplar was reviewer (bash-bearing non-scratchpad role). The
+	// S-7 read_only execution-tool floor (w4b) now strips bash from EVERY
+	// read_only role — reviewer included — independent of this lever, so the
+	// scope exemplar is cold-verifier: WRITE_ROLES, no scratchpad arm, no sh()
+	// fallback → the lever must not touch it, and bash must survive.
+	const coldVerifier = resolveToolPolicy(makeAgent({ name: "cold-verifier" }), "cold-verifier");
+	assert.equal(coldVerifier.tools, undefined, "no allowlist (full default surface — lever must stay scoped away)");
+	assert.ok(!coldVerifier.excludeTools?.includes("bash"), "cold-verifier excludeTools untouched by the lever");
+	// S-7 pin: reviewer (read_only tier) loses bash via the floor regardless of
+	// the demote lever state — see the S-7 floor suite in agent-config tests.
 	const reviewer = resolveToolPolicy(makeAgent({ name: "reviewer" }), "reviewer");
-	assert.ok(reviewer.tools?.includes("bash"), "reviewer keeps bash (not scratchpad-armed)");
-	assert.ok(!reviewer.excludeTools?.includes("bash"), "reviewer excludeTools untouched");
+	assert.ok(!reviewer.tools?.includes("bash"), "reviewer bash stripped by the S-7 floor (read_only tier)");
+	assert.ok(reviewer.excludeTools?.includes("bash"), "reviewer bash denylisted by the S-7 floor");
 });
 
 test("P2 (f): flag ON — read-only role with scratchpad:true frontmatter is NOT demoted (S-6 gate)", () => {

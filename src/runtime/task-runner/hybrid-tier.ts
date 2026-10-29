@@ -46,6 +46,7 @@
  */
 
 import type { CrewRuntimeConfig } from "../../config/config.ts";
+import { embeddedTierRefusedBySandbox, embeddedTierSandboxRefusalReason } from "../../config/sanitize-project-config.ts";
 import { flushPendingAtomicWrites } from "../../state/atomic-write.ts";
 import { appendEventFireAndForget } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
@@ -180,6 +181,22 @@ export function planEmbeddedTier(input: PlanEmbeddedTierInput): EmbeddedTierPlan
 	const threshold = resolveEmbeddedFaultThreshold(policy);
 	const env = input.env ?? process.env;
 	const { manifest } = input;
+	// w4b defense-in-depth wiring (SEC-2026-11 embeddedWorkers.project-tier-routing):
+	// a live sandbox posture (PI_CREW_SANDBOX=bwrap) means the user opted into an
+	// OS boundary around workers. The embedded tier runs IN-PROCESS with neither
+	// the bwrap boundary nor the child-env secret scrub, so routing would void
+	// that opt-in. Fail closed: refuse embedded routing (subprocess tier keeps
+	// the sandbox), with a visible tier.decision warning.
+	if (embeddedTierRefusedBySandbox(env)) {
+		appendEventFireAndForget(manifest.eventsPath, {
+			type: "tier.decision",
+			runId: manifest.runId,
+			taskId: input.task.id,
+			message: embeddedTierSandboxRefusalReason(env),
+			data: { route: "subprocess", to: input.baseRuntimeKind, reason: "sandbox-opt-in" },
+		});
+		return undefined;
+	}
 	const resolved = resolveTaskRuntimeKind(input.baseRuntimeKind, input.role, input.isolationPolicy, env, {
 		policy,
 		faultCount,

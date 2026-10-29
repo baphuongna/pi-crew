@@ -1,6 +1,7 @@
 import { getCrewEnv } from "../config/env-vars.ts";
 import type { RoleToolConfig } from "../config/role-tools.ts";
 import { getToolConfig, isScratchpadEnabledForRole } from "../config/role-tools.ts";
+import { permissionForRole } from "../runtime/role-permission.ts";
 
 /**
  * F1 (v0.7.9): canonical built-in tool name list. Used by `parseToolsField`
@@ -146,6 +147,13 @@ export function getAgentSessionOptions(role: string): {
  *
  * Returns `{ tools, excludeTools }` where each is `undefined` when no
  * restriction of that kind applies (so callers no-op cleanly).
+ *
+ * S-7 (w4b): INDEPENDENT of both rules above, a role classified read_only by
+ * `permissionForRole` (including the default-deny for unknown names) never
+ * resolves bash/edit/write — they are stripped from the allowlist and merged
+ * into the excludeTools denylist regardless of source or frontmatter. The
+ * resolved policy is therefore safe to emit verbatim on BOTH spawn paths
+ * (child-pi `pi-args.ts` and live-session `filterActiveTools`).
  */
 export interface ResolvedToolPolicy {
 	/** Allowlist; undefined = no allowlist restriction (all built-ins allowed). */
@@ -160,9 +168,15 @@ function uniqueToolMerge(...lists: Array<string[] | undefined>): string[] | unde
 }
 
 export function resolveToolPolicy(agent: AgentConfig, role?: string): ResolvedToolPolicy {
+	// Normalize raw frontmatter shapes BEFORE any array operation: inline /
+	// runtime-constructed agents may carry the raw CSV string (the type says
+	// string[], but callers historically pass the raw form — pi-args.ts docs).
+	// Without this, the array filters below crash on a string, and consumers
+	// building a Set from the "list" would spread a string into single chars.
+	const declaredTools = normalizeToolList(agent.tools);
 	const roleConfig = role ? getToolConfig(role) : {};
 	// allowlist: source-aware precedence (see doc above).
-	const explicitTools = agent.source === "builtin" ? (roleConfig.tools ?? agent.tools) : (agent.tools ?? roleConfig.tools);
+	const explicitTools = agent.source === "builtin" ? (roleConfig.tools ?? declaredTools) : (declaredTools ?? roleConfig.tools);
 	let tools =
 		agent.loadMode === "lean" && agent.defaultTools?.length ? uniqueToolMerge(explicitTools, agent.defaultTools) : explicitTools;
 	// denylist: additive merge of role excludeTools + agent disallowedTools.
@@ -179,7 +193,50 @@ export function resolveToolPolicy(agent: AgentConfig, role?: string): ResolvedTo
 		tools = tools ? tools.filter((t) => t !== "bash") : tools;
 		excludeTools = uniqueToolMerge(excludeTools, ["bash"]);
 	}
+	// S-7 (w4b security fix — mirrors S-6 onto the tools path): a role
+	// classified read_only by permissionForRole must never receive
+	// execution-capable tools from ANY frontmatter declaration, wildcard
+	// expansion, or default fallback, regardless of agent.source — user intent
+	// does not outrank the tier. Project/project-pi frontmatter previously
+	// REPLACED the role allowlist wholesale (and custom role names had no
+	// role allowlist at all — getToolConfig {}), so a repo-authored
+	// `tools: bash` armed host-level command execution on a worker whose
+	// permission tier is read_only (default-deny). The denylist side is
+	// additive: it can never be weakened by frontmatter omission.
+	// F10: normalize underscore→hyphen before the tier lookup (same convention
+	// as isScratchpadEnabledForRole) — a raw `test_engineer` role must classify
+	// as its hyphenated WRITE counterpart, not default-deny to read_only.
+	if (role && permissionForRole(normalizeRoleKey(role)) === "read_only") {
+		tools = tools ? tools.filter((t) => !EXECUTION_TOOLS.has(t)) : tools;
+		excludeTools = uniqueToolMerge(excludeTools, [...EXECUTION_TOOLS]);
+	}
 	return { tools, excludeTools };
+}
+
+/**
+ * S-7: execution-capable builtin tools. A read_only-tier role never holds
+ * these, no matter what any frontmatter or role-config allowlist declares.
+ * (`scratchpad`/`sh` execution is already gated by S-6 in
+ * isScratchpadEnabledForRole — the two guards together close both execution
+ * paths for read-only roles.)
+ */
+const EXECUTION_TOOLS: ReadonlySet<string> = new Set(["bash", "edit", "write"]);
+
+/** F10: hyphen/underscore role-key normalization (mirrors getToolConfig). */
+function normalizeRoleKey(role: string): string {
+	return role.includes("_") ? role.replaceAll("_", "-") : role;
+}
+
+/**
+ * Normalize a declared tool list into a clean string[]. Accepts the raw CSV
+ * string form (parseToolsField semantics: `*`/`all` expand to the builtin
+ * list, `none` → []) and plain arrays (trim + drop empties, NO wildcard
+ * re-expansion — an already-parsed array passes through verbatim).
+ */
+function normalizeToolList(raw: unknown): string[] | undefined {
+	if (raw === undefined || raw === null) return undefined;
+	if (Array.isArray(raw)) return raw.map((t) => String(t).trim()).filter(Boolean);
+	return parseToolsField(raw);
 }
 
 /**
