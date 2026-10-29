@@ -1,5 +1,54 @@
 # Changelog
 
+## [Unreleased] — SEC-2026-11: security audit remediation (30 confirmed findings, 12 waves)
+
+**Fixed (security).** Full remediation of the 2026-10-29 independent security audit (skill security-audit, full
+profile, whole package @ 6063f377; 30 confirmed / 4 needs_validation / 3 rejected). Story:
+`docs/stories/SEC-2026-11-audit-remediation/`. Evidence: `/home/bom/security-audit-skill/pi-crew/run-1` (report,
+findings, fix-records). Wave-by-wave:
+
+- **w1a broker (HIGH×2, MEDIUM)** — spawns without a task identity no longer receive the bare per-run token
+  (fail closed); bare-runId fallback retired for explicit taskId hello claims; `wait.*` authenticate via
+  task-scoped compound tokens only; durable mailbox rows + steering lines are Ed25519-signed by the root session
+  (private key heap-only, children get the public verify key via `PI_CREW_MAILBOX_VERIFY_KEY`), consumers drop
+  unsigned/invalid rows as noise; steering poll re-validates per tick (TOCTOU); inbox fence neutralization covers
+  every attacker-influenced metadata field.
+- **w1b bindings (MEDIUM, LOW)** — gatherReplies binds replies to (mailId → expected addressee) with broker-
+  authenticated `from`; api claim/release/transition gated for read_only tier + claim bound to the caller's
+  `PI_CREW_TASK_ID`.
+- **w2 verify-gate (HIGH×3)** — gate binds the tracked working tree at dispatch (temp-index treeOid), fails on
+  drift, downgrades mid-gate tamper to INCONCLUSIVE; memo key = cwd + full tracked-tree oid (dirty ⇒ memo off);
+  dependency-worktree probes refuse skip on uncommitted work even on memoized PASS.
+- **w3 dwf trust (HIGH, MEDIUM)** — user-tier `.dwf.ts`/preStepScript default-deny (`PI_CREW_TRUST_USER_DWF`);
+  dispatch-time `dynamicScriptPin` (path+sha256) persisted before load and verified on every resume arm;
+  checkpoints bound to runId with schema/clamp/verdict-allowlist hydration validation.
+- **w4a child-pi (HIGH×2)** — inference-broker in-flight cap enforced (increment + exactly-once settle; over-cap
+  429s); sandbox toolchain binds capped below the user trust boundary (no `$HOME`/`~/.pi/agent` overshoot —
+  auth.json unreachable).
+- **w4b config (HIGH, MEDIUM)** — `runtime.embeddedWorkers` user-only (sensitive); embedded routing fails closed
+  while a sandbox posture is on; S-7 read_only execution-tool floor (bash/edit/write un-expandable by
+  frontmatter; D5 write-tier parity preserved); `pi-args` emits tools from the resolved policy.
+- **w5a root-gate (HIGH, MEDIUM)** — dryRun carriers traverse the full R11-S1 matrix; delete/cleanup/init gated
+  (resolved-tier backstop in handleDelete; init scope union resolver).
+- **w5b resume (MEDIUM×2, LOW)** — resume inherits budget + deadline (manifest-derived re-arm; deadline timer
+  armed); maxTasks admission re-enforced before any side effect; special-kind adopt performs the in-lock
+  liveness recheck. Plus: perf-sampler child error listener (pre-existing abort-after-exit host crash).
+- **w6 locks (HIGH, MEDIUM, LOW)** — seed-path destination O_NOFOLLOW ancestor validation (pre+post mkdir);
+  workspace-lock refresh CAS on (dev,ino)+bytes (no clobber of a stolen lock); steal removal bound to the
+  verified corpse token + post-claim verification in both acquire loops.
+- **w7a render (MEDIUM×2, LOW)** — shared `stripTerminalSequences`; control-char theme names refused/neutralized;
+  inline-panel transcript + tool-renderers + inspect sinks sanitize OSC/CSI/control chars.
+- **w7b observability/import (MEDIUM, LOW×2)** — OTLP `redirect:'manual'` + 3xx refusal; userinfo endpoints
+  refused + origin-only error/log rendering; imported manifest fields rendered through `sanitizeImportedText`.
+- **w8 ci (MEDIUM, LOW)** — battery changed-path matching decodes git C-quoted paths (quotePath pinned,
+  fail-closed decode) so T7 live-smoke can't be blind-triggered; ci.yml tarball smoke binds the exact pack name
+  with loud existence/count/version assertions (no decoy glob).
+
+**Verification.** Per-wave regression tests (≈160 new) + sequential re-run of all 211 suite files affected by
+mid-run tree churn: green. `npm run typecheck`, `npm run lint`, `biome format`, `check-env-vars`,
+`check-lazy-imports`, `check-slop-rules`, `check-event-types-registry --enforce` all pass. Full-suite fresh run
+on the final tree pending release gate (see story validation.md).
+
 ## [Unreleased] — test hardening
 
 **Fixed (test-only).** `waitForPreGateEvents` (classifier-pre-gate) now THROWS on timeout with counts + path
