@@ -26,5 +26,20 @@ Quy ước chung: mọi test chạy riêng lẻ qua `node --experimental-strip-t
 ## Wired-later gaps đã đóng bởi các wave khác
 - w5b tự đóng sampler-child `error` listener (B6 mirror) — deadline abort-after-exit từng crash host (pre-existing, chứng minh 5/5 trên HEAD).
 
-## Còn lại
-- w1a-broker-coordination (bare-token fail-closed + Ed25519 coordination binding + inbox fence): đang chạy validation cuối qua pi-crew run nội bộ; diff ~504 dòng trên 6 src + 8 test files; typecheck tổng cây đã SẠCH; fix-record sẽ ghi khi wave kết thúc.
+## w1a (hoàn tất bởi leader sau takeover)
+- Executor gốc + attempt-2 (pi-crew run nội bộ) bị ngắt sau ~55 phút validation; leader takeover: kiểm toán diff
+  (515 dòng/6 src + 4 test mới), sửa slop no-double-cast (signMailboxMessage spread), route env reads qua
+  getCrewEnv, đăng ký PI_CREW_MAILBOX_VERIFY_KEY (env-vars + forwarding decision table), sweep sequential
+  41+88+7 PASS. Fix record: fix-records/w1a-broker-coordination.md.
+- Bài học: registry C-1 validation throw lúc module-load khi thêm CREW_ENV_VARS entry thiếu forwarding decision —
+  gây 211 file crash hàng loạt trong 1 lần full-run giữa chừng (đã fix + thêm snapshot pin).
+
+## Full-suite chạy tươi trên tree đã commit (13 commits e8794132..71df800b + follow-up)
+- `npm run test:unit` (concurrency 4): **10394 tests — 10378 pass, 6 fail, 6 cancelled**.
+- 6 fail đã đối chiếu TỪNG FILE chạy sequential riêng lẻ: **tất cả PASS** (respond-discriminator 10/10,
+  run-foreground-partial-watch 1/1, round24-deadlock 5/5, resume-liveness 6/6, resume-status 2/2,
+  role-tools-integration 3/3, events-replay 8/8) + A6 escalate pins 3/3 ⇒ toàn bộ là timing-flake song song
+  đã biết (deadline/watch-window/deadlock/escalate dưới tải 4-way; w5b đã ghi nhận cùng class trên HEAD).
+- Registry snapshot fail duy nhất có thật (key mới thiếu pin) đã fix + commit.
+- Gates: typecheck 0 lỗi; lint exit 0; format exit 0; check-env-vars 0; check-lazy-imports 0 (budget 541→542
+  có doc); check-slop-rules clean; check-event-types-registry 0.
