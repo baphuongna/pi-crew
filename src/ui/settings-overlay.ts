@@ -6,7 +6,7 @@
 
 import * as piTui from "@earendil-works/pi-tui";
 import { PiTeamsRuntimeConfigSchema, PiTeamsUiConfigSchema } from "../schema/config-schema.ts";
-import { truncateToWidth, visibleWidth } from "../utils/visual.ts";
+import { sanitizeUntrustedLine, truncateToWidth, visibleWidth } from "../utils/visual.ts";
 import { keyOf, matchesKey } from "./key-utils.ts";
 import { CURSOR, canopyLine, formatHint, overflowHint, RAIL, railLine } from "./rail.ts";
 
@@ -308,9 +308,14 @@ const SETTINGS: SettingDef[] = [
 		label: "Pi UI Theme",
 		type: "action",
 		action: "piTheme",
-		values: discoverPiThemes().map((t) => t.name),
+		// w7a-render: theme names (and the active-theme value read from
+		// ~/.pi/agent/settings.json) derive from worker-writable files — sanitize
+		// before they reach SelectSubmenu.render, which interpolates items verbatim.
+		values: discoverPiThemes().map((t) => sanitizeUntrustedLine(t.name)),
 		tab: "themes",
-		description: "Overall terminal theme. Switches live (no restart). Currently: " + (getActivePiTheme() ?? "dark (default)"),
+		description:
+			"Overall terminal theme. Switches live (no restart). Currently: " +
+			sanitizeUntrustedLine(getActivePiTheme() ?? "dark (default)"),
 	},
 	// Autonomous
 	{

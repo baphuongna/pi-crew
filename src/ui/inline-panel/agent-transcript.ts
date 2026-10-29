@@ -27,6 +27,7 @@ import * as path from "node:path";
 
 import { readCrewAgentEventsCursor } from "../../runtime/crew-agent-records.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
+import { stripTerminalSequences } from "../../utils/safe-terminal-text.ts";
 
 const MAX_TRANSCRIPT_ITEMS = 500;
 
@@ -127,19 +128,67 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
  * (role:"toolResult" message_end).
  */
 function normalizeResultContent(raw: unknown): Array<{ type: string; text?: string }> {
-	if (typeof raw === "string") return [{ type: "text", text: raw }];
+	// w7a-render: every string on this path is worker-written and handed to pi
+	// host components (ToolExecutionComponent) — strip terminal escape
+	// sequences (OSC 52/OSC 8/CSI/APC + residual introducers) at the boundary.
+	if (typeof raw === "string") return [{ type: "text", text: stripTerminalSequences(raw) }];
 	if (!Array.isArray(raw)) return [];
 	return raw.flatMap((part) => {
-		if (typeof part === "string") return [{ type: "text", text: part }];
+		if (typeof part === "string") return [{ type: "text", text: stripTerminalSequences(part) }];
 		const record = asRecord(part);
 		if (!record) return [];
 		return [
 			{
 				type: typeof record.type === "string" ? record.type : "text",
-				text: typeof record.text === "string" ? record.text : undefined,
+				text: typeof record.text === "string" ? stripTerminalSequences(record.text) : undefined,
 			},
 		];
 	});
+}
+
+/**
+ * w7a-render: sanitize the printable string fields of a retained assistant
+ * message (text + thinking content parts) before the full message object is
+ * handed to pi's AssistantMessageComponent, which renders them verbatim.
+ * Returns the SAME object when nothing needed stripping (component-cache
+ * fingerprint stays stable). Identity fields (usage/role/stopReason) and
+ * non-string payloads pass through untouched.
+ */
+function sanitizeMessageForRender(message: Record<string, unknown>): Record<string, unknown> {
+	const content = message.content;
+	if (!Array.isArray(content)) return message;
+	let touched = false;
+	const parts = content.map((part) => {
+		const record = asRecord(part);
+		if (!record) return part;
+		if (record.type === "text" && typeof record.text === "string") {
+			const clean = stripTerminalSequences(record.text);
+			if (clean !== record.text) {
+				touched = true;
+				return { ...record, text: clean };
+			}
+			return part;
+		}
+		if (record.type === "thinking") {
+			let partTouched = false;
+			const clean: Record<string, unknown> = { ...record };
+			if (typeof record.thinking === "string") {
+				clean.thinking = stripTerminalSequences(record.thinking);
+				partTouched = clean.thinking !== record.thinking;
+			}
+			if (typeof record.text === "string") {
+				clean.text = stripTerminalSequences(record.text);
+				partTouched ||= clean.text !== record.text;
+			}
+			if (partTouched) {
+				touched = true;
+				return clean;
+			}
+			return part;
+		}
+		return part;
+	});
+	return touched ? { ...message, content: parts } : message;
 }
 
 function textFromContent(content: unknown): string {
@@ -178,7 +227,8 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 	const items: CrewTranscriptItem[] = [];
 
 	if (type === "tool_execution_start") {
-		const name = typeof event.toolName === "string" ? event.toolName : "tool";
+		// w7a-render: toolName is interpolated into ToolExecutionComponent's title
+		const name = stripTerminalSequences(typeof event.toolName === "string" ? event.toolName : "tool");
 		const args = (event.args as Record<string, unknown>) ?? {};
 		const id = `${name}#${seq}`;
 		const item: PendingTool = { type: "tool", name, toolCallId: id, args, seq };
@@ -223,7 +273,7 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 
 		if (message.role === "assistant") {
 			const content = Array.isArray(message.content) ? message.content : [];
-			const text = textFromContent(content);
+			const text = stripTerminalSequences(textFromContent(content));
 			if (text) {
 				// Compaction can carry usage at the RECORD level (usage-only
 				// tail) instead of inside the message — merge it in so the
@@ -234,7 +284,13 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 				if (recordUsage) {
 					merged = { ...message, usage: messageUsage ? { ...messageUsage, ...recordUsage } : recordUsage };
 				}
-				items.push({ type: "assistant", text, seq, message: merged, usage: normalizeUsage(merged.usage) });
+				items.push({
+					type: "assistant",
+					text,
+					seq,
+					message: sanitizeMessageForRender(merged),
+					usage: normalizeUsage(merged.usage),
+				});
 			}
 			// toolResult parts carry name + content; fold them into pending starts
 			// (normalized to the same updateResult envelope as the pi ≥0.84
@@ -242,7 +298,9 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 			for (const part of content) {
 				const item = asRecord(part);
 				if (item?.type !== "toolResult") continue;
-				const name = typeof item.name === "string" ? item.name : "tool";
+				// Sanitize the fold key EXACTLY like tool_execution_start names so a
+				// payload-carrying toolName still pairs with its result.
+				const name = stripTerminalSequences(typeof item.name === "string" ? item.name : "tool");
 				const isError = item.isError === true;
 				matchPending(
 					pending,
@@ -258,7 +316,7 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 		}
 
 		if (message.role === "user") {
-			const text = textFromContent(message.content);
+			const text = stripTerminalSequences(textFromContent(message.content));
 			if (text) items.push({ type: "user", text, seq });
 			return items;
 		}
@@ -266,7 +324,7 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 
 	// System / other events become a dim system line.
 	if (type && type !== "message_update") {
-		const text = typeof event.text === "string" ? event.text : "";
+		const text = stripTerminalSequences(typeof event.text === "string" ? event.text : "");
 		if (text) items.push({ type: "system", text, seq });
 	}
 
@@ -314,7 +372,7 @@ export function readAgentTranscript(manifest: TeamRunManifest, taskId: string): 
 		const prompt = readWorkerPrompt(manifest, taskId);
 		if (prompt !== undefined) {
 			promptSeeded.add(key);
-			buffer.unshift({ type: "user", text: prompt, seq: 0 });
+			buffer.unshift({ type: "user", text: stripTerminalSequences(prompt), seq: 0 });
 		}
 	}
 	if (buffer.length > MAX_TRANSCRIPT_ITEMS) {

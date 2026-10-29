@@ -27,6 +27,7 @@
 
 import { type Container, Text, visibleWidth } from "@earendil-works/pi-tui";
 import type { CrewAgentRecord } from "../../runtime/crew-agent-runtime.ts";
+import { sanitizeUntrustedLine } from "../../utils/visual.ts";
 import { AdaptiveCard } from "../adaptive-card.ts";
 import type { CrewComponent } from "../component.ts";
 import { formatCount, formatDuration, formatTokens, truncLine } from "../format-helpers.ts";
@@ -147,8 +148,12 @@ function shortRun(runId: string | undefined): string {
 /** Dim preview line (goals, prompts, output snippets) with visual truncation. */
 function previewLine(glyph: string, slot: RailSlot, text: string, theme: CrewTheme, budget: number, shorten = false): string {
 	const flat = (shorten ? shortenPath(text) : text).replace(/\n/g, " ");
+	// w7a-render (worker-output-render-unsanitized): worker/repo-derived text is
+	// sanitized BEFORE theme wrap (R4-B1) — pi-tui zero-widths escape payloads
+	// so visible-width truncation would never cut an in-window OSC/CSI payload.
+	const safe = sanitizeUntrustedLine(flat);
 	const maxLen = budget - 2;
-	const body = visibleWidth(flat) > maxLen ? `${truncVisual(flat, maxLen - 1)}…` : flat;
+	const body = visibleWidth(safe) > maxLen ? `${truncVisual(safe, maxLen - 1)}…` : safe;
 	return railLine(glyph, slot, theme.fg("dim", body), theme, budget);
 }
 
@@ -204,7 +209,9 @@ function renderTeamResult(result: Record<string, unknown>, options: unknown, the
 	// ── Streaming (partial result, collapsed view) ──
 	const isPartial = (options as Record<string, unknown>)?.isPartial === true;
 	if (isPartial && !ctx.expanded) {
-		const parsed = parseStreamingProgress(extractContentText(result?.content));
+		// w7a-render: progress text is a worker-derived channel — sanitize before
+		// parsing so every meta fragment derived from it (status/activeAgent) is escape-free.
+		const parsed = parseStreamingProgress(sanitizeUntrustedLine(extractContentText(result?.content)));
 		if (parsed) {
 			const spinner = theme.fg("accent", spinnerFrame(String(spinnerClockNow())));
 			const elapsed = theme.fg("dim", formatDuration(parsed.elapsedMs));
@@ -229,7 +236,13 @@ function renderTeamResult(result: Record<string, unknown>, options: unknown, the
 		}
 		const fallback = extractContentText(result?.content).split("\n").filter(Boolean).pop();
 		if (fallback) {
-			return railLine(RAIL.body, "borderAccent", `${theme.fg("warning", "◉")} ${theme.fg("dim", fallback)}`, theme, budget);
+			return railLine(
+				RAIL.body,
+				"borderAccent",
+				`${theme.fg("warning", "◉")} ${theme.fg("dim", sanitizeUntrustedLine(fallback))}`,
+				theme,
+				budget,
+			);
 		}
 	}
 
@@ -402,7 +415,7 @@ function renderAgentResult(result: Record<string, unknown>, options: unknown, th
 		const name = (d.agentName as string) ?? (d.agentId as string) ?? "agent";
 		const spinner = theme.fg("accent", spinnerFrame(String(d.agentId ?? "")));
 		const meta: string[] = [];
-		const progressText = extractContentText(result?.content);
+		const progressText = sanitizeUntrustedLine(extractContentText(result?.content));
 		if (progressText) {
 			const parsed = parseCompactToolProgress(progressText);
 			const elapsedSec = parsed ? Math.round(parsed.elapsedMs / 1000) : 0;
@@ -430,13 +443,20 @@ function renderAgentResult(result: Record<string, unknown>, options: unknown, th
 		const badge = statusBadge(status, theme);
 		const head = `${badge} ${theme.fg("toolTitle", theme.bold(label))}`;
 		if (d.error) {
-			return railLine(RAIL.close, "error", `${head} ${theme.fg("error", truncLine(String(d.error), budget - 24))}`, theme, budget);
+			// w7a-render: task.error can embed child-process stderr excerpts (R4-B1).
+			return railLine(
+				RAIL.close,
+				"error",
+				`${head} ${theme.fg("error", truncLine(sanitizeUntrustedLine(String(d.error)), budget - 24))}`,
+				theme,
+				budget,
+			);
 		}
 		const output = results?.length ? ((results[0] as Record<string, unknown>).output as string | undefined) : undefined;
 		const preview = output ? output.split("\n").find((l) => l.trim()) : undefined;
 		const right = theme.fg("dim", PI_EXPAND_CHORD);
 		if (preview) {
-			const left = `${head} ${theme.fg("muted", truncLine(preview, Math.max(8, budget - visibleWidth(head) - 8)))}`;
+			const left = `${head} ${theme.fg("muted", truncLine(sanitizeUntrustedLine(preview), Math.max(8, budget - visibleWidth(head) - 8)))}`;
 			return railLine(RAIL.close, closeSlot, railLeaders(left, right, budget, theme), theme, budget);
 		}
 		// Live 2026-09-16: with no output preview the cap printed a bare

@@ -183,7 +183,12 @@ const BUDGETS = {
 		// of live-session-runtime.ts for the wc-gate LIMIT; statically imported by
 		// live-session-runtime.ts which is already in the graph — same shape, pure
 		// file-count growth from the split, zero new reachability).
-		maxFiles: 541,
+		// SEC-2026-11 w7a (2026-10-29): 541 → 542 — utils/safe-terminal-text.ts (shared
+		// stripTerminalSequences sanitizer for the w7a render sinks: inline-panel
+		// transcript, theme gallery, tool-renderers). Statically imported by
+		// inline-panel/agent-transcript.ts which is already in the graph — hot render
+		// path, not deferrable; pure file-count growth, zero new reachability).
+		maxFiles: 542,
 		forbid: ["test/", "scripts/", "docs/", "dist/"],
 	},
 };

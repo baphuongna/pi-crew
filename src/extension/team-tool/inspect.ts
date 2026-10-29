@@ -4,6 +4,7 @@ import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { readEventsCursor } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { aggregateUsage, formatCostReport, formatUsage } from "../../state/usage.ts";
+import { sanitizeUntrustedLine } from "../../utils/visual.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
@@ -36,7 +37,9 @@ export function handleEvents(params: TeamToolParamsValue, ctx: TeamContext): PiT
 		...(events.length
 			? events.map(
 					(event) =>
-						`${event.time} ${event.type}${event.taskId ? ` ${event.taskId}` : ""}${event.message ? `: ${event.message}` : ""}${event.data ? ` ${JSON.stringify(event.data)}` : ""}`,
+						// w7a-render: event.message can embed child-stderr excerpts on worker
+						// failure — sanitize before it becomes tool-result content rendered by the team card.
+						`${event.time} ${event.type}${event.taskId ? ` ${event.taskId}` : ""}${event.message ? `: ${sanitizeUntrustedLine(event.message)}` : ""}${event.data ? ` ${JSON.stringify(event.data)}` : ""}`,
 				)
 			: ["(none)"]),
 	];
@@ -102,7 +105,10 @@ export function handleSummary(params: TeamToolParamsValue, ctx: TeamContext): Pi
 		"",
 		"Tasks:",
 		...loaded.tasks.map(
-			(task) => `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.error ? ` - ${task.error}` : ""}`,
+			// w7a-render: task.error can embed child-stderr excerpts on worker failure —
+			// sanitize before it becomes tool-result content rendered by the team card.
+			(task) =>
+				`- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.error ? ` - ${sanitizeUntrustedLine(task.error)}` : ""}`,
 		),
 	];
 	return result(lines.join("\n"), {

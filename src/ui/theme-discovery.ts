@@ -21,6 +21,7 @@
  */
 import * as fs from "node:fs";
 import { atomicWriteFile } from "../state/atomic-write.ts";
+import { sanitizeUntrustedLine } from "../utils/visual.ts";
 import { getAllThemes } from "./pi-ui-compat.ts";
 
 /**
@@ -125,13 +126,20 @@ function discoverPiThemesFromFs(): PiThemeInfo[] {
 			for (const file of fs.readdirSync(dir) as string[]) {
 				if (!file.endsWith(".json")) continue;
 				const name = file.slice(0, -5);
+				// w7a-render (control-char-theme-name-render): ~/.pi/agent/themes is
+				// worker-writable, so a filename stem carrying control/escape chars
+				// (OSC-52/OSC-8/CSI) is attacker-plantable. Refuse the file entirely —
+				// it can never become a picker value or a listing line.
+				if (/[\u0000-\u001f\u007f-\u009f]/.test(name)) continue;
 				if (seen.has(name)) continue;
 				const fullPath = `${dir}/${file}`;
 				let displayName: string | undefined;
 				let mode: "dark" | "light" | undefined;
 				try {
 					const json = JSON.parse(fs.readFileSync(fullPath, "utf8"));
-					displayName = typeof json.name === "string" ? json.name : undefined;
+					// The JSON body is worker-writable too — the human-friendly name is
+					// untrusted display text (w7a-render defense in depth).
+					displayName = typeof json.name === "string" ? sanitizeUntrustedLine(json.name) : undefined;
 					mode = detectThemeMode(json);
 				} catch {
 					// keep undefined
@@ -256,5 +264,9 @@ function themeLine(t: PiThemeInfo, active: string | undefined): string {
 	const isActive = t.name === active;
 	const tag = isActive ? " ← active" : "";
 	const src = t.source === "builtin" ? " (builtin)" : "";
-	return `  ${isActive ? "●" : "○"} ${t.name}${src}${tag}`;
+	// w7a-render: theme names derived from worker-writable files (fs scan or
+	// host theme list) are untrusted display text — sanitize before the
+	// listing becomes tool-result content (R4-B1). Identity comparison above
+	// stays on the raw name so switching keeps working.
+	return `  ${isActive ? "●" : "○"} ${sanitizeUntrustedLine(t.name)}${src}${tag}`;
 }
