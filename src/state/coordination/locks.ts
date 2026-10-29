@@ -86,7 +86,12 @@ function isLockHolderAlive(filePath: string): boolean {
  * `heldByLiveInProcess: true` when the stored token belongs to a run-lock
  * acquisition of THIS process that is still inside its critical section — the
  * async acquire loop then WAITS (timer-based retry) instead of throwing or
- * stealing.
+ * stealing. W6 (steal-rm-dual-holder) additionally returns `holderToken` —
+ * the snapshotted corpse's token (undefined for a token-less legacy payload,
+ * a vanished file, or an unreadable snapshot) — so the acquire loop's
+ * destructive removal can be INSTANCE-BOUND to the verified corpse
+ * (removeLockIfTokenMatches) instead of deleting whatever currently occupies
+ * the path.
  *
  * ## EPERM Handling (Accepted Risk)
  *
@@ -115,7 +120,7 @@ function readLockSnapshot(
 	filePath: string,
 	staleMs: number,
 	options?: { treatOwnPidAsStealable?: boolean; activeHolderTokens?: ReadonlySet<string> },
-): { canSteal: boolean; heldByLiveInProcess: boolean } {
+): { canSteal: boolean; heldByLiveInProcess: boolean; holderToken?: string } {
 	const treatOwnPidAsStealable = options?.treatOwnPidAsStealable === true;
 	let stat: fs.Stats | undefined;
 	let raw: string | undefined;
@@ -129,11 +134,11 @@ function readLockSnapshot(
 		// "locked" error.
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
-			return { canSteal: true, heldByLiveInProcess: false };
+			return { canSteal: true, heldByLiveInProcess: false, holderToken: undefined };
 		}
 		// Transient I/O error — be conservative (don't steal, retry the read on
 		// next attempt).
-		return { canSteal: false, heldByLiveInProcess: false };
+		return { canSteal: false, heldByLiveInProcess: false, holderToken: undefined };
 	}
 	// Staleness from a single snapshot.
 	let createdAt = parseCreatedAtFromLock(raw);
@@ -185,6 +190,7 @@ function readLockSnapshot(
 	return {
 		canSteal: isStale || !isAlive || ownPidStealable,
 		heldByLiveInProcess: holderIsLiveInProcess,
+		holderToken,
 	};
 }
 
@@ -247,6 +253,39 @@ function readLockToken(filePath: string): string | undefined {
 		return typeof parsed.token === "string" ? parsed.token : undefined;
 	} catch {
 		return undefined;
+	}
+}
+
+/**
+ * W6 (steal-rm-dual-holder): INSTANCE-BOUND steal removal.
+ *
+ * Removes the lock file at `filePath` ONLY when its currently stored token
+ * still equals `corpseToken` — the token of the stale/dead holder that the
+ * caller's single-snapshot read verified as stealable. This binds the
+ * destructive removal to the exact file instance that was verified: a
+ * contender that created a FRESH lock between the snapshot and this removal
+ * carries a different randomUUID token (or ANY token at all when the corpse
+ * was a legacy token-less payload), which never matches → no removal, and the
+ * caller's retry loop re-snapshots cleanly instead of deleting a live
+ * holder's lock (the dual-holder window the un-tokened `fs.rmSync` created).
+ * Symlinks are refused via readLockToken (undefined for a symlink).
+ *
+ * Exported for unit tests of the steal-race fix; production callers are the
+ * steal branches of acquireLockWithRetry / acquireLockWithRetryAsync.
+ */
+export function removeLockIfTokenMatches(filePath: string, corpseToken: string | undefined): boolean {
+	const currentToken = readLockToken(filePath);
+	const matches =
+		corpseToken === undefined
+			? currentToken === undefined
+			: currentToken !== undefined && timingSafeTokenMatch(currentToken, corpseToken);
+	if (!matches) return false;
+	try {
+		fs.rmSync(filePath, { force: true });
+		return true;
+	} catch {
+		/* race — let the caller's loop retry */
+		return false;
 	}
 }
 
@@ -456,7 +495,6 @@ function acquireLockWithRetry(filePath: string, staleMs: number, kind: LockKind 
 		const token = randomUUID();
 		try {
 			writeLockFile(filePath, token, kind);
-			return token;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			if (!isLockContention(code)) throw error;
@@ -467,19 +505,37 @@ function acquireLockWithRetry(filePath: string, staleMs: number, kind: LockKind 
 			// separate stale + alive reads (which could race stale→fresh).
 			// treatOwnPidAsStealable=false (this is the sync file-lock path used
 			// by withFileLockSync — never steal a fresh lock even if it has our pid).
-			const { canSteal } = readLockSnapshot(filePath, staleMs, { treatOwnPidAsStealable: false });
+			const { canSteal, holderToken: corpseToken } = readLockSnapshot(filePath, staleMs, { treatOwnPidAsStealable: false });
 			if (!canSteal) {
 				throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
 			}
-			// Stale or dead holder — forcibly remove the lock.
-			try {
-				fs.rmSync(filePath, { force: true });
-			} catch {
-				/* race — let loop retry */
-			}
+			// Stale or dead holder — remove it. W6 (steal-rm-dual-holder): the
+			// removal is INSTANCE-BOUND — re-read the current holder's token and
+			// remove only if it still equals the snapshotted corpse token. Without
+			// this binding, a contender that created a FRESH lock between our
+			// snapshot and this removal would lose its lock to our rmSync, our
+			// create would then succeed, and BOTH of us would enter the critical
+			// section (dual holders, no post-create verification). On mismatch:
+			// no removal — the retry loop re-snapshots cleanly.
+			removeLockIfTokenMatches(filePath, corpseToken);
 			sleepSync(Math.min(250, 25 * 2 ** attempt));
 			attempt++;
+			continue;
 		}
+		// W6 (steal-rm-dual-holder): post-claim verification, mirroring
+		// workspace-lock.ts claimLock/tryCreateVerified. O_EXCL proved WE created
+		// the file, but a concurrent stealer can remove our fresh file and claim
+		// its own in the microseconds before we return the token. Re-read: the
+		// on-disk token must be OURS before the acquire is considered successful.
+		// On mismatch: release best-effort (token-guarded → no-op against the
+		// foreign holder) and retry instead of returning a token we cannot prove.
+		if (readLockToken(filePath) === token) return token;
+		releaseLock(filePath, token);
+		if (Date.now() > deadline) {
+			throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
+		}
+		sleepSync(Math.min(250, 25 * 2 ** attempt));
+		attempt++;
 	}
 }
 
@@ -494,7 +550,6 @@ async function acquireLockWithRetryAsync(filePath: string, staleMs: number, kind
 		const token = randomUUID();
 		try {
 			writeLockFile(filePath, token, kind);
-			return token;
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			if (!isLockContention(code)) throw error;
@@ -550,16 +605,28 @@ async function acquireLockWithRetryAsync(filePath: string, staleMs: number, kind
 					"warn",
 				);
 			}
-			// Stale or dead holder — forcibly remove the lock.
-			try {
-				fs.rmSync(filePath, { force: true });
-			} catch {
-				/* race — let loop retry */
-			}
+			// Stale or dead holder — remove it. W6 (steal-rm-dual-holder): the
+			// removal is INSTANCE-BOUND to the snapshotted corpse token (see the
+			// sync twin above) — a contender's fresh lock created between our
+			// snapshot and this removal never matches and is NOT deleted; the
+			// retry loop re-snapshots instead of leaving two live holders.
+			removeLockIfTokenMatches(filePath, verdict.holderToken);
 			const delay = Math.min(250, 25 * 2 ** attempt);
 			await sleep(delay);
 			attempt++;
+			continue;
 		}
+		// W6 (steal-rm-dual-holder): post-claim verification — same protocol as
+		// the sync twin above (mirrors workspace-lock.ts tryCreateVerified): the
+		// returned token is only trusted when the on-disk token is still OURS.
+		if (readLockToken(filePath) === token) return token;
+		releaseLock(filePath, token);
+		if (Date.now() > deadline) {
+			throw new Error(`Run '${path.basename(filePath)}' is locked by another operation.`);
+		}
+		const delay = Math.min(250, 25 * 2 ** attempt);
+		await sleep(delay);
+		attempt++;
 	}
 }
 

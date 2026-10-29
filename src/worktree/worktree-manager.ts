@@ -11,6 +11,7 @@ import { WINDOWS_ESSENTIAL_ENV_VARS } from "../utils/env-allowlist.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot } from "../utils/paths.ts";
+import { resolveRealContainedPath } from "../utils/safe-paths.ts";
 import {
 	assertWorktreePointerTrusted,
 	buildGitSafeEnv,
@@ -574,13 +575,22 @@ export function normalizeSeedPaths(seedPaths: string[], repoRoot: string): strin
  * Overlay seed paths from repoRoot into worktreePath.
  * Copies files and directories, creating parent dirs as needed.
  * Skips non-existent sources with logInternalError (non-fatal).
+ *
+ * Destination-side safety (W6 fix, seedpaths-dest-symlink-ancestor): the
+ * destination is resolved through an O_NOFOLLOW ancestor walk rooted at the
+ * worktree path BEFORE any destructive/copying filesystem operation. A
+ * symlinked component under the worktree — materialized by `git worktree add`
+ * from a repo-committed symlink, or planted by a prior worker and surviving a
+ * reused worktree's preserve branch — must never redirect the rmSync/cpSync
+ * (which run in the HOST process, outside any worker sandbox) to a path
+ * outside the worktree. Such entries are skipped (fail closed) with
+ * logInternalError.
  */
 export function overlaySeedPaths(repoRoot: string, worktreePath: string, seedPaths: string[]): void {
 	const normalized = normalizeSeedPaths(seedPaths, repoRoot);
 
 	for (const seedPath of normalized) {
 		const sourcePath = path.join(repoRoot, seedPath);
-		const destinationPath = path.join(worktreePath, seedPath);
 
 		let sourceStat: fs.Stats;
 		try {
@@ -599,9 +609,29 @@ export function overlaySeedPaths(repoRoot: string, worktreePath: string, seedPat
 			continue;
 		}
 
-		fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
-		fs.rmSync(destinationPath, { force: true, recursive: true });
-		fs.cpSync(sourcePath, destinationPath, {
+		// Resolve the destination through the O_NOFOLLOW ancestor walk instead of
+		// a plain lexical path.join: refuse (fail closed) when the resolved path
+		// escapes the worktree or ANY existing ancestor component is a symlink.
+		// A non-existent destination leaf is fine — the overlay creates it.
+		let safeDestination: string;
+		try {
+			safeDestination = resolveRealContainedPath(worktreePath, seedPath);
+			// Create parent directories only AFTER validation, then re-validate:
+			// mkdirSync itself walks the (validated) chain to create the missing
+			// tail, but a concurrent planter must not win the gap between the two
+			// validations.
+			fs.mkdirSync(path.dirname(safeDestination), { recursive: true });
+			safeDestination = resolveRealContainedPath(worktreePath, seedPath);
+		} catch {
+			logInternalError(
+				"worktree.seedPaths.destinationUnsafe",
+				new Error(`Seed destination escapes worktree or contains symlinked components — rejected: ${seedPath}`),
+			);
+			continue;
+		}
+
+		fs.rmSync(safeDestination, { force: true, recursive: true });
+		fs.cpSync(sourcePath, safeDestination, {
 			dereference: true,
 			force: true,
 			preserveTimestamps: true,

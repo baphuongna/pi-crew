@@ -368,6 +368,94 @@ describe("refreshWorkspaceLockHeartbeat (WI-2 / DR-02 R4-3)", () => {
 		assert.equal(refreshWorkspaceLockHeartbeat(missing, "goal_x"), false);
 		assert.ok(!fs.existsSync(missing), "refresh must never create a lockfile");
 	});
+
+	// W6 fix (refresh-clobber-steal): the refresh write used to be an
+	// unconditional temp+rename. A concurrent stale-steal (the module's own
+	// unlink→O_EXCL→verify protocol) landing between the refresher's read and
+	// its rename was silently CLOBBERED — and the post-write re-read saw the
+	// refresher's own content, so the clobber was undetectable (dual-owner
+	// window; onOwnershipLost never fired for the old holder). The refresh is
+	// now a compare-and-swap on the observed file identity + bytes: it can
+	// never replace a file it did not observe at read time.
+	it("does NOT clobber a lock stolen mid-refresh (identity CAS — W6 regression, brief PoC)", async () => {
+		const { resolver, set } = mockStartTimes();
+		set(FIXED_PID, 1000);
+		await acquireWorkspaceLock(cwd, "goal_a", {
+			startTimeResolver: resolver,
+			pid: FIXED_PID,
+			pollMs: 5,
+		});
+		const lockPath = workspaceLockPath(cwd);
+
+		// The stealer (goal_b) completes the module's own stale-steal protocol —
+		// unlink + O_EXCL create + post-claim verify — inside A's refresh window,
+		// deterministically interposed via the documented opts.now seam (the
+		// production call evaluates it between the ownership validation and the
+		// rename; with the fix it also lands BEFORE the pre-rename CAS check).
+		let stealDone = false;
+		const steal = (): void => {
+			fs.unlinkSync(lockPath);
+			const fd = fs.openSync(lockPath, "wx");
+			try {
+				fs.writeFileSync(
+					fd,
+					JSON.stringify({
+						pid: FIXED_PID,
+						startTime: 1000,
+						heartbeat: 9_999_999,
+						goalId: "goal_b",
+						acquiredAt: new Date(9_999_999).toISOString(),
+					}),
+				);
+			} finally {
+				fs.closeSync(fd);
+			}
+			const claim = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+			if (claim.goalId !== "goal_b") throw new Error("stealer post-claim verification failed");
+			stealDone = true;
+		};
+
+		const refreshed = refreshWorkspaceLockHeartbeat(lockPath, "goal_a", {
+			pid: FIXED_PID,
+			now: () => {
+				if (!stealDone) steal();
+				return 5_000_000;
+			},
+		});
+
+		assert.equal(stealDone, true, "steal must have landed inside the refresh window");
+		assert.equal(refreshed, false, "refresh must refuse to clobber the stealer's verified claim");
+		const after = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+		assert.equal(after.goalId, "goal_b", "B's verified claim must survive A's refresh");
+		assert.equal(after.heartbeat, 9_999_999, "B's heartbeat must be untouched");
+		// A refused refresh must clean up its temp file — no litter in the locks dir.
+		const leftovers = fs.readdirSync(path.dirname(lockPath)).filter((e) => e.endsWith(".tmp"));
+		assert.equal(leftovers.length, 0, "refused refresh must leave no temp files");
+		// A's NEXT heartbeat tick must keep failing (A no longer owns the lock) —
+		// this is what stops A's loop via onOwnershipLost instead of the old
+		// blind true-forever behavior.
+		assert.equal(
+			refreshWorkspaceLockHeartbeat(lockPath, "goal_a", { pid: FIXED_PID, now: () => 5_100_000 }),
+			false,
+			"A's subsequent refresh must keep failing after the steal",
+		);
+	});
+
+	it("control: refresh by the current holder still succeeds after unrelated same-dir churn", async () => {
+		const { resolver, set } = mockStartTimes();
+		set(FIXED_PID, 1000);
+		await acquireWorkspaceLock(cwd, "goal_a", {
+			startTimeResolver: resolver,
+			pid: FIXED_PID,
+			pollMs: 5,
+		});
+		const lockPath = workspaceLockPath(cwd);
+		const refreshed = refreshWorkspaceLockHeartbeat(lockPath, "goal_a", { pid: FIXED_PID, now: () => 6_000_000 });
+		assert.equal(refreshed, true, "current holder's refresh must succeed (CAS passes on unchanged identity+bytes)");
+		const after = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+		assert.equal(after.goalId, "goal_a");
+		assert.equal(after.heartbeat, 6_000_000);
+	});
 });
 
 describe("heartbeat refresh vs staleness (WI-2 regression: live goal must not be force-stolen)", () => {

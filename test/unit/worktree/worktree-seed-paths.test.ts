@@ -108,6 +108,86 @@ describe("overlaySeedPaths", () => {
 	});
 });
 
+// W6 fix (seedpaths-dest-symlink-ancestor): the destination must be resolved
+// through an O_NOFOLLOW ancestor walk rooted at the worktree BEFORE the
+// rmSync/cpSync — a symlinked component under the worktree (repo-committed
+// symlink materialized by `git worktree add`, or worker-planted and surviving
+// a reused worktree) previously redirected the destructive operations to an
+// attacker-chosen host path OUTSIDE the worktree.
+describe("overlaySeedPaths destination-side symlink guard (W6)", () => {
+	let tmpDir: string;
+	let repoRoot: string;
+	let worktreePath: string;
+
+	beforeEach(() => {
+		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "seed-dest-w6-"));
+		repoRoot = path.join(tmpDir, "repo");
+		worktreePath = path.join(tmpDir, "worktree");
+		fs.mkdirSync(repoRoot, { recursive: true });
+		fs.mkdirSync(worktreePath, { recursive: true });
+	});
+
+	afterEach(() => {
+		fs.rmSync(tmpDir, { force: true, recursive: true });
+	});
+
+	it("refuses a seed whose destination ANCESTOR is a symlink — host-side victim survives, symlink untouched", () => {
+		// The PoC shape: worktree/d -> <outside>/victim; seedPath 'd/victim.txt'
+		// previously rmSync'd the HOST file through the symlinked ancestor.
+		const outsideDir = path.join(tmpDir, "victim");
+		fs.mkdirSync(outsideDir, { recursive: true });
+		fs.writeFileSync(path.join(outsideDir, "victim.txt"), "HOST-VICTIM");
+		fs.symlinkSync(outsideDir, path.join(worktreePath, "d"), "dir");
+		// Seed source must exist in the repo (normalizeSeedPaths validates it).
+		fs.mkdirSync(path.join(repoRoot, "d"), { recursive: true });
+		fs.writeFileSync(path.join(repoRoot, "d", "victim.txt"), "SEED");
+
+		overlaySeedPaths(repoRoot, worktreePath, ["d/victim.txt"]);
+
+		assert.equal(
+			fs.readFileSync(path.join(outsideDir, "victim.txt"), "utf8"),
+			"HOST-VICTIM",
+			"host-side victim must NOT be deleted through the symlinked destination ancestor",
+		);
+		assert.ok(
+			fs.lstatSync(path.join(worktreePath, "d")).isSymbolicLink(),
+			"the planted destination symlink itself must be left untouched",
+		);
+		assert.ok(!fs.existsSync(path.join(worktreePath, "seed-marker.txt")), "no seed content written anywhere else");
+	});
+
+	it("refuses a seed whose destination LEAF is a symlink — host-side victim survives", () => {
+		const outsideFile = path.join(tmpDir, "host-file.txt");
+		fs.writeFileSync(outsideFile, "HOST-VICTIM");
+		fs.symlinkSync(outsideFile, path.join(worktreePath, "link.txt"), "file");
+		fs.writeFileSync(path.join(repoRoot, "link.txt"), "SEED");
+
+		overlaySeedPaths(repoRoot, worktreePath, ["link.txt"]);
+
+		assert.equal(
+			fs.readFileSync(outsideFile, "utf8"),
+			"HOST-VICTIM",
+			"host-side file must NOT be overwritten through the destination symlink",
+		);
+		assert.ok(
+			fs.lstatSync(path.join(worktreePath, "link.txt")).isSymbolicLink(),
+			"the destination symlink itself must be left untouched",
+		);
+	});
+
+	it("control: normal (non-symlink) destinations still copy, overwrite and create parents", () => {
+		fs.writeFileSync(path.join(repoRoot, "plan.json"), "{}");
+		fs.mkdirSync(path.join(repoRoot, "deep"), { recursive: true });
+		fs.writeFileSync(path.join(repoRoot, "deep", "nested.txt"), "nested-content");
+		fs.writeFileSync(path.join(worktreePath, "plan.json"), "old");
+
+		overlaySeedPaths(repoRoot, worktreePath, ["plan.json", "deep/nested.txt"]);
+
+		assert.equal(fs.readFileSync(path.join(worktreePath, "plan.json"), "utf8"), "{}");
+		assert.equal(fs.readFileSync(path.join(worktreePath, "deep", "nested.txt"), "utf8"), "nested-content");
+	});
+});
+
 describe("per-step seedPaths merging", () => {
 	let repoRoot: string;
 	beforeEach(() => {

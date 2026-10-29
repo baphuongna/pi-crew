@@ -46,10 +46,20 @@
  * non-Linux platforms where /proc startTime is unavailable.
  */
 
-import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import * as path from "node:path";
-import { atomicWriteJson } from "../state/atomic-write.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
 
 /** Heartbeat staleness threshold (ms). Default 60s per RFC §P1g. */
@@ -143,7 +153,22 @@ export function workspaceLockPath(cwd: string): string {
 	return path.join(locksDir, `${hash}.lock`);
 }
 
-/** Read + parse a lockfile. Returns undefined if missing/corrupt. */
+/**
+ * Observe a file's on-disk identity (device + inode). Returns undefined when
+ * the file cannot be stated (missing, permission...).
+ */
+function statLockIdentity(lockPath: string): { dev: number; ino: number } | undefined {
+	try {
+		const stat = statSync(lockPath);
+		return { dev: stat.dev, ino: stat.ino };
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Read + parse a lockfile. Returns undefined if missing/corrupt.
+ */
 function readLock(lockPath: string): WorkspaceLockContents | undefined {
 	if (!existsSync(lockPath)) return undefined;
 	try {
@@ -160,16 +185,6 @@ function readLock(lockPath: string): WorkspaceLockContents | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-/**
- * Write the lockfile atomically (temp+rename+fsync via atomicWriteJson).
- * Used for HEARTBEAT refresh only (a claim that already owns the lock is refreshing its
- * timestamp — overwrite is correct because the owner verified ownership first).
- */
-function writeLock(lockPath: string, contents: WorkspaceLockContents): void {
-	mkdirSync(path.dirname(lockPath), { recursive: true });
-	atomicWriteJson(lockPath, contents);
 }
 
 export interface RefreshWorkspaceLockHeartbeatOptions {
@@ -191,24 +206,83 @@ export interface RefreshWorkspaceLockHeartbeatOptions {
  * safeRelease). This is what keeps a >60s-running goal's lock from being
  * force-stolen via isLockStale clause (b) despite a live pid.
  *
+ * W6 fix (refresh-clobber-steal): the refresh write is a CONDITIONAL replace
+ * (compare-and-swap on file identity + bytes), never an unconditional
+ * temp+rename. The (dev, ino) identity AND exact bytes observed at read time
+ * are re-verified immediately before the rename; if a concurrent stale-steal
+ * claimed the lock between our read and our rename (the R3-M-B1/FS4 race),
+ * the observed identity/bytes no longer match → the temp file is discarded,
+ * the file is NOT touched, and false is returned — the refresh can never
+ * replace a file it did not observe at read time (the pre-fix rename was
+ * identity-blind and silently clobbered the stealer's verified claim). The
+ * post-write re-read below is kept as belt-and-braces for the mirror-image
+ * race (someone replacing the file AFTER our rename).
+ *
  * Non-throwing by contract: failures surface as false, never as an exception
  * into the caller's loop (the goal-loop still wraps calls in try/catch →
  * logInternalError warn as belt-and-braces, see goal-loop-runner.ts).
  */
 export function refreshWorkspaceLockHeartbeat(lockPath: string, goalId: string, opts: RefreshWorkspaceLockHeartbeatOptions = {}): boolean {
 	try {
+		// Observe identity AND bytes together at read time. A plain readLock()
+		// gives content but no file identity; the identity is what makes the
+		// pre-rename re-check below a real compare-and-swap.
+		let rawObserved: string;
+		try {
+			rawObserved = readFileSync(lockPath, "utf-8");
+		} catch {
+			return false; // missing/unreadable — nothing to refresh
+		}
+		const observedIdentity = statLockIdentity(lockPath);
+		if (!observedIdentity) return false;
 		const current = readLock(lockPath);
 		if (!current) return false;
 		const pid = opts.pid ?? process.pid;
 		if (current.goalId !== goalId || current.pid !== pid) return false;
 		const now = opts.now ?? Date.now;
-		writeLock(lockPath, { ...current, heartbeat: now() });
-		// R3-M-B1/FS4 (Wave-3): writeLock is temp+rename (NOT atomic against a
-		// concurrent stale-steal's unlink→O_EXCL) — a stealer may have replaced
-		// the lock between our read and our rename, and our rename then clobbered
-		// THEIR file. Re-read and verify: if the file no longer holds our
-		// goalId+pid we lost ownership — return false so the heartbeat loop blocks
-		// the goal (never silently keep refreshing a lock another goal owns).
+		// Write the refreshed payload to a SIBLING temp file (same directory →
+		// same filesystem → rename is atomic). Only the pre-rename CAS below
+		// decides whether the rename happens; nothing has touched the lock path
+		// up to that point.
+		mkdirSync(path.dirname(lockPath), { recursive: true });
+		const tempPath = `${lockPath}.${process.pid}.${randomUUID()}.tmp`;
+		writeFileSync(tempPath, JSON.stringify({ ...current, heartbeat: now() }), "utf-8");
+		try {
+			// CAS gate: rename ONLY if the lock path still holds BOTH the observed
+			// (dev, ino) identity AND the observed bytes. A stealer's unlink→O_EXCL
+			// claim in between produces a new inode with different (goalId-bearing)
+			// bytes → both checks miss → refuse (never clobber the new owner).
+			const identityNow = statLockIdentity(lockPath);
+			let rawNow: string | undefined;
+			try {
+				rawNow = readFileSync(lockPath, "utf-8");
+			} catch {
+				rawNow = undefined;
+			}
+			if (
+				!identityNow ||
+				rawNow !== rawObserved ||
+				identityNow.dev !== observedIdentity.dev ||
+				identityNow.ino !== observedIdentity.ino
+			) {
+				// R3-M-B1/FS4 (Wave-3) + W6: the lock was stolen/re-acquired between
+				// our read and our rename — leave the file untouched and report
+				// ownership lost so the heartbeat loop blocks the goal (never
+				// silently keep refreshing a lock another goal owns).
+				return false;
+			}
+			renameSync(tempPath, lockPath);
+		} finally {
+			// Best-effort temp cleanup: after a successful rename the temp is gone
+			// (ENOENT — swallowed); after a refused CAS this is what removes it.
+			try {
+				unlinkSync(tempPath);
+			} catch {
+				/* already renamed away or never existed */
+			}
+		}
+		// Post-write re-read: someone may STILL have replaced the file after our
+		// rename — if it no longer holds our goalId+pid we lost ownership.
 		const reread = readLock(lockPath);
 		if (!reread || reread.goalId !== goalId || reread.pid !== pid) return false;
 		return true;
