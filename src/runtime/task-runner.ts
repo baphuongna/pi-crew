@@ -182,6 +182,20 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 					// package.json. Absent (old manifests / goal-loop runs) ⇒ the gate
 					// resolves no checks ⇒ INCONCLUSIVE ⇒ verifier spawns (fail-closed).
 					...(manifest.verifyGateSpec ? { hostSpec: manifest.verifyGateSpec } : {}),
+					// W2 (worktree-verifier-gate-excludes-work): a green gate in THIS
+					// task's tree must never certify dependency work it cannot see —
+					// probe each dependency task's worktree; uncommitted work there
+					// forces the LLM verifier spawn even on a PASS verdict (reason
+					// "unverified_worktree_work"). Shared-cwd deps (no worktree) need
+					// no probe — their work is inside the gate's own cwd.
+					...(ctx.task.dependsOn.length > 0
+						? {
+								dependencyWorktreeProbes: ctx.task.dependsOn.map((depId) => ({
+									taskId: depId,
+									worktreePath: ctx.tasks.find((t) => t.id === depId)?.worktree?.path,
+								})),
+							}
+						: {}),
 					signal: input.signal,
 					classifier: {
 						enabled: resolveClassifierEnabled(input.runtimeConfig?.classifierEnabled),

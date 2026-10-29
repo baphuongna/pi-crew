@@ -6,12 +6,14 @@
  * RED gate still spawns the verifier WITH the gate results in its prompt.
  */
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { mock, test } from "node:test";
 import { runTeamTask } from "../../../../src/runtime/task-runner.ts";
 import { resolveHostVerifyGateSpec } from "../../../../src/runtime/verification/verify-gate.ts";
-import { createRunManifest } from "../../../../src/state/stores/state-store.ts";
+import { createRunManifest, saveRunTasks } from "../../../../src/state/stores/state-store.ts";
 import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 const team = {
@@ -352,5 +354,78 @@ test("M1-7 fail-closed: manifest WITHOUT a pinned spec ⇒ no gate skip even wit
 		const events = fs.readFileSync(created.manifest.eventsPath, "utf8");
 		assert.match(events, /task\.verifier_pre_gate/);
 		assert.match(events, /INCONCLUSIVE/);
+	});
+});
+
+// ─── W2 (worktree-verifier-gate-excludes-work): the sink pin ──────────
+
+test("W2: green gate + dirty dependency worktree ⇒ verifier SPAWNS with the guard note (no synthetic skip)", async () => {
+	const cwd = makeRepoDir("pi-crew-w2-guard-", { typecheck: "node -e 0", "test:critical": "node -e 0" });
+	const created = createRunManifest({ cwd, team: team as never, workflow: workflow as never, goal: "w2-guard" });
+	// M1-7 (R47-1): host-owned spec pinned at dispatch. The leader cwd is NOT a
+	// git repo, so the W2 tree binding is simply absent (binding-optional).
+	created.manifest.verifyGateSpec = await resolveHostVerifyGateSpec(cwd);
+	// Fixture: a REAL git repo + a linked worktree carrying uncommitted executor
+	// work (tracked-unstaged edit + untracked new file) — the work the verifier
+	// must certify, which the gate's own (pristine) tree structurally excludes.
+	const base = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-w2-guard-repo-"));
+	fs.writeFileSync(path.join(base, "app.ts"), "export const a = 1;\n");
+	execFileSync("git", ["init", "-q"], { cwd: base });
+	execFileSync("git", ["add", "-A"], { cwd: base });
+	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: base });
+	const wt = `${base}-wt`;
+	execFileSync("git", ["worktree", "add", "-q", "-b", "wt-dep", wt], { cwd: base });
+	fs.writeFileSync(path.join(wt, "app.ts"), "export const a = 2; // EXECUTOR_EDIT_MARKER\n");
+	fs.writeFileSync(path.join(wt, "feature.ts"), "export const b = 3;\n");
+	// Dependency task state: a completed executor task whose work lives in its
+	// own worktree — never propagated into the verifier's tree.
+	created.tasks.push({
+		id: "dep-1",
+		runId: created.manifest.runId,
+		role: "executor",
+		agent: "a",
+		title: "implement",
+		status: "completed",
+		dependsOn: [],
+		cwd: wt,
+		worktree: { path: wt, branch: "wt-dep", reused: false },
+	} as never);
+	const task = created.tasks[0]!;
+	(task as { dependsOn: string[] }).dependsOn = ["dep-1"];
+	// BUG-028 contract: sibling tasks are DISK-authoritative (the runner's
+	// persistSingleTaskUpdate re-reads tasks.json on every checkpoint), so the
+	// synthetic dep must be persisted exactly like createRunTasksFromWorkflow
+	// would — otherwise it vanishes from ctx.tasks before the pre-gate runs.
+	saveRunTasks(created.manifest, created.tasks);
+	await withMockChildPi(async () => {
+		const result = await runTeamTask({
+			manifest: created.manifest,
+			tasks: created.tasks,
+			task,
+			step: workflow.steps[0] as never,
+			agent: agent as never,
+			executeWorkers: true,
+			workspaceId: "test-workspace",
+		});
+		const finished = result.tasks.find((t) => t.id === task.id)!;
+		// The LLM verifier DID spawn despite the green gate: a PASS that never
+		// saw the dependency work carries no skip authority (pre-W2 this was a
+		// synthetic completed-with-exit-0 with zero checks against the work).
+		assert.ok(finished.modelAttempts && finished.modelAttempts.length > 0, "verifier spawned — skip refused");
+		assert.equal(finished.status, "completed", `status=${finished.status} error=${finished.error ?? ""}`);
+		assert.equal(
+			(finished.diagnostics as Record<string, unknown> | undefined)?.verifyGate,
+			undefined,
+			"no synthetic gate-skip provenance — this completion came from a real spawn",
+		);
+		const events = fs.readFileSync(created.manifest.eventsPath, "utf8");
+		assert.match(events, /task\.verifier_pre_gate/);
+		assert.match(events, /unverified_worktree_work/);
+		assert.match(events, /worktree-guard/);
+		// The verifier's prompt carries the gate results AND the guard evidence.
+		const promptText = fs.readFileSync(path.join(created.manifest.artifactsRoot, "prompts", `${task.id}.md`), "utf8");
+		assert.match(promptText, /Gate verdict: PASS/);
+		assert.match(promptText, /worktree-guard/);
+		assert.match(promptText, /dep-1/);
 	});
 });

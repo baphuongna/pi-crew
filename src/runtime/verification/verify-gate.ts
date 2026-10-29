@@ -54,6 +54,32 @@
  * no spec + no explicit checks ⇒ zero checks ⇒ INCONCLUSIVE ⇒ the LLM
  * verifier spawns — absence can never produce a skip.
  *
+ * WORKTREE GROUND TRUTH (W2 fix wave, 2026-10-29 — findings
+ * nonmanifest-ground-truth-self-grading + worktree-verifier-gate-excludes-work
+ * + index-tree-key-mismatch): the M1-7 binding pinned only the 8 manifest
+ * hashes, so a worker could tamper NON-manifest harness files (tracked-
+ * unstaged runners, node_modules shims) and have the pinned checks execute
+ * its stubs — grading its own work. Closures, layered:
+ *   - hostSpec now also pins a dispatch-time TRACKED-working-tree binding
+ *     (treeOid + cleanTree, captured host-side by resolveHostVerifyGateSpec).
+ *     At gate time the task cwd's tracked tree is re-derived and ANY divergence
+ *     — or an unmeasurable tree while a binding was pinned — fails the gate to
+ *     the LLM verifier spawn (never a skip) BEFORE any command runs, mirroring
+ *     the manifest bookend. The binding keys on TRACKED content only:
+ *     untracked files legitimately differ between the leader workspace and
+ *     fresh task worktrees (assertCleanLeader permits them; seeds are
+ *     selective), while the self-grading PoC's harness stubs were tracked-
+ *     unstaged and always move it.
+ *   - the memo key binds the FULL working tree + the workspace path and the
+ *     memo is disabled on any dirty tree (verify-gate-memo.ts) — a recorded
+ *     PASS can no longer be replayed for a different or merely re-dirtied
+ *     tree, nor across worktrees.
+ *   - a gate PASS never certifies work it cannot see: when the verified
+ *     dependency tasks carry uncommitted changes in their OWN worktrees
+ *     (worktree mode — the gate's pristine tree structurally excludes that
+ *     work), the skip is refused and the LLM verifier spawns with the guard
+ *     note (dependencyWorktreeProbes → reason "unverified_worktree_work").
+ *
  * SAFETY: a gate that cannot run (disabled by env, no checks resolved,
  * executor failure) degrades to "spawn the LLM verifier as today" — the
  * pre-gate can only SAVE a spawn on positive deterministic evidence, never
@@ -66,6 +92,7 @@
  *   - crew.verification.verifier_spawns_total{reason} — spawns that still
  *     happened, labeled by which layer let them through.
  */
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import { getCrewEnvBool, getCrewEnvInt } from "../../config/env-vars.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
@@ -75,7 +102,7 @@ import { executeCommand } from "./verification-gates.ts";
 // index.bundle value-import graph (goal.ts/goal-wrap.ts/goal-loop-runner.ts
 // import it), so this adds no bundle-graph file (check-lazy-imports budget).
 import { compareSnapshot, snapshotManifests } from "./verification-integrity.ts";
-import { lookupVerifyGateMemo, recordVerifyGateMemo, resolveVerifyGateMemoEnabled } from "./verify-gate-memo.ts";
+import { captureWorkingTreeBinding, lookupVerifyGateMemo, recordVerifyGateMemo, resolveVerifyGateMemoEnabled } from "./verify-gate-memo.ts";
 
 /** One deterministic check to run. Mirrors the phase-gate shape
  *  (verification-gates.ts) but kept local so the tool schema can reuse it. */
@@ -132,6 +159,11 @@ export interface VerifyGateOutcome {
 	 *  the note is also appended to evidenceLines and switches the rendered
 	 *  context trailer to "results UNTRUSTED". */
 	integrityNote?: string;
+	/** W2 (2026-10-29): set when the tracked WORKING TREE diverged from the
+	 *  dispatch-pinned binding (or could not be proven equal) — like
+	 *  integrityNote it is appended to evidenceLines and switches the rendered
+	 *  context trailer to "results UNTRUSTED". */
+	worktreeIntegrityNote?: string;
 }
 
 /** Injected command executor. The TOOL path wraps ctx.executeTool("bash");
@@ -228,6 +260,18 @@ export function defaultVerifyGateChecks(dir: string): VerifyGateCheck[] {
 export interface VerifyGateHostSpec {
 	snapshot: Record<string, string>;
 	checks: VerifyGateCheck[];
+	/** W2 (2026-10-29, nonmanifest-ground-truth-self-grading): dispatch-time
+	 *  TRACKED-working-tree binding — the full tracked content (staged +
+	 *  unstaged) the host saw before any worker ran (temp-index
+	 *  read-tree HEAD → add -u → write-tree). Absent when it could not be
+	 *  computed (non-git cwd, git failure) — the gate then falls back to the
+	 *  manifest bookends alone (structural shape on run manifests predates
+	 *  this field; old pinned specs simply carry no binding). */
+	treeOid?: string;
+	/** W2: tracked-clean probe at dispatch (status --porcelain -uno empty).
+	 *  Fallback binding when no treeOid is available: a clean-at-dispatch tree
+	 *  that is dirty at gate time is drift. Absent when the probe failed. */
+	cleanTree?: boolean;
 }
 
 /** HOST-SIDE (dispatch) — build the verify spec for `cwd` (the project root
@@ -238,7 +282,17 @@ export function resolveHostVerifyGateSpec(cwd: string): VerifyGateHostSpec | und
 	const snapshot = snapshotManifests(cwd);
 	const checks = defaultVerifyGateChecks(cwd);
 	if (Object.keys(snapshot).length === 0 && checks.length === 0) return undefined;
-	return { snapshot, checks };
+	// W2: bind the TRACKED working tree AT DISPATCH (host process, pre-worker)
+	// so the gate can prove the task cwd still contains what the host pinned —
+	// non-manifest tracked files included. Unavailable measurements are omitted
+	// (never guessed): the gate then acts on the manifest bookends alone.
+	const binding = captureWorkingTreeBinding(cwd);
+	return {
+		snapshot,
+		checks,
+		...(binding.oid !== undefined ? { treeOid: binding.oid } : {}),
+		...(binding.clean !== undefined ? { cleanTree: binding.clean } : {}),
+	};
 }
 
 /** Gate-time integrity probe (M1-7): re-hash the manifests in `cwd` and diff
@@ -248,6 +302,38 @@ export function resolveHostVerifyGateSpec(cwd: string): VerifyGateHostSpec | und
  *  closed: the gate must not grade on compromised ground truth). */
 export function detectHostSpecDrift(cwd: string, spec: VerifyGateHostSpec): string[] {
 	return compareSnapshot(spec.snapshot, snapshotManifests(cwd));
+}
+
+/**
+ * Gate-time tree probe (W2, nonmanifest-ground-truth-self-grading): re-derive
+ * the tracked working tree of `cwd` and compare it against the dispatch
+ * binding. Returns a drift note when the gate cwd can NOT be proven
+ * bit-identical to the tree the host pinned — changed tracked content, or an
+ * unmeasurable tree while a binding was pinned (fail closed on missing
+ * evidence) — and undefined when no binding was pinned or equality holds.
+ * Untracked files are deliberately NOT part of the binding (they legitimately
+ * differ between workspaces; the memo separately refuses dirty trees).
+ */
+export function detectWorkingTreeDrift(cwd: string, spec: VerifyGateHostSpec): string | undefined {
+	const binding = captureWorkingTreeBinding(cwd);
+	if (spec.treeOid !== undefined) {
+		if (binding.oid === undefined) {
+			return "working-tree-integrity: the tracked working tree could not be measured (git unavailable or failed) — the dispatch-pinned tree cannot be proven intact";
+		}
+		if (binding.oid !== spec.treeOid) {
+			return "working-tree-integrity: tracked files changed since the host snapshot taken at dispatch (inspect with git status / git diff)";
+		}
+		return undefined;
+	}
+	if (spec.cleanTree === true) {
+		if (binding.clean === undefined) {
+			return "working-tree-integrity: the working tree could not be probed for changes (git unavailable or failed) — the dispatch-time clean state cannot be proven intact";
+		}
+		if (binding.clean === false) {
+			return "working-tree-integrity: tracked files are modified in the gate's workspace but the tree was clean at dispatch";
+		}
+	}
+	return undefined;
 }
 
 function tailOutput(output: string): string {
@@ -554,11 +640,13 @@ export function renderVerifyGateContext(outcome: VerifyGateOutcome): string {
 	const executorDeath = outcome.checks.some((c) => !c.skipped && c.exitCode === null);
 	const trailer = outcome.integrityNote
 		? "Manifest integrity check FAILED: project manifest files changed since the host snapshot taken at dispatch. These gate results and any transcript claims about build/test state are UNTRUSTED — inspect what changed and re-run the verification commands yourself before concluding."
-		: executorDeath
-			? "A verification command could not run (executor error — exit=err). Treat the build/test state as UNKNOWN; run the build/tests yourself before concluding."
-			: outcome.determinismNote
-				? "The gate rerun detected NONDETERMINISM (a check passed once and failed on rerun). These gate results are NOT reliable — re-run the affected command yourself and treat the build/test state as UNKNOWN."
-				: "The deterministic gate already ran these commands — do NOT re-run them; verify the WORK (diff, files, acceptance), using these results as ground truth for build/test state.";
+		: outcome.worktreeIntegrityNote
+			? "Working-tree integrity check FAILED: tracked files in the gate's workspace changed since the host snapshot taken at dispatch (or the tree could not be proven identical to it). These gate results and any transcript claims about build/test state are UNTRUSTED — inspect what changed (git status / git diff) and re-run the verification commands yourself before concluding."
+			: executorDeath
+				? "A verification command could not run (executor error — exit=err). Treat the build/test state as UNKNOWN; run the build/tests yourself before concluding."
+				: outcome.determinismNote
+					? "The gate rerun detected NONDETERMINISM (a check passed once and failed on rerun). These gate results are NOT reliable — re-run the affected command yourself and treat the build/test state as UNKNOWN."
+					: "The deterministic gate already ran these commands — do NOT re-run them; verify the WORK (diff, files, acceptance), using these results as ground truth for build/test state.";
 	lines.push("", trailer);
 	return lines.join("\n");
 }
@@ -566,6 +654,73 @@ export function renderVerifyGateContext(outcome: VerifyGateOutcome): string {
 /** Human/one-line summary used for the skip path's synthetic result artifact. */
 export function renderVerifyGateSummary(outcome: VerifyGateOutcome, reason: string): string {
 	return [`verify_gate: ${outcome.verdict} (skip reason: ${reason})`, ...outcome.evidenceLines].join("\n");
+}
+
+// ─── W2 finding worktree-verifier-gate-excludes-work: guard probes ──────────
+
+/** One probe per dependency task whose work the verifier is meant to certify.
+ *  `worktreePath` absent ⇒ shared-cwd workspace — that task's work lives IN
+ *  the gate's own cwd and needs no probe. */
+export interface VerifierGateWorkProbe {
+	taskId: string;
+	worktreePath?: string;
+}
+
+/** Dirty probe for a task worktree: TRUE when `git status --porcelain` is
+ *  non-empty (tracked modifications AND untracked files — an executor's
+ *  typical output is new untracked files; build outputs stay gitignored) or
+ *  when the probe FAILS (missing/corrupted worktree — fail closed:
+ *  unverifiable work must reach the LLM verifier, never a silent skip). */
+export function worktreeHasUncommittedWork(worktreePath: string): boolean {
+	try {
+		const st = execFileSync("git", ["status", "--porcelain"], {
+			cwd: worktreePath,
+			stdio: ["ignore", "pipe", "ignore"],
+			encoding: "utf-8",
+			timeout: 10_000,
+		});
+		return st.trim().length > 0;
+	} catch {
+		return true;
+	}
+}
+
+/** Dependency task ids whose worktree carries uncommitted work that the
+ *  gate's evaluated tree does not contain. Probes without a worktree path are
+ *  skipped (shared-cwd work is inside the gate cwd itself). */
+export function findTasksWithWorktreeWork(probes: VerifierGateWorkProbe[]): string[] {
+	const dirty: string[] = [];
+	for (const probe of probes) {
+		if (!probe.worktreePath) continue;
+		if (worktreeHasUncommittedWork(probe.worktreePath)) dirty.push(probe.taskId);
+	}
+	return dirty;
+}
+
+/**
+ * W2 guard (worktree-verifier-gate-excludes-work): a gate PASS — fresh or
+ * memoized — may only suppress the LLM verifier when the checks evaluated the
+ * work under verification. In worktree mode the gate runs in the verifier's
+ * own pristine tree while the executor's changes live in a different
+ * worktree; a PASS there certifies the untouched base. When any probed
+ * dependency worktree carries uncommitted work, the skip is refused and the
+ * LLM verifier spawns with the guard evidence (reason
+ * "unverified_worktree_work"). Non-skip decisions pass through untouched.
+ */
+function resolveWorktreeGuardDecision(
+	probes: VerifierGateWorkProbe[] | undefined,
+	outcome: VerifyGateOutcome,
+): { outcome: VerifyGateOutcome; decision: VerifierSpawnDecision; forcedSpawn: boolean } {
+	const decision = resolveVerifierSpawnDecision(outcome);
+	if (!decision.skipVerifier || !probes || probes.length === 0) return { outcome, decision, forcedSpawn: false };
+	const dirtyDeps = findTasksWithWorktreeWork(probes);
+	if (dirtyDeps.length === 0) return { outcome, decision, forcedSpawn: false };
+	const note = `worktree-guard: dependency task(s) ${dirtyDeps.join(", ")} carry uncommitted changes in their worktrees — the gate evaluated a tree that does not contain that work; refusing the deterministic skip`;
+	return {
+		outcome: { ...outcome, evidenceLines: [...outcome.evidenceLines, note] },
+		decision: { skipVerifier: false, reason: "unverified_worktree_work", attachGateContext: true },
+		forcedSpawn: true,
+	};
 }
 
 export interface VerifierGatePreGateInput {
@@ -599,6 +754,13 @@ export interface VerifierGatePreGateInput {
 	/** PHASE 4 (U13-ADJ): explicit layer-3 determinism toggle — env
 	 *  PI_CREW_VERIFY_DETERMINISM beats this; both default OFF. */
 	determinism?: boolean;
+	/** W2 (worktree-verifier-gate-excludes-work): one probe per dependency task
+	 *  whose work this verifier certifies (taskId + its worktree path). When any
+	 *  probed worktree carries uncommitted changes, a gate PASS — fresh OR
+	 *  memoized — refuses the skipVerifier decision (the gate evaluated a tree
+	 *  that structurally excludes that work) and the LLM verifier spawns with
+	 *  the guard note (reason "unverified_worktree_work"). */
+	dependencyWorktreeProbes?: VerifierGateWorkProbe[];
 }
 
 export interface VerifierGatePreGateResult {
@@ -656,6 +818,39 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 			return { outcome, decision, promptContext: renderVerifyGateContext(outcome) };
 		}
 	}
+	// ── W2 (nonmanifest-ground-truth-self-grading): tree binding BEFORE any
+	// command runs ────────────────────────────────────────────────────────
+	// The manifest bookends pin only the 8 manifest files, but the pinned
+	// checks execute whatever harness the WORKING TREE resolves (runners,
+	// shims, test files). When the host pinned a dispatch-time tree binding,
+	// any tracked divergence — or an unmeasurable tree — means the checks
+	// would execute content the host never pinned: the self-grading exploit.
+	// Fail the gate to the LLM verifier spawn (never a skip) before running
+	// anything, exactly like the manifest drift path above.
+	if (input.hostSpec) {
+		const treeDriftNote = detectWorkingTreeDrift(input.cwd, input.hostSpec);
+		if (treeDriftNote) {
+			const outcome: VerifyGateOutcome = {
+				verdict: "FAILED",
+				checks: [],
+				evidenceLines: [treeDriftNote],
+				allPassed: false,
+				totalDurationMs: 0,
+				worktreeIntegrityNote: treeDriftNote,
+			};
+			const decision = resolveVerifierSpawnDecision(outcome);
+			incMetric(input.metricRegistry, "crew.verification.verify_gate_runs_total", "Deterministic verify_gate executions by verdict", {
+				verdict: outcome.verdict,
+			});
+			incMetric(
+				input.metricRegistry,
+				"crew.verification.verifier_spawns_total",
+				"LLM verifier spawns that still ran, labeled by the deciding layer",
+				{ reason: decision.reason },
+			);
+			return { outcome, decision, promptContext: renderVerifyGateContext(outcome) };
+		}
+	}
 	// ── M1-7: NO package.json fallback ─────────────────────────────────────
 	// Checks come from the caller or the dispatch-pinned host spec ONLY —
 	// nothing here reads the worker-mutable task cwd. Zero resolvable checks
@@ -670,9 +865,12 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 	if (resolveVerifyGateMemoEnabled()) {
 		const memoHit = lookupVerifyGateMemo(input.cwd, checks);
 		if (memoHit) {
-			const decision = resolveVerifierSpawnDecision(memoHit);
+			// W2: the guard runs on memo hits too — a recorded PASS for a pristine
+			// tree must not skip the verifier when the verified dependency work
+			// lives outside this tree (the original finding-3 memo-replay PoC).
+			const guarded = resolveWorktreeGuardDecision(input.dependencyWorktreeProbes, memoHit);
 			incMetric(input.metricRegistry, "crew.verification.verify_gate_runs_total", "Deterministic verify_gate executions by verdict", {
-				verdict: memoHit.verdict,
+				verdict: guarded.outcome.verdict,
 			});
 			incMetric(
 				input.metricRegistry,
@@ -680,22 +878,36 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 				"W10-2 memoized PASS verdicts served without re-running checks",
 				{},
 			);
-			if (decision.skipVerifier) {
+			if (guarded.forcedSpawn) {
+				incMetric(
+					input.metricRegistry,
+					"crew.verification.verifier_gate_worktree_guard_total",
+					"W2: PASS-skip refusals — dependency worktree work the gate's evaluated tree does not contain",
+					{ result: "spawn_forced" },
+				);
+			}
+			if (guarded.decision.skipVerifier) {
 				incMetric(
 					input.metricRegistry,
 					"crew.verification.verifier_spawns_skipped_total",
 					"LLM verifier spawns saved by the U13 deterministic pre-gate",
-					{ reason: decision.reason },
+					{ reason: guarded.decision.reason },
 				);
 			} else {
 				incMetric(
 					input.metricRegistry,
 					"crew.verification.verifier_spawns_total",
 					"LLM verifier spawns that still ran, labeled by the deciding layer",
-					{ reason: decision.reason },
+					{ reason: guarded.decision.reason },
 				);
 			}
-			return { outcome: memoHit, decision, promptContext: "" };
+			return {
+				outcome: guarded.outcome,
+				decision: guarded.decision,
+				// A guard-forced spawn must carry the WHY into the verifier's prompt
+				// (plain memo hits normally render no context at all).
+				promptContext: guarded.forcedSpawn ? renderVerifyGateContext(guarded.outcome) : "",
+			};
 		}
 	}
 	const exec = createSubprocessVerifyGateExecutor();
@@ -743,6 +955,24 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 			};
 		}
 	}
+	// ── W2 bookend: tree binding AFTER a green gate (mirrors the manifest
+	// bookend above) ─────────────────────────────────────────────────────
+	// A PASS is only trustworthy if the tracked tree that produced it is STILL
+	// the dispatch-pinned tree when the gate finishes — a mid-gate harness
+	// swap (concurrent writer in a shared cwd) downgrades the verdict to
+	// INCONCLUSIVE so the LLM verifier spawns. Downgrade-only, like above.
+	if (input.hostSpec && outcome.verdict === "PASS") {
+		const treeDriftNote = detectWorkingTreeDrift(input.cwd, input.hostSpec);
+		if (treeDriftNote) {
+			const note = `${treeDriftNote} (during the gate run)`;
+			outcome = {
+				...outcome,
+				verdict: "INCONCLUSIVE",
+				evidenceLines: [...outcome.evidenceLines, note],
+				worktreeIntegrityNote: note,
+			};
+		}
+	}
 	// ── M3-28 (R47-V2, fix-wave 6): the U6B classifier layer is NOT consulted ──
 	// The consult used to live here, guarded by `outcome.verdict === "INCONCLUSIVE"`
 	// and fed the literal gate verdict. That input can never be pass-shaped:
@@ -771,7 +1001,20 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 		);
 	}
 	const preGate: VerifierPreGateResult | undefined = undefined;
-	const decision = resolveVerifierSpawnDecision(outcome, preGate);
+	// W2: the guard runs on fresh verdicts too — a green gate in the verifier's
+	// own pristine worktree must not skip the verifier when the dependency work
+	// it certifies lives in other, uncommitted worktrees.
+	const guarded = resolveWorktreeGuardDecision(input.dependencyWorktreeProbes, outcome);
+	if (guarded.forcedSpawn) {
+		incMetric(
+			input.metricRegistry,
+			"crew.verification.verifier_gate_worktree_guard_total",
+			"W2: PASS-skip refusals — dependency worktree work the gate's evaluated tree does not contain",
+			{ result: "spawn_forced" },
+		);
+	}
+	outcome = guarded.outcome;
+	const decision = guarded.decision;
 	incMetric(input.metricRegistry, "crew.verification.verify_gate_runs_total", "Deterministic verify_gate executions by verdict", {
 		verdict: outcome.verdict,
 	});
