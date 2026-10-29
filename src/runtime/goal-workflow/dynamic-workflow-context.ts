@@ -26,7 +26,8 @@ import { randomBytes } from "node:crypto";
 import type { TSchema } from "@sinclair/typebox";
 import type { AgentConfig } from "../../agents/agent-config.ts";
 import { allAgents, discoverAgents } from "../../agents/discover-agents.ts";
-import { appendMailboxMessage, readMailbox } from "../../state/coordination/mailbox.ts";
+import { renderInboxMessage } from "../../prompt/prompt-runtime.ts";
+import { appendMailboxMessage, type MailboxMessage, readMailbox } from "../../state/coordination/mailbox.ts";
 import { appendEvent } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
@@ -383,6 +384,27 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 	// `while(true){review; if accept break; retry}` loop replay round-1's
 	// verdict forever (stale-verdict hazard, docs/dynamic-workflows.md).
 	const hydratedCallIds = new Set<string>(Object.keys(opts.resumedState?.completedAgentCalls ?? {}));
+	// W1b binding (security fix gatherreplies-replyto-only-binding): messageId →
+	// expected addressee, recorded when ctx.mail() issues each mail. gatherReplies
+	// only accepts a reply row when its broker-authenticated sender (m.from)
+	// equals the expected addressee of the mail the reply claims (m.replyTo) — a
+	// forged replyTo from any other task cannot enter the reply stream.
+	const mailedAddressees = new Map<string, string>();
+	const unresolvedMailLookups = new Set<string>();
+	// Resolve the expected addressee for a mailed id, falling back to the run
+	// outbox ONCE per unknown id (resume path: mails sent by a previous process
+	// of the same workflow are not in the in-memory map; their outbox rows are
+	// host-written — workers cannot append to the outbox lane — so the recorded
+	// `to` is a trusted binding source. Inbox rows are never consulted).
+	const expectedReplyAddressee = (messageId: string): string | undefined => {
+		const known = mailedAddressees.get(messageId);
+		if (known !== undefined) return known;
+		if (unresolvedMailLookups.has(messageId)) return undefined;
+		unresolvedMailLookups.add(messageId);
+		const mailed = readMailbox(manifest, "outbox").find((m) => m.id === messageId && m.from === "dynamic-workflow" && m.to);
+		if (mailed?.to) mailedAddressees.set(messageId, mailed.to);
+		return mailedAddressees.get(messageId);
+	};
 	// round-14 P1-2: frozen budget surface. The closures read wfState.spent so the
 	// object stays live after Object.freeze(ctx). total is a snapshot primitive.
 	const budget = Object.freeze({
@@ -852,18 +874,37 @@ export function makeWorkflowCtx(manifest: TeamRunManifest, opts: MakeWorkflowCtx
 				replyTo: mailOpts?.replyTo,
 				replyDeadline: mailOpts?.replyDeadline,
 			});
+			// W1b binding: record the expected addressee so gatherReplies can verify
+			// that a reply row's authenticated sender (from) is the task this mail
+			// was addressed to (replyTo target ownership).
+			mailedAddressees.set(msg.id, to);
 			return msg.id;
 		},
 		async gatherReplies(messageIds: string[], deadlineMs: number): Promise<unknown[]> {
+			// W1b binding (security fix gatherreplies-replyto-only-binding): a reply
+			// row counts ONLY when (a) it targets the run-level parent lane
+			// (to === "parent" — the lane this gather polls), (b) its replyTo is one
+			// of the awaited ids, and (c) its broker-authenticated sender (from)
+			// equals the addressee recorded for that id at mail time. Duplicate rows
+			// from one sender no longer satisfy a multi-id gather (distinct
+			// (replyTo, from) pairs are counted toward messageIds.length), and every
+			// delivered body is fenced through renderInboxMessage (same seam as
+			// worker inbox delivery: control-char strip, closing-tag neutralization,
+			// 8192-char cap) before it enters workflow variables.
+			const collectBoundReplies = (): MailboxMessage[] =>
+				readMailbox(manifest, "inbox").filter((m) => {
+					if (!m.replyTo || !messageIds.includes(m.replyTo) || m.to !== "parent") return false;
+					return expectedReplyAddressee(m.replyTo) === m.from;
+				});
+			const distinctReplyPairs = (rows: MailboxMessage[]): number => new Set(rows.map((m) => `${m.replyTo}\u0000${m.from}`)).size;
+			const fenceReplyRow = (m: MailboxMessage): MailboxMessage => ({ ...m, body: renderInboxMessage(m) });
 			const deadline = Date.now() + deadlineMs;
-			while (Date.now() < deadline) {
-				const inbox = readMailbox(manifest, "inbox");
-				const got = inbox.filter((m) => m.replyTo && messageIds.includes(m.replyTo));
-				if (got.length >= messageIds.length) return got;
+			for (;;) {
+				const got = collectBoundReplies();
+				if (distinctReplyPairs(got) >= messageIds.length) return got.map(fenceReplyRow);
+				if (Date.now() >= deadline || ctxSignal.aborted) return got.map(fenceReplyRow);
 				await new Promise((r) => setTimeout(r, 500));
-				if (ctxSignal.aborted) return inbox.filter((m) => m.replyTo && messageIds.includes(m.replyTo));
 			}
-			return readMailbox(manifest, "inbox").filter((m) => m.replyTo && messageIds.includes(m.replyTo));
 		},
 		renderTemplate(name: string, vars: Record<string, string>): unknown {
 			return renderPlanTemplate(name, vars);
