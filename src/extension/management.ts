@@ -555,6 +555,15 @@ export function handleDelete(params: TeamToolParamsValue, ctx: ManagementContext
 	if (!params.confirm) return result("delete requires confirm: true.", "error", true);
 	const resolved = resolveMutable(ctx, params);
 	if (resolved.error) return resolved.error;
+	// Wave-3 root-gate parity with handleUpdate (w5a,
+	// rootGateActionMatrixOmitsDeleteCleanupInit): delete resolves its write
+	// tier from the MATCHED resource (params.scope may be undefined and match
+	// either tier via the user+project pool), so the facade gate cannot decide
+	// — gate HERE on the resolved source. Non-root sessions may only delete
+	// project-tier resources; dryRun previews stay behind this gate (fail-
+	// closed, matching handleUpdate's gate-before-dryRun order).
+	const deleteGate = assertRootOnlyAction("delete", undefined, resolved.resource!.source === "project" ? "project" : "user");
+	if (deleteGate) return result(deleteGate.message, "error", true);
 	const refs = findReferences(ctx, params.resource!, resolved.resource!.name);
 	if (refs.length > 0 && !params.force) {
 		return result(

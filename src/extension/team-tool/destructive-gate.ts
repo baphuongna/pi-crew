@@ -92,6 +92,17 @@ export function shouldBlockDestructiveTeamAction(action: string | undefined, inp
  *   - `create` /  — when resolved scope is `user` (create defaults to user;
  *   - `update`     update is gated at the resolved resource's scope — see
  *                   the post-`resolveMutable` call in management.ts).
+ *   - `delete`    — user tier only at the facade (config.scope); handleDelete
+ *                   re-gates on the RESOLVED resource tier (management.ts)
+ *                   because `resolveMutable` pools user+project when no scope
+ *                   is given (w5a: the delete sibling of the update gate).
+ *   - `cleanup`   — top-level `scope: "user"` only (handleCleanup routes on
+ *                   that carrier); runId/project cleanup stay project-tier.
+ *   - `init`      — unless the resolved config scope is project/none
+ *                   (config.configScope/config.scope carriers, mirroring
+ *                   dispatch/manage.ts); the default is `global`, which
+ *                   writes `~/.pi/agent/pi-crew.json` (overwrite:true
+ *                   replaces a customized config).
  *   - `workflow-` — ALWAYS (fix-wave 6, R11-S1): .dwf.ts scripts are
  *     `create`/    arbitrary code auto-loaded by every future session —
  *     `save`/      project tier included (`.crew/workflows/` is discovered
@@ -107,8 +118,13 @@ export function shouldBlockDestructiveTeamAction(action: string | undefined, inp
  * carriers cannot smuggle a user-tier write past the gate.
  *
  * Reads (config/status/list, settings list/get, schedule `scheduled`) are
- * never gated. `dryRun` previews that write nothing pass through, mirroring
- * destructive-gate.ts's dryRun convention.
+ * never gated. `dryRun` carriers do NOT exempt mutating actions from this
+ * gate (w5a, rootGateDryRunPreviewExemptsMutatingHandlers): handleStart
+ * (goal.ts) has no dryRun branch at all and handleCreate (management.ts)
+ * honors only top-level `params.dryRun`, so a config-carrier "preview" of
+ * `goal start` / `create` would mutate for real. Previews therefore traverse
+ * the SAME matrix as execution — the schedule precedent ("previews of actions
+ * without a dryRun contract are gated").
  */
 
 /** Typed error so callers/tests can distinguish the gate from handler errors. */
@@ -187,6 +203,32 @@ export function assertRootOnlyAction(
 		case "update":
 			if (scope === "user") return detail("rewrites a user-tier resource loaded by every future session");
 			return undefined;
+		case "delete":
+			// w5a (rootGateActionMatrixOmitsDeleteCleanupInit): delete shares
+			// update's resource resolution (resolveMutable pools user+project when
+			// no scope is given) but previously fell through the switch default —
+			// a worker could unlink user-tier agents/teams/workflows. Gate the
+			// config-carrier user scope HERE (pre-filter, like update) and the
+			// RESOLVED resource tier in handleDelete (management.ts), where the
+			// matched file's tier is finally known.
+			if (scope === "user") return detail("deletes a user-tier resource loaded by every future session");
+			return undefined;
+		case "cleanup":
+			// Only the scope=user branch (handleUserCleanup) destroys user-tier
+			// state: the whole userCrewRoot() run-history/artifacts tree plus the
+			// global config with force:true. runId cleanup and project cleanup stay
+			// project-tier and worker-reachable (Wave-3 policy).
+			if (scope === "user") return detail("removes the user-tier pi-crew state directory and global config");
+			return undefined;
+		case "init":
+			// configScope defaults to 'global' (dispatch/manage.ts) -> writes
+			// ~/.pi/agent/pi-crew.json; overwrite:true replaces a customized config.
+			// The facade resolves init's config scope from its own carriers
+			// (config.configScope OR config.scope, mirroring the dispatch union) —
+			// global (the default) is user-tier and gated; project/none stay
+			// worker-reachable.
+			if (scope !== "project") return detail("writes/replaces the global pi-crew config (all future sessions)");
+			return undefined;
 		case "workflow-create":
 		case "workflow-save":
 			// R11-S1 (fix-wave 6 M1-3): a .dwf.ts is arbitrary code auto-loaded by
@@ -249,13 +291,35 @@ function resolveScopeParam(params: RootGateParamsLike, action?: string): RootGat
 }
 
 /**
+ * w5a (rootGateActionMatrixOmitsDeleteCleanupInit): `init` resolves its config
+ * scope from config.configScope OR config.scope with UNION semantics
+ * (dispatch/manage.ts: either carrier "project" → project; either carrier
+ * "none" → none; anything else, including an absent carrier, → "global").
+ * Only the "global" outcome writes the user tier (~/.pi/agent/pi-crew.json),
+ * so project AND none map to the worker-reachable bucket here. Note
+ * `configScope` must NOT participate in the shared {@link resolveScopeParam}:
+ * create/settings/config ignore it and default to user, so a configScope:
+ * 'project' fallback there would OPEN the gate on a user-tier write.
+ */
+function resolveInitConfigScope(params: RootGateParamsLike): RootGateScope {
+	const cfg = configRecord(params.config);
+	const projectScope = cfg.configScope === "project" || cfg.scope === "project";
+	const noneScope = cfg.configScope === "none" || cfg.scope === "none";
+	return projectScope || noneScope ? "project" : "user";
+}
+
+/**
  * Facade resolver: derive (subcommand, scope) from raw team-tool params for
  * the gated actions and decide whether a NON-ROOT session must be blocked.
  * R11-F1: scope resolves from `config.scope` only (canonical carrier — see
  * {@link resolveScopeParam}); top-level `scope` never influences the gate.
  * `update` is special: its effective write scope is the matched resource's
  * scope, unknown until `resolveMutable` — the facade blocks explicit
- * `scope:"user"` and management.ts gates the resolved case.
+ * `scope:"user"` and management.ts gates the resolved case. `delete` mirrors
+ * that split (facade pre-filter + handleDelete resolved-tier gate).
+ * `cleanup` routes on TOP-LEVEL `params.scope` (lifecycle-actions.ts), and
+ * `init` on config.configScope/config.scope (dispatch/manage.ts) — both
+ * carriers are read here so the gate matches each handler exactly.
  *
  * @returns block reason string, or `undefined` to allow.
  */
@@ -267,16 +331,34 @@ export function rootGateBlockReason(params: RootGateParamsLike, env: NodeJS.Proc
 		(typeof params.subAction === "string" ? params.subAction : undefined) ??
 		(typeof cfg.subAction === "string" ? cfg.subAction : undefined);
 	const subcommand = typeof rawSub === "string" ? rawSub.toLowerCase() : undefined;
-	const scope = resolveScopeParam(params, action);
+	// w5a: cleanup reads the TOP-LEVEL scope carrier (handleCleanup routes on
+	// params.scope; config.scope is a carrier key it ignores) and init reads
+	// config.configScope/config.scope (dispatch/manage.ts). Everything else
+	// keeps the R11-F1 canonical config.scope resolver.
+	const scope =
+		action === "cleanup"
+			? params.scope === "user"
+				? "user"
+				: "project"
+			: action === "init"
+				? resolveInitConfigScope(params)
+				: resolveScopeParam(params, action);
 	const force = params.force === true || cfg.force === true;
 
-	// Reads / previews never gated (destructive-gate dryRun convention).
-	const isPreview = params.dryRun === true || cfg.dryRun === true;
+	// w5a (rootGateDryRunPreviewExemptsMutatingHandlers): dryRun carriers do
+	// NOT exempt mutating actions here. handleStart (goal.ts) has NO dryRun
+	// branch — it persists state and spawns the detached runner regardless —
+	// and handleCreate (management.ts) honors only top-level params.dryRun, so
+	// a config-carrier "preview" wrote the user tier for real. Previews of
+	// mutating actions traverse the SAME matrix as execution (schedule
+	// precedent); unrecognized carrier shapes therefore fail closed.
 
 	// goal: gate `start` and any force:true op; status/pause/read-only stay open.
 	if (action === "goal") {
 		if (force) return assertRootOnlyAction("goal", "force", scope, env)?.message;
-		if (subcommand === "start" && !isPreview) return assertRootOnlyAction("goal", "start", scope, env)?.message;
+		// Gate `start` unconditionally (schedule precedent: previews of actions
+		// without a dryRun contract are gated).
+		if (subcommand === "start") return assertRootOnlyAction("goal", "start", scope, env)?.message;
 		return undefined;
 	}
 	// schedule: every subAction path mutates (add is the default); previews of
@@ -320,7 +402,9 @@ export function rootGateBlockReason(params: RootGateParamsLike, env: NodeJS.Proc
 	// goal force:true (top-level or config) is its own gated token.
 	if (action === "goal" && force) effectiveSub = "force";
 	// create/update/config/settings/autonomy below share scope gating.
-	if (isPreview && action === "create") return undefined;
+	// create: NO preview exemption — handleCreate honors only top-level
+	// params.dryRun (management.ts), so a config-carrier "preview" writes the
+	// user tier for real (w5a).
 	const reason = assertRootOnlyAction(action, effectiveSub, scope, env);
 	return reason?.message;
 }
