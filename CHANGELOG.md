@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — LOW-1: PI_CREW_BROKER_STDIN fd3 handshake DEFAULT-ON ('0' opts out) (2026-10-28)
+
+**Changed (LOW-1 gate flip).** The broker-credential fd3 handshake route is now **DEFAULT-ON**: both gates
+(`child-pi-spawn.resolveBrokerStdinHandshakeEnabled`, `crew-broker-child.resolveBrokerStdinFallbackEnabled`) flipped
+from `=== "1"` (opt-in, v0.11.48–0.11.49) to `!== "0"` — only the exact value `0` opts out (rollback to the
+bit-for-bit legacy env route, unchanged contract). Safe now because the v0.11.49 fd3 dedicated-pipe transport removed
+the fd0/readPipedStdin race that caused the 0.11.46/47 silent-worker-death incident. The FIX-1 spawner write of
+`"1"` stays (pins the child route deterministically + keeps a default-ON parent compatible with pre-flip workers
+whose mirror gate still reads `=== "1"`); an opted-out parent keeps the token in the child env, which independently
+disarms the worker reader. New live-worker integration pin: DEFAULT (gate unset) + fd3 payload → alive + no leak
+(unit seams are structurally blind to this failure class — run the real-test battery T7 before publishing).
+
 ## [0.11.49] — 0.11.46/47 incident ROOT-CAUSED & CLOSED: fd0 handshake race → fd3 dedicated pipe; T7 nonce binding; review fix wave (2026-10-28)
 
 **Root cause (dynamically confirmed 5/5 + on-disk leak proof).** pi's `readPipedStdin` (main.js:52-65) consumes ALL

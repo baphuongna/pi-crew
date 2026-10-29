@@ -18,9 +18,10 @@
  *      against runId + socketPath, and the per-task token reaches the client.
  *   2. OLD parent → NEW worker: env token present → fd3 never read (even
  *      when the gate flag is '1' — the env token always wins).
- *   3. Gate is OPT-IN since v0.11.48: PI_CREW_BROKER_STDIN unset (default)
- *      or '0' → the fd3 fallback never activates (env route is the default
- *      again; '1' opts in).
+ *   3. Gate is DEFAULT-ON since the 2026-10-28 flip (was OPT-IN
+ *      v0.11.48–0.11.49): PI_CREW_BROKER_STDIN exactly '0' → the fd3
+ *      fallback never activates (explicit rollback to the env route);
+ *      unset (default) or any other value ARMS it.
  *   4. Garbage / wrong-run / socket-mismatch / missing-task payloads and a
  *      silent fd3 → creds-less NOOP handle, never a throw, caller env never
  *      mutated.
@@ -78,7 +79,7 @@ const IDENTITY_ENV: Record<string, string> = {
 	PI_CREW_BROKER_TASK_ID: TASK,
 };
 
-/** Identity env + the OPT-IN gate flag — the exact env shape a brokered
+/** Identity env + the DEFAULT-ON gate flag — the exact env shape a brokered
  *  spawn carries under FIX-1 (flag re-written into built.env; the token is
  *  the only piece stripped, and only for headless JSON workers). */
 const GATED_IDENTITY_ENV: Record<string, string> = {
@@ -154,6 +155,23 @@ describe("startChildBrokerClientAsync: stdin fallback (env token absent)", () =>
 		await handle.close();
 	});
 
+	it("gate UNSET via options.env (DEFAULT-ON since the 2026-10-28 flip): reads the payload, connects with the per-task token", async () => {
+		const captured: CrewBrokerClientOptions[] = [];
+		let stdinReads = 0;
+		const handle = await startChildBrokerClientAsync({
+			env: { ...IDENTITY_ENV }, // no PI_CREW_BROKER_STDIN key at all — default is ON
+			readHandshakeLine: async () => {
+				stdinReads++;
+				return buildBrokerStdinLine(RUN, SOCKET, { [TASK]: TOKEN });
+			},
+			clientFactory: captureFactory(captured),
+		});
+		assert.equal(stdinReads, 1, "unset gate arms the fallback under DEFAULT-ON");
+		assert.equal(captured.length, 1, "client built exactly once");
+		assert.equal(captured[0]!.token, TOKEN, "per-task token via fd3 reaches the client");
+		await handle.close();
+	});
+
 	it("does NOT mutate the caller's env object (token merge lands on a copy)", async () => {
 		const callerEnv = { ...GATED_IDENTITY_ENV };
 		await startChildBrokerClientAsync({
@@ -221,14 +239,17 @@ describe("startChildBrokerClientAsync: invalid payloads fall back creds-less", (
 		});
 	}
 
-	it("gate DEFAULT (unset in the injected env) since v0.11.48 + missing env token → stdin fallback disabled (creds-less)", async () => {
+	it("gate DEFAULT (unset in the injected env) since the 2026-10-28 flip ARMS the fallback — silent fd3 still degrades creds-less", async () => {
+		let stdinReads = 0;
 		const handle = await startChildBrokerClientAsync({
-			env: { ...IDENTITY_ENV }, // gate key entirely absent → opt-out default
+			env: { ...IDENTITY_ENV }, // gate key entirely absent → DEFAULT-ON since the flip
 			readHandshakeLine: async () => {
-				throw new Error("unset gate must disable the stdin fallback");
+				stdinReads++;
+				return undefined; // silent fd3 (EOF) — the reader RUNS now
 			},
 			clientFactory: captureFactory([]),
 		});
+		assert.equal(stdinReads, 1, "unset gate must ARM the stdin fallback (DEFAULT-ON)");
 		assert.equal(handle.active, false, "creds-less NOOP handle");
 		await handle.close();
 	});

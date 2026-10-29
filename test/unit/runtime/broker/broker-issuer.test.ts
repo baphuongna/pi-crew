@@ -69,12 +69,13 @@ function makeGatedIssuer(registry: BrokerTokenRegistry, socketPath: string, enab
 }
 
 /** Replicates the child env-injection rule from child-pi-spawn.ts. Since
- * v0.11.48 the gate is OPT-IN: the DEFAULT route carries the token via env
- * (legacy) — the stdin pipe route (buildBrokerStdinLine payload — see
- * crew-broker-child-stdin.test.ts + child-pi-broker-stdin.test.ts) only
- * activates when PI_CREW_BROKER_STDIN=1. THIS mirror pins the ENV route,
- * which is the live default behavior again, and remains the behavior for
- * identity-less spawns (no runId+agentId to bind a payload). Only when both
+ * the 2026-10-28 DEFAULT-ON flip (OPT-IN only v0.11.48–0.11.49): the stdin
+ * pipe route (buildBrokerStdinLine payload — see
+ * crew-broker-child-stdin.test.ts + child-pi-broker-stdin.test.ts) is the
+ * DEFAULT; PI_CREW_BROKER_STDIN=0 opts out (legacy env route). THIS mirror
+ * pins the ENV route — the rollback/opt-out shape, and the exact env shape
+ * RPC/surface spawns keep — and remains the behavior for identity-less
+ * spawns (no runId+agentId to bind a payload). Only when both
  * socketPath and token are present are the control-namespace keys populated.
  * Used to prove the issued credentials are spawn-compatible. */
 function buildChildBrokerEnv(

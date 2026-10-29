@@ -46,11 +46,12 @@ import {
 // NOT set this (their sessions persist and benefit from long-lived cache).
 export const PI_CACHE_RETENTION_ENV = "PI_CACHE_RETENTION";
 
-/** LOW-1 residual closure (2026-10-27, DISABLED-DEFAULT 2026-10-28 v0.11.48):
+/** LOW-1 residual closure (2026-10-27, DISABLED-DEFAULT v0.11.48 2026-10-28,
+ * DEFAULT-ON 2026-10-28):
  * when the inter-pi broker credentials are present, the per-task compound TOKEN
  * can travel over a DEDICATED fd3 spawn pipe (one `buildBrokerStdinLine`
  * payload, heap → stdio[3] → heap — fd0 stays "ignore") instead of the child
- * env. **EXPERIMENTAL / OPT-IN since v0.11.48**: the first attempt (v0.11.46/47)
+ * env. **DEFAULT-ON since 2026-10-28 (was OPT-IN v0.11.48–0.11.49)**: the first attempt (v0.11.46/47)
  * rode fd0 and was caught by the live battery (real-test-pi-crew T7) making
  * REAL headless JSON workers exit 0 silently with zero stdout. Root cause
  * (2026-10-28): pi@1.0.4 `readPipedStdin()` (dist/main.js:52-65) consumes ALL
@@ -62,8 +63,10 @@ export const PI_CACHE_RETENTION_ENV = "PI_CACHE_RETENTION";
  * (stdio entry 4); fd0 returns to "ignore" (pre-0.11.46 shape), killing every
  * race ordering. Unit tests missed the original because they inject the
  * `readHandshakeLine` seam instead of running the fd reader in a real pi
- * process. The gate stays OPT-IN (legacy env route bit-for-bit pre-0.11.46);
- * set PI_CREW_BROKER_STDIN=1 to opt the parent into the fd3 route.
+ * process. DEFAULT-ON FLIP (2026-10-28): with the fd3 transport proven live
+ * (v0.11.49), the gate flipped from opt-in to DEFAULT-ON — only exact
+ * PI_CREW_BROKER_STDIN=0 opts the parent out (legacy env route bit-for-bit
+ * pre-0.11.46); unset/'1'/any other value takes the fd3 route.
  *
  * FIX-1 dead-wire repair (2026-10-28): when this gate is ON and broker
  * credentials exist, prepareSpawnContext (1) WRITES PI_CREW_BROKER_STDIN="1"
@@ -79,9 +82,12 @@ export const PI_CACHE_RETENTION_ENV = "PI_CACHE_RETENTION";
  * Only the headless JSON branch composes WITH ctx.brokerStdinPayload, and
  * buildFinalChildPiSpawnOptions strips the token from the FINAL env there
  * (defense-in-depth) — on that branch alone the token rides the fd3 pipe.
- * Gate OFF: no flag, no payload, token via env — bit-for-bit legacy. */
+ * Gate OFF ('0'): no flag, no payload, token via env — bit-for-bit legacy.
+ * The FIX-1 "1" write stays even under the DEFAULT-ON flip: it keeps a NEW
+ * default-ON parent compatible with PRE-FLIP workers (their mirror gate still
+ * reads === "1"), and pins the child's route deterministically. */
 export function resolveBrokerStdinHandshakeEnabled(): boolean {
-	return getCrewEnv("PI_CREW_BROKER_STDIN") === "1";
+	return getCrewEnv("PI_CREW_BROKER_STDIN") !== "0";
 }
 
 // ── Env allowlist (base set always passed to children) ──────────────────
@@ -489,16 +495,17 @@ export function prepareSpawnContext(
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
 	// credentials for this run — i.e. the broker is enabled AND this run is
 	// eligible. NEVER persisted to disk.
-	// LOW-1 closure (OPT-IN since v0.11.48; FIX-1 dead-wire repair 2026-10-28;
-	// FD-3 transport 2026-10-28): when PI_CREW_BROKER_STDIN=1 the headless
-	// JSON spawn branch delivers the token over a DEDICATED fd3 pipe (4th
+	// LOW-1 closure (OPT-IN v0.11.48–0.11.49, DEFAULT-ON since 2026-10-28;
+	// FIX-1 dead-wire repair 2026-10-28; FD-3 transport 2026-10-28): when the
+	// gate is ON (default — only exact PI_CREW_BROKER_STDIN=0 opts out) the
+	// headless JSON spawn branch delivers the token over a DEDICATED fd3 pipe (4th
 	// stdio entry; ctx.brokerStdinPayload — fd0 stays "ignore") as a single
 	// buildBrokerStdinLine payload, and buildFinalChildPiSpawnOptions strips
 	// it from the FINAL env there. The token still lands in built.env for
 	// every brokered spawn — the RPC/surface call sites compose without the
 	// payload and need the env credential. SOCKET/RUN_ID/TASK_ID stay in env
 	// (non-secret, needed by the worker bootstrap to bind and validate the
-	// fd3 payload). Default (gate off) keeps the env route bit-for-bit.
+	// fd3 payload). Opt-out (gate '0') keeps the env route bit-for-bit.
 	if (input.brokerSpawn?.socketPath && input.brokerSpawn.token) {
 		built.env.PI_CREW_BROKER_SOCKET = input.brokerSpawn.socketPath;
 		const brokerStdinRoute = resolveBrokerStdinHandshakeEnabled();
@@ -508,6 +515,8 @@ export function prepareSpawnContext(
 			// "child-write" (ambient forwarding never carries it), so the spawner
 			// MUST write it here — before the fix the flag never reached the
 			// child and the stdin fallback NEVER activated (creds-less NOOP).
+			// Kept under the DEFAULT-ON flip for pre-flip-worker compatibility
+			// (their mirror gate still reads === "1").
 			built.env.PI_CREW_BROKER_STDIN = "1";
 		}
 		// FIX-1: the token is written into built.env for BOTH branches. The RPC

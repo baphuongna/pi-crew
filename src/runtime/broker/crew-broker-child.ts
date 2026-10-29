@@ -109,7 +109,7 @@ function argvIndicatesRpcMode(): boolean {
 /** LOW-1 residual closure (2026-10-27): async wrapper used by the worker
  * bootstrap (prompt-runtime Feature 2b). Identical contract to
  * {@link startChildBrokerClient}, plus: when the env token is ABSENT but the
- * socket/run/task identity env IS present (opt-in parent on the fd3 route —
+ * socket/run/task identity env IS present (gate-ON parent on the fd3 route —
  * FIX-1 re-writes the flag into the child's built.env, without which this
  * fallback was dead-wired), read the single buildBrokerStdinLine payload off
  * the DEDICATED fd3 handshake pipe (bounded, never throws) and merge the
@@ -120,14 +120,17 @@ function argvIndicatesRpcMode(): boolean {
  * prompt; creds-less silence; pause() deadlock → SIGTERM exit 0 with ~0
  * stdout — the 0.11.46/47 live incident), so the spawner now writes the
  * payload to a dedicated stdio[3] pipe and this reader reads fd 3, never
- * fd0. Ordering matrix (post FIX-1, 2026-10-28 — the gate is OPT-IN and the
- * spawner writes flag + token into built.env for every brokered spawn; only
- * the headless JSON compose strips the token):
- *   - opt-in parent (PI_CREW_BROKER_STDIN=1) + headless JSON worker → flag
- *     set, token ABSENT from env → token via fd3 (env stays secret-free);
- *   - opt-in parent + RPC / surface worker → flag set, token PRESENT in env
+ * fd0. Ordering matrix (post FIX-1, 2026-10-28; DEFAULT-ON flip same day —
+ * the gate is ON unless the exact value '0' opts out, and the spawner writes
+ * flag + token into built.env for every brokered spawn; only the headless
+ * JSON compose strips the token):
+ *   - default parent (gate ON — unset/'1'/any non-'0') + headless JSON worker
+ *     → flag set, token ABSENT from env → token via fd3 (env stays secret-free);
+ *   - gate-ON parent + RPC / surface worker → flag set, token PRESENT in env
  *     → env route, fd3 untouched (their stdin is the protocol channel/TTY);
- *   - legacy parent (gate off/unset) → env token present → env route;
+ *   - opt-out parent (PI_CREW_BROKER_STDIN=0) → no flag write, env token
+ *     present → env route (and even if the token were missing, the mirror
+ *     gate's '0' check disarms the fd3 read);
  *   - payload missing/invalid/wrong-run/socket-mismatch/unreadable fd3 →
  *     creds-less no-op handle (same as today), never a throw.
  * The sync {@link startChildBrokerClient} stays untouched (env-only) so every
@@ -163,19 +166,22 @@ export async function startChildBrokerClientAsync(options: StartChildBrokerClien
 }
 
 /** Worker-side mirror of the parent gate (child-pi-spawn
- * .resolveBrokerStdinHandshakeEnabled). **OPT-IN since v0.11.48** (live
- * battery caught the reader path killing real headless workers — see the
- * parent gate's doc block): the default is OFF, so a legacy parent that set
- * the env token travels the legacy env route. PI_CREW_BROKER_STDIN=1 opts
- * BOTH sides into the stdin route — FIX-1 (2026-10-28): the spawner now
- * re-writes the flag into the child's built.env ("child-write" registry
- * kind), so an opt-in parent actually reaches this mirror gate (previously
- * the flag died with the ambient-env strip and this fallback was dead-wired).
+ * .resolveBrokerStdinHandshakeEnabled). **DEFAULT-ON since 2026-10-28** (was
+ * OPT-IN v0.11.48–0.11.49, after the live battery caught the original fd0
+ * reader path killing real headless workers — see the parent gate's doc
+ * block; the v0.11.49 fd3 transport removed that race): the default is ON,
+ * so an unset flag arms the fd3 fallback whenever the identity env is
+ * present and the env token is absent. PI_CREW_BROKER_STDIN=0 opts BOTH
+ * sides out (the spawner then writes the env token instead — legacy env
+ * route). FIX-1 (2026-10-28): the spawner re-writes the flag "1" into the
+ * child's built.env ("child-write" registry kind), so a gate-ON parent
+ * reaches pre-flip workers too (their mirror still reads === "1") and the
+ * child route is pinned deterministically.
  * Seam (2026-10-28): the gate reads the RESOLVED env — the same source as
  * the identity vars above (`options.env ?? process.env`, threaded through
  * getCrewEnv's env param) — so spawn-env delivery (FIX-1 writes the flag
  * into the child's built.env) is pinnable in tests via options.env without
  * mutating process.env. */
 function resolveBrokerStdinFallbackEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-	return getCrewEnv("PI_CREW_BROKER_STDIN", env) === "1";
+	return getCrewEnv("PI_CREW_BROKER_STDIN", env) !== "0";
 }

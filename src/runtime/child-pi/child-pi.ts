@@ -281,7 +281,8 @@ export interface ChildPiRunInput {
 	 * in the parent's in-memory `Map<runId, token>` and in the child's env.
 	 * NEVER persisted to manifest, events, mailbox, or any run-dir file.
 	 *
-	 * OPT-IN fd3 route (PI_CREW_BROKER_STDIN=1, FIX-1 2026-10-28): the token
+	 * DEFAULT-ON fd3 route (PI_CREW_BROKER_STDIN — '0' opts out; DEFAULT-ON
+	 * flip 2026-10-28, FIX-1 2026-10-28): the token
 	 * is still written into built.env for every brokered spawn — RPC/surface
 	 * branches compose WITHOUT the payload and need the env credential, but
 	 * the headless JSON branch composes WITH ctx.brokerStdinPayload and

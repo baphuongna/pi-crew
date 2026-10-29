@@ -17,17 +17,25 @@
  * fast-fix run: thin allowlist env + broker identity, stdin untouched):
  *
  *   1. DEFAULT (gate unset): worker must produce stdout (session event) —
- *      the silent exit-0 is the regression this file pins.
+ *      the silent exit-0 is the regression this file pins. Since the
+ *      2026-10-28 DEFAULT-ON flip the unset gate ARMS the fd3 reader; with
+ *      no fd3 pipe in this shape (3-entry stdio) the bounded reader
+ *      resolves undefined (missing-fd contract) and the worker degrades
+ *      creds-less — still alive.
  *   2. Guard: `pi` binary unavailable (CI containers) → skip, not fail —
  *      this test runs wherever a real pi host exists (dev boxes, the
  *      real-test battery). The unit suites remain the CI gate.
- *   3. Opt-in gate (=1) + fd3 payload: post-root-cause the handshake rides
- *      the DEDICATED stdio[3] pipe (fd0 = "ignore"), so the worker MUST
- *      stay alive (non-zero stdout, no silent exit-0) and the handshake
- *      token must NEVER appear in stdout/stderr (the ordering-2 leak shape:
- *      pi merging the payload into the prompt would echo it in the session
- *      transcript). THIS IS THE LIVE ROOT-CAUSE-FIX ASSERTION — the unit
- *      suites only pin the composed stdio table + seam behavior.
+ *   3. DEFAULT-ON (gate UNSET) + fd3 payload: the LIVE DEFAULT pin of the
+ *      2026-10-28 flip — the armed-by-default reader consumes the fd3
+ *      payload in a REAL pi process: worker stays alive, token never leaks.
+ *   4. Explicit gate '1' + fd3 payload: same shape, explicit opt value —
+ *      post-root-cause the handshake rides the DEDICATED stdio[3] pipe
+ *      (fd0 = "ignore"), so the worker MUST stay alive (non-zero stdout,
+ *      no silent exit-0) and the handshake token must NEVER appear in
+ *      stdout/stderr (the ordering-2 leak shape: pi merging the payload
+ *      into the prompt would echo it in the session transcript). THIS IS
+ *      THE LIVE ROOT-CAUSE-FIX ASSERTION — the unit suites only pin the
+ *      composed stdio table + seam behavior.
  */
 
 import assert from "node:assert/strict";
@@ -149,15 +157,39 @@ function runLiveWorker(envExtra: Record<string, string>, fd3Payload?: string): P
 test("live worker (real pi): default broker env must NOT silently exit with zero stdout", { skip: !piAvailable() }, async () => {
 	const run = await runLiveWorker({});
 	// The v0.11.46/v0.11.47 regression: exit 0 with 0 stdout bytes in ~1s.
-	// Post-v0.11.48 the default gate keeps the reader off, so the worker
-	// streams its session + agent events like pre-0.11.46.
+	// Since the 2026-10-28 DEFAULT-ON flip the unset gate ARMS the fd3
+	// reader; this shape has NO fd3 pipe (3-entry stdio — old-parent skew),
+	// so the bounded missing-fd read resolves undefined and the worker
+	// streams its session + agent events creds-less, like pre-0.11.46.
 	assert.ok(
 		run.stdoutBytes > 0,
 		`worker died silently (exit=${run.exitCode}, stdout=0 bytes) — stdin reader regression is back; stderr tail: ${run.stderrTail}`,
 	);
 });
 
-test("live worker (real pi): opt-in gate + fd3 handshake payload must stay alive AND never leak the token into output", {
+test("live worker (real pi): DEFAULT-ON (gate unset) + fd3 handshake payload — the flip's live pin: alive AND no leak", {
+	skip: !piAvailable(),
+}, async () => {
+	// DEFAULT-ON FLIP (2026-10-28): the gate is now ON when UNSET, so this
+	// is the LIVE DEFAULT spawn shape (no PI_CREW_BROKER_STDIN in env). The
+	// armed reader must consume the fd3 payload in a REAL pi process without
+	// the 0.11.46/47 failure class (silent exit-0 / token merged into the
+	// prompt) — unit seams are structurally blind to this (knowledge lesson).
+	const sentinel = "fd3-default-leak-sentinel-9b4e7d21";
+	const payload = buildBrokerStdinLine(LIVENESS_RUN, LIVENESS_SOCKET, { [LIVENESS_TASK]: sentinel });
+	const run = await runLiveWorker({}, payload); // gate key ABSENT → default ON
+	assert.ok(
+		run.stdoutBytes > 0,
+		`default-ON worker died silently (exit=${run.exitCode}, stdout=0 bytes) — the fd3 transport broke under the default gate; stderr tail: ${run.stderrTail}`,
+	);
+	assert.ok(
+		!run.stdoutTail.includes(sentinel),
+		"handshake token leaked into stdout on the DEFAULT route — ordering-2: the payload reached the worker prompt",
+	);
+	assert.ok(!run.stderrTail.includes(sentinel), "handshake token leaked into stderr on the DEFAULT route");
+});
+
+test("live worker (real pi): explicit gate '1' + fd3 handshake payload must stay alive AND never leak the token into output", {
 	skip: !piAvailable(),
 }, async () => {
 	// ROOT-CAUSE FIX ASSERTION (2026-10-28): pi@1.0.4 readPipedStdin consumed
