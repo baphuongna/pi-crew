@@ -130,13 +130,23 @@ function preGateEvents(eventsPath: string) {
 	return readEvents(eventsPath).filter((e) => e.type === "task.verifier_pre_gate");
 }
 
-/** The gate's event append is fire-and-forget — poll briefly for the writes. */
+/** The gate's event append is fire-and-forget — poll briefly for the writes.
+ * THROWS on timeout (bug-030 backlog, 2026-10-29): the silent return let the
+ * caller's `preGateEvents(...)[0]!` explode as a far-away TypeError — the
+ * [pg-10] CI flake (2 Node-22 shards, run 40797688830). A timeout is a real
+ * failure condition (the fire-and-forget append did not land within the
+ * budget — runner I/O starvation or an append-path regression), so it must
+ * fail AT the wait site with the counts + path, never downstream. */
 async function waitForPreGateEvents(eventsPath: string, count: number, timeoutMs = 3000): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
 		if (preGateEvents(eventsPath).length >= count) return;
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	}
+	const found = preGateEvents(eventsPath).length;
+	throw new Error(
+		`waitForPreGateEvents: expected >= ${count} task.verifier_pre_gate event(s) at ${eventsPath} within ${timeoutMs}ms — found ${found} (fire-and-forget append did not land; runner I/O starvation or an append-path regression)`,
+	);
 }
 
 async function waitForPreGateEvent(eventsPath: string, timeoutMs = 3000): Promise<void> {

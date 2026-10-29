@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] — test hardening
+
+**Fixed (test-only).** `waitForPreGateEvents` (classifier-pre-gate) now THROWS on timeout with counts + path
+instead of returning silently — the silent return turned a legit wait-timeout into a far-away
+`TypeError: Cannot read properties of undefined (reading 'taskId')` on `preGateEvents(...)[0]!` (the [pg-10]
+CI flake: 2 Node-22 shards, run 40797688830, 2026-10-29; rerun green). A timeout now fails AT the wait site
+with diagnostics (found vs expected `task.verifier_pre_gate` events, eventsPath, budget). Bug-030 RCA backlog item.
+
 ## [0.11.50] — LOW-1: PI_CREW_BROKER_STDIN fd3 handshake DEFAULT-ON ('0' opts out) (2026-10-28)
 
 **Changed (LOW-1 gate flip).** The broker-credential fd3 handshake route is now **DEFAULT-ON**: both gates
