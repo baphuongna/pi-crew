@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — LOW-1: PI_CREW_BROKER_STDIN fd3 handshake DEFAULT-ON ('0' opts out) (2026-10-28)
+## [0.11.50] — LOW-1: PI_CREW_BROKER_STDIN fd3 handshake DEFAULT-ON ('0' opts out) (2026-10-28)
 
 **Changed (LOW-1 gate flip).** The broker-credential fd3 handshake route is now **DEFAULT-ON**: both gates
 (`child-pi-spawn.resolveBrokerStdinHandshakeEnabled`, `crew-broker-child.resolveBrokerStdinFallbackEnabled`) flipped
