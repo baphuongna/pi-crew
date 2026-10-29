@@ -19,8 +19,11 @@
  *     a real child; the default seam wraps node:child_process execFile with a
  *     5s timeout (utf8).
  *   - Single-flight memoized per process: the FIRST call creates the promise;
- *     every later call (any args) returns the same one. Failures memoize too
- *     (null = unknown) — a missing/old pi binary does not re-probe per spawn.
+ *     every later call (any args) returns the same one. SUCCESSFUL probes memoize
+ *     forever; FAILED/unknown probes (null) re-arm after a short TTL
+ *     (PROBE_FAILURE_RETRY_TTL_MS, 60s) — one transient cold-start failure must
+ *     not permanently drop version-gated safety flags (--no-mcp) for the
+ *     process lifetime (SEC-2026-11 N2: parity-spawn-mcp-cut-version-gated).
  *   - NEVER rejects: spawn error / nonzero exit / timeout / unparseable
  *     stdout all resolve null. The result is a hint, never a failure channel.
  *
@@ -155,6 +158,15 @@ export function piVersionAtLeast(version: string | null | undefined, floor: stri
 /** Memoized single-flight probe promise (null = unknown, failures included). */
 let memoizedProbe: Promise<string | null> | null = null;
 
+/**
+ * SEC-2026-11 N2: how long a FAILED/unknown probe stays memoized before a
+ * later spawn may retry. Successes memoize forever; failures must not —
+ * a single transient probe miss (e.g. 5s cold-start timeout) otherwise drops
+ * --no-mcp from every later parity spawn in the process, silently widening
+ * the MCP exposure window on hosts that DO support the flag.
+ */
+export const PROBE_FAILURE_RETRY_TTL_MS = 60_000;
+
 async function runPiVersionProbe(exec: ExecPiVersionFn): Promise<string | null> {
 	const { command, args } = getPiSpawnCommand(["--version"]);
 	const { stdout } = await exec(command, args, { timeout: PI_VERSION_PROBE_TIMEOUT_MS, encoding: "utf8" });
@@ -170,7 +182,23 @@ async function runPiVersionProbe(exec: ExecPiVersionFn): Promise<string | null> 
  * matter what they pass. NEVER rejects; unknown resolves null.
  */
 export function probePiVersion(exec: ExecPiVersionFn = defaultExec): Promise<string | null> {
-	if (!memoizedProbe) memoizedProbe = runPiVersionProbe(exec).catch(() => null);
+	if (!memoizedProbe) {
+		const memo = runPiVersionProbe(exec)
+			.catch(() => null)
+			.then((version) => {
+				if (version === null) {
+					// Failure/unknown: re-arm the memo after the TTL so a later spawn
+					// retries (see PROBE_FAILURE_RETRY_TTL_MS). Only clear OUR memo — a
+					// concurrent success must not be evicted.
+					const timer: NodeJS.Timeout = setTimeout(() => {
+						if (memoizedProbe === memo) memoizedProbe = null;
+					}, PROBE_FAILURE_RETRY_TTL_MS);
+					timer.unref();
+				}
+				return version;
+			});
+		memoizedProbe = memo;
+	}
 	return memoizedProbe;
 }
 
