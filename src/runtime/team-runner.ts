@@ -158,6 +158,16 @@ function startPerfSampler(manifest: TeamRunManifest, team: TeamConfig, signal?: 
 			{ detached: true, stdio: ["ignore", "ignore", "pipe"], signal },
 		);
 		// diagnostics: sampler stderr → perf-obs.log (best-effort; never affects the run)
+		// Abort-safety (B6 mirror, child-pi.ts taskkill): the sampler is spawned
+		// WITH the run AbortSignal (R11-4 teardown-kill) but detached+unref'd, so it
+		// can exit BEFORE the signal fires — Node's spawn-signal listener then
+		// throws AbortError synchronously AND emits 'error' on the ChildProcess;
+		// without a listener that emission is an uncaught exception that kills the
+		// host (observed: run-deadline abort ~300ms into a resumed run raced the
+		// sampler's exit). The listener keeps abort-after-exit bounded.
+		child.on("error", (err: Error) => {
+			logInternalError("team-runner.perf-sampler.child-error", err, `runId=${manifest.runId}`, "warn");
+		});
 		child.stderr?.on("data", (d: Buffer) => {
 			try {
 				fs.appendFileSync(logPath, String(d));
@@ -381,6 +391,22 @@ export async function executeTeamRun(input: ExecuteTeamRunInput): Promise<{ mani
 		// caller enters from a non-terminal manifest (fresh run / re-dispatch).
 		{ allowTerminalExit: input.isResume === true },
 	);
+
+	// Manifest-derived re-arm (resume-disarms-run-budget-enforcement fix): a caller
+	// that reconstructs the input without budget fields (handleResume static-path
+	// re-entry) must not silently disarm the operator's persisted spend cap —
+	// enforceRunBudget gates solely on ctx.input.budgetTotal (budget-enforcement.ts)
+	// and the manifest budget is persisted input→manifest only, so persistence
+	// alone never re-arms enforcement on a later execution. Seed any missing input
+	// budget fields from the loaded manifest BEFORE the persist block so EVERY
+	// execution of the same run keeps its declared bounds regardless of caller
+	// diligence. Caller-supplied values (dispatch paths forward params.budget*,
+	// detached re-entry forwards manifest.budget*) always win — `??=` never
+	// overrides an explicitly forwarded field.
+	input.budgetTotal ??= manifest.budgetTotal;
+	input.budgetWarning ??= manifest.budgetWarning;
+	input.budgetAbort ??= manifest.budgetAbort;
+	input.budgetUnlimited ??= manifest.budgetUnlimited;
 
 	// Persist budget fields on the manifest so all subsequent saveRunManifest
 	// calls (there are many in executeTeamRunCore) preserve the budget config.

@@ -11,12 +11,18 @@ import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
-import { replayPendingMailboxMessages } from "../state/coordination/mailbox.ts";
+import { replayPendingMailboxMessages, signSteeringEntry } from "../state/coordination/mailbox.ts";
 import { isTaskClaimExpired } from "../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { ACTIVE_RUN_STALE_MS, activeRunEntries, registerActiveRun, unregisterActiveRun } from "../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../state/stores/artifact-store.ts";
-import { loadRunManifestById, saveRunManifestAsync, saveRunTasks, updateRunStatus } from "../state/stores/state-store.ts";
+import {
+	loadRunManifestById,
+	resolveMaxTasksPerRunAdmissionCap,
+	saveRunManifestAsync,
+	saveRunTasks,
+	updateRunStatus,
+} from "../state/stores/state-store.ts";
 import type { ArtifactDescriptor, TeamRunManifest, TeamTaskState } from "../state/types.ts";
 import { allTeams, discoverTeams } from "../teams/discover-teams.ts";
 import type { TeamConfig } from "../teams/team-config.ts";
@@ -398,6 +404,16 @@ function resumeLivenessRefusal(manifest: TeamRunManifest, tasks: TeamTaskState[]
 	return undefined;
 }
 
+/** F1-mirror (adoptSpecialKindRunForResume in-lock liveness re-check): thrown
+ * by the special-kind (goal-loop / dynamic-workflow) resume adopt path when the
+ * freshly re-read LOCKED state shows the run LIVE — a concurrent session
+ * adopted + registered it between this session's pre-lock gate (handleResume)
+ * and this lock acquisition. Mirrors the static LOCK-2 refusal: force:true
+ * bypasses OWNERSHIP only, never LIVENESS (G12). The resume arms catch this
+ * BEFORE any adoption side effect and surface it as a typed error result — no
+ * manifest write, no ownership flip, no registry write, no engine re-dispatch. */
+class ResumeLivenessRefusedError extends Error {}
+
 /** G11 (SDD-3 W-C WI-2): adopt ownership + refresh heartbeat for a special-kind
  * (goal-loop / dynamic-workflow) resume, under the same per-run lock semantics
  * as the static path. Mirrors the static path's B1 adoption (battery 2026-08-18
@@ -412,6 +428,17 @@ async function adoptSpecialKindRunForResume(
 	return await withRunLock(manifest, async () => {
 		const fresh = loadRunManifestById(manifest.cwd, manifest.runId);
 		const base = fresh?.manifest ?? manifest;
+		// F1 mirror (LOCK-2 in-lock liveness re-check, static path): the pre-lock
+		// gate in handleResume raced concurrent adoption — between that load and
+		// this lock acquisition another session may have adopted and REGISTERED
+		// the run (registerActiveRun + ownerSessionId). Re-check liveness against
+		// the LOCKED state BEFORE any adoption mutation (async drop, status flip,
+		// owner adopt, registry write, engine re-dispatch); force:true bypasses
+		// OWNERSHIP only, never LIVENESS (G12).
+		const lockedLiveness = resumeLivenessRefusal(base, fresh?.tasks ?? []);
+		if (lockedLiveness) {
+			throw new ResumeLivenessRefusedError(lockedLiveness);
+		}
 		// W-C2 (SDD-4 WI-6): drop the dispatch-time detached-runner pointer. Resume
 		// arms re-execute IN THIS session's process (runGoalLoop /
 		// runDynamicWorkflow) — no runner is re-spawned — yet goal-wrapped runs carry
@@ -474,7 +501,20 @@ async function resumeDynamicWorkflowRun(
 		roles: [{ name: "worker", agent: params.agent ?? "executor" }],
 		workspaceMode: "single",
 	};
-	const adopted = await adoptSpecialKindRunForResume(manifest, "dynamic-workflow", ctx);
+	// In-lock liveness refusal surface (F1 mirror): adoptSpecialKindRunForResume
+	// re-checks liveness under the run lock and throws ResumeLivenessRefusedError
+	// BEFORE any adoption mutation — no manifest write, no ownership flip, no
+	// registry entry, no engine dispatch. Surface the exact refusal message the
+	// static LOCK-2 path returns.
+	let adopted: TeamRunManifest;
+	try {
+		adopted = await adoptSpecialKindRunForResume(manifest, "dynamic-workflow", ctx);
+	} catch (error) {
+		if (error instanceof ResumeLivenessRefusedError) {
+			return result(error.message, { action: "resume", status: "error", runId: manifest.runId }, true);
+		}
+		throw error;
+	}
 	registerActiveRun(adopted);
 	// CORE-8 mirror: unified deadline (params.timeoutMs > config.maxRunMinutes > 1h default).
 	const dwfDeadline = resolveRunDeadline(ctx, params);
@@ -547,7 +587,16 @@ async function resumeGoalLoopRun(params: TeamToolParamsValue, ctx: TeamContext, 
 			true,
 		);
 	}
-	const adopted = await adoptSpecialKindRunForResume(manifest, "goal-loop", ctx);
+	// In-lock liveness refusal surface (F1 mirror) — same contract as the DWF arm.
+	let adopted: TeamRunManifest;
+	try {
+		adopted = await adoptSpecialKindRunForResume(manifest, "goal-loop", ctx);
+	} catch (error) {
+		if (error instanceof ResumeLivenessRefusedError) {
+			return result(error.message, { action: "resume", status: "error", runId: manifest.runId }, true);
+		}
+		throw error;
+	}
 	// LAZY: the runner import stays after the state check for fast failure.
 	const { runGoalLoop } = await import("../runtime/goal-workflow/goal-loop-runner.ts");
 	registerActiveRun(adopted);
@@ -712,6 +761,25 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 			return {
 				kind: "blocked" as const,
 				payload: result(lockedLiveness, { action: "resume", status: "error", runId: lockedManifest.runId }, true),
+			};
+		}
+		// resume-skips-maxtasks-admission fix: limits.maxTasksPerRun is an ADMISSION
+		// invariant, not a creation-only one. The disk-loaded tasks.json is untrusted
+		// persisted state (worker-writable in single-workspace project state —
+		// loadTasksWithRecovery returns it verbatim with no count bound), so a
+		// poisoned file inflated past the ceiling must be refused here exactly as
+		// createRunManifest refuses the same cardinality at creation — BEFORE any
+		// recovery/reset mutation, status flip, or dispatch. Same contract as the
+		// creation gate: name the config key, the cap, and the actual count.
+		const admissionCap = resolveMaxTasksPerRunAdmissionCap(ctx.cwd);
+		if (lockedTasks.length > admissionCap) {
+			return {
+				kind: "blocked" as const,
+				payload: result(
+					`Refusing to resume run ${lockedManifest.runId}: tasks.json holds ${lockedTasks.length} tasks, exceeding limits.maxTasksPerRun=${admissionCap}. Persisted task state is untrusted (worker-writable in single-workspace project state); reduce the task count or raise limits.maxTasksPerRun.`,
+					{ action: "resume", status: "error", runId: lockedManifest.runId },
+					true,
+				),
 			};
 		}
 		const loadedConfig = loadConfig(ctx.cwd);
@@ -896,28 +964,55 @@ export async function handleResume(params: TeamToolParamsValue, ctx: TeamContext
 	// handleRun (which never wraps executeTeamRun in an outer lock).
 	if (decision.kind === "blocked") return decision.payload;
 
-	const executed = await executeTeamRun({
-		manifest: decision.runtimeManifest,
-		tasks: decision.resetTasks,
-		team,
-		workflow,
-		agents,
-		executeWorkers: decision.executeWorkers,
-		limits: decision.executedConfig.limits,
-		runtime: decision.runtime,
-		runtimeConfig: decision.executedConfig.runtime,
-		parentContext: buildParentContext(ctx),
-		parentModel: resolveParentModel(ctx.model),
-		modelRegistry: ctx.modelRegistry,
-		modelOverride: params.model,
-		skillOverride: decision.resumeSkillOverride,
-		signal: ctx.signal,
-		reliability: decision.executedConfig.reliability,
-		metricRegistry: ctx.metricRegistry,
-		workspaceId: ctx.sessionId ?? ctx.cwd,
-		// Finding 8: resume is the legitimate terminal-exit flow.
-		isResume: true,
-	});
+	// resume-disarms-run-budget-enforcement fix (handleResume re-arm): the static
+	// resume re-entry previously forwarded NEITHER the persisted budget fields
+	// NOR a unified deadline — enforceRunBudget gates solely on input.budgetTotal
+	// and resolveRunDeadline was armed only at the dispatch/DWF/goal-resume
+	// sites, so a paused-and-resumed run escaped both operator bounds entirely
+	// (disarmed). Mirror the inline dispatch path (run.ts CORE-8 deadline) and
+	// the detached re-entry (background-runner.ts manifest.budget* forwarding):
+	// arm the same unified deadline a fresh run gets (params.timeoutMs >
+	// config.limits.maxRunMinutes > 1h default — elapsed wall-clock counts
+	// against it) and re-forward the manifest budget persisted at the original
+	// dispatch. team-runner additionally re-arms missing budget fields from the
+	// manifest as defense-in-depth, so the two layers cannot cancel out.
+	const resumeDeadline = resolveRunDeadline(ctx, params, decision.executedConfig);
+	let executed: Awaited<ReturnType<typeof executeTeamRun>>;
+	try {
+		executed = await executeTeamRun({
+			manifest: decision.runtimeManifest,
+			tasks: decision.resetTasks,
+			team,
+			workflow,
+			agents,
+			executeWorkers: decision.executeWorkers,
+			limits: decision.executedConfig.limits,
+			runtime: decision.runtime,
+			runtimeConfig: decision.executedConfig.runtime,
+			parentContext: buildParentContext(ctx),
+			parentModel: resolveParentModel(ctx.model),
+			modelRegistry: ctx.modelRegistry,
+			modelOverride: params.model,
+			skillOverride: decision.resumeSkillOverride,
+			signal: resumeDeadline.signal,
+			reliability: decision.executedConfig.reliability,
+			metricRegistry: ctx.metricRegistry,
+			workspaceId: ctx.sessionId ?? ctx.cwd,
+			// Finding 8: resume is the legitimate terminal-exit flow.
+			isResume: true,
+			// resume-disarms fix: re-forward the operator's persisted spend cap —
+			// this call site previously dropped the budget fields on the floor.
+			...(decision.runtimeManifest.budgetTotal !== undefined ? { budgetTotal: decision.runtimeManifest.budgetTotal } : {}),
+			...(decision.runtimeManifest.budgetWarning !== undefined ? { budgetWarning: decision.runtimeManifest.budgetWarning } : {}),
+			...(decision.runtimeManifest.budgetAbort !== undefined ? { budgetAbort: decision.runtimeManifest.budgetAbort } : {}),
+			...(decision.runtimeManifest.budgetUnlimited !== undefined
+				? { budgetUnlimited: decision.runtimeManifest.budgetUnlimited }
+				: {}),
+		});
+	} finally {
+		// RC-02: clear the resumed-execution deadline timer (idempotent).
+		clearTimeout(resumeDeadline.timer);
+	}
 	// RELIABILITY FIX 2026-10-10 (bug #3, wave-2/wave-3 observations): the old
 	// message printed a bare "Status: completed" which read as "the whole run
 	// just finished" even when the resume had re-queued real work that kept
@@ -1020,7 +1115,13 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 		// guards against future changes to task-id generation (e.g. if it ever
 		// accepted user input).
 		const safeSteeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
-		fs.appendFileSync(safeSteeringPath, JSON.stringify({ type: "steer", message, ts: new Date().toISOString() }) + "\n");
+		// w1a sender binding: the steering file is same-uid writable — the line
+		// carries this process's Ed25519 signature (worker pollSteering drops
+		// unauthenticated lines).
+		fs.appendFileSync(
+			safeSteeringPath,
+			JSON.stringify(signSteeringEntry({ type: "steer", message, ts: new Date().toISOString() })) + "\n",
+		);
 	} catch {
 		// Best-effort: file write failure doesn't block the steer from pending array
 	}

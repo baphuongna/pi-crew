@@ -436,15 +436,20 @@ export function createTasksFromWorkflow(
 }
 
 /**
- * Admission cap for {@link createRunManifest}: the effective
+ * Admission cap for dispatchable task sets: the effective
  * `limits.maxTasksPerRun` from loaded config, falling back to the hard
  * ceiling LIMIT_CEILINGS.maxTasksPerRun — no parsed config value can exceed
  * the ceiling (config-validation clamps it), so a manifest beyond the ceiling
  * is invalid regardless of config. Config-load failure degrades to the
  * ceiling only (an admission check must never itself block run creation on a
  * config read problem; loadConfig surfaces its own warnings separately).
+ *
+ * Exported (resume-skips-maxtasks-admission fix) so non-creation paths that
+ * reconstruct a dispatchable task set from PERSISTED state — team resume,
+ * retry-then-resume, special-kind adoption — can re-run the SAME invariant
+ * createRunManifest enforces, before re-queueing or dispatching.
  */
-function resolveMaxTasksPerRunAdmissionCap(cwd: string): number {
+export function resolveMaxTasksPerRunAdmissionCap(cwd: string): number {
 	try {
 		const configured = loadConfig(cwd).config.limits?.maxTasksPerRun;
 		return typeof configured === "number" && Number.isFinite(configured) ? configured : LIMIT_CEILINGS.maxTasksPerRun;
