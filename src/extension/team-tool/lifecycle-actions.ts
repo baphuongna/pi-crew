@@ -16,7 +16,7 @@ import { cleanupRunWorktrees } from "../../worktree/cleanup.ts";
 import { listImportedRuns } from "../import-index.ts";
 import { runCompareBundle } from "../run-compare.ts";
 import { exportRunBundle } from "../run-export.ts";
-import { importRunBundle } from "../run-import.ts";
+import { importRunBundle, sanitizeImportedText } from "../run-import.ts";
 import { pruneFinishedRuns } from "../run-maintenance.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
@@ -56,12 +56,19 @@ export function handleWorktrees(params: TeamToolParamsValue, ctx: TeamContext): 
 
 export function handleImports(_params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
 	const imports = listImportedRuns(ctx.cwd);
+	// W7B (imported-manifest-goal-raw-render): bundle-authored fields (status,
+	// team, workflow, goal) are untrusted repo/plant content re-read from disk
+	// on every listing (readEntry validates types only) — render through the
+	// sanitizeImportedText seam so forged multi-line entries, injected
+	// directives, ANSI escapes and fake fences cannot enter the parent-LLM
+	// tool-result context. runId is charset-guarded (isSafePathId); the Bundle
+	// / Summary paths are root-joined from that guarded id.
 	const lines = [
 		"Imported pi-crew runs:",
 		...(imports.length
 			? imports.map(
 					(entry) =>
-						`- ${entry.runId} (${entry.scope})${entry.status ? ` [${entry.status}]` : ""} ${entry.team ?? "unknown"}/${entry.workflow ?? "none"}: ${entry.goal ?? ""}\n  Bundle: ${entry.bundlePath}\n  Summary: ${entry.summaryPath}`,
+						`- ${entry.runId} (${entry.scope})${entry.status ? ` [${sanitizeImportedText(entry.status, 24)}]` : ""} ${sanitizeImportedText(entry.team ?? "unknown", 64)}/${sanitizeImportedText(entry.workflow ?? "none", 64)}: ${sanitizeImportedText(entry.goal)}\n  Bundle: ${entry.bundlePath}\n  Summary: ${entry.summaryPath}`,
 				)
 			: ["- (none)"]),
 	];

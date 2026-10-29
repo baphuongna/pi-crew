@@ -23,6 +23,33 @@ export interface ImportedRunBundleInfo {
 // reading + JSON.parse). Stat BEFORE reading so we never buffer a huge file.
 export const MAX_IMPORT_BUNDLE_BYTES = 50 * 1024 * 1024;
 
+/**
+ * W7B (imported-manifest-goal-raw-render): output-encoding seam for untrusted
+ * strings imported from run bundles (manifest.goal/team/workflow/status,
+ * exportedAt, task.error/id/role/agent) before they are rendered into the
+ * parent-LLM team-tool listing (lifecycle-actions.ts handleImports) or the
+ * durable import README. Bundle files are repo-authored / plant-able content —
+ * assertRunBundle validates types only, not content — so every rendered field
+ * is forced into inert single-line data:
+ *  1. strip well-formed ANSI CSI escape sequences (colors / cursor moves),
+ *  2. collapse remaining C0/C1 controls + DEL to spaces (kills forged
+ *     multi-line listing entries and injected directive lines),
+ *  3. strip angle brackets (kills fake <dependency-context> fences and
+ *     <script> tags),
+ *  4. collapse whitespace runs and hard-cap the length.
+ * Mirrors the sanitizeFencedBody seam applied to worker output entering parent
+ * context (task-output-context.ts).
+ */
+export function sanitizeImportedText(value: string | undefined, max = 200): string {
+	const stripped = String(value ?? "")
+		.replace(/\u001b\[[0-9;?]*[0-9A-Za-z]/g, "")
+		.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+		.replace(/[<>]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+	return stripped.length > max ? stripped.slice(0, max) : stripped;
+}
+
 function importRoot(cwd: string, scope: "project" | "user"): string {
 	const base = scope === "project" ? projectCrewRoot(cwd) : userCrewRoot();
 	// SECURITY NOTE: `DEFAULT_PATHS.state.importsSubdir` is a constant (not user-controlled).
@@ -157,20 +184,27 @@ export function importRunBundle(cwd: string, bundlePath: string, scope: "project
 	atomicWriteFile(targetJson, `${JSON.stringify({ ...raw, importedAt, importedFrom: resolvedPath }, null, 2)}\n`);
 	atomicWriteFile(
 		targetSummary,
+		// W7B: every bundle-authored string below is untrusted (repo/plant
+		// content) — render through the sanitizeImportedText seam so control
+		// chars, ANSI escapes and angle-bracket fence tokens can never break out
+		// of this README into forged headings/directives.
 		[
 			`# Imported pi-crew run ${runId}`,
 			"",
 			`Imported: ${importedAt}`,
 			`Source: ${resolvedPath}`,
-			`Original export: ${raw.exportedAt}`,
-			`Status: ${raw.manifest.status}`,
-			`Team: ${raw.manifest.team}`,
-			`Workflow: ${raw.manifest.workflow ?? "(none)"}`,
-			`Goal: ${raw.manifest.goal}`,
+			`Original export: ${sanitizeImportedText(raw.exportedAt, 64)}`,
+			`Status: ${sanitizeImportedText(raw.manifest.status, 64)}`,
+			`Team: ${sanitizeImportedText(raw.manifest.team, 64)}`,
+			`Workflow: ${raw.manifest.workflow === undefined ? "(none)" : sanitizeImportedText(raw.manifest.workflow, 64)}`,
+			`Goal: ${sanitizeImportedText(raw.manifest.goal)}`,
 			"",
 			"## Tasks",
 			...raw.tasks.map(
-				(task) => `- ${task.id}: ${task.status} (${task.role} -> ${task.agent})${task.error ? ` - ${task.error}` : ""}`,
+				(task) =>
+					`- ${sanitizeImportedText(task.id, 120)}: ${task.status} (${sanitizeImportedText(task.role, 64)} -> ${sanitizeImportedText(task.agent, 64)})${
+						typeof task.error === "string" ? ` - ${sanitizeImportedText(task.error)}` : ""
+					}`,
 			),
 			"",
 		].join("\n"),

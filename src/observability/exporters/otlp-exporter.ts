@@ -11,6 +11,23 @@ import type { MetricExporter } from "./adapter.ts";
 const gzipAsync = promisify(gzip);
 
 /**
+ * Log-safe endpoint form: origin only — never path, query, or userinfo.
+ * Mirrors the webhook-notify.ts `safeUrlForLog` control: the OTLP endpoint may
+ * carry embedded credentials (`http://user:pass@host/...` is accepted by the
+ * config schema pattern), and raw interpolation into log/throw text would leak
+ * those credentials to host stderr/session logs.
+ */
+function safeEndpointForLog(endpoint: string): string {
+	try {
+		return new URL(bracketIpv6InUrl(endpoint)).origin;
+	} catch {
+		// Unparseable URL: still strip any embedded userinfo before echoing the
+		// raw text into an error message.
+		return endpoint.replace(/^([a-zA-Z][a-zA-Z\d+\-.]*:)\/\/[^/?#]*@/, "$1//[redacted]@");
+	}
+}
+
+/**
  * SSRF protection: validate that an OTLP endpoint URL does not target
  * private/reserved networks or dangerous protocols.
  * Rejects: localhost, loopback, private IPs, link-local, cloud metadata,
@@ -26,7 +43,7 @@ export function validateEndpoint(endpoint: string): void {
 	try {
 		url = new URL(endpoint);
 	} catch {
-		throw new Error(`Invalid OTLP endpoint URL: ${endpoint}`);
+		throw new Error(`Invalid OTLP endpoint URL: ${safeEndpointForLog(endpoint)}`);
 	}
 
 	// Only allow http and https protocols
@@ -34,11 +51,20 @@ export function validateEndpoint(endpoint: string): void {
 		throw new Error(`OTLP endpoint must use http:// or https:// protocol, got: ${url.protocol}`);
 	}
 
+	// Credentials embedded in the URL would leak into logs — refuse them
+	// (pass them via the `headers` option instead), mirroring the webhook
+	// sink (webhook-notify.ts). Checked BEFORE every classification error so
+	// no later throw message can ever embed a credential-bearing endpoint:
+	// all messages below render the origin-only `safeEndpointForLog` form.
+	if (url.username || url.password) {
+		throw new Error(`OTLP endpoint must not embed credentials (userinfo) — pass them via headers instead: ${url.origin}`);
+	}
+
 	const hostname = url.hostname.toLowerCase();
 
 	// Reject known localhost names
 	if (hostname === "localhost" || hostname.endsWith(".localhost")) {
-		throw new Error(`OTLP endpoint must not target localhost: ${endpoint}`);
+		throw new Error(`OTLP endpoint must not target localhost: ${safeEndpointForLog(endpoint)}`);
 	}
 
 	// Reject IPv6 loopback and private
@@ -46,38 +72,38 @@ export function validateEndpoint(endpoint: string): void {
 		const bare = hostname.replace(/^\[|\]$/g, "");
 		const lower = bare.toLowerCase();
 		if (lower === "::1") {
-			throw new Error(`OTLP endpoint must not target loopback address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target loopback address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// Unique Local Addresses (fc00::/7) — fd and fc prefixes
 		if (lower.startsWith("fd") || lower.startsWith("fc")) {
-			throw new Error(`OTLP endpoint must not target private IPv6 address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target private IPv6 address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// Link-Local (fe80::/10) — fe8x, fe9x, feax, febx prefixes
 		if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) {
-			throw new Error(`OTLP endpoint must not target IPv6 link-local address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target IPv6 link-local address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// Site-Local (fec0::/10) — deprecated but still routable on misconfigured networks
 		if (lower.startsWith("fec") || lower.startsWith("fed") || lower.startsWith("fee") || lower.startsWith("fef")) {
-			throw new Error(`OTLP endpoint must not target IPv6 site-local address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target IPv6 site-local address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// Multicast (ff00::/8) — prefix ff
 		if (lower.startsWith("ff")) {
-			throw new Error(`OTLP endpoint must not target IPv6 multicast address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target IPv6 multicast address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// Unspecified address ::
 		if (lower === "::") {
-			throw new Error(`OTLP endpoint must not target IPv6 unspecified address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target IPv6 unspecified address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// IPv4-mapped IPv6 (::ffff:x.x.x.x)
 		if (lower.startsWith("::ffff:")) {
-			throw new Error(`OTLP endpoint must not target IPv4-mapped IPv6 address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target IPv4-mapped IPv6 address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// G6: catch every literal form the prefix checks above miss —
 		// IPv4-compatible `::a.b.c.d` (e.g. ::127.0.0.1, ::169.254.169.254),
 		// expanded spellings (`0:0:0:0:0:0:0:1`), zone-ids — through the
 		// shared parser, applying the same predicates as the IPv4 branch.
 		if (isPrivateIpv6Literal(bare)) {
-			throw new Error(`OTLP endpoint must not target private/reserved IPv6 address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target private/reserved IPv6 address: ${safeEndpointForLog(endpoint)}`);
 		}
 	}
 
@@ -88,27 +114,27 @@ export function validateEndpoint(endpoint: string): void {
 		const octets = [Number(ipv4Match[1]), Number(ipv4Match[2]), Number(ipv4Match[3]), Number(ipv4Match[4])];
 		// 127.x.x.x - loopback
 		if (octets[0] === 127) {
-			throw new Error(`OTLP endpoint must not target loopback address: ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target loopback address: ${safeEndpointForLog(endpoint)}`);
 		}
 		// 10.x.x.x - private class A
 		if (octets[0] === 10) {
-			throw new Error(`OTLP endpoint must not target private network (10.0.0.0/8): ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target private network (10.0.0.0/8): ${safeEndpointForLog(endpoint)}`);
 		}
 		// 172.16.x.x - 172.31.x.x - private class B
 		if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) {
-			throw new Error(`OTLP endpoint must not target private network (172.16.0.0/12): ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target private network (172.16.0.0/12): ${safeEndpointForLog(endpoint)}`);
 		}
 		// 192.168.x.x - private class C
 		if (octets[0] === 192 && octets[1] === 168) {
-			throw new Error(`OTLP endpoint must not target private network (192.168.0.0/16): ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target private network (192.168.0.0/16): ${safeEndpointForLog(endpoint)}`);
 		}
 		// 169.254.x.x - link-local / cloud metadata
 		if (octets[0] === 169 && octets[1] === 254) {
-			throw new Error(`OTLP endpoint must not target link-local/metadata endpoint (169.254.0.0/16): ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target link-local/metadata endpoint (169.254.0.0/16): ${safeEndpointForLog(endpoint)}`);
 		}
 		// 0.x.x.x - this network
 		if (octets[0] === 0) {
-			throw new Error(`OTLP endpoint must not target this-network address (0.0.0.0/8): ${endpoint}`);
+			throw new Error(`OTLP endpoint must not target this-network address (0.0.0.0/8): ${safeEndpointForLog(endpoint)}`);
 		}
 	}
 }
@@ -230,7 +256,7 @@ export async function assertResolvedAddressSafe(endpoint: string): Promise<void>
 	// literal needs no DNS round-trip.
 	if (hostname.startsWith("[")) {
 		if (isPrivateIpv6Literal(hostname)) {
-			throw new Error(`OTLP endpoint targets private/reserved IPv6 literal: ${endpoint}`);
+			throw new Error(`OTLP endpoint targets private/reserved IPv6 literal: ${safeEndpointForLog(endpoint)}`);
 		}
 		return;
 	}
@@ -244,7 +270,9 @@ export async function assertResolvedAddressSafe(endpoint: string): Promise<void>
 	}
 	for (const { address } of addresses) {
 		if (isPrivateIpAddress(address)) {
-			throw new Error(`OTLP endpoint resolves to private/reserved address ${address} (DNS rebinding blocked): ${endpoint}`);
+			throw new Error(
+				`OTLP endpoint resolves to private/reserved address ${address} (DNS rebinding blocked): ${safeEndpointForLog(endpoint)}`,
+			);
 		}
 	}
 }
@@ -411,12 +439,34 @@ export class OTLPExporter implements MetricExporter {
 					},
 					body,
 					signal: controller.signal,
+					// SSRF (security review MEDIUM): redirect:"follow" (the undici
+					// default) would chase up to 20 hops WITHOUT re-running either
+					// guard — validateEndpoint and assertResolvedAddressSafe bind ONLY
+					// to the configured endpoint, so a 302 from the collector reaches
+					// loopback / RFC1918 / 169.254.169.254 cloud metadata, and a 307 on
+					// Node >=24 REPLAYS the gzipped body + custom headers there.
+					// Manual mode surfaces any 3xx as a failed push below, exactly like
+					// the sibling webhook sink (webhook-notify.ts redirect handling).
+					redirect: "manual",
 				});
+				// 3xx under redirect:"manual" = a redirect we REFUSE to follow (the
+				// guards validated the configured URL, never the hop target). The
+				// Location target is never contacted — permanent failure for this push.
+				if (response.status >= 300 && response.status < 400) {
+					logInternalError(
+						"otlp-export-http",
+						new Error(`refused redirect HTTP ${response.status} (SSRF guard — redirects are not followed)`),
+						`endpoint=${safeEndpointForLog(this.opts.endpoint)}`,
+					);
+					return;
+				}
 				if (!response.ok) {
 					logInternalError(
 						"otlp-export-http",
 						new Error(`HTTP ${response.status}: ${response.statusText}`),
-						`endpoint=${this.opts.endpoint}`,
+						// Origin only: never render path/query/userinfo into logs
+						// (credentials embedded in the endpoint must not reach stderr).
+						`endpoint=${safeEndpointForLog(this.opts.endpoint)}`,
 					);
 				}
 			} finally {
