@@ -31,6 +31,7 @@ import { loadConfig } from "../../config/config.ts";
 import { getCrewEnv, getCrewEnvInt } from "../../config/env-vars.ts";
 import { errors } from "../../errors.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
+import { signSteeringEntry } from "../../state/coordination/mailbox.ts";
 import { appendEventAsync, appendEventBuffered } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { upsertOwnershipEntry } from "../../state/stores/ownership-map.ts";
@@ -86,14 +87,19 @@ async function appendSteeringAsync(steeringDir: string, taskId: string, steers: 
 	try {
 		await fs.promises.mkdir(steeringDir, { recursive: true });
 		const steeringPath = resolveRealContainedPath(steeringDir, `${taskId}.jsonl`);
+		// w1a sender binding: the steering file is same-uid writable — each line
+		// carries this process's Ed25519 signature (worker pollSteering drops
+		// unauthenticated lines).
 		const lines = steers
 			.map(
 				(msg) =>
-					JSON.stringify({
-						type: "steer",
-						message: msg,
-						ts: new Date().toISOString(),
-					}) + "\n",
+					JSON.stringify(
+						signSteeringEntry({
+							type: "steer",
+							message: msg,
+							ts: new Date().toISOString(),
+						}),
+					) + "\n",
 			)
 			.join("");
 		await fs.promises.appendFile(steeringPath, lines, "utf-8");

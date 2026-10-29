@@ -44,6 +44,7 @@ import {
 	appendMailboxMessageIdempotentAsync,
 	type MailboxMessage,
 	registerMailboxAppendObserver,
+	signSteeringEntry,
 } from "../../state/coordination/mailbox.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../../state/stores/state-store.ts";
@@ -1334,13 +1335,18 @@ export class CrewBroker {
 				try {
 					const steeringDir = `${loaded.manifest.artifactsRoot}/steering`;
 					const steeringPath = resolveRealContainedPath(loaded.manifest.artifactsRoot, `steering/${targetTaskId}.jsonl`);
+					// w1a sender binding: the steering file is same-uid writable, so the
+					// line must carry this (broker/writer) process's Ed25519 signature —
+					// the worker's pollSteering drops unauthenticated lines.
 					const line =
-						JSON.stringify({
-							type: "steer",
-							message: body,
-							id: messageId,
-							ts: new Date().toISOString(),
-						}) + "\n";
+						JSON.stringify(
+							signSteeringEntry({
+								type: "steer",
+								message: body,
+								id: messageId,
+								ts: new Date().toISOString(),
+							}),
+						) + "\n";
 					await fsp.mkdir(steeringDir, { recursive: true });
 					await fsp.appendFile(steeringPath, line, "utf-8");
 				} catch (fileErr) {

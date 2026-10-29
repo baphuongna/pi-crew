@@ -118,12 +118,24 @@ test("bare-runId token (no taskId) authenticates when taskId is omitted at looku
 	assert.equal(reg.tokenRole("run-1", undefined, t), "worker");
 });
 
-test("backward-compat fallback: bare-runId token still authenticates when a taskId IS provided", () => {
+test("w1a: bare-runId token does NOT authenticate an explicit taskId claim (fallback retired)", () => {
 	const reg = new BrokerTokenRegistry();
 	const t = reg.issue("run-1"); // issued without taskId
-	// Lookup WITH a taskId falls back to the bare runId entry.
-	assert.equal(reg.tokenRole("run-1", "task-late", t), "worker");
-	assert.equal(reg.matches("run-1", "task-late", t), true);
+	// An EXPLICIT taskId claim must be proven by the compound key — the former
+	// bare-runId fallback here let a holder of the legacy per-run token bind any
+	// queued sibling's identity (broker-bare-run-token-forged-task-identity).
+	assert.equal(reg.tokenRoleWithMatchKind("run-1", "task-late", t), null);
+	assert.equal(reg.tokenRole("run-1", "task-late", t), null);
+	assert.equal(reg.matches("run-1", "task-late", t), false);
+	// The bare key still resolves for a NO-taskId hello (legacy model).
+	assert.equal(reg.tokenRole("run-1", undefined, t), "worker");
+	// And the compound path still works once the compound token is issued.
+	const compound = reg.issue("run-1", "task-late");
+	assert.notEqual(compound, t);
+	assert.equal(reg.tokenRoleWithMatchKind("run-1", "task-late", compound)?.role, "worker");
+	assert.deepEqual(reg.tokenRoleWithMatchKind("run-1", "task-late", compound), { role: "worker", matchKind: "compound" });
+	// The bare token does NOT impersonate the compound identity even after it exists.
+	assert.equal(reg.tokenRoleWithMatchKind("run-1", "task-late", t), null);
 });
 
 // ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { withRunLockSync } from "../state/coordination/locks.ts";
+import { signSteeringEntry } from "../state/coordination/mailbox.ts";
 import { appendEvent } from "../state/event-log/event-log.ts";
 import { getCurrentPlanRecord } from "../state/stores/plan-store.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks } from "../state/stores/state-store.ts";
@@ -56,7 +57,9 @@ function appendSteeringAdvisory(manifest: TeamRunManifest, taskId: string): bool
 		}
 		fs.appendFileSync(
 			safePath,
-			`${JSON.stringify({ type: "steer", message: WRAP_UP_ADVISORY, ts: new Date().toISOString() })}\n`,
+			// w1a sender binding: sign the advisory line (steering file is same-uid
+			// writable; worker pollSteering drops unauthenticated lines).
+			`${JSON.stringify(signSteeringEntry({ type: "steer", message: WRAP_UP_ADVISORY, ts: new Date().toISOString() }))}\n`,
 			"utf-8",
 		);
 		return true;

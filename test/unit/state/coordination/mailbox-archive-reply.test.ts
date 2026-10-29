@@ -23,6 +23,7 @@ import {
 	readAllMailboxMessages,
 	readMailbox,
 	readMailboxMessage,
+	signMailboxMessage,
 	updateMailboxMessageReply,
 	validateMailbox,
 } from "../../../../src/state/coordination/mailbox.ts";
@@ -247,17 +248,21 @@ test("L-9: task messages participate in the delivery-entry check", async () => {
 		const orphanId = "orphan-task-msg-1";
 		fs.writeFileSync(
 			taskInbox,
-			`${JSON.stringify({
-				id: orphanId,
-				runId: manifest.runId,
-				direction: "inbox",
-				from: "leader",
-				to: "01_explore",
-				body: "orphan",
-				createdAt: new Date().toISOString(),
-				status: "queued",
-				taskId: "01_explore",
-			})}\n`,
+			// w1a: delivery-entry coverage walks the SIGNED delivery-read path, so
+			// the fixture row carries the test-process signature like any append.
+			`${JSON.stringify(
+				signMailboxMessage({
+					id: orphanId,
+					runId: manifest.runId,
+					direction: "inbox",
+					from: "leader",
+					to: "01_explore",
+					body: "orphan",
+					createdAt: new Date().toISOString(),
+					status: "queued",
+					taskId: "01_explore",
+				}),
+			)}\n`,
 			"utf-8",
 		);
 

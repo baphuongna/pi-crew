@@ -156,18 +156,30 @@ export class BrokerTokenRegistry {
 	 *  `"compound"` (task-scoped `${runId}:${taskId}` key — or the
 	 *  orchestrator key, which is runId-prefixed by construction and can
 	 *  never be reached via the fallback) vs `"runId-fallback"` (legacy
-	 *  bare-runId key matched because no compound key was issued).
+	 *  bare-runId key matched because the hello presented NO taskId at all).
 	 *
-	 *  WP-2/R2 (ADR-0 2026-08-17-waiting-producer-ask item 6): the broker's
-	 *  `wait.*` methods authenticate via task-scoped tokens ONLY — a
+	 *  WP-2/R2 (ADR-0 2026-08-17 item 6): the broker's `wait.*` methods
+	 *  authenticate via task-scoped tokens ONLY — a
 	 *  `"runId-fallback"` match is rejected at the dispatch site with a
-	 *  migrate hint. Legacy methods keep using tokenRole()/matches() and
-	 *  therefore keep accepting the fallback (backward compat preserved).
+	 *  migrate hint. Legacy methods keep using tokenRole()/matches().
 	 *
-	 *  Match semantics mirror tokenRole() exactly: the bare-runId fallback is
-	 *  consulted ONLY when no compound key exists for (runId, taskId) — a
-	 *  candidate matching the bare key while a DIFFERENT compound key exists
-	 *  still returns null (no accidental fallback activation). */
+	 *  w1a (broker-bare-run-token-forged-task-identity): the bare-runId
+	 *  fallback is RETIRED for EXPLICIT taskId claims. Previously, a hello
+	 *  presenting (runId, taskId=X) with only the bare per-run token was
+	 *  accepted whenever X had no compound key yet — an LLM worker holding the
+	 *  legacy bare token (minted for agentId-less dynamic-workflow spawns) could
+	 *  bind ANY queued sibling's identity for the connection's lifetime
+	 *  (observed end-to-end: cross-task inbox theft + parked-ask hijack). Now an
+	 *  identity claim MUST be proven by the compound key: no compound key for
+	 *  (runId, taskId) → null. Bare tokens are no longer minted for brokered
+	 *  spawns either (issueForChild fails closed on missing taskId), so the
+	 *  only bare-key entries left are legacy/test-construction. A bare-runId
+	 *  hello with NO taskId still resolves via the bare key (matchKind
+	 *  "runId-fallback") for backward compatibility with the legacy model.
+	 *
+	 *  Match semantics: the bare-runId key is consulted ONLY when taskId is
+	 *  undefined — a candidate matching the bare key while an explicit taskId
+	 *  is claimed returns null (no accidental fallback activation). */
 	tokenRoleWithMatchKind(
 		runId: string,
 		taskId: string | undefined,
@@ -183,13 +195,12 @@ export class BrokerTokenRegistry {
 				? { role: "worker", matchKind: "runId-fallback" }
 				: null;
 		}
+		// w1a: an EXPLICIT taskId claim is proven only by the compound key.
+		// The former bare-runId fallback here let any holder of the legacy
+		// per-run token claim any taskId that had no compound key yet.
 		const compound = this.map.get(this.key(runId, taskId));
 		if (compound !== undefined) {
 			return BrokerTokenRegistry.equalConstTime(compound, candidate) ? { role: "worker", matchKind: "compound" } : null;
-		}
-		// Backward-compat: per-run token issued without taskId.
-		if (BrokerTokenRegistry.equalConstTime(this.map.get(runId), candidate)) {
-			return { role: "worker", matchKind: "runId-fallback" };
 		}
 		return null;
 	}

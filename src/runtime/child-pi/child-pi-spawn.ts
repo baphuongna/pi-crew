@@ -22,6 +22,7 @@ import * as path from "node:path";
 import { childPiBaseAllowlist } from "../../config/env-allowlist-registry.ts";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { isScratchpadEnabledForRole } from "../../config/role-tools.ts";
+import { COORDINATION_VERIFY_KEY_ENV, getMailboxVerifyKeyPublic } from "../../state/coordination/mailbox.ts";
 import { buildScopedAllowList, providerEnvKeys, sanitizeEnvSecrets } from "../../utils/env-filter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
@@ -491,6 +492,22 @@ export function prepareSpawnContext(
 	// stateRoot. Absent (non-team spawn) → var stays unset and the ask tool
 	// fast-fails with a structured notice instead of hanging.
 	if (input.eventsPath) built.env.PI_CREW_STATE_ROOT = path.dirname(input.eventsPath);
+	// w1a (coordination-durable-files-no-sender-binding): hand the child the
+	// PUBLIC Ed25519 verify key for the durable coordination channels (mailbox
+	// + steering JSONL). The signing PRIVATE key never leaves the writer process
+	// heap; this is a public key — non-secret, env-safe (control-namespace key).
+	// Key resolution for THIS spawn's run:
+	//   1. relay our own env key when we are a worker spawning a same-run
+	//      grandchild (our key came from the same root writer),
+	//   2. else our own process keypair (we are the run's writer: root session
+	//      or nested host — lazy-created once, heap-only).
+	// A child without this key drops every coordination row (fail-closed).
+	if (input.eventsPath) {
+		const relayedVerifyKey = getCrewEnv(COORDINATION_VERIFY_KEY_ENV);
+		const relayMatchesRun =
+			relayedVerifyKey !== undefined && input.runId !== undefined && getCrewEnv("PI_CREW_BROKER_RUN_ID") === input.runId;
+		built.env[COORDINATION_VERIFY_KEY_ENV] = relayMatchesRun ? relayedVerifyKey : getMailboxVerifyKeyPublic();
+	}
 	// Phase 0 inter-pi broker: inject socket path + token (control-namespace keys,
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued
 	// credentials for this run — i.e. the broker is enabled AND this run is

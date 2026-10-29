@@ -155,7 +155,7 @@ async function startBrokerWithRun(): Promise<BrokerFixture> {
 test("A6 PIN: escalate with a foreign 'to' → bad-params (sender-chosen target rejected)", async () => {
 	const fx = await startBrokerWithRun();
 	try {
-		const token = fx.broker.issueRunToken(fx.runId);
+		const token = fx.broker.issueRunToken(fx.runId, fx.taskId);
 		const client = await rawConnect(fx.socketPath);
 		client.socket.write(
 			encodeBrokerFrame({
@@ -182,7 +182,7 @@ test("A6 PIN: escalate with a foreign 'to' → bad-params (sender-chosen target 
 test("A6 PIN: escalate with 'to' = own taskId → accepted (durable mailbox append)", async () => {
 	const fx = await startBrokerWithRun();
 	try {
-		const token = fx.broker.issueRunToken(fx.runId);
+		const token = fx.broker.issueRunToken(fx.runId, fx.taskId);
 		const client = await rawConnect(fx.socketPath);
 		client.socket.write(
 			encodeBrokerFrame({
@@ -210,7 +210,7 @@ test("A6 PIN: escalate with 'to' = own taskId → accepted (durable mailbox appe
 test("A6 PIN: escalate with 'to' = runId → accepted (default routing identity)", async () => {
 	const fx = await startBrokerWithRun();
 	try {
-		const token = fx.broker.issueRunToken(fx.runId);
+		const token = fx.broker.issueRunToken(fx.runId, fx.taskId);
 		const client = await rawConnect(fx.socketPath);
 		client.socket.write(
 			encodeBrokerFrame({

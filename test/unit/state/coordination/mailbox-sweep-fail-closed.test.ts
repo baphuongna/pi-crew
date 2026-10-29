@@ -24,7 +24,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { appendMailboxMessage, readDeliveryState } from "../../../../src/state/coordination/mailbox.ts";
+import { appendMailboxMessage, readDeliveryState, signMailboxMessage } from "../../../../src/state/coordination/mailbox.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
@@ -121,16 +121,21 @@ test("aborted sweep does not consume the throttle window and resumes once the hi
 		}
 		fs.writeFileSync(
 			path.join(mailboxDir, "inbox.jsonl"),
-			`${JSON.stringify({
-				id: keepId,
-				runId: manifest.runId,
-				direction: "inbox",
-				from: "leader",
-				to: "team",
-				body: "still replayable",
-				createdAt: new Date().toISOString(),
-				status: "queued",
-			})}\n`,
+			// w1a: delivery/replay reads verify signatures — the fixture row is
+			// signed with the test-process keypair (appendMailboxMessage below
+			// signs with the same key, so the seeded row stays replayable).
+			`${JSON.stringify(
+				signMailboxMessage({
+					id: keepId,
+					runId: manifest.runId,
+					direction: "inbox",
+					from: "leader",
+					to: "team",
+					body: "still replayable",
+					createdAt: new Date().toISOString(),
+					status: "queued",
+				}),
+			)}\n`,
 			"utf-8",
 		);
 		fs.writeFileSync(

@@ -210,7 +210,7 @@ async function connectAndWait(
 	timeoutMs: number,
 ): Promise<{ client: RawClient; outcome: Promise<WaitOutcome | { error: { code: string; message: string } }> }> {
 	const client = await rawConnect(fx.socketPath);
-	const token = fx.broker.issueRunToken(fx.runId);
+	const token = fx.broker.issueRunToken(fx.runId, fx.taskId);
 	client.write({ id: `${reqId}-hello`, method: "hello", params: { protocol: 1, runId: fx.runId, taskId: fx.taskId, token } });
 	const ack = (await client.waitForFrame((f) => (f as { id?: string })?.id === `${reqId}-hello`)) as {
 		result?: { ok?: boolean };

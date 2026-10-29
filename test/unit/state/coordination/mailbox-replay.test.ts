@@ -4,15 +4,24 @@ import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { handleTeamTool } from "../../../../src/extension/team-tool.ts";
+import type { MailboxMessage } from "../../../../src/state/coordination/mailbox.ts";
 import {
 	acknowledgeMailboxMessage,
 	appendMailboxMessage,
 	readDeliveryState,
 	replayPendingMailboxMessages,
+	signMailboxMessage,
 } from "../../../../src/state/coordination/mailbox.ts";
 import { loadRunManifestById } from "../../../../src/state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
 import { teardownCwd } from "../../../fixtures/teardown-cwd.ts";
+
+/** w1a sender binding: delivery reads (replay) drop rows without a valid
+ *  Ed25519 signature, so hand-seeded fixture rows are signed with the test
+ *  process keypair — the same one appendMailboxMessage signs with here. */
+function signedRow(row: Record<string, unknown>): string {
+	return JSON.stringify(signMailboxMessage(row as unknown as MailboxMessage));
+}
 
 function makeManifest(stateRoot: string): TeamRunManifest {
 	return {
@@ -46,7 +55,7 @@ function seedDeliveryCap(stateRoot: string, queued: number, ackId: string): void
 	for (let i = 0; i < queued; i += 1) {
 		const id = `msg_seed_${i}`;
 		lines.push(
-			JSON.stringify({
+			signedRow({
 				id,
 				runId: "mailbox-replay-retention",
 				direction: "inbox",
@@ -60,7 +69,7 @@ function seedDeliveryCap(stateRoot: string, queued: number, ackId: string): void
 		messages[id] = "queued";
 	}
 	lines.push(
-		JSON.stringify({
+		signedRow({
 			id: ackId,
 			runId: "mailbox-replay-retention",
 			direction: "inbox",
@@ -244,7 +253,7 @@ test("F09: with no acknowledgements, the queued→delivered eviction order is un
 			const id = `msg_q_${i}`;
 			messages[id] = "queued";
 			lines.push(
-				JSON.stringify({
+				signedRow({
 					id,
 					runId: "mailbox-replay-retention",
 					direction: "inbox",
@@ -259,7 +268,7 @@ test("F09: with no acknowledgements, the queued→delivered eviction order is un
 		for (const id of ["msg_d_0", "msg_d_1"]) {
 			messages[id] = "delivered";
 			lines.push(
-				JSON.stringify({
+				signedRow({
 					id,
 					runId: "mailbox-replay-retention",
 					direction: "inbox",
@@ -311,7 +320,7 @@ test("F09: acknowledged entries are still bounded when their message left the re
 			const id = `msg_live_${i}`;
 			messages[id] = "acknowledged";
 			lines.push(
-				JSON.stringify({
+				signedRow({
 					id,
 					runId: "mailbox-replay-retention",
 					direction: "inbox",
@@ -366,7 +375,7 @@ test("F09: acks for messages that live in an ARCHIVE file are still protected", 
 		for (let i = 0; i < 9999; i += 1) {
 			const id = `msg_seed_${i}`;
 			lines.push(
-				JSON.stringify({
+				signedRow({
 					id,
 					runId: "mailbox-replay-retention",
 					direction: "inbox",
@@ -383,7 +392,7 @@ test("F09: acks for messages that live in an ARCHIVE file are still protected", 
 		fs.writeFileSync(path.join(mailboxDir, "inbox.jsonl"), `${lines.join("\n")}\n`, "utf-8");
 		fs.writeFileSync(
 			path.join(mailboxDir, "inbox.jsonl.2026-01-01T00-00-00-000Z.archive.jsonl"),
-			`${JSON.stringify({
+			`${signedRow({
 				id: ackId,
 				runId: "mailbox-replay-retention",
 				direction: "inbox",

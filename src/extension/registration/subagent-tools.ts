@@ -30,6 +30,7 @@ import {
 	savePersistedSubagentRecord,
 } from "../../runtime/subagent-manager.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../../state/contracts.ts";
+import { signSteeringEntry } from "../../state/coordination/mailbox.ts";
 import { resolveEntryBySubagentId, upsertOwnershipEntry } from "../../state/stores/ownership-map.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
@@ -558,7 +559,10 @@ export function registerSubagentTools(
 				} catch (error) {
 					if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 				}
-				const line = JSON.stringify({ type: "steer", message: p.message, ts: new Date().toISOString() }) + "\n";
+				// w1a sender binding: the steering file is same-uid writable — the
+				// line carries this process's Ed25519 signature (worker pollSteering
+				// drops unauthenticated lines).
+				const line = JSON.stringify(signSteeringEntry({ type: "steer", message: p.message, ts: new Date().toISOString() })) + "\n";
 				if (existingBytes + Buffer.byteLength(line) > MAX_STEERING_BYTES) {
 					return subagentToolResult(
 						`Steering file for task '${taskId}' has reached its size cap (${(MAX_STEERING_BYTES / 1024).toFixed(0)}KiB); steer refused.`,

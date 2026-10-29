@@ -226,11 +226,15 @@ test("registry: compound-key match is reported as compound", () => {
 	});
 });
 
-test("registry: bare-runId token matched with a taskId present is runId-fallback", () => {
+test("registry: bare-runId token does NOT match an explicit taskId claim (w1a fallback retired)", () => {
 	const reg = new BrokerTokenRegistry();
 	const runId = "run-mk-fallback";
 	reg.issue(runId, undefined, "tok-legacy");
-	assert.deepEqual(reg.tokenRoleWithMatchKind(runId, "task-A", "tok-legacy"), {
+	// broker-bare-run-token-forged-task-identity: an identity claim must be
+	// proven by the compound key — the bare per-run token binds nothing.
+	assert.equal(reg.tokenRoleWithMatchKind(runId, "task-A", "tok-legacy"), null);
+	// A NO-taskId hello still resolves via the bare key (legacy model).
+	assert.deepEqual(reg.tokenRoleWithMatchKind(runId, undefined, "tok-legacy"), {
 		role: "worker",
 		matchKind: "runId-fallback",
 	});
@@ -350,14 +354,31 @@ test("wait.request: compound-key token parks task+manifest (status unchanged, cl
 	}
 });
 
-test("wait.request: legacy bare-runId fallback token rejected with migrate hint, nothing parked", async () => {
+test("wait.request: legacy bare-runId token cannot bind an explicit taskId (rejected at hello, nothing parked)", async () => {
 	const scaff = await scaffoldRunningTask("legacy");
 	const { broker, socketPath } = await startBroker({ cwd: scaff.cwd, waitMethodsEnabled: true });
-	// Legacy model: token issued WITHOUT taskId; hello still auths via fallback.
+	// Legacy model: token issued WITHOUT taskId. w1a retired the runId-fallback
+	// for EXPLICIT taskId claims, so hello itself now REJECTS (the claim is not
+	// proven by any compound key; the run+task exist → classified stale-token).
+	// Even stronger than the old hello-accepted/forbidden-at-wait shape: the
+	// forged identity never binds at all.
 	const legacyToken = broker.issueRunToken(scaff.runId);
 	try {
 		const client = await rawConnect(socketPath);
-		await hello(client, scaff.runId, scaff.taskId, legacyToken);
+		client.socket.write(
+			encodeBrokerFrame({
+				id: "hello-1",
+				method: "hello",
+				params: { protocol: 1, runId: scaff.runId, taskId: scaff.taskId, token: legacyToken },
+			}),
+		);
+		const ack = (await client.waitForFrame((f) => (f as { id?: string })?.id === "hello-1")) as {
+			result?: { ok?: boolean };
+			error?: { code: string; message?: string };
+		};
+		assert.ok(!ack.result?.ok, "hello must NOT succeed with a bare token for an explicit taskId");
+		assert.ok(ack.error, "hello must return an auth-class error");
+		assert.ok(typeof ack.error?.code === "string" && ack.error.code.length > 0);
 		client.socket.write(
 			encodeBrokerFrame({
 				id: "w1",
@@ -365,12 +386,8 @@ test("wait.request: legacy bare-runId fallback token rejected with migrate hint,
 				params: { to: scaff.taskId, question: "legacy token ask?", timeoutSec: 60 },
 			}),
 		);
-		const res = (await client.waitForFrame((f) => (f as { id?: string })?.id === "w1")) as {
-			error?: { code: string; message: string };
-		};
-		assert.equal(res.error?.code, "forbidden");
-		assert.match(res.error?.message ?? "", /task-scoped token/);
-		assert.match(res.error?.message ?? "", /PI_CREW_BROKER_TASK_ID/, "error must carry the migrate hint");
+		// The broker closes an unauthenticated connection at hello rejection
+		// (sendErrorAndClose) — the wait.request frame can never park anything.
 
 		const reloaded = loadRunManifestById(scaff.cwd, scaff.runId)!;
 		const task = reloaded.tasks.find((t) => t.id === scaff.taskId)!;

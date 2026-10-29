@@ -36,6 +36,39 @@ import {
 import type { TeamRunManifest } from "../../src/state/types.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../fixtures/test-tempdir.ts";
 
+/**
+ * w1a adjustment helper — raw JSONL id counter for the CROSS-PROCESS lock
+ * tests. The spawned worker processes are independent writers: each signs its
+ * rows with its OWN process keypair, so the delivery-gated readMailbox
+ * (correctly) drops them as unauthenticated for THIS process. The property
+ * under test here is byte-level .flock integrity — no lost, torn or
+ * interleaved lines across concurrent processes — which is asserted at the
+ * raw JSONL level (a torn line surfaces as a missing id).
+ */
+function rawInboxIds(stateRoot: string): Set<string> {
+	const mailboxDir = path.join(stateRoot, "mailbox");
+	const ids = new Set<string>();
+	const files = [
+		path.join(mailboxDir, "inbox.jsonl"),
+		...fs
+			.readdirSync(mailboxDir)
+			.filter((e) => e.includes("inbox.jsonl.") && e.endsWith(".archive.jsonl"))
+			.map((e) => path.join(mailboxDir, e)),
+	];
+	for (const f of files) {
+		if (!fs.existsSync(f)) continue;
+		for (const line of fs.readFileSync(f, "utf-8").split(/\r?\n/).filter(Boolean)) {
+			try {
+				const obj = JSON.parse(line) as { id?: unknown };
+				if (typeof obj.id === "string") ids.add(obj.id);
+			} catch {
+				/* torn line — surfaces as a missing id */
+			}
+		}
+	}
+	return ids;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -411,10 +444,10 @@ describe("ST-3: mailbox unified .flock — cross-process", () => {
 				assert.ok(r.stdout.includes("DONE"), `worker should print DONE; got: ${r.stdout}`);
 			}
 
-			const messages = readMailbox(ws.manifest, "inbox");
-			const realMessages = messages.filter((m) => m.id !== "init");
-			const ids = new Set(realMessages.map((m) => m.id));
-			assert.equal(realMessages.length, N * 2, `expected ${N * 2} messages, got ${realMessages.length}`);
+			// w1a: cross-process writers sign under their own keys → raw-level count.
+			const ids = rawInboxIds(ws.manifest.stateRoot);
+			ids.delete("init");
+			assert.equal(ids.size, N * 2, `expected ${N * 2} messages, got ${ids.size}`);
 			for (let i = 0; i < N; i++) {
 				assert.ok(ids.has(`sync-${i}`), `missing sync-${i}`);
 				assert.ok(ids.has(`async-${i}`), `missing async-${i}`);
@@ -474,10 +507,9 @@ describe("ST-3: mailbox unified .flock — cross-process", () => {
 				assert.ok(r.stdout.includes("DONE"), `worker should print DONE; got: ${r.stdout}`);
 			}
 
-			const messages = readMailbox(ws.manifest, "inbox");
-			const realMessages = messages.filter((m) => m.id !== "init");
-			const ids = new Set(realMessages.map((m) => m.id));
-
+			// w1a: cross-process writers sign under their own keys → raw-level count.
+			const ids = rawInboxIds(ws.manifest.stateRoot);
+			ids.delete("init");
 			// Verify NO message was lost — check every single id
 			let missing = 0;
 			for (let i = 0; i < N; i++) {
@@ -532,10 +564,10 @@ describe("ST-3: mailbox unified .flock — cross-process", () => {
 				}),
 			]);
 
-			const messages = readMailbox(ws.manifest, "inbox");
-			const realMessages = messages.filter((m) => m.id !== "init");
-			const ids = new Set(realMessages.map((m) => m.id));
-			assert.equal(realMessages.length, N * 2, `expected ${N * 2} messages, got ${realMessages.length}`);
+			// w1a: cross-process writers sign under their own keys → raw-level count.
+			const ids = rawInboxIds(ws.manifest.stateRoot);
+			ids.delete("init");
+			assert.equal(ids.size, N * 2, `expected ${N * 2} messages, got ${ids.size}`);
 			for (let i = 0; i < N; i++) {
 				assert.ok(ids.has(`syncA-${i}`), `missing syncA-${i}`);
 				assert.ok(ids.has(`syncB-${i}`), `missing syncB-${i}`);

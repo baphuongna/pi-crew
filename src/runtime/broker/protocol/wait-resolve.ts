@@ -21,7 +21,7 @@ import type { TeamRunManifest, TeamTaskState } from "../../../state/types.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ServerConnection } from "./connection-state.ts";
 import { parseWaitResolveParams } from "./request-parsers.ts";
-import { recordWaitPolicyRejection } from "./wait-auth.ts";
+import { recordWaitPolicyRejection, waitAuthError } from "./wait-auth.ts";
 
 /**
  * M3-6 (R21-M1, fix-wave 6): resolve ONE park without un-shielding the others.
@@ -108,6 +108,20 @@ export async function handleWaitResolve(
 ): Promise<void> {
 	if (!conn.runId || !conn.taskId) {
 		helpers.sendError(conn, id, "auth", "not authed");
+		return;
+	}
+	// w1a (broker-bare-run-token-forged-task-identity): enforce the compound-token
+	// rule on wait.resolve — the SAME rule its wait.request sibling applies at
+	// crew-broker.ts:1488 (and delegate.request inline). Without this, a legacy
+	// bare-runId-token connection that forged a victim taskId at hello could
+	// resolve the victim's parked ask (waiting→running flip + false
+	// respond_delivered recorded under the victim's taskId). runId-fallback
+	// matches are rejected with the migrate hint; orchestrator connections are
+	// rejected by role. Placement mirrors handleWaitRequest: presence check →
+	// auth kind → params parse.
+	const authErr = waitAuthError(conn);
+	if (authErr) {
+		helpers.sendError(conn, id, authErr.code, authErr.message);
 		return;
 	}
 	const parsed = parseWaitResolveParams(params);

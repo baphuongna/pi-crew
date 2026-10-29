@@ -191,6 +191,10 @@ const CREW_ENV_FORWARDING_DECL: Record<string, CrewEnvForwardDecision> = {
 	PI_CREW_DELEGATE_ENABLED: { kind: "child-write", reason: "child-pi-spawn dormant delegate gate" },
 	PI_CREW_STATE_ROOT: { kind: "child-write", reason: "child-pi-spawn mailbox root" },
 	PI_CREW_BROKER_RUN_ID: { kind: "child-write", reason: "child-pi-spawn broker handshake" },
+	PI_CREW_MAILBOX_VERIFY_KEY: {
+		kind: "child-write",
+		reason: "SEC-2026-11 w1a: PUBLIC base64 SPKI Ed25519 verify key handed to children via built.env (child-pi-spawn) for coordination-row verify-only; public material — possession cannot forge rows (private key is heap-only in the root session)",
+	},
 	PI_CREW_AGENT_EVENTS_PATH: { kind: "child-write", reason: "prepareSurfaceSpawn recorder log" },
 	PI_CREW_BROKER_SOCKET: { kind: "child-write", reason: "child-pi-spawn broker handshake (never ambient — per-run socket)" },
 	PI_CREW_BROKER_TOKEN: {

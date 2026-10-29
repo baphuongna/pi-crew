@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto";
+import type { KeyObject } from "node:crypto";
+import { createHash, createPublicKey, sign as ed25519Sign, verify as ed25519Verify, generateKeyPairSync, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_MAILBOX } from "../../config/defaults.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { redactSecrets } from "../../utils/redaction.ts";
 import { atomicWriteFile } from "../atomic-write.ts";
@@ -21,6 +23,212 @@ export type MailboxDeliveryMode = "interrupt" | "next_turn";
  * semantics as `kind`/`priority`).
  */
 export type MailboxReason = "need_decision" | "progress_update" | "interview_request";
+
+// ============================================================================
+// Coordination-row sender binding (w1a, coordination-durable-files-no-sender-binding).
+//
+// The durable coordination channels (mailbox JSONL + steering JSONL) are
+// same-uid-writable by design: every WRITE-role child holds absolute paths to
+// them (PI_CREW_STATE_ROOT / PI_CREW_STEERING_FILE). Before this section, every
+// consumer trusted the file's caller-declared from/kind/to/taskId fields, so any
+// worker could forge orchestrator-authority steers and leader/human-attributed
+// messages with plain fs.appendFileSync.
+//
+// Fix: the parent/broker process SIGNS every row it writes with an Ed25519
+// per-process keypair. The PRIVATE key is heap-only in the writer process
+// (never persisted, never serialized, never placed in any child env). Children
+// receive ONLY the public verify key (PI_CREW_MAILBOX_VERIFY_KEY, base64 SPKI
+// DER — a public key, safe in env) set by child-pi-spawn at spawn time.
+// Delivery-side readers (parseMailboxFile — the shared path under readMailbox /
+// readAllMailboxMessages / pollWorkerInbox / replay) verify the signature over
+// the identity-bearing fields and treat unverifiable rows as NOISE (dropped,
+// not delivered). The key-possession constraint is respected: a shared HMAC
+// secret distributed to children would let a malicious child forge valid rows;
+// an Ed25519 public key cannot sign.
+//
+// Verification policy (delivery reads):
+//   - verify key available (env key in a child, or the in-process keypair in a
+//     writer) → a row is delivered ONLY with a valid signature; unsigned
+//     (legacy or forged) rows are noise. This is the fail-closed default the
+//     fix brief sanctions — including resume/replay: rows signed by a
+//     predecessor process verify against the NEW process keypair only if that
+//     key is the same, which it never is (heap-only per-process key), so
+//     pre-restart pending rows are dropped on replay. Documented tradeoff.
+//   - NO verify key available (standalone reader that never signed anything
+//     and carries no env key — e.g. offline tooling/test harnesses) → rows are
+//     kept without verification (inert-reader mode). Such a process is not a
+//     delivery sink: production children always carry the env key and
+//     production writer processes create their keypair at install/first-sign.
+//
+// validateMailbox()/updateMailboxMessageReply() deliberately keep using the
+// shape-only parseMailboxMessage and preserve original line bytes on repair so
+// repair tooling can neither drop nor forge authentication.
+// ============================================================================
+
+/** Child env var carrying the parent's base64 SPKI DER Ed25519 public verify
+ *  key (set by child-pi-spawn). A PUBLIC key — non-secret, env-safe. */
+export const COORDINATION_VERIFY_KEY_ENV = "PI_CREW_MAILBOX_VERIFY_KEY";
+
+interface MailboxSigningKeypair {
+	privateKey: KeyObject;
+	publicKey: KeyObject;
+	publicBase64: string;
+}
+
+let signingKeypair: MailboxSigningKeypair | undefined;
+
+function getMailboxSigningKeypair(): MailboxSigningKeypair {
+	if (!signingKeypair) {
+		const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+		const der = publicKey.export({ type: "spki", format: "der" });
+		signingKeypair = { privateKey, publicKey, publicBase64: Buffer.from(der).toString("base64") };
+		// A freshly created keypair changes the verification verdict for rows
+		// parsed before it existed (keyless → keyed). Drop memoized parses so no
+		// cached pre-key verdict survives the transition.
+		mailboxParseCache.clear();
+	}
+	return signingKeypair;
+}
+
+/** Public verify key (base64 SPKI DER) of this process's coordination signing
+ *  keypair, creating the keypair on first use. Called by the writer process at
+ *  install/spawn time so children can be handed the key, and at every sign. */
+export function getMailboxVerifyKeyPublic(): string {
+	return getMailboxSigningKeypair().publicBase64;
+}
+
+/** Whether any verify key is resolvable in THIS process (child env key or an
+ *  already-created in-process keypair). Keyless processes are inert readers. */
+export function hasCoordinationVerifyKeys(): boolean {
+	return resolveCoordinationVerifyKeys().length > 0;
+}
+
+function resolveCoordinationVerifyKeys(): string[] {
+	const envKey = getCrewEnv(COORDINATION_VERIFY_KEY_ENV);
+	if (envKey && envKey.length > 0) return [envKey];
+	return signingKeypair ? [signingKeypair.publicBase64] : [];
+}
+
+/** Canonical payload string over the identity-bearing mailbox-row fields —
+ *  fixed field order, undefined → null. `sig` itself is never included. `data`
+ *  rides as its deterministic JSON serialization (writer and verifier both
+ *  derive it from the same written file bytes). */
+function canonicalMailboxPayload(row: Record<string, unknown>): string {
+	const pick = (key: string): unknown => (row[key] === undefined ? null : row[key]);
+	return JSON.stringify([
+		pick("id"),
+		pick("runId"),
+		pick("direction"),
+		pick("from"),
+		pick("to"),
+		pick("body"),
+		pick("createdAt"),
+		pick("status"),
+		pick("kind"),
+		pick("priority"),
+		pick("deliveryMode"),
+		pick("taskId"),
+		pick("questionId"),
+		pick("requestId"),
+		pick("reason"),
+		pick("replyTo"),
+		pick("replyFrom"),
+		pick("replyDeadline"),
+		pick("acknowledgedAt"),
+		row.data !== undefined && row.data !== null && typeof row.data === "object" ? JSON.stringify(row.data) : pick("data"),
+	]);
+}
+
+function coordinationPayloadHash(canonical: string): string {
+	return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+function signPayloadHash(payloadHash: string): string {
+	const { privateKey } = getMailboxSigningKeypair();
+	return ed25519Sign(null, Buffer.from(payloadHash, "utf8"), privateKey).toString("base64");
+}
+
+/** Verify a mailbox row's Ed25519 signature against explicit base64 SPKI keys
+ *  (default: the keys resolvable in this process). False for missing/invalid
+ *  signatures and malformed keys — never throws. */
+export function verifyMailboxRowSig(row: Record<string, unknown>, verifyKeys?: string[]): boolean {
+	const sig = row.sig;
+	if (typeof sig !== "string" || sig.length === 0) return false;
+	const keys = verifyKeys ?? resolveCoordinationVerifyKeys();
+	if (keys.length === 0) return false;
+	const payloadHash = coordinationPayloadHash(canonicalMailboxPayload(row));
+	let sigBuf: Buffer;
+	try {
+		sigBuf = Buffer.from(sig, "base64");
+	} catch {
+		return false;
+	}
+	for (const key of keys) {
+		try {
+			const pub = createPublicKey({ key: Buffer.from(key, "base64"), format: "der", type: "spki" });
+			if (ed25519Verify(null, Buffer.from(payloadHash, "utf8"), pub, sigBuf)) return true;
+		} catch {
+			/* malformed key material — try the next */
+		}
+	}
+	return false;
+}
+
+/** Stamp this process's Ed25519 signature onto a mailbox message. Called at
+ *  every durable mailbox write (append + reply rewrite) in the writer process. */
+export function signMailboxMessage(message: MailboxMessage): MailboxMessage & { sig: string } {
+	// Spread into an anonymous object literal (assignable to Record<string, unknown>
+	// without a cast — named interfaces lack implicit index signatures, anonymous
+	// object types do not) so the canonical payload sees every MailboxMessage field.
+	const row: Record<string, unknown> = { ...message };
+	return { ...message, sig: signPayloadHash(coordinationPayloadHash(canonicalMailboxPayload(row))) };
+}
+
+/** Steering-JSONL line shape shared by every writer (team-tool, broker
+ *  steer.push, child-executor seed, wrap-up advisories). */
+export interface CoordinationSteerEntry {
+	type?: string;
+	message?: string;
+	id?: string;
+	ts?: string;
+}
+
+/** Canonical payload for a steering line — fixed field order (type, message,
+ *  id, ts); `sig` never included. */
+function canonicalSteeringPayload(entry: CoordinationSteerEntry): string {
+	return JSON.stringify([entry.type ?? null, entry.message ?? null, entry.id ?? null, entry.ts ?? null]);
+}
+
+/** Stamp this process's Ed25519 signature onto a steering JSONL entry. */
+export function signSteeringEntry<T extends CoordinationSteerEntry>(entry: T): T & { sig: string } {
+	return { ...entry, sig: signPayloadHash(coordinationPayloadHash(canonicalSteeringPayload(entry))) };
+}
+
+/** Verify a steering line's signature against this process's resolvable keys.
+ *  False for missing/invalid signatures; never throws. */
+export function verifySteeringEntrySig(entry: unknown): boolean {
+	if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+	const sig = (entry as Record<string, unknown>).sig;
+	if (typeof sig !== "string" || sig.length === 0) return false;
+	const keys = resolveCoordinationVerifyKeys();
+	if (keys.length === 0) return false;
+	const payloadHash = coordinationPayloadHash(canonicalSteeringPayload(entry as CoordinationSteerEntry));
+	let sigBuf: Buffer;
+	try {
+		sigBuf = Buffer.from(sig, "base64");
+	} catch {
+		return false;
+	}
+	for (const key of keys) {
+		try {
+			const pub = createPublicKey({ key: Buffer.from(key, "base64"), format: "der", type: "spki" });
+			if (ed25519Verify(null, Buffer.from(payloadHash, "utf8"), pub, sigBuf)) return true;
+		} catch {
+			/* malformed key material — try the next */
+		}
+	}
+	return false;
+}
 
 // ============================================================================
 // Phase 1.3: post-append observer (single notification point)
@@ -137,6 +345,14 @@ export interface MailboxReplayResult {
 
 function mailboxDir(manifest: TeamRunManifest): string {
 	return path.join(manifest.stateRoot, "mailbox");
+}
+
+/** w1a: durable serialize + Ed25519 sign of a mailbox row. Signature is
+ *  computed over the REDACTED row (the exact bytes that hit the file), so a
+ *  verifier recomputing the canonical payload from the parsed line matches. */
+function serializeMailboxRow(message: MailboxMessage): string {
+	const prepared = redactSecrets(message) as MailboxMessage;
+	return JSON.stringify({ ...prepared, sig: signMailboxMessage(prepared).sig });
 }
 
 function safeMailboxDir(manifest: TeamRunManifest, create = false): string {
@@ -352,13 +568,30 @@ function parseMailboxMessage(raw: unknown, expectedDirection: MailboxDirection):
 }
 
 /** Raw read+parse of one mailbox JSONL file (extracted verbatim from the old
- *  readMailboxFile body). Callers go through cachedMailboxRead instead. */
+ *  readMailboxFile body). Callers go through cachedMailboxRead instead.
+ *
+ *  w1a sender-binding GATE: this is THE shared delivery-read path (readMailbox,
+ *  readAllMailboxMessages → pollWorkerInbox / msg.inbox / replay). When this
+ *  process can verify coordination signatures (child env key or an existing
+ *  writer keypair), a row is delivered ONLY with a valid Ed25519 signature —
+ *  unsigned (legacy/forged) rows and tampered rows are dropped as noise.
+ *  Keyless processes (no env key, keypair never created) keep rows without
+ *  verification — inert-reader mode, never a delivery sink in production.
+ *  Shape-only parsing (validateMailbox / reply rewrite) deliberately bypasses
+ *  this gate via parseMailboxMessage. */
 function parseMailboxFile(filePath: string, direction: MailboxDirection): MailboxMessage[] {
 	const messages: MailboxMessage[] = [];
+	const verifyKeys = resolveCoordinationVerifyKeys();
 	const raw = fs.readFileSync(filePath, "utf-8");
 	for (const line of raw.split(/\r?\n/).filter(Boolean)) {
 		try {
-			const message = parseMailboxMessage(JSON.parse(line) as unknown, direction);
+			const parsedLine = JSON.parse(line) as unknown;
+			if (verifyKeys.length > 0) {
+				if (!parsedLine || typeof parsedLine !== "object" || Array.isArray(parsedLine)) continue;
+				const row = parsedLine as Record<string, unknown>;
+				if (typeof row.sig !== "string" || !verifyMailboxRowSig(row, verifyKeys)) continue;
+			}
+			const message = parseMailboxMessage(parsedLine, direction);
 			if (message) messages.push(message);
 		} catch {
 			// Invalid mailbox lines are reported by validateMailbox().
@@ -840,14 +1073,16 @@ function buildMailboxMessage(manifest: TeamRunManifest, message: MailboxAppendIn
 /**
  * Append a message to a run's or task's mailbox.
  *
- * SECURITY NOTE: The `from` field is caller-declared — there is no cryptographic
- * sender authentication. This is acceptable because `appendMailboxMessage` is an
- * internal API only callable from within the pi-crew process (no external input).
- * All callers (handleSteer, handleRespond, handleFollowUp) derive `from` from
- * authenticated context (session role, task assignment).
- *
- * If pi-crew ever exposes mailbox writes to external/untrusted input, sender
- * authentication (HMAC or session key) must be added.
+ * SECURITY NOTE (updated w1a — coordination-durable-files-no-sender-binding):
+ * The `from` field is caller-declared within the pi-crew process; every row
+ * this module writes is stamped with the writer process's Ed25519 signature
+ * over the identity-bearing fields (see the sender-binding section above), and
+ * every DELIVERY-side consumer (readMailbox / readAllMailboxMessages →
+ * pollWorkerInbox, msg.inbox, replay) drops rows without a valid signature.
+ * Workers and same-uid processes can still APPEND bytes to the JSONL files,
+ * but those rows no longer deliver: they verify against no trusted key. The
+ * private signing key never leaves the parent process heap; children hold only
+ * the public verify key (PI_CREW_MAILBOX_VERIFY_KEY).
  */
 export function appendMailboxMessage(manifest: TeamRunManifest, message: MailboxAppendInput): MailboxMessage {
 	if (message.taskId) ensureTaskMailbox(manifest, message.taskId);
@@ -866,11 +1101,7 @@ export function appendMailboxMessage(manifest: TeamRunManifest, message: Mailbox
 	// with appends — otherwise a concurrent append between rename and recreate can
 	// be truncated to an empty file.
 	withFileLockSync(mailboxFile(manifest, complete.direction, complete.taskId), () => {
-		fs.appendFileSync(
-			mailboxFile(manifest, complete.direction, complete.taskId),
-			`${JSON.stringify(redactSecrets(complete))}\n`,
-			"utf-8",
-		);
+		fs.appendFileSync(mailboxFile(manifest, complete.direction, complete.taskId), `${serializeMailboxRow(complete)}\n`, "utf-8");
 		// 3.3 — rotate mailbox file if it has grown past 10 MB. Cheap stat check;
 		// rotates at most once per append.
 		rotateMailboxFileIfNeeded(mailboxFile(manifest, complete.direction, complete.taskId));
@@ -958,7 +1189,7 @@ export async function appendMailboxMessageAsync(manifest: TeamRunManifest, messa
 	const complete = buildMailboxMessage(manifest, message, createdAt);
 	const mbFile = mailboxFile(manifest, complete.direction, complete.taskId);
 	await withFileLockAsync(mbFile, async () => {
-		await fs.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
+		await fs.promises.appendFile(mbFile, `${serializeMailboxRow(complete)}\n`, "utf-8");
 		rotateMailboxFileIfNeeded(mbFile);
 	});
 	// R1 review fix / plan §5 #6: delivery RMW uses the cross-process sync
@@ -1086,7 +1317,7 @@ export function appendMailboxMessageIdempotent(
 			stored = existing;
 			return;
 		}
-		fs.appendFileSync(mbFile, `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
+		fs.appendFileSync(mbFile, `${serializeMailboxRow(complete)}\n`, "utf-8");
 		rotateMailboxFileIfNeeded(mbFile);
 	});
 	if (stored) return { message: stored, deduped: true };
@@ -1115,7 +1346,7 @@ export async function appendMailboxMessageIdempotentAsync(
 			stored = existing;
 			return;
 		}
-		await fs.promises.appendFile(mbFile, `${JSON.stringify(redactSecrets(complete))}\n`, "utf-8");
+		await fs.promises.appendFile(mbFile, `${serializeMailboxRow(complete)}\n`, "utf-8");
 		rotateMailboxFileIfNeeded(mbFile);
 	});
 	if (stored) return { message: stored, deduped: true };
@@ -1327,7 +1558,9 @@ export function updateMailboxMessageReply(manifest: TeamRunManifest, originalMes
 						if (msg && msg.id === originalMessageId) {
 							msg.repliedAt = new Date().toISOString();
 							msg.replyContent = replyContent;
-							updatedLines.push(JSON.stringify(redactSecrets(msg)));
+							// w1a: the rewrite mutates signed fields — re-sign so the
+							// row stays authentic under the writer process key.
+							updatedLines.push(serializeMailboxRow(msg));
 							localFound = true;
 						} else {
 							updatedLines.push(line);
@@ -1361,7 +1594,9 @@ export function updateMailboxMessageReply(manifest: TeamRunManifest, originalMes
 			// Recreate the live file if it went missing — the archives in this
 			// directory prove the mailbox itself is valid.
 			if (!fs.existsSync(filePath)) atomicWriteFile(filePath, "");
-			fs.appendFileSync(filePath, `${JSON.stringify(redactSecrets(compensating))}\n`, "utf-8");
+			// w1a: compensating records are NEW durable rows — sign them like any
+			// append, or the delivery-read gate would drop them as unauthenticated.
+			fs.appendFileSync(filePath, `${serializeMailboxRow(compensating)}\n`, "utf-8");
 			// The append may itself trigger rotation — safe: the compensating
 			// record then lands in the NEWEST archive, which sorts after the
 			// original's archive in the merge order, so it still wins by id.
@@ -1431,7 +1666,13 @@ export function validateMailbox(
 					const parsed = JSON.parse(line) as unknown;
 					const message = parseMailboxMessage(parsed, direction);
 					if (!message) throw new Error("invalid message schema");
-					validLines.push(JSON.stringify(redactSecrets(message)));
+					// w1a: preserve the ORIGINAL line bytes for valid rows. The old
+					// re-serialization here stripped Ed25519 signatures from every
+					// valid line on a repair pass (repair only rewrites when at least
+					// one line was invalid), silently de-authenticating the whole
+					// file. Repair must never drop NOR forge authentication — keep
+					// the row exactly as written.
+					validLines.push(line);
 				} catch (error) {
 					const message = error instanceof Error ? error.message : String(error);
 					issues.push({ level: "error", path: filePath, message });

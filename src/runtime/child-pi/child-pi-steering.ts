@@ -13,6 +13,7 @@
  */
 
 import * as fs from "node:fs";
+import { signSteeringEntry } from "../../state/coordination/mailbox.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { killProcessTree } from "./child-pi-kill.ts";
 
@@ -74,7 +75,13 @@ export class ChildPiSteeringController {
 			// a failed write must NOT kill the worker.
 			if (steeringFile) {
 				try {
-					fs.appendFileSync(steeringFile, JSON.stringify({ type: "steer", message: STEER_WRAP_UP_MESSAGE }) + "\n", "utf-8");
+					// w1a sender binding: sign the advisory line (steering file is
+					// same-uid writable; worker pollSteering drops unauthenticated lines).
+					fs.appendFileSync(
+						steeringFile,
+						`${JSON.stringify(signSteeringEntry({ type: "steer", message: STEER_WRAP_UP_MESSAGE }))}\n`,
+						"utf-8",
+					);
 				} catch (err) {
 					logInternalError("child-pi.steer-write-failed", err instanceof Error ? err : new Error(String(err)), `pid=${pid}`);
 				}

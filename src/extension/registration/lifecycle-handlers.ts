@@ -43,6 +43,7 @@ import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers, scheduledJobsHiddenCountOf } from "../../runtime/settings-store.ts";
 import type { ReconcileResult } from "../../runtime/stale-reconciler.ts";
 import { flushReapEscalationsSync } from "../../runtime/stale-reconciler.ts";
+import { getMailboxVerifyKeyPublic } from "../../state/coordination/mailbox.ts";
 import { loadRunManifestById, saveRunManifest } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
@@ -758,6 +759,22 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 	let starting: Promise<CrewBroker> | null = null;
 	let cachedSessionId: string | undefined;
 
+	// w1a (coordination-durable-files-no-sender-binding): eagerly create this
+	// process's coordination-row signing keypair (heap-only Ed25519) at install
+	// time in ROOT sessions, so the parent is a fail-closed verifier from the
+	// first mailbox/steering read — before any row it ever signed exists — and
+	// children can be handed the public verify key at spawn time
+	// (child-pi-spawn → PI_CREW_MAILBOX_VERIFY_KEY). Children install handlers
+	// too but never act as coordination writers; creating a keypair there is
+	// harmless heap state, but skip it to keep child heaps clean.
+	if (isRootSession(process.env)) {
+		try {
+			getMailboxVerifyKeyPublic();
+		} catch {
+			/* heap-only keygen must never break extension install */
+		}
+	}
+
 	function effectiveEnabled(): boolean {
 		// Env wins over config. PI_CREW_BROKER=1 forces on, =0 forces off.
 		const envOverride = getCrewEnv("PI_CREW_BROKER");
@@ -860,6 +877,17 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 
 	const issueForChild = async (runId: string, taskId?: string, childDepth?: number): Promise<BrokerSpawnCredentials | undefined> => {
 		if (!runId || typeof runId !== "string") return undefined;
+		// w1a (broker-bare-run-token-forged-task-identity): FAIL CLOSED on a missing
+		// task identity — a spawn without a taskId must NOT receive the legacy bare
+		// per-run token. The registry's runId fallback let an LLM worker holding
+		// that env-delivered bearer claim ANY queued sibling's identity
+		// (cross-task inbox theft + parked-ask hijack, observed end-to-end). This
+		// mirrors the detached runner's issuer (background-runner.ts:802 —
+		// `if (!taskId) return undefined`). Legit agentId-less scaffold/DWF flows
+		// keep working via the explicit credential-less route: the spawn simply
+		// carries no broker creds and the worker runs file-paths-only (the
+		// pre-broker behavior).
+		if (!taskId || typeof taskId !== "string") return undefined;
 		if (!isRootSession(process.env)) return undefined;
 		if (!effectiveEnabled()) return undefined;
 		// ADR-5 §4 (governed nesting): tokens are minted ONLY for children that

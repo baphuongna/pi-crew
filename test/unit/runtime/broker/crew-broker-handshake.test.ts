@@ -138,7 +138,7 @@ async function startBroker(opts: { enabled?: boolean; sessionId?: string; socket
 test("handshake: valid hello + ping — ack has protocol/session/run, never the token", async () => {
 	const { broker, socketPath } = await startBroker();
 	const runId = "run-valid";
-	const token = broker.issueRunToken(runId);
+	const token = broker.issueRunToken(runId, "task-A");
 	try {
 		const client = await rawConnect(socketPath);
 		client.socket.write(
@@ -288,7 +288,7 @@ test("handshake: hello after 1s deadline → connection closed", async () => {
 test("handshake: oversize hello → encoder throws oversize-frame BEFORE any write", async () => {
 	const { broker } = await startBroker();
 	const runId = "run-oversize";
-	const token = broker.issueRunToken(runId);
+	const token = broker.issueRunToken(runId, "task-A");
 	try {
 		// Construct a JSON value that exceeds MAX_BROKER_FRAME_BYTES bytes when stringified.
 		const big = "x".repeat(MAX_BROKER_FRAME_BYTES + 1024);
@@ -347,8 +347,8 @@ test("handshake: two clients have independent outbound queues", async () => {
 	const { broker, socketPath } = await startBroker();
 	const runA = "run-A";
 	const runB = "run-B";
-	const tokenA = broker.issueRunToken(runA);
-	const tokenB = broker.issueRunToken(runB);
+	const tokenA = broker.issueRunToken(runA, "ta");
+	const tokenB = broker.issueRunToken(runB, "tb");
 	try {
 		const a = await rawConnect(socketPath);
 		const b = await rawConnect(socketPath);
@@ -382,7 +382,7 @@ test("handshake: two clients have independent outbound queues", async () => {
 test("handshake: not-implemented method after hello → typed not-implemented response", async () => {
 	const { broker, socketPath } = await startBroker();
 	const runId = "run-not-impl";
-	const token = broker.issueRunToken(runId);
+	const token = broker.issueRunToken(runId, "task-A");
 	try {
 		const client = await rawConnect(socketPath);
 		client.socket.write(encodeBrokerFrame({ id: "h-1", method: "hello", params: { protocol: 1, runId, taskId: "task-A", token } }));

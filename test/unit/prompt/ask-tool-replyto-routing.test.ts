@@ -30,7 +30,7 @@ import * as path from "node:path";
 import { describe, it } from "node:test";
 import type { ExtensionToolContext } from "../../../src/extension/pi-api.ts";
 import { type AskBrokerClientSurface, type AskToolDefinition, createAskTool } from "../../../src/prompt/prompt-runtime.ts";
-import { appendMailboxMessageAsync } from "../../../src/state/coordination/mailbox.ts";
+import { appendMailboxMessageAsync, type MailboxMessage, signMailboxMessage } from "../../../src/state/coordination/mailbox.ts";
 import type { TeamRunManifest } from "../../../src/state/types.ts";
 import { removeDirWithRetry } from "../../helpers/rm-retry.ts";
 
@@ -201,7 +201,14 @@ describe("ask tool strict replyTo routing (W10-3)", () => {
 				questionId: "33333333-3333-4333-8333-333333333333",
 			};
 			fs.mkdirSync(path.join(state.stateRoot, "mailbox"), { recursive: true });
-			fs.writeFileSync(path.join(state.stateRoot, "mailbox", "inbox.jsonl"), `${JSON.stringify(legacy)}\n`, "utf-8");
+			// w1a: the ask-poll's delivery read verifies sender signatures, so the
+			// legacy fixture row is signed with the test-process keypair (same one
+			// appendMailboxMessageAsync uses in this suite).
+			fs.writeFileSync(
+				path.join(state.stateRoot, "mailbox", "inbox.jsonl"),
+				`${JSON.stringify(signMailboxMessage(legacy as MailboxMessage))}\n`,
+				"utf-8",
+			);
 			const tool = createAskTool({ env: state.env, makeBrokerClient: () => surface });
 			const result = await runAsk(tool, { question: "legacy stream question" });
 			assert.equal(result.details.status, "answered");

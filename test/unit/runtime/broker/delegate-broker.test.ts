@@ -187,7 +187,7 @@ async function sendDelegate(
 
 // ----------------------------------------------------------------------------
 
-test("auth: legacy bare-runId token is rejected with a migrate hint (pin iii)", async () => {
+test("auth: legacy bare-runId token cannot bind an explicit taskId (w1a: rejected at hello, pin iii)", async () => {
 	const s = await scaffoldRunningTask("auth");
 	const { broker, socketPath } = await startBroker({ cwd: s.cwd, nestingEnabled: true });
 	try {
@@ -195,12 +195,19 @@ test("auth: legacy bare-runId token is rejected with a migrate hint (pin iii)", 
 		assert.ok(typeof legacy === "string" && legacy.length > 0, "legacy token must be minted");
 		const client = await rawConnect(socketPath);
 		try {
-			// hello with the legacy token: runId-only fallback match.
-			await hello(client, s.runId, s.taskId, legacy);
-			const res = await sendDelegate(client, { prompt: "do work" });
-			assert.ok(res.error, "delegate with legacy token must fail");
-			assert.equal(res.error!.code, "forbidden");
-			assert.match(res.error!.message, /task-scoped token/);
+			// w1a retired the runId-fallback for EXPLICIT taskId claims, so the
+			// forged-identity bind now fails at hello itself (stronger than the old
+			// hello-accepted/forbidden-at-delegate shape). The socket may or may not
+			// still be writable; either way delegate.request must never run.
+			let helloError: { code: string; message?: string } | undefined;
+			try {
+				await hello(client, s.runId, s.taskId, legacy);
+			} catch (err) {
+				helloError = err as { code: string; message?: string };
+			}
+			const res = await sendDelegate(client, { prompt: "do work" }).catch((err) => err as { error?: { code: string } });
+			const denied = helloError !== undefined || (res as { error?: { code: string } }).error !== undefined;
+			assert.ok(denied, "delegate with legacy bare token must be denied (hello or delegate)");
 		} finally {
 			client.close();
 		}

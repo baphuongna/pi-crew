@@ -23,6 +23,7 @@ import {
 	checkReplyToRequesterOrigin,
 	type MailboxMessage,
 	readAllMailboxMessages,
+	signMailboxMessage,
 	validateMailbox,
 } from "../../../../src/state/coordination/mailbox.ts";
 import type { TeamRunManifest } from "../../../../src/state/types.ts";
@@ -89,7 +90,14 @@ describe("W10-3 mailbox reason enum (lesson #22)", () => {
 				questionId: "11111111-1111-4111-8111-111111111111",
 			};
 			fs.mkdirSync(path.join(state.stateRoot, "mailbox"), { recursive: true });
-			fs.writeFileSync(path.join(state.stateRoot, "mailbox", "inbox.jsonl"), `${JSON.stringify(legacy)}\n`, "utf-8");
+			// w1a: delivery reads verify sender signatures, so the fixture row is
+			// signed with the test-process keypair (the parse semantics under test
+			// — legacy shape without reason/replyTo — are unchanged by signing).
+			fs.writeFileSync(
+				path.join(state.stateRoot, "mailbox", "inbox.jsonl"),
+				`${JSON.stringify(signMailboxMessage(legacy as MailboxMessage))}\n`,
+				"utf-8",
+			);
 			const messages = readAllMailboxMessages(state.manifest);
 			assert.equal(messages.length, 1);
 			assert.equal(messages[0]?.id, "msg_legacy_1");
@@ -119,10 +127,14 @@ describe("W10-3 mailbox reason enum (lesson #22)", () => {
 				to: "task-1",
 				body: "ok",
 			});
-			// Hand-write an invalid enum value next to the valid row.
+			// Hand-write an invalid enum value next to the valid row. w1a: the row
+			// is tampered (id + reason changed off the signed original), so it must
+			// be RE-SIGNED to stay authentic — the parse-degradation behavior under
+			// test is unchanged.
 			const file = path.join(state.stateRoot, "mailbox", "inbox.jsonl");
 			const raw = JSON.parse(fs.readFileSync(file, "utf-8").split("\n").filter(Boolean)[0]!) as Record<string, unknown>;
-			fs.appendFileSync(file, `${JSON.stringify({ ...raw, id: "msg_bad_reason", reason: "gossip" })}\n`, "utf-8");
+			const tampered = { ...raw, id: "msg_bad_reason", reason: "gossip" } as unknown as MailboxMessage;
+			fs.appendFileSync(file, `${JSON.stringify(signMailboxMessage(tampered))}\n`, "utf-8");
 			const messages = readAllMailboxMessages(state.manifest);
 			const bad = messages.find((m) => m.id === "msg_bad_reason");
 			assert.ok(bad, "row with unknown reason still parses as a message");
