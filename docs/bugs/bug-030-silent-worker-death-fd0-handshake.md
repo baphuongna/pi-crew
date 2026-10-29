@@ -139,5 +139,6 @@ use stdio entry 4+ (fd3).
   `fd87297c`).
 - [x] Cold-verify standard for important verdicts (chained verifier confirmed a claim the cold
   check refuted) — recorded in workspace knowledge.
-- [ ] Backlog: harden `waitForPreGateEvent` (classifier-pre-gate) to throw on timeout — the
-  silently-returning poll surfaced as an unrelated CI flake during the 0.11.50 release ([pg-10]).
+- [x] Backlog DONE (`debd814b`, 2026-10-29): `waitForPreGateEvent` (classifier-pre-gate)
+  now throws on timeout with diagnostics — the silently-returning poll surfaced as an unrelated
+  CI flake during the 0.11.50 release ([pg-10]); CI matrix green on the fix commit.
