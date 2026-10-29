@@ -198,17 +198,46 @@ jobs:
         # package.json "exports" doesn't expose ./dist/index.mjs as a subpath.
         # The real load test (with peers) is test:bundle, run above. Skipped on
         # Windows because the step relies on bash + /tmp paths.
+        #
+        # Artifact-identity binding (audit fix ci.yml.tarball-smoke-decoy-glob):
+        # this step must certify EXACTLY the tarball `npm pack` just wrote —
+        # never a glob-selected one. *.tgz is NOT gitignored, so a decoy tarball
+        # committed to the tree (e.g. pi-crew-0.0.0.tgz, lexicographically
+        # first) used to win `ls pi-crew-*.tgz | head -1` and make this step
+        # vacuously green on a fork PR. Hence: stale tarballs are removed before
+        # packing, the exact name is derived from package.json (npm pack writes
+        # <name>-<version>.tgz; name is the unscoped "pi-crew"), and hard
+        # assertions fail loudly unless exactly that one tarball exists and the
+        # installed copy reports the repo version.
         if: runner.os != 'Windows'
         run: |
+          rm -f pi-crew-*.tgz
           npm pack
-          tarball=$(ls pi-crew-*.tgz | head -1)
+          version=$(node -p "require('./package.json').version")
+          tarball="pi-crew-$version.tgz"
+          if [ ! -f "$tarball" ]; then
+            echo "FAIL: npm pack did not produce the expected tarball: $tarball"
+            ls -1
+            exit 1
+          fi
+          count=$(find . -maxdepth 1 -name 'pi-crew-*.tgz' | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "FAIL: expected exactly 1 pi-crew-*.tgz in the workspace root, found $count:"
+            ls -1 pi-crew-*.tgz || true
+            exit 1
+          fi
           mkdir -p /tmp/smoke-install
           cd /tmp/smoke-install
           npm init -y
           npm install "$GITHUB_WORKSPACE/$tarball"
+          installed=$(node -p "require('./node_modules/pi-crew/package.json').version")
+          if [ "$installed" != "$version" ]; then
+            echo "FAIL: installed tarball reports version $installed, expected $version"
+            exit 1
+          fi
           test -f node_modules/pi-crew/dist/index.mjs || { echo "FAIL: dist/index.mjs missing from tarball"; exit 1; }
           node --check node_modules/pi-crew/dist/index.mjs
-          echo "OK: tarball ships a syntactically-valid bundle"
+          echo "OK: tarball ships a syntactically-valid bundle (pi-crew@$version)"
 
   # Informational, non-blocking codebase intelligence (deterministic, Rust-native).
   # Surfaced dead code, circular deps, duplication, complexity hotspots, and

@@ -56,7 +56,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const AUDIT_DIR = path.join(REPO, ".crew", "audit");
@@ -68,7 +68,7 @@ const RUNS_DIR = path.join(REPO, ".crew", "state", "runs");
  * cold-verify gap closure) the durable-state / workflow-engine src/ subtrees
  * and scripts/ itself: gate changes must live-test the gate (the nonce-binding
  * commit deliberately triggers T7 on its own pre-push). */
-const T7_TRIGGERS = [
+export const T7_TRIGGERS = [
 	/^src\/runtime\//,
 	/^src\/prompt\//,
 	/^src\/config\//,
@@ -105,7 +105,65 @@ function run(cmd, args, opts = {}) {
 	return { code: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 }
 
-/** All paths changed since the previous tag PLUS uncommitted work. */
+// git C-quote escapes (quote.c cq_lookup): \a \b \t \n \v \f \r; everything
+// else non-printable/non-ASCII plus '"' and '\\' becomes \NNN 3-digit octal.
+const C_QUOTE_ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13 };
+
+/**
+ * Decode one git path from C-quoted output form back to the true path string.
+ * Exported pure so the trigger-matching unit test can pin the exact forms git
+ * emits (see test/unit/scripts/pre-publish-battery-changed-paths.test.ts).
+ *
+ * git C-quotes a path (wraps it in double quotes and escapes bytes) whenever
+ * the name contains non-ASCII bytes (core.quotePath=true, the git default),
+ * control characters, an embedded double quote or a backslash — in BOTH
+ * `git diff --name-only` and `git status --porcelain` output. The battery's
+ * anchored T7 regexes cannot match a string starting with '"', so a raw
+ * quoted entry silently un-triggered the live smoke (audit w8:
+ * quoted-path-trigger-blindness). Note that even with `-c core.quotePath=false`
+ * names containing literal '"' or '\\' REMAIN quoted — so every entry is
+ * decoded, not only the non-ASCII ones.
+ *
+ * Octal escapes are byte-buffered and the result is UTF-8-decoded, so
+ * "src/runtime/h\303\240ck.ts" decodes to "src/runtime/hàck.ts" (0xC3 0xA0),
+ * not to mojibake code units. A non-quoted input is returned verbatim.
+ * Returns null for a malformed or unknown-escape form — callers must fail
+ * CLOSED on null (never treat it as a matchable path).
+ */
+export function unquoteGitPath(p) {
+	if (!p.startsWith('"')) return p;
+	if (p.length < 2 || !p.endsWith('"')) return null;
+	const body = p.slice(1, -1);
+	const bytes = [];
+	for (let i = 0; i < body.length; i++) {
+		const ch = body[i];
+		if (ch !== "\\") {
+			for (const b of Buffer.from(ch, "utf8")) bytes.push(b);
+			continue;
+		}
+		const rest = body.slice(i + 1);
+		const oct = /^([0-7]{3})/.exec(rest);
+		if (oct) {
+			bytes.push(Number.parseInt(oct[1], 8) & 0xff);
+			i += 3;
+			continue;
+		}
+		const next = rest[0];
+		if (next in C_QUOTE_ESCAPES) {
+			bytes.push(C_QUOTE_ESCAPES[next]);
+		} else if (next === '"' || next === "\\") {
+			bytes.push(next.charCodeAt(0));
+		} else {
+			return null; // unknown escape — undecodable, caller fails closed
+		}
+		i += 1;
+	}
+	return Buffer.from(bytes).toString("utf8");
+}
+
+/** All paths changed since the previous tag PLUS uncommitted work — quoting-
+ * agnostic: every git-emitted entry is decoded to its true name before it can
+ * influence the T7 trigger decision (see unquoteGitPath). */
 function changedPaths() {
 	const head = run("git", ["rev-parse", "HEAD"]).stdout.trim();
 	const tags = run("git", ["tag", "--sort=-creatordate"])
@@ -125,28 +183,44 @@ function changedPaths() {
 		}
 	}
 	const paths = new Set();
+	// Quoting-agnostic trigger set (audit w8: quoted-path-trigger-blindness).
+	// Two layers: pin core.quotePath=false on the git calls (mirrors
+	// src/worktree/worktree-manager.ts:1015) AND decode every entry through
+	// unquoteGitPath. A quoted entry that still cannot be decoded (malformed
+	// form — git never emits it today) fails CLOSED: force the live smoke via
+	// the same conservative fallback as the no-prevTag branch below, rather
+	// than silently skipping a gate we cannot reason about.
+	const addGitPath = (raw) => {
+		const p = unquoteGitPath(raw);
+		if (p === null) {
+			T7_TRIGGERS.forEach(() => paths.add("src/runtime/"));
+			return;
+		}
+		if (p) paths.add(p);
+	};
 	if (prevTag) {
-		for (const f of run("git", ["diff", "--name-only", `${prevTag}..HEAD`]).stdout.split("\n")) {
-			if (f.trim()) paths.add(f.trim());
+		for (const f of run("git", ["-c", "core.quotePath=false", "diff", "--name-only", `${prevTag}..HEAD`]).stdout.split("\n")) {
+			if (f.trim()) addGitPath(f.trim());
 		}
 	} else {
 		// No previous tag found (fresh repo shape): be conservative, trigger T7.
 		T7_TRIGGERS.forEach(() => paths.add("src/runtime/"));
 	}
-	const status = run("git", ["status", "--porcelain"]).stdout;
+	const status = run("git", ["-c", "core.quotePath=false", "status", "--porcelain"]).stdout;
 	for (const line of status.split("\n")) {
 		const entry = line.slice(3).trim();
 		if (!entry) continue;
 		if (entry.includes(" -> ")) {
 			// Staged rename "R  old -> new": BOTH sides are changed paths. Plain
 			// slice(3) would keep "old -> new" as one mangled path that matches
-			// no trigger pattern — renames would silently un-trigger T7.
+			// no trigger pattern — renames would silently un-trigger T7. The old
+			// naive quote-strip here kept git's octal escapes in place; both sides
+			// now go through the same decoder as every other entry.
 			for (const side of entry.split(" -> ")) {
-				const p = side.trim().replace(/^"(.*)"$/, "$1");
-				if (p) paths.add(p);
+				addGitPath(side.trim());
 			}
 		} else {
-			paths.add(entry);
+			addGitPath(entry);
 		}
 	}
 	return { prevTag, paths: [...paths] };
@@ -378,4 +452,13 @@ async function main() {
 	process.exit(allOk ? 0 : 1);
 }
 
-await main();
+// CLI main-guard (the scripts/analyze-run.mjs idiom): run the gate ONLY when
+// executed directly (.githooks/pre-push and prepublish-ci.mjs spawn this file
+// as argv[1]). When imported by the trigger-matching unit test, main() must
+// not fire — it spawns real pi sessions and gates publish. pathToFileURL (not
+// string manipulation) so relative and absolute invocations match on every
+// platform — the hand-built-URL variants are the Windows false-green class
+// pinned by test/unit/scripts/main-guard-platform-safety.test.ts.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	await main();
+}
