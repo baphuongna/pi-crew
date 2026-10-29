@@ -2,16 +2,26 @@
  * F-01: Trust gate for project-sourced .dwf.ts scripts.
  *
  * Verifies that runDynamicWorkflow refuses to load project-sourced dynamic
- * workflows unless PI_CREW_TRUST_PROJECT_DWF=1 is set, while builtin and user
+ * workflows unless PI_CREW_TRUST_PROJECT_DWF=1 is set, while builtin
  * workflows proceed without restriction.
+ *
+ * w3-dwf-trust (2026-10-29): the USER tier now requires the SAME explicit
+ * opt-in via PI_CREW_TRUST_USER_DWF=1 — ~/.pi/agent/workflows is writable by
+ * WRITE-role child workers (same OS uid), so a planted user-tier .dwf.ts must
+ * NOT execute as trusted host-process code. Also covers the dispatch-time
+ * script pin (manifest.dynamicScriptPin): a path/sha256 mismatch refuses to
+ * load a swapped script.
  */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runDynamicWorkflow } from "../../src/runtime/goal-workflow/dynamic-workflow-runner.ts";
 import type { TeamRunManifest } from "../../src/state/types.ts";
+import { packageRoot, projectCrewRoot, userPiRoot } from "../../src/utils/paths.ts";
+import { resolveRealContainedPath } from "../../src/utils/safe-paths.ts";
 import type { DynamicWorkflowConfig } from "../../src/workflows/workflow-config.ts";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -206,5 +216,143 @@ test("(d) non-'1' env values are DENIED (strict comparison, no truthy coercion)"
 			else process.env.PI_CREW_TRUST_PROJECT_DWF = savedEnv;
 			env.cleanup();
 		}
+	}
+});
+
+// ── w3-dwf-trust (2026-10-29): user tier gets the same default-deny ───────
+
+/** Resolve the script path exactly as runDynamicWorkflow's resolveScriptPath does. */
+function resolvePinPath(cwd: string, dwfPath: string): string {
+	const bases = [join(projectCrewRoot(cwd), "workflows"), join(userPiRoot(), "workflows"), join(packageRoot(), "workflows")];
+	for (const base of bases) {
+		try {
+			const real = resolveRealContainedPath(base, dwfPath);
+			if (real) return real;
+		} catch {
+			// not contained in this base — try next
+		}
+	}
+	return dwfPath;
+}
+
+test("(e) user-sourced .dwf.ts is DENIED without PI_CREW_TRUST_USER_DWF (planted-file PoC regression)", async () => {
+	const env = setupTempProject();
+	const savedUser = process.env.PI_CREW_TRUST_USER_DWF;
+	const savedProj = process.env.PI_CREW_TRUST_PROJECT_DWF;
+	const savedDet = process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK;
+	// Simulate the plant: a user-tier .dwf.ts (discovered from ~/.pi/agent/workflows)
+	// with NO trust opt-in set. The runner must refuse to execute it in-process.
+	delete process.env.PI_CREW_TRUST_USER_DWF;
+	delete process.env.PI_CREW_TRUST_PROJECT_DWF;
+
+	try {
+		const manifest = makeManifest(env.cwd);
+		const workflow = makeDynamicWorkflow("user", env.dwfPath);
+		const controller = new AbortController();
+
+		await assert.rejects(runDynamicWorkflow({ manifest, workflow, signal: controller.signal }), (err: unknown) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			assert.ok(msg.includes("PI_CREW_TRUST_USER_DWF"), `Error should mention PI_CREW_TRUST_USER_DWF, got: ${msg}`);
+			return true;
+		});
+
+		// Audit event carries the user tier.
+		const events = readEvents(manifest.eventsPath);
+		const denied = events.filter((e) => e.type === "dwf.trust_denied");
+		assert.equal(denied.length, 1, "exactly one dwf.trust_denied event should be emitted");
+		assert.equal(denied[0].data?.source, "user");
+		assert.equal(denied[0].data?.workflow, "noop");
+		// NOT executed: no dwf.started — the planted script never ran (PoC's absent-marker equivalent).
+		assert.equal(events.filter((e) => e.type === "dwf.started").length, 0, "planted user script must NOT execute (no dwf.started)");
+	} finally {
+		if (savedUser !== undefined) process.env.PI_CREW_TRUST_USER_DWF = savedUser;
+		else delete process.env.PI_CREW_TRUST_USER_DWF;
+		if (savedProj !== undefined) process.env.PI_CREW_TRUST_PROJECT_DWF = savedProj;
+		else delete process.env.PI_CREW_TRUST_PROJECT_DWF;
+		if (savedDet !== undefined) process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK = savedDet;
+		env.cleanup();
+	}
+});
+
+test("(f) user-sourced .dwf.ts proceeds WITH PI_CREW_TRUST_USER_DWF=1 (legit user-config workflow)", async () => {
+	const env = setupTempProject();
+	const savedUser = process.env.PI_CREW_TRUST_USER_DWF;
+	const savedDet = process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK;
+	process.env.PI_CREW_TRUST_USER_DWF = "1";
+	process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK = "1";
+
+	try {
+		const manifest = makeManifest(env.cwd);
+		const workflow = makeDynamicWorkflow("user", env.dwfPath);
+		const controller = new AbortController();
+
+		const result = await runDynamicWorkflow({ manifest, workflow, signal: controller.signal });
+
+		assert.ok(result, "runDynamicWorkflow should return a result");
+		assert.equal(result.manifest.status, "completed", "manifest status should be completed");
+		const events = readEvents(manifest.eventsPath);
+		assert.equal(events.filter((e) => e.type === "dwf.trust_denied").length, 0, "no trust_denied when the user-tier opt-in is set");
+		assert.equal(events.filter((e) => e.type === "dwf.started").length, 1, "dwf.started emitted — the user workflow executed");
+	} finally {
+		if (savedUser !== undefined) process.env.PI_CREW_TRUST_USER_DWF = savedUser;
+		else delete process.env.PI_CREW_TRUST_USER_DWF;
+		if (savedDet !== undefined) process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK = savedDet;
+		else delete process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK;
+		env.cleanup();
+	}
+});
+
+// ── w3-dwf-trust: dispatch-time script pin (manifest.dynamicScriptPin) ────
+
+test("(g) dynamicScriptPin sha256 mismatch refuses to load the swapped script", async () => {
+	const env = setupTempProject();
+	const savedDet = process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK;
+	process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK = "1";
+
+	try {
+		const manifest = makeManifest(env.cwd);
+		// Correct path, WRONG hash: simulates a plant that rewrote the script bytes
+		// between dispatch and (re)load. The runner must refuse.
+		manifest.dynamicScriptPin = { scriptPath: resolvePinPath(env.cwd, env.dwfPath), sha256: "deadbeef".repeat(8) };
+		const workflow = makeDynamicWorkflow("builtin", env.dwfPath);
+		const controller = new AbortController();
+
+		await assert.rejects(runDynamicWorkflow({ manifest, workflow, signal: controller.signal }), (err: unknown) => {
+			const msg = err instanceof Error ? err.message : String(err);
+			assert.ok(msg.includes("dispatch-time pin"), `Error should mention the dispatch-time pin, got: ${msg}`);
+			return true;
+		});
+
+		const events = readEvents(manifest.eventsPath);
+		const denied = events.filter((e) => e.type === "dwf.trust_denied");
+		assert.equal(denied.length, 1);
+		assert.equal(denied[0].data?.reason, "script-pin-mismatch");
+		assert.equal(events.filter((e) => e.type === "dwf.started").length, 0, "swapped script must NOT execute");
+	} finally {
+		if (savedDet !== undefined) process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK = savedDet;
+		else delete process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK;
+		env.cleanup();
+	}
+});
+
+test("(h) dynamicScriptPin match (path + sha256 of the exact bytes) proceeds", async () => {
+	const env = setupTempProject();
+	const savedDet = process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK;
+	process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK = "1";
+
+	try {
+		const manifest = makeManifest(env.cwd);
+		const scriptPath = resolvePinPath(env.cwd, env.dwfPath);
+		manifest.dynamicScriptPin = { scriptPath, sha256: createHash("sha256").update(readFileSync(scriptPath)).digest("hex") };
+		const workflow = makeDynamicWorkflow("builtin", env.dwfPath);
+		const controller = new AbortController();
+
+		const result = await runDynamicWorkflow({ manifest, workflow, signal: controller.signal });
+		assert.equal(result.manifest.status, "completed", "pinned script matching its dispatch bytes executes normally");
+		assert.equal(readEvents(manifest.eventsPath).filter((e) => e.type === "dwf.trust_denied").length, 0);
+	} finally {
+		if (savedDet !== undefined) process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK = savedDet;
+		else delete process.env.PI_CREW_DWF_SKIP_DETERMINISM_CHECK;
+		env.cleanup();
 	}
 });

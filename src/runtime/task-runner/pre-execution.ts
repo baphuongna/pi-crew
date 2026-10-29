@@ -272,19 +272,26 @@ export async function prepareTaskExecutionContext(
 
 	// Deterministic pre-step: run script, inject stdout into worker prompt
 	let preStepOutput: string | undefined;
-	if (input.step.preStepScript && input.step.source !== "builtin" && input.step.source !== "user") {
-		// F-02 SECURITY FIX (allowlist): only builtin/user-sourced workflows may
-		// execute pre-step scripts. Project-sourced AND programmatic
+	if (input.step.preStepScript && input.step.source !== "builtin") {
+		// F-02 SECURITY FIX (allowlist, w3-dwf-trust tightening): only builtin-sourced
+		// workflows may execute pre-step scripts. Project-sourced AND programmatic
 		// (source=undefined) steps are denied — a hostile repo clone could embed
 		// arbitrary code via preStepScript + execFileSync, and steps constructed
 		// without explicit trusted provenance should not auto-trust file
-		// execution. Deny by default; discover-workflows strips project scripts
-		// upstream so legitimate builtin/user scripts still run.
+		// execution. The 'user' tier was REMOVED from the allowlist (w3-dwf-trust,
+		// 2026-10-29): ~/.pi/agent/workflows is writable by every WRITE-role child
+		// worker (same OS uid), so a planted user-tier *.workflow.md carrying a
+		// preStepScript previously executed it via execFileSync in this HOST
+		// process (F-02 only stripped project scripts at the discover layer).
+		// Deny by default; re-introduce via an explicit dispatch-time hash pin if a
+		// legitimate user-tier pre-step need appears (see
+		// TeamRunManifest.dynamicScriptPin). discover-workflows strips project
+		// scripts upstream so legitimate builtin scripts still run.
 		appendEventFireAndForget(manifest.eventsPath, {
 			type: "hook.pre_step_skipped",
 			runId: manifest.runId,
 			taskId: task.id,
-			message: `preStepScript '${input.step.preStepScript}' skipped: only builtin/user-sourced workflows may execute pre-step scripts for security (F-02).`,
+			message: `preStepScript '${input.step.preStepScript}' skipped: only builtin-sourced workflows may execute pre-step scripts for security (F-02; user tier tightened in w3-dwf-trust — user config dirs are writable by same-uid workers).`,
 			data: { script: input.step.preStepScript, source: input.step.source ?? "unknown" },
 		});
 		preStepOutput = undefined;

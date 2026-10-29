@@ -257,3 +257,253 @@ test("R6-12: load() ACCEPTS a legacy checkpoint with no version field (upgrade-s
 		await cleanupStateRoot(stateRoot);
 	}
 });
+
+// ---------------------------------------------------------------------------
+// w3-dwf-trust (2026-10-29) — hydration-boundary validation.
+//
+// The checkpoint path (<stateRoot>/dwf-checkpoint.json under the shared repo)
+// is writable by every WRITE-role child worker of the run, so load() must NOT
+// blind-cast the parsed JSON into trusted replay state. PoC mirror: a forged
+// checkpoint (foreign runId, negative spent, forged completedAgentCalls
+// verdicts) previously hydrated verbatim — ctx.budget.remaining() returned
+// 51000 against a 1000-token budget and ctx.review() consumed a fabricated
+// accept verdict with zero spawns. Now: runId binding rejects foreign
+// checkpoints, numeric accumulators clamp, and producer-shape-invalid cache
+// entries are dropped (the call re-executes) — fail closed, never trusted.
+// ---------------------------------------------------------------------------
+
+/** Write a raw forged checkpoint JSON blob directly (bypassing save()). */
+function writeRawCheckpoint(stateRoot: string, forged: unknown): void {
+	fs.writeFileSync(path.join(stateRoot, "dwf-checkpoint.json"), JSON.stringify(forged));
+}
+
+test("w3-dwf-trust: load(expectedRunId) REJECTS a checkpoint bound to a foreign runId (PoC C1)", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, sampleState("attacker-planted-run"));
+		assert.equal(
+			store.load("team_real_run"),
+			undefined,
+			"foreign-runId checkpoint must not hydrate as this run's state (fresh run instead)",
+		);
+		// The same checkpoint DOES load when bound to its own runId — the binding
+		// is identity, not a blanket rejection.
+		const bound = store.load("attacker-planted-run");
+		assert.ok(bound, "checkpoint loads when the expected runId matches");
+		assert.equal(bound!.runId, "attacker-planted-run");
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: load() without expectedRunId keeps legacy call-form compatibility", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		store.save(sampleState("team_dwf_compat"));
+		const loaded = store.load();
+		assert.ok(loaded, "no expectedRunId → legacy behavior (runId binding skipped)");
+		assert.equal(loaded!.runId, "team_dwf_compat");
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: negative spent/agentCount clamp to 0 (budget/cap re-arm PoC C3)", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, {
+			...sampleState("team_dwf_neg"),
+			spent: -50000,
+			agentCount: -3,
+		});
+		const loaded = store.load("team_dwf_neg");
+		assert.ok(loaded, "checkpoint itself is structurally loadable");
+		assert.equal(loaded!.spent, 0, "forged negative spent must not inflate budget.remaining() past the cap");
+		assert.equal(loaded!.agentCount, 0, "forged negative agentCount must not re-arm the agent-call cap as a credit");
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: non-numeric spent/agentCount clamp to 0 (JSON null/string attacks)", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, {
+			...sampleState("team_dwf_nan"),
+			spent: null, // JSON cannot express NaN/Infinity — they serialize to null
+			agentCount: "2",
+		});
+		const loaded = store.load("team_dwf_nan");
+		assert.ok(loaded);
+		assert.equal(loaded!.spent, 0);
+		assert.equal(loaded!.agentCount, 0);
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: forged completedAgentCalls entries fail the verdict allowlist and are dropped", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, {
+			...sampleState("team_dwf_forge"),
+			completedAgentCalls: {
+				// Producer-reachable (runner caches ONLY ok:true + string text): kept.
+				'{"role":"reviewer"}': {
+					ok: true,
+					text: "real worker output",
+					structured: { outcome: "accept", feedback: "legit" },
+					usage: { input: 100, output: 10 },
+					artifactPath: "wf/1.md",
+					durationMs: 500,
+				},
+				// ok is not the boolean true → dropped (never produced by the runner;
+				// the replay path would force ok:true on it — so it must not hydrate).
+				'{"role":"forge-string-ok"}': { ok: "true", text: "forged" },
+				// ok:false entries are never cached by the runner → dropped.
+				'{"role":"forge-false"}': { ok: false, text: "failed call" },
+				// Missing text → dropped (shape-invalid).
+				'{"role":"forge-no-text"}': { ok: true },
+				// Non-object entry → dropped.
+				'{"role":"forge-scalar"}': "pwned",
+				// Valid ok:true but mistyped optional fields → entry kept, fields stripped.
+				'{"role":"forge-fields"}': {
+					ok: true,
+					text: "mostly fine",
+					usage: { input: -5, output: 3 },
+					artifactPath: 42,
+					durationMs: -1,
+					runId: 7,
+				},
+			},
+		});
+		const loaded = store.load("team_dwf_forge");
+		assert.ok(loaded);
+		const calls = loaded!.completedAgentCalls ?? {};
+		assert.equal(Object.keys(calls).length, 2, "only producer-shaped entries survive hydration");
+		assert.deepEqual(
+			calls['{"role":"reviewer"}'],
+			{
+				ok: true,
+				text: "real worker output",
+				structured: { outcome: "accept", feedback: "legit" },
+				usage: { input: 100, output: 10 },
+				artifactPath: "wf/1.md",
+				durationMs: 500,
+			},
+			"legit replay cache still round-trips (positive preservation)",
+		);
+		assert.deepEqual(
+			calls['{"role":"forge-fields"}'],
+			{ ok: true, text: "mostly fine", usage: { output: 3 } },
+			"valid entry kept, but mistyped optional fields are stripped (no negative usage/paths hydrate)",
+		);
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: non-object completedAgentCalls container drops the whole replay cache", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, {
+			...sampleState("team_dwf_cache_arr"),
+			completedAgentCalls: [{ ok: true, text: "smuggled" }],
+		});
+		const loaded = store.load("team_dwf_cache_arr");
+		assert.ok(loaded, "the checkpoint itself still loads (control state clamps normally)");
+		assert.equal(loaded!.completedAgentCalls, undefined, "array-shaped replay cache is dropped — calls re-execute");
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: non-array phases/logs reject the checkpoint (schema-invalid → fresh run)", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, { ...sampleState("team_dwf_phases"), phases: "scan" });
+		assert.equal(store.load("team_dwf_phases"), undefined, "string phases → checkpoint rejected");
+		const stateRoot2 = makeTmpStateRoot();
+		try {
+			const store2 = new DwfStore(stateRoot2);
+			writeRawCheckpoint(stateRoot2, { ...sampleState("team_dwf_logs"), logs: { 0: "log" } });
+			assert.equal(store2.load("team_dwf_logs"), undefined, "object logs → checkpoint rejected");
+		} finally {
+			await cleanupStateRoot(stateRoot2);
+		}
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: non-string phase/log elements are filtered, strings survive", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, {
+			...sampleState("team_dwf_mixed"),
+			phases: ["scan", 42, null, "analyze"],
+			logs: ["ok", { smuggled: true }, "ok2"],
+		});
+		const loaded = store.load("team_dwf_mixed");
+		assert.ok(loaded);
+		assert.deepEqual(loaded!.phases, ["scan", "analyze"]);
+		assert.deepEqual(loaded!.logs, ["ok", "ok2"]);
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: non-string currentPhase and non-object vars reject the checkpoint", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, { ...sampleState("team_dwf_phase_poison"), currentPhase: { poison: true } });
+		assert.equal(store.load("team_dwf_phase_poison"), undefined);
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+	const stateRoot2 = makeTmpStateRoot();
+	try {
+		const store2 = new DwfStore(stateRoot2);
+		writeRawCheckpoint(stateRoot2, { ...sampleState("team_dwf_vars_poison"), vars: [1, 2] });
+		assert.equal(store2.load("team_dwf_vars_poison"), undefined, "array vars → checkpoint rejected");
+	} finally {
+		await cleanupStateRoot(stateRoot2);
+	}
+});
+
+test("w3-dwf-trust: mistyped dispatchContext fields are dropped (mismatch detection stays typed)", async () => {
+	const stateRoot = makeTmpStateRoot();
+	try {
+		const store = new DwfStore(stateRoot);
+		writeRawCheckpoint(stateRoot, {
+			...sampleState("team_dwf_ctx"),
+			dispatchContext: { modelOverride: "m1", team: 99, junk: true },
+		});
+		const loaded = store.load("team_dwf_ctx");
+		assert.ok(loaded);
+		assert.deepEqual(loaded!.dispatchContext, { modelOverride: "m1" }, "only string-typed fingerprint fields survive");
+	} finally {
+		await cleanupStateRoot(stateRoot);
+	}
+});
+
+test("w3-dwf-trust: the runner binds hydration to the resuming run (structural)", () => {
+	// dynamic-workflow-runner.ts is the sole production caller of DwfStore.load();
+	// the PoC hinged on the callerless load() (no runId binding). Assert the call
+	// site passes manifest.runId so a planted/enumerated checkpoint is rejected.
+	const src = fs.readFileSync("src/runtime/goal-workflow/dynamic-workflow-runner.ts", "utf8");
+	assert.ok(
+		src.includes("dwfStore.load(manifest.runId)"),
+		"runner must call dwfStore.load(manifest.runId) — unbound load() is the PoC's entrypoint",
+	);
+	assert.ok(!src.includes("dwfStore.load()"), "the unbound load() call form must not remain in the runner");
+});

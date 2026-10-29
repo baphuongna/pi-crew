@@ -1,13 +1,17 @@
 /**
- * F-02 SECURITY: preStepScript guard for project-sourced workflows.
+ * F-02 SECURITY: preStepScript guard for non-builtin workflows.
  *
  * A project-sourced workflow (.crew/workflows/*.workflow.md) can declare a
- * preStepScript, which task-runner.ts executes via execFileSync. A hostile
+ * preStepScript, which pre-execution.ts executes via execFileSync. A hostile
  * repo clone can embed arbitrary code execution through this vector.
  *
  * The fix gates preStepScript execution on step.source via an ALLOWLIST: only
- * 'builtin'/'user' steps execute; project-sourced AND programmatic (undefined)
- * steps are skipped with an audit event (deny by default — F-02 hardening).
+ * 'builtin' steps execute; project-sourced, USER-sourced, and programmatic
+ * (undefined) steps are skipped with an audit event (deny by default).
+ * w3-dwf-trust (2026-10-29) removed 'user' from the allowlist: user config
+ * dirs (~/.pi/agent/workflows) are writable by WRITE-role child workers (same
+ * OS uid), so a planted user-tier *.workflow.md carrying a preStepScript must
+ * not execute it in the host process.
  *
  * The full runTeamTask function spawns a child Pi process, making it impractical
  * to unit-test end-to-end. Additionally, execFileSync is loaded via dynamic
@@ -15,7 +19,7 @@
  * node:test's mock.module cannot reliably intercept for ESM (documented in
  * test/unit/run-coalesced-heartbeat-race.test.ts). Therefore we test:
  *
- *   (a) The guard predicate logic directly (project → skip, builtin → execute).
+ *   (a) The guard predicate logic directly (project/user → skip, builtin → execute).
  *   (b) Source propagation through the real discoverWorkflows path.
  *   (c) Structural verification: the guard precedes execFileSync in the source.
  *   (d) The skip event type is registered in TEAM_EVENT_TYPES for audit.
@@ -36,12 +40,12 @@ import { removeDirWithRetry } from "../../../helpers/rm-retry.ts";
 // ─── (a) Guard predicate logic ────────────────────────────────────────────
 
 /**
- * Mirrors the production allowlist guard in task-runner.ts:
- *   if (preStepScript && source !== "builtin" && source !== "user") { skip }
+ * Mirrors the production allowlist guard in pre-execution.ts:
+ *   if (preStepScript && source !== "builtin") { skip }
  *   else if (preStepScript) { execute }
  */
 function preStepDecision(step: Pick<WorkflowStep, "source" | "preStepScript">): "skip" | "execute" | "none" {
-	if (step.preStepScript && step.source !== "builtin" && step.source !== "user") return "skip";
+	if (step.preStepScript && step.source !== "builtin") return "skip";
 	if (step.preStepScript) return "execute";
 	return "none";
 }
@@ -57,9 +61,12 @@ describe("F-02 guard predicate", () => {
 		assert.equal(preStepDecision(step), "execute");
 	});
 
-	test("user-sourced step with preStepScript → execute (allowed)", () => {
+	test("user-sourced step with preStepScript → skip (w3-dwf-trust: user dirs are worker-writable)", () => {
+		// ~/.pi/agent/workflows is writable by WRITE-role child workers (same OS
+		// uid), so a planted user-tier workflow carrying a preStepScript must not
+		// execute it in the host process. Only builtin provenance is trusted now.
 		const step = { source: "user" as const, preStepScript: "lint.sh" };
-		assert.equal(preStepDecision(step), "execute");
+		assert.equal(preStepDecision(step), "skip");
 	});
 
 	test("project-sourced step WITHOUT preStepScript → none (no-op)", () => {
@@ -69,7 +76,7 @@ describe("F-02 guard predicate", () => {
 
 	test("undefined source (manual construction) with preStepScript → skip (allowlist denies by default)", () => {
 		// Steps constructed manually (not via discovery) have source=undefined.
-		// F-02 allowlist hardening: deny by default — only explicit builtin/user
+		// F-02 allowlist hardening: deny by default — only explicit builtin
 		// provenance permits pre-step script execution.
 		const step = { source: undefined, preStepScript: "check.sh" };
 		assert.equal(preStepDecision(step), "skip");
@@ -177,28 +184,31 @@ describe("F-02 source propagation via discoverWorkflows", () => {
 // ─── (c) Structural verification: guard precedes execFileSync ──────────────
 
 describe("F-02 structural placement in pre-execution.ts (CORE-5 extraction 2)", () => {
-	test("project-source guard exists BEFORE execFileSync call", () => {
+	test("builtin-only guard exists BEFORE execFileSync call", () => {
 		const src = readFileSync("src/runtime/task-runner/pre-execution.ts", "utf8");
 
-		// F-02 allowlist guard condition must exist (deny unless builtin/user)
-		const guardIndex = src.indexOf('input.step.source !== "builtin" && input.step.source !== "user"');
-		assert.ok(guardIndex >= 0, "F-02 allowlist guard condition must exist in task-runner.ts");
+		// F-02 allowlist guard condition must exist (deny unless builtin)
+		const guardIndex = src.indexOf('input.step.source !== "builtin"');
+		assert.ok(guardIndex >= 0, "F-02 allowlist guard condition must exist in pre-execution.ts");
+		// w3-dwf-trust: the user tier must NOT appear in the allowlist condition.
+		const staleUserClause = src.indexOf('input.step.source !== "user"');
+		assert.equal(staleUserClause, -1, "the user tier must no longer be in the F-02 allowlist (w3-dwf-trust tightening)");
 
 		// The execFileSync import must exist
 		const execIndex = src.indexOf('await import("node:child_process")');
 		assert.ok(execIndex >= 0, "execFileSync dynamic import must exist");
 
-		// The guard must come BEFORE execFileSync (so project scripts never reach it)
+		// The guard must come BEFORE execFileSync (so non-builtin scripts never reach it)
 		assert.ok(
 			guardIndex < execIndex,
 			`F-02 guard (offset ${guardIndex}) must precede execFileSync import (offset ${execIndex}) — ` +
-				"a project-sourced preStepScript must never reach the execution path",
+				"a non-builtin preStepScript must never reach the execution path",
 		);
 	});
 
 	test("skip event 'hook.pre_step_skipped' is emitted inside the guard block", () => {
 		const src = readFileSync("src/runtime/task-runner/pre-execution.ts", "utf8");
-		const guardIndex = src.indexOf('input.step.source !== "builtin" && input.step.source !== "user"');
+		const guardIndex = src.indexOf('input.step.source !== "builtin"');
 		const skipEventIndex = src.indexOf('"hook.pre_step_skipped"');
 		assert.ok(skipEventIndex >= 0, "hook.pre_step_skipped event type must be emitted in task-runner.ts");
 		assert.ok(skipEventIndex > guardIndex, "skip event must be inside the project-source guard block (after guard condition)");

@@ -426,6 +426,15 @@ export interface TeamRunManifest {
 	};
 	/** Background dispatch discriminator. Default "team-run" runs executeTeamRun; "goal-loop" / "dynamic-workflow" dispatch to their respective runners. Absent = "team-run" for backward compatibility. */
 	runKind?: "team-run" | "goal-loop" | "dynamic-workflow";
+	/** w3-dwf-trust (2026-10-29): dispatch-time code pin for runKind="dynamic-workflow"
+	 *  runs. The dispatcher stamps the RESOLVED .dwf.ts script path plus the sha256 of
+	 *  its bytes AT DISPATCH; runDynamicWorkflow re-hashes the file before every load
+	 *  (fresh dispatch and both resume arms funnel through it) and refuses to execute
+	 *  on path/hash mismatch — closing the plant-between-dispatch-and-resume swap for a
+	 *  script in a worker-writable discovery dir. Purely additive/optional: absent on
+	 *  every manifest written before this field existed (and on dispatchers that do not
+	 *  stamp it yet) → no pin verification. */
+	dynamicScriptPin?: { scriptPath: string; sha256: string };
 	/** round-14 P1-5: typed workflow arguments accessible in .dwf.ts scripts via ctx.args<T>(). Any JSON value; default {} when unset. */
 	args?: unknown;
 	/** Per-run token budget snapshot. budgetTotal is the cap; budgetWarning/budgetAbort are fractions in [0,1] at which the team-runner emits run.budget_warning / run.budget_abort. budgetUnlimited=true opts out of enforcement. Optional for backward compat. */

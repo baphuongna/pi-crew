@@ -17,12 +17,14 @@
  * See docs/dynamic-workflows.md for the full threat model.
  */
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
+import { saveRunManifestAsync } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { packageRoot, projectCrewRoot, userPiRoot } from "../../utils/paths.ts";
@@ -177,24 +179,95 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	const eventsPath = manifest.eventsPath;
 	const scriptPath = resolveScriptPath(workflow, manifest.cwd);
 
-	// F-01: Trust gate — project-sourced .dwf.ts scripts have FULL Node access (process,
+	// w3-dwf-trust: dispatch-time pin stamping (single point). The FIRST entry to the
+	// runner for a run IS the dispatch — stamp manifest.dynamicScriptPin with the exact
+	// resolved script path + sha256 of the CURRENT bytes and persist before any module
+	// load. Both resume arms funnel back through runDynamicWorkflow, so every later
+	// entry hits the pin-mismatch verification below: a plant that swaps the file
+	// between dispatch and resume is refused instead of executing swapped bytes.
+	// Absent pin (legacy manifests) gets stamped on first resume — backward compatible.
+	if (manifest.dynamicScriptPin === undefined) {
+		let sha256: string;
+		try {
+			sha256 = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+		} catch (error) {
+			logInternalError("dynamic-workflow-runner: pin stamp hash failed", error);
+			throw new Error(
+				`Dynamic workflow script '${scriptPath}' could not be read for dispatch-time pinning — refusing to execute an unhashable script.`,
+			);
+		}
+		manifest.dynamicScriptPin = { scriptPath, sha256 };
+		try {
+			await saveRunManifestAsync(manifest);
+		} catch (error) {
+			// Pin not durable → verification cannot be trusted later. Fail closed.
+			logInternalError("dynamic-workflow-runner: pin stamp persist failed", error);
+			throw new Error(`Dynamic workflow dispatch failed to persist the script pin — refusing to execute without a durable pin.`);
+		}
+	}
+
+	// F-01: Trust gate — project/user-sourced .dwf.ts scripts have FULL Node access (process,
 	// require, fs, child_process). Cloning a hostile repo and running its workflow = arbitrary
-	// code execution. Default-deny project workflows unless the user explicitly opts in via
-	// PI_CREW_TRUST_PROJECT_DWF=1. Builtin and user workflows proceed without restriction.
+	// code execution; default-deny project workflows unless the user explicitly opts in via
+	// PI_CREW_TRUST_PROJECT_DWF=1.
+	// w3-dwf-trust (2026-10-29): the USER tier gets the SAME default-deny via
+	// PI_CREW_TRUST_USER_DWF=1. ~/.pi/agent/workflows is writable by every WRITE-role
+	// child worker (same OS uid, bash granted by role-tools), so directory location alone
+	// is not human provenance: a worker-planted user-tier .dwf.ts previously executed in
+	// this HOST process (parent env, in-memory broker state) and silently shadowed
+	// same-named builtin/project workflows via the allWorkflows merge order. Builtin
+	// (shipped, package-owned) workflows proceed without restriction.
 	// U2 (2026-10-10): awaited appendEventAsync — the 2026-09-10 M2a revert
 	// was required by BUFFERED (20ms-delayed) writes; awaiting the direct async
 	// append keeps the read-your-writes contract (resume flow, dwf-setresult
 	// tests, status display all read events only after runDynamicWorkflow
 	// resolves) while dropping the sleepSync event-loop block.
-	if (workflow.source === "project" && getCrewEnv("PI_CREW_TRUST_PROJECT_DWF") !== "1") {
+	const trustEnv: "PI_CREW_TRUST_PROJECT_DWF" | "PI_CREW_TRUST_USER_DWF" | undefined =
+		workflow.source === "project" ? "PI_CREW_TRUST_PROJECT_DWF" : workflow.source === "user" ? "PI_CREW_TRUST_USER_DWF" : undefined;
+	if (trustEnv !== undefined && getCrewEnv(trustEnv) !== "1") {
 		await appendEventAsync(eventsPath, {
 			type: "dwf.trust_denied",
 			runId: manifest.runId,
 			data: { workflow: workflow.name, source: workflow.source, script: scriptPath },
 		});
 		throw new Error(
-			`Project dynamic workflow requires explicit trust. Set PI_CREW_TRUST_PROJECT_DWF=1 to allow execution of project .dwf.ts scripts.`,
+			workflow.source === "user"
+				? `User dynamic workflow requires explicit trust. Set PI_CREW_TRUST_USER_DWF=1 to allow execution of user .dwf.ts scripts.`
+				: `Project dynamic workflow requires explicit trust. Set PI_CREW_TRUST_PROJECT_DWF=1 to allow execution of project .dwf.ts scripts.`,
 		);
+	}
+
+	// w3-dwf-trust: dispatch-time script pin. When the dispatcher stamped
+	// manifest.dynamicScriptPin, re-hash the script bytes before EVERY load — fresh
+	// dispatch AND both resume arms funnel through runDynamicWorkflow — so a plant
+	// that swaps the file between dispatch and resume cannot execute. Optional/absent
+	// on manifests dispatched before this field existed (and on dispatchers that do
+	// not stamp it yet) → no pin verification (backward compatible).
+	const pin = manifest.dynamicScriptPin;
+	if (pin !== undefined) {
+		let actualSha256: string | undefined;
+		try {
+			actualSha256 = createHash("sha256").update(readFileSync(scriptPath)).digest("hex");
+		} catch {
+			// Unreadable/missing script cannot match its pin — treat as mismatch.
+			actualSha256 = undefined;
+		}
+		if (pin.scriptPath !== scriptPath || actualSha256 === undefined || pin.sha256 !== actualSha256) {
+			await appendEventAsync(eventsPath, {
+				type: "dwf.trust_denied",
+				runId: manifest.runId,
+				data: {
+					workflow: workflow.name,
+					source: workflow.source,
+					script: scriptPath,
+					reason: "script-pin-mismatch",
+					...(actualSha256 !== undefined ? { expectedSha256: pin.sha256, actualSha256 } : {}),
+				},
+			});
+			throw new Error(
+				`Dynamic workflow script does not match the dispatch-time pin (path/sha256) — refusing to load a possibly swapped script. Re-dispatch the run to re-pin the current script bytes.`,
+			);
+		}
 	}
 
 	await appendEventAsync(eventsPath, {
@@ -208,7 +281,10 @@ export async function runDynamicWorkflow(input: RunDynamicWorkflowInput): Promis
 	// <stateRoot>/dwf-checkpoint.json (no double-nesting). A missing checkpoint (fresh run)
 	// yields undefined — makeWorkflowCtx starts with empty defaults (backward compatible).
 	const dwfStore = new DwfStore(manifest.stateRoot);
-	const resumedState = dwfStore.load();
+	// w3-dwf-trust: bind the checkpoint to THIS run — a checkpoint whose runId
+	// differs (stale/planted/enumerated under .crew/state/runs/) is rejected and
+	// the run restarts fresh instead of replaying worker-writable state.
+	const resumedState = dwfStore.load(manifest.runId);
 	if (resumedState) {
 		// R14-C3 (wave 7): fingerprint check — a resume that changes the dispatch
 		// context (modelOverride/team) still replays the completed-call cache, but
