@@ -28,6 +28,7 @@
  */
 import { type SpawnSyncOptions, type SpawnSyncReturns, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 export const SANDBOX_ENV = "PI_CREW_SANDBOX";
@@ -122,19 +123,55 @@ function toolchainBinds(spec: { command: string; args: string[] }, isPackageRoot
 		}
 	}
 	// --extension / --skill resources: bind the value + ancestors up to the
-	// nearest package root (extensions import across their package tree).
+	// nearest package root (extensions import across their package tree) —
+	// but NEVER at or above the user trust boundary. User-global skill roots
+	// (~/.pi/agent/skills — the default pi user-skill location) have NO
+	// package.json ancestor before $HOME, so an uncapped walk climbed all the
+	// way up and emitted `--ro-bind-try $HOME $HOME` (plus `~/.pi/agent`, the
+	// auth.json directory), mounting the whole host home — credentials
+	// included — read-only inside the sandbox. The walk now stops BELOW the
+	// pi agent dir / $HOME, and a value that would mount the home, the agent
+	// dir, or any ancestor containing either is SKIPPED entirely (fail-closed
+	// ENOENT inside the sandbox — never a HOME bind).
+	const home = os.homedir();
+	const agentDir = process.env.PI_CODING_AGENT_DIR || path.join(home, ".pi", "agent");
+	// Protect the DEFAULT agent dir too: a PI_CODING_AGENT_DIR override moves
+	// the effective dir, but ~/.pi/agent keeps holding real credentials on
+	// default installs — fail closed for both locations.
+	const trustBoundaries = [home, agentDir, path.join(home, ".pi", "agent")];
 	for (let i = 0; i < spec.args.length - 1; i++) {
 		const flag = spec.args[i];
 		if (flag !== "--extension" && flag !== "--skill") continue;
 		const value = spec.args[i + 1];
 		if (!value || !path.isAbsolute(value)) continue;
+		if (crossesUserTrustBoundary(value, trustBoundaries)) continue;
 		binds.add(value);
 		for (let dir = path.dirname(value); dir !== path.dirname(dir); dir = path.dirname(dir)) {
+			// never climb at/above the user trust boundary: the pi agent dir
+			// (auth.json!) and the home dir itself stay unmounted
+			if (crossesUserTrustBoundary(dir, trustBoundaries)) break;
 			binds.add(dir);
 			if (isPackageRoot(dir)) break;
 		}
 	}
 	return [...binds];
+}
+
+/**
+ * True when binding `dir` would mount a trust boundary itself or any
+ * ancestor CONTAINING one (e.g. `dir` == $HOME, ~/.pi, /home, or /) — the
+ * caller must skip/break (fail closed) instead of binding. Comparison goes
+ * through path.relative, which is case-insensitive on win32.
+ */
+function crossesUserTrustBoundary(dir: string, boundaries: string[]): boolean {
+	for (const boundary of boundaries) {
+		const rel = path.relative(dir, boundary);
+		// rel === "" → dir IS the boundary; a rel that stays inside dir (no
+		// ".." prefix, not absolute) → the boundary lives UNDER dir, so
+		// binding dir would mount it.
+		if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return true;
+	}
+	return false;
 }
 
 /** Default package-root probe: a directory carrying package.json (extensions import across their package tree). */

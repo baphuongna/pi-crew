@@ -377,6 +377,10 @@ async function handleRequest(
 	res: http.ServerResponse,
 	ctx: { routes: Map<string, ProviderRoute>; workers: Map<string, WorkerEntry> },
 ): Promise<void> {
+	// Assigned AFTER concurrency admission (step 2b). The catch path releases
+	// the slot for body-read/upstream failures that bypass the normal
+	// response-close settlement; the release itself is idempotent.
+	let releaseSlot: (() => void) | undefined;
 	try {
 		// (0) Provider routing: the FIRST path segment names the provider
 		// ("/anthropic/v1/messages", "/openai/chat/completions"); the broker
@@ -411,12 +415,35 @@ async function handleRequest(
 			deny(res, 429, "too many concurrent inference requests for this worker");
 			return;
 		}
+		// (2b) Take the concurrency slot BEFORE the body read, and release it
+		// EXACTLY once on every post-admission exit path: the "close" handler
+		// covers normal completion, client aborts, and post-admission denies
+		// (deny() ends the response → close fires), and the idempotent guard
+		// makes the explicit catch-path call a no-op when close already fired.
+		// Without the matching increment the >= cap gate above was dead code
+		// (inFlight only ever walked negative after the first response close),
+		// so one valid worker token could hold unbounded concurrent requests —
+		// each buffering up to MAX_BODY_BYTES in parent-process memory — for
+		// the life of the token.
+		worker.inFlight += 1;
+		const usage = new UsageCounter();
+		let settled = false;
+		const settle = (): void => {
+			if (settled) return;
+			settled = true;
+			worker.inFlight -= 1;
+			worker.inputTokens += usage.input;
+			worker.outputTokens += usage.output;
+		};
+		releaseSlot = settle;
+		res.on("close", settle);
 		// (3) Read the request body (bounded).
 		const chunks: Buffer[] = [];
 		let size = 0;
 		for await (const chunk of req) {
 			size += (chunk as Buffer).length;
 			if (size > MAX_BODY_BYTES) {
+				settle();
 				deny(res, 413, "request body too large");
 				return;
 			}
@@ -445,13 +472,8 @@ async function handleRequest(
 		});
 		res.writeHead(upstreamRes.status, outHeaders);
 		worker.requests += 1;
-		const usage = new UsageCounter();
-		const finish = () => {
-			worker.inFlight -= 1;
-			worker.inputTokens += usage.input;
-			worker.outputTokens += usage.output;
-		};
-		res.on("close", finish);
+		// Slot settlement + usage accounting were wired at admission (2b);
+		// "close" fires here on normal completion (res.end / pipe drain).
 		if (!upstreamRes.body) {
 			res.end();
 			return;
@@ -463,6 +485,10 @@ async function handleRequest(
 		});
 		nodeStream.pipe(usage.tee).pipe(res);
 	} catch (error) {
+		// Release the admitted concurrency slot for body-read/upstream failures
+		// (client abort mid-body, fetch throw, ...) — idempotent when the
+		// response close already settled it.
+		releaseSlot?.();
 		logInternalError("inference-broker.forward", undefined, error instanceof Error ? error.message : String(error), "warn");
 		if (!res.headersSent) deny(res, 502, "inference broker upstream failure");
 		else res.destroy();
@@ -647,4 +673,12 @@ export function __resetInferenceBrokerForTests(): void {
  * appears as a map key (constant-time discipline). */
 export function __inferenceBrokerTokenMapKeysForTests(): string[] {
 	return broker ? [...broker.workers.keys()] : [];
+}
+
+/** @internal TESTS ONLY — the live per-worker in-flight counter (looked up
+ * by worker key, never the raw token). Pins the MAX_INFLIGHT_PER_WORKER
+ * admission cap: incremented at admission, exactly one release per settled
+ * request (success, upstream failure, client abort, post-admission deny). */
+export function __inferenceBrokerInFlightForTests(workerKey: string): number | undefined {
+	return broker?.byKey.get(workerKey)?.inFlight;
 }
