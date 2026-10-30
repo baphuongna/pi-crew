@@ -26,7 +26,13 @@ import { appendEvent } from "../event-log/event-log.ts";
 import type { RunModelContext, TeamRunManifest, TeamTaskState } from "../types.ts";
 import { CURRENT_SCHEMA_VERSION } from "../types.ts";
 import { unregisterActiveRun } from "./active-run-registry.ts";
-import { extractTaskArray, loadManifestWithRecovery, loadTasksWithRecovery, loadTasksWithRecoveryAsync } from "./manifest-io.ts";
+import {
+	extractTaskArray,
+	loadManifestWithRecovery,
+	loadTasksWithRecovery,
+	loadTasksWithRecoveryAsync,
+	sanitizeLoadedManifest,
+} from "./manifest-io.ts";
 import { closeSqliteRunStateStore, getSqliteRunStateStore, isSqliteStateBackend, sqliteDbPath } from "./sqlite-run-state.ts";
 
 export { loadManifestWithRecovery, loadTasksWithRecovery } from "./manifest-io.ts";
@@ -1209,18 +1215,22 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 	if (isSqliteStateBackend() && fs.existsSync(sqliteDbPath(stateRoot))) {
 		const loaded = getSqliteRunStateStore(stateRoot).loadManifestAndTasks();
 		if (loaded) {
-			if (loaded.manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+			// N3: same manifest sanitization as the JSON path below (uniform
+			// loader invariant — runKind leaving a loader is always allowlisted).
+			const sanitizedManifest = sanitizeLoadedManifest(loaded.manifest, runId);
+			if (!sanitizedManifest) return undefined;
+			if (sanitizedManifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
 				logInternalError(
 					"state-store",
 					new Error(
-						`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${loaded.manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+						`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${sanitizedManifest.schemaVersion}. Run ${runId} may be incompatible.`,
 					),
 					undefined,
 					"warn",
 				);
 			}
-			if (!validateRunManifestPaths(cwd, runId, loaded.manifest, stateRoot, tasksPath)) return undefined;
-			return { manifest: loaded.manifest, tasks: loaded.tasks };
+			if (!validateRunManifestPaths(cwd, runId, sanitizedManifest, stateRoot, tasksPath)) return undefined;
+			return { manifest: sanitizedManifest, tasks: loaded.tasks };
 		}
 		// No manifest row yet: either a json-created legacy run (mirror exists,
 		// JSON path below serves it) or a pre-birth crash (nothing anywhere —
@@ -1349,8 +1359,13 @@ export function loadRunManifestById(cwd: string, runId: string): { manifest: Tea
 	// — the final stable state is what gets used. Because the retry loop
 	// handles the crash case, we do NOT fail based on this comparison alone.
 	// It does not indicate corruption on its own.
-	// S-01: warn (do not throw) on schemaVersion mismatch — future version
-	// bumps will add migration logic here.
+	// N3: sanitize the disk-loaded manifest (non-object payload → fail closed;
+	// runKind allowlist → unknown normalizes to "team-run" with a warn).
+	manifest = sanitizeLoadedManifest(manifest, runId);
+	// S-01 + N3 note: warn (do not throw) on schemaVersion mismatch — future
+	// version bumps will add migration logic here. WARN-ONLY is deliberate
+	// forward compat (a newer-but-well-formed manifest must still load;
+	// field-level poison is handled by the N3 sanitizers, not version rejection).
 	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
 		logInternalError(
 			"state-store",
@@ -1406,18 +1421,22 @@ export async function loadRunManifestByIdAsync(
 	if (isSqliteStateBackend() && fs.existsSync(sqliteDbPath(stateRoot))) {
 		const loaded = getSqliteRunStateStore(stateRoot).loadManifestAndTasks();
 		if (loaded) {
-			if (loaded.manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
+			// N3: same manifest sanitization as the JSON path below (uniform
+			// loader invariant — runKind leaving a loader is always allowlisted).
+			const sanitizedManifest = sanitizeLoadedManifest(loaded.manifest, runId);
+			if (!sanitizedManifest) return undefined;
+			if (sanitizedManifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
 				logInternalError(
 					"state-store",
 					new Error(
-						`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${loaded.manifest.schemaVersion}. Run ${runId} may be incompatible.`,
+						`Manifest schemaVersion mismatch: expected ${CURRENT_SCHEMA_VERSION}, got ${sanitizedManifest.schemaVersion}. Run ${runId} may be incompatible.`,
 					),
 					undefined,
 					"warn",
 				);
 			}
-			if (!validateRunManifestPaths(cwd, runId, loaded.manifest, stateRoot, tasksPath)) return undefined;
-			return { manifest: loaded.manifest, tasks: loaded.tasks };
+			if (!validateRunManifestPaths(cwd, runId, sanitizedManifest, stateRoot, tasksPath)) return undefined;
+			return { manifest: sanitizedManifest, tasks: loaded.tasks };
 		}
 		// No manifest row yet — fall through to the JSON path (legacy run or
 		// pre-birth crash; see the sync twin above).
@@ -1538,8 +1557,13 @@ export async function loadRunManifestByIdAsync(
 	// handles the crash case, we do NOT fail based on this comparison alone.
 	// It does not indicate corruption on its own.
 
-	// S-01: warn (do not throw) on schemaVersion mismatch — future version
-	// bumps will add migration logic here.
+	// N3: sanitize the disk-loaded manifest (non-object payload → fail closed;
+	// runKind allowlist → unknown normalizes to "team-run" with a warn).
+	manifest = sanitizeLoadedManifest(manifest, runId);
+	// S-01 + N3 note: warn (do not throw) on schemaVersion mismatch — future
+	// version bumps will add migration logic here. WARN-ONLY is deliberate
+	// forward compat (a newer-but-well-formed manifest must still load;
+	// field-level poison is handled by the N3 sanitizers, not version rejection).
 	if (manifest && manifest.schemaVersion !== CURRENT_SCHEMA_VERSION) {
 		logInternalError(
 			"state-store",

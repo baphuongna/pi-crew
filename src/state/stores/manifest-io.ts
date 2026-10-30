@@ -185,6 +185,176 @@ function reconstructTasksFromEventLog(eventsPath: string, runId: string): TeamTa
 }
 
 /**
+ * N3 (security-audit run-1, 2026-10-29 — w9 loader-level hardening):
+ * tasks.json and manifest.json live under the shared-cwd state root, i.e. they
+ * are same-uid writable by WRITE-role workers (verify-gate.ts treats shared-cwd
+ * files as worker-mutable attacker input for exactly this reason). Before this
+ * fix the load seam cast whatever JSON.parse produced straight to
+ * TeamTaskState[]/TeamRunManifest, so poisoned fields flowed into resume /
+ * crash-recovery dispatch as execution authority (forged role →
+ * permissionForRole at pre-execution.ts:248; forged runKind selects the resume
+ * engine at team-tool.ts:673). The validators below are the bounded,
+ * backward-compatible answer: fail-closed on structurally poisoned entries
+ * (drop, never crash the load), permissive on well-formed legacy state.
+ * Provenance/integrity (HMAC) and role re-authorization vs team composition
+ * are explicitly deferred (need secret-management + dispatch-side context).
+ */
+
+/** N3: loader DoG guard — a tasks array beyond this cap is truncated with an
+ * anomaly log. The maxTasksPerRun admission gate (state-store) caps dispatch
+ * cardinality; this bound merely stops an inflated file from dominating load
+ * time / memory before admission ever runs. 10_000 mirrors the default
+ * limits.maxTasksPerRun ceiling. */
+export const MAX_LOADED_TASKS = 10_000;
+
+const MAX_ANOMALY_EXAMPLES = 5;
+
+/** N3: per-entry shape check — a plausible TeamTaskState is a non-null,
+ * non-array object whose id/runId/role/agent/title/status are strings, whose
+ * dependsOn is absent or an array of strings, and whose cwd is absent or a
+ * string. Deliberately shape-only: values (role names, cwd targets, status
+ * enums) are NOT re-authorized here — the loader has no dispatch-side context
+ * for what the approved composition was. */
+function plausibleTaskShape(entry: unknown): entry is TeamTaskState {
+	if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
+	const task = entry as Record<string, unknown>;
+	if (typeof task.id !== "string") return false;
+	if (typeof task.runId !== "string") return false;
+	if (typeof task.role !== "string") return false;
+	if (typeof task.agent !== "string") return false;
+	if (typeof task.title !== "string") return false;
+	if (typeof task.status !== "string") return false;
+	if (task.dependsOn !== undefined) {
+		if (!Array.isArray(task.dependsOn) || task.dependsOn.some((dep) => typeof dep !== "string")) return false;
+	}
+	if (task.cwd !== undefined && typeof task.cwd !== "string") return false;
+	return true;
+}
+
+/**
+ * N3: validate a tasks array loaded from disk before it re-enters dispatch.
+ *
+ * - Entries failing the plausible-shape check are DROPPED with an anomaly log
+ *   (fail-closed on poison) instead of crashing the load or leaking through.
+ * - Entries whose runId does not match the loading run's runId are DROPPED —
+ *   mirrors the w3 DwfStore.load(expectedRunId) binding in
+ *   dwf-state-store.ts: a foreign/stale/planted entry never hydrates as this
+ *   run's execution authority.
+ * - Arrays longer than {@link MAX_LOADED_TASKS} are truncated (DoG guard).
+ *
+ * Clean input is returned UNCHANGED (same array reference, same entry objects)
+ * so legitimate legacy v0/v1 state loads byte-identical.
+ */
+/** @internal — exported for tests pinning the N3 loader contract. */
+export function sanitizeLoadedTasks(tasks: TeamTaskState[], runId: string): TeamTaskState[] {
+	const truncated = tasks.length > MAX_LOADED_TASKS;
+	const limit = truncated ? MAX_LOADED_TASKS : tasks.length;
+	const kept: TeamTaskState[] = [];
+	const shapeInvalid: string[] = [];
+	const foreignRunId: string[] = [];
+	for (let i = 0; i < limit; i++) {
+		const entry: unknown = tasks[i];
+		if (!plausibleTaskShape(entry)) {
+			const id = entry !== null && typeof entry === "object" && !Array.isArray(entry) ? (entry as { id?: unknown }).id : undefined;
+			shapeInvalid.push(typeof id === "string" ? id : `#${i}`);
+			continue;
+		}
+		// RunId binding (entry.runId is a string — the shape check above already
+		// failed entries without one, so legacy entries missing runId cannot
+		// masquerade as this run's tasks either).
+		if (entry.runId !== runId) {
+			foreignRunId.push(entry.id);
+			continue;
+		}
+		kept.push(entry);
+	}
+	if (truncated) {
+		logInternalError(
+			"state-store",
+			new Error(
+				`N3: tasks.json for run ${runId} holds ${tasks.length} entries — beyond the ${MAX_LOADED_TASKS} loader cap. Truncated to the first ${MAX_LOADED_TASKS} (dispatch admission caps are enforced separately).`,
+			),
+			undefined,
+			"error",
+		);
+	}
+	if (shapeInvalid.length > 0) {
+		logInternalError(
+			"state-store",
+			new Error(
+				`N3: ${shapeInvalid.length} task entr${shapeInvalid.length === 1 ? "y" : "ies"} in tasks.json for run ${runId} failed shape validation and ${shapeInvalid.length === 1 ? "was" : "were"} DROPPED (worker-writable state is untrusted input; example id(s): ${shapeInvalid.slice(0, MAX_ANOMALY_EXAMPLES).join(",")}).`,
+			),
+			undefined,
+			"error",
+		);
+	}
+	if (foreignRunId.length > 0) {
+		logInternalError(
+			"state-store",
+			new Error(
+				`N3: ${foreignRunId.length} task entr${foreignRunId.length === 1 ? "y" : "ies"} in tasks.json for run ${runId} carry a foreign runId and ${foreignRunId.length === 1 ? "was" : "were"} DROPPED (runId binding, mirrors DwfStore.load; example id(s): ${foreignRunId.slice(0, MAX_ANOMALY_EXAMPLES).join(",")}).`,
+			),
+			undefined,
+			"error",
+		);
+	}
+	return truncated || shapeInvalid.length > 0 || foreignRunId.length > 0 ? kept : tasks;
+}
+
+/** N3: the run kinds a persisted manifest may legally select. Unknown values
+ * normalize to "team-run" (see sanitizeLoadedManifest) — matching the
+ * `manifest.runKind ?? "team-run"` consumer at team-tool.ts:673, so a poisoned
+ * runKind can only ever select the DEFAULT resume engine. */
+const KNOWN_RUN_KINDS = new Set<string>(["team-run", "goal-loop", "dynamic-workflow"]);
+
+/**
+ * N3: validate a manifest loaded from disk before it re-enters dispatch.
+ *
+ * - A payload that is not a JSON object at all (null/number/string/array) is
+ *   NOT a manifest → undefined (fail-closed; previously the raw cast was
+ *   returned and downstream field access was undefined behavior).
+ * - runKind is checked against {@link KNOWN_RUN_KINDS}: unknown values are
+ *   normalized to "team-run" with a warn anomaly — deliberately NOT a throw,
+ *   so poison degrades to the default engine instead of hiding the run.
+ *   Absent runKind (legacy manifests) passes through unchanged: the consumer
+ *   already defaults it.
+ * - Identity fields (runId/stateRoot/tasksPath/eventsPath/artifactsRoot) are
+ *   intentionally NOT re-checked here — validateRunManifestPaths
+ *   (state-store.ts) already owns that contract.
+ *
+ * Clean input is returned UNCHANGED (same object reference); normalization
+ * returns a shallow copy so parsed/cached objects are never mutated in place.
+ */
+/** @internal — exported for tests pinning the N3 loader contract. */
+export function sanitizeLoadedManifest(manifest: TeamRunManifest | undefined, runId: string): TeamRunManifest | undefined {
+	if (manifest === undefined) return undefined;
+	const raw: unknown = manifest;
+	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+		logInternalError(
+			"state-store",
+			new Error(
+				`N3: manifest.json for run ${runId} parsed to a non-object — not a manifest, failing closed (run treated as corrupt/missing).`,
+			),
+			undefined,
+			"error",
+		);
+		return undefined;
+	}
+	const kind: unknown = (raw as { runKind?: unknown }).runKind;
+	if (kind === undefined) return manifest;
+	if (typeof kind === "string" && KNOWN_RUN_KINDS.has(kind)) return manifest;
+	logInternalError(
+		"state-store",
+		new Error(
+			`N3: manifest runKind ${JSON.stringify(kind)} for run ${runId} is not a known run kind (team-run|goal-loop|dynamic-workflow) — normalizing to 'team-run' so only the default resume engine can be selected.`,
+		),
+		undefined,
+		"warn",
+	);
+	return { ...manifest, runKind: "team-run" };
+}
+
+/**
  * ST-4: Load tasks.json with corruption recovery (sync path).
  *
  * Distinguishes:
@@ -253,6 +423,11 @@ function migrateTasksFile(parsed: unknown, runId: string): TeamTaskState[] {
 		const envelope = parsed as { schemaVersion?: unknown; tasks?: unknown };
 		const detected = typeof envelope.schemaVersion === "number" ? envelope.schemaVersion : 0;
 		if (detected !== CURRENT_TASKS_SCHEMA_VERSION) {
+			// N3 note: schemaVersion mismatch stays WARN-ONLY deliberately —
+			// forward compatibility is a design requirement (a newer-but-
+			// well-formed tasks.json must still load). Field-level poison is
+			// handled by sanitizeLoadedTasks (shape + runId binding + count cap)
+			// downstream, NOT by version rejection.
 			logInternalError(
 				"state-store",
 				new Error(
@@ -279,17 +454,20 @@ export function loadTasksWithRecovery(tasksPath: string, eventsPath: string, run
 		parsed = JSON.parse(content);
 	} catch {
 		// SyntaxError — corrupt file.
-		const reconstructed = recoverCorruptTasks(tasksPath, eventsPath, runId, content);
+		const reconstructed = sanitizeLoadedTasks(recoverCorruptTasks(tasksPath, eventsPath, runId, content), runId);
 		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
 	if (!isRecognizableTasksPayload(parsed)) {
 		// Neither v0 bare array nor v1+ envelope (e.g. `{}`) — corrupt.
-		const reconstructed = recoverCorruptTasks(tasksPath, eventsPath, runId, content);
+		const reconstructed = sanitizeLoadedTasks(recoverCorruptTasks(tasksPath, eventsPath, runId, content), runId);
 		if (reconstructed.length > 0) atomicWriteJson(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
-	return migrateTasksFile(parsed, runId);
+	// N3: fail-closed validation of the migrated array before it re-enters
+	// dispatch (shape-check + runId binding + count cap) — see
+	// sanitizeLoadedTasks above.
+	return sanitizeLoadedTasks(migrateTasksFile(parsed, runId), runId);
 }
 
 /**
@@ -309,8 +487,9 @@ export function loadManifestWithRecovery(manifestPath: string, runId: string): T
 		// ENOENT / ENOTDIR / other read error → legitimate missing run.
 		return undefined;
 	}
+	let parsed: unknown;
 	try {
-		return JSON.parse(content) as TeamRunManifest;
+		parsed = JSON.parse(content);
 	} catch {
 		// SyntaxError → corrupt manifest. Quarantine (preserve for diagnosis) + log,
 		// then treat as missing. Do NOT reconstruct (infeasible from events).
@@ -325,6 +504,25 @@ export function loadManifestWithRecovery(manifestPath: string, runId: string): T
 		);
 		return undefined;
 	}
+	// N3: a payload that parses but is not a JSON object (null/number/string/
+	// array) is not a manifest — fail closed the same way as unparseable
+	// (quarantine for diagnosis, run treated as missing).
+	if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+		quarantineCorruptFile(manifestPath);
+		logInternalError(
+			"state-store",
+			new Error(
+				`STATE-3/N3: manifest.json for run ${runId} is not a JSON object — quarantined to ${manifestPath}.corrupt-*. Run is now treated as missing. Preserve the .corrupt-* file for diagnosis.`,
+			),
+			undefined,
+			"error",
+		);
+		return undefined;
+	}
+	// N3: runKind allowlist — unknown values normalize to "team-run" with a
+	// warn anomaly (never a throw), matching the `?? "team-run"` consumer at
+	// team-tool.ts:673.
+	return sanitizeLoadedManifest(parsed as TeamRunManifest, runId);
 }
 
 /**
@@ -342,14 +540,15 @@ export async function loadTasksWithRecoveryAsync(tasksPath: string, eventsPath: 
 	try {
 		parsed = JSON.parse(content);
 	} catch {
-		const reconstructed = recoverCorruptTasks(tasksPath, eventsPath, runId, content);
+		const reconstructed = sanitizeLoadedTasks(recoverCorruptTasks(tasksPath, eventsPath, runId, content), runId);
 		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
 	if (!isRecognizableTasksPayload(parsed)) {
-		const reconstructed = recoverCorruptTasks(tasksPath, eventsPath, runId, content);
+		const reconstructed = sanitizeLoadedTasks(recoverCorruptTasks(tasksPath, eventsPath, runId, content), runId);
 		if (reconstructed.length > 0) await atomicWriteJsonAsync(tasksPath, reconstructed, { compact: true });
 		return reconstructed;
 	}
-	return migrateTasksFile(parsed, runId);
+	// N3: same fail-closed validation as the sync twin.
+	return sanitizeLoadedTasks(migrateTasksFile(parsed, runId), runId);
 }

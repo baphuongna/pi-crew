@@ -34,7 +34,13 @@ function makeRunFixture(): { tasksPath: string; eventsPath: string; runId: strin
 }
 
 function writeTasks(tasksPath: string, status: string): void {
-	fs.writeFileSync(tasksPath, JSON.stringify([{ id: "t1", runId: "run-r15p1", status }]), "utf-8");
+	// N3 loader hardening: entries must carry a plausible TeamTaskState shape
+	// (id/runId/role/agent/title/status strings) to survive load validation.
+	fs.writeFileSync(
+		tasksPath,
+		JSON.stringify([{ id: "t1", runId: "run-r15p1", role: "executor", agent: "executor", title: "t1", status }]),
+		"utf-8",
+	);
 }
 
 /** Force a detectable mtime change.
