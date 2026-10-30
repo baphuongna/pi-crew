@@ -207,6 +207,9 @@ export async function runLiveTask(input: RunLiveTaskInput): Promise<RunLiveTaskO
 		if (!isCurrent()) return;
 		const now = Date.now();
 		if (!force && now - lastHeartbeatPersistedAt < 1000) return;
+		// FIX-2 note: no pid at write time — live-session workers run IN this
+		// process (no child pid exists); the watcher PID-gate stays unarmed for
+		// live-session tasks (their activity stream is the liveness evidence).
 		task = {
 			...task,
 			heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id)),

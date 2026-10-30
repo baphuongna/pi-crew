@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.11.52] — live-catch backlog: cross-session cancel reaches inline runs + heartbeat-watcher false-positive class (2026-10-30)
+
+**Fixed (runtime, live-caught run `team_20261030044630`).** Two gaps filed as backlog after the
+0.11.51 real-test battery, both root-caused from the incident artifacts (not hypotheses):
+
+1. **Cross-session cancel never reached INLINE async runs.** The foreground-control interrupt guard
+   lived ONLY in background-runner's detached `main()`. Runs executed inline in the owner session
+   process (`executeBackgroundRun` core — also the `PI_CREW_TEST_ASYNC_INLINE` seam) never polled
+   `foreground-control.json`: the incident run had `manifest.async === undefined`, zero `async.*`
+   events, and TWO interrupt requests both stuck `acknowledged:false` while worker 403288 ran ≥75s
+   post-cancel with fresh heartbeats. Fix: guard core extracted as `startRunInterruptGuard` (hosted in
+   `foreground-control.ts` with the producer — keeps the lazy-imports ratchet at 542); detached
+   `startInterruptGuard` is now a thin process-wide wrapper (behavior byte-identical: sweep +
+   stopParentGuard + exitCode 130, pinned by regression tests); `executeBackgroundRun` with no host
+   signal mounts a RUN-SCOPED guard — ack + event + `runController.abort()` ONLY, never
+   `terminateActiveChildPiProcesses()` (a global sweep would murder sibling runs' children in the same
+   host process; pinned by the SCOPED-KILL test with a real registered child). The team-run input now
+   receives the RESOLVED signal — inline runs previously had NO cancellation source at all. Guard
+   stops in a `finally`; ownership deduped by host-signal presence (no double guard).
+2. **heartbeat-watcher false-dead class.** `crew.task.heartbeat_dead` fired 3× for a live worker
+   (heartbeat silent >5min during long tool work, `task.heartbeat.pid` undefined on every task, so the
+   PID-liveness downgrade gate had nothing to read), and `handleRetry` re-queued tasks WITHOUT
+   stripping liveness fields (attempt-2 inherited attempt-1's heartbeat timestamps). Fix: (a) watcher
+   attempt-clamp — heartbeat/`agentProgress` evidence older than the current attempt's `startedAt` is
+   inadmissible; no usable evidence ⇒ elapsed from `startedAt` (a task younger than `deadMs` can never
+   be dead); (b) `handleRetry` strips `heartbeat` + `agentProgress` on re-queue (checkpoint untouched);
+   (c) child-executor pins the attempt's worker pid into `task.heartbeat` (per-attempt reset, guarded
+   spread) so the PID-gate actually functions.
+
+Also: an already-ACKED interrupt no longer warns "Ignoring unknown foreground control request" every
+poll tick until guard stop (verifier-flagged cosmetic, carried over from the pre-extraction guard).
+
+Tests: 5 new `interrupt-guard.test.ts` (inline wiring, post-stop non-consumption, SCOPED-KILL,
+detached regression, acked-silence), `async-runner-inline-interrupt.test.ts` (e2e via the real inline
+seam: mid-run request → ack ≤3s + event + terminal run + no leaked interval), 4 watcher attempt-clamp
+pins (incl. genuinely-stale-still-dead regression + no-startedAt legacy), 2 heartbeat-pid pins, +1
+lifecycle retry-strip. Leader gates: full unit+integration, typecheck, biome, format:check,
+lazy-imports 542, slop 41 — all green.
+
 ## [0.11.51] — SEC-2026-11: security audit remediation (30 confirmed findings + 4 leads, 13 waves) (2026-10-30)
 
 **Fixed (security).** Full remediation of the 2026-10-29 independent security audit (skill security-audit, full

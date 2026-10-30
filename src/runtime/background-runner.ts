@@ -48,6 +48,7 @@ import { writeAsyncStartMarker } from "./async-marker.ts";
 import { parseStdinBrokerPayload, readStdinFirstLine } from "./broker/stdin-handshake.ts";
 import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
+import { startRunInterruptGuard } from "./foreground-control.ts";
 import { resolveCrewRuntime, runtimeResolutionState } from "./model/runtime-resolver.ts";
 import { registryFromModelContext } from "./model/session-model.ts";
 import { unregisterWorker } from "./orphan-worker-registry.ts";
@@ -227,86 +228,47 @@ export function installBackgroundRunnerSigintHandler(abortController: AbortContr
 	});
 }
 
+/**
+ * Process-wide (detached-runner) variant of the interrupt guard. Thin wrapper
+ * over the extracted core in ./foreground-control.ts (FIX-1, live catch run
+ * team_20261030044630): the polling/ack/event semantics live there; THIS
+ * wrapper owns the process-wide consequences only the detached runner may
+ * take (kill ALL child-pi processes, stop the parent guard, exit 130). The
+ * INLINE core (executeBackgroundRun) uses startRunInterruptGuard directly
+ * with a run-scoped onInterrupt instead — it must NEVER take these actions
+ * inside a host process that may own sibling runs.
+ *
+ * Kept exported from background-runner.ts so existing imports/tests
+ * (interrupt-guard-ack.test.ts) keep working unchanged.
+ */
 export function startInterruptGuard(
 	manifest: { runId: string; stateRoot: string; eventsPath: string },
 	abortController: AbortController,
 	stopParentGuard: () => void,
 ): () => void {
-	const controlPath = path.join(manifest.stateRoot, "foreground-control.json");
-	// FIX: Made configurable via PI_CREW_INTERRUPT_GUARD_INTERVAL_MS env var.
-	// PERF (2026-08-24): default 1000ms. Each tick does existsSync + readFileSync
-	// + JSON.parse for the whole background run, and the guard is best-effort
-	// interrupt LATENCY, not a correctness deadline — verified by reading the
-	// trigger body below: a late trigger merely delays the SIGTERM (children are
-	// SIGKILLed after HARD_KILL_MS=3s regardless) and no state machine aborts on
-	// a deadline when the guard fires late. Nothing downstream requires the old
-	// 250ms cadence, so trade up to 4×/s of fs+parse churn for 1×/s.
-	const interruptGuardInterval = Number(getCrewEnv("PI_CREW_INTERRUPT_GUARD_INTERVAL_MS")) || 1000;
-	// RT-4 FIX: Module-local gate so the interrupt body runs only once per
-	// interrupt request. Without this, the guard re-fires every
-	// interruptGuardInterval — each tick does a full
-	// terminateActiveChildPiProcesses sweep + sync appendEvent. The ack write
-	// stops the re-fire; this gate is defense-in-depth if
-	// the ack write fails (e.g. transient fs error).
-	let interruptHandled = false;
-	const interval = setInterval(() => {
-		try {
-			if (!fs.existsSync(controlPath)) return;
-			const parsed = JSON.parse(fs.readFileSync(controlPath, "utf-8")) as {
-				requests?: Array<{ type: string; acknowledged?: boolean }>;
-			};
-			const last = parsed.requests?.at(-1);
-			if (last?.type === "interrupt" && last?.acknowledged !== true) {
-				// RT-4 FIX: Gate ensures the interrupt body runs only once even if
-				// the synchronous ack write below fails.
-				if (interruptHandled) return;
-				interruptHandled = true;
-
-				// RT-4 FIX: Write acknowledged:true back to foreground-control.json
-				// SYNCHRONOUSLY. This stops the guard from re-firing on the next tick
-				// (interruptGuardInterval). Must be sync because this is a setInterval
-				// polling callback — we cannot await in a polling callback.
-				try {
-					const reqs = parsed.requests ?? [];
-					if (reqs.length > 0) {
-						reqs[reqs.length - 1].acknowledged = true;
-						atomicWriteFile(controlPath, JSON.stringify(parsed, null, 2));
-					}
-				} catch {
-					/* best-effort ack — interruptHandled gate prevents re-fire */
-				}
-
-				appendEventBuffered(manifest.eventsPath, {
-					type: "async.interrupt_detected",
-					runId: manifest.runId,
-					message: "Background runner detected foreground interrupt — killing child processes and exiting.",
-				}).catch((e) => logInternalError("background-runner.buffered", e, "type=async.interrupt_detected"));
-				// FIX: Terminate ALL child-pi processes IMMEDIATELY before exiting.
-				// Previously this was missing, causing orphaned child processes to run forever
-				// after the background-runner exited. terminateActiveChildPiProcesses sends
-				// SIGTERM then SIGKILL (after HARD_KILL_MS=3s) to every active child.
-				const killed = terminateActiveChildPiProcesses();
-				console.log(`[background-runner] interrupt: killed ${killed} child processes`);
-				// Also abort the run signal so executeTeamRun exits quickly via its signal check.
-				abortController.abort();
-				// Call stopParentGuard() explicitly in addition to the finally block in
-				// main() — defense-in-depth ensures the guard is torn down promptly.
-				stopParentGuard();
-				// CORE-7 fix: Do NOT call process.exit() — it skips the finally block in
-				// main() (which runs unregisterWorker + stopParentGuard), leaving a stale
-				// orphan registry entry. Setting exitCode lets the event loop drain and
-				// main()'s finally block run cleanup before the process exits naturally
-				// with code 130.
-				process.exitCode = 130;
-			} else if (last) {
-				console.warn(`[background-runner] Ignoring unknown foreground control request: ${last.type}`);
-			}
-		} catch {
-			/* ignore read/parse errors */
-		}
-	}, interruptGuardInterval);
-	interval.unref();
-	return () => clearInterval(interval);
+	return startRunInterruptGuard({
+		manifest,
+		eventMessage: "Background runner detected foreground interrupt — killing child processes and exiting.",
+		onInterrupt: () => {
+			// FIX: Terminate ALL child-pi processes IMMEDIATELY before exiting.
+			// Previously this was missing, causing orphaned child processes to run forever
+			// after the background-runner exited. terminateActiveChildPiProcesses sends
+			// SIGTERM then SIGKILL (after HARD_KILL_MS=3s) to every active child.
+			const killed = terminateActiveChildPiProcesses();
+			console.log(`[background-runner] interrupt: killed ${killed} child processes`);
+			// Also abort the run signal so executeTeamRun exits quickly via its signal check.
+			abortController.abort();
+			// Call stopParentGuard() explicitly in addition to the finally block in
+			// main() — defense-in-depth ensures the guard is torn down promptly.
+			stopParentGuard();
+			// CORE-7 fix: Do NOT call process.exit() — it skips the finally block in
+			// main() (which runs unregisterWorker + stopParentGuard), leaving a stale
+			// orphan registry entry. Setting exitCode lets the event loop drain and
+			// main()'s finally block run cleanup before the process exits naturally
+			// with code 130.
+			process.exitCode = 130;
+		},
+	});
 }
 
 /**
@@ -421,7 +383,15 @@ function runCleanup(
 let exitDueToRejection = false;
 
 export interface ExecuteBackgroundRunOptions {
-	/** Abort signal — the detached runner passes its controller's signal (SIGINT/SIGTERM/watchdog); the inline test seam passes none. */
+	/**
+	 * Abort signal — the detached runner passes its controller's signal
+	 * (SIGINT/SIGTERM/watchdog); the inline test seam passes none.
+	 *
+	 * FIX-1 guard ownership: passing a signal means the HOST owns interrupt
+	 * consumption (detached main() mounts the process-wide guard). Passing
+	 * NONE makes executeBackgroundRun mount its own run-scoped guard and
+	 * abort THIS run on a foreground-control interrupt (see wrapper doc).
+	 */
 	signal?: AbortSignal;
 	/**
 	 * Set PI_CREW_BACKGROUND_MODE=1 (detached-runner observability marker).
@@ -449,19 +419,65 @@ export interface ExecuteBackgroundRunOptions {
  * first-spawn stall (no second process to come up inside a test deadline)
  * and the orphan-tmpdir leak (the run dies with the test process — nothing
  * detached survives to write state after the test's rmSync).
+ *
+ * FIX-1 (live catch, run team_20261030044630_3935473bc4886682): INTERRUPT
+ * GUARD OWNERSHIP. When the host passes opts.signal (the detached runner
+ * does — it mounts the process-wide guard at :959 and forwards its
+ * controller's signal), the host owns interrupt consumption and this core
+ * mounts NOTHING (no double guard on one run). When NO signal is passed
+ * (inline execution in the owner session process), THIS core owns it: it
+ * mounts a run-scoped guard (startRunInterruptGuard) that acks the request,
+ * appends async.interrupt_detected and aborts the run's own controller — and
+ * NEVER sweeps the process (terminateActiveChildPiProcesses would murder
+ * sibling runs' children in the same process; the abort's own cancellation
+ * ladder SIGTERMs this run's children scoped). The guard is stopped in the
+ * finally — no leaked interval, whatever the outcome.
  */
 export async function executeBackgroundRun(
 	input: { manifest: TeamRunManifest; tasks: TeamTaskState[] },
 	opts: ExecuteBackgroundRunOptions = {},
 ): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
+	let signal: AbortSignal;
+	let stopRunInterruptGuard: (() => void) | undefined;
+	if (opts.signal) {
+		// Host-provided signal ⇒ host owns the interrupt guard (detached
+		// main() mounts the process-wide variant). Pass through unchanged.
+		signal = opts.signal;
+	} else {
+		// Inline execution ⇒ this core owns interrupt consumption for its run.
+		// Retain the controller so the guard can abort THIS run only.
+		const runController = new AbortController();
+		signal = runController.signal;
+		stopRunInterruptGuard = startRunInterruptGuard({
+			manifest: input.manifest,
+			eventMessage: `Inline background run detected foreground interrupt — aborting run ${input.manifest.runId}.`,
+			onInterrupt: () => {
+				// INLINE SAFETY: run-scoped abort ONLY. No
+				// terminateActiveChildPiProcesses() (kills EVERY child-pi in the
+				// process — sibling runs in the same owner session would be
+				// murdered), no stopParentGuard (host owns it), no exitCode
+				// (this is not the process's decision). The run's cancellation
+				// ladder SIGTERMs this run's children scoped to the controller.
+				runController.abort();
+			},
+		});
+	}
+	try {
+		return await executeBackgroundRunCore(input, opts, signal);
+	} finally {
+		stopRunInterruptGuard?.();
+	}
+}
+
+async function executeBackgroundRunCore(
+	input: { manifest: TeamRunManifest; tasks: TeamTaskState[] },
+	opts: ExecuteBackgroundRunOptions,
+	signal: AbortSignal,
+): Promise<{ manifest: TeamRunManifest; tasks: TeamTaskState[] }> {
 	const log = opts.log ?? ((message: string) => console.log(message));
 	let manifest = input.manifest;
 	let tasks = input.tasks;
 	const cwd = manifest.cwd;
-	// Inline seam passes no signal — a never-aborted dummy is behaviorally
-	// identical ("no cancellation source") for the goal-loop/dwf/team-run
-	// inputs below that require a non-optional AbortSignal.
-	const signal: AbortSignal = opts.signal ?? new AbortController().signal;
 	debugLog(`[background-runner] about to call discoverAgents`);
 	const agents = allAgents(discoverAgents(cwd));
 	debugLog(`[background-runner] discoverAgents done, ${agents.length} agents`);
@@ -641,7 +657,11 @@ export async function executeBackgroundRun(
 						...restoredModelRouting(manifest),
 						reliability: runConfig.reliability,
 						workspaceId: manifest.ownerSessionId ?? manifest.cwd,
-						signal: opts.signal,
+						// FIX-1: pass the RESOLVED run signal (host's, or the inline
+						// guard-owned controller). Was `signal: opts.signal` — the inline
+						// host got NO cancellation source, so a consumed interrupt could
+						// never abort the executing team run.
+						signal,
 						...(manifest.budgetTotal !== undefined ? { budgetTotal: manifest.budgetTotal } : {}),
 						...(manifest.budgetWarning !== undefined ? { budgetWarning: manifest.budgetWarning } : {}),
 						...(manifest.budgetAbort !== undefined ? { budgetAbort: manifest.budgetAbort } : {}),

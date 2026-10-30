@@ -209,7 +209,21 @@ export async function handleRetry(params: TeamToolParamsValue, ctx: TeamContext,
 		const retriedIds = new Set(matchingTasks.map((t) => t.id));
 		const tasks = fresh.tasks.map((task) => {
 			if (!retriedIds.has(task.id)) return task;
-			const { error: _error, finishedAt: _finishedAt, terminalEvidence: _terminalEvidence, ...rest } = task;
+			// FIX-2 (live catch, run team_20261030044630): also strip the stale
+			// liveness fields — heartbeat-watcher treats evidence older than the
+			// NEXT attempt's startedAt as inadmissible, but the persisted fields
+			// also feed OTHER consumers (UI gradients, reconciler). Attempt-2
+			// must not inherit attempt-1's heartbeat/agentProgress timestamps.
+			// (checkpoint.childPid has its own per-spawn reset semantics in
+			// state-helpers.ts — deliberately untouched here.)
+			const {
+				error: _error,
+				finishedAt: _finishedAt,
+				terminalEvidence: _terminalEvidence,
+				heartbeat: _heartbeat,
+				agentProgress: _agentProgress,
+				...rest
+			} = task;
 			return { ...rest, status: "queued" as const };
 		});
 		saveRunTasks(fresh.manifest, tasks);

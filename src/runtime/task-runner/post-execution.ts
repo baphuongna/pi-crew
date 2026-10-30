@@ -386,6 +386,9 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 			exitCode: null,
 			error: undefined,
 			claim: undefined,
+			// FIX-2 note: no pid at write time — this terminal touch only marks
+			// alive:false on the EXISTING heartbeat (worker already exited); a
+			// live pid is pinned at spawn by child-executor's persistHeartbeat.
 			heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
 			terminalEvidence: terminalEvidence.length ? [...(task.terminalEvidence ?? []), ...terminalEvidence] : task.terminalEvidence,
 			diagnostics: {
@@ -880,6 +883,8 @@ export async function finalizeTaskResult(ctx: TaskExecutionContext, execResult: 
 		...(specGate ? { specGate } : {}),
 		resultArtifact,
 		claim: undefined,
+		// FIX-2 note: no pid at write time — terminal touch, worker already
+		// exited; the live pid was pinned at spawn (child-executor).
 		heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id), { alive: false }),
 		terminalEvidence: terminalEvidence.length ? [...(task.terminalEvidence ?? []), ...terminalEvidence] : task.terminalEvidence,
 		...(logArtifact ? { logArtifact } : {}),

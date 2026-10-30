@@ -639,6 +639,13 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 	let lastRunProgressPersistedAt = 0;
 	let lastTaskProgressPersistedAt = 0;
 	let lastRunProgressSummary: ProgressEventSummary | undefined;
+	// FIX-2 (live catch, run team_20261030044630): the current attempt's worker
+	// pid, pinned by onSpawn below (hoisted to task scope so the
+	// persistHeartbeat closure can pin it into task.heartbeat — see the touch
+	// below). Reset to undefined at the TOP of each model-fallback attempt:
+	// each iteration spawns a fresh worker process, and a dead prior-attempt
+	// pid must never masquerade as this attempt's liveness evidence.
+	let attemptWorkerPid: number | undefined;
 	const persistHeartbeat = (force = false): void => {
 		const now = Date.now();
 		// Skip disk write if throttled (unless forced).
@@ -657,9 +664,21 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			throw err;
 		}
 		// Now update in-memory heartbeat so it is always >= persisted state.
+		// FIX-2: pin the current attempt's worker pid so the heartbeat-watcher
+		// PID-liveness gate (heartbeat?.pid ?? checkpoint?.childPid — it
+		// downgrades dead→stale when the worker process is ALIVE) actually has
+		// something to read for child-process tasks. In the live run every
+		// task.heartbeat had pid:undefined, so a >5min-silent-but-alive worker
+		// could not be vindicated. Guarded: only overwrite when a pid is known —
+		// an unconditional spread would stamp pid:undefined over an
+		// already-pinned pid (call shapes pinned in
+		// child-executor-heartbeat-pid.test.ts).
 		task = {
 			...task,
-			heartbeat: touchWorkerHeartbeat(task.heartbeat ?? createWorkerHeartbeat(task.id)),
+			heartbeat: touchWorkerHeartbeat(
+				task.heartbeat ?? createWorkerHeartbeat(task.id, attemptWorkerPid),
+				attemptWorkerPid !== undefined ? { pid: attemptWorkerPid } : {},
+			),
 		};
 		lastHeartbeatPersistedAt = now;
 	};
@@ -795,7 +814,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 		//   evidence of an in-flight incarnation; touch (fail-open, bounded:
 		//   real spawns pin the pid within ms, and the reconciler's ESRCH
 		//   verdict can never be overridden by a fresh heartbeat).
-		let attemptWorkerPid: number | undefined;
+		// FIX-2: no `let` here — attemptWorkerPid is hoisted to task scope
+		// (persistHeartbeat pins it into task.heartbeat); reset per attempt.
+		attemptWorkerPid = undefined;
 		const heartbeatPulse = startWorkerHeartbeatPulse({
 			intervalMs: resolveHeartbeatPulseIntervalMs(),
 			isAlive: () => {

@@ -397,6 +397,50 @@ describe("before_retry ownership re-check (Security S1)", () => {
 	});
 });
 
+describe("retry liveness hygiene (FIX-2, run team_20261030044630)", () => {
+	beforeEach(() => clearHooksScoped());
+	afterEach(() => clearHooksScoped());
+
+	it("re-queued task carries NO stale heartbeat/agentProgress from the failed attempt", async () => {
+		const run = createRun();
+		try {
+			// Attempt-1 failed with LIVE liveness residue: a heartbeat pinned
+			// minutes before the failure and trailing agentProgress activity. The
+			// live run inherited exactly these timestamps into attempt-2, so fires
+			// referenced pre-retry evidence and the watcher mis-aged the task.
+			saveRunTasks(run.manifest, [
+				{
+					id: "task-1",
+					runId: run.runId,
+					role: "worker",
+					agent: "worker",
+					title: "task",
+					status: "failed",
+					dependsOn: [],
+					cwd: run.cwd,
+					startedAt: "2026-01-01T00:00:00.000Z",
+					finishedAt: "2026-01-01T00:06:00.000Z",
+					error: "original failure",
+					heartbeat: { workerId: "task-1", pid: 424242, lastSeenAt: "2026-01-01T00:05:00.000Z", alive: true },
+					agentProgress: { recentTools: [], recentOutput: [], toolCount: 5, lastActivityAt: "2026-01-01T00:05:30.000Z" },
+				},
+			]);
+			updateRunStatus(run.manifest, "running", "started");
+			const out = await handleRetry({ action: "retry", runId: run.runId }, { cwd: run.cwd, sessionId: "session-a" });
+			assert.equal(out.isError, false);
+			const after = loadRunManifestById(run.cwd, run.runId)!;
+			assert.equal(after.tasks[0].status, "queued");
+			assert.equal(after.tasks[0].heartbeat, undefined, "re-queued task must NOT inherit the failed attempt's heartbeat");
+			assert.equal(after.tasks[0].agentProgress, undefined, "re-queued task must NOT inherit the failed attempt's agentProgress");
+			// The strip is hygiene, not identity loss: the task id/role/agent survive.
+			assert.equal(after.tasks[0].id, "task-1");
+			assert.equal(after.tasks[0].role, "worker");
+		} finally {
+			await removeDirWithRetry(run.cwd);
+		}
+	});
+});
+
 describe("before_cleanup hook", () => {
 	beforeEach(() => clearHooksScoped());
 	afterEach(() => clearHooksScoped());

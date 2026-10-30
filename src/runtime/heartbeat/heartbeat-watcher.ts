@@ -109,21 +109,42 @@ export class HeartbeatWatcher {
 				activeKeys.add(key);
 				this.lastSeen.set(key, now);
 
-				// Check heartbeat staleness with lastActivityAt fallback
-				let elapsed = heartbeatAgeMs(task.heartbeat, now);
+				// FIX-2 (live catch, run team_20261030044630_3935473bc4886682):
+				// attempt-clamp. handleRetry re-queues tasks WITHOUT resetting
+				// liveness fields, so a retry attempt inherited attempt-1's stale
+				// heartbeat/agentProgress timestamps and this watcher fired
+				// heartbeat_dead 3× for a worker that was ALIVE (fresh heartbeats,
+				// active tool calls). Evidence predating the CURRENT attempt's
+				// task.startedAt is meaningless and must be ignored; startedAt is
+				// reset per attempt at dispatch (child-executor attemptStartedAt),
+				// so it is the authoritative attempt boundary.
+				const startedAtMs = task.startedAt !== undefined ? Date.parse(task.startedAt) : Number.NaN;
+				const attemptStartMs = Number.isFinite(startedAtMs) ? startedAtMs : undefined;
+				const evidenceUsable = (iso: string | undefined): boolean => {
+					if (iso === undefined) return false;
+					const ms = Date.parse(iso);
+					return Number.isFinite(ms) && (attemptStartMs === undefined || ms >= attemptStartMs);
+				};
+				// Check heartbeat staleness with lastActivityAt fallback (evidence
+				// older than startedAt is inadmissible — see clamp above).
+				let elapsed = evidenceUsable(task.heartbeat?.lastSeenAt) ? heartbeatAgeMs(task.heartbeat, now) : Number.POSITIVE_INFINITY;
 				// PR #6 partial: use lastActivityAt as fallback when heartbeat is stale
 				// If heartbeat is stale but lastActivityAt is fresher, use activity age instead.
 				// This prevents false-positive dead detection for live-session tasks during long operations.
-				if (task.agentProgress?.lastActivityAt) {
-					const activityAt = new Date(task.agentProgress.lastActivityAt).getTime();
-					if (Number.isFinite(activityAt)) {
-						const activityAge = now - activityAt;
-						// Use activity age if it's fresher than heartbeat age
-						// (no upper bound - if agent has recent activity, trust it even if old)
-						if (activityAge < elapsed) {
-							elapsed = activityAge;
-						}
+				if (evidenceUsable(task.agentProgress?.lastActivityAt)) {
+					const activityAge = now - new Date(task.agentProgress!.lastActivityAt!).getTime();
+					// Use activity age if it's fresher than heartbeat age
+					// (no upper bound - if agent has recent activity, trust it even if old)
+					if (activityAge < elapsed) {
+						elapsed = activityAge;
 					}
+				}
+				// No usable liveness evidence at all → compute elapsed from the
+				// attempt's own start: a task younger than deadMs can never be dead
+				// (previously a missing heartbeat meant elapsed=∞ → instant "dead").
+				// Tasks without startedAt keep the legacy ∞ (unclassifiable).
+				if (!Number.isFinite(elapsed) && attemptStartMs !== undefined) {
+					elapsed = Math.max(0, now - attemptStartMs);
 				}
 				// PID liveness gate: if the worker process is still alive, downgrade
 				// "dead" to "stale". This prevents false positives when the LLM spends
