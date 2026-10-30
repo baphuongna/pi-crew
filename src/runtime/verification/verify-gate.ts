@@ -96,6 +96,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import { getCrewEnvBool, getCrewEnvInt } from "../../config/env-vars.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
+import { assertWorktreePointerTrusted, buildGitSafeEnv, hardenGitArgs } from "../../worktree/git-hardening.ts";
 import type { VerifierPreGateResult } from "./classifier-pre-gate.ts";
 import { executeCommand } from "./verification-gates.ts";
 // Static edge is graph-free: verification-integrity.ts is already in the
@@ -670,14 +671,22 @@ export interface VerifierGateWorkProbe {
  *  non-empty (tracked modifications AND untracked files — an executor's
  *  typical output is new untracked files; build outputs stay gitignored) or
  *  when the probe FAILS (missing/corrupted worktree — fail closed:
- *  unverifiable work must reach the LLM verifier, never a silent skip). */
+ *  unverifiable work must reach the LLM verifier, never a silent skip).
+ *  w9-n4 follow-up: routed through the MED-1 composition (hardenGitArgs +
+ *  buildGitSafeEnv + assertWorktreePointerTrusted) with the same deliberate
+ *  deviation as verify-gate-memo.ts — the pointer-trust assert sits INSIDE
+ *  the try so a corrupted worktree converts to dirty=true (fail closed)
+ *  instead of throwing into the gate flow. */
 export function worktreeHasUncommittedWork(worktreePath: string): boolean {
 	try {
-		const st = execFileSync("git", ["status", "--porcelain"], {
+		assertWorktreePointerTrusted(worktreePath);
+		const st = execFileSync("git", hardenGitArgs(["status", "--porcelain"]), {
 			cwd: worktreePath,
+			env: buildGitSafeEnv("en_US.UTF-8"),
 			stdio: ["ignore", "pipe", "ignore"],
 			encoding: "utf-8",
 			timeout: 10_000,
+			windowsHide: true,
 		});
 		return st.trim().length > 0;
 	} catch {

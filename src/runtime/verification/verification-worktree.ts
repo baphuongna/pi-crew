@@ -26,6 +26,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { getCrewEnv } from "../../config/env-vars.ts";
+import { assertWorktreePointerTrusted, buildGitSafeEnv, hardenGitArgs } from "../../worktree/git-hardening.ts";
 
 export interface VerificationWorktree {
 	/** Absolute path to the pristine worktree directory. */
@@ -40,6 +41,36 @@ export interface VerificationWorktree {
 export function isWorktreeSandboxEnabled(): boolean {
 	const v = getCrewEnv("PI_CREW_VERIFICATION_WORKTREE");
 	return v === "1" || v === "true";
+}
+
+/**
+ * MED-1 / R-A7 (uniformity, w9-n4): the ONLY execFileSync("git", …) site in
+ * this module — every git invocation routes through the same composition
+ * worktree-manager.ts applies via its git() helper (worktree-manager.ts:57-67):
+ *  - hardenGitArgs — `-c core.fsmonitor=false -c core.hooksPath= -c
+ *    core.attributesFile=` prefix neutralizing config-reachable helper
+ *    execution (audit PoC: raw `git status --porcelain` at a repo whose
+ *    config — own or via a hijacked linked-worktree gitdir — sets
+ *    core.fsmonitor spawns the helper in THIS process; hardened argv does not);
+ *  - buildGitSafeEnv — allowlist-sanitized env instead of full host-env
+ *    inheritance (also strips env-injected config: GIT_CONFIG_COUNT etc.);
+ *  - assertWorktreePointerTrusted (R-A3) — fail-closed gitdir-pointer trust
+ *    check paid before EVERY command; no-op for main-repo / non-git cwd,
+ *    throws `worktree corrupted: …` inside a linked worktree whose `.git`
+ *    pointer no longer matches the git registry. The assert runs OUTSIDE the
+ *    execFile call so callers keep their existing throw handling: the sandbox
+ *    precondition check reports `available:false` and cleanup stays best-effort.
+ */
+function hardenedVerificationGit(cwd: string, args: string[], timeout: number): string {
+	assertWorktreePointerTrusted(cwd);
+	return execFileSync("git", hardenGitArgs(args), {
+		cwd,
+		stdio: ["ignore", "pipe", "pipe"],
+		encoding: "utf-8",
+		timeout,
+		env: buildGitSafeEnv("en_US.UTF-8"),
+		windowsHide: true,
+	}).trim();
 }
 
 /**
@@ -62,24 +93,14 @@ export function checkWorktreeSandboxAvailable(cwd: string): { available: true; c
 	try {
 		// Is cwd inside a git repo? `git rev-parse --show-toplevel` errors out
 		// (non-zero exit) when not in a repo. execFileSync throws on non-zero.
-		const toplevel = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-			cwd,
-			stdio: ["ignore", "pipe", "pipe"],
-			encoding: "utf-8",
-			timeout: 5000,
-		}).trim();
+		const toplevel = hardenedVerificationGit(cwd, ["rev-parse", "--show-toplevel"], 5000);
 		if (!toplevel)
 			return {
 				available: false,
 				reason: "git rev-parse returned empty toplevel",
 			};
 		// Current commit SHA (this is what T_snap will pin to).
-		const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
-			cwd,
-			stdio: ["ignore", "pipe", "pipe"],
-			encoding: "utf-8",
-			timeout: 5000,
-		}).trim();
+		const commitSha = hardenedVerificationGit(cwd, ["rev-parse", "HEAD"], 5000);
 		if (!commitSha)
 			return {
 				available: false,
@@ -90,12 +111,7 @@ export function checkWorktreeSandboxAvailable(cwd: string): { available: true; c
 		// the worktree would NOT contain the in-progress edits (T_snap would
 		// pin to a stale commit). Better to fall back + warn than silently
 		// verify against the wrong code.
-		const status = execFileSync("git", ["status", "--porcelain"], {
-			cwd,
-			stdio: ["ignore", "pipe", "pipe"],
-			encoding: "utf-8",
-			timeout: 5000,
-		}).trim();
+		const status = hardenedVerificationGit(cwd, ["status", "--porcelain"], 5000);
 		if (status.length > 0)
 			return {
 				available: false,
@@ -132,16 +148,15 @@ export function prepareVerificationWorktree(cwd: string, commitSha: string): Ver
 		if (cleaned) return;
 		cleaned = true;
 		// Remove the worktree (force = proceed even if it has untracked files).
+		// Runs at the trusted main-repo `cwd` — same placement as worktree-manager
+		// (git(repoRoot, ["worktree", "remove", "--force", …])): the R-A3 assert is
+		// a no-op there and stays fail-closed if `cwd` itself is a hijacked worktree.
 		try {
-			execFileSync("git", ["worktree", "remove", "--force", worktreePath], { cwd, stdio: ["ignore", "pipe", "pipe"], timeout: 5000 });
+			hardenedVerificationGit(cwd, ["worktree", "remove", "--force", worktreePath], 5000);
 		} catch {
 			// Fall back to `git worktree prune` if remove fails (already gone).
 			try {
-				execFileSync("git", ["worktree", "prune"], {
-					cwd,
-					stdio: ["ignore", "pipe", "pipe"],
-					timeout: 5000,
-				});
+				hardenedVerificationGit(cwd, ["worktree", "prune"], 5000);
 			} catch {
 				/* best-effort */
 			}
@@ -154,11 +169,13 @@ export function prepareVerificationWorktree(cwd: string, commitSha: string): Ver
 		}
 	};
 	try {
-		execFileSync("git", ["worktree", "add", "--detach", worktreePath, commitSha], {
-			cwd,
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: 30_000,
-		});
+		// `worktree add` CREATES the new worktree: git itself writes its `.git`
+		// pointer in this very call, so there is no pre-existing worker-writable
+		// pointer at `worktreePath` for assertWorktreePointerTrusted to verify
+		// (its precondition does not exist yet). The R-A3 assert therefore applies
+		// to `cwd` only — the same placement as worktree-manager's createTaskWorktree
+		// (git() helper at the trusted repoRoot cwd). Timeouts/stdio unchanged.
+		hardenedVerificationGit(cwd, ["worktree", "add", "--detach", worktreePath, commitSha], 30_000);
 		return { worktreePath, commitSha, cleanup };
 	} catch (error) {
 		cleanup();

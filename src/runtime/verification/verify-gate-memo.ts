@@ -48,13 +48,14 @@
  * Scope: host-process in-memory Map. Parallel sibling lanes within one host
  * process share it; cross-process persistence is deliberately out of scope.
  */
-import { type ExecFileSyncOptionsWithStringEncoding, execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import { getCrewEnvBool } from "../../config/env-vars.ts";
+import { assertWorktreePointerTrusted, buildGitSafeEnv, hardenGitArgs } from "../../worktree/git-hardening.ts";
 import type { VerifyGateCheck, VerifyGateOutcome } from "./verify-gate.ts";
 
 /** W10-2 kill-switch: PI_CREW_VERIFY_GATE_MEMO beats default ON. */
@@ -69,6 +70,44 @@ export function resolveVerifyGateMemoEnabled(explicit?: boolean): boolean {
 const TREE_HASH_TIMEOUT_MS = 30_000;
 /** `git status --porcelain` probe budget (cheap; a hang must disable, not block). */
 const STATUS_TIMEOUT_MS = 10_000;
+
+/**
+ * MED-1 / R-A7 (uniformity, w9-n4): the ONLY execFileSync("git", …) site in
+ * this module — every git invocation routes through the same composition
+ * worktree-manager.ts applies via its git() helper (worktree-manager.ts:57-67):
+ *  - hardenGitArgs — `-c core.fsmonitor=false -c core.hooksPath= -c
+ *    core.attributesFile=` prefix neutralizing config-reachable helper
+ *    execution (audit PoC: raw `git status --porcelain` / `git add -A` at a
+ *    repo whose config — own, env-injected, or via a hijacked linked-worktree
+ *    gitdir — sets core.fsmonitor spawns the helper in THIS process);
+ *  - buildGitSafeEnv — allowlist-sanitized env instead of the full
+ *    `{ ...process.env }` inheritance (strips env-injected config such as
+ *    GIT_CONFIG_COUNT/GIT_CONFIG_KEY_/GIT_CONFIG_VALUE_ pairs); the caller's
+ *    PRIVATE temp index (GIT_INDEX_FILE) is layered on top when hashing;
+ *  - assertWorktreePointerTrusted (R-A3) — fail-closed gitdir-pointer trust
+ *    check paid before EVERY command; no-op for main-repo / non-git cwd.
+ *
+ * DEVIATION from worktree-manager (deliberate, documented): there the assert
+ * throws OUTSIDE the execFile try so callers land in "worktree corrupted"
+ * handling; this module's pre-existing contract converts EVERY git failure
+ * into a fail-closed "measurement unavailable" (undefined OID / dirty=true —
+ * see the SAFETY MODEL header), so the assert is invoked INSIDE each caller's
+ * try: a corrupted worktree disables the memo / omits the binding instead of
+ * throwing into the gate flow. Behavior is unchanged for every trusted cwd.
+ */
+function hardenedMemoGit(cwd: string, args: string[], opts: { timeout: number; gitIndexFile?: string }): string {
+	assertWorktreePointerTrusted(cwd);
+	const safeEnv = buildGitSafeEnv("en_US.UTF-8");
+	const env = opts.gitIndexFile === undefined ? safeEnv : { ...safeEnv, GIT_INDEX_FILE: opts.gitIndexFile };
+	return execFileSync("git", hardenGitArgs(args), {
+		cwd,
+		env,
+		stdio: ["ignore", "pipe", "ignore"],
+		encoding: "utf-8",
+		timeout: opts.timeout,
+		windowsHide: true,
+	});
+}
 
 function isValidTreeOid(oid: string): boolean {
 	return /^[0-9a-f]{40}$/.test(oid) || /^[0-9a-f]{64}$/.test(oid);
@@ -87,18 +126,12 @@ function isValidTreeOid(oid: string): boolean {
 export function computeWorkspaceTreeOid(cwd: string): string | undefined {
 	const tmpIndex = path.join(os.tmpdir(), `pi-crew-vgtree-${process.pid}-${crypto.randomUUID()}`);
 	try {
-		const opts: ExecFileSyncOptionsWithStringEncoding = {
-			cwd,
-			env: { ...process.env, GIT_INDEX_FILE: tmpIndex },
-			stdio: ["ignore", "pipe", "ignore"],
-			encoding: "utf-8",
-			timeout: TREE_HASH_TIMEOUT_MS,
-		};
-		execFileSync("git", ["read-tree", "--empty"], opts);
+		const idxOpts = { timeout: TREE_HASH_TIMEOUT_MS, gitIndexFile: tmpIndex };
+		hardenedMemoGit(cwd, ["read-tree", "--empty"], idxOpts);
 		// Stages tracked modifications + untracked files (gitignores respected)
 		// into the PRIVATE temp index — the caller's index is never written.
-		execFileSync("git", ["add", "-A"], opts);
-		const oid = execFileSync("git", ["write-tree"], opts).trim();
+		hardenedMemoGit(cwd, ["add", "-A"], idxOpts);
+		const oid = hardenedMemoGit(cwd, ["write-tree"], idxOpts).trim();
 		return isValidTreeOid(oid) ? oid : undefined;
 	} catch {
 		return undefined;
@@ -127,23 +160,19 @@ export function computeWorkspaceTreeOid(cwd: string): string | undefined {
 export function computeTrackedTreeOid(cwd: string): string | undefined {
 	const tmpIndex = path.join(os.tmpdir(), `pi-crew-vgtree-${process.pid}-${crypto.randomUUID()}`);
 	try {
-		const opts: ExecFileSyncOptionsWithStringEncoding = {
-			cwd,
-			env: { ...process.env, GIT_INDEX_FILE: tmpIndex },
-			stdio: ["ignore", "pipe", "ignore"],
-			encoding: "utf-8",
-			timeout: TREE_HASH_TIMEOUT_MS,
-		};
+		const idxOpts = { timeout: TREE_HASH_TIMEOUT_MS, gitIndexFile: tmpIndex };
 		try {
-			execFileSync("git", ["read-tree", "HEAD"], opts);
+			hardenedMemoGit(cwd, ["read-tree", "HEAD"], idxOpts);
 		} catch {
-			// No HEAD yet (fresh repo): the tracked set is empty.
-			execFileSync("git", ["read-tree", "--empty"], opts);
+			// No HEAD yet (fresh repo): the tracked set is empty. (A corrupted
+			// worktree also lands here first — the retry asserts again and the
+			// OUTER catch converts it to the fail-closed undefined below.)
+			hardenedMemoGit(cwd, ["read-tree", "--empty"], idxOpts);
 		}
 		// Updates tracked files to their WORKING-TREE content (mods + deletions);
 		// untracked files stay out by definition of -u.
-		execFileSync("git", ["add", "-u"], opts);
-		const oid = execFileSync("git", ["write-tree"], opts).trim();
+		hardenedMemoGit(cwd, ["add", "-u"], idxOpts);
+		const oid = hardenedMemoGit(cwd, ["write-tree"], idxOpts).trim();
 		return isValidTreeOid(oid) ? oid : undefined;
 	} catch {
 		return undefined;
@@ -161,12 +190,7 @@ export function computeTrackedTreeOid(cwd: string): string | undefined {
  *  (git unavailable/hangs — absence of proof of cleanliness is dirt). */
 export function workingTreeDirty(cwd: string): boolean {
 	try {
-		const st = execFileSync("git", ["status", "--porcelain"], {
-			cwd,
-			stdio: ["ignore", "pipe", "ignore"],
-			encoding: "utf-8",
-			timeout: STATUS_TIMEOUT_MS,
-		});
+		const st = hardenedMemoGit(cwd, ["status", "--porcelain"], { timeout: STATUS_TIMEOUT_MS });
 		return st.trim().length > 0;
 	} catch {
 		return true;
@@ -177,12 +201,7 @@ export function workingTreeDirty(cwd: string): boolean {
  *  undefined = probe failed (callers decide their own fail direction). */
 function trackedWorkingTreeClean(cwd: string): boolean | undefined {
 	try {
-		const st = execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
-			cwd,
-			stdio: ["ignore", "pipe", "ignore"],
-			encoding: "utf-8",
-			timeout: STATUS_TIMEOUT_MS,
-		});
+		const st = hardenedMemoGit(cwd, ["status", "--porcelain", "--untracked-files=no"], { timeout: STATUS_TIMEOUT_MS });
 		return st.trim().length === 0;
 	} catch {
 		return undefined;
