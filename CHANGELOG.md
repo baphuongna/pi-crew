@@ -141,7 +141,21 @@ audit's NEEDS-VALIDATION.md.
 instead of returning silently — the silent return turned a legit wait-timeout into a far-away
 `TypeError: Cannot read properties of undefined (reading 'taskId')` on `preGateEvents(...)[0]!` (the [pg-10]
 CI flake: 2 Node-22 shards, run 40797688830, 2026-10-29; rerun green). A timeout now fails AT the wait site
-with diagnostics (found vs expected `task.verifier_pre_gate` events, eventsPath, budget). Bug-030 RCA backlog item.
+with diagnostics (found vs expected `task.verifier_pre_gate` events, eventsPath, budget).
+
+**Bug-030 RCA (closed 2026-10-30): CI-runner I/O starvation, not an append-path bug.** Traced the full
+delivery chain: `appendEventAsync` → per-path `asyncQueues` (in-process promise chain) →
+`withEventLogLockAsync` (mkdir O_EXCL, 50ms retry, **5s lock timeout**) → `.seqlock` reserve → `appendFile`,
+gated by the fire-and-forget `void` + best-effort `.catch` in `classifyVerifierPreGate`. The [pg-10] test has
+no cross-process contention (per-test tmpdir, one process per test file), so lock acquisition is instant —
+the missed wait was the append landing AFTER the old 3s wall-clock budget but well inside the 5s lock
+timeout (the drop-path needs the lock timeout to throw AND be swallowed — a runner freeze, and the event
+is best-effort diagnostic by design). The [pg-10] family has not recurred since (8 subsequent CI runs, incl.
+v0.11.51/0.11.52 matrices). Hardened deterministically: `waitForPreGateEvents` now DRAINS the in-process
+append queue each poll (`drainEventLogWriters(eventsPath)` — awaits the ACTUAL append instead of racing
+wall-clock) and the budget is 10s — strictly above the 5s lock timeout, so a throw semantically means
+"append dropped or failed", never merely "slower than 3s". New pin `[pg-11]`: the helper rejects with
+diagnostics when nothing ever lands (never silent, never false-pass).
 
 ## [0.11.50] — LOW-1: PI_CREW_BROKER_STDIN fd3 handshake DEFAULT-ON ('0' opts out) (2026-10-28)
 

@@ -40,7 +40,7 @@ import {
 	VERIFIER_PRE_GATE_BLOCK_CONFIDENCE_THRESHOLD,
 	VERIFIER_PRE_GATE_BLOCK_SCORE_THRESHOLD,
 } from "../../../../src/runtime/verification/classifier-pre-gate.ts";
-import { readEvents } from "../../../../src/state/event-log/event-log.ts";
+import { drainEventLogWriters, readEvents } from "../../../../src/state/event-log/event-log.ts";
 import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 import { cleanupStateRoot } from "../../../helpers/rm-retry.ts";
 
@@ -131,21 +131,35 @@ function preGateEvents(eventsPath: string) {
 }
 
 /** The gate's event append is fire-and-forget — poll briefly for the writes.
- * THROWS on timeout (bug-030 backlog, 2026-10-29): the silent return let the
+ * THROWS on timeout (bug-030, 2026-10-29): the silent return let the
  * caller's `preGateEvents(...)[0]!` explode as a far-away TypeError — the
- * [pg-10] CI flake (2 Node-22 shards, run 40797688830). A timeout is a real
- * failure condition (the fire-and-forget append did not land within the
- * budget — runner I/O starvation or an append-path regression), so it must
- * fail AT the wait site with the counts + path, never downstream. */
-async function waitForPreGateEvents(eventsPath: string, count: number, timeoutMs = 3000): Promise<void> {
+ * [pg-10] CI flake (2 Node-22 shards, run 40797688830).
+ *
+ * BUG-030 RCA (closed 2026-10-30): append path is appendEventAsync → per-path
+ * asyncQueues (in-process chain) → withEventLogLockAsync (mkdir O_EXCL, 50ms
+ * retry, 5s lock timeout) → .seqlock reserve → appendFile, with the promise
+ * `void`-ed + `.catch(() => {})` in classifyVerifierPreGate. In THIS test there
+ * is no cross-process contention (per-test tmpdir, one process per test file),
+ * so the [pg-10] miss was CI-runner I/O STARVATION delay — the append landed
+ * after the old 3s wall-clock budget but well inside the 5s lock timeout
+ * (drop-path requires the lock timeout to throw AND be swallowed — possible
+ * only under a runner freeze, and the event is best-effort by design).
+ * Fix here: DRAIN the in-process append queue each poll (await the ACTUAL
+ * append instead of racing wall-clock) and raise the budget to 10s — now
+ * strictly above the 5s lock timeout, so a throw semantically means
+ * "append dropped or failed", never merely "slower than 3s". */
+async function waitForPreGateEvents(eventsPath: string, count: number, timeoutMs = 10_000): Promise<void> {
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
+		// Deterministic: await the in-flight/queued appends for THIS path first,
+		// then read the log — the poll converges when the append truly completes.
+		await drainEventLogWriters(eventsPath);
 		if (preGateEvents(eventsPath).length >= count) return;
 		await new Promise((resolve) => setTimeout(resolve, 25));
 	}
 	const found = preGateEvents(eventsPath).length;
 	throw new Error(
-		`waitForPreGateEvents: expected >= ${count} task.verifier_pre_gate event(s) at ${eventsPath} within ${timeoutMs}ms — found ${found} (fire-and-forget append did not land; runner I/O starvation or an append-path regression)`,
+		`waitForPreGateEvents: expected >= ${count} task.verifier_pre_gate event(s) at ${eventsPath} within ${timeoutMs}ms — found ${found} (budget > 5s event-log lock timeout: the fire-and-forget append was DROPPED or failed — lock-timeout throw swallowed by the best-effort catch, or an append-path regression)`,
 	);
 }
 
@@ -405,6 +419,24 @@ test("[pg-10] taskId optional (goal-loop judge is not a task) — event omits it
 		await waitForPreGateEvent(eventsPath);
 		const event = preGateEvents(eventsPath)[0]!;
 		assert.equal(event.taskId, undefined, "no taskId on the diagnostic event when omitted");
+	} finally {
+		restoreEnv(prev);
+		await cleanupStateRoot(path.dirname(eventsPath), eventsPath);
+	}
+});
+
+test("[pg-11] bug-030 pin: waitForPreGateEvents THROWS (with diagnostics) when the append never lands", async () => {
+	const prev = saveEnv();
+	scrubEnv();
+	__test__resetClassifierLogOnce();
+	// Fresh empty events log — no classify call, so no pre-gate event will EVER
+	// land. The helper must reject with the diagnostic message (counts + path +
+	// drop semantics), never return silently (the original bug-030 far-away
+	// TypeError) and never resolve as a false pass.
+	const eventsPath = makeEventsPath();
+	try {
+		await assert.rejects(waitForPreGateEvents(eventsPath, 1, 150), /fire-and-forget append was DROPPED or failed/);
+		assert.equal(preGateEvents(eventsPath).length, 0, "no event may materialize from the wait itself");
 	} finally {
 		restoreEnv(prev);
 		await cleanupStateRoot(path.dirname(eventsPath), eventsPath);
