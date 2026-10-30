@@ -4,7 +4,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "@sinclair/typebox";
 import { getCrewEnv } from "../config/env-vars.ts";
 import { defineTool, type ToolDefinition } from "../extension/pi-api.ts";
-import { type ChildBrokerClientHandle, startChildBrokerClientAsync } from "../runtime/broker/crew-broker-child.ts";
+import {
+	type ChildBrokerClientHandle,
+	resolvedChildBrokerCreds,
+	startChildBrokerClientAsync,
+} from "../runtime/broker/crew-broker-child.ts";
 import { CrewBrokerClient } from "../runtime/broker/crew-broker-client.ts";
 import { hasLiveControlRealtimeListeners } from "../runtime/live-session/live-control-realtime.ts";
 import {
@@ -566,9 +570,20 @@ export function createDelegateTool(deps: DelegateToolDeps = {}): DelegateToolDef
 			}
 			const taskId = get(PI_CREW_TASK_ID_ASK_ENV) ?? get(PI_CREW_BROKER_TASK_ID_ASK_ENV);
 			const stateRoot = get(PI_CREW_STATE_ROOT_ENV);
-			const socketPath = get(PI_CREW_BROKER_SOCKET_ASK_ENV);
-			const token = get(PI_CREW_BROKER_TOKEN_ASK_ENV);
-			const runId = get(PI_CREW_BROKER_RUN_ID_ASK_ENV);
+			let socketPath = get(PI_CREW_BROKER_SOCKET_ASK_ENV);
+			let token = get(PI_CREW_BROKER_TOKEN_ASK_ENV);
+			let runId = get(PI_CREW_BROKER_RUN_ID_ASK_ENV);
+			// LOW-1 guard closure (2026-10-30): under the default-on fd3 route the
+			// token is deliberately NOT in env — bridge from the bootstrap-resolved
+			// creds (matching task identity) instead of mis-reporting "no broker".
+			if (!token) {
+				const creds = await resolvedChildBrokerCreds();
+				if (creds && creds.taskId === taskId) {
+					token ??= creds.token;
+					socketPath ??= creds.socketPath;
+					runId ??= creds.runId;
+				}
+			}
 			// delegate-auth: name the ACTUALLY-missing vars and distinguish the two
 			// no-creds shapes instead of a catch-all that blames all four:
 			//   (a) identity present + socket/token absent — nested-host run: the
@@ -933,9 +948,19 @@ export function createAskTool(deps: AskToolDeps = {}): AskToolDefinition {
 				);
 			}
 			const stateRoot = get(PI_CREW_STATE_ROOT_ENV);
-			const socketPath = get(PI_CREW_BROKER_SOCKET_ASK_ENV);
-			const token = get(PI_CREW_BROKER_TOKEN_ASK_ENV);
-			const runId = get(PI_CREW_BROKER_RUN_ID_ASK_ENV);
+			let socketPath = get(PI_CREW_BROKER_SOCKET_ASK_ENV);
+			let token = get(PI_CREW_BROKER_TOKEN_ASK_ENV);
+			let runId = get(PI_CREW_BROKER_RUN_ID_ASK_ENV);
+			// LOW-1 guard closure (2026-10-30): same bridge as delegate — the fd3
+			// route keeps the token out of env; use the bootstrap-resolved creds.
+			if (!token) {
+				const creds = await resolvedChildBrokerCreds();
+				if (creds && creds.taskId === taskId) {
+					token ??= creds.token;
+					socketPath ??= creds.socketPath;
+					runId ??= creds.runId;
+				}
+			}
 			// FAST-FAIL (packet step 1): scaffold/mock mode = no real broker — a
 			// structured notice, NEVER a hang. stateRoot is required by the poll
 			// path, so it is checked here too.

@@ -27,6 +27,7 @@
 import { createHash } from "node:crypto";
 import { type Static, Type } from "@sinclair/typebox";
 import { getCrewEnv } from "../config/env-vars.ts";
+import { resolvedChildBrokerCreds } from "../runtime/broker/crew-broker-child.ts";
 import { CrewBrokerClient } from "../runtime/broker/crew-broker-client.ts";
 
 export const PI_CREW_MSG_ENABLED_ENV = "PI_CREW_MSG_ENABLED";
@@ -166,18 +167,28 @@ export function createMessageTool(deps: MessageToolDeps = {}): MessageTool {
 					text: "[message] rate-limited (10 messages/minute) — this message was NOT sent; include the note in your final result instead.",
 				};
 			}
-			const runId = get("PI_CREW_BROKER_RUN_ID") ?? "";
-			const taskId = get("PI_CREW_TASK_ID") ?? get("PI_CREW_BROKER_TASK_ID") ?? "";
-			const socketPath = get("PI_CREW_BROKER_SOCKET") ?? "";
-			const token = get("PI_CREW_BROKER_TOKEN") ?? "";
+			const taskId0 = get("PI_CREW_TASK_ID") ?? get("PI_CREW_BROKER_TASK_ID") ?? "";
+			let runId = get("PI_CREW_BROKER_RUN_ID") ?? "";
+			let socketPath = get("PI_CREW_BROKER_SOCKET") ?? "";
+			let token = get("PI_CREW_BROKER_TOKEN") ?? "";
+			// LOW-1 guard closure (2026-10-30): bridge to the fd3-resolved creds when
+			// the env token is deliberately absent (default-on fd3 route).
+			if (!token) {
+				const creds = await resolvedChildBrokerCreds();
+				if (creds && creds.taskId === taskId0) {
+					token = creds.token;
+					runId = runId || creds.runId;
+					socketPath = socketPath || creds.socketPath;
+				}
+			}
 			const client = deps.makeBrokerClient
-				? deps.makeBrokerClient({ runId, taskId, socketPath, token })
+				? deps.makeBrokerClient({ runId, taskId: taskId0, socketPath, token })
 				: (() => {
 						// Production: the broker credentials are only present for
 						// broker-eligible workers (child-pi-spawn). Scaffold/mock
 						// workers fast-fail with a structured notice, never a hang.
-						if (!runId || !taskId || !socketPath || !token) return null;
-						return new CrewBrokerClient({ runId, taskId, socketPath, token });
+						if (!runId || !taskId0 || !socketPath || !token) return null;
+						return new CrewBrokerClient({ runId, taskId: taskId0, socketPath, token });
 					})();
 			if (!client) return brokerUnavailable();
 			// R6-6: stable requestId (idempotency across retries) + explicit
@@ -188,7 +199,7 @@ export function createMessageTool(deps: MessageToolDeps = {}): MessageTool {
 				body: params.body,
 				requestId: computeMessageRequestId({
 					runId,
-					taskId,
+					taskId: taskId0,
 					to: params.to,
 					kind: params.kind,
 					body: params.body,

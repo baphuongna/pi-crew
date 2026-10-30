@@ -26,6 +26,34 @@ export interface ChildBrokerClientHandle {
 	close(): Promise<void>;
 }
 
+/** LOW-1 guard closure (2026-10-30, live-caught by the real-test battery):
+ * credentials resolved from the fd3 handshake pipe, for the worker-side
+ * tool guards (ask/delegate/message in prompt-runtime + message-tool). Under
+ * the DEFAULT-ON fd3 route the token is DELIBERATELY absent from env
+ * (sanitizeEnvSecrets posture) — the tools must not treat env-token absence
+ * as "no broker" when the bootstrap already resolved a token off fd3. */
+export interface ResolvedChildBrokerCreds {
+	socketPath: string;
+	token: string;
+	runId: string;
+	taskId: string;
+}
+
+let resolvedCreds: Promise<ResolvedChildBrokerCreds | undefined> = Promise.resolve(undefined);
+
+/** The fd3-resolved credentials, or undefined when the bootstrap never
+ *  resolved any (scaffold/mock runs, opt-out env route — env-route runs keep
+ *  their token in env and never need this). Settles with the bootstrap's own
+ *  bounded (≤2s) fd3 read; never rejects. */
+export function resolvedChildBrokerCreds(): Promise<ResolvedChildBrokerCreds | undefined> {
+	return resolvedCreds;
+}
+
+/** @internal Test seam: install a settled resolved-creds value. */
+export function __test_setResolvedChildBrokerCreds(creds: ResolvedChildBrokerCreds | undefined): void {
+	resolvedCreds = Promise.resolve(creds);
+}
+
 export interface StartChildBrokerClientOptions {
 	/** Env source (defaults to process.env). */
 	env?: NodeJS.ProcessEnv;
@@ -157,6 +185,10 @@ export async function startChildBrokerClientAsync(options: StartChildBrokerClien
 			const token = payload?.socketPath === socketPath ? payload.tasks[taskId] : undefined;
 			if (token) {
 				env = { ...env, PI_CREW_BROKER_TOKEN: token };
+				// LOW-1 guard closure: publish the resolved creds so the ask/delegate/
+				// message tool guards (which read env) can bridge to the fd3 token
+				// instead of mis-reporting "no broker" under the default-on route.
+				resolvedCreds = Promise.resolve({ socketPath, token, runId, taskId });
 			}
 		} catch {
 			/* best-effort: fall through creds-less (previous behavior) */
