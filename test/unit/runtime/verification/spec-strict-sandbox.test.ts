@@ -43,8 +43,16 @@ const SANDBOX_EXEC_OK = await (async () => {
 		return false;
 	}
 })();
-const skipIfNoUserns = (t: { skip: (msg: string) => void }) => {
-	if (!SANDBOX_EXEC_OK) return t.skip("unshare -rn unavailable on this host — strict checks fail closed here by design (B4-g)");
+/** Returns TRUE when the host cannot sandbox (test must RETURN immediately):
+ * node:test's t.skip() only ANNOTATES — the body keeps running and its
+ * asserts then fail on unsandboxed hosts (live-caught windows CI: the suite
+ * parent counted the failed-but-skipped child as a failure → red shard). */
+const skipIfNoUserns = (t: { skip: (msg: string) => void }): boolean => {
+	if (!SANDBOX_EXEC_OK) {
+		t.skip("unshare -rn unavailable on this host — strict checks fail closed here by design (B4-g)");
+		return true;
+	}
+	return false;
 };
 const REAL_HOME = process.env.HOME;
 const REAL_USERPROFILE = process.env.USERPROFILE;
@@ -153,7 +161,7 @@ test("sandbox env: scrubber RESULT is authoritative (round-1: merge-back resurre
 // ── Executable sandbox (Linux; fail-closed elsewhere) ─────────────────────
 
 test("sandbox: deterministic command passes digest+exit check", async (t) => {
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const cwd = makeCwd();
 	try {
 		const out = await runSpecCheck(
@@ -168,14 +176,14 @@ test("sandbox: deterministic command passes digest+exit check", async (t) => {
 });
 
 test("sandbox: digest mismatch fails the check (digest-only payload)", async (t) => {
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const out = await runSpecCheck({ command: "printf tampered", expectedDigest: "0".repeat(64) }, { cwd: os.tmpdir() });
 	assert.equal(out.outcome, "digest-mismatch");
 	assert.match(out.actualDigest ?? "", /^[0-9a-f]{64}$/, "actual digest present, raw output never persisted");
 });
 
 test("sandbox: exit-code mismatch fails the check (compound commands keep shell semantics)", async (t) => {
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const out = await runSpecCheck(
 		{ command: "printf nope; exit 7", expectedDigest: undefined, expectedExitCode: 0 },
 		{ cwd: os.tmpdir() },
@@ -185,7 +193,7 @@ test("sandbox: exit-code mismatch fails the check (compound commands keep shell 
 });
 
 test("sandbox: wall-clock timeout kills the process GROUP (SIGTERM→SIGKILL escalation)", async (t) => {
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const out = await runSpecCheck({ command: "sleep 300" }, { cwd: os.tmpdir(), limits: { wallClockMs: 800, sigkillGraceMs: 200 } });
 	assert.equal(out.outcome, "timeout");
 	assert.ok(out.durationMs < 10_000, `killed promptly (durationMs=${out.durationMs})`);
@@ -204,7 +212,7 @@ test("sandbox: non-Linux platform fails closed (no unshare equivalent — platfo
 });
 
 test("sandbox: network is isolated — outbound TCP connect fails inside unshare -rn", { timeout: 30_000 }, async (t) => {
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const probe = `bash -c 'exec 3<>/dev/tcp/1.1.1.1/80'`;
 	const out = await runSpecCheck({ command: probe, expectedExitCode: 0 }, { cwd: os.tmpdir() });
 	assert.equal(out.outcome, "exit-mismatch", "TCP connect failed inside the isolated netns");
@@ -212,7 +220,7 @@ test("sandbox: network is isolated — outbound TCP connect fails inside unshare
 });
 
 test("sandbox: survivor processes are group-killed on a PASSING check (round-1)", { timeout: 20_000 }, async (t) => {
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const cwd = makeCwd();
 	try {
 		const marker = path.join(cwd, "survivor-marker");
@@ -226,7 +234,7 @@ test("sandbox: survivor processes are group-killed on a PASSING check (round-1)"
 });
 
 test("sandbox: output-capped is a DISTINCT outcome — capped stdout + expectedDigest never fake-compares (round-1)", async (t) => {
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const out = await runSpecCheck(
 		{ command: `head -c 3000000 /dev/zero | tr '\\0' 'x'`, expectedDigest: "f".repeat(64) },
 		{ cwd: os.tmpdir(), limits: { maxOutputBytes: 1024 * 1024 } },
@@ -239,7 +247,7 @@ test("sandbox: output-capped is a DISTINCT outcome — capped stdout + expectedD
 
 test("strict: user-minted spec + idempotent digest check → machine-check passes", async (t) => {
 	if (!IS_LINUX) return t.skip("non-Linux");
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const cwd = makeCwd();
 	try {
 		const snap = mintAndFreeze(cwd, strictSpec());
@@ -297,7 +305,7 @@ test("strict NEGATIVE AC 2: hand-forged WORKSPACE json+sidecar pair ALSO degrade
 
 test("strict TOCTOU (round-1): post-freeze sidecar deletion cannot change a running task's trust", async (t) => {
 	if (!IS_LINUX) return t.skip("non-Linux");
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const cwd = makeCwd();
 	try {
 		const snap = mintAndFreeze(cwd, strictSpec());
@@ -370,7 +378,7 @@ test("strict: must without command → degraded-no-command (cannot machine-check
 
 test("strict: digest mismatch in a trusted idempotent check FAILS the gate (B4 strict)", async (t) => {
 	if (!IS_LINUX) return t.skip("non-Linux");
-	skipIfNoUserns(t);
+	if (skipIfNoUserns(t)) return;
 	const cwd = makeCwd();
 	try {
 		const record = strictSpec({ acceptance: [{ ...strictSpec().acceptance[0], expectedDigest: "f".repeat(64) }] });
