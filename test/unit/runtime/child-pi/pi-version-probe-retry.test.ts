@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-	PROBE_FAILURE_RETRY_TTL_MS,
 	__test_resetPiVersionMemo,
-	probePiVersion,
 	type ExecPiVersionFn,
+	PROBE_FAILURE_RETRY_TTL_MS,
+	probePiVersion,
 } from "../../../../src/runtime/child-pi/pi-version.ts";
 
 const failExec: ExecPiVersionFn = async () => {
