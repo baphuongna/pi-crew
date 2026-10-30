@@ -301,7 +301,11 @@ test("acked-interrupt silence: an already-acknowledged interrupt never triggers 
 			withEnv({ PI_CREW_INTERRUPT_GUARD_INTERVAL_MS: "25" }, () => {
 				stopGuard = startRunInterruptGuard({
 					manifest: { runId: "ig-ackwarn", stateRoot: fixture.stateRoot, eventsPath: fixture.eventsPath },
-					onInterrupt: () => {},
+					// No-op deliberately: this test asserts the WARN channel, not the
+					// interrupt action (inline wiring tested separately above).
+					onInterrupt: () => {
+						/* no-op by design */
+					},
 				});
 			});
 			assert.ok(stopGuard, "guard must be mounted");
@@ -311,7 +315,11 @@ test("acked-interrupt silence: an already-acknowledged interrupt never triggers 
 			fs.writeFileSync(
 				fixture.controlPath,
 				JSON.stringify(
-					{ requests: [{ type: "interrupt", acknowledged: true, id: "ig-pre", createdAt: new Date().toISOString(), reason: "test" }] },
+					{
+						requests: [
+							{ type: "interrupt", acknowledged: true, id: "ig-pre", createdAt: new Date().toISOString(), reason: "test" },
+						],
+					},
 					null,
 					2,
 				),

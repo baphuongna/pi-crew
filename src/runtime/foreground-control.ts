@@ -285,9 +285,9 @@ export function startRunInterruptGuard(opts: RunInterruptGuardOptions): () => vo
 					message: opts.eventMessage ?? "Background runner detected foreground interrupt — killing child processes and exiting.",
 				}).catch((e) => logInternalError("interrupt-guard.buffered", e, "type=async.interrupt_detected"));
 				opts.onInterrupt();
-			// Cosmetic (verifier-flagged, live catch follow-up): an ALREADY-ACKED
-			// interrupt must not fall through to this branch — it used to warn
-			// "Ignoring unknown ... interrupt" every tick until guard stop.
+				// Cosmetic (verifier-flagged, live catch follow-up): an ALREADY-ACKED
+				// interrupt must not fall through to this branch — it used to warn
+				// "Ignoring unknown ... interrupt" every tick until guard stop.
 			} else if (last && !(last.type === "interrupt" && last.acknowledged === true)) {
 				console.warn(`[background-runner] Ignoring unknown foreground control request: ${last.type}`);
 			}
