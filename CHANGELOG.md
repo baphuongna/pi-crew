@@ -49,6 +49,33 @@ mid-run tree churn: green. `npm run typecheck`, `npm run lint`, `biome format`, 
 `check-lazy-imports`, `check-slop-rules`, `check-event-types-registry --enforce` all pass. Full-suite fresh run
 on the final tree pending release gate (see story validation.md).
 
+## [Unreleased] — SEC-2026-11 wave 9: needs_validation leads + deferred residuals
+
+**Fixed (security hardening).** Follow-up wave closing the audit's 4 needs_validation leads (deterministic/defensive
+halves) and the residuals deferred by w1b/w7a/w7b:
+
+- **N1** legacy live-session MCP route: allowlist-shaped post-creation foreign-extension assert (typed
+  fail-closed `McpForeignExtensionError` + `live-session.foreign_extension_blocked` event) — a differently-named
+  MCP adapter can no longer silently load/connect for a read-only role when the SDK falls back to the
+  DefaultResourceLoader path.
+- **N2** version probe: `probePiVersion` failures re-arm after a 60s TTL instead of memoizing null for the
+  process lifetime — one transient cold-start miss no longer permanently drops `--no-mcp` from parity spawns on
+  hosts that support it (the empty-frontmatter `--tools` half was already closed in the first wave).
+- **N3** persisted run state: loader-level validation — per-task shape + runId binding (foreign-runId entries
+  dropped) + 10k DoG cap; manifest runKind allowlist (unknown → team-run + warn); non-object manifests fail
+  closed with quarantine. On-disk forensics preserved (in-memory drops only).
+- **N4** verification subsystem git invocations: all 16 sites (verification-worktree ×6, verify-gate-memo ×9,
+  verify-gate dirty-probe ×1) routed through the MED-1 composition (`hardenGitArgs` + `buildGitSafeEnv` +
+  `assertWorktreePointerTrusted`), closing the config-reachable helper-execution sink the audit reproduced live
+  (core.fsmonitor at a hijacked worktree). w2 tree-OID values pinned unchanged.
+- **residuals**: read_only role gates + caller audit fields on the remaining mutating api ops
+  (write-heartbeat, live-agent control cluster, mailbox send/ack/repair, foreground-interrupt);
+  `parseOtlpConfig` refuses userinfo endpoints at validation time (origin-only errors); `tool_execution_start`
+  `event.args` string leaves sanitized before ToolExecutionComponent render.
+
+42 new regression tests. Owner-observed deployment checklists for the leads' impact confirmation remain in the
+audit's NEEDS-VALIDATION.md.
+
 ## [Unreleased] — test hardening
 
 **Fixed (test-only).** `waitForPreGateEvents` (classifier-pre-gate) now THROWS on timeout with counts + path

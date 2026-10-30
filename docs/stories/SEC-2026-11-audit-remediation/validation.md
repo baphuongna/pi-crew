@@ -43,3 +43,21 @@ Quy ước chung: mọi test chạy riêng lẻ qua `node --experimental-strip-t
 - Registry snapshot fail duy nhất có thật (key mới thiếu pin) đã fix + commit.
 - Gates: typecheck 0 lỗi; lint exit 0; format exit 0; check-env-vars 0; check-lazy-imports 0 (budget 541→542
   có doc); check-slop-rules clean; check-event-types-registry 0.
+
+## Wave w9 — 4 needs_validation leads + residuals (2026-10-30)
+
+Nhu cầu gốc: 4 leads "needs_validation" của audit KHÔNG phải vuln đã xác nhận, nhưng root cause của cả 4 đều
+source-grounded + seam đã sandbox-pin trong audit; w9 đóng các phần deterministic/defensive (phần còn lại của
+N2/N3 cần quan sát deployment thật — owner-observed checklist vẫn áp dụng cho xác nhận impact cuối).
+
+| Wave | Lead/Residual | Fix | Tests |
+|---|---|---|---|
+| N2 (7f325e2e) | parity-spawn mcp-cut version-gated | pi-version probe failure re-arm TTL 60s (success memoize vĩnh viễn); nửa --tools rỗng đã đóng bởi w4b | 3 (mock-timer TTL) + wiring 2/2 |
+| N1 (c1c062d1) | mcp-proxy name-denylist | allowlist-shaped post-creation assert trên legacy loader route (typed McpForeignExtensionError + event; fail-closed) | 5/5 + 53 existing |
+| N3 (eb206898) | persisted-run-state unvalidated | loader-level: per-entry shape + runId binding + 10k cap; runKind allowlist normalize; non-object fail-closed | 10/10 + ~700 loader suites |
+| N4 (ba93ee6d) | verification git unhardened | 16 sites (6+9+1 follow-up) qua hardenGitArgs+buildGitSafeEnv+assertWorktreePointerTrusted; PoC fsmonitor live re-validate trong test | 5/5 + 77 existing |
+| r1 (03340c84) | w1b/w7b/w7a deferred | api mutating-op role gates (heartbeat/live-control/mailbox/foreground-interrupt), otlp parse-time userinfo refusal, event.args sanitize | 24 mới (14+7+3) |
+
+Gates sau w9: typecheck 0; lint 0; format 0; env-vars/lazy/slop/event-types xanh (slop giữ baseline 41).
+Owner-observed checklist (N1 adapter thật, N2 host pi<1.0.4, N3 single-workspace poison, N4 worker write-gate)
+vẫn là bước xác nhận impact cuối — xem NEEDS-VALIDATION.md các mục tương ứng.
