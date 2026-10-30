@@ -189,8 +189,12 @@ test("prepareVerificationWorktree: worktree does NOT see main-workspace edits af
 		try {
 			// Worker "tamper": edit test.js in MAIN workspace (not committed).
 			fs.writeFileSync(path.join(repo, "test.js"), "console.log('TAMPERED');\n");
-			// Worktree still has the original content.
-			const wtContent = fs.readFileSync(path.join(wt.worktreePath, "test.js"), "utf-8");
+			// Worktree still has the original content. Eol-normalized comparison:
+			// on win32 hosts with system `core.autocrlf=true` (now correctly honored
+			// through the hardened git env — see buildGitSafeEnv eol passthrough) the
+			// checkout materializes CRLF; the isolation property under test is
+			// ORIGINAL-vs-TAMPERED, not line-ending fidelity.
+			const wtContent = fs.readFileSync(path.join(wt.worktreePath, "test.js"), "utf-8").replace(/\r\n/g, "\n");
 			assert.equal(wtContent, "console.log('PASS');\n", "worktree must contain ORIGINAL content, not worker edits");
 		} finally {
 			wt.cleanup();

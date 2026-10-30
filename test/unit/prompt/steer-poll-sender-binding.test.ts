@@ -149,10 +149,11 @@ test("w1a: replacing the steering file (new dev:ino) resets the read offset — 
 // POSIX-only open-level hardening.
 const STEER_ONOFOLLOW_SUPPORTED = typeof fs.constants.O_NOFOLLOW === "number";
 
-test(
-	"w1a: post-registration symlink swap is refused (O_NOFOLLOW), not followed",
-	{ skip: !STEER_ONOFOLLOW_SUPPORTED && "O_NOFOLLOW is a no-op on win32 (libuv) — win32 binding control is the Ed25519 steering signature layer" },
-	async (t) => {
+test("w1a: post-registration symlink swap is refused (O_NOFOLLOW), not followed", {
+	skip:
+		!STEER_ONOFOLLOW_SUPPORTED &&
+		"O_NOFOLLOW is a no-op on win32 (libuv) — win32 binding control is the Ed25519 steering signature layer",
+}, async (t) => {
 	const { sent, steeringFile, dir } = setup(t);
 	fs.appendFileSync(
 		steeringFile,
