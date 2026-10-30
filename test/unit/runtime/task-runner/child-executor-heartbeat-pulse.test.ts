@@ -102,19 +102,27 @@ test("[pulse-1] alive-but-silent worker keeps heartbeat fresh during the silent 
 			runtimeKind: "child-process",
 			workspaceId: cwd,
 		});
-		// Poll through the silent window. By T+4500ms the mock has emitted
-		// NOTHING (first stdout lands at T+5000ms), so any heartbeat advance
-		// below must come from the liveness pulse, not from stdout events.
-		// (persistHeartbeat's 1s throttle bounds disk writes, so disk freshness
-		// trails the pulse cadence by up to ~1s — the ≥dispatchTs+1000 bar
-		// leaves >2s of margin against timer jitter under test concurrency.)
+		// Poll until the pulse PROVES itself: the heartbeat must advance past
+		// dispatch+1000ms while the mock is still silent (first stdout lands at
+		// spawn+5000ms). Load-robust (live-caught flake, 0.11.51 release box):
+		// pre-spawn setup (prompt pipeline, worktree prep, broker handshake) can
+		// stretch well past any fixed window on a loaded host, so a fixed
+		// observation window observed only the dispatch-time heartbeat write —
+		// the pulse had not even armed yet. The adaptive loop waits for the
+		// advance itself (12s budget ≫ spawn latency + pulse cadence 250ms), and
+		// the transcript-emptiness assertion is checked AT THE ADVANCE MOMENT:
+		// advance ≈ spawn+~300ms while first stdout ≈ spawn+5000ms — the 4.7s
+		// margin keeps "freshness came from the pulse, not stdout" exact.
 		let observed: { lastSeenAt?: string } | undefined;
-		for (let elapsed = 0; elapsed < 4500; elapsed += 100) {
+		const observeDeadline = dispatchTs + 12_000;
+		let lastSeenMs = 0;
+		while (Date.now() < observeDeadline) {
 			await sleep(100);
 			const loaded = loadRunManifestById(cwd, created.manifest.runId);
 			observed = { lastSeenAt: loaded?.tasks[0]?.heartbeat?.lastSeenAt };
+			lastSeenMs = observed.lastSeenAt ? new Date(observed.lastSeenAt).getTime() : 0;
+			if (lastSeenMs >= dispatchTs + 1000) break; // pulse proven
 		}
-		const lastSeenMs = observed?.lastSeenAt ? new Date(observed.lastSeenAt).getTime() : Number.NaN;
 		// No stdout yet: the attempt transcript must not exist (or be empty)
 		// at observation time — proves the freshness did not come from events.
 		const transcriptPath = path.join(created.manifest.artifactsRoot, "transcripts", `${task.id}.attempt-0.jsonl`);
