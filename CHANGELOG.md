@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — SEC-2026-11: security audit remediation (30 confirmed findings, 12 waves)
+## [0.11.51] — SEC-2026-11: security audit remediation (30 confirmed findings + 4 leads, 13 waves) (2026-10-30)
 
 **Fixed (security).** Full remediation of the 2026-10-29 independent security audit (skill security-audit, full
 profile, whole package @ 6063f377; 30 confirmed / 4 needs_validation / 3 rejected). Story:
@@ -49,7 +49,7 @@ mid-run tree churn: green. `npm run typecheck`, `npm run lint`, `biome format`, 
 `check-lazy-imports`, `check-slop-rules`, `check-event-types-registry --enforce` all pass. Full-suite fresh run
 on the final tree pending release gate (see story validation.md).
 
-## [Unreleased] — SEC-2026-11 wave 9: needs_validation leads + deferred residuals
+## [0.11.51] — wave 9: needs_validation leads + deferred residuals
 
 **Fixed (security hardening).** Follow-up wave closing the audit's 4 needs_validation leads (deterministic/defensive
 halves) and the residuals deferred by w1b/w7a/w7b:
