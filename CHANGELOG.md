@@ -7,6 +7,19 @@ profile, whole package @ 6063f377; 30 confirmed / 4 needs_validation / 3 rejecte
 `docs/stories/SEC-2026-11-audit-remediation/`. Evidence: `/home/bom/security-audit-skill/pi-crew/run-1` (report,
 findings, fix-records). Wave-by-wave:
 
+**Fixed (CI live-probed, Windows).** Hardened git env (`GIT_CONFIG_NOSYSTEM=1`) dropped the
+Git-for-Windows system gitconfig — where the install-wide `core.autocrlf=true` default lives — so every
+hardened `git status` reported phantom modifications on pristine CRLF worktrees (verify-gate skip refusals,
+memo disabled, snapshot dirty: all fail-closed on clean trees). `buildGitSafeEnv` now re-injects ONLY the two
+eol scalars (`core.autocrlf`/`core.eol`), parsed and value-domain-checked from the canonical system gitconfig
+by trusted code, via git's env-config channel (`GIT_CONFIG_COUNT`, honored independently of NOSYSTEM). No
+include/filter/other system key can travel the channel; attacker-supplied `GIT_CONFIG_*` stays stripped
+(pinned). Diagnosed with a live windows-2025 CI probe (run 41058674711: full-env status clean vs safe-env
+`M run.js`). Test suite hardening: deadline test isolates its bound (no seeded budget racing the terminal
+status), O_NOFOLLOW symlink-swap pin skips documented on win32 (libuv no-op; binding control there is the
+Ed25519 steering signature layer), theme-stem escape plant skips documented where the OS forbids control
+chars in filenames (vector structurally absent).
+
 **Fixed (live-caught regression, real-test battery).** Ask/delegate/message were dead in every default-config
 worker session since 0.11.50: LOW-1 moved the broker token from env to the fd3 pipe, but the three tool guards
 still read the env token. Workers now bridge to fd3-resolved child broker credentials (task-identity-bound,

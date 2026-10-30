@@ -126,7 +126,7 @@ function writeProjectFixtures(cwd: string): void {
  * crash-resume shape: manifest failed + budget fields persisted (the operator
  * cap the original dispatch would have carried), every task failed with usage
  * cleared so the resumed execution's spend starts from zero. */
-async function seedBudgetedCrashedRun(cwd: string, sessionId: string): Promise<string> {
+async function seedBudgetedCrashedRun(cwd: string, sessionId: string, withBudget = true): Promise<string> {
 	const run = await handleTeamTool(
 		{
 			action: "run",
@@ -161,9 +161,13 @@ async function seedBudgetedCrashedRun(cwd: string, sessionId: string): Promise<s
 			summary: "simulated crash",
 			// The operator bounds "originally declared at dispatch" (persisted
 			// manifest values, exactly what team-runner writes input→manifest).
-			budgetTotal: 15,
-			budgetWarning: 0.8,
-			budgetAbort: 0.95,
+			// The deadline test seeds WITHOUT them (withBudget=false): a seeded
+			// budget races the deadline for terminal authority on slow runners
+			// (first task's merged usage trips budgetAbort→`failed` before the
+			// deadline's `cancelled`), which is CORRECT product behavior — the
+			// test isolates the deadline as the sole bound so the expected
+			// terminal status is deterministic on any runner speed.
+			...(withBudget ? { budgetTotal: 15, budgetWarning: 0.8, budgetAbort: 0.95 } : {}),
 			updatedAt: new Date().toISOString(),
 		},
 		{ allowTerminalExit: true },
@@ -248,7 +252,7 @@ test("resume arms the unified deadline — timeoutMs bounds the resumed executio
 			// on the resume path) the run completed at ~1.5s.
 			process.env.PI_CREW_ALLOW_MOCK = "1";
 			process.env.PI_TEAMS_MOCK_CHILD_PI = "json-success";
-			runId = await seedBudgetedCrashedRun(cwd, "session-owner");
+			runId = await seedBudgetedCrashedRun(cwd, "session-owner", false);
 
 			process.env.PI_TEAMS_MOCK_CHILD_PI = "json-slow-success";
 			const resumed = await handleTeamTool({ action: "resume", runId, timeoutMs: 300 } as never, {

@@ -39,6 +39,11 @@ let originalUserProfile: string | undefined;
 /** A planted filename stem carrying a full OSC-52 clipboard-write payload. */
 const EVIL_STEM = `evil${ESC}]52;c;aGkK${BEL}name`;
 
+/** Win32 forbids control chars in filenames (EINVAL) — the filesystem vector
+ *  is structurally absent there, so the plant fails and the filename-stem
+ *  test skips with an explicit reason instead of failing the whole file. */
+let evilFilenamePlanted = true;
+
 before(() => {
 	originalHome = process.env.HOME;
 	originalUserProfile = process.env.USERPROFILE;
@@ -48,8 +53,16 @@ before(() => {
 
 	const dir = path.join(tmpHome, ".pi", "agent", "themes");
 	fs.mkdirSync(dir, { recursive: true });
-	// (1) escape-carrying filename (the PoC plant — byte-for-byte the audit shape)
-	fs.writeFileSync(path.join(dir, `${EVIL_STEM}.json`), "{}", "utf8");
+	// (1) escape-carrying filename (the PoC plant — byte-for-byte the audit shape).
+	// Win32 cannot represent control chars in filenames; everything downstream
+	// that does not need this exact file still runs (JSON-body plant + listing +
+	// source pin) — on such platforms the stem vector is impossible by OS design.
+	try {
+		fs.writeFileSync(path.join(dir, `${EVIL_STEM}.json`), "{}", "utf8");
+	} catch (error) {
+		if (process.platform === "win32") evilFilenamePlanted = false;
+		else throw error;
+	}
 	// (2) a legitimate theme, untouched by sanitization
 	fs.writeFileSync(path.join(dir, "clean-name.json"), JSON.stringify({ name: "clean display" }), "utf8");
 	// (3) legit filename but worker-writable JSON body whose `name` carries a payload
@@ -65,7 +78,13 @@ after(async () => {
 });
 
 describe("w7a: theme discovery refuses escape-carrying filenames", () => {
-	it("a planted OSC-52 filename stem never becomes a theme name", () => {
+	it("a planted OSC-52 filename stem never becomes a theme name", (t) => {
+		// Dynamic (post-before()) skip: win32 rejects the control-char plant in
+		// the before() hook, so the decision is only known at run time.
+		if (!evilFilenamePlanted) {
+			t.skip("win32 cannot represent control chars in filenames (EINVAL) — the stem vector is structurally absent on this OS");
+			return;
+		}
 		const themes = discoverPiThemes();
 		const names = themes.map((t) => t.name);
 		assert.ok(!names.includes(EVIL_STEM), `planted escape filename must be refused, got: ${JSON.stringify(names)}`);

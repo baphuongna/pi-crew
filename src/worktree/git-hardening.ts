@@ -206,6 +206,63 @@ export function resolveTrustedGitDir(startPath: string): string | undefined {
  *    without breaking legitimate filters — the worker-reachable path to a
  *    POISONED definition (gitdir hijack) is what the pointer guards block.
  */
+/** EOL semantics carried by the SYSTEM gitconfig (Git-for-Windows ships
+ *  `core.autocrlf=true` there — the install-wide default). Only the two
+ *  value-domain-checked keys are ever forwarded (see buildGitSafeEnv). */
+interface SystemCoreEol {
+	autocrlf?: "true" | "false" | "input";
+	eol?: "lf" | "crlf" | "native";
+}
+
+/** Strict parser for the system gitconfig's [core] eol semantics. Deliberately
+ *  NOT a gitconfig interpreter: no includes, no interpolation, no other keys —
+ *  a poisoned system config can contribute NOTHING but these two validated
+ *  scalars. Unparseable/invalid values are dropped (fail to no-injection). */
+export function parseSystemCoreEol(text: string): SystemCoreEol {
+	const result: SystemCoreEol = {};
+	let inCore = false;
+	for (const rawLine of text.split(/\r?\n/)) {
+		const line = rawLine.replace(/[\t ];*[#;].*$/, "").trim();
+		if (line.length === 0) continue;
+		const section = line.match(/^\[([A-Za-z0-9-.]+)\]$/);
+		if (section) {
+			inCore = section[1]!.toLowerCase() === "core";
+			continue;
+		}
+		if (!inCore) continue;
+		const kv = line.match(/^([A-Za-z0-9-]+)\s*=\s*(\S+)$/);
+		if (!kv) continue;
+		const key = kv[1]!.toLowerCase();
+		const value = kv[2]!.toLowerCase();
+		if (key === "autocrlf" && (value === "true" || value === "false" || value === "input")) {
+			result.autocrlf = value;
+		} else if (key === "eol" && (value === "lf" || value === "crlf" || value === "native")) {
+			result.eol = value;
+		}
+	}
+	return result;
+}
+
+/** Best-effort read of the platform's DEFAULT system gitconfig eol semantics.
+ *  The `GIT_CONFIG_SYSTEM` env var is deliberately NOT honored — forwarding it
+ *  is exactly the R-A4a vector — so a poisoned environment cannot redirect
+ *  this read; only git's canonical install paths are consulted. */
+function readSystemGitConfigEol(): SystemCoreEol {
+	let configPath: string | undefined;
+	if (process.platform === "win32") {
+		const programFiles = process.env["ProgramFiles"] ?? process.env["ProgramFiles(x86)"];
+		if (programFiles) configPath = path.join(programFiles, "Git", "etc", "gitconfig");
+	} else {
+		configPath = "/etc/gitconfig";
+	}
+	if (!configPath) return {};
+	try {
+		return parseSystemCoreEol(fs.readFileSync(configPath, "utf-8"));
+	} catch {
+		return {};
+	}
+}
+
 export function buildGitSafeEnv(locale: "C" | "en_US.UTF-8" = "C"): Record<string, string> {
 	const allowList = [
 		"PATH",
@@ -247,7 +304,7 @@ export function buildGitSafeEnv(locale: "C" | "en_US.UTF-8" = "C"): Record<strin
 		if (value === undefined) continue;
 		normalizedEnv[canonicalCase.get(key.toUpperCase()) ?? key] = value;
 	}
-	return {
+	const safeEnv: Record<string, string> = {
 		...sanitizeEnvSecrets(normalizedEnv, { allowList }),
 		LANG: locale,
 		LC_ALL: locale,
@@ -256,6 +313,26 @@ export function buildGitSafeEnv(locale: "C" | "en_US.UTF-8" = "C"): Record<strin
 		// UNCONDITIONALLY on every platform (git for Windows honours it too).
 		GIT_CONFIG_NOSYSTEM: "1",
 	};
+	// Windows-CI live probe (2026-10-30, run 41058674711): with NOSYSTEM the
+	// Git-for-Windows install-wide `core.autocrlf=true` (which lives in the
+	// SYSTEM gitconfig, not the global one) vanishes from git's eol model — a
+	// pristine worktree checked out with CRLF then compares CRLF-vs-LF and
+	// `git status` reports phantom `M <file>` on every file → every hardened
+	// dirty probe fails CLOSED on clean trees (verify-gate skip refusals, memo
+	// disabled, snapshot dirty). Forward ONLY the two eol scalars, parsed and
+	// value-domain-checked by trusted code above, via git's env-config channel
+	// (GIT_CONFIG_COUNT — honored independently of NOSYSTEM, git>=2.31). No
+	// include, no filter, no other system key can travel this channel.
+	const systemEol = readSystemGitConfigEol();
+	const eolEntries = Object.entries(systemEol) as ["autocrlf" | "eol", string][];
+	if (eolEntries.length > 0) {
+		safeEnv.GIT_CONFIG_COUNT = String(eolEntries.length);
+		eolEntries.forEach(([key, value], index) => {
+			safeEnv[`GIT_CONFIG_KEY_${index}`] = `core.${key}`;
+			safeEnv[`GIT_CONFIG_VALUE_${index}`] = value;
+		});
+	}
+	return safeEnv;
 }
 
 /** Result of the R-A3 per-command trust check (see {@link worktreeTrustCheck}). */

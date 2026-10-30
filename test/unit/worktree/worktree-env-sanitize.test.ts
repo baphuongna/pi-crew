@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sanitizeEnvSecrets } from "../../../src/utils/env-filter.ts";
-import { buildGitSafeEnv } from "../../../src/worktree/git-hardening.ts";
+import { buildGitSafeEnv, parseSystemCoreEol } from "../../../src/worktree/git-hardening.ts";
 
 test("sanitizeEnvSecrets strips secret env vars", () => {
 	const env = {
@@ -85,6 +85,59 @@ test("sanitizeEnvSecrets with no allowList uses deny-list mode", () => {
 // --- R-A4: pins for the SHARED git env builder (buildGitSafeEnv, replaces
 // the per-module GIT_SAFE_ENV copies in cleanup.ts / worktree-manager.ts /
 // branch-freshness.ts). ---
+
+test("parseSystemCoreEol: strict [core] eol scalars only — invalid/foreign keys dropped", () => {
+	// Valid scalars in and out (comments + spacing tolerated).
+	assert.deepEqual(
+		parseSystemCoreEol("[core]\n\tautocrlf = true\n\teol = crlf\n"),
+		{ autocrlf: "true", eol: "crlf" },
+	);
+	assert.deepEqual(parseSystemCoreEol("[core]\nautocrlf=input # trailing comment\n"), { autocrlf: "input" });
+	// Values outside the domain are DROPPED (never forwarded).
+	assert.deepEqual(parseSystemCoreEol("[core]\nautocrlf = $(curl evil)\neol = bogus\n"), {});
+	// Keys outside [core] never contribute.
+	assert.deepEqual(
+		parseSystemCoreEol("[fetch]\nautocrlf = true\n[core]\nfsmonitor = /evil.sh\n"),
+		{},
+	);
+	// The dangerous [core] keys a poisoned system config could carry are NOT
+	// parsed at all — the channel is structurally limited to the two eol keys.
+	assert.deepEqual(
+		parseSystemCoreEol("[core]\nautocrlf = true\nfsmonitor = /evil.sh\nsshCommand = /evil.sh\n"),
+		{ autocrlf: "true" },
+	);
+});
+
+test("buildGitSafeEnv eol passthrough: attacker GIT_CONFIG_* stays stripped; injected keys are only validated eol scalars", () => {
+	process.env.GIT_CONFIG_COUNT = "1";
+	process.env.GIT_CONFIG_KEY_0 = "core.fsmonitor";
+	process.env.GIT_CONFIG_VALUE_0 = "/attacker/script.sh";
+	try {
+		const env = buildGitSafeEnv();
+		// Attacker-controlled key/value never survives (allowlist strip) and is
+		// never MERGED into any injected entry.
+		for (const [k, v] of Object.entries(env)) {
+			if (k.startsWith("GIT_CONFIG_KEY_") || k.startsWith("GIT_CONFIG_VALUE_")) {
+				assert.ok(v === "core.autocrlf" || v === "core.eol" || v === "true" || v === "false" || v === "input" || v === "lf" || v === "crlf" || v === "native", `injected GIT_CONFIG entry must be a validated eol scalar, got ${k}=${v}`);
+			}
+		}
+		if (env.GIT_CONFIG_COUNT !== undefined) {
+			// When the host system gitconfig carries eol semantics, the injected
+			// count matches the validated entries 1:1 — the attacker's count was
+			// overwritten, not added to.
+			const n = Number(env.GIT_CONFIG_COUNT);
+			assert.ok(Number.isInteger(n) && n >= 1 && n <= 2, `injected count must be 1-2, got ${env.GIT_CONFIG_COUNT}`);
+			for (let i = 0; i < n; i++) assert.ok(env[`GIT_CONFIG_KEY_${i}`] && env[`GIT_CONFIG_VALUE_${i}`] !== undefined, `injected entry ${i} incomplete`);
+			assert.equal(env["GIT_CONFIG_KEY_2"], undefined, "no injected entry beyond the count");
+		}
+		// NOSYSTEM stays forced regardless of injection.
+		assert.equal(env.GIT_CONFIG_NOSYSTEM, "1");
+	} finally {
+		delete process.env.GIT_CONFIG_COUNT;
+		delete process.env.GIT_CONFIG_KEY_0;
+		delete process.env.GIT_CONFIG_VALUE_0;
+	}
+});
 
 test("R-A4: buildGitSafeEnv strips secrets, drops GIT_CONFIG_SYSTEM, forces GIT_CONFIG_NOSYSTEM", () => {
 	const saved = { ...process.env };

@@ -140,7 +140,19 @@ test("w1a: replacing the steering file (new dev:ino) resets the read offset — 
 	);
 });
 
-test("w1a: post-registration symlink swap is refused (O_NOFOLLOW), not followed", async (t) => {
+// w1a steering symlink refusal rides O_NOFOLLOW, which libuv defines ONLY on
+// platforms with the semantic (Linux/macOS — see prompt-runtime.ts STEER_OPEN_FLAGS).
+// On win32 it is a no-op: the open would FOLLOW the swapped symlink, so the
+// refusal cannot be asserted there. The BINDING control on win32 is the
+// Ed25519 steering-signature layer (unsigned/foreign-signed lines are dropped
+// — pinned separately in crew-broker signing tests); this test pins the
+// POSIX-only open-level hardening.
+const STEER_ONOFOLLOW_SUPPORTED = typeof fs.constants.O_NOFOLLOW === "number";
+
+test(
+	"w1a: post-registration symlink swap is refused (O_NOFOLLOW), not followed",
+	{ skip: !STEER_ONOFOLLOW_SUPPORTED && "O_NOFOLLOW is a no-op on win32 (libuv) — win32 binding control is the Ed25519 steering signature layer" },
+	async (t) => {
 	const { sent, steeringFile, dir } = setup(t);
 	fs.appendFileSync(
 		steeringFile,
