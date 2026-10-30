@@ -44,6 +44,14 @@ function spyConsoleError(): { lines: string[]; restore(): void } {
 	return { lines, restore: () => (console.error = original) };
 }
 
+/** N3-relevant anomalies only. The spy hooks the PROCESS-GLOBAL console.error,
+ *  so under the parallel full suite a concurrent test's unrelated
+ *  console.error can land inside our window — the "no anomaly" contract is
+ *  about THIS loader's N3/R39 emissions, not global silence. */
+function n3Anomalies(lines: string[]): string[] {
+	return lines.filter((l) => /N3: |R39-M2/.test(l));
+}
+
 const team: TeamConfig = {
 	name: "n3-team",
 	description: "N3 load-validation fixture team",
@@ -188,7 +196,7 @@ test("N3 (b): manifest without runKind (legacy) passes through unchanged with no
 		} finally {
 			spy.restore();
 		}
-		assert.equal(spy.lines.length, 0, "no anomaly for a legacy manifest");
+		assert.equal(n3Anomalies(spy.lines).length, 0, "no anomaly for a legacy manifest");
 	} finally {
 		removeTrackedTempDir(dir);
 	}
@@ -271,7 +279,7 @@ test("N3 (d) control: clean legacy v0 bare array loads byte-identical with NO an
 		} finally {
 			spy.restore();
 		}
-		assert.equal(spy.lines.length, 0, "clean v0 load emits no anomaly");
+		assert.equal(n3Anomalies(spy.lines).length, 0, "clean v0 load emits no anomaly");
 
 		// Same through the async twin.
 		const asyncSpy = spyConsoleError();
@@ -281,7 +289,7 @@ test("N3 (d) control: clean legacy v0 bare array loads byte-identical with NO an
 		} finally {
 			asyncSpy.restore();
 		}
-		assert.equal(asyncSpy.lines.length, 0);
+		assert.equal(n3Anomalies(asyncSpy.lines).length, 0);
 	} finally {
 		await removeTrackedTempDir(dir);
 	}
@@ -304,7 +312,7 @@ test("N3 (d) control: clean v1 envelope loads byte-identical with NO anomaly", (
 		} finally {
 			spy.restore();
 		}
-		assert.equal(spy.lines.length, 0, "clean v1 load emits no anomaly (current schemaVersion)");
+		assert.equal(n3Anomalies(spy.lines).length, 0, "clean v1 load emits no anomaly (current schemaVersion)");
 	} finally {
 		removeTrackedTempDir(dir);
 	}
