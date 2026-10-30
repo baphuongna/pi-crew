@@ -828,6 +828,24 @@ function parseOtlpConfig(value: unknown): CrewOtlpConfig | undefined {
 		headers: Object.keys(headers).length > 0 ? headers : undefined,
 		intervalMs: parseWithSchema(Type.Integer({ minimum: 5000 }), obj.intervalMs),
 	};
+	// W9-R1 (w7b deferred): refuse credential-bearing endpoints at CONFIG
+	// VALIDATION time, mirroring the runtime refusal in otlp-exporter.ts
+	// validateEndpoint. The error text renders the ORIGIN only — the
+	// credential-bearing URL is never echoed (unparseable URLs refuse without
+	// echoing any part of the endpoint).
+	if (otlp.endpoint !== undefined && /^https?:\/\/[^/?#]*@/.test(otlp.endpoint)) {
+		let origin = "";
+		try {
+			origin = new URL(otlp.endpoint).origin;
+		} catch {
+			origin = "";
+		}
+		throw new Error(
+			origin
+				? `OTLP endpoint must not embed credentials (userinfo) — pass them via headers instead: ${origin}`
+				: "OTLP endpoint must not embed credentials (userinfo) — pass them via headers instead",
+		);
+	}
 	return Object.values(otlp).some((entry) => entry !== undefined) ? otlp : undefined;
 }
 

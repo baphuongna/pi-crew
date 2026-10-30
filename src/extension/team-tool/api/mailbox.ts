@@ -5,6 +5,8 @@
  * byte-identical to the inline `if` blocks they replace.
  */
 
+import { getCrewEnv } from "../../../config/env-vars.ts";
+import { currentCrewRole, permissionForRole } from "../../../runtime/role-permission.ts";
 import { withRunLockSync } from "../../../state/coordination/locks.ts";
 import {
 	acknowledgeMailboxMessage,
@@ -19,6 +21,35 @@ import {
 import { appendEvent, appendEventBuffered } from "../../../state/event-log/event-log.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
+
+// ── W1b deferred residual (w9-r1): role gates on mutating mailbox operations ──
+// send-message (mailbox append + event), ack-message (delivery-state write +
+// events), and validate-mailbox WITH repair=true (rewrites mailbox/delivery
+// files) all mutate run state, so they follow the canMutateTaskClaims pattern
+// (task-claims.ts): read_only-tier roles (explorer/analyst/reviewer/critic/
+// planner/security-reviewer + default-deny unknowns) are denied; write-tier
+// workers and role-less root-session callers stay allowed. Plain validate-mailbox
+// (repair unset/false) is a pure diagnostic READ and stays open, as do
+// read-mailbox and read-delivery.
+
+/** Role-tier gate for mailbox-mutating operations (canApprovePlan pattern). */
+function canMutateMailbox(op: "repair" | "send" | "ack"): { allowed: boolean; reason?: string } {
+	const role = currentCrewRole();
+	if (!role) return { allowed: true };
+	if (permissionForRole(role) !== "read_only") return { allowed: true };
+	const action = op === "repair" ? "repair the mailbox" : op === "send" ? "send mailbox messages" : "acknowledge mailbox messages";
+	return { allowed: false, reason: `Role '${role}' is read-only and cannot ${action}.` };
+}
+
+/** Caller identity fields for the audit trail (w1b callerAuditFields pattern). */
+function callerAuditFields(): { callerRole?: string; callerTaskId?: string } {
+	const callerRole = currentCrewRole();
+	const callerTaskId = getCrewEnv("PI_CREW_TASK_ID")?.trim() || undefined;
+	return {
+		...(callerRole ? { callerRole } : {}),
+		...(callerTaskId ? { callerTaskId } : {}),
+	};
+}
 
 export const handleReadMailbox: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result } = hctx;
@@ -61,6 +92,21 @@ export const handleReadMailbox: ApiOperationHandler = (hctx) => {
 
 export const handleValidateMailbox: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result } = hctx;
+	// W1b residual: ONLY the repair pass mutates (rewrites mailbox/delivery
+	// state); the plain validation report is a diagnostic read and stays open.
+	if (cfg.repair === true) {
+		const gate = canMutateMailbox("repair");
+		if (!gate.allowed)
+			return result(
+				gate.reason ?? "mailbox repair is not allowed in this context.",
+				{
+					action: "api",
+					status: "error",
+					runId: loaded.manifest.runId,
+				},
+				true,
+			);
+	}
 	const report = validateMailbox(loaded.manifest, {
 		repair: cfg.repair === true,
 	});
@@ -88,6 +134,17 @@ export const handleReadDelivery: ApiOperationHandler = (hctx) => {
 
 export const handleSendMessage: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result, paramRequired, ctx } = hctx;
+	const gate = canMutateMailbox("send");
+	if (!gate.allowed)
+		return result(
+			gate.reason ?? "send-message is not allowed in this context.",
+			{
+				action: "api",
+				status: "error",
+				runId: loaded.manifest.runId,
+			},
+			true,
+		);
 	const direction = cfg.direction === "outbox" ? "outbox" : "inbox";
 	const from = typeof cfg.from === "string" && cfg.from.trim() ? cfg.from.trim() : "api";
 	const to = typeof cfg.to === "string" && cfg.to.trim() ? cfg.to.trim() : "leader";
@@ -133,7 +190,14 @@ export const handleSendMessage: ApiOperationHandler = (hctx) => {
 			appendEventBuffered(loaded.manifest.eventsPath, {
 				type: "mailbox.message",
 				runId: loaded.manifest.runId,
-				data: { id: message.id, direction, from, to },
+				data: {
+					id: message.id,
+					direction,
+					from,
+					to,
+					// W1b residual: record the verified caller identity on the audit trail.
+					...callerAuditFields(),
+				},
 			}).catch((e) => logInternalError("api.mailbox.buffered", e, "type=mailbox.message"));
 			ctx.events?.emit?.("crew.mailbox.message", {
 				runId: loaded.manifest.runId,
@@ -167,6 +231,17 @@ export const handleSendMessage: ApiOperationHandler = (hctx) => {
 
 export const handleAckMessage: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result, paramRequired, ctx } = hctx;
+	const gate = canMutateMailbox("ack");
+	if (!gate.allowed)
+		return result(
+			gate.reason ?? "ack-message is not allowed in this context.",
+			{
+				action: "api",
+				status: "error",
+				runId: loaded.manifest.runId,
+			},
+			true,
+		);
 	const messageId = typeof cfg.messageId === "string" ? cfg.messageId : undefined;
 	if (!messageId)
 		return result(
@@ -194,7 +269,11 @@ export const handleAckMessage: ApiOperationHandler = (hctx) => {
 				appendEvent(loaded.manifest.eventsPath, {
 					type: "mailbox.acknowledged",
 					runId: loaded.manifest.runId,
-					data: { messageId },
+					data: {
+						messageId,
+						// W1b residual: record the verified caller identity on the audit trail.
+						...callerAuditFields(),
+					},
 				});
 			} catch (e) {
 				logInternalError("api.mailbox.append", e, "type=mailbox.acknowledged");

@@ -5,7 +5,9 @@
  * byte-identical to the inline `if` blocks they replace.
  */
 
+import { getCrewEnv } from "../../../config/env-vars.ts";
 import { touchWorkerHeartbeat } from "../../../runtime/heartbeat/worker-heartbeat.ts";
+import { currentCrewRole, permissionForRole } from "../../../runtime/role-permission.ts";
 import { isTerminalTaskStatus } from "../../../state/contracts.ts";
 import { withRunLockSync } from "../../../state/coordination/locks.ts";
 import { appendEventBuffered } from "../../../state/event-log/event-log.ts";
@@ -14,8 +16,49 @@ import { logInternalError } from "../../../utils/internal-error.ts";
 import { RUN_NOT_FOUND_HINT } from "../run-not-found.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
 
+// ── W1b deferred residual (w9-r1): role gate on write-heartbeat ──
+// write-heartbeat mutates run state (task.heartbeat on disk + worker.heartbeat
+// event) and drives liveness/watchdog decisions, so it follows the
+// canMutateTaskClaims pattern (task-claims.ts): read_only-tier roles
+// (explorer/analyst/reviewer/critic/planner/security-reviewer + default-deny
+// unknowns) are denied; write-tier workers and role-less root-session callers
+// stay allowed.
+
+/** Role-tier gate for heartbeat-mutating operations (canApprovePlan pattern). */
+function canWriteHeartbeat(): { allowed: boolean; reason?: string } {
+	const role = currentCrewRole();
+	if (!role) return { allowed: true };
+	if (permissionForRole(role) === "read_only")
+		return {
+			allowed: false,
+			reason: `Role '${role}' is read-only and cannot write worker heartbeats.`,
+		};
+	return { allowed: true };
+}
+
+/** Caller identity fields for the audit trail (w1b callerAuditFields pattern). */
+function callerAuditFields(): { callerRole?: string; callerTaskId?: string } {
+	const callerRole = currentCrewRole();
+	const callerTaskId = getCrewEnv("PI_CREW_TASK_ID")?.trim() || undefined;
+	return {
+		...(callerRole ? { callerRole } : {}),
+		...(callerTaskId ? { callerTaskId } : {}),
+	};
+}
+
 export const handleWriteHeartbeat: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result, paramRequired } = hctx;
+	const gate = canWriteHeartbeat();
+	if (!gate.allowed)
+		return result(
+			gate.reason ?? "write-heartbeat is not allowed in this context.",
+			{
+				action: "api",
+				status: "error",
+				runId: loaded.manifest.runId,
+			},
+			true,
+		);
 	const taskId = typeof cfg.taskId === "string" ? cfg.taskId : undefined;
 	const task = loaded.tasks.find((item) => item.id === taskId || item.stepId === taskId);
 	if (!task)
@@ -84,7 +127,11 @@ export const handleWriteHeartbeat: ApiOperationHandler = (hctx) => {
 				type: "worker.heartbeat",
 				runId: fresh.manifest.runId,
 				taskId: freshTask.id,
-				data: { ...heartbeat },
+				data: {
+					...heartbeat,
+					// W1b residual: record the verified caller identity on the audit trail.
+					...callerAuditFields(),
+				},
 			}).catch((e) => logInternalError("api.heartbeat.buffered", e, "type=worker.heartbeat"));
 			return result(JSON.stringify(heartbeat, null, 2), {
 				action: "api",

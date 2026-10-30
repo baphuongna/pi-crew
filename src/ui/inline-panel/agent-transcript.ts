@@ -191,6 +191,85 @@ function sanitizeMessageForRender(message: Record<string, unknown>): Record<stri
 	return touched ? { ...message, content: parts } : message;
 }
 
+/**
+ * W9-R1 (w7a-render deferred residual): `tool_execution_start` event.args are
+ * worker-controlled and reach pi's ToolExecutionComponent verbatim — it
+ * interpolates top-level keys and string values RAW (formatToolCallWithArgs)
+ * and hands the whole record to per-tool call renderers. Strip terminal
+ * sequences from every string leaf (and every object key), recursing into
+ * nested objects/arrays down to ARGS_SANITIZE_MAX_DEPTH. Non-string leaves
+ * (numbers/booleans/null) are inert — they only ever render through
+ * JSON.stringify, whose output escapes control characters — and values below
+ * the depth cap likewise only surface JSON-escaped, so both are passed
+ * through untouched (nothing is sanitized that is not rendered raw).
+ * Returns the SAME object when nothing needed stripping (component-cache
+ * fingerprint stays stable, matching sanitizeMessageForRender).
+ */
+const ARGS_SANITIZE_MAX_DEPTH = 6;
+
+function sanitizeArgsForRender(
+	args: Record<string, unknown>,
+	depth = ARGS_SANITIZE_MAX_DEPTH,
+): { value: Record<string, unknown>; touched: boolean } {
+	// Null prototype: event args are unvalidated worker JSON — a "__proto__"
+	// key must never reach a prototype setter on the rebuilt record (same
+	// reasoning as config-validation's asRecord copy).
+	const clean: Record<string, unknown> = Object.create(null);
+	let touched = false;
+	for (const [rawKey, rawValue] of Object.entries(args)) {
+		const key = stripTerminalSequences(rawKey);
+		if (key !== rawKey) touched = true;
+		if (typeof rawValue === "string") {
+			const value = stripTerminalSequences(rawValue);
+			if (value !== rawValue) touched = true;
+			clean[key] = value;
+			continue;
+		}
+		const record = asRecord(rawValue);
+		if (depth > 0 && record) {
+			const nested = sanitizeArgsForRender(record, depth - 1);
+			if (nested.touched) touched = true;
+			clean[key] = nested.value;
+			continue;
+		}
+		if (depth > 0 && Array.isArray(rawValue)) {
+			const nested = sanitizeArgsArrayForRender(rawValue, depth - 1);
+			if (nested.touched) touched = true;
+			clean[key] = nested.value;
+			continue;
+		}
+		clean[key] = rawValue;
+	}
+	return touched ? { value: clean, touched: true } : { value: args, touched: false };
+}
+
+function sanitizeArgsArrayForRender(items: unknown[], depth: number): { value: unknown[]; touched: boolean } {
+	let touched = false;
+	const clean = items.map((entry) => {
+		if (typeof entry === "string") {
+			const value = stripTerminalSequences(entry);
+			if (value !== entry) {
+				touched = true;
+				return value;
+			}
+			return entry;
+		}
+		const record = asRecord(entry);
+		if (depth > 0 && record) {
+			const nested = sanitizeArgsForRender(record, depth - 1);
+			if (nested.touched) touched = true;
+			return nested.value;
+		}
+		if (depth > 0 && Array.isArray(entry)) {
+			const nested = sanitizeArgsArrayForRender(entry, depth - 1);
+			if (nested.touched) touched = true;
+			return nested.value;
+		}
+		return entry;
+	});
+	return touched ? { value: clean, touched: true } : { value: items, touched: false };
+}
+
 function textFromContent(content: unknown): string {
 	if (!Array.isArray(content)) return "";
 	return content
@@ -229,7 +308,10 @@ function parseEventRecord(record: Record<string, unknown>, pending: Map<string, 
 	if (type === "tool_execution_start") {
 		// w7a-render: toolName is interpolated into ToolExecutionComponent's title
 		const name = stripTerminalSequences(typeof event.toolName === "string" ? event.toolName : "tool");
-		const args = (event.args as Record<string, unknown>) ?? {};
+		// w9-r1 (w7a deferred): args reach ToolExecutionComponent verbatim —
+		// keys and string values are interpolated raw, nested structures go to
+		// call renderers. Strip terminal sequences at the parser boundary.
+		const args = sanitizeArgsForRender((event.args as Record<string, unknown>) ?? {}).value;
 		const id = `${name}#${seq}`;
 		const item: PendingTool = { type: "tool", name, toolCallId: id, args, seq };
 		pending.set(id, item);

@@ -15,6 +15,7 @@ import { agentOutputPath, readCrewAgentEventsCursor, readCrewAgentStatus, readCr
 import { readForegroundControlStatus, writeForegroundInterruptRequest } from "../../../runtime/foreground-control.ts";
 import { probeLiveSessionRuntime } from "../../../runtime/live-session/live-session-runtime.ts";
 import { resolveCrewRuntime } from "../../../runtime/model/runtime-resolver.ts";
+import { currentCrewRole, permissionForRole } from "../../../runtime/role-permission.ts";
 import { fenceWorkerText } from "../../../runtime/sanitize/worker-text.ts";
 import { readEvents, readEventsCursor } from "../../../state/event-log/event-log.ts";
 import { globMatch } from "../../../utils/glob-match.ts";
@@ -357,8 +358,29 @@ export const handleForegroundStatus: ApiOperationHandler = (hctx) => {
 	});
 };
 
+/** w9-r1 follow-up: role-tier gate for the mutating foreground-interrupt op
+ * (canMutateMailbox pattern — the op WRITES an interrupt-request file, it is
+ * not a read despite living in the read group). */
+function canWriteForegroundInterrupt(): { allowed: boolean; reason?: string } {
+	const role = currentCrewRole();
+	if (!role) return { allowed: true };
+	if (permissionForRole(role) !== "read_only") return { allowed: true };
+	return { allowed: false, reason: `Role '${role}' is read-only and cannot request a foreground interrupt.` };
+}
+
 export const handleForegroundInterrupt: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result } = hctx;
+	const gate = canWriteForegroundInterrupt();
+	if (!gate.allowed)
+		return result(
+			gate.reason ?? "foreground interrupt is not allowed in this context.",
+			{
+				action: "api",
+				status: "error",
+				runId: loaded.manifest.runId,
+			},
+			true,
+		);
 	const reason = typeof cfg.reason === "string" && cfg.reason.trim() ? cfg.reason.trim() : undefined;
 	return result(JSON.stringify(writeForegroundInterruptRequest(loaded.manifest, reason), null, 2), {
 		action: "api",

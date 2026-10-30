@@ -5,6 +5,7 @@
  * byte-identical to the inline `if` blocks they replace.
  */
 
+import { getCrewEnv } from "../../../config/env-vars.ts";
 import { readCrewAgents } from "../../../runtime/crew-agent-records.ts";
 import { appendLiveAgentControlRequest } from "../../../runtime/live-session/live-agent-control.ts";
 import {
@@ -16,6 +17,7 @@ import {
 	stopLiveAgent,
 } from "../../../runtime/live-session/live-agent-manager.ts";
 import { liveControlRealtimeMessage, publishLiveControlRealtime } from "../../../runtime/live-session/live-control-realtime.ts";
+import { currentCrewRole, permissionForRole } from "../../../runtime/role-permission.ts";
 import {
 	appendFollowUpMessage,
 	appendFollowUpMessageAsync,
@@ -25,6 +27,40 @@ import {
 import { appendEvent, appendEventBuffered } from "../../../state/event-log/event-log.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ApiOperationHandler } from "./handler-context.ts";
+
+// ── W1b deferred residual (w9-r1): role gate on the live-agent control cluster ──
+// Every operation dispatched to handleLiveAgentControl (steer-agent,
+// follow-up-agent, stop-agent, resume-agent, interrupt-agent) mutates run
+// state — mailbox writes, live-control request files, session stop/resume —
+// so the whole shared handler is gated with the canMutateTaskClaims pattern
+// (task-claims.ts): read_only-tier roles (explorer/analyst/reviewer/critic/
+// planner/security-reviewer + default-deny unknowns) are denied; write-tier
+// workers and role-less root-session callers stay allowed. handleListLiveAgents
+// is a pure read and stays open. NOTE: the separately named `foreground-interrupt`
+// operation lives in read.ts (outside this file's ownership) — see the w9-r1
+// fix record for the ownership-handoff note.
+
+/** Role-tier gate for live-agent control mutations (canApprovePlan pattern). */
+function canControlLiveAgents(): { allowed: boolean; reason?: string } {
+	const role = currentCrewRole();
+	if (!role) return { allowed: true };
+	if (permissionForRole(role) === "read_only")
+		return {
+			allowed: false,
+			reason: `Role '${role}' is read-only and cannot steer, stop, resume, or interrupt agents.`,
+		};
+	return { allowed: true };
+}
+
+/** Caller identity fields for the audit trail (w1b callerAuditFields pattern). */
+function callerAuditFields(): { callerRole?: string; callerTaskId?: string } {
+	const callerRole = currentCrewRole();
+	const callerTaskId = getCrewEnv("PI_CREW_TASK_ID")?.trim() || undefined;
+	return {
+		...(callerRole ? { callerRole } : {}),
+		...(callerTaskId ? { callerTaskId } : {}),
+	};
+}
 
 export const handleNudgeAgent: ApiOperationHandler = (hctx) => {
 	const { cfg, loaded, result, paramRequired, ctx } = hctx;
@@ -109,6 +145,17 @@ export const handleListLiveAgents: ApiOperationHandler = (hctx) => {
  */
 export const handleLiveAgentControl: ApiOperationHandler = async (hctx) => {
 	const { cfg, loaded, result, paramRequired, ctx } = hctx;
+	const gate = canControlLiveAgents();
+	if (!gate.allowed)
+		return result(
+			gate.reason ?? "agent control is not allowed in this context.",
+			{
+				action: "api",
+				status: "error",
+				runId: loaded.manifest.runId,
+			},
+			true,
+		);
 	const operation = typeof cfg.operation === "string" ? cfg.operation : "";
 	const agentId = typeof cfg.agentId === "string" ? cfg.agentId : undefined;
 	if (!agentId)
@@ -330,6 +377,8 @@ export const handleLiveAgentControl: ApiOperationHandler = async (hctx) => {
 					request,
 					mailboxMessageId: mailboxMessage?.id,
 					realtime: true,
+					// W1b residual: record the verified caller identity on the audit trail.
+					...callerAuditFields(),
 				},
 			}).catch((e) => logInternalError("api.agent-control.buffered", e, "type=agent.control.queued"));
 			return result(JSON.stringify({ queued: true, request, mailboxMessage }, null, 2), {
