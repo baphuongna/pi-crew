@@ -67,9 +67,11 @@ async function withIsolatedHome<T>(fn: () => T | Promise<T>): Promise<T> {
 	}
 }
 
-function makeTask(id: string, overrides: Partial<TeamTaskState> = {}): TeamTaskState {
+function makeTask(id: string, runId: string, overrides: Partial<TeamTaskState> = {}): TeamTaskState {
 	return {
 		id,
+		runId,
+		title: `fixture task ${id}`,
 		stepId: `step-${id}`,
 		role: "executor",
 		agent: "executor",
@@ -85,7 +87,7 @@ test("(f3-1) checkpointTask without identity keeps the legacy record shape", () 
 		const cwd = makeTempDir("pi-crew-f3-1-");
 		try {
 			const created = createRunManifest({ cwd, team, workflow, goal: "f3-1 legacy checkpoint shape" });
-			const task = makeTask("T");
+			const task = makeTask("T", created.manifest.runId);
 			const { task: next } = checkpointTask(created.manifest, [task], task, "child-spawned", 4242);
 			flushPendingAtomicWrites();
 			assert.equal(next.checkpoint?.childPid, 4242);
@@ -105,7 +107,7 @@ test("(f3-2) checkpointTask spreads a known identity", () => {
 		const cwd = makeTempDir("pi-crew-f3-2-");
 		try {
 			const created = createRunManifest({ cwd, team, workflow, goal: "f3-2 identity spread" });
-			const task = makeTask("T");
+			const task = makeTask("T", created.manifest.runId);
 			const { task: next } = checkpointTask(created.manifest, [task], task, "child-spawned", 4242, {
 				pid: 4242,
 				pgid: 4242,
@@ -132,8 +134,8 @@ test("(f3-3) a legacy checkpoint/heartbeat record stays valid and yields pid-onl
 	};
 	const legacyHeartbeat = { workerId: "T2", pid: 6161, lastSeenAt: "2026-01-01T00:00:00.000Z", alive: true };
 	const evidence = collectWorkerPidEvidence([
-		makeTask("T1", { checkpoint: legacyCheckpoint }),
-		makeTask("T2", { heartbeat: legacyHeartbeat }),
+		makeTask("T1", "team_fixture_run", { checkpoint: legacyCheckpoint }),
+		makeTask("T2", "team_fixture_run", { heartbeat: legacyHeartbeat }),
 	]);
 	assert.deepEqual(evidence, [
 		{ taskId: "T1", pid: 5151 },
@@ -162,7 +164,7 @@ test("(f3-5) MAJOR #4: a later phase transition CARRIES the spawn-time identity 
 		const cwd = makeTempDir("pi-crew-f3-5-");
 		try {
 			const created = createRunManifest({ cwd, team, workflow, goal: "f3-5 identity carry-over" });
-			const task = makeTask("T");
+			const task = makeTask("T", created.manifest.runId);
 			const spawned = checkpointTask(created.manifest, [task], task, "child-spawned", 4242, {
 				pid: 4242,
 				pgid: 4242,
@@ -201,7 +203,7 @@ test("(f3-6) MINOR #6: identity is carried over ONLY while childPid is unchanged
 		const cwd = makeTempDir("pi-crew-f3-6-");
 		try {
 			const created = createRunManifest({ cwd, team, workflow, goal: "f3-6 identity carry-over scope" });
-			const task = makeTask("T");
+			const task = makeTask("T", created.manifest.runId);
 			const spawned = checkpointTask(created.manifest, [task], task, "child-spawned", 4242, {
 				pid: 4242,
 				pgid: 4242,
