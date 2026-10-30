@@ -61,3 +61,18 @@ N2/N3 cần quan sát deployment thật — owner-observed checklist vẫn áp d
 Gates sau w9: typecheck 0; lint 0; format 0; env-vars/lazy/slop/event-types xanh (slop giữ baseline 41).
 Owner-observed checklist (N1 adapter thật, N2 host pi<1.0.4, N3 single-workspace poison, N4 worker write-gate)
 vẫn là bước xác nhận impact cuối — xem NEEDS-VALIDATION.md các mục tương ứng.
+
+## Real-test battery (skill real-test-pi-crew) — 2026-10-30, v0.11.51 prep
+
+Chạy đầy đủ theo decision table cho diff 6063f377..16e60234. Record đầy đủ:
+`~/security-audit-skill/pi-crew/run-1/fix-records/real-test-battery-v0.11.51.md`.
+
+- ✅ 18 hạng mục (T1/T3/T4/T5/T7×2/T8/T9a/T9b/T9b-W/T9e/T11a-c-e-g-j/T13 + pinned suites) — nổi bật:
+  loadout S-7+D5 sống (explorer 7 tools không bash; executor 11 đủ), ask round-trip Ed25519 sống
+  (park→respond signed→resume), signed steer honored, T13 sweep 0 violation.
+- 🔴 Live-caught #1: LOW-1 guard (ask/delegate/message chết từ 0.11.50) → fix cfe8b6b3 + dist 16e60234,
+  unit 5/5 + live re-prove PASS.
+- 🔴 Live-caught #2 (chưa fix — backlog): cross-session force-cancel async run KHÔNG abort worker in-flight
+  (AbortController nằm trong detached runner, không kênh tới). Orphan reaped thủ công; khuyến nghị
+  cancel-marker file + test pin. Kèm: watcher heartbeat-dead false-positive trên task completed.
+- Fixture noise: state-helpers-identity makeTask cast-bypass → honest fixtures (86d9b8dd).
