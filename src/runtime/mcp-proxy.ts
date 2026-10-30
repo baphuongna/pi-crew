@@ -144,12 +144,21 @@ export function mcpPermittedForRole(role: string | undefined): boolean {
  *   "replaces the built-in MCP support"). Both must be dropped to actually
  *   deny MCP; a path-segment match keeps npm-installed and file-path forms.
  *
- * KNOWN LIMITATION (security-review follow-up): this is a NAME-based
- * denylist. A third-party MCP adapter that registers `/mcp` under a
- * different name is NOT stripped and would re-enable discovery for
- * non-permitted roles on the live-session path. An allowlist-shaped
- * extension filter is the root fix — tracked as a follow-up work item
- * (SDD-2 §13, G2 hardening backlog).
+ * KNOWN LIMITATION (name-denylist gap — CLOSED at the assert layer,
+ * security-audit run-1 N1): this remains a NAME-based denylist, so a
+ * third-party MCP adapter that registers `/mcp` under a different name
+ * (e.g. `mcp-bridge`) is NOT stripped here and would re-enable discovery
+ * for non-permitted roles. The root allowlist fix is now layered on top:
+ * after the child session is created on the legacy `DefaultResourceLoader`
+ * route, the live-session runtime runs the same-shaped post-creation assert
+ * the shared-services fast path runs (`foreignMcpExtensionsAgainstAllowlist`
+ * below, fed by `allowedLiveExtensionPaths`) and FAILS the task for a
+ * non-MCP-permitted role when ANY extension survived the strip — a
+ * differently-named adapter now hard-fails (`McpForeignExtensionError`)
+ * instead of silently loading and connecting its servers. Permitted roles
+ * are unaffected (the strip is not armed for them); the no-loader
+ * degradation path already fails closed via `g2EnforcementDegradationReason`
+ * + `shouldFailClosedMcpEnforcement`.
  */
 export function isMcpExtensionPath(extensionPath: string): boolean {
 	if (extensionPath === "builtin:mcp") return true;
@@ -215,4 +224,54 @@ export function stripMcpExtensions(base: LoadedExtensionsShape): LoadedExtension
  */
 export function shouldFailClosedMcpEnforcement(mcpPermitted: boolean, degradationReason: string | undefined): boolean {
 	return degradationReason !== undefined && !mcpPermitted;
+}
+
+/**
+ * N1 (security-audit run-1): the allowlist-shaped control the KNOWN
+ * LIMITATION block above called the root fix — given the extension paths a
+ * child session ACTUALLY loaded and the sanctioned allowlist, return the
+ * foreign/offending entries.
+ *
+ * Semantics are MIRRORED EXACTLY from the shared-services fast path's
+ * post-creation assert in live-session-runtime.ts (`allowedLiveExtensionPaths`
+ * + `collectForeignExtensions`): an extension is foreign iff its path is not
+ * a member of the allowlist — no name heuristics, no substring matching. For
+ * a non-MCP-permitted role the allowlist is empty, so ANY loaded extension
+ * (including a differently-named MCP adapter that survives
+ * `stripMcpExtensions`) is foreign; for a permitted role the allowlist is
+ * exactly `builtin:mcp`. `collectForeignExtensions` delegates here so both
+ * live-session routes share ONE implementation of these semantics.
+ */
+export function foreignMcpExtensionsAgainstAllowlist(
+	loadedExtensionPaths: readonly string[],
+	allowedExtensionPaths: readonly string[],
+): string[] {
+	const allowed = new Set(allowedExtensionPaths);
+	return loadedExtensionPaths.filter((extensionPath) => !allowed.has(extensionPath));
+}
+
+/**
+ * N1 (security-audit run-1, fail-closed): thrown by the live-session
+ * runtime's post-creation assert on the LEGACY `DefaultResourceLoader` route
+ * when the child session loaded extension(s) not sanctioned for a
+ * non-MCP-permitted role (e.g. a differently-named MCP adapter that survived
+ * `stripMcpExtensions`). Mirrors `LiveSessionEmbeddedEnforcementError`'s
+ * pattern: plain fields assigned in the constructor body (strip-types
+ * rejects TS parameter properties), a stamped `name`, and a `[<code>]`-
+ * prefixed message consistent with the G2 fail-closed style.
+ */
+export class McpForeignExtensionError extends Error {
+	readonly foreignExtensions: string[];
+	readonly allowedExtensions: string[];
+
+	constructor(input: { foreignExtensions: readonly string[]; allowedExtensions: readonly string[]; role: string | undefined }) {
+		super(
+			`[mcp-allowlist-fail-closed] Live-session spawn refused for role "${input.role ?? "unknown"}": child session loaded extension(s) not sanctioned for a non-MCP-permitted role: ${input.foreignExtensions.join(
+				", ",
+			)} (allowed: ${input.allowedExtensions.length === 0 ? "none" : input.allowedExtensions.join(", ")}) — failing closed instead of silently running with them.`,
+		);
+		this.foreignExtensions = [...input.foreignExtensions];
+		this.allowedExtensions = [...input.allowedExtensions];
+		this.name = "McpForeignExtensionError";
+	}
 }

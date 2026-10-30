@@ -8,7 +8,14 @@ import { redactSecrets } from "../../utils/redaction.ts";
 import { BoundedTail } from "../compaction/compact-stages/bounded-tail.ts";
 import { createIrcTool } from "../custom-tools/irc-tool.ts";
 import { createSubmitResultTool } from "../custom-tools/submit-result-tool.ts";
-import { g2EnforcementDegradationReason, mcpPermittedForRole, shouldFailClosedMcpEnforcement, stripMcpExtensions } from "../mcp-proxy.ts";
+import {
+	foreignMcpExtensionsAgainstAllowlist,
+	g2EnforcementDegradationReason,
+	McpForeignExtensionError,
+	mcpPermittedForRole,
+	shouldFailClosedMcpEnforcement,
+	stripMcpExtensions,
+} from "../mcp-proxy.ts";
 import { buildConfiguredModelRouting, modelRefToString, warnOutOfScopeSoft } from "../model/model-fallback.ts";
 import { isLiveSessionRuntimeAvailable } from "../model/runtime-resolver.ts";
 import { awaitRuntimeWarmup } from "../model/runtime-warmup.ts";
@@ -360,11 +367,40 @@ export function collectForeignExtensions(session: LiveSessionLike | undefined, a
 	const runner = session?.extensionRunner;
 	if (typeof runner?.getExtensionPaths !== "function") return [];
 	try {
-		const allowed = new Set(allowedPaths);
-		return runner.getExtensionPaths().filter((extensionPath: string) => !allowed.has(extensionPath));
+		// N1 (security-audit run-1): the allowlist check itself has exactly ONE
+		// implementation — mcp-proxy.ts `foreignMcpExtensionsAgainstAllowlist` —
+		// so the fast-path assert and the legacy-loader-route assert below share
+		// identical semantics (set membership against allowedLiveExtensionPaths).
+		return foreignMcpExtensionsAgainstAllowlist(runner.getExtensionPaths(), allowedPaths);
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * N1 (security-audit run-1): the post-creation assert DECISION for the LEGACY
+ * `DefaultResourceLoader` route (the `!sharedServicesAvailable` branch) — the
+ * same backstop the shared-services fast path's own assert gives it, with
+ * identical allowlist semantics (`collectForeignExtensions` +
+ * `allowedLiveExtensionPaths`). The loader-level `stripMcpExtensions` control
+ * is a NAME-based denylist, so a differently-named MCP adapter survives it;
+ * for a NON-MCP-permitted role the allowlist is empty, hence ANY extension
+ * that still loaded is a violation.
+ *
+ * Armed ONLY for non-MCP-permitted roles on the legacy route: permitted roles
+ * keep their extensions there (no strip is armed for them), and the fast path
+ * owns its own assert (pass `sharedServices: true` to disarm this one). The
+ * no-loader degradation case never reaches an assert — it already failed
+ * closed earlier via `g2EnforcementDegradationReason` +
+ * `shouldFailClosedMcpEnforcement`. Returns the offending foreign extension
+ * paths; empty = pass.
+ */
+export function legacyLoaderMcpAllowlistViolation(
+	session: LiveSessionLike | undefined,
+	route: { sharedServices: boolean; mcpPermitted: boolean },
+): string[] {
+	if (route.sharedServices || route.mcpPermitted) return [];
+	return collectForeignExtensions(session, allowedLiveExtensionPaths(false));
 }
 
 function appendTranscript(filePath: string | undefined, event: unknown): void {
@@ -970,6 +1006,45 @@ export async function runLiveSessionTask(input: LiveSessionSpawnInput): Promise<
 					`live-session recursion guard: child session loaded unsanctioned extension(s): ${foreignExtensions.join(", ")}`,
 				);
 			}
+		}
+		// N1 (security-audit run-1, w9-n1): allowlist-shaped post-creation assert
+		// for the LEGACY DefaultResourceLoader route — the same backstop the
+		// shared-services fast path gets above, with identical semantics (single
+		// mcp-proxy check via collectForeignExtensions). stripMcpExtensions is a
+		// NAME-based denylist, so a differently-named MCP adapter (e.g.
+		// 'mcp-bridge') survives it; any extension that still loaded for a
+		// NON-MCP-permitted role is foreign (its allowlist is empty) and must
+		// fail the task instead of silently loading and connecting its servers.
+		// NOT armed for permitted roles (the legacy route keeps their extensions)
+		// and unreachable for the no-loader degradation path (that already failed
+		// closed above via g2EnforcementDegradationReason).
+		const legacyForeignExtensions = legacyLoaderMcpAllowlistViolation(session, {
+			sharedServices: Boolean(sharedBundle),
+			mcpPermitted,
+		});
+		if (legacyForeignExtensions.length > 0) {
+			const failClosedCode = "mcp-allowlist-fail-closed";
+			const legacyAllowedPaths = allowedLiveExtensionPaths(false);
+			appendEventFireAndForget(input.manifest.eventsPath, {
+				type: "live-session.foreign_extension_blocked",
+				runId: input.manifest.runId,
+				taskId: input.task.id,
+				message: `G2 MCP policy ABORTED live-session spawn for role "${input.task.role ?? "unknown"}" (${failClosedCode}): child session (legacy loader route) loaded extension(s) ${legacyForeignExtensions.join(
+					", ",
+				)} not sanctioned for a non-MCP-permitted role — failing closed instead of silently running with them.`,
+				data: {
+					foreignExtensions: legacyForeignExtensions,
+					allowed: legacyAllowedPaths,
+					route: "legacy-loader",
+					code: failClosedCode,
+					role: input.task.role ?? null,
+				},
+			});
+			throw new McpForeignExtensionError({
+				foreignExtensions: legacyForeignExtensions,
+				allowedExtensions: legacyAllowedPaths,
+				role: input.task.role,
+			});
 		}
 		// U3: register the test-only provider override (faux E2E seam) before
 		// anything streams. No-op in production (modelProviderOverride stays
