@@ -7,6 +7,13 @@ profile, whole package @ 6063f377; 30 confirmed / 4 needs_validation / 3 rejecte
 `docs/stories/SEC-2026-11-audit-remediation/`. Evidence: `/home/bom/security-audit-skill/pi-crew/run-1` (report,
 findings, fix-records). Wave-by-wave:
 
+**Fixed (live-caught regression, real-test battery).** Ask/delegate/message were dead in every default-config
+worker session since 0.11.50: LOW-1 moved the broker token from env to the fd3 pipe, but the three tool guards
+still read the env token. Workers now bridge to fd3-resolved child broker credentials (task-identity-bound,
+settled-promise seam in `crew-broker-child.ts`; guards in `prompt-runtime.ts` / `message-tool.ts`). Proven live:
+ask park→respond(signed)→resume, message delivery, signed steer honored; pinned unit suite 5/5
+(`test/unit/prompt/low1-fd3-tool-guard.test.ts`).
+
 - **w1a broker (HIGH×2, MEDIUM)** — spawns without a task identity no longer receive the bare per-run token
   (fail closed); bare-runId fallback retired for explicit taskId hello claims; `wait.*` authenticate via
   task-scoped compound tokens only; durable mailbox rows + steering lines are Ed25519-signed by the root session
