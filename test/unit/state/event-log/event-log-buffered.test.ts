@@ -7,10 +7,14 @@ import * as path from "node:path";
 import test from "node:test";
 import {
 	__test__appendBatchForUnitTest,
+	__test__inflightBufferFlushCount,
 	appendEvent,
 	appendEventBuffered,
+	drainEventLogWriters,
+	flushBufferedQueuesSync,
 	flushEventLogBuffer,
 	readEvents,
+	withEventLogLockAsync,
 } from "../../../../src/state/event-log/event-log.ts";
 import { cleanupStateRoot } from "../../../helpers/rm-retry.ts";
 
@@ -353,5 +357,128 @@ test("flushEventLogBuffer awaits an IN-FLIGHT flush: the event is readable immed
 	} finally {
 		clearInterval(keepAlive);
 		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// F3 (2026-10-31): events appended while a flush is IN FLIGHT see the stale
+// timer entry (arm-once gate in appendEventBuffered) and cannot arm a timer of
+// their own. The pre-fix finally only deleted the entry, leaving those events
+// un-timered until the NEXT append or the exit-path flush — under a quiet run
+// they sat in the buffer indefinitely. The flush's finally must RE-ARM the
+// timer for them. The in-flight window is pinned deterministically by holding
+// the exported async `.alock` so the timer-led flush parks inside
+// withEventLogLockAsync (exported for exactly this kind of test pinning).
+test("F3: append during an IN-FLIGHT flush is flushed by the re-armed timer (no second append, no manual flush)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-el-f3-rearm-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	const keepAlive = setInterval(() => undefined, 50);
+	try {
+		let releaseLock!: () => void;
+		const gate = new Promise<void>((resolve) => (releaseLock = resolve));
+		const lockHeld = withEventLogLockAsync(eventsPath, () => gate);
+
+		// 1ms buffer: the timer-led flush fires ~immediately, grabs the queue and
+		// parks on the held .alock — the in-flight window is now open.
+		const first = appendEventBuffered(eventsPath, { type: "task.progress", runId: "r-f3", taskId: "t1", message: "first" }, 1);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		// Mid-flight append: must NOT arm its own timer (stale entry present) —
+		// only the flush's finally re-arm can cover it.
+		const second = appendEventBuffered(eventsPath, { type: "task.progress", runId: "r-f3", taskId: "t2", message: "leftover" }, 1);
+
+		releaseLock();
+		await lockHeld;
+		await first;
+
+		// No manual flush and no further append: the re-armed timer (armed with
+		// the queue's last-used delay, 1ms) must flush the leftover alone. 200ms
+		// is a generous margin over re-arm + uncontended lock acquire + append.
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		const events = readEvents(eventsPath);
+		assert.equal(
+			events.some((e) => e.taskId === "t2" && e.message === "leftover"),
+			true,
+			"mid-flight append must be flushed by the re-armed timer alone (pre-fix: un-timered forever)",
+		);
+		await second;
+	} finally {
+		clearInterval(keepAlive);
+		await cleanupStateRoot(dir, eventsPath);
+	}
+});
+
+// F4 (2026-10-31): inflightBufferFlushes stored the `.finally()` WRAPPER but
+// the settle cleanup compared the map entry against the PRE-wrapper promise —
+// an identity that can never match what the map holds, so entries were never
+// deleted (leak, and the drain helpers' "may already have self-deleted" no-op
+// path was dead code). The cleanup must compare-and-delete the WRAPPER
+// reference that was actually stored.
+test("F4: the in-flight flush tracker self-deletes after settle (wrapper identity)", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-el-f4-tracker-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	const keepAlive = setInterval(() => undefined, 50);
+	try {
+		// Hold the .alock so the flush stays in flight — the tracker entry is
+		// observable (non-vacuity guard) before the settle assertion.
+		let releaseLock!: () => void;
+		const gate = new Promise<void>((resolve) => (releaseLock = resolve));
+		const lockHeld = withEventLogLockAsync(eventsPath, () => gate);
+
+		const pending = appendEventBuffered(eventsPath, { type: "task.progress", runId: "r-f4", taskId: "t1", message: "tracker" }, 1);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(__test__inflightBufferFlushCount(), 1, "flush must be tracked while in flight (non-vacuity guard)");
+
+		releaseLock();
+		await lockHeld;
+		await pending;
+		// The compare-and-delete runs in the wrapper's finally — one macrotask hop
+		// settles every chained microtask deterministically.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		assert.equal(
+			__test__inflightBufferFlushCount(),
+			0,
+			"tracker entry must self-delete after settle (pre-fix: identity mismatch kept it forever)",
+		);
+	} finally {
+		clearInterval(keepAlive);
+		await cleanupStateRoot(dir, eventsPath);
+	}
+});
+
+// Adjacent (2026-10-31): flushBufferedQueuesSync dropped the timer ENTRIES but
+// never cleared the pending HANDLES — an unref'd handle that survived the sync
+// flush could fire later (tests keep the event loop alive) and run a redundant
+// flush that grabs whatever a LATER append queued, ahead of that queue's own
+// timer. The sync flush must clearTimeout each pending handle.
+test("Adjacent: flushBufferedQueuesSync clears the pending timer — no stale double flush", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-el-sync-clear-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	const keepAlive = setInterval(() => undefined, 50);
+	try {
+		// 30ms timer; the sync flush below runs in the SAME tick (a timer cannot
+		// fire without an event-loop turn) and must clear the handle.
+		const first = appendEventBuffered(eventsPath, { type: "task.progress", runId: "r-sync", taskId: "t1", message: "sync" }, 30);
+		flushBufferedQueuesSync();
+		assert.equal(readEvents(eventsPath).length, 1, "sync flush must write the buffered event");
+		await first;
+
+		// Late event armed with a LONG buffer: only the (now-cleared) 30ms stale
+		// timer could flush it early.
+		const second = appendEventBuffered(eventsPath, { type: "task.progress", runId: "r-sync", taskId: "t2", message: "late" }, 5000);
+		// Past the 30ms mark: without the clearTimeout, the stale timer would
+		// have fired and flushed [second] early (pre-fix repro).
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		assert.equal(
+			readEvents(eventsPath).some((e) => e.message === "late"),
+			false,
+			"stale timer must not fire after the sync flush cleared it",
+		);
+		// Deterministic cleanup of [second] (its own 5s timer must not be awaited).
+		await drainEventLogWriters(eventsPath);
+		await second;
+		assert.equal(readEvents(eventsPath).filter((e) => e.message === "late").length, 1, "late event flushed by the drain");
+	} finally {
+		clearInterval(keepAlive);
+		await cleanupStateRoot(dir, eventsPath);
 	}
 });

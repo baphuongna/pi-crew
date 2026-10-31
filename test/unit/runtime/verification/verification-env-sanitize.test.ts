@@ -10,14 +10,37 @@
  */
 
 import assert from "node:assert/strict";
+import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { executeVerificationCommands, isVerificationEnvSanitizeEnabled } from "../../../../src/runtime/verification/verification-gates.ts";
+import type { VerificationCommandResult } from "../../../../src/state/types.ts";
 import { removeDirWithRetry } from "../../../helpers/rm-retry.ts";
 
-/** Verification commands always run through `sh`, so use its portable `printenv` utility. */
-function pickPrintenv(name: string): string {
-	return `printenv ${name}`;
+/** Wave F (S-3, 2026-10-31) removed `printenv` from the gate allowlist, so
+ *  the env probes now enter through an ALLOWLISTED entry whose recipe reads
+ *  the env — the same entry-command-allowed/script-contents-free pattern as
+ *  npm-run: `make test` is the allowlisted entry, the Makefile recipe body
+ *  (`@printenv <var>`) is what actually reads the environment. One Makefile
+ *  per var, run with cwd=the tmpdir. Never `node -e` (NODE_EVAL_MODE_PATTERN)
+ *  and never re-add printenv to the allowlist. */
+async function runMakePrintenv(name: string, artifactsDir: string): Promise<VerificationCommandResult[]> {
+	const fs = await import("node:fs");
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-envsan-"));
+	// NOTE: the recipe line MUST start with a real tab (make requirement).
+	fs.writeFileSync(path.join(dir, "Makefile"), `test:\n\t@printenv ${name}\n`);
+	try {
+		return await executeVerificationCommands(
+			{ commands: ["make test"] } as never,
+			dir,
+			"test-run",
+			"test-task",
+			artifactsDir,
+			undefined,
+		);
+	} finally {
+		await removeDirWithRetry(dir);
+	}
 }
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => Promise<void> | void): Promise<void> {
@@ -65,11 +88,14 @@ test("isVerificationEnvSanitizeEnabled: true when PI_TEAMS_VERIFICATION_SANITIZE
 	);
 });
 
-test("INTEGRATION: with sanitize ON, secret env var does NOT reach the verification subprocess", async () => {
-	// Set a fake secret in our env. The verification command reads the named
-	// env var to stdout (POSIX: `printenv FAKE_SECRET_API_KEY`, win32: node
-	// `process.env.VAR`); output should be empty (or absent) when sanitization
-	// is enabled.
+test("INTEGRATION: with sanitize ON, secret env var does NOT reach the verification subprocess", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("make entry unavailable on win32 runners — env probe kept POSIX-only (S-3 printenv removal)");
+		return;
+	}
+	// Set a fake secret in our env. The allowlisted `make test` entry runs a
+	// `@printenv VAR` recipe that reads the named env var to stdout; output
+	// should be empty (or absent) when sanitization is enabled.
 	return withEnv(
 		{
 			PI_CREW_VERIFICATION_SANITIZE_ENV: "1",
@@ -77,14 +103,7 @@ test("INTEGRATION: with sanitize ON, secret env var does NOT reach the verificat
 			PATH: process.env.PATH ?? "/usr/bin:/bin",
 		},
 		async () => {
-			const results = await executeVerificationCommands(
-				{ commands: [pickPrintenv("FAKE_SECRET_API_KEY")] } as never,
-				process.cwd(),
-				"test-run",
-				"test-task",
-				path.join(process.cwd(), ".test-artifacts-tmp"),
-				undefined,
-			);
+			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", path.join(process.cwd(), ".test-artifacts-tmp"));
 			assert.equal(results.length, 1);
 			// Output artifact captures the printenv output. The secret should NOT appear.
 			const out = results[0]?.outputArtifact;
@@ -97,7 +116,11 @@ test("INTEGRATION: with sanitize ON, secret env var does NOT reach the verificat
 	);
 });
 
-test("INTEGRATION: with sanitize OFF (explicit opt-out), secret env var DOES reach the verification subprocess", async () => {
+test("INTEGRATION: with sanitize OFF (explicit opt-out), secret env var DOES reach the verification subprocess", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("make entry unavailable on win32 runners — env probe kept POSIX-only (S-3 printenv removal)");
+		return;
+	}
 	// Explicit opt-out: sanitize disabled via env var set to '0'.
 	return withEnv(
 		{
@@ -106,14 +129,8 @@ test("INTEGRATION: with sanitize OFF (explicit opt-out), secret env var DOES rea
 			PATH: process.env.PATH ?? "/usr/bin:/bin",
 		},
 		async () => {
-			const results = await executeVerificationCommands(
-				{ commands: [pickPrintenv("FAKE_SECRET_API_KEY")] } as never,
-				process.cwd(),
-				"test-run",
-				"test-task",
-				path.join(process.cwd(), ".test-artifacts-tmp"),
-				undefined,
-			);
+			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", path.join(process.cwd(), ".test-artifacts-tmp"));
+			assert.equal(results.length, 1);
 			const fs = await import("node:fs");
 			const content = results[0]?.outputArtifact?.path ? fs.readFileSync(results[0].outputArtifact.path, "utf-8") : "";
 			assert.equal(
@@ -126,7 +143,11 @@ test("INTEGRATION: with sanitize OFF (explicit opt-out), secret env var DOES rea
 	);
 });
 
-test("INTEGRATION: with sanitize ON + PRESERVE_ENV, explicitly-preserved secret DOES reach subprocess", async () => {
+test("INTEGRATION: with sanitize ON + PRESERVE_ENV, explicitly-preserved secret DOES reach subprocess", async (t) => {
+	if (process.platform === "win32") {
+		t.skip("make entry unavailable on win32 runners — env probe kept POSIX-only (S-3 printenv removal)");
+		return;
+	}
 	return withEnv(
 		{
 			PI_CREW_VERIFICATION_SANITIZE_ENV: "1",
@@ -135,14 +156,8 @@ test("INTEGRATION: with sanitize ON + PRESERVE_ENV, explicitly-preserved secret 
 			PATH: process.env.PATH ?? "/usr/bin:/bin",
 		},
 		async () => {
-			const results = await executeVerificationCommands(
-				{ commands: [pickPrintenv("FAKE_SECRET_API_KEY")] } as never,
-				process.cwd(),
-				"test-run",
-				"test-task",
-				path.join(process.cwd(), ".test-artifacts-tmp2"),
-				undefined,
-			);
+			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", path.join(process.cwd(), ".test-artifacts-tmp2"));
+			assert.equal(results.length, 1);
 			const fs = await import("node:fs");
 			const content = results[0]?.outputArtifact?.path ? fs.readFileSync(results[0].outputArtifact.path, "utf-8") : "";
 			assert.equal(content.includes("sk-preserved-explicit"), true, "PRESERVE_ENV must allow explicitly-listed secret through");
@@ -152,10 +167,8 @@ test("INTEGRATION: with sanitize ON + PRESERVE_ENV, explicitly-preserved secret 
 });
 
 test("INTEGRATION: sanitize ON keeps essential non-secret vars (PATH, HOME)", async (t) => {
-	// This test spawns the cross-platform env-read fixture. On Windows it
-	// routes through Node's `process.env`; the previous `printenv`-only skip
-	// is preserved for the sanitize-test infrastructure parity the prior
-	// fix relied on (POSIX path coverage is the primary surface here).
+	// POSIX-only: the `make test` entry (and its `@printenv` recipe) needs a
+	// POSIX make + sh; parity with the prior fix's platform scoping.
 	if (process.platform === "win32") {
 		t.skip("sanitize-env essential-vars test kept POSIX-only for parity with prior fix");
 		return;
@@ -167,24 +180,22 @@ test("INTEGRATION: sanitize ON keeps essential non-secret vars (PATH, HOME)", as
 			HOME: "/tmp/fake-home",
 		},
 		async () => {
-			// Run two separate commands (validateGateCommand rejects `&&`).
-			const results = await executeVerificationCommands(
-				{
-					commands: [pickPrintenv("PATH"), pickPrintenv("HOME")],
-				} as never,
-				process.cwd(),
-				"test-run",
-				"test-task",
-				path.join(process.cwd(), ".test-artifacts-tmp3"),
-				undefined,
-			);
-			assert.equal(results.length, 2);
+			// One Makefile per var (one target per var) — two allowlisted
+			// `make test` entries, one command each (validateGateCommand
+			// rejects `&&`, same as before). SEPARATE artifacts dirs: both calls
+			// use taskId "test-task", so a shared dir would overwrite
+			// phase-1 artifacts with the second run's output.
+			const pathResults = await runMakePrintenv("PATH", path.join(process.cwd(), ".test-artifacts-tmp3"));
+			const homeResults = await runMakePrintenv("HOME", path.join(process.cwd(), ".test-artifacts-tmp3b"));
+			assert.equal(pathResults.length, 1);
+			assert.equal(homeResults.length, 1);
 			const fs = await import("node:fs");
-			const pathContent = results[0]?.outputArtifact?.path ? fs.readFileSync(results[0].outputArtifact.path, "utf-8") : "";
-			const homeContent = results[1]?.outputArtifact?.path ? fs.readFileSync(results[1].outputArtifact.path, "utf-8") : "";
+			const pathContent = pathResults[0]?.outputArtifact?.path ? fs.readFileSync(pathResults[0].outputArtifact.path, "utf-8") : "";
+			const homeContent = homeResults[0]?.outputArtifact?.path ? fs.readFileSync(homeResults[0].outputArtifact.path, "utf-8") : "";
 			assert.equal(pathContent.includes("/usr/bin:/bin"), true, "PATH must be preserved");
 			assert.equal(homeContent.includes("/tmp/fake-home"), true, "HOME must be preserved");
 			await removeDirWithRetry(path.join(process.cwd(), ".test-artifacts-tmp3"));
+			await removeDirWithRetry(path.join(process.cwd(), ".test-artifacts-tmp3b"));
 		},
 	);
 });

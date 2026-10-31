@@ -31,6 +31,129 @@ export interface ForegroundControlRequest {
 	acknowledged: boolean;
 }
 
+/**
+ * On-disk control-file shape, parsed leniently: hand-written control files
+ * (tests, older writers) may omit `id`, so readers treat it as optional.
+ */
+type ForegroundControlFile = {
+	requests?: Array<{ id?: string; type: string; acknowledged?: boolean }>;
+};
+
+const FOREGROUND_CONTROL_LOCK_TIMEOUT_MS = 5000;
+const FOREGROUND_CONTROL_LOCK_STALE_MS = 10000;
+
+function isLockContention(err: unknown): boolean {
+	return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "EEXIST";
+}
+
+// F1 (2026-10-31 verified review): the previous producer lock used
+// `fs.mkdirSync(lockDir, { recursive: true })`, which NEVER throws EEXIST —
+// it provided ZERO mutual exclusion and its contention branches were
+// unreachable dead code. This is the proven event-log dir-lock protocol
+// (withEventLogAppendLockSync, src/state/event-log/event-log.ts): the
+// non-recursive mkdir IS the mutex; timeout + mtime-stale reclaim +
+// dead-pid awareness + PID-guarded release. Deliberately module-local
+// (not extracted next to the event-log lock): that file is owned by a
+// parallel fix wave — dedup into a shared helper is a noted follow-up.
+// Divergence from the event-log pattern (per spec): contention retries ONLY
+// on EEXIST — any other IO error fails fast instead of spinning to timeout.
+function withForegroundControlLock<T>(controlPath: string, fn: () => T): T {
+	const lockDir = `${controlPath}.lock`;
+	const pidFile = path.join(lockDir, "pid");
+	// Ensure the parent directory exists before attempting the lock (mirrors event-log).
+	fs.mkdirSync(path.dirname(controlPath), { recursive: true });
+	const start = Date.now();
+	let acquired = false;
+	while (true) {
+		try {
+			fs.mkdirSync(lockDir);
+			acquired = true;
+			try {
+				// Disposable pid file ("wx" open + plain write): the lock dir itself
+				// is the mutex; the pid file only feeds stale/dead detection and the
+				// guarded release below.
+				const pidFd = fs.openSync(pidFile, "wx");
+				try {
+					fs.writeSync(pidFd, String(process.pid));
+				} finally {
+					fs.closeSync(pidFd);
+				}
+			} catch {
+				/* best-effort — e.g. EEXIST under a re-taken dir; a missing pid is mtime-detected */
+			}
+			break;
+		} catch (err) {
+			// Contend ONLY on EEXIST; any other IO error (ENOTDIR, EACCES, EROFS…)
+			// fails fast with a clear error instead of spinning to the timeout.
+			if (!isLockContention(err)) {
+				const cause = err instanceof Error ? err : new Error(String(err));
+				const wrapped = new Error(`Foreground control lock acquire failed for ${controlPath}: ${cause.message}`, {
+					cause,
+				});
+				logInternalError("foreground-control.lock-acquire-failed", wrapped, `controlPath=${controlPath}`);
+				throw wrapped;
+			}
+			if (Date.now() - start > FOREGROUND_CONTROL_LOCK_TIMEOUT_MS) {
+				const timeoutErr = new Error(`Foreground control lock timeout for ${controlPath}`);
+				logInternalError("foreground-control.lock-timeout", timeoutErr, `controlPath=${controlPath}`);
+				throw timeoutErr;
+			}
+			// Mtime-stale reclaim FIRST, independent of the pid file: a holder
+			// that crashed between mkdir and the pid write has no pid file —
+			// only an aged mtime can reclaim its dir.
+			try {
+				const dirStat = fs.statSync(lockDir);
+				if (Date.now() - dirStat.mtimeMs > FOREGROUND_CONTROL_LOCK_STALE_MS) {
+					fs.rmSync(lockDir, { recursive: true, force: true });
+					continue;
+				}
+			} catch {
+				/* dir vanished — let the loop retry */
+			}
+			// Dead-pid secondary fast-path: a provably dead owner only means keep
+			// waiting — NEVER steal a fresh lock on a pid-lookup race; the
+			// aged-mtime branch above is the only reclaim.
+			try {
+				const raw = fs.readFileSync(pidFile, "utf-8").trim();
+				const ownerPid = Number.parseInt(raw, 10);
+				if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
+					try {
+						process.kill(ownerPid, 0);
+					} catch {
+						/* dead — but mtime not stale yet, keep waiting */
+					}
+				}
+			} catch {
+				/* no pid file — the mtime check above already handles it */
+			}
+			// Brief sleep to avoid CPU spinning.
+			// WI-7.3 (M7 spec §5): kept sync. Making this async would force
+			// requestForegroundControl() + its caller chain async (10+
+			// callers in message-tool/lifecycle paths). 10ms spin per
+			// iteration is bounded by the 5s timeout above (max ~500 iters
+			// = 5s total worst-case block, matching the lock-timeout).
+			sleepSync(10);
+		}
+	}
+	try {
+		return fn();
+	} finally {
+		if (acquired) {
+			// PID-guarded release: only remove the dir if the pid file still
+			// records OUR pid — if fn outlived staleMs and a stealer re-took the
+			// dir, the stealer owns it now.
+			try {
+				const currentPid = fs.readFileSync(pidFile, "utf-8").trim();
+				if (currentPid === String(process.pid)) {
+					fs.rmSync(lockDir, { recursive: true, force: true });
+				}
+			} catch {
+				/* lock stolen or already gone — do not touch */
+			}
+		}
+	}
+}
+
 export function foregroundControlPath(manifest: TeamRunManifest): string {
 	return path.join(manifest.stateRoot, "foreground-control.json");
 }
@@ -70,105 +193,11 @@ export function writeForegroundInterruptRequest(
 	reason = "User requested foreground interrupt.",
 ): ForegroundControlRequest {
 	const controlPath = foregroundControlPath(manifest);
-	const lockDir = `${controlPath}.lock`;
-	const pidFile = path.join(lockDir, "pid");
-	let requests: ForegroundControlRequest[] = [];
-
-	// FIX: Use file locking to prevent race condition in read-modify-write
-	// Added stale lock detection similar to event-log.ts
-	const acquireLock = (): void => {
-		const timeout = 5000;
-		const staleMs = 10000;
-		const start = Date.now();
-		while (true) {
-			try {
-				fs.mkdirSync(lockDir, { recursive: true });
-				try {
-					atomicWriteFile(pidFile, String(process.pid));
-				} catch {
-					/* best-effort */
-				}
-				break;
-			} catch {
-				if (Date.now() - start > timeout) {
-					// Check if lock is stale before giving up
-					try {
-						const raw = fs.readFileSync(pidFile, "utf-8").trim();
-						const ownerPid = Number.parseInt(raw, 10);
-						if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
-							let alive = false;
-							try {
-								process.kill(ownerPid, 0);
-								alive = true;
-							} catch {
-								/* dead */
-							}
-							if (!alive) {
-								// Lock is stale — clear it and retry
-								fs.rmSync(lockDir, {
-									recursive: true,
-									force: true,
-								});
-								continue;
-							}
-							// Lock held by live process — throw
-							const err = new Error(`Foreground control lock timeout for ${controlPath}`);
-							logInternalError("foreground-control.lock-timeout", err, `controlPath=${controlPath}`);
-							throw err;
-						}
-					} catch {
-						/* no pid file — continue to throw */
-					}
-					const err = new Error(`Foreground control lock timeout for ${controlPath}`);
-					logInternalError("foreground-control.lock-timeout", err, `controlPath=${controlPath}`);
-					throw err;
-				}
-				// Stale detection: if the owning process is dead, remove the stale lock
-				try {
-					const raw = fs.readFileSync(pidFile, "utf-8").trim();
-					const ownerPid = Number.parseInt(raw, 10);
-					if (!Number.isNaN(ownerPid) && ownerPid !== process.pid) {
-						let alive = false;
-						try {
-							process.kill(ownerPid, 0);
-							alive = true;
-						} catch {
-							/* dead */
-						}
-						if (!alive) {
-							const stat = fs.statSync(lockDir);
-							if (Date.now() - stat.mtimeMs > staleMs) {
-								fs.rmSync(lockDir, {
-									recursive: true,
-									force: true,
-								});
-								continue;
-							}
-						}
-					}
-				} catch {
-					/* no pid file — fall through to sleep */
-				}
-				// Brief sleep to avoid CPU spinning
-				// WI-7.3 (M7 spec §5): kept sync. Making this async would force
-				// requestForegroundControl() + its caller chain async (10+
-				// callers in message-tool/lifecycle paths). 10ms spin per
-				// iteration is bounded by the 5s timeout above (max ~500 iters
-				// = 5s total worst-case block, matching the lock-timeout).
-				sleepSync(10);
-			}
-		}
-	};
-	const releaseLock = (): void => {
-		try {
-			fs.rmSync(lockDir, { recursive: true, force: true });
-		} catch {
-			/* best-effort */
-		}
-	};
-
-	acquireLock();
-	try {
+	// F2: this module-level lock is SHARED with the interrupt-guard consumer —
+	// the producer append and the consumer ack serialize on the same lock dir
+	// (`${controlPath}.lock`), closing the unlocked whole-file RMW race.
+	return withForegroundControlLock(controlPath, (): ForegroundControlRequest => {
+		let requests: ForegroundControlRequest[] = [];
 		if (fs.existsSync(controlPath)) {
 			try {
 				const parsed = JSON.parse(fs.readFileSync(controlPath, "utf-8")) as { requests?: ForegroundControlRequest[] };
@@ -201,9 +230,7 @@ export function writeForegroundInterruptRequest(
 			logInternalError("foreground_control.append", e, "type=foreground.interrupt_requested");
 		}
 		return request;
-	} finally {
-		releaseLock();
-	}
+	});
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -217,12 +244,12 @@ export function writeForegroundInterruptRequest(
 // (writeForegroundInterruptRequest above) so the control-file contract has
 // one home.
 //
-// Polling/ack semantics carried over byte-identically from the previous
-// inline guard in background-runner.ts: existsSync+readFileSync+JSON.Parse
-// per tick, interval PI_CREW_INTERRUPT_GUARD_INTERVAL_MS (default 1000ms),
-// synchronous atomic ack write, once-per-request gate (defense-in-depth when
-// the ack write fails), appendEventBuffered("async.interrupt_detected"),
-// interval.unref().
+// Polling/ack semantics carried over from the previous inline guard in
+// background-runner.ts: existsSync+readFileSync+JSON.Parse per tick, interval
+// PI_CREW_INTERRUPT_GUARD_INTERVAL_MS (default 1000ms), synchronous atomic ack
+// write (now under the producer's dir-lock — F2), once-per-request gate
+// (defense-in-depth when the ack write fails),
+// appendEventBuffered("async.interrupt_detected"), interval.unref().
 //
 // What an interrupt DOES is host-scoped via onInterrupt:
 //  - detached runner (background-runner.startInterruptGuard): process-wide
@@ -261,21 +288,42 @@ export function startRunInterruptGuard(opts: RunInterruptGuardOptions): () => vo
 	const interval = setInterval(() => {
 		try {
 			if (!fs.existsSync(controlPath)) return;
-			const parsed = JSON.parse(fs.readFileSync(controlPath, "utf-8")) as {
-				requests?: Array<{ type: string; acknowledged?: boolean }>;
-			};
+			const parsed = JSON.parse(fs.readFileSync(controlPath, "utf-8")) as ForegroundControlFile;
 			const last = parsed.requests?.at(-1);
 			if (last?.type === "interrupt" && last?.acknowledged !== true) {
 				if (interruptHandled) return;
 				interruptHandled = true;
 				// RT-4 FIX: write acknowledged:true back SYNCHRONOUSLY so the next
 				// tick does not re-fire. Sync because a polling callback cannot await.
+				// F2 FIX: the ack is a whole-file read→mutate→write and now runs
+				// under the SAME module-level lock as the producer
+				// (withForegroundControlLock) with a FRESH read inside the critical
+				// section. The old path wrote back the stale tick snapshot
+				// unlocked — a producer append racing the tick was clobbered
+				// (lost interrupt request).
 				try {
-					const reqs = parsed.requests ?? [];
-					if (reqs.length > 0) {
-						reqs[reqs.length - 1].acknowledged = true;
-						atomicWriteFile(controlPath, JSON.stringify(parsed, null, 2));
-					}
+					withForegroundControlLock(controlPath, () => {
+						if (!fs.existsSync(controlPath)) return;
+						let fresh: ForegroundControlFile;
+						try {
+							fresh = JSON.parse(fs.readFileSync(controlPath, "utf-8")) as ForegroundControlFile;
+						} catch {
+							return;
+						}
+						const reqs = fresh.requests;
+						if (!Array.isArray(reqs) || reqs.length === 0) return;
+						// Ack the exact request that fired (by id when present);
+						// fall back to the tail entry so id-less legacy files
+						// keep acking like before.
+						let target = last.id !== undefined ? reqs.find((r) => r.id === last.id) : undefined;
+						if (target === undefined) {
+							const tail = reqs[reqs.length - 1];
+							if (tail?.type === "interrupt" && tail.acknowledged !== true) target = tail;
+						}
+						if (target === undefined || target.type !== "interrupt" || target.acknowledged === true) return;
+						target.acknowledged = true;
+						atomicWriteFile(controlPath, JSON.stringify(fresh, null, 2));
+					});
 				} catch {
 					/* best-effort ack — interruptHandled gate prevents re-fire */
 				}

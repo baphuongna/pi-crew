@@ -17,9 +17,14 @@ export interface MsgInboxHelpers {
 	sendResult(conn: ServerConnection, id: string, result: unknown): void;
 }
 
-/** Phase 1.1: read the durable mailbox for the addressed task (or run-level
- *  "inbox" lane) with cursor/limit pagination. Returns messages whose status
- *  is NOT yet `acknowledged`; callers should ack after processing. */
+/** Phase 1.1: read the durable mailbox for the addressed task with
+ *  cursor/limit pagination. The run-level "inbox" lane (connection with no
+ *  taskId) is readable ONLY with compound auth (S-2, 2026-10-31 fix wave E):
+ *  the orchestrator key is compound by construction, while a legacy
+ *  bare-runId ("runId-fallback") worker connection is rejected — the same
+ *  task-scoped-token rule wait.* (protocol/wait-auth.ts) and delegate.request
+ *  enforce. Returns messages whose status is NOT yet `acknowledged`; callers
+ *  should ack after processing. */
 export async function handleMsgInbox(
 	conn: ServerConnection,
 	id: string,
@@ -54,6 +59,25 @@ export async function handleMsgInbox(
 	}
 	const limit = Math.min(Math.max(parsed.limit ?? 100, 1), 1000);
 	const taskId = conn.taskId ?? undefined;
+	// S-2 (fix wave E): reading the run-level (orchestrator) inbox lane
+	// requires COMPOUND auth. A legacy bare-runId ("runId-fallback") worker
+	// connection has no proven task identity, yet previously fell through to
+	// the run-level read here. The orchestrator key is compound BY
+	// CONSTRUCTION (crew-broker-tokens.ts tokenRoleWithMatchKind), so the
+	// legitimate run-level reader is unaffected; authMatchKind is undefined
+	// only for pre-hello connections, which the !conn.runId check above
+	// already excludes — fail-closed here regardless. Task-lane reads
+	// (conn.taskId set) are never runId-fallback: w1a proved explicit taskId
+	// claims only via the compound key at hello.
+	if (taskId === undefined && conn.authMatchKind !== "compound") {
+		helpers.sendError(
+			conn,
+			id,
+			"forbidden",
+			"msg.inbox: run-level lane requires a task-scoped token; re-dispatch with PI_CREW_BROKER_TASK_ID",
+		);
+		return;
+	}
 	const all = readMailbox(manifest, "inbox", taskId);
 	const filtered = all.filter((m) => m.status !== "acknowledged");
 	const offset = parsed.cursor ? Number.parseInt(parsed.cursor, 10) || 0 : 0;

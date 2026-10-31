@@ -80,6 +80,24 @@ function isWithinAllowedPrefixes(resolvedPath: string): boolean {
 		logInternalError("pi-spawn.allowlist-prefixes.local-bin", error, undefined, "debug");
 	}
 
+	// S-4 (Wave G): Pi-managed install layout (the official Pi installer).
+	// The installer ships a launcher at ~/.pi/agent/bin/pi (verified live:
+	// `which pi` → ~/.pi/agent/bin/pi on a Pi-installer host) and execs the
+	// release tree under ~/.pi/agent/install/releases/<ver>/node_modules/.
+	// Neither is covered by the npm-style prefixes above, so PATH validation
+	// would reject the primary non-npm install layout without these entries.
+	// Both are user-owned single-user dirs — same trust class as
+	// ~/.npm-global/bin above. Deliberately NOT ~/.pi/agent as a whole so the
+	// extensions/ and cache/ subdirs never become auto-executable prefixes.
+	try {
+		const piAgentDir = path.join(os.homedir(), ".pi", "agent");
+		allowedPrefixes.push(path.join(piAgentDir, "bin").toLowerCase());
+		allowedPrefixes.push(path.join(piAgentDir, "install").toLowerCase());
+	} catch (error) {
+		// R17-B3: probe failure → prefix simply not allowed.
+		logInternalError("pi-spawn.allowlist-prefixes.pi-managed", error, undefined, "debug");
+	}
+
 	// Canonicalize prefixes (macOS: /var/folders/... realpath → /private/var/folders/...).
 	// validateExplicitBin() compares fs.realpathSync(resolved) against this list —
 	// without the canonical forms, any prefix reached through a symlink (macOS
@@ -312,6 +330,98 @@ function validateExplicitBin(explicit: string): string | undefined {
 	return resolved;
 }
 
+/**
+ * which(1)-equivalent resolution of a bare command name against PATH.
+ * Returns the first hit (absolute path), or undefined when PATH has no match.
+ * On win32 the PATHEXT extensions are tried in order — spawn itself does NOT
+ * do PATHEXT resolution (see the Issue #33 note on resolveNpmGlobalRoot).
+ * @internal — exported for unit tests (S-4).
+ */
+export function resolveCommandOnPath(command: string): string | undefined {
+	const rawPath = process.env.PATH;
+	if (!rawPath) return undefined;
+	const extensions =
+		process.platform === "win32" ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((ext) => ext.length > 0) : [""];
+	for (const dir of rawPath.split(path.delimiter)) {
+		if (dir.length === 0) continue;
+		for (const ext of extensions) {
+			const candidate = path.resolve(dir, `${command}${ext}`);
+			try {
+				// statSync (symlink-following) rejects missing entries and
+				// directories named `pi`; accessSync(X_OK) enforces executability
+				// exactly like which(1) on posix.
+				if (!fs.statSync(candidate).isFile()) continue;
+				if (process.platform !== "win32") fs.accessSync(candidate, fs.constants.X_OK);
+				return candidate;
+			} catch {
+				// Not present / not a file / not executable — keep scanning PATH.
+			}
+		}
+	}
+	return undefined;
+}
+
+/**
+ * S-4 (Wave G): validate a PATH-resolved bare-"pi" hit with the same
+ * predicate as PI_TEAMS_PI_BIN (validateExplicitBin). Throws on an
+ * out-of-prefix hit — or an out-of-prefix symlink target — so the worker is
+ * skipped loudly with a diagnostic instead of silently spawning whatever
+ * the inherited PATH served (the pre-S-4 bare-"pi" fallback validated
+ * nothing). Returns the validated hit.
+ * Hardening (2026-10-31, LOW ruling): a FOUND, prefix-valid hit whose
+ * realpath probe then fails for a NON-prefix reason (transient EACCES /
+ * TOCTOU / symlink loop) ALSO throws — returning undefined here made the
+ * caller degrade to the unvalidated bare-"pi" command, the exact S-4
+ * primitive this guard exists to close. A found-and-prefix-valid candidate
+ * must never degrade to the unvalidated fallback.
+ * @internal — exported for unit tests.
+ */
+export function validatePathResolvedPi(hit: string): string | undefined {
+	if (!isWithinAllowedPrefixes(hit)) {
+		throw new Error(
+			`PATH-resolved 'pi' at '${hit}' is outside allowed prefixes. ` +
+				`Allowed: npm global bin, project node_modules/.bin, APPDATA/npm, ~/.npm-global/bin, ~/.local/bin, ~/.pi/agent (Pi-managed install), or process execPath directory. ` +
+				`Refusing to spawn an unvalidated PATH hit — install pi via npm -g or the Pi installer, pin PI_TEAMS_PI_BIN inside an allowed prefix, or extend the allowlist with NPM_CONFIG_PREFIX.`,
+		);
+	}
+	try {
+		const real = fs.realpathSync(hit);
+		if (!isWithinAllowedPrefixes(real)) {
+			throw new Error(`PATH-resolved 'pi' at '${hit}' symlink target '${real}' is outside allowed prefixes.`);
+		}
+	} catch (e) {
+		if (e instanceof Error && e.message.includes("allowed prefixes")) throw e;
+		// S-4 hardening: loud skip-with-diagnostic, NEVER a silent degrade to
+		// bare "pi" (spawn would re-resolve the name against the inherited PATH
+		// with zero validation). The raw cause rides in the message.
+		throw new Error(
+			`PATH-resolved 'pi' at '${hit}' passed the prefix allowlist but could not be realpath-validated: ${e instanceof Error ? e.message : String(e)}. ` +
+				`Refusing to degrade to the unvalidated bare-'pi' fallback — treat this as a skip-and-diagnose (transient EACCES/TOCTOU or a symlink loop).`,
+		);
+	}
+	return hit;
+}
+
+/**
+ * S-4 (Wave G): the bare-"pi" fallback. resolvePiCliScript() missed, and the
+ * legacy behavior handed spawn("pi") to inherited-PATH resolution with NO
+ * validation. Now: resolve the hit ourselves and validate it with the same
+ * allowlist as PI_TEAMS_PI_BIN — an unvalidated/hijacked hit throws (worker
+ * skipped with a clear diagnostic, same UX as an invalid PI_TEAMS_PI_BIN),
+ * and a validated hit is spawned by absolute path so the child cannot
+ * re-resolve a different binary under a mutated env. On win32 a validated
+ * hit only proves PATH sanity — spawn cannot exec PATHEXT targets (pi.cmd)
+ * without a shell — so the legacy bare "pi" command is kept as before.
+ * @internal — exported for unit tests.
+ */
+export function resolvePathFallbackCommand(args: string[]): PiSpawnCommand {
+	const hit = resolveCommandOnPath("pi");
+	if (!hit) return { command: "pi", args };
+	const validated = validatePathResolvedPi(hit);
+	if (validated && process.platform !== "win32") return { command: validated, args };
+	return { command: "pi", args };
+}
+
 export function getPiSpawnCommand(args: string[]): PiSpawnCommand {
 	const explicit = getCrewEnv("PI_TEAMS_PI_BIN")?.trim();
 	if (explicit) {
@@ -332,8 +442,8 @@ export function getPiSpawnCommand(args: string[]): PiSpawnCommand {
 	}
 	// Linux/macOS: also resolve the full path so child processes can find 'pi' even if
 	// PATH is minimal (e.g. in detached background-runner processes). Fall back to "pi"
-	// only if resolution fails.
+	// only if resolution fails — S-4: the fallback itself now validates the PATH hit.
 	const script = resolvePiCliScript();
 	if (script) return { command: process.execPath, args: [script, ...args] };
-	return { command: "pi", args };
+	return resolvePathFallbackCommand(args);
 }

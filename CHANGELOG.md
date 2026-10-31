@@ -1,5 +1,120 @@
 # Changelog
 
+## [Unreleased] — deep-review verified fix set, waves A–G (2026-10-31)
+
+**Fixed (product).** The v0.11.53 deep review's 15 findings were cold-verified by three independent verifiers
+(13 CONFIRMED / 2 PARTIAL / 0 refuted); this batch implements the seven fix waves against `8e70ab6f`. Four
+findings are deliberately deferred with documented backstops (closing note). Wave-by-wave:
+
+- **wA foreground-control lock family (F1/F2)** — the producer "lock" was `mkdirSync(lockDir, { recursive: true })`:
+  recursive mkdir NEVER throws EEXIST, so it provided zero mutual exclusion and its contention branches were dead
+  code. Replaced with module-level `withForegroundControlLock` (foreground-control.ts) replicating the proven
+  event-log dir-lock protocol: the non-recursive mkdir IS the mutex; 5s timeout; 10s mtime-stale reclaim; dead-pid
+  keep-waiting fast path (never steal on a pid-lookup race); `"wx"` pid file; PID-guarded release. F2: the
+  interrupt-guard consumer ack did an unlocked read→mutate→whole-file write that clobbered producer appends — it
+  now acquires the SAME module-level lock, re-reads inside it, and acks by request `id` (tail fallback for legacy
+  id-less control files). Retry contends ONLY on EEXIST; any other IO error fails fast
+  (`foreground-control.lock-acquire-failed`) instead of spinning to the timeout. Behavior delta (per spec, event-log
+  pattern semantics): a dead owner no longer releases the lock immediately — only an aged mtime (>10s) reclaims.
+  Dedup with `withEventLogAppendLockSync` into a shared helper is a noted follow-up (parallel-wave file ownership).
+- **wB event-log buffered-flush timer family (F3/F4/F5)** — F3: a flush's `finally` deleted the timer entry without
+  re-arming, so events appended during an in-flight flush sat un-timered until the next append; it now re-arms when
+  leftovers exist (identity guard so a fresh handle armed by another append is never orphaned; delay = the queue's
+  last-used `bufferMs` — `bufferedTimers` now stores `{ handle, bufferMs }`). F4: the in-flight tracker stored the
+  `.finally()` WRAPPER but compare-and-deleted the ORIGINAL promise — entries were never deleted (leak; the drain
+  helpers' self-delete no-op path was dead code); it now compares the stored wrapper. F5: the armed handle is
+  cleared at grab time (terminal-event/drain-triggered flushes no longer leave a stale timer firing a redundant
+  no-op flush); `flushBufferedQueuesSync` clears pending handles too. **Out-of-spec, flagged and kept**:
+  `flushEventLogBuffer()` now iterates the UNION of queued + in-flight paths — queue-only iteration skipped exactly
+  the paths its own await-inflight logic exists for, and the deterministic-read pin flaked ~1 run in 8 at baseline
+  HEAD (0/20 post-fix).
+- **wC child-pi duplicate drain (F6)** — the final-drain 5s CEILING callback left the quiet-window poller armed:
+  ceiling fires first + child goes quiet-alive ⇒ the poller fired a SECOND forced drain (duplicate `final_drain` +
+  SIGTERM) and overwrote `hardKillTimer`, orphaning the ceiling's timer ⇒ duplicate `hard_kill`. The ceiling now
+  clears the poller (mirroring its own self-cancel) and hard-kill emission is idempotent at all three arm sites
+  (`hardKilled` gate). `settled || childExited` guards untouched; both transports arm this path (child-pi.ts /
+  child-pi-rpc.ts). Adjacent, left for triage: a NEW final assistant event after a quiet-drain can still re-arm one
+  extra `final_drain`, but hard-kill is bounded to one.
+- **wD verify-gate shared-cwd untracked harness (S-1, HIGH)** — the dispatch-pinned bindings (treeOid/cleanTree/memo
+  key) bind TRACKED content only; in shared-cwd mode the gate ran its checks in the same cwd a WRITE-role executor
+  had just written to, so a tampered gitignored harness (node_modules shims) graded its own gate and skipped the LLM
+  verifier. New `applySharedCwdHarnessGuard` (verify-gate.ts), chained after the W2 guard at BOTH the memo-hit and
+  fresh-verdict PASS sites: any WRITE-role task that EXECUTED in the gate cwd (fail-closed status set incl.
+  `cancelled`; worktree-carrying records excluded; realpath-aware cwd compare) ⇒ refuse the deterministic skip and
+  force the spawn with reason `"shared-cwd-untracked-harness"`. Worktree-mode skip behavior unchanged; new guard
+  metric `crew.verification.verifier_gate_shared_cwd_guard_total`. Wiring deviation (deliberate, leader notified):
+  task-runner.ts passes host-owned task records (verifier's own excluded) into the pre-gate (+17 lines) — reading
+  tasks.json from the gate itself would be M1-7 self-grading ground truth. Documented residual: a worker forging
+  its own tasks.json record (role/status) still evades — state-store integrity lane. `worktree.linkNodeModules:
+  true` carries the matching trust-assumption comment (worktree-manager.ts) plus a docs/trust-model.md note.
+- **wE msg.inbox run-level lane gating (S-2)** — legacy bare-runId ("runId-fallback") worker connections could read
+  the orchestrator's run-level inbox lane (wait.*/delegate.request already reject non-compound auth). `msg.inbox`
+  now rejects `taskId === undefined && authMatchKind !== "compound"` with `forbidden` + a `PI_CREW_BROKER_TASK_ID`
+  migrate hint (same error shape as wait-auth). The orchestrator key is compound BY CONSTRUCTION, so the legitimate
+  run-level reader is unaffected; undefined kind (pre-hello) fails closed; task-lane reads unchanged.
+- **wF gate allowlist hardening (S-3)** — `printenv` dropped from `ALLOWED_GATE_COMMAND_PATTERNS` (it turned any
+  allowlisted gate into an environment-dump read primitive whose output lands in world-readable artifacts).
+  `grep`/`head`/`rg`/`tail` stay allowlisted only as cwd-scoped evidence extractors: new `validateGateReaderPathArgs`
+  rejects absolute and `~`-prefixed path args (one-quote-char strip closes the unbalanced-quote whitespace-split
+  bypass); runner patterns untouched. Deliberate residual: `..`-traversal and attached option values (`rg -f/etc/x`)
+  still pass — cheap follow-up. Known collateral (out-of-wave-ownership, escalated to leader): `verify-gate.test.ts`
+  "grep evidence lines" (absolute tmpdir arg; one-line relative fix) and `verification-env-sanitize.test.ts` (4
+  `printenv` probes; recommended tmpdir Makefile `@printenv` recipe) stay red until reworked.
+- **wG pi PATH fallback validation (S-4)** — a `resolvePiCliScript()` miss returned bare `{ command: "pi" }`, spawned
+  via inherited PATH with NO validation, while explicit `PI_TEAMS_PI_BIN` IS validated. New `resolveCommandOnPath`
+  (which(1)-equivalent: PATH order, X_OK, PATHEXT) + `validatePathResolvedPi` (the same `isWithinAllowedPrefixes` +
+  realpath predicate as explicit-bin validation): a validated POSIX hit spawns by ABSOLUTE path (no child-side
+  re-resolution under a mutated env); win32 keeps bare `"pi"` (spawn cannot exec PATHEXT without a shell —
+  documented); an out-of-prefix hit THROWS loud diagnostics mirroring the invalid-PI_TEAMS_PI_BIN UX, while NO hit
+  on PATH keeps the legacy bare-`"pi"` behavior. Allowed prefixes extended minimally with `~/.pi/agent/bin` +
+  `~/.pi/agent/install` — the Pi-managed installer layout, live-verified legitimate and previously uncovered
+  (deliberately NOT all of `~/.pi/agent`, so `extensions/`/`cache/` never become auto-executable prefixes).
+- **Closing hardenings (leader-approved rulings, same working tree, 2026-10-31):**
+  - **S-1 underscore-role bypass (HIGH follow-up):** the guard's `permissionForRole(record.role)` used the RAW role
+    while the tool-granting layer normalizes underscore→hyphen (agent-config.ts `normalizeRoleKey`), so
+    `test_engineer`/`cold_verifier`/`chain_executor` stayed write-capable at the worker while the guard
+    default-denied them to read_only — guard inert exactly for the roles it exists to catch. Fixed in verify-gate.ts
+    (mirrored `normalizeRoleKeyForGuard`; centralization TODO left at the three other un-normalized copies —
+    pre-execution.ts, spawn-policy.ts, prompt-builder.ts — out of this run's scope).
+  - **S-1 ancestor-cwd containment (M):** `taskRecordSharesGateCwd` exact-compared cwds; a WRITE-role task running
+    at an ANCESTOR cwd (task cwd=/ws, gate cwd=/ws/pi-crew) writes into the gate cwd all the same — a record now
+    counts as sharing when its realpath'd cwd equals OR CONTAINS the realpath'd gate cwd (fail-closed realpath
+    fallback preserved).
+  - **Guard-refused PASS never memoizes (M):** the memo record ran BEFORE the S-1 guard chained, so an uncertifiable
+    PASS could replay as a skip in a later run whose taskRecords are absent/empty. `recordVerifyGateMemo` is now
+    gated on the refusal reason (only `shared-cwd-untracked-harness`; the W2 refusal keeps recording — its memo-hit
+    path re-checks probes every replay). Fresh+memoized guard application unchanged.
+  - **S-4 realpath-degrade closure (LOW):** a prefix-valid PATH hit whose `realpathSync` probe failed for a
+    non-prefix reason (transient EACCES/TOCTOU/symlink loop) returned `undefined` → caller degraded to the
+    UNVALIDATED bare-`"pi"` command (the exact S-4 primitive). It now throws skip-with-diagnostic — a
+    found-and-prefix-valid candidate never degrades to the unvalidated fallback.
+  - **S-3 reader-path containment (LOW; closes wF's deliberate `..`/attached-value residual):**
+    `validateGateReaderPathArgs` now also rejects `..`-relative escapes (each non-flag arg resolved against the
+    execution cwd — threaded `executeCommand → validateGateCommand → validateGateReaderPathArgs` — with
+    containment enforcement), Windows absolute forms (`C:/…`, `\\host\share`), attached option values carrying a
+    path (`-f/etc/x`), and denies `rg --pre`/`--pre=*` outright (arbitrary preprocessor execution). Cwd-relative
+    evidence extraction (`grep -m1 . dist.txt`, in-cwd `sub/../x` round-trips) still passes.
+  - **Collateral test repairs + docs:** the 4 wave-F `printenv` env-sanitize probes reworked to the allowlisted
+    `make test` entry with a tmpdir Makefile `@printenv VAR` recipe (npm-run pattern; printenv NOT re-added to the
+    allowlist; win32-skipped like the prior fixture); the verify-gate grep-evidence test now uses the cwd-relative
+    `dist.txt`; trust-model.md documents the win32 spawn fallback + `~/.pi/agent/{bin,install}` same-uid residuals
+    and the memo/cross-run closure context.
+
+**Deferred (documented residuals, untouched):** F7 heartbeat PID-recycle (stale-reconciler 30-min trust cap is the
+designed backstop), F8 64KiB handshake cap (needs a chunked handshake protocol — feature, not a fix), S-5 unsigned
+read-only RPC (backward-compat; live-control already fails closed), S-7 webhook DNS-residual SSRF (RFC1918
+deliberately allowed — internal webhooks are a use case).
+
+Tests: 29 new regression tests across the waves — wA 3 (subprocess-harness race pins: 3 producers × 16 writes, all
+48 survive; guard-cycler vs hammering producer, 0 lost; legacy id-less ack fallback), wB 3 (deterministic F3/F4/F5
+pins via the exported lock seam), wC 3 (mock-timer scenarios incl. the exact F6 repro: ceiling-first + quiet ⇒
+exactly one `final_drain` + one `hard_kill`), wD 8 (6 engine incl. memo-hit interplay + 2 e2e), wE 2 (replacing the
+test that pinned the vulnerable behavior), wF 5 (+ reworked P-4 cap fixture to a cwd-relative temp file), wG 5
+(PATH resolution/validation). Every wave: `test:critical` 127/127, typecheck, biome green; wA and wC
+mutation-verified (stash-revert reproduces the bug live). Closing hardenings add 5 more (S-1 underscore-role,
+ancestor-cwd, memo-suppression pins D7–D9; reader-path containment; realpath-degrade) and rework the 4 wave-F
+collateral env-sanitize probes to `make test`.
+
 ## [0.11.53] — event-log in-flight flush await fix (macos CI catch) + Bug-030 RCA closed (2026-10-31)
 
 **Fixed (product, caught by macos CI).** `flushOneEventLogBuffer` removed the queue from

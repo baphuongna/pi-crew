@@ -1,8 +1,10 @@
 # pi-crew Trust Model (single source of truth)
 
-**Document version:** 1.2 (2026-10-19 — adds DWF gate scope, cold-verifier
-isolation residual, observability/telemetry census note; fix-wave 6 / M4)
-**Date:** 2026-09-10 (v1.0) / 2026-10-18 (v1.1) / 2026-10-19 (v1.2)
+**Document version:** 1.3 (2026-10-31 — adds root-session-gate env-derivation
+clarification with bwrap cross-ref; S-1 untracked-harness residual with the
+shared-cwd forced-spawn backstop; deep-review waves A–G)
+**Date:** 2026-09-10 (v1.0) / 2026-10-18 (v1.1) / 2026-10-19 (v1.2) /
+2026-10-31 (v1.3)
 **Owner:** solo maintainer (delegated to upgrade program M6/WI-6.1)
 **Supersedes:** trust-model content previously distributed across
 `docs/bugs/SECURITY-ISSUES.md` (v3.0, last updated 2026-06-03) and
@@ -125,6 +127,81 @@ whose goal text is sensitive. See `docs/troubleshooting.md` for the doctor
 false-negative catalogue (disk-full / state perms / orphan processes / broken
 `node_modules` are NOT detected).
 
+### Root-session gate is env-derived, not containment (documented clarification)
+
+The Wave-3 root-session gate ("root-session required") on user-scope
+mutations decides "is this the root session" from the runtime environment —
+the same environment a worker's `bash` tool can re-invoke mutations from.
+It is a consistency fence against accidental/normal worker flows, NOT a
+containment boundary: any worker with shell access can bypass it by design.
+Actual OS-level containment for headless child-pi workers is the bubblewrap
+sandbox — `PI_CREW_SANDBOX` (Linux, **opt-in**, fail-closed: unsupported
+value / non-Linux / missing bwrap binary / net=off+broker all throw BEFORE
+any spawn, never silently un-sandboxed), which does not mount `~/.pi`
+(`auth.json`!), `~/.ssh`, or any other host path. See
+`src/runtime/child-pi/sandbox.ts` and the `PI_CREW_SANDBOX` entry in
+`src/config/env-vars.ts` (previously the only documentation of this layer).
+When workers run un-sandboxed with shell access, treat the root-session
+gate as bypassable.
+
+### Untracked harness sits outside every verify-gate binding (S-1 residual + shared-cwd backstop)
+
+The verify-gate's dispatch-pinned bindings (treeOid / cleanTree / memo key)
+bind TRACKED content only; gitignored files in the gate cwd are invisible to
+all of them. Two modes, one closed and one accepted:
+
+- **Shared-cwd (closed 2026-10-31, deep-review S-1):** the gate ran its
+  checks in the same cwd a WRITE-role executor had just written to, so a
+  tampered gitignored harness (e.g. a node_modules shim) graded its own
+  gate and skipped the LLM verifier. Backstop: when host-owned task records
+  show any write-role task EXECUTED in the gate cwd, the deterministic skip
+  is refused and the LLM verifier is force-spawned (reason
+  `"shared-cwd-untracked-harness"`; `applySharedCwdHarnessGuard` in
+  `src/runtime/verification/verify-gate.ts`, applied to fresh AND memoized
+  PASS verdicts). Closing hardenings (same 2026-10-31 closing set): the
+  guard's role lookup normalizes underscore→hyphen exactly like the
+  tool-granting layer (`test_engineer` IS write-capable — the un-normalized
+  lookup misclassified it read_only and left the guard inert); a record cwd
+  that is a realpath'd ANCESTOR of the gate cwd counts as sharing (worker
+  writes are not OS-scoped to the task cwd); and a guard-refused PASS is
+  never memoized — a later run whose taskRecords happen to be absent/empty
+  must never replay an uncertifiable PASS as a skip (the memo/cross-run
+  residual this closes; what remains is only the forgery class below).
+  Residual inside the backstop: a worker forging its own
+  tasks.json record (role/status) evades it — state-store integrity is a
+  separate lane.
+- **Worktree mode + `worktree.linkNodeModules: true` (accepted):** the
+  linked leader `node_modules` is host-managed but gitignored — its shims
+  execute in the worktree's gate outside every binding. Trust assumption:
+  worktree executors write only inside their own worktree (their
+  uncommitted work is separately guarded by the W2 dependency probes) and
+  the leader `node_modules` is host-controlled. See the TRUST ASSUMPTION
+  comment at the `linkNodeModules` gate in `src/worktree/worktree-manager.ts`
+  (`prepareTaskWorkspace`).
+
+### Worker-spawn path residuals (S-4 follow-ups, accepted + documented 2026-10-31)
+
+- **win32 fallback residual:** on Windows, a bare-`pi` PATH hit that is a
+  PATHEXT target (`pi.cmd`) cannot be exec'd by `spawn()` without a shell,
+  so pi-crew keeps the legacy bare `"pi"` command there — and `spawn()`'s
+  own CreateProcess resolution (which also probes the CURRENT DIRECTORY)
+  sits OUTSIDE the `isWithinAllowedPrefixes` validation. Mitigated by
+  spawning validated hits explicitly wherever `resolvePiCliScript()` /
+  `resolvePathFallbackCommand()` can; the full win32 resolution fix is
+  deferred. Hardened the same day: a found-and-prefix-valid hit whose
+  realpath probe fails for a non-prefix reason (transient EACCES / TOCTOU /
+  symlink loop) now THROWS (skip-and-diagnose) instead of degrading to the
+  unvalidated bare-`pi` fallback (`validatePathResolvedPi`,
+  `src/runtime/pi-spawn.ts`).
+- **`~/.pi/agent/{bin,install}` prefixes are same-uid worker-writable:**
+  the Pi-managed installer layout sits in the USER-HOME trust class — same
+  as `~/.npm-global/bin` and `~/.local/bin`, which a same-uid process can
+  also rewrite. A same-uid process that can write those prefixes can
+  already replace any of the user's PATH shims, so this is an accepted
+  residual of the Pi-installer layout, not a new boundary. Deliberately NOT
+  extended to all of `~/.pi/agent` (`extensions/`, `cache/` never become
+  auto-executable prefixes).
+
 ## Cross-references
 
 - `docs/decisions/2026-08-10-scratchpad-snapshot-hmac.md` (HMAC = REMOVED 2026-08-12 — corrected claim §7)
@@ -134,3 +211,7 @@ false-negative catalogue (disk-full / state perms / orphan processes / broken
 - `src/observability/metrics-primitives.ts:57-67` (F.2 gauge)
 - `src/runtime/scratchpad/guest.ts:33` (E.2 v8.deserialize, mitigated)
 - `src/state/coordination/locks.ts:49-67` (SEC-008 EPERM branch, accepted)
+- `src/runtime/child-pi/sandbox.ts` + `src/config/env-vars.ts` `PI_CREW_SANDBOX` (bwrap OS-boundary containment — the real backstop behind the env-derived root-session gate)
+- `src/runtime/verification/verify-gate.ts` (`applySharedCwdHarnessGuard` — shared-cwd untracked-harness forced verifier spawn)
+- `src/runtime/pi-spawn.ts` (`validatePathResolvedPi` — see the worker-spawn path residuals above)
+- `src/worktree/worktree-manager.ts` (`worktree.linkNodeModules` trust assumption — see the S-1 residual above)

@@ -79,6 +79,14 @@
  *     (worktree mode — the gate's pristine tree structurally excludes that
  *     work), the skip is refused and the LLM verifier spawns with the guard
  *     note (dependencyWorktreeProbes → reason "unverified_worktree_work").
+ *   - S-1 (2026-10-31, HIGH): in SHARED-CWD mode the bindings still cannot
+ *     see GITIGNORED content in the gate cwd itself — the gate runs its checks
+ *     in the same directory a WRITE-role executor just wrote to, and a
+ *     tampered gitignored harness (node_modules shims) grades its own gate.
+ *     When host-owned task records show a write-role task EXECUTED in the
+ *     gate cwd, the skip is refused and the LLM verifier spawns (taskRecords
+ *     → reason "shared-cwd-untracked-harness") — fresh AND memoized PASS
+ *     verdicts, mirroring the W2 guard.
  *
  * SAFETY: a gate that cannot run (disabled by env, no checks resolved,
  * executor failure) degrades to "spawn the LLM verifier as today" — the
@@ -94,9 +102,14 @@
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { getCrewEnvBool, getCrewEnvInt } from "../../config/env-vars.ts";
 import type { MetricRegistry } from "../../observability/metric-registry.ts";
 import { assertWorktreePointerTrusted, buildGitSafeEnv, hardenGitArgs } from "../../worktree/git-hardening.ts";
+// Static edge is graph-free: role-permission.ts is already in the index.bundle
+// value-import graph (task-runner/pre-execution.ts imports it), so this adds no
+// bundle-graph file (check-lazy-imports budget) — same rationale as below.
+import { permissionForRole } from "../role-permission.ts";
 import type { VerifierPreGateResult } from "./classifier-pre-gate.ts";
 import { executeCommand } from "./verification-gates.ts";
 // Static edge is graph-free: verification-integrity.ts is already in the
@@ -732,6 +745,129 @@ function resolveWorktreeGuardDecision(
 	};
 }
 
+// ─── S-1 (shared-cwd untracked harness, HIGH, 2026-10-31): task-record guard ──
+
+/** S-1: host-owned view of ONE task record at gate time (a structural subset
+ *  of TeamTaskState — the state layer is not imported here). Callers pass the
+ *  records for every task in the run EXCEPT the verifier itself (the gate
+ *  runs BEFORE the verifier's own spawn — including it would fire the guard
+ *  on every shared-cwd run). */
+export interface VerifierGateTaskRecord {
+	taskId: string;
+	/** Role as the HOST recorded it at dispatch. Write-capability comes from
+	 *  the role-permission WRITE_ROLES allowlist — the same list that gates
+	 *  worker tool access, so "a role that can write files" is exactly "a
+	 *  role that can plant a gitignored harness shim". */
+	role: string;
+	/** Lifecycle status at gate time. "queued" never started and "skipped"
+	 *  never ran — every other status (incl. "cancelled": an aborted worker
+	 *  may still have written) counts as EXECUTED, fail-closed. */
+	status: string;
+	/** The cwd the task executes in. */
+	cwd: string;
+	/** Present when the task ran in its own worktree (worktree mode) — its
+	 *  writes live outside the gate cwd and the W2 probe path owns them. */
+	worktreePath?: string;
+}
+
+/** S-1: statuses proving a worker actually ran (see VerifierGateTaskRecord.status). */
+const EXECUTED_TASK_STATUSES: ReadonlySet<string> = new Set(["running", "waiting", "completed", "failed", "cancelled", "needs_attention"]);
+
+/** S-1: same-directory compare — exact string first (host records derive both
+ *  sides from the same manifest cwd string), realpath fallback for textual
+ *  variants (symlinks / Windows \\?\\ prefixes). Unresolvable ⇒ NOT equal: a
+ *  record whose cwd cannot be resolved carries no evidence it ran here.
+ * Guard hardening (2026-10-31, M-ruling): a record cwd that is a realpath'd
+ *  ANCESTOR of the gate cwd also counts — worker writes are NOT OS-scoped to
+ *  the task cwd, so a WRITE-role task running at a monorepo root (task
+ *  cwd=/ws) wrote into the gate's cwd (/ws/pi-crew) all the same. */
+function taskRecordSharesGateCwd(recordCwd: string, gateCwd: string): boolean {
+	if (recordCwd === gateCwd) return true;
+	try {
+		const realRecord = fs.realpathSync.native(recordCwd);
+		const realGate = fs.realpathSync.native(gateCwd);
+		if (realRecord === realGate) return true;
+		// Ancestor containment: is realGate strictly inside realRecord? (Symlink
+		// loops / unresolvable sides already fell to the catch below — the
+		// existing fail-closed fallback pattern.)
+		const rel = path.relative(realRecord, realGate);
+		return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+	} catch {
+		return false;
+	}
+}
+
+/** S-1 hardening (2026-10-31, security HIGH follow-up): the tool-granting
+ *  layer normalizes underscore→hyphen role keys before its permission lookup
+ *  (agents/agent-config.ts normalizeRoleKey + permissionForRole, F10), so a
+ *  dispatched `test_engineer` / `cold_verifier` / `chain_executor` role is
+ *  WRITE-capable at the worker — but the guard's un-normalized lookup here
+ *  default-denied it to read_only, leaving the guard inert for exactly the
+ *  roles it exists to catch (the S-1 exploit preserved). Mirrored locally
+ *  (3 lines) instead of imported: agent-config.ts is not in this module's
+ *  bundle-graph budget (see the check-lazy-imports precedent comments above).
+ *  TODO(role-key-normalization): un-normalized permissionForRole copies also
+ *  exist at task-runner/pre-execution.ts:248, spawn-policy.ts:184 and
+ *  task-runner/prompt-builder.ts:29 — centralize normalizeRoleKey next to
+ *  permissionForRole (role-permission.ts) and consume it from every site. */
+function normalizeRoleKeyForGuard(role: string): string {
+	return role.includes("_") ? role.replaceAll("_", "-") : role;
+}
+
+/** S-1: task ids whose execution wrote into the gate cwd through paths no
+ *  pinned binding can see: write-capable role + EXECUTED + no worktree of
+ *  its own + same cwd (or an ancestor of it). Tracked writes are already
+ *  covered by the W2 tree binding; this closes the GITIGNORED remainder
+ *  (node_modules shims) that every binding deliberately excludes. */
+function findSharedCwdUntrackedHarnessWriters(records: readonly VerifierGateTaskRecord[] | undefined, gateCwd: string): string[] {
+	if (!records || records.length === 0) return [];
+	const writers: string[] = [];
+	for (const record of records) {
+		if (record.worktreePath) continue;
+		if (!EXECUTED_TASK_STATUSES.has(record.status)) continue;
+		if (permissionForRole(normalizeRoleKeyForGuard(record.role)) !== "workspace_write") continue;
+		if (!taskRecordSharesGateCwd(record.cwd, gateCwd)) continue;
+		writers.push(record.taskId);
+	}
+	return writers;
+}
+
+/**
+ * S-1 guard (shared-cwd-untracked-harness): in shared-cwd mode the gate runs
+ * its checks in the SAME directory a WRITE-role executor just wrote to
+ * (worktree-manager returns { cwd: task.cwd } for non-worktree runs), and the
+ * dispatch-pinned bindings cover TRACKED content only — gitignored harness
+ * files (node_modules shims) sit outside every binding, so a tampered harness
+ * could grade its own gate and skip the LLM verifier. When the host's task
+ * records show any write-role task EXECUTED in the gate cwd, the
+ * deterministic skip is refused and the LLM verifier spawns with the guard
+ * note (reason "shared-cwd-untracked-harness") — fresh AND memoized PASS
+ * verdicts, exactly like the W2 worktree guard. Non-skip decisions pass
+ * through untouched. Worktree mode is unaffected (records carrying a
+ * worktreePath are skipped here; their uncommitted work is the W2 probe's
+ * job, and a clean dependency worktree keeps the skip).
+ *
+ * Residual (documented, same class as the W2 probe source): the records are
+ * the host's best view, re-read from tasks.json — a worker that forges its
+ * own record (role/status) in that file evades this guard; state-store
+ * integrity is a separate lane, not the gate's.
+ */
+function applySharedCwdHarnessGuard(
+	records: readonly VerifierGateTaskRecord[] | undefined,
+	gateCwd: string,
+	previous: { outcome: VerifyGateOutcome; decision: VerifierSpawnDecision; forcedSpawn: boolean },
+): { outcome: VerifyGateOutcome; decision: VerifierSpawnDecision; forcedSpawn: boolean } {
+	if (!previous.decision.skipVerifier || !records || records.length === 0) return previous;
+	const writers = findSharedCwdUntrackedHarnessWriters(records, gateCwd);
+	if (writers.length === 0) return previous;
+	const note = `shared-cwd-harness: write-role task(s) ${writers.join(", ")} executed in the gate's own cwd — gitignored harness files (e.g. node_modules shims) there sit outside every dispatch-pinned binding, so this PASS cannot certify the harness it ran; refusing the deterministic skip`;
+	return {
+		outcome: { ...previous.outcome, evidenceLines: [...previous.outcome.evidenceLines, note] },
+		decision: { skipVerifier: false, reason: "shared-cwd-untracked-harness", attachGateContext: true },
+		forcedSpawn: true,
+	};
+}
+
 export interface VerifierGatePreGateInput {
 	cwd: string;
 	/** Explicit checks take precedence over every other source (tool path /
@@ -770,6 +906,16 @@ export interface VerifierGatePreGateInput {
 	 *  that structurally excludes that work) and the LLM verifier spawns with
 	 *  the guard note (reason "unverified_worktree_work"). */
 	dependencyWorktreeProbes?: VerifierGateWorkProbe[];
+	/** S-1 (shared-cwd-untracked-harness, HIGH, 2026-10-31): host-owned records
+	 *  for every task in the run EXCEPT the verifier itself. When any record
+	 *  shows a write-capable role (role-permission WRITE_ROLES) that EXECUTED
+	 *  in the gate cwd with no worktree of its own (shared-cwd mode), a gate
+	 *  PASS — fresh OR memoized — refuses the skipVerifier decision (gitignored
+	 *  harness files in the gate cwd sit outside every dispatch-pinned binding)
+	 *  and the LLM verifier spawns with the guard note (reason
+	 *  "shared-cwd-untracked-harness"). Absent/empty ⇒ guard inert (pre-S-1
+	 *  behavior). */
+	taskRecords?: VerifierGateTaskRecord[];
 }
 
 export interface VerifierGatePreGateResult {
@@ -877,7 +1023,14 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 			// W2: the guard runs on memo hits too — a recorded PASS for a pristine
 			// tree must not skip the verifier when the verified dependency work
 			// lives outside this tree (the original finding-3 memo-replay PoC).
-			const guarded = resolveWorktreeGuardDecision(input.dependencyWorktreeProbes, memoHit);
+			// S-1: the shared-cwd harness guard chains after it — a memoized PASS
+			// must not skip either when a write-role task executed in the gate cwd
+			// (gitignored harness tampering is invisible to the memo's tree key).
+			const guarded = applySharedCwdHarnessGuard(
+				input.taskRecords,
+				input.cwd,
+				resolveWorktreeGuardDecision(input.dependencyWorktreeProbes, memoHit),
+			);
 			incMetric(input.metricRegistry, "crew.verification.verify_gate_runs_total", "Deterministic verify_gate executions by verdict", {
 				verdict: guarded.outcome.verdict,
 			});
@@ -888,12 +1041,21 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 				{},
 			);
 			if (guarded.forcedSpawn) {
-				incMetric(
-					input.metricRegistry,
-					"crew.verification.verifier_gate_worktree_guard_total",
-					"W2: PASS-skip refusals — dependency worktree work the gate's evaluated tree does not contain",
-					{ result: "spawn_forced" },
-				);
+				if (guarded.decision.reason === "shared-cwd-untracked-harness") {
+					incMetric(
+						input.metricRegistry,
+						"crew.verification.verifier_gate_shared_cwd_guard_total",
+						"S-1: PASS-skip refusals — write-role execution in the gate's shared cwd (gitignored harness outside pinned bindings)",
+						{ result: "spawn_forced" },
+					);
+				} else {
+					incMetric(
+						input.metricRegistry,
+						"crew.verification.verifier_gate_worktree_guard_total",
+						"W2: PASS-skip refusals — dependency worktree work the gate's evaluated tree does not contain",
+						{ result: "spawn_forced" },
+					);
+				}
 			}
 			if (guarded.decision.skipVerifier) {
 				incMetric(
@@ -999,27 +1161,53 @@ export async function runVerifierGatePreGate(input: VerifierGatePreGateInput): P
 	// `input.classifier` stays on the interface (deprecated) because the dispatch
 	// call site in task-runner.ts passes it; removing the field is a follow-up
 	// that must land with that call site.
+	const preGate: VerifierPreGateResult | undefined = undefined;
+	// W2: the guard runs on fresh verdicts too — a green gate in the verifier's
+	// own pristine worktree must not skip the verifier when the dependency work
+	// it certifies lives in other, uncommitted worktrees.
+	// S-1: the shared-cwd harness guard chains after it — a fresh PASS in a cwd a
+	// write-role task executed in must not skip either (gitignored harness
+	// tampering sits outside every binding this gate can pin).
+	const guarded = applySharedCwdHarnessGuard(
+		input.taskRecords,
+		input.cwd,
+		resolveWorktreeGuardDecision(input.dependencyWorktreeProbes, outcome),
+	);
+	if (guarded.forcedSpawn) {
+		if (guarded.decision.reason === "shared-cwd-untracked-harness") {
+			incMetric(
+				input.metricRegistry,
+				"crew.verification.verifier_gate_shared_cwd_guard_total",
+				"S-1: PASS-skip refusals — write-role execution in the gate's shared cwd (gitignored harness outside pinned bindings)",
+				{ result: "spawn_forced" },
+			);
+		} else {
+			incMetric(
+				input.metricRegistry,
+				"crew.verification.verifier_gate_worktree_guard_total",
+				"W2: PASS-skip refusals — dependency worktree work the gate's evaluated tree does not contain",
+				{ result: "spawn_forced" },
+			);
+		}
+	}
 	// ── W10-2: record the green verdict for same-tree memoization (AFTER the
-	// post-bookend — a drift-downgraded INCONCLUSIVE must never memoize).
-	if (outcome.verdict === "PASS" && recordVerifyGateMemo(input.cwd, checks, outcome)) {
+	// post-bookend — a drift-downgraded INCONCLUSIVE must never memoize; AFTER
+	// the guards — M-ruling 2026-10-31: a PASS refused by the shared-cwd
+	// harness guard was produced under a harness the gate cannot certify, so
+	// it must never memoize and replay as a skip in a later run whose
+	// taskRecords happen to be absent/empty. The W2 refusal does NOT suppress
+	// the record — its memo-hit path re-checks the probes on every replay,
+	// and the certified tree itself stays sound.)
+	if (
+		outcome.verdict === "PASS" &&
+		!(guarded.forcedSpawn && guarded.decision.reason === "shared-cwd-untracked-harness") &&
+		recordVerifyGateMemo(input.cwd, checks, outcome)
+	) {
 		incMetric(
 			input.metricRegistry,
 			"crew.verification.verify_gate_memo_records_total",
 			"W10-2 PASS verdicts recorded for same-tree memoization",
 			{},
-		);
-	}
-	const preGate: VerifierPreGateResult | undefined = undefined;
-	// W2: the guard runs on fresh verdicts too — a green gate in the verifier's
-	// own pristine worktree must not skip the verifier when the dependency work
-	// it certifies lives in other, uncommitted worktrees.
-	const guarded = resolveWorktreeGuardDecision(input.dependencyWorktreeProbes, outcome);
-	if (guarded.forcedSpawn) {
-		incMetric(
-			input.metricRegistry,
-			"crew.verification.verifier_gate_worktree_guard_total",
-			"W2: PASS-skip refusals — dependency worktree work the gate's evaluated tree does not contain",
-			{ result: "spawn_forced" },
 		);
 	}
 	outcome = guarded.outcome;

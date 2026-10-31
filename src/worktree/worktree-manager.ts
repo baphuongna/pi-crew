@@ -1133,6 +1133,18 @@ export function prepareTaskWorkspace(
 	}
 	try {
 		const syntheticPaths = runSetupHook(manifest, task, repoRoot, worktreePath, branch);
+		// TRUST ASSUMPTION (S-1 shared-cwd-untracked-harness review, 2026-10-31):
+		// linking the leader's node_modules into a task worktree means those
+		// files are NOT covered by the verify-gate's dispatch-pinned bindings
+		// (treeOid/cleanTree/memo key bind TRACKED content only — a gitignored
+		// shim inside the leader node_modules would execute in the worktree's
+		// gate too, outside every binding). Accepted residual: worktree-mode
+		// executors are trusted not to write outside their own worktree (their
+		// uncommitted work there is separately guarded by the W2 probes), and
+		// the leader node_modules is host-managed. The shared-cwd variant of
+		// this residual IS closed: the gate refuses the deterministic skip when
+		// a write-role task executed in the gate cwd (reason
+		// "shared-cwd-untracked-harness", verify-gate.ts). See docs/trust-model.md.
 		const nodeModulesLinked =
 			loadedConfig.config.worktree?.linkNodeModules === true ? linkNodeModulesIfPresent(repoRoot, worktreePath) : false;
 		// Overlay seed paths from config + step-level seedPaths

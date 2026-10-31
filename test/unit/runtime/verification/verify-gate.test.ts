@@ -397,7 +397,7 @@ test("VerifyGateCheck type accepts grep evidence lines (spec's third check)", as
 	fs.writeFileSync(path.join(dir, "dist.txt"), "marker-line\n");
 	const checks: VerifyGateCheck[] = [
 		{ name: "typecheck", command: "true" },
-		{ name: "grep-evidence", command: `grep -c marker ${JSON.stringify(path.join(dir, "dist.txt"))}`, critical: false },
+		{ name: "grep-evidence", command: "grep -c marker dist.txt", critical: false },
 	];
 	const result = await runVerifierGatePreGate({ cwd: dir, checks });
 	assert.equal(result.outcome.verdict, "PASS");

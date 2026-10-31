@@ -3,10 +3,13 @@
  * read handler (src/runtime/broker/protocol/msg-inbox.ts).
  *
  * Invariants: read-only durable-mailbox pagination for the connection's OWN
- * task lane (conn.taskId) or the run-level "inbox" lane when the connection
- * has no task; acknowledged messages are never re-delivered; the cursor is a
- * monotonic offset (garbage degrades to 0, never throws); structured errors
- * for unauthed / bad-params / no-manifest, in that precedence order.
+ * task lane (conn.taskId); the run-level "inbox" lane (no taskId) is
+ * readable ONLY with compound auth — the orchestrator key is compound by
+ * construction, legacy bare-runId ("runId-fallback") worker connections are
+ * rejected (S-2); acknowledged messages are never re-delivered; the cursor is
+ * a monotonic offset (garbage degrades to 0, never throws); structured
+ * errors for unauthed / bad-params / no-manifest / run-level-lane gate, in
+ * that precedence order.
  *
  * Fixture: real scaffold run + durable appends via appendMailboxMessageAsync
  * (same discipline as crew-broker-mailbox-observer.test.ts).
@@ -53,8 +56,13 @@ function recordingHelpers(): { helpers: MsgInboxHelpers; seen: Recorded } {
 	};
 }
 
-function conn(runId?: string, taskId?: string): ServerConnection {
-	return { runId, taskId } as unknown as ServerConnection;
+function conn(
+	runId?: string,
+	taskId?: string,
+	authMatchKind?: "compound" | "runId-fallback",
+	role?: "orchestrator" | "worker",
+): ServerConnection {
+	return { runId, taskId, authMatchKind, role } as unknown as ServerConnection;
 }
 
 interface InboxFixture {
@@ -229,7 +237,44 @@ test("msg.inbox: garbage cursor degrades to offset 0 (never throws)", async () =
 	}
 });
 
-test("msg.inbox: connection without taskId reads the run-level lane only", async () => {
+test("msg.inbox: run-level lane requires compound auth — runId-fallback worker rejected (S-2)", async () => {
+	const fx = await inboxFixture("pi-crew-inbox-fallback-");
+	try {
+		await appendMailboxMessageAsync(fx.manifest, {
+			direction: "inbox",
+			from: "worker-1",
+			to: "parent",
+			body: "run-level-only",
+			kind: "message",
+			deliveryMode: "next_turn",
+		});
+		// Legacy bare-runId token match (hello presented no taskId) — the exact
+		// S-2 actor: before the gate this connection read the orchestrator's
+		// run-level lane (cross-lane read with an unscoped identity).
+		const fallback = recordingHelpers();
+		await handleMsgInbox(conn(fx.runId, undefined, "runId-fallback", "worker"), "r9a", {}, fallback.helpers, fx.cwd);
+		assert.deepEqual(
+			fallback.seen.errors.map((e) => e.code),
+			["forbidden"],
+		);
+		assert.match(fallback.seen.errors[0].message, /PI_CREW_BROKER_TASK_ID/, "migrate hint for the legacy worker");
+		assert.equal(fallback.seen.results.length, 0, "no mailbox content is returned");
+
+		// Fail-closed default: authMatchKind undefined (pre-hello shape) must not
+		// fall through to a run-level read either.
+		const undetermined = recordingHelpers();
+		await handleMsgInbox(conn(fx.runId, undefined), "r9b", {}, undetermined.helpers, fx.cwd);
+		assert.deepEqual(
+			undetermined.seen.errors.map((e) => e.code),
+			["forbidden"],
+		);
+		assert.equal(undetermined.seen.results.length, 0);
+	} finally {
+		teardownCwd(fx.cwd);
+	}
+});
+
+test("msg.inbox: compound orchestrator connection (no taskId) reads the run-level lane only", async () => {
 	const fx = await inboxFixture("pi-crew-inbox-runlane-");
 	try {
 		await appendMailboxMessageAsync(fx.manifest, {
@@ -240,10 +285,14 @@ test("msg.inbox: connection without taskId reads the run-level lane only", async
 			kind: "message",
 			deliveryMode: "next_turn",
 		});
-		const noTask = recordingHelpers();
-		await handleMsgInbox(conn(fx.runId, undefined), "r9", {}, noTask.helpers, fx.cwd);
-		assert.equal(noTask.seen.errors.length, 0);
-		const lane = noTask.seen.results[0].result;
+		// S-2 decision: gate on compound auth, NOT on "taskId absent" — the
+		// orchestrator key is compound by construction (crew-broker-tokens.ts
+		// tokenRoleWithMatchKind), so the legitimate run-level reader keeps
+		// access (the only production hello shape that reaches this branch).
+		const orchestrator = recordingHelpers();
+		await handleMsgInbox(conn(fx.runId, undefined, "compound", "orchestrator"), "r10a", {}, orchestrator.helpers, fx.cwd);
+		assert.equal(orchestrator.seen.errors.length, 0);
+		const lane = orchestrator.seen.results[0].result;
 		assert.deepEqual(
 			lane.messages.map((m) => m.body),
 			["run-level-only"],
@@ -253,7 +302,7 @@ test("msg.inbox: connection without taskId reads the run-level lane only", async
 
 		// And the task lane must not leak the run-level message back.
 		const withTask = recordingHelpers();
-		await handleMsgInbox(conn(fx.runId, fx.taskId), "r10", {}, withTask.helpers, fx.cwd);
+		await handleMsgInbox(conn(fx.runId, fx.taskId, "compound", "worker"), "r10b", {}, withTask.helpers, fx.cwd);
 		const taskLane = withTask.seen.results[0].result;
 		assert.equal(
 			taskLane.messages.some((m) => m.body === "run-level-only"),

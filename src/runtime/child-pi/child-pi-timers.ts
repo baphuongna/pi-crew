@@ -24,6 +24,13 @@
  * constructs — previously cancelHardKill was a local const inside abort() and
  * was NOT cleared by clearChildPiTimeouts(), leaking a 200 ms unref'd timer per
  * cancel on short-lived children.
+ *
+ * F6 (deep-review 2026-10-31): the final-drain ceiling callback now cancels the
+ * quiet-window poller before firing (it previously left it armed, so a
+ * quiet-after-ceiling child triggered a SECOND forced drain and overwrote the
+ * hardKillTimer variable, orphaning the ceiling's timer → duplicate hard_kill
+ * events/SIGKILLs), and hard-kill emission is hardKilled-gated (idempotent) so
+ * a second timer can never re-emit.
  */
 import type { ChildProcess } from "node:child_process";
 import { DEFAULT_CHILD_PI } from "../../config/defaults.ts";
@@ -231,6 +238,9 @@ export function createChildPiTimers(deps: ChildPiTimersDeps): ChildPiTimers {
 						// still reaped if it ever fires later.
 						hardKillTimer = setTimeout(() => {
 							if (deps.state.getSettled() || deps.state.getChildExited()) return;
+							// F6: idempotent hard-kill — a second (orphaned/overwritten)
+							// hard-kill timer must never re-emit hard_kill/SIGKILL.
+							if (deps.state.getHardKilled()) return;
 							try {
 								deps.state.setHardKilled(true);
 								deps.input.onLifecycleEvent?.({
@@ -255,6 +265,15 @@ export function createChildPiTimers(deps: ChildPiTimersDeps): ChildPiTimers {
 			}
 			finalDrainTimer = setTimeout(() => {
 				if (deps.state.getSettled() || deps.state.getChildExited()) return;
+				// F6: the ceiling owns the drain from here on — cancel the
+				// quiet-window poller (mirroring its self-cancel above) so it
+				// cannot fire a SECOND forced drain when the child goes quiet
+				// after this ceiling already fired.
+				if (pollHandle) {
+					clearInterval(pollHandle);
+					pollHandle.unref();
+				}
+				pollHandle = undefined;
 				deps.state.setForcedFinalDrain(true);
 				deps.state.setFinalDrainFiredMonotonicMs(performance.now()); // Phase-0 diagnostic: race timing.
 				deps.input.onLifecycleEvent?.({
@@ -269,6 +288,9 @@ export function createChildPiTimers(deps: ChildPiTimersDeps): ChildPiTimers {
 				}
 				hardKillTimer = setTimeout(() => {
 					if (deps.state.getSettled() || deps.state.getChildExited()) return;
+					// F6: idempotent hard-kill — a second (orphaned/overwritten)
+					// hard-kill timer must never re-emit hard_kill/SIGKILL.
+					if (deps.state.getHardKilled()) return;
 					try {
 						deps.state.setHardKilled(true);
 						deps.input.onLifecycleEvent?.({
@@ -295,6 +317,9 @@ export function createChildPiTimers(deps: ChildPiTimersDeps): ChildPiTimers {
 			// are for graceful drain, not user-initiated cancel.
 			cancelHardKillTimer = setTimeout(() => {
 				if (deps.state.getSettled() || deps.state.getChildExited()) return;
+				// F6: idempotent hard-kill — skip when a drain-path hard kill
+				// already fired (SIGKILL was already delivered).
+				if (deps.state.getHardKilled()) return;
 				try {
 					deps.state.setHardKilled(true);
 					deps.child.kill(process.platform === "win32" ? undefined : "SIGKILL");

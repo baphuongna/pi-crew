@@ -1209,10 +1209,34 @@ interface BufferedAppend {
 	reject: (error: unknown) => void;
 }
 const bufferedQueues = new Map<string, BufferedAppend[]>();
-const bufferedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/**
+ * Armed flush timer per path. The stored `bufferMs` is the delay the queue was
+ * armed with — reused when a flush re-arms for leftovers appended mid-flight
+ * (F3, 2026-10-31).
+ */
+interface ArmedFlushTimer {
+	handle: ReturnType<typeof setTimeout>;
+	bufferMs: number;
+}
+const bufferedTimers = new Map<string, ArmedFlushTimer>();
 /** Per-path in-flight flush (started, not yet settled) — see flushOneEventLogBuffer. */
 const inflightBufferFlushes = new Map<string, Promise<void>>();
 const DEFAULT_BUFFER_MS = 20;
+
+/** Arm the per-path flush timer (single armer for appendEventBuffered and the F3 finally re-arm). */
+function armBufferedFlushTimer(eventsPath: string, bufferMs: number): void {
+	// Wrap flush in async IIFE so the returned Promise is awaited (avoids
+	// "floating promise" warnings under --test-force-exit and prevents
+	// the timer from being treated as done before the flush actually
+	// completes its async work).
+	const handle = setTimeout(() => {
+		flushOneEventLogBuffer(eventsPath).catch((error) => {
+			logInternalError("event-log.buffered-flush", error, `eventsPath=${eventsPath}`);
+		});
+	}, bufferMs);
+	handle.unref();
+	bufferedTimers.set(eventsPath, { handle, bufferMs });
+}
 
 export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, bufferMs = DEFAULT_BUFFER_MS): Promise<TeamEvent> {
 	// FIX: Terminal events must bypass buffer to ensure they're written immediately.
@@ -1235,26 +1259,28 @@ export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, 
 		const queue = bufferedQueues.get(eventsPath) ?? [];
 		queue.push({ event, resolve, reject });
 		bufferedQueues.set(eventsPath, queue);
-		if (!bufferedTimers.has(eventsPath)) {
-			// Wrap flush in async IIFE so the returned Promise is awaited (avoids
-			// "floating promise" warnings under --test-force-exit and prevents
-			// the timer from being treated as done before the flush actually
-			// completes its async work).
-			const timer = setTimeout(() => {
-				flushOneEventLogBuffer(eventsPath).catch((error) => {
-					logInternalError("event-log.buffered-flush", error, `eventsPath=${eventsPath}`);
-				});
-			}, bufferMs);
-			bufferedTimers.set(eventsPath, timer);
-			timer.unref();
-		}
+		// Arm-once gate: while a timer entry exists (armed OR mid-flight),
+		// appends piggyback on it. A flush started for this path clears the
+		// handle at grab (F5) and re-arms for leftovers in its finally (F3), so
+		// events appended during an in-flight flush are never lost from the gate.
+		if (!bufferedTimers.has(eventsPath)) armBufferedFlushTimer(eventsPath, bufferMs);
 	});
 }
 
 async function flushOneEventLogBuffer(eventsPath: string): Promise<void> {
 	const queue = bufferedQueues.get(eventsPath);
 	bufferedQueues.delete(eventsPath);
-	const timer = bufferedTimers.get(eventsPath);
+	// F5 (2026-10-31): clear the armed handle NOW, at grab time. When the flush
+	// is triggered by anything other than the timer itself (terminal-event
+	// flush, flushEventLogBuffer, drainEventLogWriters) a timer may still be
+	// pending — without this clearTimeout the stale timer fires later and runs
+	// a redundant flush. When the timer itself triggered this flush, the
+	// clearTimeout is a harmless no-op on the already-fired handle. The entry
+	// itself stays until the finally below: appends landing mid-flight must see
+	// it (arm-once gate) so they cannot double-arm; the finally then re-arms for
+	// them (F3) or deletes the entry.
+	const armedTimer = bufferedTimers.get(eventsPath);
+	if (armedTimer) clearTimeout(armedTimer.handle);
 	// PERF-CORRECTNESS (2026-10-31, macos CI run 41147573288): track the
 	// in-flight flush so flushEventLogBuffer()/drainEventLogWriters() can AWAIT
 	// it. Previously those helpers were no-ops for a path whose flush had just
@@ -1265,7 +1291,9 @@ async function flushOneEventLogBuffer(eventsPath: string): Promise<void> {
 	// Same window on the exit path: flushBufferedQueuesSync sees an empty map
 	// and cannot recover an in-flight batch.
 	const doFlush = (async (): Promise<void> => {
-		// Timer is cleared in the finally block to ensure cleanup happens even on error
+		// The armed timer HANDLE was cleared at grab time (F5 above); the ENTRY
+		// lifecycle is owned by the finally below (re-arm for leftovers, delete
+		// when drained).
 		try {
 			if (!queue || queue.length === 0) return;
 
@@ -1313,7 +1341,26 @@ async function flushOneEventLogBuffer(eventsPath: string): Promise<void> {
 			// Lock acquire failed — fail every queued item so callers can fall back.
 			if (queue) for (const item of queue) item.reject(error);
 		} finally {
-			bufferedTimers.delete(eventsPath);
+			// F3 (2026-10-31): events appended while this flush was in flight saw
+			// the stale timer entry and could NOT arm one of their own (arm-once
+			// gate) — previously the finally just deleted the entry, leaving them
+			// un-timered until the next append or the exit-path flush. Re-arm with
+			// the queue's last-used delay when leftovers exist; else just delete.
+			// The identity check re-arms only while the entry is still OURS (the
+			// mid-flight stale one): when a prior flush already deleted its entry,
+			// an append during this window armed a FRESH timer — overwriting it
+			// would orphan that handle (double flush later).
+			if (bufferedQueues.has(eventsPath)) {
+				if (bufferedTimers.get(eventsPath) === armedTimer) {
+					armBufferedFlushTimer(eventsPath, armedTimer?.bufferMs ?? DEFAULT_BUFFER_MS);
+				}
+			} else {
+				// Drain case: also clear any handle another flush's re-arm may have
+				// left behind (ours was already cleared at grab — no-op then).
+				const leftoverEntry = bufferedTimers.get(eventsPath);
+				if (leftoverEntry) clearTimeout(leftoverEntry.handle);
+				bufferedTimers.delete(eventsPath);
+			}
 		}
 	})();
 	// Chain per-path: a second flush must wait for the in-flight one (keeps the
@@ -1323,18 +1370,30 @@ async function flushOneEventLogBuffer(eventsPath: string): Promise<void> {
 		() => doFlush,
 		() => doFlush,
 	);
-	inflightBufferFlushes.set(
-		eventsPath,
-		tracked.finally(() => {
-			if (inflightBufferFlushes.get(eventsPath) === tracked) inflightBufferFlushes.delete(eventsPath);
-		}),
-	);
+	// F4 (2026-10-31): the map stores the `.finally()` WRAPPER, so the
+	// compare-and-delete on settle must compare against the WRAPPER reference.
+	// The old code compared against the pre-`.finally()` `tracked` promise — an
+	// identity that never matches what the map holds — so entries were never
+	// deleted (leak, and the "may already have self-deleted" no-op path of the
+	// drain helpers was dead code).
+	const wrapper = tracked.finally(() => {
+		if (inflightBufferFlushes.get(eventsPath) === wrapper) inflightBufferFlushes.delete(eventsPath);
+	});
+	inflightBufferFlushes.set(eventsPath, wrapper);
 	await tracked;
 }
 
 /** Asynchronously flush every queued buffered event across all paths. */
 export async function flushEventLogBuffer(): Promise<void> {
-	for (const eventsPath of [...bufferedQueues.keys()]) {
+	// PERF-CORRECTNESS follow-up (2026-10-31): iterate the UNION of queued and
+	// in-flight paths. Iterating only bufferedQueues keys skipped a path whose
+	// queue an in-flight flush had ALREADY grabbed (removed from the map at
+	// flush start) — exactly the case the await-inflight below exists for — so a
+	// caller awaiting this during an in-flight flush could still observe a log
+	// without the in-flight events (the deterministic-read pin in
+	// event-log-buffered.test.ts flaked ~1 run in 10 on slow fs via that hole).
+	const paths = new Set<string>([...bufferedQueues.keys(), ...inflightBufferFlushes.keys()]);
+	for (const eventsPath of paths) {
 		// PERF-CORRECTNESS (2026-10-31): await any IN-FLIGHT flush for this path
 		// first — the timer-led flush may hold events that are no longer in
 		// bufferedQueues (removed at flush start). Without this, a caller that
@@ -1380,7 +1439,14 @@ export function flushBufferedQueuesSync(): void {
 			logInternalError("event-log.sync-flush", error, eventsPath);
 		}
 	}
-	for (const eventsPath of [...bufferedTimers.keys()]) bufferedTimers.delete(eventsPath);
+	// Adjacent (2026-10-31): clear each pending timer HANDLE before dropping the
+	// entry — an unref'd handle that survives the sync flush would fire later
+	// (tests keep the process alive) and run a redundant no-op flush.
+	for (const eventsPath of [...bufferedTimers.keys()]) {
+		const armedTimer = bufferedTimers.get(eventsPath);
+		if (armedTimer) clearTimeout(armedTimer.handle);
+		bufferedTimers.delete(eventsPath);
+	}
 }
 
 // Exported only for the buffered-batch unit tests. NOT part of the public API —
@@ -1400,6 +1466,18 @@ export function __test__appendBatchForUnitTest(
 	// tests that reproduce a specific family's lock context (default = no lock
 	// held, matching a bare direct call — the helper then acquires `.alock`).
 	return appendEventBatchInsideLock(eventsPath, queue, locks);
+}
+
+/**
+ * Exposed only for the buffered-flush unit tests (F4 pin, 2026-10-31): how many
+ * per-path in-flight flush trackers are currently registered. NOT part of the
+ * public API — same `__test__` convention as `__test__appendBatchForUnitTest`
+ * above. Pins that the tracker entry SELF-DELETES on settle (the pre-F4 code
+ * stored a `.finally()` wrapper but compare-deleted against the pre-wrapper
+ * promise, so entries leaked for the process lifetime).
+ */
+export function __test__inflightBufferFlushCount(): number {
+	return inflightBufferFlushes.size;
 }
 
 /**
@@ -1423,8 +1501,11 @@ export function appendEventFireAndForget(eventsPath: string, event: AppendTeamEv
  *   write chain (tail-chaining guarantees the tail completes last), then
  *   flushes that path's buffered tier via the internal `flushOneEventLogBuffer`
  *   (per-path flush is a simple direct call — no complexity caveat).
- *   The Map entry may already have self-deleted (compare-and-delete on
- *   settle) — `?? Promise.resolve()` makes that a clean no-op.
+ *   The asyncQueues tail entry may already have self-deleted (compare-and-delete
+ *   on settle) — `?? Promise.resolve()` makes that a clean no-op. The
+ *   inflight-buffer tracker below it self-deletes on settle the same way
+ *   (F4 2026-10-31: it previously stored a `.finally()` wrapper but compared
+ *   against the pre-wrapper promise, so the entry never matched and leaked).
  * - Without `eventsPath`: awaits every queue tail + `flushEventLogBuffer()`.
  *
  * Never throws: a rejected tail is absorbed by `allSettled` (a teardown

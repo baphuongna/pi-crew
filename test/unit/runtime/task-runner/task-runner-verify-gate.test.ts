@@ -429,3 +429,118 @@ test("W2: green gate + dirty dependency worktree ⇒ verifier SPAWNS with the gu
 		assert.match(promptText, /dep-1/);
 	});
 });
+
+// ─── S-1 (shared-cwd-untracked-harness, HIGH, 2026-10-31): the wiring pin ──
+
+test("S-1: shared-cwd + completed executor dep ⇒ green gate still SPAWNS the verifier (untracked harness)", async () => {
+	// The verified residual: shared-cwd mode runs the gate's `npm run …`
+	// checks in the SAME cwd a WRITE-role executor just wrote to, and every
+	// dispatch-pinned binding (manifest hashes, tracked treeOid, memo tree key)
+	// covers TRACKED content only — a tampered gitignored harness (node_modules
+	// shims) would grade its own gate and skip the LLM verifier. The host's
+	// task records must refuse the skip (reason "shared-cwd-untracked-harness")
+	// even though the gate itself is GREEN.
+	const cwd = makeRepoDir("pi-crew-s1-shared-", { typecheck: "node -e 0", "test:critical": "node -e 0" });
+	const created = createRunManifest({ cwd, team: team as never, workflow: workflow as never, goal: "s1-shared" });
+	created.manifest.verifyGateSpec = await resolveHostVerifyGateSpec(cwd);
+	const task = created.tasks[0]!;
+	// Shared-cwd dependency: completed executor working in the SAME cwd as the
+	// verifier's gate (no worktree of its own).
+	created.tasks.push({
+		id: "dep-exec",
+		runId: created.manifest.runId,
+		role: "executor",
+		agent: "a",
+		title: "implement",
+		status: "completed",
+		dependsOn: [],
+		cwd: task.cwd,
+	} as never);
+	(task as { dependsOn: string[] }).dependsOn = ["dep-exec"];
+	// BUG-028 contract: sibling tasks are DISK-authoritative — persist the
+	// synthetic dep exactly like the W2 guard test above.
+	saveRunTasks(created.manifest, created.tasks);
+	await withMockChildPi(async () => {
+		const result = await runTeamTask({
+			manifest: created.manifest,
+			tasks: created.tasks,
+			task,
+			step: workflow.steps[0] as never,
+			agent: agent as never,
+			executeWorkers: true,
+			workspaceId: "test-workspace",
+		});
+		const finished = result.tasks.find((t) => t.id === task.id)!;
+		// The LLM verifier DID spawn despite the green gate: a PASS in a cwd a
+		// write-role task executed in cannot certify the (untracked) harness it
+		// ran. No synthetic gate-skip provenance.
+		assert.ok(finished.modelAttempts && finished.modelAttempts.length > 0, "verifier spawned — skip refused");
+		assert.equal(finished.status, "completed", `status=${finished.status} error=${finished.error ?? ""}`);
+		assert.equal((finished.diagnostics as Record<string, unknown> | undefined)?.verifyGate, undefined);
+		const events = fs.readFileSync(created.manifest.eventsPath, "utf8");
+		assert.match(events, /task\.verifier_pre_gate/);
+		assert.match(events, /shared-cwd-untracked-harness/);
+		assert.match(events, /shared-cwd-harness/);
+		// The verifier's prompt carries the gate results AND the guard evidence.
+		const promptText = fs.readFileSync(path.join(created.manifest.artifactsRoot, "prompts", `${task.id}.md`), "utf8");
+		assert.match(promptText, /Gate verdict: PASS/);
+		assert.match(promptText, /shared-cwd-harness/);
+		assert.match(promptText, /dep-exec/);
+	});
+});
+
+test("S-1 control: worktree-mode dep in a CLEAN worktree ⇒ green gate still SKIPS (behavior unchanged)", async () => {
+	// Worktree-mode skip behavior must be UNCHANGED by S-1: a dependency that
+	// ran in its own worktree is the W2 probe path's job (dirty worktree ⇒
+	// spawn); a CLEAN worktree carries no uncommitted work and the deterministic
+	// skip keeps its authority.
+	const base = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-s1-wt-repo-"));
+	fs.writeFileSync(path.join(base, ".gitignore"), ".crew/\n");
+	fs.writeFileSync(
+		path.join(base, "package.json"),
+		JSON.stringify({ name: "gate-repo", scripts: { typecheck: "node -e 0", "test:critical": "node -e 0" } }),
+	);
+	execFileSync("git", ["init", "-q"], { cwd: base });
+	execFileSync("git", ["add", "-A"], { cwd: base });
+	execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"], { cwd: base });
+	const wt = `${base}-wt`;
+	execFileSync("git", ["worktree", "add", "-q", "-b", "s1-dep", wt], { cwd: base });
+	const created = createRunManifest({ cwd: base, team: team as never, workflow: workflow as never, goal: "s1-wt" });
+	created.manifest.verifyGateSpec = await resolveHostVerifyGateSpec(base);
+	const task = created.tasks[0]!;
+	created.tasks.push({
+		id: "dep-wt",
+		runId: created.manifest.runId,
+		role: "executor",
+		agent: "a",
+		title: "implement",
+		status: "completed",
+		dependsOn: [],
+		cwd: wt,
+		worktree: { path: wt, branch: "s1-dep", reused: false },
+	} as never);
+	(task as { dependsOn: string[] }).dependsOn = ["dep-wt"];
+	saveRunTasks(created.manifest, created.tasks);
+	const result = await runTeamTask({
+		manifest: created.manifest,
+		tasks: created.tasks,
+		task,
+		step: workflow.steps[0] as never,
+		agent: agent as never,
+		executeWorkers: true,
+		workspaceId: "test-workspace",
+	});
+	const finished = result.tasks.find((t) => t.id === task.id)!;
+	// No LLM verifier spawned: clean dep worktree + green gate ⇒ deterministic
+	// skip stands (pre-S-1 worktree-mode behavior preserved bit-for-bit).
+	assert.ok(!finished.modelAttempts || finished.modelAttempts.length === 0, "no model attempts — skip retained");
+	assert.equal(finished.status, "completed", `status=${finished.status} error=${finished.error ?? ""}`);
+	assert.ok(finished.resultArtifact?.path, "result artifact exists");
+	const resultText = fs.readFileSync(finished.resultArtifact.path, "utf8");
+	assert.match(resultText, /verify_gate: PASS/);
+	assert.match(resultText, /deterministic_pass/);
+	const events = fs.readFileSync(created.manifest.eventsPath, "utf8");
+	assert.match(events, /task\.verifier_pre_gate/);
+	assert.match(events, /SKIPPED/);
+	assert.ok(!events.includes("shared-cwd-untracked-harness"), "S-1 guard silent in worktree mode");
+});

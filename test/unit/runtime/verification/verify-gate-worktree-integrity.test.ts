@@ -21,6 +21,12 @@
  *      the old memo) skipped the only reviewer that reads that work.
  *      Closure: dependency-worktree probes refuse the skip (reason
  *      "unverified_worktree_work") for fresh AND memoized PASS verdicts.
+ *   4. S-1 shared-cwd-untracked-harness (HIGH, 2026-10-31) — in shared-cwd
+ *      mode the pinned bindings see TRACKED content only; gitignored harness
+ *      files (node_modules shims) in the gate cwd sit outside every binding,
+ *      so a WRITE-role executor's tampered harness grades its own gate.
+ *      Closure: host-owned task records (taskRecords) refuse the skip (reason
+ *      "shared-cwd-untracked-harness") for fresh AND memoized PASS verdicts.
  *
  * All fixtures are REAL throwaway git repos — the tree bindings are the
  * security boundary, so the tests exercise real git, not mocks.
@@ -358,5 +364,186 @@ describe("W2 finding 3: dependency worktree work refuses the gate skip", () => {
 		assert.match(evidence, /verify-gate-memo: HIT/);
 		assert.match(evidence, /worktree-guard/);
 		assert.ok(third.promptContext.includes("worktree-guard"), "guard-forced spawn carries the WHY in its prompt");
+	});
+});
+
+describe("S-1: write-role execution in the gate cwd refuses the gate skip (shared-cwd untracked harness)", () => {
+	it("D1: completed executor in the gate cwd ⇒ fresh green gate forces the spawn", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d1-");
+		const result = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [{ taskId: "exec-1", role: "executor", status: "completed", cwd: repo }],
+		});
+		// The gate itself ran green on ITS tracked tree — but gitignored harness
+		// files in this same cwd are invisible to every binding, so the PASS
+		// carries no skip authority once a write-role task executed here.
+		assert.equal(result.outcome.verdict, "PASS");
+		assert.equal(result.decision.skipVerifier, false);
+		assert.equal(result.decision.reason, "shared-cwd-untracked-harness");
+		assert.equal(result.decision.attachGateContext, true);
+		assert.match(result.outcome.evidenceLines.join("\n"), /shared-cwd-harness: write-role task\(s\) exec-1/);
+		assert.match(result.promptContext, /shared-cwd-harness/);
+		assert.match(result.promptContext, /Gate verdict: PASS/);
+	});
+
+	it("D2: read-only role in the gate cwd keeps the skip (guard silent)", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d2-");
+		const result = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [{ taskId: "ro-1", role: "explorer", status: "completed", cwd: repo }],
+		});
+		assert.equal(result.outcome.verdict, "PASS");
+		assert.equal(result.decision.skipVerifier, true);
+		assert.equal(result.decision.reason, "deterministic_pass");
+		assert.equal(result.promptContext, "");
+	});
+
+	it("D3: worktree-mode record (own worktree) keeps the skip — W2 probe path owns it", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d3-");
+		const wt = makeSiblingWorktree(repo, "s1d3");
+		const result = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [{ taskId: "dep-1", role: "executor", status: "completed", cwd: wt, worktreePath: wt }],
+		});
+		// Clean dependency worktree + pristine gate tree ⇒ deterministic skip
+		// stands (worktree-mode behavior UNCHANGED by S-1).
+		assert.equal(result.outcome.verdict, "PASS");
+		assert.equal(result.decision.skipVerifier, true);
+		assert.equal(result.decision.reason, "deterministic_pass");
+	});
+
+	it("D4: guard fires on a MEMO HIT too (memo tree-key cannot see gitignored shims)", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d4-");
+		// Run 1: green gate, no other write-role tasks → PASS + skip + memo record.
+		const first = await runVerifierGatePreGate({ cwd: repo, checks: GREEN });
+		assert.equal(first.decision.skipVerifier, true);
+		// Run 2: same clean tree → memo HIT — but the record now shows a
+		// write-role task executed in the gate cwd between the runs. The memo
+		// key binds the TRACKED working tree; node_modules shims never move it.
+		const second = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [{ taskId: "exec-1", role: "executor", status: "completed", cwd: repo }],
+		});
+		assert.equal(second.decision.skipVerifier, false, "memoized PASS must not skip on shared-cwd write-role execution");
+		assert.equal(second.decision.reason, "shared-cwd-untracked-harness");
+		const evidence = second.outcome.evidenceLines.join("\n");
+		assert.match(evidence, /verify-gate-memo: HIT/);
+		assert.match(evidence, /shared-cwd-harness/);
+		assert.ok(second.promptContext.includes("shared-cwd-harness"), "guard-forced spawn carries the WHY in its prompt");
+	});
+
+	it("D5: never-executed records (queued / skipped) keep the skip", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d5-");
+		const result = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [
+				{ taskId: "q-1", role: "executor", status: "queued", cwd: repo },
+				{ taskId: "s-1", role: "writer", status: "skipped", cwd: repo },
+			],
+		});
+		assert.equal(result.decision.skipVerifier, true);
+		assert.equal(result.decision.reason, "deterministic_pass");
+	});
+
+	it("D6: fail-closed statuses (failed / cancelled) still force the spawn", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d6-");
+		const result = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [{ taskId: "f-1", role: "test-engineer", status: "failed", cwd: repo }],
+		});
+		assert.equal(result.decision.skipVerifier, false);
+		assert.equal(result.decision.reason, "shared-cwd-untracked-harness");
+	});
+
+	it("D7: underscore role (`test_engineer`) matches its hyphenated WRITE counterpart (S-1 bypass closure)", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d7-");
+		const result = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [{ taskId: "exec-1", role: "test_engineer", status: "completed", cwd: repo }],
+		});
+		// The tool-granting layer normalizes underscore→hyphen (agent-config.ts
+		// normalizeRoleKey), so `test_engineer` IS write-capable at the worker;
+		// the guard's role lookup must apply the SAME normalization or it is
+		// inert for exactly the roles it exists to catch (the preserved S-1
+		// exploit: un-normalized lookup default-denies to read_only).
+		assert.equal(result.decision.skipVerifier, false);
+		assert.equal(result.decision.reason, "shared-cwd-untracked-harness");
+		assert.match(result.outcome.evidenceLines.join("\n"), /shared-cwd-harness: write-role task\(s\) exec-1/);
+	});
+
+	it("D8: WRITE-role record at an ANCESTOR cwd of the gate fires too (monorepo layout)", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d8-");
+		const pkgDir = path.join(repo, "pkg");
+		fs.mkdirSync(pkgDir);
+		const result = await runVerifierGatePreGate({
+			cwd: pkgDir,
+			checks: GREEN,
+			taskRecords: [{ taskId: "exec-1", role: "executor", status: "completed", cwd: repo }],
+		});
+		// Worker writes are NOT OS-scoped to the task cwd: a WRITE-role task
+		// that ran at the monorepo root wrote into the gate's package cwd all
+		// the same — exact-match compare used to miss it.
+		assert.equal(result.decision.skipVerifier, false);
+		assert.equal(result.decision.reason, "shared-cwd-untracked-harness");
+		// Containment is not over-broad: a SIBLING cwd outside the gate cwd
+		// keeps the deterministic skip.
+		const sibling = fs.mkdtempSync(path.join(os.tmpdir(), "vg-s1-d8b-"));
+		try {
+			const untouched = await runVerifierGatePreGate({
+				cwd: pkgDir,
+				checks: GREEN,
+				taskRecords: [{ taskId: "other-1", role: "executor", status: "completed", cwd: sibling }],
+			});
+			assert.equal(untouched.decision.skipVerifier, true);
+			assert.equal(untouched.decision.reason, "deterministic_pass");
+		} finally {
+			fs.rmSync(sibling, { recursive: true, force: true });
+		}
+	});
+
+	it("D9: a guard-refused PASS never memoizes; normal + worktree-mode PASSes still do", async () => {
+		resetVerifyGateMemoStoreForTests();
+		const repo = makeGitRepo("vg-s1-d9-");
+		// Guarded run: write-role record in the gate cwd ⇒ forced spawn ⇒ the
+		// PASS must NOT be recorded (a later run whose taskRecords are absent or
+		// empty must not replay an uncertifiable PASS as a skip).
+		const refused = await runVerifierGatePreGate({
+			cwd: repo,
+			checks: GREEN,
+			taskRecords: [{ taskId: "exec-1", role: "executor", status: "completed", cwd: repo }],
+		});
+		assert.equal(refused.decision.reason, "shared-cwd-untracked-harness");
+		assert.equal(lookupVerifyGateMemo(repo, GREEN), undefined, "guard-refused PASS must never memoize");
+		// Unguarded PASS (no records) still records — the memo path is intact.
+		const plain = await runVerifierGatePreGate({ cwd: repo, checks: GREEN });
+		assert.equal(plain.decision.skipVerifier, true);
+		assert.ok(lookupVerifyGateMemo(repo, GREEN), "normal PASS still memoizes");
+		// Worktree-mode record (guard silent by design — the W2 probe path owns
+		// it) still records.
+		resetVerifyGateMemoStoreForTests();
+		const repo2 = makeGitRepo("vg-s1-d9b-");
+		const wt2 = makeSiblingWorktree(repo2, "s1d9");
+		const wtMode = await runVerifierGatePreGate({
+			cwd: repo2,
+			checks: GREEN,
+			taskRecords: [{ taskId: "dep-1", role: "executor", status: "completed", cwd: wt2, worktreePath: wt2 }],
+		});
+		assert.equal(wtMode.decision.skipVerifier, true);
+		assert.ok(lookupVerifyGateMemo(repo2, GREEN), "worktree-mode PASS still memoizes");
 	});
 });

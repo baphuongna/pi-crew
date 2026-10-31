@@ -197,17 +197,111 @@ const ALLOWED_GATE_COMMAND_PATTERNS: readonly RegExp[] = [
 	/^(?:gradle|\.\/gradlew)\s+(?:build|check|test)(?:\s|$)/,
 	/^(?:mvn|\.\/mvnw)\s+(?:package|test|verify)(?:\s|$)/,
 	/^make\s+(?:build|check|lint|test)(?:\s|$)/,
-	/^(?:echo|false|printenv|printf|true)(?:\s|$)/,
+	// S-3 (deep review 2026-10-31): `printenv` removed — no built-in gate needs
+	// it, and it turns any allowlisted gate into an environment-dump read
+	// primitive whose output is captured into world-readable artifacts
+	// (sanitize survivors + PRESERVE_ENV vars included).
+	/^(?:echo|false|printf|true)(?:\s|$)/,
+	// S-3: reader commands stay allowlisted ONLY as cwd-scoped evidence
+	// extractors — their path arguments are additionally restricted by
+	// validateGateReaderPathArgs below (no absolute or ~-prefixed paths).
 	/^(?:grep|head|rg|tail)(?:\s|$)/,
 ];
 
 const NODE_EVAL_MODE_PATTERN = /(?:^|\s)["']?(?:(?:-e|-p)(?!-)|--(?:eval|print)(?:=|\s|["']|$))/;
 
-function validateAllowedGateCommands(normalized: string, original: string): void {
+/** S-3 (deep review 2026-10-31): grep/head/rg/tail are allowlisted as
+ *  cwd-scoped evidence extractors. A path argument resolving outside the gate
+ *  cwd — absolute (`/etc/passwd`), home-relative (`~/notes`), Windows absolute
+ *  (`C:/Windows`, `\\\\host\\share`), or `..`-relative escaping it — is an
+ *  out-of-workspace read primitive, so it is rejected outright. Fail-closed:
+ *  simpler than allowlisting the cwd's absolute prefix, which quoting and `~`
+ *  expansion would defeat. Option flags (`-c`, `-rn`, …) and cwd-relative
+ *  paths (`src/`, `dist/index.mjs`) pass. */
+const GATE_READER_COMMAND_PATTERN = /^(?:grep|head|rg|tail)(?:\s|$)/;
+
+/** S-3 hardening (2026-10-31, LOW ruling): `rg --pre <cmd>` runs an arbitrary
+ *  preprocessor executable on every file the reader touches — an execution
+ *  primitive hiding inside a reader allowlist entry. Denied in both the
+ *  attached (`--pre=x`) and detached (`--pre x`) spellings. */
+const GATE_READER_PREPROCESSOR_PATTERN = /(?:^|\s)--pre(?:\s|=|$)/;
+
+/** S-3 hardening: Windows absolute forms — drive letter (`C:/…`, `C:\\…`) and
+ *  UNC (`\\\\host\\share`). */
+const WINDOWS_ABSOLUTE_ARG_PATTERN = /^[A-Za-z]:[\\/]/;
+
+/** S-3 hardening: lexical path containment — `child` inside `parent`? Exact
+ *  segment boundary on the `..` escape; path.relative never returns a bare
+ *  absolute path on the same tree. */
+function isPathWithin(parent: string, child: string): boolean {
+	const rel = path.relative(parent, child);
+	return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+function validateGateReaderPathArgs(pipelineCommand: string, original: string, gateCwd?: string): void {
+	if (GATE_READER_PREPROCESSOR_PATTERN.test(pipelineCommand)) {
+		throw new Error(`Security: verification gate command rejected (reader --pre runs an arbitrary preprocessor): ${original}`);
+	}
+	for (const rawArg of pipelineCommand.split(/\s+/).slice(1)) {
+		// Strip at most one leading and one trailing quote char: `sh -c`
+		// expands quotes before path resolution, so `"/etc/passwd"` (and an
+		// unbalanced prefix like `"~/a` from a whitespace-split quoted path)
+		// must not slip through.
+		let arg = rawArg;
+		if (arg.startsWith('"') || arg.startsWith("'")) arg = arg.slice(1);
+		if (arg.endsWith('"') || arg.endsWith("'")) arg = arg.slice(0, -1);
+		if (arg.length === 0) continue;
+		if (arg.startsWith("/") || arg.startsWith("~")) {
+			throw new Error(
+				`Security: verification gate command rejected (reader path argument escapes the gate cwd — absolute and ~-prefixed paths are not allowed): ${original}`,
+			);
+		}
+		// Windows absolute forms — on POSIX a `C:/x` arg is a cwd-relative
+		// filename to US, but sh/spawn on win32 resolves it absolutely.
+		if (WINDOWS_ABSOLUTE_ARG_PATTERN.test(arg) || arg.startsWith("\\\\")) {
+			throw new Error(
+				`Security: verification gate command rejected (reader path argument is a Windows absolute path — must stay cwd-relative): ${original}`,
+			);
+		}
+		if (arg.startsWith("-")) {
+			// Flags are not paths we can resolve — but an ATTACHED value carrying a
+			// path separator (`-f/etc/x`, `--pre=/usr/bin/id`) smuggles an absolute
+			// path past the positional checks above, so reject any separator in a
+			// flag token (reader flags are pattern/count selectors — no slashes).
+			if (/[\\/]/.test(arg)) {
+				throw new Error(
+					`Security: verification gate command rejected (reader flag carries a path in its attached value): ${original}`,
+				);
+			}
+			continue;
+		}
+		// Positional argument (pattern or path): when the gate cwd is known,
+		// resolve against it and enforce containment (covers `a/../../etc/x`
+		// escapes that do not START with `..`); without a cwd (test helper), fall
+		// back to a lexical leading-`..` segment check.
+		if (gateCwd !== undefined) {
+			const resolved = path.resolve(gateCwd, arg);
+			if (!isPathWithin(gateCwd, resolved)) {
+				throw new Error(
+					`Security: verification gate command rejected (reader path argument resolves outside the gate cwd): ${original}`,
+				);
+			}
+		} else if (arg === ".." || arg.startsWith(`..${path.sep}`) || arg.startsWith("../")) {
+			throw new Error(
+				`Security: verification gate command rejected (reader path argument escapes the gate cwd — ..-relative paths are not allowed): ${original}`,
+			);
+		}
+	}
+}
+
+function validateAllowedGateCommands(normalized: string, original: string, gateCwd?: string): void {
 	const pipelineCommands = normalized.split("|").map((part) => part.trim());
 	for (const pipelineCommand of pipelineCommands) {
 		if (/^node(?:\s|$)/.test(pipelineCommand) && NODE_EVAL_MODE_PATTERN.test(pipelineCommand)) {
 			throw new Error(`Security: verification gate command rejected (Node eval/print mode is not allowed): ${original}`);
+		}
+		if (GATE_READER_COMMAND_PATTERN.test(pipelineCommand)) {
+			validateGateReaderPathArgs(pipelineCommand, original, gateCwd);
 		}
 		if (!pipelineCommand || !ALLOWED_GATE_COMMAND_PATTERNS.some((pattern) => pattern.test(pipelineCommand))) {
 			throw new Error(`Security: verification gate command rejected (command is not allowlisted): ${original}`);
@@ -222,11 +316,11 @@ function validateAllowedGateCommands(normalized: string, original: string): void
  * and stderr fd duplication (`2>&1`).
  */
 /** @internal — exported for injection-guard unit testing (Round 25). */
-export function __test__validateGateCommand(command: string): void {
-	validateGateCommand(command);
+export function __test__validateGateCommand(command: string, gateCwd?: string): void {
+	validateGateCommand(command, gateCwd);
 }
 
-function validateGateCommand(command: string): void {
+function validateGateCommand(command: string, gateCwd?: string): void {
 	// Round 25 (VULN-3): check the ORIGINAL command for raw newlines BEFORE
 	// normalization. The regex below runs on the NORMALIZED command (which
 	// collapses \s+ incl. newlines to a single space), so a newline would be
@@ -246,7 +340,7 @@ function validateGateCommand(command: string): void {
 	if (DANGEROUS_SHELL_PATTERNS.test(normalized)) {
 		throw new Error(`Security: verification gate command rejected (dangerous shell pattern): ${command}`);
 	}
-	validateAllowedGateCommands(normalized, command);
+	validateAllowedGateCommands(normalized, command, gateCwd);
 }
 
 /** U13 (upgrade spec 2026-10-09): exported so the deterministic verify_gate
@@ -259,7 +353,9 @@ export async function executeCommand(
 	timeoutMs: number = 120000,
 ): Promise<{ exitCode: number | null; output: string; durationMs: number }> {
 	// SECURITY: Validate command before shell execution to prevent injection.
-	validateGateCommand(command);
+	// The execution cwd IS the gate cwd for reader-path containment — thread it
+	// down so `..`-relative escapes resolve against where the command runs.
+	validateGateCommand(command, cwd);
 
 	const start = Date.now();
 	let output = "";

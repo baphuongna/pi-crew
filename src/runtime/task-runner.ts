@@ -196,6 +196,23 @@ export async function runTeamTask(input: TaskRunnerInput): Promise<{ manifest: T
 								})),
 							}
 						: {}),
+					// S-1 (shared-cwd-untracked-harness, HIGH, 2026-10-31): host-owned
+					// task records at gate time — the gate refuses the deterministic
+					// skip when a WRITE-role task EXECUTED in the gate's own cwd
+					// (gitignored node_modules shims sit outside every pinned binding,
+					// so a shared-cwd executor's tampered harness could grade its own
+					// gate). Host in-memory records ONLY — the gate must never read the
+					// worker-mutable tasks.json itself. The verifier's own record is
+					// excluded: the gate runs BEFORE its spawn.
+					taskRecords: ctx.tasks
+						.filter((t) => t.id !== ctx.task.id)
+						.map((t) => ({
+							taskId: t.id,
+							role: t.role,
+							status: t.status,
+							cwd: t.cwd,
+							worktreePath: t.worktree?.path,
+						})),
 					signal: input.signal,
 					classifier: {
 						enabled: resolveClassifierEnabled(input.runtimeConfig?.classifierEnabled),
