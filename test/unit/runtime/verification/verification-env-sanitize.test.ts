@@ -10,12 +10,25 @@
  */
 
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { executeVerificationCommands, isVerificationEnvSanitizeEnabled } from "../../../../src/runtime/verification/verification-gates.ts";
 import type { VerificationCommandResult } from "../../../../src/state/types.ts";
 import { removeDirWithRetry } from "../../../helpers/rm-retry.ts";
+
+/** CI flake hardening (2026-10-31, run 41228627172 macos/Node22 shard 2 ×3
+ * attempts): executeVerificationCommands writes a DETERMINISTIC artifact path
+ * (<dir>/verification-gates/<run>-<task>-<phase>-<n>.log), and the old shared
+ * `.test-artifacts-tmp*` roots under process.cwd() collide across PARALLEL
+ * test FILES in the same shard — a sibling file's setup/cleanup deleted our
+ * log between the subprocess write and this test's readFileSync (ENOENT at
+ * the read, assertion never reached). A per-call mkdtemp artifacts dir under
+ * os.tmpdir() isolates each probe completely. */
+function uniqueArtifactsDir(): string {
+	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-envsan-art-"));
+}
 
 /** Wave F (S-3, 2026-10-31) removed `printenv` from the gate allowlist, so
  *  the env probes now enter through an ALLOWLISTED entry whose recipe reads
@@ -103,15 +116,15 @@ test("INTEGRATION: with sanitize ON, secret env var does NOT reach the verificat
 			PATH: process.env.PATH ?? "/usr/bin:/bin",
 		},
 		async () => {
-			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", path.join(process.cwd(), ".test-artifacts-tmp"));
+			const artifactsDir = uniqueArtifactsDir();
+			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", artifactsDir);
 			assert.equal(results.length, 1);
 			// Output artifact captures the printenv output. The secret should NOT appear.
 			const out = results[0]?.outputArtifact;
 			assert.ok(out, "output artifact must be written");
-			const fs = await import("node:fs");
 			const content = out?.path ? fs.readFileSync(out.path, "utf-8") : "";
 			assert.equal(content.includes("sk-leak-me-12345"), false, "secret must NOT reach verification subprocess when sanitize is ON");
-			await removeDirWithRetry(path.join(process.cwd(), ".test-artifacts-tmp"));
+			await removeDirWithRetry(artifactsDir);
 		},
 	);
 });
@@ -129,16 +142,16 @@ test("INTEGRATION: with sanitize OFF (explicit opt-out), secret env var DOES rea
 			PATH: process.env.PATH ?? "/usr/bin:/bin",
 		},
 		async () => {
-			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", path.join(process.cwd(), ".test-artifacts-tmp"));
+			const artifactsDir = uniqueArtifactsDir();
+			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", artifactsDir);
 			assert.equal(results.length, 1);
-			const fs = await import("node:fs");
 			const content = results[0]?.outputArtifact?.path ? fs.readFileSync(results[0].outputArtifact.path, "utf-8") : "";
 			assert.equal(
 				content.includes("sk-visible-default"),
 				true,
 				"explicit opt-out (sanitize=0) preserves existing behavior — secret visible",
 			);
-			await removeDirWithRetry(path.join(process.cwd(), ".test-artifacts-tmp"));
+			await removeDirWithRetry(artifactsDir);
 		},
 	);
 });
@@ -156,12 +169,12 @@ test("INTEGRATION: with sanitize ON + PRESERVE_ENV, explicitly-preserved secret 
 			PATH: process.env.PATH ?? "/usr/bin:/bin",
 		},
 		async () => {
-			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", path.join(process.cwd(), ".test-artifacts-tmp2"));
+			const artifactsDir = uniqueArtifactsDir();
+			const results = await runMakePrintenv("FAKE_SECRET_API_KEY", artifactsDir);
 			assert.equal(results.length, 1);
-			const fs = await import("node:fs");
 			const content = results[0]?.outputArtifact?.path ? fs.readFileSync(results[0].outputArtifact.path, "utf-8") : "";
 			assert.equal(content.includes("sk-preserved-explicit"), true, "PRESERVE_ENV must allow explicitly-listed secret through");
-			await removeDirWithRetry(path.join(process.cwd(), ".test-artifacts-tmp2"));
+			await removeDirWithRetry(artifactsDir);
 		},
 	);
 });
@@ -185,17 +198,18 @@ test("INTEGRATION: sanitize ON keeps essential non-secret vars (PATH, HOME)", as
 			// rejects `&&`, same as before). SEPARATE artifacts dirs: both calls
 			// use taskId "test-task", so a shared dir would overwrite
 			// phase-1 artifacts with the second run's output.
-			const pathResults = await runMakePrintenv("PATH", path.join(process.cwd(), ".test-artifacts-tmp3"));
-			const homeResults = await runMakePrintenv("HOME", path.join(process.cwd(), ".test-artifacts-tmp3b"));
+			const pathArtifactsDir = uniqueArtifactsDir();
+			const homeArtifactsDir = uniqueArtifactsDir();
+			const pathResults = await runMakePrintenv("PATH", pathArtifactsDir);
+			const homeResults = await runMakePrintenv("HOME", homeArtifactsDir);
 			assert.equal(pathResults.length, 1);
 			assert.equal(homeResults.length, 1);
-			const fs = await import("node:fs");
 			const pathContent = pathResults[0]?.outputArtifact?.path ? fs.readFileSync(pathResults[0].outputArtifact.path, "utf-8") : "";
 			const homeContent = homeResults[0]?.outputArtifact?.path ? fs.readFileSync(homeResults[0].outputArtifact.path, "utf-8") : "";
 			assert.equal(pathContent.includes("/usr/bin:/bin"), true, "PATH must be preserved");
 			assert.equal(homeContent.includes("/tmp/fake-home"), true, "HOME must be preserved");
-			await removeDirWithRetry(path.join(process.cwd(), ".test-artifacts-tmp3"));
-			await removeDirWithRetry(path.join(process.cwd(), ".test-artifacts-tmp3b"));
+			await removeDirWithRetry(pathArtifactsDir);
+			await removeDirWithRetry(homeArtifactsDir);
 		},
 	);
 });
