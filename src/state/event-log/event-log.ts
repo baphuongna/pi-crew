@@ -1210,6 +1210,8 @@ interface BufferedAppend {
 }
 const bufferedQueues = new Map<string, BufferedAppend[]>();
 const bufferedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Per-path in-flight flush (started, not yet settled) — see flushOneEventLogBuffer. */
+const inflightBufferFlushes = new Map<string, Promise<void>>();
 const DEFAULT_BUFFER_MS = 20;
 
 export function appendEventBuffered(eventsPath: string, event: AppendTeamEvent, bufferMs = DEFAULT_BUFFER_MS): Promise<TeamEvent> {
@@ -1253,61 +1255,95 @@ async function flushOneEventLogBuffer(eventsPath: string): Promise<void> {
 	const queue = bufferedQueues.get(eventsPath);
 	bufferedQueues.delete(eventsPath);
 	const timer = bufferedTimers.get(eventsPath);
-	// Timer is cleared in the finally block to ensure cleanup happens even on error
-	try {
-		if (!queue || queue.length === 0) return;
+	// PERF-CORRECTNESS (2026-10-31, macos CI run 41147573288): track the
+	// in-flight flush so flushEventLogBuffer()/drainEventLogWriters() can AWAIT
+	// it. Previously those helpers were no-ops for a path whose flush had just
+	// STARTED (the queue is deleted from the map above BEFORE the multi-turn
+	// async lock+append completes), so `await flushEventLogBuffer()` could
+	// return while the appendFile was still in flight — the interrupt-guard
+	// detached test read the log before the event landed (macos runner fs).
+	// Same window on the exit path: flushBufferedQueuesSync sees an empty map
+	// and cannot recover an in-flight batch.
+	const doFlush = (async (): Promise<void> => {
+		// Timer is cleared in the finally block to ensure cleanup happens even on error
+		try {
+			if (!queue || queue.length === 0) return;
 
-		// FIX (Round 14, H3): When truncating the queue, explicitly reject the
-		// dropped entries' promises. Previously `queue.splice()` silently
-		// discarded the oldest items, and their associated Promises were never
-		// resolved or rejected — causing callers to await forever and leaking
-		// memory. We now reject with a clear error so callers can fall back.
-		if (queue.length > 1000) {
-			const dropped = queue.splice(0, queue.length - 500);
-			overflowCounter++;
-			// FIX: Include first/last dropped event type and sequence number in error
-			// message to make debugging easier when events are dropped.
-			const firstDroppedMeta = dropped[0]?.event.metadata;
-			const lastDroppedMeta = dropped[dropped.length - 1]?.event.metadata;
-			logInternalError(
-				"event-log.buffer-overflow",
-				new Error(
-					`Buffer overflow #${overflowCounter}: Dropped ${dropped.length} events: first seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}, last seq=${lastDroppedMeta?.seq} type=${dropped[dropped.length - 1]?.event.type}`,
-				),
-				`${eventsPath}: ${queue.length + dropped.length} entries > 1000 cap`,
-			);
-			for (const item of dropped) {
-				item.reject(
+			// FIX (Round 14, H3): When truncating the queue, explicitly reject the
+			// dropped entries' promises. Previously `queue.splice()` silently
+			// discarded the oldest items, and their associated Promises were never
+			// resolved or rejected — causing callers to await forever and leaking
+			// memory. We now reject with a clear error so callers can fall back.
+			if (queue.length > 1000) {
+				const dropped = queue.splice(0, queue.length - 500);
+				overflowCounter++;
+				// FIX: Include first/last dropped event type and sequence number in error
+				// message to make debugging easier when events are dropped.
+				const firstDroppedMeta = dropped[0]?.event.metadata;
+				const lastDroppedMeta = dropped[dropped.length - 1]?.event.metadata;
+				logInternalError(
+					"event-log.buffer-overflow",
 					new Error(
-						`Event log buffer overflow: ${queue.length + dropped.length} entries > 1000 cap; oldest ${dropped.length} dropped to keep memory bounded; first dropped seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}`,
+						`Buffer overflow #${overflowCounter}: Dropped ${dropped.length} events: first seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}, last seq=${lastDroppedMeta?.seq} type=${dropped[dropped.length - 1]?.event.type}`,
 					),
+					`${eventsPath}: ${queue.length + dropped.length} entries > 1000 cap`,
 				);
+				for (const item of dropped) {
+					item.reject(
+						new Error(
+							`Event log buffer overflow: ${queue.length + dropped.length} entries > 1000 cap; oldest ${dropped.length} dropped to keep memory bounded; first dropped seq=${firstDroppedMeta?.seq} type=${dropped[0]?.event.type}`,
+						),
+					);
+				}
 			}
-		}
 
-		// FIX (Issue 2): Use async lock instead of withEventLogLockSync to avoid
-		// blocking the event loop. The sync lock uses sleepSync which blocks for
-		// up to 5s and prevents AbortSignal handlers from firing.
-		// FIX (P0 follow-up): Batch the file write + fsync + persistSequence across
-		// the whole queue. Previously each event triggered its own fsyncSync,
-		// turning 100 buffered events into 100 fsyncs (~3s on tmpfs). Now we do
-		// 1 appendFileSync + 1 fsync + 1 persistSequence for the whole batch.
-		await withEventLogLockAsync(eventsPath, async () => {
-			// R7-2 (DR-04): `.alock` HELD here (async family) — the batch's inline
-			// compaction must not re-acquire it.
-			await appendEventBatchInsideLock(eventsPath, queue, { holdsAppendLock: true });
-		});
-	} catch (error) {
-		// Lock acquire failed — fail every queued item so callers can fall back.
-		if (queue) for (const item of queue) item.reject(error);
-	} finally {
-		bufferedTimers.delete(eventsPath);
-	}
+			// FIX (Issue 2): Use async lock instead of withEventLogLockSync to avoid
+			// blocking the event loop. The sync lock uses sleepSync which blocks for
+			// up to 5s and prevents AbortSignal handlers from firing.
+			// FIX (P0 follow-up): Batch the file write + fsync + persistSequence across
+			// the whole queue. Previously each event triggered its own fsyncSync,
+			// turning 100 buffered events into 100 fsyncs (~3s on tmpfs). Now we do
+			// 1 appendFileSync + 1 fsync + 1 persistSequence for the whole batch.
+			await withEventLogLockAsync(eventsPath, async () => {
+				// R7-2 (DR-04): `.alock` HELD here (async family) — the batch's inline
+				// compaction must not re-acquire it.
+				await appendEventBatchInsideLock(eventsPath, queue, { holdsAppendLock: true });
+			});
+		} catch (error) {
+			// Lock acquire failed — fail every queued item so callers can fall back.
+			if (queue) for (const item of queue) item.reject(error);
+		} finally {
+			bufferedTimers.delete(eventsPath);
+		}
+	})();
+	// Chain per-path: a second flush must wait for the in-flight one (keeps the
+	// tracker single-entry and resolves followers with the leader's outcome).
+	const prevInflight = inflightBufferFlushes.get(eventsPath) ?? Promise.resolve();
+	const tracked = prevInflight.then(
+		() => doFlush,
+		() => doFlush,
+	);
+	inflightBufferFlushes.set(
+		eventsPath,
+		tracked.finally(() => {
+			if (inflightBufferFlushes.get(eventsPath) === tracked) inflightBufferFlushes.delete(eventsPath);
+		}),
+	);
+	await tracked;
 }
 
 /** Asynchronously flush every queued buffered event across all paths. */
 export async function flushEventLogBuffer(): Promise<void> {
-	for (const eventsPath of [...bufferedQueues.keys()]) await flushOneEventLogBuffer(eventsPath);
+	for (const eventsPath of [...bufferedQueues.keys()]) {
+		// PERF-CORRECTNESS (2026-10-31): await any IN-FLIGHT flush for this path
+		// first — the timer-led flush may hold events that are no longer in
+		// bufferedQueues (removed at flush start). Without this, a caller that
+		// awaits flushEventLogBuffer() during an in-flight flush observes a log
+		// that does not yet contain those events (deterministic-await guarantee).
+		const inflight = inflightBufferFlushes.get(eventsPath);
+		if (inflight) await inflight.catch(() => undefined);
+		await flushOneEventLogBuffer(eventsPath);
+	}
 }
 
 /**
@@ -1402,6 +1438,12 @@ export function appendEventFireAndForget(eventsPath: string, event: AppendTeamEv
 export async function drainEventLogWriters(eventsPath?: string): Promise<void> {
 	if (eventsPath !== undefined) {
 		const tail = asyncQueues.get(eventsPath) ?? Promise.resolve();
+		// PERF-CORRECTNESS (2026-10-31): the buffered flush may be IN FLIGHT with
+		// the queue already removed from the map — await the tracker, then flush
+		// whatever landed in the queue since (deterministic drain for tests and
+		// teardown paths; see flushOneEventLogBuffer).
+		const inflight = inflightBufferFlushes.get(eventsPath);
+		if (inflight) await inflight.catch(() => undefined);
 		await Promise.allSettled([tail]);
 		try {
 			await flushOneEventLogBuffer(eventsPath);
@@ -1410,6 +1452,7 @@ export async function drainEventLogWriters(eventsPath?: string): Promise<void> {
 		}
 		return;
 	}
+	await flushEventLogBuffer().catch(() => undefined);
 	await Promise.allSettled([...asyncQueues.values()]);
 	try {
 		await flushEventLogBuffer();

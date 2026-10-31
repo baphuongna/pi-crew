@@ -135,7 +135,19 @@ halves) and the residuals deferred by w1b/w7a/w7b:
 42 new regression tests. Owner-observed deployment checklists for the leads' impact confirmation remain in the
 audit's NEEDS-VALIDATION.md.
 
-## [Unreleased] — test hardening
+## [Unreleased] — test hardening + event-log in-flight flush await fix
+
+**Fixed (product, caught by macos CI).** `flushOneEventLogBuffer` removed the queue from
+`bufferedQueues` BEFORE its multi-turn async lock+append completed, so `flushEventLogBuffer()` /
+`drainEventLogWriters()` were **no-ops for a path with an in-flight flush** — `await flushEventLogBuffer()` could
+return while the batch's `appendFile` was still in flight (deterministic-await broken; the interrupt-guard
+detached regression test read the log too early on the slower macos runner fs — CI run 41147573288; fast
+disks hid the race locally). Same window on the exit path (`flushBufferedQueuesSync` cannot recover an
+in-flight batch — documented limitation, sync-only). Fix: per-path in-flight flush tracker
+(`inflightBufferFlushes`) chained single-entry per path; `flushEventLogBuffer()` and `drainEventLogWriters()`
+await the in-flight flush FIRST, then flush whatever landed in the queue since. Pin:
+`flushEventLogBuffer awaits an IN-FLIGHT flush` (deterministic read immediately after the await — no settling
+sleep).
 
 **Fixed (test-only).** `waitForPreGateEvents` (classifier-pre-gate) now THROWS on timeout with counts + path
 instead of returning silently — the silent return turned a legit wait-timeout into a far-away

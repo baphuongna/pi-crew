@@ -317,3 +317,41 @@ test("T2: a buffered batch that contains a terminal event DOES fsync the events 
 		await cleanupStateRoot(dir, eventsPath);
 	}
 });
+
+// PERF-CORRECTNESS pin (2026-10-31, macos CI run 41147573288): a flush that
+// has STARTED (queue removed from the map, async lock+append in flight) must
+// be AWAITED by flushEventLogBuffer()/drainEventLogWriters() — they used to be
+// no-ops for such a path, so a caller could observe a log without the events
+// of the in-flight batch. The interrupt-guard detached test read the event
+// log right after `await flushEventLogBuffer()` and failed on the slower
+// macos runner fs (the appendFile had not landed yet; fast disks hid the race).
+test("flushEventLogBuffer awaits an IN-FLIGHT flush: the event is readable immediately after the await", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-el-inflight-"));
+	const eventsPath = path.join(dir, "events.jsonl");
+	// Keep the event loop alive so the unref'd 1ms buffer timer still fires.
+	const keepAlive = setInterval(() => undefined, 50);
+	try {
+		// 1ms buffer: the timer-led flush fires ~immediately; give it one
+		// macrotask to START (the tracker is set synchronously when the flush
+		// body begins — by then the queue is ALREADY out of bufferedQueues).
+		const pending = appendEventBuffered(
+			eventsPath,
+			{ type: "task.progress", runId: "r-inflight", taskId: "t-inflight", message: "in-flight flush pin" },
+			1,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		// The awaited flush must cover the in-flight batch, not just the (now
+		// empty) map — deterministic-read guarantee, NO settling sleep.
+		await flushEventLogBuffer();
+		const events = readEvents(eventsPath);
+		assert.equal(
+			events.some((e) => e.runId === "r-inflight" && e.message === "in-flight flush pin"),
+			true,
+			"in-flight buffered event must be on disk immediately after await flushEventLogBuffer()",
+		);
+		await pending;
+	} finally {
+		clearInterval(keepAlive);
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
