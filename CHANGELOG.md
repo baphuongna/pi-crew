@@ -1,8 +1,22 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.55] — ask-park clobber fix + w1a dispatcher key distribution (2026-10-31)
 
-**Fixed (product, FINDING B — 2026-10-31).** w1a per-process signing broke ALL cross-process ask/respond delivery in async runs: `respond.ts` writes the
+**Fixed (product, FINDING A — ask-park clobber).** Cross-process coalesce race on tasks.json: the HOST process's 50ms coalesced
+progress flush (per-process buffer) blindly overwrote the DETACHED BROKER's run-locked sync `waiting` park ~3ms after it landed
+(live incidents team_20261031084714 + team_20261031045633), losing BOTH the status and the questionId marker — every leader respond
+then rejected "is running, not waiting" and all asks timed out (silent degradation of the whole mailbox-interactive flow).
+
+- `atomic-write.ts`: flush-time staleness CAS — queue-time mtimeMs+size identity, re-stat at flush; an EXTERNAL write landing between
+  queue and flush discards the stale snapshot instead of clobbering (cross-process supersession was invisible to the same-process
+  `cancelPendingCoalescedWrite`). Live-proven: `coalesced-stale-drop` fired at the exact park moment in all three probe runs.
+- `respond.ts`: no-waiting fallback repairs a clobbered park from the surviving `manifest.waitState` pointer inside the same run-lock
+  section (`task.waiting_repaired` event), then the answer path runs verbatim — defense-in-depth backstop for the post-park re-queue
+  residual the CAS cannot see. Live-proven: repair + accept + mailbox delivery in one probe run.
+- contracts/event-reconstructor: `task.waiting_repaired` → waiting.
+- Tests: atomic-write CAS (external temp+rename sims), state-store clobber regression, respond clobber-repair — 9/9.
+
+**Fixed (product, FINDING B — w1a cross-process signing).** w1a per-process Ed25519 signing broke ALL cross-process ask/respond delivery in async runs: `respond.ts` writes the
 respond row with the LEADER session's keypair while the DETACHED RUNNER spawns the workers, so the worker's single spawner-key env
 (`PI_CREW_MAILBOX_VERIFY_KEY`) could never verify the row — it dropped as noise at `parseMailboxFile` and every `ask` poll timed out (480s
 hang, then "proceed with best judgment"). Same class for the leader-signed steering fs-fallback line (`team-tool.ts`). Fix = distribute the
