@@ -94,6 +94,13 @@ export const TEAM_EVENT_TYPES = [
 	"async.stale",
 	"task.waiting",
 	"task.resumed",
+	// ASK-PARK CLOBBER FIX (2026-10-31): respond-side self-heal trace — fired
+	// when the no-waiting-tasks fallback finds manifest.waitState still live
+	// while tasks.json lost the park to the cross-process coalesce race (host
+	// coalesced flush vs broker sync park) and restores `waiting` from the
+	// waitState pointer before running the answer path. Participates in
+	// event-log reconstruction (→ "waiting", mirrors task.waiting).
+	"task.waiting_repaired",
 	// G5 (deep-review 2026-10-01): respond-delivery observability. The leader
 	// previously had NO confirmation that a mailbox respond reached the worker:
 	// `respond_delivered` fires at the broker's wait.resolve ack when the parked

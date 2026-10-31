@@ -34,6 +34,9 @@ const TASK_LIFECYCLE_EVENT_TYPES = new Set([
 	"task.needs_attention",
 	"task.waiting",
 	"task.resumed",
+	// ASK-PARK CLOBBER FIX (2026-10-31): respond's clobbered-park self-heal —
+	// reconstructs to "waiting" exactly like the task.waiting park it repairs.
+	"task.waiting_repaired",
 	"task.retried",
 	"task.blocked",
 	"task.progress",
@@ -55,6 +58,8 @@ const EVENT_STATUS_MAP: Readonly<Record<string, string>> = {
 	"task.needs_attention": "needs_attention",
 	"task.waiting": "waiting",
 	"task.resumed": "running",
+	// ASK-PARK CLOBBER FIX (2026-10-31): see TASK_LIFECYCLE_EVENT_TYPES above.
+	"task.waiting_repaired": "waiting",
 	"task.retried": "queued",
 };
 

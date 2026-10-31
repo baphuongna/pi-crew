@@ -113,9 +113,72 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 		const taskId = params.taskId;
 		const message = params.message ?? "";
 
-		const targetTasks = taskId
+		let tasks = fresh.tasks;
+		let targetTasks = taskId
 			? fresh.tasks.filter((t) => t.id === taskId && t.status === "waiting")
 			: fresh.tasks.filter((t) => t.status === "waiting");
+
+		if (targetTasks.length === 0) {
+			// ASK-PARK CLOBBER SELF-HEAL (2026-10-31, live incidents team_20261031084714
+			// + team_20261031045633): the HOST process's coalesced tasks.json flush can
+			// race the BROKER process's run-locked sync waiting-park (the coalesce
+			// buffer is per-process, so the broker's write cannot cancel it) and blind-
+			// flush a pre-park `running` snapshot over `waiting` — losing BOTH the
+			// status and the questionId marker. Every subsequent respond then hit the
+			// reject below ("is running, not waiting") and every ask timed out.
+			// The broker's manifest.waitState pointer survives the clobber (manifest.json
+			// is not coalesced), so it is the authoritative repair source: when it is
+			// still live while tasks.json lost the park, restore `waiting` + marker
+			// from it inside the SAME run-lock section, then let the normal answer
+			// machinery below run verbatim. Fix 1 (atomic-write flush-time CAS) closes
+			// the root cause; this is the defense-in-depth backstop.
+			const waitState = fresh.manifest.waitState;
+			if (waitState && typeof waitState.deadline === "number" && waitState.deadline > Date.now()) {
+				// Narrowed const - the typeof guard on the property does not survive
+				// into the map callback below.
+				const waitDeadline = waitState.deadline;
+				const parked = fresh.tasks.find((t) => t.id === waitState.taskId);
+				if (
+					parked &&
+					parked.status === "running" &&
+					(parked.waiting === undefined || parked.waiting.questionId !== waitState.questionId)
+				) {
+					tasks = fresh.tasks.map((t) =>
+						t.id === waitState.taskId
+							? {
+									...t,
+									status: "waiting" as const,
+									waiting: {
+										questionId: waitState.questionId,
+										askedAt: waitState.askedAt,
+										deadline: waitDeadline,
+									},
+								}
+							: t,
+					);
+					// Sync save inside the SAME run-lock critical section — also cancels
+					// any same-process pending coalesced tasks.json write (stale
+					// snapshot) before it can clobber the repair.
+					saveRunTasks(fresh.manifest, tasks);
+					void appendEventAsync(fresh.manifest.eventsPath, {
+						type: "task.waiting_repaired",
+						runId: fresh.manifest.runId,
+						taskId: waitState.taskId,
+						message: `Repaired clobbered ask park for question ${waitState.questionId}: tasks.json showed the parked task running with no waiting marker (host coalesced-flush raced the broker park); waiting restored from manifest.waitState so the answer path could run.`,
+						data: { taskId: waitState.taskId, questionId: waitState.questionId, reason: "coalesce-clobber" },
+					}).catch((error) =>
+						logInternalError(
+							"respond.waiting-repaired-event",
+							error instanceof Error ? error : new Error(String(error)),
+							`runId=${fresh.manifest.runId}`,
+						),
+					);
+					targetTasks = taskId
+						? tasks.filter((t) => t.id === taskId && t.status === "waiting")
+						: tasks.filter((t) => t.status === "waiting");
+				}
+			}
+		}
 
 		if (targetTasks.length === 0) {
 			const existing = taskId ? fresh.tasks.find((t) => t.id === taskId) : undefined;
@@ -155,7 +218,7 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 			pidAlive: boolean;
 			pidDetail: string;
 		}> = [];
-		let updatedTasks = fresh.tasks;
+		let updatedTasks = tasks;
 
 		for (const task of targetTasks) {
 			const questionId = task.waiting?.questionId;

@@ -987,6 +987,12 @@ interface CoalescedAtomicWrite {
 	generation: number;
 	/** F4: durability knob carried into the underlying atomicWriteFile flush. */
 	durability: WriteDurability;
+	/** ASK-PARK CLOBBER FIX (2026-10-31): on-disk file identity at QUEUE time
+	 *  for the flush-time staleness CAS. null = file did not exist yet. */
+	queuedMtimeMs: number | null;
+	/** ASK-PARK CLOBBER FIX: file size at queue time — backstop for
+	 *  coarse-mtime filesystems (FAT 1-2s granularity). */
+	queuedSize: number | null;
 }
 const MAX_FLUSH_RETRIES = 5;
 const pendingAtomicWrites = new Map<string, CoalescedAtomicWrite>();
@@ -1095,6 +1101,24 @@ export function atomicWriteJsonCoalesced<T>(
 	// future caller mutates after queueing, that mutation persists.
 	const previous = pendingAtomicWrites.get(filePath);
 	if (previous) clearTimeout(previous.timer);
+	// ASK-PARK CLOBBER FIX (2026-10-31): snapshot the on-disk file identity at
+	// QUEUE time so the flush can compare-and-swap against it.
+	// cancelPendingCoalescedWrite only sees SAME-process supersessions — a sync
+	// write from ANOTHER process (e.g. the detached broker's waiting-park via
+	// saveRunTasks) cannot cancel this buffer, and a blind flush would then
+	// clobber that fresher data (live incident team_20261031084714: tasks.json
+	// waiting→running, every leader respond rejected, 3/3 ask timeouts).
+	// stat throw = file absent → null, so a flush-time APPEARANCE of the file
+	// is detected as an external write.
+	let queuedMtimeMs: number | null = null;
+	let queuedSize: number | null = null;
+	try {
+		const queuedStat = fs.statSync(filePath);
+		queuedMtimeMs = queuedStat.mtimeMs;
+		queuedSize = queuedStat.size;
+	} catch {
+		/* file does not exist yet — null is the queue-time identity */
+	}
 	const timer = setTimeout(() => flushOnePendingAtomicWrite(filePath), coalesceMs);
 	timer.unref();
 	// Issue 2 fix: increment generation for each new entry
@@ -1107,6 +1131,8 @@ export function atomicWriteJsonCoalesced<T>(
 		retryCount: 0,
 		generation,
 		durability: normalized.durability,
+		queuedMtimeMs,
+		queuedSize,
 	});
 }
 
@@ -1118,6 +1144,39 @@ function flushOnePendingAtomicWrite(filePath: string): void {
 	// and we will NOT delete the newer entry after the flush completes.
 	const savedGeneration = entry.generation;
 	clearTimeout(entry.timer);
+	// ASK-PARK CLOBBER FIX (2026-10-31): flush-time staleness CAS. Contract: a
+	// coalesced write is a CHECKPOINT-class snapshot — last-writer-wins applies
+	// only WITHIN this process (same-process supersession cancels the buffer
+	// via cancelPendingCoalescedWrite inside atomicWriteFile). If an EXTERNAL
+	// write landed between queue and flush — detected as an mtime/size identity
+	// change, or as the file APPEARING after a queue-time absence — the
+	// buffered snapshot is stale and is DISCARDED, never clobbered over the
+	// fresher data. A stat throw here (file vanished since queue, e.g. an
+	// external delete) keeps the pre-fix flush behavior: write proceeds.
+	// Order matters: this MUST run BEFORE atomicWriteFile — its first
+	// statement cancels the pending entry, so on discard WE delete the entry
+	// explicitly. The retry/backoff path re-adds the SAME entry object, so the
+	// queue-time identity survives retries. Residual window: coarse-mtime
+	// filesystems (FAT 1-2s) are narrowed by the size check; what remains is
+	// acceptable — the next checkpoint re-queues fresh data, and respond.ts
+	// carries a defense-in-depth self-heal for the ask park (2026-10-31).
+	try {
+		const currentStat = fs.statSync(filePath);
+		if (entry.queuedMtimeMs === null || entry.queuedMtimeMs !== currentStat.mtimeMs || entry.queuedSize !== currentStat.size) {
+			pendingAtomicWrites.delete(filePath);
+			logInternalError(
+				"atomic-write.coalesced-stale-drop",
+				new Error(
+					`discarded stale coalesced write: external write landed between queue and flush (queued mtimeMs=${entry.queuedMtimeMs} size=${entry.queuedSize}, current mtimeMs=${currentStat.mtimeMs} size=${currentStat.size})`,
+				),
+				filePath,
+				"warn",
+			);
+			return;
+		}
+	} catch {
+		/* file vanished since queue — keep existing flush behavior (write proceeds) */
+	}
 	try {
 		// PERF (2026-08-24): stringify happens HERE (flush time), not at queue
 		// time — see the note in atomicWriteJsonCoalesced. No defensive deep-copy
