@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — deep-review verified fix set, waves A–G (2026-10-31)
+## [0.11.54] — deep-review verified fix set, waves A–G + closing hardenings (2026-10-31)
 
 **Fixed (product).** The v0.11.53 deep review's 15 findings were cold-verified by three independent verifiers
 (13 CONFIRMED / 2 PARTIAL / 0 refuted); this batch implements the seven fix waves against `8e70ab6f`. Four
