@@ -126,6 +126,7 @@ const SRC_READ_NAMES: readonly string[] = [
 	"PI_CREW_SCRATCHPAD_RESTORE_MTIME",
 	"PI_CREW_MAX_AUTO_FALLBACKS",
 	"PI_CREW_MAILBOX_VERIFY_KEY",
+	"PI_CREW_MAILBOX_VERIFY_KEYS", // FINDING B plural verify-key set (mailbox.ts resolveCoordinationVerifyKeys + child-pi-spawn relay)
 	"PI_CREW_MODEL_FALLBACK_ORDER",
 	"PI_CREW_MODEL_REQUIRE_CREDENTIALS",
 	"PI_CREW_MODEL",

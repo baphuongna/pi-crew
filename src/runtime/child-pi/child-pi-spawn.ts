@@ -22,7 +22,7 @@ import * as path from "node:path";
 import { childPiBaseAllowlist } from "../../config/env-allowlist-registry.ts";
 import { getCrewEnv } from "../../config/env-vars.ts";
 import { isScratchpadEnabledForRole } from "../../config/role-tools.ts";
-import { COORDINATION_VERIFY_KEY_ENV, getMailboxVerifyKeyPublic } from "../../state/coordination/mailbox.ts";
+import { COORDINATION_VERIFY_KEY_ENV, COORDINATION_VERIFY_KEYS_ENV, getMailboxVerifyKeyPublic } from "../../state/coordination/mailbox.ts";
 import { buildScopedAllowList, providerEnvKeys, sanitizeEnvSecrets } from "../../utils/env-filter.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { resolveRealContainedPath } from "../../utils/safe-paths.ts";
@@ -507,6 +507,30 @@ export function prepareSpawnContext(
 		const relayMatchesRun =
 			relayedVerifyKey !== undefined && input.runId !== undefined && getCrewEnv("PI_CREW_BROKER_RUN_ID") === input.runId;
 		built.env[COORDINATION_VERIFY_KEY_ENV] = relayMatchesRun ? relayedVerifyKey : getMailboxVerifyKeyPublic();
+		// FINDING B (2026-10-31): ALSO hand the child the PLURAL verify-key set —
+		// the coordination rows a child must verify are written by MORE processes
+		// than its spawner: async runs have the DISPATCHER session (leader) sign
+		// respond rows + steering fs-fallback while the detached runner spawns the
+		// workers, so the singular key above never covers those rows and every
+		// leader-signed row dropped as noise (ask poll timeout). Sources, merged
+		// + deduped: (1) our own inherited plural env when we are a worker
+		// spawning a same-run grandchild (same relay-match guard as the singular
+		// relay — never leak another run's keys), (2) the dispatcher key threaded
+		// from the run manifest (input.dispatcherVerifyKey). PUBLIC keys only.
+		const pluralVerifyKeys: string[] = [];
+		if (relayMatchesRun) {
+			const inheritedPlural = getCrewEnv(COORDINATION_VERIFY_KEYS_ENV);
+			if (inheritedPlural !== undefined) {
+				for (const key of inheritedPlural.split(",")) {
+					const trimmed = key.trim();
+					if (trimmed.length > 0 && !pluralVerifyKeys.includes(trimmed)) pluralVerifyKeys.push(trimmed);
+				}
+			}
+		}
+		if (input.dispatcherVerifyKey && !pluralVerifyKeys.includes(input.dispatcherVerifyKey)) {
+			pluralVerifyKeys.push(input.dispatcherVerifyKey);
+		}
+		if (pluralVerifyKeys.length > 0) built.env[COORDINATION_VERIFY_KEYS_ENV] = pluralVerifyKeys.join(",");
 	}
 	// Phase 0 inter-pi broker: inject socket path + token (control-namespace keys,
 	// safe under assertOnlyControlEnvKeys). Only when the parent broker issued

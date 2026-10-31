@@ -22,20 +22,22 @@
  *   - a row signed by a DIFFERENT key (the key-possession attack) is dropped.
  */
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { pollWorkerInbox } from "../../../../src/prompt/inbox-poll.ts";
 import {
 	appendMailboxMessage,
 	COORDINATION_VERIFY_KEY_ENV,
+	COORDINATION_VERIFY_KEYS_ENV,
 	getMailboxVerifyKeyPublic,
 	type MailboxMessage,
 	readAllMailboxMessages,
 	readMailbox,
-	signMailboxMessage,
 	signSteeringEntry,
 	verifyMailboxRowSig,
 	verifySteeringEntrySig,
@@ -71,6 +73,80 @@ function withChildVerifyKey(t: test.TestContext, key: string): void {
 		if (saved === undefined) delete process.env[COORDINATION_VERIFY_KEY_ENV];
 		else process.env[COORDINATION_VERIFY_KEY_ENV] = saved;
 	});
+}
+
+/** FINDING B worker-context env: SINGULAR = the spawner's key (foreign to this
+ *  process), PLURAL = the dispatcher verify-key set — exactly what a real
+ *  async-run worker carries after the fix (child-pi-spawn hands it both).
+ *  INERT-READER LESSON: without any env key this test process would keep every
+ *  row — setting the env is what reproduces the production drop path. */
+function withWorkerVerifyEnv(t: test.TestContext, singular: string, plural: string[]): void {
+	const savedSingular = process.env[COORDINATION_VERIFY_KEY_ENV];
+	const savedPlural = process.env[COORDINATION_VERIFY_KEYS_ENV];
+	process.env[COORDINATION_VERIFY_KEY_ENV] = singular;
+	if (plural.length > 0) process.env[COORDINATION_VERIFY_KEYS_ENV] = plural.join(",");
+	else delete process.env[COORDINATION_VERIFY_KEYS_ENV];
+	after(() => {
+		if (savedSingular === undefined) delete process.env[COORDINATION_VERIFY_KEY_ENV];
+		else process.env[COORDINATION_VERIFY_KEY_ENV] = savedSingular;
+		if (savedPlural === undefined) delete process.env[COORDINATION_VERIFY_KEYS_ENV];
+		else process.env[COORDINATION_VERIFY_KEYS_ENV] = savedPlural;
+	});
+}
+
+/** Arbitrary Ed25519 public key (base64 SPKI) — the "spawner/stranger" role. */
+function foreignPublicKeyB64(): string {
+	const { publicKey } = generateKeyPairSync("ed25519");
+	return Buffer.from(publicKey.export({ type: "spki", format: "der" })).toString("base64");
+}
+
+/** Standalone signer process: imports the REAL mailbox module, signs one row
+ *  + one steering entry with ITS OWN heap keypair, appends the signed row to
+ *  the inbox file, and reports its public key. This is the FINDING B incident
+ *  shape: the responder is a DIFFERENT process than the spawner/reader — a
+ *  same-process sign could never reproduce the cross-process drop. */
+const FOREIGN_SIGNER_HARNESS = `
+import * as fs from "node:fs";
+import * as path from "node:path";
+const [, , mailboxModulePath, rowPath, inboxPath, resultPath] = process.argv;
+const mailbox = await import(mailboxModulePath);
+const row = JSON.parse(fs.readFileSync(rowPath, "utf8"));
+fs.mkdirSync(path.dirname(inboxPath), { recursive: true });
+fs.appendFileSync(inboxPath, JSON.stringify(mailbox.signMailboxMessage(row)) + "\\n");
+fs.writeFileSync(
+	resultPath,
+	JSON.stringify({
+		pub: mailbox.getMailboxVerifyKeyPublic(),
+		steer: mailbox.signSteeringEntry({ type: "steer", message: "dispatcher steer", id: "steer-fb", ts: new Date().toISOString() }),
+	}),
+);
+`;
+
+/** Run {@link FOREIGN_SIGNER_HARNESS} in a separate node process. Returns the
+ *  signer's public key + a steering entry signed by the same foreign process. */
+function signRowInForeignProcess(
+	t: test.TestContext,
+	row: MailboxMessage,
+	inboxPath: string,
+): { pub: string; steer: Record<string, unknown> } {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-findingb-signer-"));
+	const harnessPath = path.join(dir, "foreign-signer.ts");
+	const rowPath = path.join(dir, "row.json");
+	const resultPath = path.join(dir, "result.json");
+	fs.writeFileSync(harnessPath, FOREIGN_SIGNER_HARNESS);
+	fs.writeFileSync(rowPath, JSON.stringify(row));
+	after(async () => {
+		await removeDirWithRetry(dir);
+	});
+	const mailboxModulePath = fileURLToPath(new URL("../../../../src/state/coordination/mailbox.ts", import.meta.url));
+	const child = spawnSync(
+		process.execPath,
+		["--experimental-strip-types", "--no-warnings", harnessPath, mailboxModulePath, rowPath, inboxPath, resultPath],
+		{ encoding: "utf8", timeout: 30_000 },
+	);
+	assert.equal(child.status, 0, `foreign signer failed: ${child.stderr}`);
+	const result = JSON.parse(fs.readFileSync(resultPath, "utf8")) as { pub: string; steer: Record<string, unknown> };
+	return result;
 }
 
 interface Fixture {
@@ -183,22 +259,20 @@ test("w1a: garbage-sig and tampered rows are dropped (sig copied from another ro
 
 test("w1a: a row signed by a DIFFERENT key does not deliver (key-possession constraint)", () => {
 	const runId = "w1a-binding-cross-key";
-	// Child holds key B; the row was signed under key A (a compromised sibling
-	// writer). Signature validity alone is not enough — the key must be THE
-	// parent key the child was spawned with.
-	const other = generateKeyPairSync("ed25519");
-	const otherPubB64 = Buffer.from(other.publicKey.export({ type: "spki", format: "der" })).toString("base64");
 	const t = { after } as unknown as test.TestContext;
-	withChildVerifyKey(t, otherPubB64);
 	const fx = setup(t, runId);
+	// Child holds key B; the row is signed under key A by a REAL other process.
+	// (FINDING B merge semantics: a process holding its own keypair now also
+	// verifies its own rows — so the pure-child shape needs a signer that is
+	// NOT this process; a same-process sign would self-verify by design.)
+	const signer = signRowInForeignProcess(t, forgedRow(runId, fx.taskId), fx.taskInbox);
+	const childKeyB = foreignPublicKeyB64();
+	withChildVerifyKey(t, childKeyB);
 
-	const row = signMailboxMessage(forgedRow(runId, fx.taskId) as MailboxMessage);
-	assert.equal(
-		verifyMailboxRowSig(row as unknown as Record<string, unknown>, [otherPubB64]),
-		false,
-		"signature from another key does not verify",
-	);
-	fs.appendFileSync(fx.taskInbox, `${JSON.stringify(row)}\n`, "utf-8");
+	const rawRow = JSON.parse(fs.readFileSync(fx.taskInbox, "utf-8").split("\n").filter(Boolean)[0]!) as Record<string, unknown>;
+	assert.equal(verifyMailboxRowSig(rawRow, [childKeyB]), false, "signature from another key does not verify");
+	assert.equal(verifyMailboxRowSig(rawRow, [signer.pub]), true, "same signature verifies under its own public key (sanity)");
+	fs.appendFileSync(fx.taskInbox, `${JSON.stringify(forgedRow(runId, fx.taskId))}\n`, "utf-8");
 	const picked = pollWorkerInbox({ stateRoot: fx.manifest.stateRoot, runId, taskId: fx.taskId });
 	assert.deepEqual(picked, [], "foreign-signed row is dropped");
 });
@@ -219,4 +293,90 @@ test("w1a: steering lines — signed entry verifies, forged line does not (keyed
 	assert.equal(verifySteeringEntrySig({ ...forged, sig: "AAAA" }), false);
 	const legitRaw = { ...signed } as Record<string, unknown>;
 	assert.equal(verifySteeringEntrySig({ ...legitRaw, message: "rewritten" }), false);
+});
+
+// ── FINDING B (2026-10-31): cross-process verify-key distribution ────────────
+//
+// Root cause these tests pin: async runs write respond rows + steering
+// fs-fallback lines in the LEADER session process while a DIFFERENT process
+// (the detached runner) spawns the workers — so the single spawner-key env
+// could never verify those rows and they dropped as noise (ask poll timeout).
+
+test("FINDING B: env verify keys no longer SHADOW the in-process keypair (merge + dedupe)", () => {
+	const runId = "findingb-shadow-fix";
+	// Worker-context env: singular = a key this process did NOT sign with.
+	const t = { after } as unknown as test.TestContext;
+	withWorkerVerifyEnv(t, foreignPublicKeyB64(), []);
+	const fx = setup(t, runId);
+
+	// appendMailboxMessage creates THIS process's keypair and signs with it —
+	// the old resolver early-returned [envKey] and dropped this very row on
+	// re-read (the shadow bug: a writer carrying a child env key silenced itself).
+	const self = appendMailboxMessage(fx.manifest, {
+		direction: "inbox",
+		from: "leader",
+		to: fx.taskId,
+		taskId: fx.taskId,
+		body: "self-signed while carrying a child env key",
+		kind: "message",
+	});
+	const ids = readMailbox(fx.manifest, "inbox", fx.taskId).map((m) => m.id);
+	assert.deepEqual(ids, [self.id], "in-process keypair verifies alongside the env key (no shadow)");
+});
+
+test("FINDING B: dispatcher-signed row DELIVERS via plural env; stranger-signed and unsigned rows stay dropped", () => {
+	const runId = "findingb-plural-delivery";
+	const questionId = "q_findingb_1";
+	const t = { after } as unknown as test.TestContext;
+	const fx = setup(t, runId);
+
+	// The DISPATCHER (leader session, a different process) writes the respond
+	// row — exact respond.ts shape (kind "response", questionId, next_turn).
+	const respondRow: MailboxMessage = {
+		id: "msg_respond_fb",
+		runId,
+		direction: "inbox",
+		from: "leader",
+		to: fx.taskId,
+		body: '"proceed with best judgment"',
+		createdAt: new Date().toISOString(),
+		status: "queued",
+		kind: "response",
+		taskId: fx.taskId,
+		questionId,
+		priority: "normal",
+		deliveryMode: "next_turn",
+		data: { action: "respond", kind: "response", questionId },
+	};
+	const dispatcher = signRowInForeignProcess(t, respondRow, fx.taskInbox);
+	// A STRANGER process also signs a row — its key is NOT in the verify set.
+	const stranger = signRowInForeignProcess(t, { ...respondRow, id: "msg_stranger_fb", questionId: "q_findingb_2" }, fx.taskInbox);
+	// And the classic unsigned forged row.
+	fs.appendFileSync(fx.taskInbox, `${JSON.stringify(forgedRow(runId, fx.taskId))}\n`, "utf8");
+	assert.notEqual(dispatcher.pub, stranger.pub, "two distinct foreign processes must have distinct keys");
+
+	// The WORKER (this reader) carries: singular = spawner's key (foreign),
+	// plural = [dispatcher key, one more legit dispatcher-era key] — the
+	// post-fix child env from child-pi-spawn (spec: per-key iteration must
+	// deliver a row signed by ANY key in the plural set).
+	const dispatcherEraPeerKey = foreignPublicKeyB64();
+	withWorkerVerifyEnv(t, foreignPublicKeyB64(), [dispatcher.pub, dispatcherEraPeerKey]);
+
+	// findAskResponse delivery filter (prompt-runtime.ts:815) — the exact
+	// predicate whose empty result was the 480s ask-poll timeout.
+	const candidates = readAllMailboxMessages(fx.manifest, "inbox").filter(
+		(m) => m.kind === "response" && m.questionId === questionId && m.to === fx.taskId,
+	);
+	assert.equal(candidates.length, 1, "dispatcher-signed respond row is DELIVERED via the plural env");
+	assert.equal(candidates[0]?.id, "msg_respond_fb");
+
+	// Stranger-signed + unsigned rows never surface.
+	const all = readAllMailboxMessages(fx.manifest, "inbox").map((m) => m.id);
+	assert.ok(!all.includes("msg_stranger_fb"), "stranger-signed row stays dropped");
+	assert.ok(!all.includes("msg_forged_1"), "unsigned row stays dropped");
+
+	// The steering fs-fallback line the dispatcher signs (team-tool.ts:1123)
+	// verifies too under the same plural env (prompt-runtime.ts:1201 gate).
+	assert.equal(verifySteeringEntrySig(dispatcher.steer), true, "dispatcher-signed steering entry verifies");
+	assert.equal(verifySteeringEntrySig(stranger.steer), false, "stranger steering entry stays dropped");
 });

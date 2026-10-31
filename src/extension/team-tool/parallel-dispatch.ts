@@ -12,6 +12,7 @@ import { spawnBackgroundTeamRun } from "../../runtime/async-runner.ts";
 import { resolveCrewRuntime } from "../../runtime/model/runtime-resolver.ts";
 import { captureRunModelContext } from "../../runtime/model/session-model.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
+import { ensureCoordinationPublicVerifyKey } from "../../state/coordination/mailbox.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { createRunManifest } from "../../state/stores/state-store.ts";
 import { discoverTeams } from "../../teams/discover-teams.ts";
@@ -178,6 +179,10 @@ async function spawnSingleTask(
 			// Finding #1: persist the parent session's model routing so the detached
 			// runner restores it instead of default-chaining (see handleParallel).
 			modelContext,
+			// FINDING B (2026-10-31): mirror handleRun — stamp THIS (dispatcher)
+			// session's PUBLIC verify key so the detached runner's workers verify
+			// the respond/steering rows this session signs. PUBLIC material only.
+			dispatcherVerifyKey: ensureCoordinationPublicVerifyKey(),
 		});
 
 		await appendEventAsync(created.manifest.eventsPath, {

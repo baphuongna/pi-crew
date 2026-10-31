@@ -1,10 +1,9 @@
 # pi-crew Trust Model (single source of truth)
 
-**Document version:** 1.3 (2026-10-31 — adds root-session-gate env-derivation
-clarification with bwrap cross-ref; S-1 untracked-harness residual with the
-shared-cwd forced-spawn backstop; deep-review waves A–G)
+**Document version:** 1.4 (2026-10-31 — adds coordination-row sender binding
+w1a + FINDING B dispatcher key distribution with its accepted residual gaps)
 **Date:** 2026-09-10 (v1.0) / 2026-10-18 (v1.1) / 2026-10-19 (v1.2) /
-2026-10-31 (v1.3)
+2026-10-31 (v1.3) / 2026-10-31 (v1.4)
 **Owner:** solo maintainer (delegated to upgrade program M6/WI-6.1)
 **Supersedes:** trust-model content previously distributed across
 `docs/bugs/SECURITY-ISSUES.md` (v3.0, last updated 2026-06-03) and
@@ -202,6 +201,61 @@ all of them. Two modes, one closed and one accepted:
   extended to all of `~/.pi/agent` (`extensions/`, `cache/` never become
   auto-executable prefixes).
 
+### Coordination-row sender binding (w1a) + dispatcher key distribution (FINDING B)
+
+The durable coordination channels (mailbox JSONL, steering JSONL) are
+same-uid writable by design. w1a (SEC-2026-11) binds every row's writer
+with a per-process Ed25519 keypair: the PRIVATE key is heap-only in the
+writer process; delivery readers (`parseMailboxFile`, the steering poll)
+drop rows whose signature fails against the resolvable verify-key set —
+unsigned/foreign-signed rows are noise, fail-closed.
+
+**FINDING B (2026-10-31) — dispatcher key distribution.** Legitimate rows
+are written by MORE processes than the worker's spawner: in async runs the
+LEADER session writes `respond` rows (`respond.ts`) and steering
+fs-fallback lines (`team-tool.ts`) while the DETACHED RUNNER spawns the
+workers — the single spawner-key env (`PI_CREW_MAILBOX_VERIFY_KEY`) could
+never verify those rows, so every leader-signed row dropped as noise and
+`ask` polls timed out (the 480s hang). The fix distributes PUBLIC keys:
+
+- The dispatching session stamps its public key on the manifest at run
+  creation (`TeamRunManifest.dispatcherVerifyKey`, via
+  `ensureCoordinationPublicVerifyKey()`; team-tool run/parallel dispatch,
+  inherited by goal-loop turn manifests).
+- `child-executor` threads it into every worker spawn;
+  `child-pi-spawn` merges it into the child's
+  `PI_CREW_MAILBOX_VERIFY_KEYS` env (comma-separated public-key SET,
+  deduped with the inherited set for same-run grandchildren; never relays
+  across runs — the relay-match guard keys on the broker run id).
+- The resolver (`resolveCoordinationVerifyKeys`) merges + dedupes
+  [plural env, singular env, in-process keypair] — no source shadows
+  another (the pre-fix early-return made an env key HIDE the writer's own
+  keypair, so a writer carrying a child env key dropped its own rows).
+
+Why public-only is safe: possession of a public key cannot forge a row
+(keys are Ed25519 — the private halves never leave their writer heaps,
+never touch env or disk). Widening a child's verify set only widens which
+legitimately-SIGNED rows it accepts; the forgery threat (a malicious
+worker appending rows) is unaffected — its rows remain unsigned or signed
+by a key no reader holds.
+
+**Known + accepted residual gaps** (same-uid threat model; hướng A —
+having the broker/RPC channel sign rows instead — is the follow-up design
+if any of these becomes load-bearing):
+
+- **Leader restart mid-run:** the restarted session has a NEW keypair; its
+  respond rows fail the (old) dispatcher key the parked workers hold →
+  asks degrade to timeout, then best-judgment proceed (same as pre-fix).
+- **Foreign-session force respond:** any same-uid session can write a
+  respond row only if it can ALSO make the worker hold its key — it cannot
+  (keys ride the spawner-controlled env, never ambient). A foreign row
+  alone stays dropped.
+- **Scheduled / no-leader runs:** runs dispatched with no session (or by a
+  predecessor whose key was never threaded) carry no dispatcher key;
+  workers verify against their spawner only — cross-process respond/steer
+  stays broken for those runs (pre-fix behavior).
+- **Pre-FINDING-B manifests:** no dispatcherVerifyKey field → workers
+  spawn with the singular key only (pre-fix behavior) until re-dispatch.
 ## Cross-references
 
 - `docs/decisions/2026-08-10-scratchpad-snapshot-hmac.md` (HMAC = REMOVED 2026-08-12 — corrected claim §7)

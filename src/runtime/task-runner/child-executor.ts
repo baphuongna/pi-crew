@@ -868,6 +868,13 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				agentId: task.id,
 				artifactsRoot: manifest.artifactsRoot,
 				eventsPath: manifest.eventsPath, // I5: scratchpad metric events from the worker
+				// FINDING B (2026-10-31): thread the run's DISPATCHER (leader session)
+				// PUBLIC verify key into the worker's PI_CREW_MAILBOX_VERIFY_KEYS env —
+				// async runs execute here in the detached runner (different keypair),
+				// and without this the leader's respond/steering rows fail the
+				// worker's sig verify and drop as noise. Absent on pre-FINDING-B
+				// manifests (spawn keeps the singular spawner key only).
+				dispatcherVerifyKey: manifest.dispatcherVerifyKey,
 				attempt: i,
 				steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 				onSpawn: (pid) => {

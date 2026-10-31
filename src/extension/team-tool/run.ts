@@ -5,6 +5,7 @@ import type { executeTeamRun as ExecuteTeamRunFn } from "../../runtime/team-runn
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { atomicWriteJson } from "../../state/atomic-write.ts";
 import { withRunLockSync } from "../../state/coordination/locks.ts";
+import { ensureCoordinationPublicVerifyKey } from "../../state/coordination/mailbox.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../state/stores/active-run-registry.ts";
 import { writeArtifact } from "../../state/stores/artifact-store.ts";
 import { createRunManifest, loadRunManifestById, updateRunStatus } from "../../state/stores/state-store.ts";
@@ -359,6 +360,13 @@ export async function handleRun(params: TeamToolParamsValue, ctx: TeamContext): 
 		ownerSessionId: ctx.sessionId,
 		runKind: effectiveRunKind,
 		args: params.args,
+		// FINDING B (2026-10-31): stamp THIS (dispatcher) session's PUBLIC verify
+		// key onto the manifest so async runs — whose workers are spawned by the
+		// detached runner, not by us — can still verify the rows WE sign
+		// (respond, steering fs-fallback). Threaded by child-executor into every
+		// worker's PI_CREW_MAILBOX_VERIFY_KEYS env. PUBLIC material — never the
+		// private key.
+		dispatcherVerifyKey: ensureCoordinationPublicVerifyKey(),
 	});
 	const goalArtifact = writeArtifact(paths.artifactsRoot, {
 		kind: "prompt",

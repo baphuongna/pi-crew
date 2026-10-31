@@ -195,6 +195,10 @@ const CREW_ENV_FORWARDING_DECL: Record<string, CrewEnvForwardDecision> = {
 		kind: "child-write",
 		reason: "SEC-2026-11 w1a: PUBLIC base64 SPKI Ed25519 verify key handed to children via built.env (child-pi-spawn) for coordination-row verify-only; public material — possession cannot forge rows (private key is heap-only in the root session)",
 	},
+	PI_CREW_MAILBOX_VERIFY_KEYS: {
+		kind: "child-write",
+		reason: "FINDING B (2026-10-31): PUBLIC comma-separated base64 SPKI Ed25519 verify-key SET (dispatcher + spawner-relayed) handed to children via built.env (child-pi-spawn) so leader-signed cross-process rows (respond / steering fs-fallback in async runs) verify; public material — possession cannot forge rows (singular PI_CREW_MAILBOX_VERIFY_KEY semantics unchanged)",
+	},
 	PI_CREW_AGENT_EVENTS_PATH: { kind: "child-write", reason: "prepareSurfaceSpawn recorder log" },
 	PI_CREW_BROKER_SOCKET: { kind: "child-write", reason: "child-pi-spawn broker handshake (never ambient — per-run socket)" },
 	PI_CREW_BROKER_TOKEN: {

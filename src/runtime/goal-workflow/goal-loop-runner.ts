@@ -803,6 +803,12 @@ export async function runGoalLoop(input: RunGoalLoopInput): Promise<RunGoalLoopR
 				// manifest's model routing snapshot onto each turn manifest too, so
 				// status/resume paths see the same routing the turn was dispatched with.
 				...(manifest.modelContext ? { modelContext: manifest.modelContext } : {}),
+				// FINDING B (2026-10-31): inherit the OUTER manifest's dispatcher
+				// (session) PUBLIC verify key — the session that launched the loop is
+				// the process that answers asks/steers these turn workers, and the
+				// turn manifests are created here in the DETACHED runner (whose own
+				// keypair is a different process than the responder).
+				...(manifest.dispatcherVerifyKey ? { dispatcherVerifyKey: manifest.dispatcherVerifyKey } : {}),
 			});
 			goal =
 				store.patch(

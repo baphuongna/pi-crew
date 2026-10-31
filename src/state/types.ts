@@ -455,6 +455,22 @@ export interface TeamRunManifest {
 	 * models.json happens to list first.
 	 */
 	modelContext?: RunModelContext;
+	/** FINDING B (2026-10-31) — w1a coordination verify-key distribution: the
+	 *  base64 SPKI DER PUBLIC verify key of the DISPATCHING session process
+	 *  (the leader that created this run; stamped via
+	 *  ensureCoordinationPublicVerifyKey() at team-tool run/parallel dispatch).
+	 *  Async runs execute in a detached runner whose workers verify
+	 *  coordination rows against the SPAWNER's key — without this field the
+	 *  leader's respond rows and steering fs-fallback lines (signed with the
+	 *  LEADER's keypair) fail verify and drop as noise (ask poll timeout).
+	 *  The runner threads it into every worker's
+	 *  PI_CREW_MAILBOX_VERIFY_KEYS env (plural set). PUBLIC material — safe to
+	 *  persist (same-uid readable); possession cannot forge rows. Optional:
+	 *  absent on every pre-FINDING-B manifest → workers keep verifying against
+	 *  the singular spawner key only (pre-fix behavior). goal-loop turns
+	 *  inherit the OUTER manifest's key so the session that dispatched the
+	 *  loop stays the verifiable responder across every turn. */
+	dispatcherVerifyKey?: string;
 	/** MuxSurface A1 (spec §8.3): pane/pid/lockout state of this run. Absent on
 	 *  runs that never booted a surface worker and on older manifests. */
 	surface?: ManifestSurfaceState;

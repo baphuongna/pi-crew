@@ -37,8 +37,9 @@ export type MailboxReason = "need_decision" | "progress_update" | "interview_req
 // Fix: the parent/broker process SIGNS every row it writes with an Ed25519
 // per-process keypair. The PRIVATE key is heap-only in the writer process
 // (never persisted, never serialized, never placed in any child env). Children
-// receive ONLY the public verify key (PI_CREW_MAILBOX_VERIFY_KEY, base64 SPKI
-// DER — a public key, safe in env) set by child-pi-spawn at spawn time.
+// receive ONLY public verify keys (PI_CREW_MAILBOX_VERIFY_KEY and/or the
+// FINDING-B plural set PI_CREW_MAILBOX_VERIFY_KEYS — base64 SPKI DER,
+// public keys, safe in env) set by child-pi-spawn at spawn time.
 // Delivery-side readers (parseMailboxFile — the shared path under readMailbox /
 // readAllMailboxMessages / pollWorkerInbox / replay) verify the signature over
 // the identity-bearing fields and treat unverifiable rows as NOISE (dropped,
@@ -69,6 +70,25 @@ export type MailboxReason = "need_decision" | "progress_update" | "interview_req
  *  key (set by child-pi-spawn). A PUBLIC key — non-secret, env-safe. */
 export const COORDINATION_VERIFY_KEY_ENV = "PI_CREW_MAILBOX_VERIFY_KEY";
 
+/** Child env var carrying a COMMA-SEPARATED list of base64 SPKI DER Ed25519
+ *  public verify keys (set by child-pi-spawn). A PUBLIC key — non-secret,
+ *  env-safe.
+ *
+ *  FINDING B (2026-10-31): the singular var above carries exactly ONE key —
+ *  the key of the process that SPAWNED the child. But legitimate coordination
+ *  rows are written by MORE processes than the spawner: async runs have the
+ *  leader session (the dispatcher) write `respond` rows and steering
+ *  fs-fallback lines while the detached runner spawns the workers — those
+ *  leader-signed rows failed the single-key verify and were dropped as noise
+ *  (ask poll 480s timeout). This plural var lets the spawner hand the child
+ *  the FULL verify set: spawner-relayed keys (nested same-run grandchild case)
+ *  plus the run's dispatcher key threaded via the manifest
+ *  (TeamRunManifest.dispatcherVerifyKey → ChildPiRunInput.dispatcherVerifyKey
+ *  → child-pi-spawn env build). The singular var keeps its exact semantics
+ *  (backward-compatible); the resolver merges + dedupes both plus the
+ *  in-process keypair. */
+export const COORDINATION_VERIFY_KEYS_ENV = "PI_CREW_MAILBOX_VERIFY_KEYS";
+
 interface MailboxSigningKeypair {
 	privateKey: KeyObject;
 	publicKey: KeyObject;
@@ -97,16 +117,42 @@ export function getMailboxVerifyKeyPublic(): string {
 	return getMailboxSigningKeypair().publicBase64;
 }
 
+/** Dispatch-path alias of {@link getMailboxVerifyKeyPublic}: get-or-create
+ *  this process's coordination public verify key (base64 SPKI DER). The
+ *  dispatcher (leader session building a run — team-tool run/parallel) stamps
+ *  the returned key onto TeamRunManifest.dispatcherVerifyKey so the spawner
+ *  can hand it to workers via PI_CREW_MAILBOX_VERIFY_KEYS; rows this process
+ *  signs (respond, steering fs-fallback) then verify in those children.
+ *  PUBLIC material only — the private key never leaves this heap. */
+export function ensureCoordinationPublicVerifyKey(): string {
+	return getMailboxVerifyKeyPublic();
+}
+
 /** Whether any verify key is resolvable in THIS process (child env key or an
  *  already-created in-process keypair). Keyless processes are inert readers. */
 export function hasCoordinationVerifyKeys(): boolean {
 	return resolveCoordinationVerifyKeys().length > 0;
 }
-
+/** Resolve the verify-key set for THIS process: MERGE + dedupe of
+ *  [PI_CREW_MAILBOX_VERIFY_KEYS (plural env), PI_CREW_MAILBOX_VERIFY_KEY
+ *  (singular env, backward-compatible), the in-process keypair when it
+ *  exists]. No source shadows another (FINDING B shadow bug: the old
+ *  `if (envKey) return [envKey]` early-return made the env key HIDE the
+ *  in-process keypair, so a writer process that also carried a child env key
+ *  dropped its own freshly-signed rows on re-read). Empty entries and
+ *  duplicates are skipped; malformed key material is tolerated here and
+ *  skipped per-key at verify time. */
 function resolveCoordinationVerifyKeys(): string[] {
-	const envKey = getCrewEnv(COORDINATION_VERIFY_KEY_ENV);
-	if (envKey && envKey.length > 0) return [envKey];
-	return signingKeypair ? [signingKeypair.publicBase64] : [];
+	const keys: string[] = [];
+	const pushKey = (key: string): void => {
+		if (key.length > 0 && !keys.includes(key)) keys.push(key);
+	};
+	const pluralEnv = getCrewEnv(COORDINATION_VERIFY_KEYS_ENV);
+	if (pluralEnv !== undefined) for (const key of pluralEnv.split(",")) pushKey(key.trim());
+	const singularEnv = getCrewEnv(COORDINATION_VERIFY_KEY_ENV);
+	if (singularEnv !== undefined) pushKey(singularEnv.trim());
+	if (signingKeypair) pushKey(signingKeypair.publicBase64);
+	return keys;
 }
 
 /** Canonical payload string over the identity-bearing mailbox-row fields —

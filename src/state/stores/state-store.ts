@@ -485,6 +485,13 @@ export function createRunManifest(params: {
 	 * catalogue must be persisted on the manifest at creation time.
 	 * Omitted when undefined so old manifests stay byte-identical. */
 	modelContext?: RunModelContext;
+	/** FINDING B (2026-10-31): PUBLIC base64 SPKI verify key of the DISPATCHING
+	 * session process, threaded to every worker's
+	 * PI_CREW_MAILBOX_VERIFY_KEYS env so the dispatcher's signed rows
+	 * (respond / steering fs-fallback) verify cross-process. See
+	 * TeamRunManifest.dispatcherVerifyKey. Omitted when undefined so old
+	 * manifests stay byte-identical. */
+	dispatcherVerifyKey?: string;
 }): { manifest: TeamRunManifest; tasks: TeamTaskState[]; paths: RunPaths } {
 	const paths = createRunPaths(params.cwd, params.runId);
 	const now = (params.now ? params.now() : new Date()).toISOString();
@@ -532,6 +539,7 @@ export function createRunManifest(params: {
 		runKind: params.runKind ?? "team-run",
 		...(params.args !== undefined ? { args: params.args } : {}),
 		...(params.modelContext ? { modelContext: params.modelContext } : {}),
+		...(params.dispatcherVerifyKey ? { dispatcherVerifyKey: params.dispatcherVerifyKey } : {}),
 	};
 	fs.mkdirSync(paths.stateRoot, { recursive: true });
 	fs.mkdirSync(paths.artifactsRoot, { recursive: true });

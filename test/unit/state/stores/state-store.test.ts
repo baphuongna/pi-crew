@@ -165,6 +165,35 @@ test("createRunManifest writes manifest and tasks", async () => {
 	}
 });
 
+test("FINDING B: createRunManifest persists dispatcherVerifyKey; absent stays absent (byte-compat)", async () => {
+	const cwd = makeResolvedTempDir("pi-crew-state-dispatcher-key-");
+	fs.mkdirSync(path.join(cwd, ".crew"));
+	try {
+		const created = createRunManifest({
+			cwd,
+			team,
+			workflow,
+			goal: "test",
+			dispatcherVerifyKey: "DISPATCHER-PUB-BASE64",
+		});
+		// Stamped on the in-memory manifest and PERSISTED (the detached runner
+		// re-reads this file to thread the key into every worker spawn).
+		assert.equal(created.manifest.dispatcherVerifyKey, "DISPATCHER-PUB-BASE64");
+		const persisted = JSON.parse(fs.readFileSync(created.paths.manifestPath, "utf8")) as Record<string, unknown>;
+		assert.equal(persisted.dispatcherVerifyKey, "DISPATCHER-PUB-BASE64");
+		const loaded = loadRunManifestById(cwd, created.manifest.runId);
+		assert.equal(loaded?.manifest.dispatcherVerifyKey, "DISPATCHER-PUB-BASE64");
+		// Byte-compat: callers that omit the param (pre-FINDING-B paths, tests,
+		// fixtures) must NOT get an empty field serialized onto the manifest.
+		const legacy = createRunManifest({ cwd, team, workflow, goal: "legacy" });
+		assert.equal(legacy.manifest.dispatcherVerifyKey, undefined);
+		const legacyRaw = JSON.parse(fs.readFileSync(legacy.paths.manifestPath, "utf8")) as Record<string, unknown>;
+		assert.equal("dispatcherVerifyKey" in legacyRaw, false, "field must be omitted, not null/empty");
+	} finally {
+		await cleanupStateRoot(cwd);
+	}
+});
+
 test("loadRunManifestById rejects unsafe run ids and manifest path mismatches", async () => {
 	const cwd = makeResolvedTempDir("pi-crew-state-safe-runid-");
 	fs.mkdirSync(path.join(cwd, ".crew"));

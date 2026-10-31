@@ -640,6 +640,10 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_MAILBOX_VERIFY_KEY",
 		doc: "SEC-2026-11 w1a coordination sender-binding: base64 SPKI Ed25519 public verify key handed to child workers at spawn (child-pi-spawn.ts) so they can VERIFY parent-signed mailbox/steering rows; the PRIVATE signing key never leaves the root session heap (mailbox.ts signingKeypair). Children verify-only — possession of the public key cannot forge rows",
 	},
+	PI_CREW_MAILBOX_VERIFY_KEYS: {
+		name: "PI_CREW_MAILBOX_VERIFY_KEYS",
+		doc: "FINDING B (2026-10-31) plural sibling of PI_CREW_MAILBOX_VERIFY_KEY: comma-separated base64 SPKI Ed25519 PUBLIC verify keys (dispatcher + spawner-relayed) handed to child workers at spawn so cross-process rows (leader-signed respond / steering fs-fallback in async runs) verify instead of dropping as noise (mailbox.ts resolveCoordinationVerifyKeys merges + dedupes plural env, singular env and the in-process keypair). PUBLIC material only — possession cannot forge rows",
+	},
 	PI_CREW_MAX_AUTO_FALLBACKS: {
 		name: "PI_CREW_MAX_AUTO_FALLBACKS",
 		parser: "int",

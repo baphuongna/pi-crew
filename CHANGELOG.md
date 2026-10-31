@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+**Fixed (product, FINDING B — 2026-10-31).** w1a per-process signing broke ALL cross-process ask/respond delivery in async runs: `respond.ts` writes the
+respond row with the LEADER session's keypair while the DETACHED RUNNER spawns the workers, so the worker's single spawner-key env
+(`PI_CREW_MAILBOX_VERIFY_KEY`) could never verify the row — it dropped as noise at `parseMailboxFile` and every `ask` poll timed out (480s
+hang, then "proceed with best judgment"). Same class for the leader-signed steering fs-fallback line (`team-tool.ts`). Fix = distribute the
+DISPATCHER'S PUBLIC key (hướng C):
+
+- `resolveCoordinationVerifyKeys()` (mailbox.ts) now merges + dedupes `[PI_CREW_MAILBOX_VERIFY_KEYS (plural env),
+  PI_CREW_MAILBOX_VERIFY_KEY (singular env — semantics unchanged), in-process keypair]` — no source shadows another; the old
+  `if (envKey) return [envKey]` early-return made an env key HIDE the writer's own keypair (shadow bug).
+- New `PI_CREW_MAILBOX_VERIFY_KEYS` env var (registered in env-vars.ts + env-allowlist-registry.ts): comma-separated base64 SPKI PUBLIC
+  verify keys handed to children by child-pi-spawn (deduped with the inherited set for same-run grandchildren via the existing
+  relay-match guard — never relayed across runs).
+- Threading: team-tool run/parallel dispatch stamps `TeamRunManifest.dispatcherVerifyKey` (new optional field, byte-compatible when
+  absent) via `ensureCoordinationPublicVerifyKey()`; goal-loop turn manifests inherit the OUTER manifest's key; child-executor threads it
+  into every worker spawn (`ChildPiRunInput.dispatcherVerifyKey`).
+- Docs: trust-model v1.4 documents the w1a sender binding + dispatcher key distribution with accepted residual gaps (leader restart
+  mid-run, foreign-session respond, scheduled no-leader runs, pre-fix manifests); hướng A (broker-RPC signing) noted as follow-up.
+- Tests: resolver merge/shadow-fix; cross-process delivery (foreign-process signer harness — dispatcher-signed respond row DELIVERS via
+  plural env, stranger-signed + unsigned stay dropped, steering entry verifies); spawn-env wiring (leader / nested relay dedupe /
+  no cross-run leak / legacy unchanged); manifest persistence + byte-compat.
+
 ## [0.11.54] — deep-review verified fix set, waves A–G + closing hardenings (2026-10-31)
 
 **Fixed (product).** The v0.11.53 deep review's 15 findings were cold-verified by three independent verifiers

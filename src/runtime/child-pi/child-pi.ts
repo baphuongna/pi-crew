@@ -233,6 +233,15 @@ export interface ChildPiRunInput {
 	 *  config). Env PI_CREW_SESSION_RECOVERY overrides in either direction;
 	 * default ON. Only consulted on crash-ish settles (exitCode null / killed). */
 	sessionRecovery?: boolean;
+	/** FINDING B (2026-10-31) — w1a cross-process verify: PUBLIC base64 SPKI
+	 *  DER Ed25519 verify key of the run's DISPATCHING session (the leader that
+	 *  signed the manifest; threaded from TeamRunManifest.dispatcherVerifyKey
+	 *  by child-executor). child-pi-spawn merges it into the child's
+	 *  PI_CREW_MAILBOX_VERIFY_KEYS env (plural set) so the dispatcher's
+	 *  respond/steering rows verify even when the SPAWNER is the detached
+	 *  runner (a different process with a different keypair). PUBLIC material —
+	 *  never the private key; absent on non-team spawns. */
+	dispatcherVerifyKey?: string;
 	/** Path to steering JSONL file for real-time steer injection. */
 	steeringFile?: string;
 	/** Run ID for cleanup tracking */
