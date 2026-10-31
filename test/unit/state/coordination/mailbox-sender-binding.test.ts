@@ -108,8 +108,12 @@ function foreignPublicKeyB64(): string {
 const FOREIGN_SIGNER_HARNESS = `
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 const [, , mailboxModulePath, rowPath, inboxPath, resultPath] = process.argv;
-const mailbox = await import(mailboxModulePath);
+// win32: an absolute path (D:\\...) is not a valid ESM specifier — only file://
+// URLs are (CI 2026-10-31 run 41226806643: ERR_UNSUPPORTED_ESM_URL_SCHEME,
+// 'Received protocol d:'). pathToFileURL is correct on every platform.
+const mailbox = await import(pathToFileURL(mailboxModulePath).href);
 const row = JSON.parse(fs.readFileSync(rowPath, "utf8"));
 fs.mkdirSync(path.dirname(inboxPath), { recursive: true });
 fs.appendFileSync(inboxPath, JSON.stringify(mailbox.signMailboxMessage(row)) + "\\n");
