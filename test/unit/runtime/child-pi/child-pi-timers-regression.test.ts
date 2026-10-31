@@ -136,10 +136,7 @@ const WIN32_SKIP =
 		? "mock-timer intervals double-fire on windows runners (harness-only artifact, CI 2026-10-31 run 41189554367: ALL counts +1 incl. never-duplicating controls; fix logic is platform-free JS and is pinned on linux+macos × Node 22/24)"
 		: false;
 
-test(
-	"F6: ceiling fires first, child then quiet-alive → exactly ONE final_drain and ONE hard_kill",
-	{ skip: WIN32_SKIP },
-	() => {
+test("F6: ceiling fires first, child then quiet-alive → exactly ONE final_drain and ONE hard_kill", { skip: WIN32_SKIP }, () => {
 	mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 	try {
 		const fx = buildFixture(); // ceiling 5000 ms, quiet window 800 ms, hard kill 3000 ms
@@ -169,10 +166,7 @@ test(
 	}
 });
 
-test(
-	"control: chatty child — ceiling path only, single drain + single hard kill",
-	{ skip: WIN32_SKIP },
-	() => {
+test("control: chatty child — ceiling path only, single drain + single hard kill", { skip: WIN32_SKIP }, () => {
 	mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 	try {
 		const fx = buildFixture();
@@ -190,10 +184,7 @@ test(
 	}
 });
 
-test(
-	"control: child exits after the ceiling → no hard_kill (settled||childExited guard unchanged)",
-	{ skip: WIN32_SKIP },
-	() => {
+test("control: child exits after the ceiling → no hard_kill (settled||childExited guard unchanged)", { skip: WIN32_SKIP }, () => {
 	mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
 	try {
 		const fx = buildFixture();
