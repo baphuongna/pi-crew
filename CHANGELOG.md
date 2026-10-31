@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.11.53] — event-log in-flight flush await fix (macos CI catch) + Bug-030 RCA closed (2026-10-31)
+
+**Fixed (product, caught by macos CI).** `flushOneEventLogBuffer` removed the queue from
+`bufferedQueues` BEFORE its multi-turn async lock+append completed, so `flushEventLogBuffer()` /
+`drainEventLogWriters()` were **no-ops for a path with an in-flight flush** — `await flushEventLogBuffer()` could
+return while the batch's `appendFile` was still in flight (deterministic-await broken; the interrupt-guard
+detached regression test read the log too early on the slower macos runner fs — CI run 41147573288; fast
+disks hid the race locally). Same window on the exit path (`flushBufferedQueuesSync` cannot recover an
+in-flight batch — documented limitation, sync-only). Fix: per-path in-flight flush tracker
+(`inflightBufferFlushes`) chained single-entry per path; `flushEventLogBuffer()` and `drainEventLogWriters()`
+await the in-flight flush FIRST, then flush whatever landed in the queue since. Pin:
+`flushEventLogBuffer awaits an IN-FLIGHT flush` (deterministic read immediately after the await — no settling
+sleep).
+
+**Fixed (test-only).** `waitForPreGateEvents` (classifier-pre-gate) now THROWS on timeout with counts + path
+instead of returning silently — the silent return turned a legit wait-timeout into a far-away
+`TypeError: Cannot read properties of undefined (reading 'taskId')` on `preGateEvents(...)[0]!` (the [pg-10]
+CI flake: 2 Node-22 shards, run 40797688830, 2026-10-29; rerun green). A timeout now fails AT the wait site
+with diagnostics (found vs expected `task.verifier_pre_gate` events, eventsPath, budget).
+
+**Bug-030 RCA (closed 2026-10-30): CI-runner I/O starvation, not an append-path bug.** Traced the full
+delivery chain: `appendEventAsync` → per-path `asyncQueues` (in-process promise chain) →
+`withEventLogLockAsync` (mkdir O_EXCL, 50ms retry, **5s lock timeout**) → `.seqlock` reserve → `appendFile`,
+gated by the fire-and-forget `void` + best-effort `.catch` in `classifyVerifierPreGate`. The [pg-10] test has
+no cross-process contention (per-test tmpdir, one process per test file), so lock acquisition is instant —
+the missed wait was the append landing AFTER the old 3s wall-clock budget but well inside the 5s lock
+timeout (the drop-path needs the lock timeout to throw AND be swallowed — a runner freeze, and the event
+is best-effort diagnostic by design). The [pg-10] family has not recurred since (8 subsequent CI runs, incl.
+v0.11.51/0.11.52 matrices). Hardened deterministically: `waitForPreGateEvents` now DRAINS the in-process
+append queue each poll (`drainEventLogWriters(eventsPath)` — awaits the ACTUAL append instead of racing
+wall-clock) and the budget is 10s — strictly above the 5s lock timeout, so a throw semantically means
+"append dropped or failed", never merely "slower than 3s". New pin `[pg-11]`: the helper rejects with
+diagnostics when nothing ever lands (never silent, never false-pass).
+
 ## [0.11.52] — live-catch backlog: cross-session cancel reaches inline runs + heartbeat-watcher false-positive class (2026-10-30)
 
 **Fixed (runtime, live-caught run `team_20261030044630`).** Two gaps filed as backlog after the
@@ -135,39 +169,6 @@ halves) and the residuals deferred by w1b/w7a/w7b:
 42 new regression tests. Owner-observed deployment checklists for the leads' impact confirmation remain in the
 audit's NEEDS-VALIDATION.md.
 
-## [Unreleased] — test hardening + event-log in-flight flush await fix
-
-**Fixed (product, caught by macos CI).** `flushOneEventLogBuffer` removed the queue from
-`bufferedQueues` BEFORE its multi-turn async lock+append completed, so `flushEventLogBuffer()` /
-`drainEventLogWriters()` were **no-ops for a path with an in-flight flush** — `await flushEventLogBuffer()` could
-return while the batch's `appendFile` was still in flight (deterministic-await broken; the interrupt-guard
-detached regression test read the log too early on the slower macos runner fs — CI run 41147573288; fast
-disks hid the race locally). Same window on the exit path (`flushBufferedQueuesSync` cannot recover an
-in-flight batch — documented limitation, sync-only). Fix: per-path in-flight flush tracker
-(`inflightBufferFlushes`) chained single-entry per path; `flushEventLogBuffer()` and `drainEventLogWriters()`
-await the in-flight flush FIRST, then flush whatever landed in the queue since. Pin:
-`flushEventLogBuffer awaits an IN-FLIGHT flush` (deterministic read immediately after the await — no settling
-sleep).
-
-**Fixed (test-only).** `waitForPreGateEvents` (classifier-pre-gate) now THROWS on timeout with counts + path
-instead of returning silently — the silent return turned a legit wait-timeout into a far-away
-`TypeError: Cannot read properties of undefined (reading 'taskId')` on `preGateEvents(...)[0]!` (the [pg-10]
-CI flake: 2 Node-22 shards, run 40797688830, 2026-10-29; rerun green). A timeout now fails AT the wait site
-with diagnostics (found vs expected `task.verifier_pre_gate` events, eventsPath, budget).
-
-**Bug-030 RCA (closed 2026-10-30): CI-runner I/O starvation, not an append-path bug.** Traced the full
-delivery chain: `appendEventAsync` → per-path `asyncQueues` (in-process promise chain) →
-`withEventLogLockAsync` (mkdir O_EXCL, 50ms retry, **5s lock timeout**) → `.seqlock` reserve → `appendFile`,
-gated by the fire-and-forget `void` + best-effort `.catch` in `classifyVerifierPreGate`. The [pg-10] test has
-no cross-process contention (per-test tmpdir, one process per test file), so lock acquisition is instant —
-the missed wait was the append landing AFTER the old 3s wall-clock budget but well inside the 5s lock
-timeout (the drop-path needs the lock timeout to throw AND be swallowed — a runner freeze, and the event
-is best-effort diagnostic by design). The [pg-10] family has not recurred since (8 subsequent CI runs, incl.
-v0.11.51/0.11.52 matrices). Hardened deterministically: `waitForPreGateEvents` now DRAINS the in-process
-append queue each poll (`drainEventLogWriters(eventsPath)` — awaits the ACTUAL append instead of racing
-wall-clock) and the budget is 10s — strictly above the 5s lock timeout, so a throw semantically means
-"append dropped or failed", never merely "slower than 3s". New pin `[pg-11]`: the helper rejects with
-diagnostics when nothing ever lands (never silent, never false-pass).
 
 ## [0.11.50] — LOW-1: PI_CREW_BROKER_STDIN fd3 handshake DEFAULT-ON ('0' opts out) (2026-10-28)
 
