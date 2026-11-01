@@ -230,6 +230,21 @@ export function signMailboxMessage(message: MailboxMessage): MailboxMessage & { 
 	return { ...message, sig: signPayloadHash(coordinationPayloadHash(canonicalMailboxPayload(row))) };
 }
 
+/** HƯỚNG A (ADR Option 3, 2026-11-01): challenge-response proof-signing seam
+ *  for broker `respond.append`. Signs ARBITRARY challenge bytes (nonce ∥
+ *  canonical payload — NO sha256 wrap, unlike the row signers above; the
+ *  broker verifies with node:crypto Ed25519 against its dispatch-time heap
+ *  binding of the dispatcher PUBLIC key) with THIS process's coordination
+ *  private key. Only the dispatcher process holds that key — the keypair
+ *  whose public half it stamped as manifest.dispatcherVerifyKey at dispatch
+ *  time — so only the dispatcher can produce a passing signature; workers
+ *  and other processes hold at most the public verify key. Private key
+ *  stays heap-only like every other signer here. */
+export function signCoordinationChallenge(payload: string): string {
+	const { privateKey } = getMailboxSigningKeypair();
+	return ed25519Sign(null, Buffer.from(payload, "utf8"), privateKey).toString("base64");
+}
+
 /** Steering-JSONL line shape shared by every writer (team-tool, broker
  *  steer.push, child-executor seed, wrap-up advisories). */
 export interface CoordinationSteerEntry {

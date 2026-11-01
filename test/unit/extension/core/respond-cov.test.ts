@@ -23,7 +23,7 @@ function makeEmptyCwd(): string {
 describe("handleRespond", () => {
 	it("returns error when runId is missing", async () => {
 		const ctx: TeamContext = { cwd: makeEmptyCwd() };
-		const r = handleRespond({}, ctx);
+		const r = await handleRespond({}, ctx);
 		assert.equal(r.isError, true);
 		assert.ok((r.content[0] as any).text.includes("runId"));
 		await removeDirWithRetry(ctx.cwd);
@@ -31,7 +31,7 @@ describe("handleRespond", () => {
 
 	it("returns error when both message and taskId are missing", async () => {
 		const ctx: TeamContext = { cwd: makeEmptyCwd() };
-		const r = handleRespond({ runId: "r1" }, ctx);
+		const r = await handleRespond({ runId: "r1" }, ctx);
 		assert.equal(r.isError, true);
 		const text = (r.content[0] as any).text;
 		assert.ok(text.includes("taskId") || text.includes("message"));
@@ -40,21 +40,21 @@ describe("handleRespond", () => {
 
 	it("returns error for non-existent run", async () => {
 		const ctx: TeamContext = { cwd: makeEmptyCwd() };
-		const r = handleRespond({ runId: "nonexistent-run-xyz", taskId: "t1", message: "hi" }, ctx);
+		const r = await handleRespond({ runId: "nonexistent-run-xyz", taskId: "t1", message: "hi" }, ctx);
 		assert.equal(r.isError, true);
 		await removeDirWithRetry(ctx.cwd);
 	});
 
 	it("returns error when only message provided with no taskId", async () => {
 		const ctx: TeamContext = { cwd: makeEmptyCwd() };
-		const r = handleRespond({ runId: "r1", message: "hi" }, ctx);
+		const r = await handleRespond({ runId: "r1", message: "hi" }, ctx);
 		assert.equal(r.isError, true);
 		await removeDirWithRetry(ctx.cwd);
 	});
 
 	it("returns error for empty runId string", async () => {
 		const ctx: TeamContext = { cwd: makeEmptyCwd() };
-		const r = handleRespond({ runId: "", taskId: "t1", message: "hi" }, ctx);
+		const r = await handleRespond({ runId: "", taskId: "t1", message: "hi" }, ctx);
 		assert.equal(r.isError, true);
 		await removeDirWithRetry(ctx.cwd);
 	});

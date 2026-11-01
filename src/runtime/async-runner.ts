@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 import { backgroundRunnerEnvAllowlist } from "../config/env-allowlist-registry.ts";
 import { getCrewEnv } from "../config/env-vars.ts";
+import { ensureCoordinationPublicVerifyKey } from "../state/coordination/mailbox.ts";
 import { appendEventAsync } from "../state/event-log/event-log.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { sanitizeEnvSecrets } from "../utils/env-filter.ts";
@@ -416,7 +417,15 @@ export async function spawnBackgroundTeamRun(manifest: TeamRunManifest): Promise
 				}
 			}
 			if (socketPath && Object.keys(tasks).length > 0) {
-				line = buildBrokerStdinLine(manifest.runId, socketPath, tasks);
+				// HƯỚNG A (ADR Option 3): thread THIS (spawning/dispatcher) process's
+				// PUBLIC coordination verify key over the start-options pipe so a
+				// broker constructed inside the runner binds the DISPATCHER's key for
+				// respond.append challenge-response auth. Derived in THIS heap at
+				// spawn time — deliberately NOT read from manifest.dispatcherVerifyKey
+				// (the manifest file is unauthenticated/worker-writable: a w1a NO-GO
+				// for auth bindings). The spawner IS the effective dispatcher (it will
+				// author future respond rows for this run). PUBLIC material only.
+				line = buildBrokerStdinLine(manifest.runId, socketPath, tasks, ensureCoordinationPublicVerifyKey());
 				child.stdin?.write(line);
 			} else {
 				child.stdin?.write("\n");

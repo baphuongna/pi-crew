@@ -19,6 +19,11 @@
  *    `delegate.request` (governed-nesting grandchild spawn through
  *    `delegate-spawn.ts`, capability-gated via `options.nestingEnabled`,
  *    fail-closed). Unknown methods return a typed `not-implemented`.
+ *    HƯỚNG A (ADR Option 3, 2026-11-01): `respond.challenge` /
+ *    `respond.append` / `respond.force` are additionally reachable
+ *    PRE-hello — their auth is the dispatcher challenge-response (bound
+ *    heap-only public key + single-use nonce) or the live-park one-shot
+ *    force gate, never a hello token.
  *  - Mailbox/event persistence flows through the `src/state/` stores
  *    (`appendMailboxMessage*`, event-log) — the broker itself keeps no
  *    durable state of its own.
@@ -36,7 +41,7 @@
  *  described.
  */
 
-import { randomUUID } from "node:crypto";
+import { createPublicKey, randomUUID } from "node:crypto";
 import * as fsp from "node:fs/promises";
 import * as net from "node:net";
 import {
@@ -61,6 +66,7 @@ import { type BrokerToken, BrokerTokenRegistry } from "./crew-broker-tokens.ts";
 import { DelegateAbortRegistry } from "./delegate/delegate-abort.ts";
 import { type DelegateEventTarget, type DelegateEventType, recordDelegateEvent } from "./delegate/delegate-event.ts";
 import { fanoutMailboxMessage } from "./mailbox-observer/mailbox-fanout.ts";
+import { type BrokerRespondDeps, handleRespondMethod, type RespondChallengeRecord } from "./protocol/broker-respond.ts";
 import type { CrewBrokerOptions, ServerConnection } from "./protocol/connection-state.ts";
 // Outbound-queue management + caps (wc-gate move — bodies in protocol/connection-state.ts)
 import {
@@ -131,6 +137,7 @@ export class CrewBroker {
 			| "modelCatalog"
 			| "serializeOnPathOverlap"
 			| "lockBusyRetryDelaysMs"
+			| "dispatcherVerifyKey"
 		>;
 	private readonly tokens = new BrokerTokenRegistry();
 	/** Task 10 (mux-surface A1 §5.2): taskId → the compound token most
@@ -139,6 +146,21 @@ export class CrewBroker {
 	 *  runs; a colliding taskId in another run revokes both, which is the
 	 *  conservative direction). Heap-only like the registry. */
 	private readonly taskTokens = new Map<string, BrokerToken>();
+	/** HƯỚNG A (ADR Option 3): the DISPATCHER's public verify key (base64 SPKI
+	 *  DER Ed25519) bound HEAP-ONLY at construct time — the trust anchor for
+	 *  respond.append challenge-response auth. Never manifest/env/disk; see
+	 *  dispatcher-key-registry.ts for the threading. */
+	private readonly dispatcherVerifyKey: string | undefined;
+	/** HƯỚNG A: outstanding respond.append challenge per connection.
+	 *  WeakMap — the challenge dies with the connection. HEAP ONLY. */
+	private readonly respondChallenges = new WeakMap<ServerConnection, RespondChallengeRecord>();
+	/** HƯỚNG A: challenge issuance counter per connection (rate bound). */
+	private readonly respondChallengeCounts = new WeakMap<ServerConnection, number>();
+	/** HƯỚNG A: broker-answered questionIds (`${runId}:${questionId}`) — the
+	 *  heap-side fast-fail of the one-shot-per-park gate. The DURABLE
+	 *  exactly-one guarantee is the idempotent append (requestId=questionId);
+	 *  this set only cheaply rejects a second broker respond after a success. */
+	private readonly respondedQuestionIds = new Set<string>();
 	private server: net.Server | null = null;
 	private resolvedSocketPath: string | null = null;
 	/** [3] stop-unlink race: dev+ino of the leaf we created, captured right
@@ -193,6 +215,22 @@ export class CrewBroker {
 			serializeOnPathOverlap: options.serializeOnPathOverlap === true,
 		};
 		this.waitStatusCache = options.waitStatusCache ?? new WaitStatusCache();
+		// HƯỚNG A: validate + bind the dispatcher public key. Invalid material
+		// fails CLOSED to undefined (respond.append then answers "no binding")
+		// rather than half-trusting a mangled key.
+		this.dispatcherVerifyKey = CrewBroker.validateDispatcherVerifyKey(options.dispatcherVerifyKey);
+	}
+
+	/** HƯỚNG A: accept only parseable base64 SPKI DER key material. */
+	private static validateDispatcherVerifyKey(key: string | undefined): string | undefined {
+		if (key === undefined) return undefined;
+		if (typeof key !== "string" || key.length === 0 || key.length > 256) return undefined;
+		try {
+			createPublicKey({ key: Buffer.from(key, "base64"), format: "der", type: "spki" });
+			return key;
+		} catch {
+			return undefined;
+		}
 	}
 
 	/** Read the resolved socket path. Available after start() resolves. */
@@ -480,6 +518,9 @@ export class CrewBroker {
 		this.tokens.clear();
 		// Task 10: drop the taskId → token index with it.
 		this.taskTokens.clear();
+		// HƯỚNG A: drop the respond one-shot marks (challenges are WeakMap-bound
+		// to connections and die with them; the binding itself is readonly).
+		this.respondedQuestionIds.clear();
 	}
 
 	// Connection lifecycle
@@ -623,7 +664,17 @@ export class CrewBroker {
 
 		// Hello MUST be the first method. Any other method before hello
 		// returns a generic protocol error and closes.
+		// EXCEPTION — HƯỚNG A (ADR Option 3): the respond.* surface is
+		// deliberately reachable PRE-hello: its auth is the dispatcher
+		// challenge-response (respond.append) or the live-park one-shot gate
+		// (respond.force), NEVER a hello token — the callers it exists for (a
+		// dispatcher re-attaching without a token, a foreign session forcing a
+		// stuck park) hold no token at all.
 		if (!conn.authed) {
+			if (method === "respond.challenge" || method === "respond.append" || method === "respond.force") {
+				await this.dispatchRespondMethod(conn, id, method, params);
+				return;
+			}
 			if (method !== "hello") {
 				this.sendErrorAndClose(conn, id, "protocol", "hello required");
 				return;
@@ -694,6 +745,15 @@ export class CrewBroker {
 			// admission runs the full spawn-policy gate matrix.
 			case "delegate.request":
 				await this.handleDelegateRequest(conn, id, params);
+				return;
+			// HƯỚNG A (ADR Option 3): broker-signed respond delivery — token-less
+			// auth paths, also reachable pre-hello (see the dispatchFrame gate
+			// above). Hello'd connections hit the worker-role reject inside the
+			// handlers (defense-in-depth).
+			case "respond.challenge":
+			case "respond.append":
+			case "respond.force":
+				await this.dispatchRespondMethod(conn, id, method, params);
 				return;
 			default:
 				// Unhandled method → typed not-implemented.
@@ -1423,6 +1483,33 @@ export class CrewBroker {
 		} catch (err) {
 			this.sendError(conn, id, "escalate-failed", (err as Error).message);
 		}
+	}
+
+	// HƯỚNG A (ADR Option 3, 2026-11-01) — broker-side respond delivery.
+	// Handler bodies live in ./protocol/broker-respond.ts (wc-gate, wait-resolve
+	// pattern); this class owns the heap state + thin delegation. Auth summary:
+	// respond.append = dispatcher challenge-response against the construct-time
+	// bound public key (pre-hello reachable); respond.force = no-credential
+	// one-shot for a LIVE park (worker-token connections rejected).
+
+	/** HƯỚNG A: deps bundle for the protocol handlers (heap state owned here). */
+	private respondDeps(): BrokerRespondDeps {
+		return {
+			sendError: (c, i, code, msg) => this.sendError(c, i, code, msg),
+			sendResult: (c, i, r) => this.sendResult(c, i, r),
+			cwd: this.options.cwd,
+			dispatcherVerifyKey: this.dispatcherVerifyKey,
+			respondChallenges: this.respondChallenges,
+			respondChallengeCounts: this.respondChallengeCounts,
+			respondedQuestionIds: this.respondedQuestionIds,
+			runLockBusyRetry: (manifest, fn) => this.runLockBusyRetry(manifest, fn),
+			socketPath: this.socketPath,
+		};
+	}
+
+	/** HƯỚNG A: method router (pre- and post-hello dispatch sites). */
+	private async dispatchRespondMethod(conn: ServerConnection, id: string, method: string, params: unknown): Promise<void> {
+		await handleRespondMethod(this.respondDeps(), conn, id, method, params);
 	}
 
 	// WP-2/R2: wait.request / wait.resolve (ADR-0 2026-08-17-waiting-producer-ask)

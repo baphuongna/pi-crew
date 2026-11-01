@@ -267,6 +267,14 @@ export const TEAM_EVENT_TYPES = [
 	"mailbox.send",
 	"mailbox.pickup",
 	"mailbox.pickup_deduped",
+	// HƯỚNG A (ADR Option 3, 2026-11-01): broker-side respond delivery audit —
+	// fired by crew-broker's respond.append (challenge-response) and
+	// respond.force (one-shot live-park) handlers when a leader response row
+	// is appended BY THE BROKER PROCESS (w1a: broker-signed rows verify in
+	// every worker). data: {taskId, questionId, auth, requestId, messageId,
+	// deduped} (+ tag/brokerSocket on the forced path). Diagnostic only —
+	// never transitions run/task state; the mailbox row is the source of truth.
+	"respond.broker_append",
 	// Recovery
 	"recovery.rerun_task",
 	// Run-level budget/effectiveness/export/lifecycle bookkeeping

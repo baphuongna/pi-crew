@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] — hướng A: broker-signed respond delivery (ADR Option 3)
+
+**Added (product, HƯỚNG A — broker-appended respond rows).** The 0.11.55 dispatcher-key distribution (hướng C) still left every responder that is NOT the
+dispatch process undeliverable: a restarted leader, a foreign session, a scheduler host sign rows with keypairs no worker holds, so their rows drop as
+noise at the w1a verify. Hướng A closes the class by having the BROKER PROCESS append the row — the embedded broker's keypair IS the worker's spawner
+keypair in both dispatch modes (`lifecycle-handlers.ts` getOrStartBroker), so a broker-appended row verifies in every worker with zero new key
+distribution. Three surfaces:
+
+- `respond.challenge` + `respond.append` (broker, challenge-response): the broker binds the DISPATCHER'S PUBLIC verify key heap-only at construct
+(`CrewBrokerOptions.dispatcherVerifyKey` — async dispatch threads the spawner's key over the detached runner's stdin start-options into the new
+`dispatcher-key-registry.ts`; a root dispatcher host binds its own key; NEVER the manifest file, which is unauthenticated and worker-writable — w1a
+NO-GO). `respond.challenge` issues a 32-byte single-use nonce bound to (connection, runId) — burned on the first append attempt regardless of outcome,
+rate-bounded 16/connection, TTL 30s upper-bounded by the broker's 1s hello deadline; `respond.append` verifies an Ed25519 signature over the frozen
+`respondAppendSignInput` export (`${nonce}${canonical}` — no separator, no runId in the canonical; run binding rides the nonce record; client signers
+must use the export, never re-implement) and appends the row itself: `from:"leader"`, `kind:"response"`, questionId-tagged, `requestId = questionId`
+idempotency, signed with the broker host keypair. Worker-token connections are rejected on both respond paths (role derives from token type —
+defense-in-depth; the real bound is the private key they cannot hold).
+- `respond.force` (broker, one-shot live park): token-less human-responsibility path, called directly over the broker socket (NOT wired into the respond
+tool's `force` param — its semantics are unchanged). The gate is the park itself (fresh reload under the bounded busy-retry run lock must find
+`status:"waiting"` with the exact `waiting.questionId`), exactly-one per question (durable requestId dedup + heap fast-fail; force after a CR append
+returns `already-answered`), row `from:"leader-forced"` + `data.tag:"forced"`, append OUTSIDE the run lock (lock-ordering safety; exactly-once comes
+from the idempotent append, not the lock). This is the path that finally DELIVERS a foreign-session force respond — the gap hướng C could not close.
+- `deliverResponseRow` (`src/extension/team-tool/respond-delivery.ts`, wired into `handleRespond`'s ALIVE path): broker-first delivery — precheck =
+socket derivable from `manifest.sessionId` AND this process IS the dispatcher (`manifest.dispatcherVerifyKey === getMailboxVerifyKeyPublic()`;
+foreign/restarted responders skip straight to the fallback instead of burning an RPC that cannot verify), one short-lived pre-hello NDJSON connection
+(challenge→append on one socket — the nonce is per-connection; 2.5s connect / 5s per-request deadlines; no retries — the fallback IS the retry), ANY
+failure → local signed idempotent append (hướng C behavior + `respond.broker-delivery-fallback` warn). `handleRespond` now stages ALIVE rows inside the
+run lock (atomic with the exactly-one-dispatch scan) and delivers them after it releases — the broker handler takes its own run lock, so the RPC window
+must never sit under `withRunLockSync`. `requestId = questionId` keeps delivery exactly-once across broker + local + concurrent responds (a lost ack
+frame dedupes against the broker's own row). New additive mailbox.ts export `signCoordinationChallenge` (raw Ed25519 over arbitrary challenge bytes
+with the in-process coordination keypair — no sha256 wrap, unlike the row signers).
+
+New event `respond.broker_append` (registered in contracts.ts): audit for every broker-appended response row — data {taskId, questionId, auth:
+"challenge-response"|"forced", requestId, messageId, deduped} (+ tag/brokerSocket on the forced path); diagnostic only, never transitions run/task
+state. Known shape note: broker wire rows carry `replyTo` but not `replyFrom`/`replyDeadline` (informational fields — the local fallback row keeps
+them; documented in respond-delivery.ts). Residuals documented in trust-model v1.5: leader restart mid-run still open (needs a dispatcher re-bind
+flow), broker restart mid-run mints a new heap keypair (documented, not fixed), force forge-channel consciously accepted (one live park, one-shot,
+tagged, audited), CR closes the no-leader gap only while the dispatcher process lives.
+
 ## [0.11.55] — ask-park clobber fix + w1a dispatcher key distribution (2026-10-31)
 
 **Fixed (product, FINDING A — ask-park clobber).** Cross-process coalesce race on tasks.json: the HOST process's 50ms coalesced
@@ -9505,3 +9544,22 @@ the repo. Two genuine wins, plus an informational CI job that never blocks.
 
 ### Hardening (W10 batch A)
 - `check-slop-rules` no-double-cast baseline ratchet (41, 2026-10-22 — burn down only) + real-CLI e2e pin; W10-7 reconcileUsage missing-finalUsage guard; W10-8 READ-ONLY lane mutation one-line stderr visibility; W10-9 structuredOutput JSON round-trip pin; W10-2 verify-gate memo time-dependent-skip intent pin.
+
+### Leader post-review additions (live probe8/9, 2026-11-01)
+
+- **Discovery fix**: the background runner now stamps the ACTUAL broker socket path onto
+  `TeamRunManifest.brokerSocketPath` at stdin-creds accept; `deliverResponseRow` prefers it over
+  `getBrokerSocketPath(manifest.sessionId)` derivation — live probe proved the derivation hashes the
+  dispatcher-side synthetic session (7e4df036) while the run's broker listens on a different path
+  (9529a08a/de784999), so the RPC path was unreachable in async production topology without the stamp.
+- **P3 comment fixes** (reviewer FIX_THEN_SHIP): CR sign-input contract doc (`${nonce}${canonical}`,
+  no separator, no runId) + lost-ack dedup topology condition.
+- **KNOWN BLOCKER (Finding D — next wave)**: the run's broker socket file vanishes from the filesystem
+  within ~seconds of runner start (listener fd stays valid for existing connections — park works — but
+  fresh connects get ENOENT; live evidence: stamped path valid at park time, absent seconds later,
+  runner alive+heartbeating, /proc/net/unix shows no bind for it while older sockets remain). Until
+  Finding D is fixed, `deliverResponseRow`'s RPC path fails fast to the hướng-C local append in async
+  runs — delivery remains correct via 0.11.55 semantics; `respond.force`/`respond.append` activate
+  fully once the socket lifetime is fixed. Suspected vectors: sibling lifecycle stale-sweep /
+  libuv close-unlink-by-name (socket-stop.ts documents the primitive) / sessionId inheritance
+  collision between the runner and its children.

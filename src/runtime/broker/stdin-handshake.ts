@@ -41,12 +41,21 @@ import { logInternalError } from "../../utils/internal-error.ts";
  * authenticates the connection but waitAuthError rejects its parks with
  * `forbidden`. The dispatching session pre-mints a compound token for every
  * task in the manifest (they exist before dispatch); dynamic-workflow tasks
- * planned inside the runner get NO creds (follow-up: broker mint RPC). */
+ * planned inside the runner get NO creds (follow-up: broker mint RPC).
+ *
+ * HƯỚNG A (ADR Option 3, 2026-11-01): optional `dispatcherVerifyKey` — the
+ * SPAWNING (dispatcher) process's PUBLIC coordination verify key, derived in
+ * its heap at spawn time. This is the runner START-OPTIONS channel the broker
+ * CR binding is threaded through (env allowlist is closed by design; the
+ * manifest file is a w1a NO-GO for auth bindings — worker-writable). PUBLIC
+ * material only; additive optional field, so v2 stays the wire version (old
+ * writer/reader pairs ignore it safely). */
 export interface StdinBrokerPayload {
 	v: 2;
 	runId: string;
 	socketPath: string;
 	tasks: Record<string, string>;
+	dispatcherVerifyKey?: string;
 }
 
 /** Parse + validate one handshake line. Rejects wrong version, wrong run
@@ -64,7 +73,22 @@ export function parseStdinBrokerPayload(raw: string, expectedRunId: string): Std
 		for (const [id, tok] of Object.entries(tasks)) {
 			if (id.length === 0 || typeof tok !== "string" || tok.length === 0) return undefined;
 		}
-		return { v: 2, runId: o.runId, socketPath: o.socketPath, tasks: tasks as Record<string, string> };
+		// HƯỚNG A: optional dispatcher public verify key (base64 SPKI DER envelope).
+		// Invalid material drops the FIELD (creds still parse) — the key is
+		// authority-bearing, so a mangled value must fail closed at the later
+		// bind site rather than half-trust it here.
+		const rawKey = o.dispatcherVerifyKey;
+		const dispatcherVerifyKey =
+			typeof rawKey === "string" && rawKey.length >= 32 && rawKey.length <= 128 && /^[A-Za-z0-9+/=]+$/.test(rawKey)
+				? rawKey
+				: undefined;
+		return {
+			v: 2,
+			runId: o.runId,
+			socketPath: o.socketPath,
+			tasks: tasks as Record<string, string>,
+			...(dispatcherVerifyKey !== undefined ? { dispatcherVerifyKey } : {}),
+		};
 	} catch {
 		return undefined;
 	}
@@ -89,8 +113,19 @@ export function parseStdinBrokerPayload(raw: string, expectedRunId: string): Std
  * returned (and written by the caller) — never blocked. */
 export const BROKER_STDIN_LINE_WARN_BYTES = 60 * 1024;
 
-export function buildBrokerStdinLine(runId: string, socketPath: string, tasks: Record<string, string>): string {
-	const line = `${JSON.stringify({ v: 2, runId, socketPath, tasks })}\n`;
+export function buildBrokerStdinLine(
+	runId: string,
+	socketPath: string,
+	tasks: Record<string, string>,
+	dispatcherVerifyKey?: string,
+): string {
+	const line = `${JSON.stringify({
+		v: 2,
+		runId,
+		socketPath,
+		tasks,
+		...(dispatcherVerifyKey ? { dispatcherVerifyKey } : {}),
+	})}\n`;
 	if (line.length > BROKER_STDIN_LINE_WARN_BYTES) {
 		logInternalError(
 			"stdin-handshake.oversize-payload",

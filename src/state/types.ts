@@ -455,6 +455,17 @@ export interface TeamRunManifest {
 	 * models.json happens to list first.
 	 */
 	modelContext?: RunModelContext;
+	/** HƯỚNG A (2026-11-01, probe8): the ACTUAL broker socket path of the
+	 *  run's host process, stamped by the background runner at stdin-creds
+	 *  accept time (async topology: the runner's socket is NOT derivable from
+	 *  this manifest's sessionId — that hash belongs to the dispatcher-side
+	 *  synthetic session; live probe derived 7e4df036 while the run's broker
+	 *  listened on 9529a08a). Cross-process responders (respond-delivery.ts)
+	 *  prefer this field over derivation. Absent on pre-Á-wave manifests and
+	 *  on runs whose runner received no stdin creds — responders fall back to
+	 *  derivation, then to the local signed append (hướng C). Not a secret:
+	 *  same-uid readable either way; connecting still requires auth. */
+	brokerSocketPath?: string;
 	/** FINDING B (2026-10-31) — w1a coordination verify-key distribution: the
 	 *  base64 SPKI DER PUBLIC verify key of the DISPATCHING session process
 	 *  (the leader that created this run; stamped via

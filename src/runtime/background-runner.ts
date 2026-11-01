@@ -45,6 +45,7 @@ import { writeAsyncStartMarker } from "./async-marker.ts";
 // F4: broker creds handshake helpers live in broker/stdin-handshake.ts
 // (pure module — background-runner runs await main() at module scope, so
 // importing THIS file from tests would boot the runner).
+import { setActiveDispatcherVerifyKey } from "./broker/dispatcher-key-registry.ts";
 import { parseStdinBrokerPayload, readStdinFirstLine } from "./broker/stdin-handshake.ts";
 import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
@@ -824,6 +825,35 @@ async function main(): Promise<void> {
 				if (!token) return undefined;
 				return { socketPath: payload.socketPath, token };
 			});
+			// HƯỚNG A (ADR Option 3): bind the dispatcher's PUBLIC verify key from
+			// the same start-options payload (heap → pipe → heap). A broker
+			// constructed in THIS process (lifecycle-handlers.ts construct site)
+			// then binds the DISPATCHER's key for respond.append CR auth instead
+			// of this runner's own keypair. Absent (older spawner) = no binding —
+			// the construct site falls back to its own key (sync-path semantics).
+			// The registry is a pure module (static import, stdin-handshake
+			// discipline — no lazy boundary needed).
+			if (payload.dispatcherVerifyKey !== undefined) {
+				setActiveDispatcherVerifyKey(payload.dispatcherVerifyKey);
+				debugLog(`[broker] dispatcher verify key bound from start options (run ${runId})`);
+			}
+			// HƯỚNG A (probe8 live, 2026-11-01): persist the ACTUAL broker socket
+			// path onto the manifest so cross-process responders can find it —
+			// getBrokerSocketPath(manifest.sessionId) derives the DISPATCHER-side
+			// synthetic session hash, NOT this runner's socket (live probe: derived
+			// 7e4df036 vs actual 9529a08a → ENOENT → respond-delivery's RPC path
+			// was unreachable in async production topology). Best-effort: a stamp
+			// failure never blocks the run (responders fall back to derivation,
+			// then to the local signed append — hướng C).
+			try {
+				const loaded = loadRunManifestById(cwd, runId);
+				if (loaded && loaded.manifest.brokerSocketPath !== payload.socketPath) {
+					await saveRunManifestAsync({ ...loaded.manifest, brokerSocketPath: payload.socketPath });
+					debugLog(`[broker] manifest.brokerSocketPath stamped (${payload.socketPath})`);
+				}
+			} catch (error) {
+				logInternalError("background-runner.broker-socket-stamp", error, `runId=${runId}`, "warn");
+			}
 			debugLog(
 				`[broker] stdin handshake accepted for run ${runId} (${Object.keys(payload.tasks).length} task tokens, socket ${payload.socketPath})`,
 			);

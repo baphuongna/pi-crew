@@ -1,9 +1,10 @@
 # pi-crew Trust Model (single source of truth)
 
-**Document version:** 1.4 (2026-10-31 — adds coordination-row sender binding
-w1a + FINDING B dispatcher key distribution with its accepted residual gaps)
+**Document version:** 1.5 (2026-11-01 — adds hướng A broker-signed respond
+delivery: ADR Option 3 challenge-response + one-shot force, and updates the
+residual gap statuses it moved)
 **Date:** 2026-09-10 (v1.0) / 2026-10-18 (v1.1) / 2026-10-19 (v1.2) /
-2026-10-31 (v1.3) / 2026-10-31 (v1.4)
+2026-10-31 (v1.3) / 2026-10-31 (v1.4) / 2026-11-01 (v1.5)
 **Owner:** solo maintainer (delegated to upgrade program M6/WI-6.1)
 **Supersedes:** trust-model content previously distributed across
 `docs/bugs/SECURITY-ISSUES.md` (v3.0, last updated 2026-06-03) and
@@ -239,23 +240,125 @@ legitimately-SIGNED rows it accepts; the forgery threat (a malicious
 worker appending rows) is unaffected — its rows remain unsigned or signed
 by a key no reader holds.
 
-**Known + accepted residual gaps** (same-uid threat model; hướng A —
-having the broker/RPC channel sign rows instead — is the follow-up design
-if any of these becomes load-bearing):
+**Residual gap status after hướng A** (same-uid threat model; see the
+hướng A section below for the mechanism that moved these):
 
-- **Leader restart mid-run:** the restarted session has a NEW keypair; its
-  respond rows fail the (old) dispatcher key the parked workers hold →
-  asks degrade to timeout, then best-judgment proceed (same as pre-fix).
-- **Foreign-session force respond:** any same-uid session can write a
-  respond row only if it can ALSO make the worker hold its key — it cannot
-  (keys ride the spawner-controlled env, never ambient). A foreign row
-  alone stays dropped.
-- **Scheduled / no-leader runs:** runs dispatched with no session (or by a
-  predecessor whose key was never threaded) carry no dispatcher key;
-  workers verify against their spawner only — cross-process respond/steer
-  stays broken for those runs (pre-fix behavior).
-- **Pre-FINDING-B manifests:** no dispatcherVerifyKey field → workers
-  spawn with the singular key only (pre-fix behavior) until re-dispatch.
+- **Leader restart mid-run — STILL OPEN:** the restarted session's
+  keypair is neither the broker's construct-time CR binding nor any key
+  the parked workers hold → the CR precheck fails → the local fallback
+  row is dropped (asks degrade to timeout, then best-judgment proceed —
+  pre-fix behavior). Closing it needs a dispatcher key re-bind/rotation
+  flow (follow-up, out of the hướng A wave).
+- **Foreign-session force respond — CLOSED (`respond.force`):** a
+  foreign same-uid session reaches the run's broker socket (derivable
+  from the manifest sessionId) and force-answers a LIVE park; the row
+  is broker-signed, so it verifies in the worker — the delivery hướng C
+  could never make. The residual inside the closure is the force
+  forge-channel itself (documented below).
+- **Scheduled / no-leader runs — CLOSED for async dispatch:** the
+  scheduler host spawns the run through the async runner, so its own
+  key is the one threaded into the broker's CR binding — a still-alive
+  scheduler host can `respond.append` with no session token (it holds
+  its private key). Once the dispatcher process dies, no one holds that
+  private key — `respond.force` remains the (credential-less) path.
+  Runs dispatched before hướng A keep hướng C behavior.
+- **Pre-FINDING-B manifests — unchanged:** no dispatcherVerifyKey → the
+  CR precheck fails → local signed append only (hướng C at best) until
+  re-dispatch.
+
+### Hướng A — broker-signed respond delivery (ADR Option 3, 2026-11-01)
+
+Hướng C distributes keys; hướng A moves the WRITE. Every gap above is a
+responder that is NOT the dispatch process — its locally signed rows can
+never be inside the workers' verify-key set. The observation that closes
+the class: the CrewBroker is EMBEDDED in the process that spawns the
+workers in BOTH dispatch modes (sync: the leader session hosts the broker
+and spawns; async: the detached runner hosts the broker and spawns —
+`lifecycle-handlers.ts` `getOrStartBroker`, socket =
+`getBrokerSocketPath(sessionId)`), so the broker host's heap keypair IS
+the worker's spawner keypair. A row appended BY THE BROKER verifies in
+every worker's w1a delivery gate with zero new key distribution.
+
+The auth problem solved first: a broker append method must not become a
+forgery primitive (a malicious worker must not be able to make the
+broker append response rows for parked siblings). Rejected designs, all
+failing the same-uid threat model: an orchestrator token in the
+manifest/run-dir (worker-readable state — the worker would sign anything
+through the broker, bypassing w1a entirely), an fs spool the runner
+signs on behalf of (worker-writable — forged answers for parked
+siblings), and an updatable manifest.dispatcherVerifyKey (the manifest
+file is unauthenticated).
+
+**ADR — Option 3 (challenge-response + one-shot force).** No single
+mechanism closes all three gap classes: CR keeps w1a airtight where the
+responder is the dispatcher (a worker holds only PUBLIC material and
+can never sign the nonce); force closes the human/foreign cases under
+the existing `force:true` human-responsibility philosophy.
+
+- **`respond.append` (challenge-response).** The broker binds the
+  DISPATCHER's public verify key HEAP-ONLY at construct
+  (`CrewBrokerOptions.dispatcherVerifyKey`; async dispatch threads the
+  spawner's key over the detached runner's stdin start-options into
+  `dispatcher-key-registry.ts`; a root dispatcher host binds its own
+  key — never the manifest file, never env). `respond.challenge` issues
+  a 32-byte single-use nonce bound to (connection, runId) — burned on
+  the FIRST append attempt regardless of outcome, rate-bounded
+  16/connection; the 30s TTL is an upper bound only (the broker's 1s
+  hello deadline kills un-authed connections anyway — no re-arm path).
+  `respond.append` verifies an Ed25519 signature over
+  `respondAppendSignInput` (`request-parsers.ts` — the frozen export:
+  `nonce ∥ canonical` with no separator and no runId; run binding rides
+  the runId-bound nonce record; client signers MUST use the export,
+  never re-implement) against the bound public key, then the BROKER
+  appends the row itself (`from:"leader"`, `kind:"response"`,
+  questionId-tagged) — signed with the broker host's keypair, so it
+  verifies in every worker. Worker-token connections are rejected
+  outright (role derives from token type — defense-in-depth; the real
+  bound is the private key they cannot hold).
+- **`respond.force` (one-shot live park).** Token-less by design: the
+  gates are the park itself (a fresh task reload inside a bounded
+  busy-retry run lock must find `status:"waiting"` with the exact
+  `waiting.questionId`), exactly-one per question (durable
+  `requestId = questionId` dedup + heap fast-fail), row
+  `from:"leader-forced"` + `data.tag:"forced"` + the
+  `respond.broker_append` audit event carrying the broker socket
+  identity. The append runs OUTSIDE the run lock (lock-ordering safety;
+  exactly-once comes from the idempotent append, not from holding the
+  lock).
+- **Both paths are PRE-hello broker methods** — the responders they
+  exist for hold no broker token. The respond-side seam
+  (`respond-delivery.ts` `deliverResponseRow`, wired into
+  `handleRespond`'s ALIVE path) is broker-FIRST: it only attempts CR
+  when this process IS the dispatcher (`manifest.dispatcherVerifyKey
+  === getMailboxVerifyKeyPublic()`), runs the whole challenge→append
+  exchange on one short-lived connection, and falls back to the local
+  signed append (hướng C behavior, semantics unchanged) + a warn log on
+  ANY failure. Rows are staged inside the run lock but delivered after
+  it releases — the broker handler takes its own run lock, so the RPC
+  window must never sit under `withRunLockSync`. `requestId =
+  questionId` keeps delivery exactly-once across broker + local
+  fallback + concurrent responds (a lost ack frame dedupes against the
+  broker's own row).
+
+**Residuals accepted with hướng A** (documented, not fixed):
+
+- **(i) Leader restart mid-run** — see the gap status above; needs a
+  re-bind/rotation flow (follow-up wave).
+- **(ii) Broker restart mid-run:** the restarted broker process mints
+  a new heap keypair and loses the dispatcher binding — rows it
+  appends no longer match any key the workers hold (same class as
+  leader restart; one re-bind flow would cover both).
+- **(iii) Force forge-channel:** a same-uid process that never hellos
+  (including a malicious worker withholding its token — the
+  worker-token reject is defense-in-depth only) CAN force-answer
+  exactly ONE live park per question. Accepted consciously: bounded by
+  the live-park gate, one-shot, tagged `leader-forced` (downstream can
+  fence on it) and audited — the same human-responsibility tradeoff as
+  `force:true`.
+- **(iv) CR closes the no-leader gap only while the dispatcher process
+  lives:** the scheduler-host path works because the still-alive
+  scheduler holds its own private key; once it dies, `respond.force`
+  is the only remaining path (one live park at a time).
 ## Cross-references
 
 - `docs/decisions/2026-08-10-scratchpad-snapshot-hmac.md` (HMAC = REMOVED 2026-08-12 — corrected claim §7)
@@ -269,3 +372,6 @@ if any of these becomes load-bearing):
 - `src/runtime/verification/verify-gate.ts` (`applySharedCwdHarnessGuard` — shared-cwd untracked-harness forced verifier spawn)
 - `src/runtime/pi-spawn.ts` (`validatePathResolvedPi` — see the worker-spawn path residuals above)
 - `src/worktree/worktree-manager.ts` (`worktree.linkNodeModules` trust assumption — see the S-1 residual above)
+- `src/runtime/broker/protocol/broker-respond.ts` + `src/runtime/broker/protocol/request-parsers.ts` (hướng A respond.* handlers + the frozen CR sign-input contract — see the hướng A section above)
+- `src/extension/team-tool/respond-delivery.ts` (`deliverResponseRow` — broker-first respond delivery with hướng C fallback)
+- `src/runtime/broker/dispatcher-key-registry.ts` (heap-only dispatcher key binding for respond.append CR)

@@ -64,7 +64,7 @@ test("R4-A1 respond path: requeueing a dead-worker waiting task retains ALL sibl
 		assert.equal(readCrewAgents(run.manifest).length, 2, "seed: exactly 2 sibling records on disk");
 
 		// No pid + no live handle ⇒ worker dead ⇒ respond rides the requeue path.
-		const out = handleRespond({ action: "respond", runId: run.runId, taskId: "wait", message: "continue" }, { cwd: run.cwd });
+		const out = await handleRespond({ action: "respond", runId: run.runId, taskId: "wait", message: "continue" }, { cwd: run.cwd });
 		assert.equal(out.isError, false);
 
 		const loaded = loadRunManifestById(run.cwd, run.runId);

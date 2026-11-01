@@ -64,7 +64,7 @@ test("handleRespond writes task mailbox and re-queues only waiting task", async 
 				cwd: run.cwd,
 			},
 		]);
-		const out = handleRespond(
+		const out = await handleRespond(
 			{
 				action: "respond",
 				runId: run.runId,
@@ -101,7 +101,7 @@ test("handleRespond rejects foreign owned run", async () => {
 				cwd: run.cwd,
 			},
 		]);
-		const out = handleRespond(
+		const out = await handleRespond(
 			{
 				action: "respond",
 				runId: run.runId,
@@ -139,7 +139,7 @@ test("handleRespond allows owning session", async () => {
 				cwd: run.cwd,
 			},
 		]);
-		const out = handleRespond(
+		const out = await handleRespond(
 			{
 				action: "respond",
 				runId: run.runId,
@@ -171,7 +171,7 @@ test("handleRespond rejects non-waiting task", async () => {
 				cwd: run.cwd,
 			},
 		]);
-		const out = handleRespond(
+		const out = await handleRespond(
 			{
 				action: "respond",
 				runId: run.runId,

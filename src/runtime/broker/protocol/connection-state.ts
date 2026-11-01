@@ -80,6 +80,16 @@ export interface CrewBrokerOptions {
 	/** ADR-5 §9: mirrors config limits.serializeOnPathOverlap for the workspace
 	 *  admission gate. Default false. */
 	serializeOnPathOverlap?: boolean;
+	/** HƯỚNG A (ADR Option 3, 2026-11-01): the DISPATCHER's public coordination
+	 *  verify key (base64 SPKI DER Ed25519) bound HEAP-ONLY at construct time —
+	 *  the trust anchor for `respond.append` challenge-response auth. Sourced by
+	 *  the lifecycle controller from the stdin-threaded dispatcher-key-registry
+	 *  (detached-runner start options) or, absent that, from THIS process's own
+	 *  keypair (broker host == dispatcher). NEVER from the manifest file
+	 *  (unauthenticated, worker-writable — w1a NO-GO). Invalid material fails
+	 *  closed to undefined: respond.append answers "no binding" instead of
+	 *  trusting a malformed key. */
+	dispatcherVerifyKey?: string;
 }
 
 /** Per-connection server-side state. */

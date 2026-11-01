@@ -116,7 +116,10 @@ test("clobbered park: live waitState + running task → respond repairs waiting 
 		await removeDirWithRetry(run.cwd);
 	});
 
-	const out = handleRespond({ action: "respond", runId: run.runId, taskId: "asker", message: "proceed with option A" }, { cwd: run.cwd });
+	const out = await handleRespond(
+		{ action: "respond", runId: run.runId, taskId: "asker", message: "proceed with option A" },
+		{ cwd: run.cwd },
+	);
 	assert.equal(out.isError, false, `respond must succeed on a repaired park: ${textFromToolResult(out)}`);
 
 	// Repair persisted: waiting + marker restored from waitState (the ALIVE
@@ -154,7 +157,7 @@ test("negative: expired waitState deadline → repair refused, hint reject as be
 		await removeDirWithRetry(run.cwd);
 	});
 
-	const out = handleRespond({ action: "respond", runId: run.runId, taskId: "asker", message: "too late" }, { cwd: run.cwd });
+	const out = await handleRespond({ action: "respond", runId: run.runId, taskId: "asker", message: "too late" }, { cwd: run.cwd });
 	assert.equal(out.isError, true);
 	assert.match(textFromToolResult(out), /is running, not waiting/);
 
@@ -175,7 +178,7 @@ test("negative: no waitState at all → reject unchanged (real non-waiting task)
 		await removeDirWithRetry(run.cwd);
 	});
 
-	const out = handleRespond({ action: "respond", runId: run.runId, taskId: "asker", message: "hello" }, { cwd: run.cwd });
+	const out = await handleRespond({ action: "respond", runId: run.runId, taskId: "asker", message: "hello" }, { cwd: run.cwd });
 	assert.equal(out.isError, true);
 	assert.match(textFromToolResult(out), /is running, not waiting/);
 	const loaded = loadRunManifestById(run.cwd, run.runId);

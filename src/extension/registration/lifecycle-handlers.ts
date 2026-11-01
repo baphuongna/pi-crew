@@ -28,6 +28,7 @@ import {
 import { type BrokerSpawnCredentials, setActiveBrokerIssuer, setActiveBrokerRevoker } from "../../runtime/broker/broker-issuer.ts";
 import { CrewBroker } from "../../runtime/broker/crew-broker.ts";
 import { setActiveDelegateAborter } from "../../runtime/broker/delegate/delegate-abort.ts";
+import { getActiveDispatcherVerifyKey } from "../../runtime/broker/dispatcher-key-registry.ts";
 import { DEFAULT_LOCK_BUSY_RETRY_DELAYS_MS, withRunLockBusyRetryAsync } from "../../runtime/broker/protocol/lock-busy.ts";
 import { terminateActiveChildPiProcesses } from "../../runtime/child-pi/child-pi.ts";
 import type { createManifestCache } from "../../runtime/manifest-cache.ts";
@@ -43,7 +44,7 @@ import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers, scheduledJobsHiddenCountOf } from "../../runtime/settings-store.ts";
 import type { ReconcileResult } from "../../runtime/stale-reconciler.ts";
 import { flushReapEscalationsSync } from "../../runtime/stale-reconciler.ts";
-import { getMailboxVerifyKeyPublic } from "../../state/coordination/mailbox.ts";
+import { ensureCoordinationPublicVerifyKey, getMailboxVerifyKeyPublic } from "../../state/coordination/mailbox.ts";
 import { loadRunManifestById, saveRunManifest } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
@@ -852,6 +853,14 @@ export function installCrewBrokerLifecycleController(_pi: ExtensionAPI, _ctx: Re
 						? { globalWorkerSemaphore: nestingCfg.limits.maxConcurrentWorkers }
 						: {}),
 					serializeOnPathOverlap: nestingCfg?.limits?.serializeOnPathOverlap ?? false,
+					// HƯỚNG A (ADR Option 3, 2026-11-01): heap-only CR binding for
+					// respond.append. Detached-runner processes carry the DISPATCHER's
+					// public key in the start-options registry (stdin handshake); a root
+					// dispatcher host (sync AND async dispatch today: the broker host IS
+					// the dispatcher's process) binds its OWN public key through the same
+					// registry fallback. NEVER the manifest file — it is unauthenticated
+					// and worker-writable (w1a NO-GO). PUBLIC material only.
+					dispatcherVerifyKey: getActiveDispatcherVerifyKey() ?? ensureCoordinationPublicVerifyKey(),
 					modelCatalog: () => {
 						try {
 							return configuredModelInfosFromPiConfig(process.cwd()).map((info) => info.fullId);

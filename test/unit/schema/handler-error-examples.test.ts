@@ -106,10 +106,10 @@ describe("EXT-2: handler missing-field errors include example shapes", () => {
 		}
 	});
 
-	it("handleRespond includes an example shape when runId missing", () => {
+	it("handleRespond includes an example shape when runId missing", async () => {
 		const tmp = createTrackedTempDir("ext2-respond-");
 		try {
-			const res = handleRespond(makeParams(), makeCtx(tmp));
+			const res = await handleRespond(makeParams(), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /action:\s*['"]respond['"]/);
@@ -118,11 +118,11 @@ describe("EXT-2: handler missing-field errors include example shapes", () => {
 		}
 	});
 
-	it("handleRespond includes an example shape when message/taskId missing", () => {
+	it("handleRespond includes an example shape when message/taskId missing", async () => {
 		const tmp = createTrackedTempDir("ext2-respond-msg-");
 		try {
 			// runId present, but neither message nor taskId → second guard fires.
-			const res = handleRespond(makeParams({ runId: "team_does-not-exist" }), makeCtx(tmp));
+			const res = await handleRespond(makeParams({ runId: "team_does-not-exist" }), makeCtx(tmp));
 			assert.strictEqual(res.isError, true);
 			const text = textFromToolResult(res);
 			assert.match(text, /action:\s*['"]respond['"]/);

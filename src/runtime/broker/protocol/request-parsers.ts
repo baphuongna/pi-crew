@@ -8,7 +8,7 @@
  * guards against control chars / oversized names reaching the dispatcher.
  */
 
-import type { MailboxMessageKind, MailboxMessagePriority } from "../../../state/coordination/mailbox.ts";
+import type { MailboxDeliveryMode, MailboxMessageKind, MailboxMessagePriority } from "../../../state/coordination/mailbox.ts";
 
 /** Protocol version negotiated at `hello` time. Bump on breaking change. */
 export const BROKER_PROTOCOL = 1;
@@ -263,4 +263,140 @@ export function parseWaitResolveParams(value: unknown): WaitResolveParams | unde
 	if (typeof v.questionId !== "string" || v.questionId.length === 0 || v.questionId.length > 128) return undefined;
 	if (v.outcome !== undefined && v.outcome !== "answered" && v.outcome !== "timed-out" && v.outcome !== "aborted") return undefined;
 	return { to: v.to, questionId: v.questionId, ...(v.outcome !== undefined ? { outcome: v.outcome } : {}) };
+}
+
+// ============================================================================
+// HƯỚNG A (ADR Option 3, 2026-11-01) — broker respond.* parameter parsers +
+// the challenge-response canonical payload CONTRACT.
+//
+// `respond.challenge` / `respond.append` / `respond.force` are deliberately
+// reachable PRE-hello (see CrewBroker.dispatchFrame): the whole point is that
+// the responder may hold NO broker token at all — a dispatcher proving key
+// possession (challenge-response) or a foreign session (force, gated by a
+// live park). Because a pre-hello connection carries no runId, every params
+// shape carries `runId` explicitly.
+// ============================================================================
+
+/** Bounded respond body (defense-in-depth under the 256 KiB frame cap). */
+export const RESPOND_BODY_MAX_CHARS = 65_536;
+/** Nonce shape: the broker issues 32 random bytes base64url (43 chars); the
+ *  parser accepts a bounded envelope so future issuers stay compatible. */
+export const RESPOND_NONCE_MIN_CHARS = 16;
+export const RESPOND_NONCE_MAX_CHARS = 128;
+/** Ed25519 signature, base64 (64-byte sig = 88 chars); bounded envelope. */
+export const RESPOND_SIG_MAX_CHARS = 256;
+
+/** Fields shared by respond.append and respond.force params. */
+export interface RespondCommonParams {
+	runId: string;
+	taskId: string;
+	questionId: string;
+	body: string;
+	replyTo?: string;
+	priority?: MailboxMessagePriority;
+	deliveryMode?: MailboxDeliveryMode;
+	/** Optional client idempotency key; the broker defaults it to the
+	 *  questionId (exactly-one response row per question on the broker paths). */
+	requestId?: string;
+}
+
+export interface RespondChallengeParams {
+	runId: string;
+}
+
+export interface RespondAppendParams extends RespondCommonParams {
+	nonce: string;
+	sig: string;
+}
+
+export type RespondForceParams = RespondCommonParams;
+
+function parseRespondCommonFields(v: Record<string, unknown>): RespondCommonParams | undefined {
+	if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return undefined;
+	if (typeof v.taskId !== "string" || v.taskId.length === 0 || v.taskId.length > 256) return undefined;
+	if (typeof v.questionId !== "string" || v.questionId.length === 0 || v.questionId.length > 128) return undefined;
+	if (typeof v.body !== "string" || v.body.length === 0 || v.body.length > RESPOND_BODY_MAX_CHARS) return undefined;
+	const replyTo = v.replyTo;
+	if (replyTo !== undefined && (typeof replyTo !== "string" || replyTo.length === 0 || replyTo.length > 256)) return undefined;
+	const priority = v.priority as MailboxMessagePriority | undefined;
+	if (priority !== undefined && !["urgent", "normal", "low"].includes(priority)) return undefined;
+	const deliveryMode = v.deliveryMode as MailboxDeliveryMode | undefined;
+	if (deliveryMode !== undefined && deliveryMode !== "interrupt" && deliveryMode !== "next_turn") return undefined;
+	const rawRequestId = v.requestId;
+	if (rawRequestId !== undefined && (typeof rawRequestId !== "string" || !/^[\w:.-]{1,256}$/.test(rawRequestId))) return undefined;
+	return {
+		runId: v.runId,
+		taskId: v.taskId,
+		questionId: v.questionId,
+		body: v.body,
+		...(replyTo !== undefined ? { replyTo } : {}),
+		...(priority !== undefined ? { priority } : {}),
+		...(deliveryMode !== undefined ? { deliveryMode } : {}),
+		...(rawRequestId !== undefined ? { requestId: rawRequestId } : {}),
+	};
+}
+
+export function parseRespondChallengeParams(value: unknown): RespondChallengeParams | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const v = value as Record<string, unknown>;
+	if (typeof v.runId !== "string" || v.runId.length === 0 || v.runId.length > 256) return undefined;
+	return { runId: v.runId };
+}
+
+export function parseRespondAppendParams(value: unknown): RespondAppendParams | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const v = value as Record<string, unknown>;
+	const common = parseRespondCommonFields(v);
+	if (!common) return undefined;
+	if (typeof v.nonce !== "string" || v.nonce.length < RESPOND_NONCE_MIN_CHARS || v.nonce.length > RESPOND_NONCE_MAX_CHARS) {
+		return undefined;
+	}
+	if (typeof v.sig !== "string" || v.sig.length === 0 || v.sig.length > RESPOND_SIG_MAX_CHARS) return undefined;
+	return { ...common, nonce: v.nonce, sig: v.sig };
+}
+
+export function parseRespondForceParams(value: unknown): RespondForceParams | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	return parseRespondCommonFields(value as Record<string, unknown>);
+}
+
+/** HƯỚNG A CR CONTRACT — canonical payload string over the client-supplied
+ *  respond fields, in the STYLE of mailbox.ts's canonicalMailboxPayload
+ *  (fixed field order, undefined → null; that helper is module-private, so
+ *  the respond surface mirrors its discipline here rather than importing
+ *  it). The dispatcher signs THIS string (prefixed by the nonce — see
+ *  respondAppendSignInput) and the broker verifies the exact same bytes, so
+ *  writer and verifier can never drift.
+ *
+ *  Field order: taskId, questionId, body, replyTo, priority, deliveryMode,
+ *  requestId. CONVERGED (2026-11-01, cross-slice alignment): NO `runId` and
+ *  NO separator — the client implementation (respond-delivery.ts) follows
+ *  the ADR's literal `sign(nonce ∥ canonical payload)`; run binding is
+ *  enforced by the runId-bound single-use nonce record (respond.challenge
+ *  binds runId; respond.append requires record.runId === params.runId), and
+ *  the appended row's runId comes from the server-side manifest load, never
+ *  from the client. Client signers SHOULD build this via the exported
+ *  respondAppendSignInput rather than re-implementing it. */
+export function canonicalRespondAppendPayload(params: RespondCommonParams): string {
+	const pick = (value: unknown): unknown => (value === undefined ? null : value);
+	return JSON.stringify([
+		params.taskId,
+		params.questionId,
+		params.body,
+		pick(params.replyTo),
+		pick(params.priority),
+		pick(params.deliveryMode),
+		pick(params.requestId),
+	]);
+}
+
+/** HƯỚNG A CR CONTRACT — the exact bytes the dispatcher's Ed25519 private key
+ *  signs: `${nonce}${canonicalRespondAppendPayload(params)}` (UTF-8, plain
+ *  concatenation — the ADR's `nonce ∥ canonical payload`; unambiguous since
+ *  the nonce is base64url and never contains the canonical's leading `[`).
+ *  The broker's respond.append handler verifies against the bound public
+ *  key over this same string. Signers on the client side MUST build it via
+ *  this export (never re-implement) so the two ends cannot drift. */
+export function respondAppendSignInput(nonce: string, params: RespondCommonParams): string {
+	return `${nonce}${canonicalRespondAppendPayload(params)}`;
 }

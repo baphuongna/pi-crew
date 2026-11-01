@@ -8,12 +8,13 @@ import { withRunLockSync } from "../../state/coordination/locks.ts";
 import { appendMailboxMessage, readMailbox, updateMailboxMessageReply } from "../../state/coordination/mailbox.ts";
 import { appendEventAsync } from "../../state/event-log/event-log.ts";
 import { loadRunManifestById, saveRunManifest, saveRunTasks, updateRunStatus } from "../../state/stores/state-store.ts";
-import type { TeamTaskState } from "../../state/types.ts";
+import type { TeamRunManifest, TeamTaskState } from "../../state/types.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { locateRunCwd } from "../team-tool.ts";
 import type { PiTeamsToolResult } from "../tool-result.ts";
 import { result, type TeamContext } from "./context.ts";
 import { paramRequired } from "./param-error.ts";
+import { deliverResponseRow, type RespondDeliveryRow } from "./respond-delivery.ts";
 import { RUN_NOT_FOUND_HINT } from "./run-not-found.ts";
 
 /** WP-2/R2 (ADR-0 item 8/security P1-4): fence the injected ask answer as
@@ -47,6 +48,27 @@ function requeueWaitingTask(tasks: TeamTaskState[], taskId: string, message: str
 	});
 }
 
+/** Lock-section product for handleRespond: either an early error result, or
+ *  the full post-lock context. HƯỚNG A (2026-11-01): ALIVE-park response rows
+ *  are STAGED inside the run lock (atomically with the exactly-one-dispatch
+ *  scan) but DELIVERED after it releases — deliverResponseRow's broker RPC
+ *  window must never sit under withRunLockSync (the broker handler takes its
+ *  own run lock via withRunLockBusyRetry; an in-lock RPC window would
+ *  livelock cross-process). */
+type LockedRespondOutcome =
+	| { ok: false; early: PiTeamsToolResult }
+	| {
+			ok: true;
+			manifest: TeamRunManifest;
+			targetTaskIds: string[];
+			answeredIds: string[];
+			requeuedIds: string[];
+			noopIds: string[];
+			mailboxIds: string[];
+			pendingDeliveries: RespondDeliveryRow[];
+			message: string;
+	  };
+
 /**
  * Handle `respond` action: answer a waiting (parked) task's question.
  *
@@ -54,25 +76,33 @@ function requeueWaitingTask(tasks: TeamTaskState[], taskId: string, message: str
  * liveness discrimination replaces the old blanket re-queue of ALL waiting
  * tasks.
  * - ALIVE (heartbeat last-beat within the 60s gradient-stale window, or a
- *   live in-memory session handle) → append a mailbox `kind:"response"`
+ *   live in-memory session handle) → stage a mailbox `kind:"response"`
  *   entry carrying the task's `waiting.questionId` (from leader, to the task)
  *   and LEAVE `task.waiting` in place: the parked `ask` tool polls the task
  *   mailbox stream, picks the response up and flips waiting→running via its
- *   own terminal report.
+ *   own terminal report. HƯỚNG A: the staged row is delivered AFTER the run
+ *   lock releases via deliverResponseRow (broker-first CR path → a
+ *   BROKER-SIGNED row that verifies in the worker even when this responder
+ *   is not the dispatch process; local signed append fallback = hướng C).
  * - DEAD → re-queue the task AND inject the fenced answer into the next
  *   dispatch prompt (pendingSteers cross-attempt channel). No questionId-
  *   tagged mailbox response is written.
  * - EXACTLY-ONE-DISPATCH GUARD: a response for a given questionId dispatches
  *   via mailbox-write OR requeue+inject — never both — and is idempotent per
- *   questionId. The branch is atomic under the run lock (check + write inside
- *   one withRunLockSync + fresh-reload critical section); the requeue path
- *   clears `waiting` so a second respond finds no waiting task (no-op).
+ *   questionId. The branch decision is atomic under the run lock (check +
+ *   staging inside one withRunLockSync + fresh-reload critical section); the
+ *   requeue path clears `waiting` so a second respond finds no waiting task
+ *   (no-op), and the out-of-lock row write is exactly-once via the durable
+ *   requestId = questionId idempotency key (broker append AND local fallback
+ *   both dedupe on it — a concurrent second respond that missed the in-lock
+ *   scan reuses the first row instead of duplicating it).
  * - Legacy waiting parks without `task.waiting` (pre-v2 records) keep the old
  *   mailbox + re-queue resume behavior — there is no parked tool to pick a
- *   questionId-tagged response up.
+ *   questionId-tagged response up (no questionId → no broker contract row;
+ *   the legacy append stays inline/local, verbatim).
  * - `ask.answered` is emitted on both discrimination paths.
  */
-export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
+export async function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Promise<PiTeamsToolResult> {
 	if (!params.runId)
 		return result(
 			paramRequired("respond", "runId", "{ action: 'respond', runId: 'team_...', message: '...' }"),
@@ -95,20 +125,27 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 	const loaded = loadRunManifestById(runCwd, params.runId); // NOTE: no withRunLock - best-effort only; concurrent writes may cause inconsistency
 	if (!loaded) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "respond", status: "error" }, true);
 
-	return withRunLockSync(loaded.manifest, () => {
+	const locked = withRunLockSync(loaded.manifest, (): LockedRespondOutcome => {
 		const fresh = loadRunManifestById(loaded.manifest.cwd, params.runId!); // NOTE: inside withRunLockSync - consistent read
-		if (!fresh) return result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "respond", status: "error" }, true);
+		if (!fresh)
+			return {
+				ok: false,
+				early: result(`Run '${params.runId}' not found.${RUN_NOT_FOUND_HINT}`, { action: "respond", status: "error" }, true),
+			};
 		const foreignRun = typeof fresh.manifest.ownerSessionId === "string" && fresh.manifest.ownerSessionId !== ctx.sessionId;
 		if (foreignRun && !params.force)
-			return result(
-				`Run ${fresh.manifest.runId} belongs to another session. Use force: true to override.`,
-				{
-					action: "respond",
-					status: "error",
-					runId: fresh.manifest.runId,
-				},
-				true,
-			);
+			return {
+				ok: false,
+				early: result(
+					`Run ${fresh.manifest.runId} belongs to another session. Use force: true to override.`,
+					{
+						action: "respond",
+						status: "error",
+						runId: fresh.manifest.runId,
+					},
+					true,
+				),
+			};
 
 		const taskId = params.taskId;
 		const message = params.message ?? "";
@@ -184,19 +221,22 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 			const existing = taskId ? fresh.tasks.find((t) => t.id === taskId) : undefined;
 			const hint =
 				" Use api operation=follow-up-agent for continuation prompts or api operation=steer-agent to interrupt active work.";
-			return result(
-				(taskId
-					? existing
-						? `Task '${taskId}' is ${existing.status}, not waiting.`
-						: `Task '${taskId}' not found.`
-					: `No waiting tasks in run ${fresh.manifest.runId}.`) + hint,
-				{
-					action: "respond",
-					status: "error",
-					runId: fresh.manifest.runId,
-				},
-				true,
-			);
+			return {
+				ok: false,
+				early: result(
+					(taskId
+						? existing
+							? `Task '${taskId}' is ${existing.status}, not waiting.`
+							: `Task '${taskId}' not found.`
+						: `No waiting tasks in run ${fresh.manifest.runId}.`) + hint,
+					{
+						action: "respond",
+						status: "error",
+						runId: fresh.manifest.runId,
+					},
+					true,
+				),
+			};
 		}
 
 		const mailboxIds: string[] = [];
@@ -206,6 +246,12 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 		const requeuedIds: string[] = [];
 		/** Exactly-once no-ops: a mailbox response already exists for the questionId. */
 		const noopIds: string[] = [];
+		/** HƯỚNG A (2026-11-01): ALIVE-park response rows staged IN-LOCK (atomic
+		 *  with the exactly-one-dispatch scan above) for post-lock delivery via
+		 *  deliverResponseRow — broker-first CR path / local signed fallback. The
+		 *  durable requestId = questionId key keeps the out-of-lock write
+		 *  exactly-once. */
+		const pendingDeliveries: RespondDeliveryRow[] = [];
 		const answeredEvents: Array<{ taskId: string; questionId: string; delivery: "mailbox" | "requeue" }> = [];
 		/** G5 (deep-review 2026-10-01): DEAD parks — the questionId-tagged response
 		 *  can never be picked up (the parked poller is gone); recorded with the
@@ -256,7 +302,16 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 				// ALIVE: deliver via the task mailbox stream the parked ask tool
 				// polls (≤500ms). The park stays — the tool's terminal report
 				// flips waiting→running; root-side status must NOT change here.
-				const mailbox = appendMailboxMessage(fresh.manifest, {
+				// HƯỚNG A (2026-11-01): the row is no longer appended inline. It is
+				// staged here — inside the run lock, atomically with the
+				// exactly-one-dispatch scan — and delivered AFTER the lock releases
+				// via deliverResponseRow (broker-first CR path → a BROKER-SIGNED row
+				// that verifies in the worker even when this responder is not the
+				// dispatch process; local signed append fallback = hướng C behavior).
+				// Holding withRunLockSync across the RPC window would livelock
+				// against the broker handler's own run lock (withRunLockBusyRetry);
+				// exactly-once moves to the durable requestId = questionId key.
+				pendingDeliveries.push({
 					direction: "inbox",
 					from: "leader",
 					to: task.id,
@@ -266,12 +321,12 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 					priority: "normal",
 					deliveryMode: "next_turn",
 					questionId,
+					requestId: questionId,
 					data: { action: "respond", kind: "response", questionId },
 					replyTo: params.replyTo,
 					replyFrom: params.replyFrom,
 					replyDeadline: params.replyDeadline,
 				});
-				mailboxIds.push(mailbox.id);
 				answeredIds.push(task.id);
 				answeredEvents.push({ taskId: task.id, questionId, delivery: "mailbox" });
 				continue;
@@ -410,21 +465,51 @@ export function handleRespond(params: TeamToolParamsValue, ctx: TeamContext): Pi
 			}
 		}
 
-		const summaryParts: string[] = [];
-		if (answeredIds.length > 0) summaryParts.push(`answered via mailbox (worker alive): ${answeredIds.join(", ")}`);
-		if (requeuedIds.length > 0) summaryParts.push(`requeued with injected answer (worker dead): ${requeuedIds.join(", ")}`);
-		if (noopIds.length > 0) summaryParts.push(`already answered, no-op: ${noopIds.join(", ")}`);
-		return result(
-			`Responded to ${targetTasks.length} waiting task(s). ${summaryParts.join("; ")}. Message: ${message || "(no message)"}`,
-			{
-				action: "respond",
-				status: "ok",
-				runId: fresh.manifest.runId,
-				resumedIds: requeuedIds,
-				mailboxIds,
-				intent: `responding to ${targetTasks.map((t) => t.id).join(", ")} in ${fresh.manifest.runId}`,
-				data: { answeredIds, noopIds },
-			},
-		);
+		// HƯỚNG A (2026-11-01): ALIVE rows are staged, not appended — the lock
+		// section returns the context and delivery happens after the release
+		// (see deliverResponseRow). task.resumed events above snapshot
+		// `mailboxIds` at fire time (in-lock), so their data lists the legacy
+		// inline ids only — informational field, the ALIVE ids land in the tool
+		// result below.
+		return {
+			ok: true,
+			manifest,
+			targetTaskIds: targetTasks.map((t) => t.id),
+			answeredIds,
+			requeuedIds,
+			noopIds,
+			mailboxIds,
+			pendingDeliveries,
+			message,
+		};
 	});
+	if (!locked.ok) return locked.early;
+	// Deliver the staged ALIVE rows OUTSIDE the run lock — broker-first CR
+	// path (broker-SIGNED row, verifies in the worker regardless of who the
+	// responder process is) with the local signed idempotent append as
+	// fallback (hướng C). deliverResponseRow never throws on broker failure;
+	// a local append failure propagates exactly like the pre-hướng-A inline
+	// append did.
+	for (const row of locked.pendingDeliveries) {
+		const delivered = await deliverResponseRow(locked.manifest, row);
+		locked.mailboxIds.push(delivered.messageId);
+	}
+	const summaryParts: string[] = [];
+	if (locked.answeredIds.length > 0) summaryParts.push(`answered via mailbox (worker alive): ${locked.answeredIds.join(", ")}`);
+	if (locked.requeuedIds.length > 0) summaryParts.push(`requeued with injected answer (worker dead): ${locked.requeuedIds.join(", ")}`);
+	if (locked.noopIds.length > 0) summaryParts.push(`already answered, no-op: ${locked.noopIds.join(", ")}`);
+	return result(
+		`Responded to ${locked.targetTaskIds.length} waiting task(s). ${summaryParts.join("; ")}. Message: ${
+			locked.message || "(no message)"
+		}`,
+		{
+			action: "respond",
+			status: "ok",
+			runId: locked.manifest.runId,
+			resumedIds: locked.requeuedIds,
+			mailboxIds: locked.mailboxIds,
+			intent: `responding to ${locked.targetTaskIds.join(", ")} in ${locked.manifest.runId}`,
+			data: { answeredIds: locked.answeredIds, noopIds: locked.noopIds },
+		},
+	);
 }
