@@ -9605,3 +9605,20 @@ the repo. Two genuine wins, plus an informational CI job that never blocks.
 - probe18 product-level proof: a foreign session's `team respond` on a live park
   of a dead-dispatcher run delivered via force end-to-end (respond.broker_append
   auth:forced → worker ack → task resumed).
+
+### steer.force — token-less live-worker steer for foreign/restarted sessions (2026-11-01, probes 19-20)
+
+- probe19 exposed the steer twin of the respond dead end: a foreign/restarted session's
+  `team steer` writes pendingSteers (next-spawn only) + a steering-file row signed with ITS
+  key — outside the live worker's verify set → pollSteering drops it → in-context delivery
+  NEVER happens (probe19: file row present, worker conversation received NONE).
+- New pre-hello broker method `steer.force` (mirror of respond.force's lane): the run's
+  broker-host (detached runner — its keypair IS in every worker's verify set) performs the
+  delivery itself: mailbox row (kind:"steer", interrupt) + BROKER-SIGNED steering line;
+  live-task gate (terminal rejected), requestId dedup (R2-L-A4 mirror), worker-role
+  connections rejected, `steer.broker_force` audit event.
+- `handleSteer` now auto-routes through steer.force (fire-and-forget) when the caller is not
+  the trusted signer — same-uid trust domain unchanged, this only surfaces VERIFIED delivery
+  through the product tool.
+- probe20 live-proven end-to-end: foreign session `team steer` mid-run → worker's conversation
+  received the message verbatim ("exactly ONE injected steering message observed verbatim").

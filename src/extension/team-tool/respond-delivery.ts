@@ -139,7 +139,14 @@ interface RespondBrokerStep {
  *  rejects with a typed RespondBrokerDeliveryError on any transport /
  *  protocol / error-frame failure. No retries: the local fallback IS the
  *  retry strategy. */
-function brokerRoundTrip(socketPath: string, nextStep: (previousResult: unknown) => RespondBrokerStep | undefined): Promise<unknown[]> {
+/** Single-connection NDJSON round-trip helper — shared by the respond and
+ *  steer force tiers (sends steps until the step fn returns undefined;
+ *  resolves with every result frame in order). Throws
+ *  RespondBrokerDeliveryError on socket/protocol errors. */
+export function brokerRoundTrip(
+	socketPath: string,
+	nextStep: (previousResult: unknown) => RespondBrokerStep | undefined,
+): Promise<unknown[]> {
 	return new Promise<unknown[]>((resolve, reject) => {
 		const socket = net.createConnection(socketPath);
 		const decoder = new NdjsonDecoder();

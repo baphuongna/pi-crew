@@ -275,6 +275,13 @@ export const TEAM_EVENT_TYPES = [
 	// deduped} (+ tag/brokerSocket on the forced path). Diagnostic only —
 	// never transitions run/task state; the mailbox row is the source of truth.
 	"respond.broker_append",
+	// HƯỚNG A follow-up (probe19, 2026-11-01): broker-side forced-steer audit
+	// — fired by crew-broker's steer.force handler when a foreign/restarted
+	// session's steer is delivered BY THE BROKER PROCESS (mailbox row +
+	// broker-signed steering line; w1a: broker-signed rows verify in every
+	// worker). data: {taskId, auth:"forced"}. Diagnostic only — never
+	// transitions run/task state.
+	"steer.broker_force",
 	// Recovery
 	"recovery.rerun_task",
 	// Run-level budget/effectiveness/export/lifecycle bookkeeping

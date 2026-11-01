@@ -67,6 +67,7 @@ import { DelegateAbortRegistry } from "./delegate/delegate-abort.ts";
 import { type DelegateEventTarget, type DelegateEventType, recordDelegateEvent } from "./delegate/delegate-event.ts";
 import { fanoutMailboxMessage } from "./mailbox-observer/mailbox-fanout.ts";
 import { type BrokerRespondDeps, handleRespondMethod, type RespondChallengeRecord } from "./protocol/broker-respond.ts";
+import { handleSteerForce } from "./protocol/broker-steer.ts";
 import type { CrewBrokerOptions, ServerConnection } from "./protocol/connection-state.ts";
 // Outbound-queue management + caps (wc-gate move — bodies in protocol/connection-state.ts)
 import {
@@ -675,6 +676,15 @@ export class CrewBroker {
 				await this.dispatchRespondMethod(conn, id, method, params);
 				return;
 			}
+			// steer.force (HƯỚNG A follow-up, probe19): token-less live-worker
+			// steer for a restarted/foreign session — the broker performs the
+			// delivery itself (mailbox row + BROKER-SIGNED steering line),
+			// mirroring respond.force's lane. Auth is the same-uid socket domain
+			// + the live-task gate + the steer.broker_force audit event.
+			if (method === "steer.force") {
+				await this.dispatchSteerForce(conn, id, params);
+				return;
+			}
 			if (method !== "hello") {
 				this.sendErrorAndClose(conn, id, "protocol", "hello required");
 				return;
@@ -754,6 +764,9 @@ export class CrewBroker {
 			case "respond.append":
 			case "respond.force":
 				await this.dispatchRespondMethod(conn, id, method, params);
+				return;
+			case "steer.force":
+				await this.dispatchSteerForce(conn, id, params);
 				return;
 			default:
 				// Unhandled method → typed not-implemented.
@@ -1510,6 +1523,51 @@ export class CrewBroker {
 	/** HƯỚNG A: method router (pre- and post-hello dispatch sites). */
 	private async dispatchRespondMethod(conn: ServerConnection, id: string, method: string, params: unknown): Promise<void> {
 		await handleRespondMethod(this.respondDeps(), conn, id, method, params);
+	}
+
+	/** HƯỚNG A follow-up (probe19): token-less steer.force for a
+	 *  restarted/foreign session — wires the broker-side delivery (mailbox
+	 *  row + BROKER-SIGNED steering line, the exact write pair
+	 *  handleSteerPush performs for orchestrators). */
+	private async dispatchSteerForce(conn: ServerConnection, id: string, params: unknown): Promise<void> {
+		await handleSteerForce(
+			{
+				sendError: (c, i, code, message) => this.sendError(c, i, code, message),
+				sendResult: (c, i, result) => this.sendResult(c, i, result),
+				appendSteerRow: async (manifest, parsed, messageId) => {
+					const base = {
+						id: messageId,
+						direction: "inbox" as const,
+						from: parsed.runId,
+						to: parsed.taskId,
+						taskId: parsed.taskId,
+						body: parsed.body,
+						kind: "steer" as const,
+						priority: "urgent" as const,
+						deliveryMode: "interrupt" as const,
+					};
+					if (parsed.requestId === undefined) {
+						await appendMailboxMessageAsync(manifest, base);
+						return { deduped: false };
+					}
+					const outcome = await appendMailboxMessageIdempotentAsync(manifest, { ...base, requestId: parsed.requestId });
+					return { deduped: outcome.deduped };
+				},
+				appendSignedSteeringLine: async (manifest, taskId, body, messageId) => {
+					const steeringDir = `${manifest.artifactsRoot}/steering`;
+					const steeringPath = resolveRealContainedPath(manifest.artifactsRoot, `steering/${taskId}.jsonl`);
+					const line =
+						JSON.stringify(signSteeringEntry({ type: "steer", message: body, id: messageId, ts: new Date().toISOString() })) +
+						"\n";
+					await fsp.mkdir(steeringDir, { recursive: true });
+					await fsp.appendFile(steeringPath, line, { encoding: "utf8" });
+				},
+			},
+			conn,
+			id,
+			params,
+			{ cwd: this.options.cwd },
+		);
 	}
 
 	// WP-2/R2: wait.request / wait.resolve (ADR-0 2026-08-17-waiting-producer-ask)

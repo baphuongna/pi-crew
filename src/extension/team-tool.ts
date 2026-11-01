@@ -11,7 +11,7 @@ import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
-import { replayPendingMailboxMessages, signSteeringEntry } from "../state/coordination/mailbox.ts";
+import { replayPendingMailboxMessages, signSteeringEntry, getMailboxVerifyKeyPublic } from "../state/coordination/mailbox.ts";
 import { isTaskClaimExpired } from "../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { ACTIVE_RUN_STALE_MS, activeRunEntries, registerActiveRun, unregisterActiveRun } from "../state/stores/active-run-registry.ts";
@@ -1069,6 +1069,27 @@ function clampSteerBody(message: string): string {
 	return `${message.slice(0, TEAM_STEER_MAX_MESSAGE_LENGTH - TEAM_STEER_TRUNCATION_MARKER.length)}${TEAM_STEER_TRUNCATION_MARKER}`;
 }
 
+/** HƯỚNG A follow-up (probe19): token-less steer.force client — single
+ *  NDJSON frame to the run's broker (stamped socket preferred, derivation
+ *  fallback). The broker (detached runner host) performs the trusted write
+ *  pair. Mirrors respond-delivery's force tier; LAZY imports keep the
+ *  extension registration cold-start free of the broker-client graph. */
+async function attemptSteerForceViaBroker(manifest: TeamRunManifest, taskId: string, message: string): Promise<void> {
+	const { brokerRoundTrip } = await import("./team-tool/respond-delivery.ts");
+	const { getBrokerSocketPath } = await import("../utils/socket-path.ts");
+	const stamped = manifest.brokerSocketPath;
+	const socketPath = typeof stamped === "string" && stamped.length > 0 ? stamped : getBrokerSocketPath(manifest.sessionId ?? "");
+	let sent = false;
+	await brokerRoundTrip(socketPath, () => {
+		if (sent) return undefined; // force ack received — exchange done
+		sent = true;
+		return {
+			method: "steer.force",
+			params: { runId: manifest.runId, taskId, body: message },
+		};
+	});
+}
+
 export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTeamsToolResult {
 	const { runId, taskId } = params;
 	const rawMessage = params.message;
@@ -1124,6 +1145,25 @@ export function handleSteer(params: TeamToolParamsValue, ctx: TeamContext): PiTe
 		);
 	} catch {
 		// Best-effort: file write failure doesn't block the steer from pending array
+	}
+	// HƯỚNG A follow-up (probe19, 2026-11-01): a RESTARTED/foreign session's
+	// steering-file row is signed with a key the live worker does NOT hold
+	// (its verify set = dispatcher + spawner) — pollSteering drops it, so the
+	// fs row is dead for this incarnation and pendingSteers only delivers at
+	// the NEXT spawn. When we are not the trusted signer, ALSO route the
+	// message through the run's broker via token-less steer.force: the
+	// broker-host (detached runner) signs with a key every worker trusts and
+	// appends mailbox row + steering line itself. Fire-and-forget (handleSteer
+	// is sync); the steer.broker_force audit event is the success trace.
+	if (loaded.manifest.dispatcherVerifyKey !== getMailboxVerifyKeyPublic()) {
+		void attemptSteerForceViaBroker(loaded.manifest, taskId, message).catch((error) =>
+			logInternalError(
+				"steer.force-delivery-fallback",
+				error instanceof Error ? error : new Error(String(error)),
+				`runId=${runId} taskId=${taskId}`,
+				"warn",
+			),
+		);
 	}
 	// H1 (2026-08-10): handleSteer is a SYNC function — fire-and-forget async.
 	void appendEventAsync(loaded.manifest.eventsPath, {
