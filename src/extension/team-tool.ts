@@ -11,7 +11,7 @@ import type { executeTeamRun as _executeTeamRunFn } from "../runtime/team-runner
 import type { TeamToolParamsValue } from "../schema/team-tool-schema.ts";
 import { TEAM_TERMINAL_TASK_STATUSES } from "../state/contracts.ts";
 import { withRunLock } from "../state/coordination/locks.ts";
-import { replayPendingMailboxMessages, signSteeringEntry, getMailboxVerifyKeyPublic } from "../state/coordination/mailbox.ts";
+import { getMailboxVerifyKeyPublic, replayPendingMailboxMessages, signSteeringEntry } from "../state/coordination/mailbox.ts";
 import { isTaskClaimExpired } from "../state/coordination/task-claims.ts";
 import { appendEventAsync, appendEventFireAndForget } from "../state/event-log/event-log.ts";
 import { ACTIVE_RUN_STALE_MS, activeRunEntries, registerActiveRun, unregisterActiveRun } from "../state/stores/active-run-registry.ts";

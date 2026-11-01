@@ -31,15 +31,15 @@
  * exactly the pre-Finding-D behavior (correct while the dispatcher lives).
  */
 
-import { CrewBroker } from "./crew-broker.ts";
-import { getBrokerSocketPath } from "../../utils/socket-path.ts";
-import { getActiveDispatcherVerifyKey, setActiveDispatcherVerifyKey } from "./dispatcher-key-registry.ts";
-import { ensureCoordinationPublicVerifyKey } from "../../state/coordination/mailbox.ts";
-import type { BrokerSpawnCredentials } from "./broker-issuer.ts";
-import { getCrewEnv } from "../../config/env-vars.ts";
 import { loadConfig } from "../../config/config.ts";
-import { configuredModelInfosFromPiConfig } from "../model/model-fallback.ts";
+import { getCrewEnv } from "../../config/env-vars.ts";
+import { ensureCoordinationPublicVerifyKey } from "../../state/coordination/mailbox.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { getBrokerSocketPath } from "../../utils/socket-path.ts";
+import { configuredModelInfosFromPiConfig } from "../model/model-fallback.ts";
+import type { BrokerSpawnCredentials } from "./broker-issuer.ts";
+import { CrewBroker } from "./crew-broker.ts";
+import { getActiveDispatcherVerifyKey, setActiveDispatcherVerifyKey } from "./dispatcher-key-registry.ts";
 
 /** Handle on the runner-hosted broker handed back to background-runner. */
 export interface RunnerHostedBrokerHandle {

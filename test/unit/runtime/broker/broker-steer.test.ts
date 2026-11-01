@@ -14,16 +14,16 @@
  */
 
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
-import { randomUUID } from "node:crypto";
 import { CrewBroker } from "../../../../src/runtime/broker/crew-broker.ts";
 import { createRunManifest, saveRunManifest } from "../../../../src/state/stores/state-store.ts";
-import { getBrokerSocketPath } from "../../../../src/utils/socket-path.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
+import { getBrokerSocketPath } from "../../../../src/utils/socket-path.ts";
 import type { WorkflowConfig } from "../../../../src/workflows/workflow-config.ts";
 
 const team: TeamConfig = {

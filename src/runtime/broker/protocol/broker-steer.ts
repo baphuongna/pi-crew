@@ -23,9 +23,9 @@
  * steer.push (R2-L-A4), audit event steer.broker_force lands in events.jsonl.
  */
 
+import { isTerminalTaskStatus } from "../../../state/contracts.ts";
 import { appendEventAsync } from "../../../state/event-log/event-log.ts";
 import { loadRunManifestById } from "../../../state/stores/state-store.ts";
-import { isTerminalTaskStatus } from "../../../state/contracts.ts";
 import type { TeamRunManifest } from "../../../state/types.ts";
 import { logInternalError } from "../../../utils/internal-error.ts";
 import type { ServerConnection } from "./connection-state.ts";
