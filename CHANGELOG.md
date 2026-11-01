@@ -9622,3 +9622,18 @@ the repo. Two genuine wins, plus an informational CI job that never blocks.
   through the product tool.
 - probe20 live-proven end-to-end: foreign session `team steer` mid-run → worker's conversation
   received the message verbatim ("exactly ONE injected steering message observed verbatim").
+
+### spawn-phase-trace — observability for log-silent spawn hangs (2026-11-01, incident team_20261101074334)
+
+- Live incident: 02_execute's first worker spawn hung ~7 minutes between task.started
+  (07:50:05) and the idle-retry respawn (07:57:05) with ZERO trace — no worker.spawned,
+  no checkpoint childPid, no background.log line in the window (the runner's whole log is
+  17 lines). Forensics could not bisect WHERE it hung (candidates: worker-slot semaphore
+  wait, model-registry resolution chain, child spawn env build — all log-silent).
+- `createSpawnPhaseTracer`: a 30s unref'd interval per spawn attempt printing
+  `[spawn.trace] task=… attempt=… phase=… elapsedMs=…` to background.log — silent for
+  healthy sub-30s spawns, a breadcrumb every 30s while stuck. Wired in child-executor
+  (per-attempt, ended on onSpawn + attempt-finally).
+- `runWorker` slot-wait timing: acquire→fn-start >5s logs
+  `[spawn.trace] worker-slot wait=…ms` — separates slot starvation from in-child phases
+  in the next hang's trail.

@@ -161,7 +161,7 @@ export async function runWorker(input: WorkerSpawnInput): Promise<ChildPiRunResu
 	}
 	if (cap) {
 		// RR-014 / F15: thread the caller's signal into the slot WAIT itself.
-		// Previously the signal lived only inside childPiInput and was read by
+		// previously the signal lived only inside childPiInput and was read by
 		// runChildPi AFTER the acquire resolved — a cancelled task queued on a
 		// full pool stayed pending until the slot holder finished (and delayed
 		// every drainPendingUnits awaiting it). Two consistent outcomes:
@@ -171,7 +171,22 @@ export async function runWorker(input: WorkerSpawnInput): Promise<ChildPiRunResu
 		//   guard (child-pi-spawn.ts B5) sees signal.aborted and returns
 		//   kind "aborted" WITHOUT spawning, and withWorkerSlot's finally
 		//   releases the slot within a microtask.
-		return withWorkerSlot(() => runChildPi(childPiInput), childPiInput.signal);
+		//
+		// spawn.trace (2026-11-01, run team_20261101074334 forensics): the slot
+		// WAIT is a prime log-silent hang candidate (unbounded on a full pool).
+		// Measure acquire → fn-start; >5s gets a breadcrumb so the next hang is
+		// attributable (slot starvation vs in-child phases) from background.log.
+		const slotWaitStartedAt = Date.now();
+		let slotAcquiredAt: number | undefined;
+		const waitTrace = (label: string): void => {
+			if (slotAcquiredAt === undefined) return;
+			const waitedMs = slotAcquiredAt - slotWaitStartedAt;
+			if (waitedMs > 5_000) console.error(`[spawn.trace] worker-slot wait=${waitedMs}ms then ${label}`);
+		};
+		return withWorkerSlot(() => {
+			slotAcquiredAt = Date.now();
+			return runChildPi(childPiInput).finally(() => waitTrace("runChildPi-settled"));
+		}, childPiInput.signal);
 	}
 	return runChildPi(childPiInput);
 }

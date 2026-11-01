@@ -73,6 +73,7 @@ import { readProcIdentity } from "../process/reap-group.ts";
 import { checkProcessLiveness } from "../process-status.ts";
 import { DEFAULT_RETRY_POLICY } from "../recovery/retry-executor.ts";
 import { runWorker } from "../run-worker.ts";
+import { createSpawnPhaseTracer } from "../spawn-phase-trace.ts";
 import { parseSessionUsage, usageFromValue } from "../session-usage.ts";
 import { recordSupervisorContact, supervisorContactFromEvent } from "../supervisor-contact.ts";
 import type { ResultSource, TaskExecutionResult } from "./post-execution.ts";
@@ -827,7 +828,14 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			touch: () => persistHeartbeat(),
 		});
 		let childResult: ChildPiRunResult;
+		// spawn.trace (2026-11-01, run team_20261101074334 forensics): a
+		// 7-minute log-silent hang between task.started and worker.spawned
+		// left no bisectable trace. This tracer prints a phase breadcrumb every
+		// 30s ONLY while the pre-spawn/spawn window is stuck that long — healthy
+		// spawns stay silent.
+		const spawnTrace = createSpawnPhaseTracer(task.id, i);
 		try {
+			spawnTrace.phase("runWorker-await");
 			childResult = await runWorker({
 				cwd: task.cwd,
 				task: userPrompt,
@@ -878,6 +886,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 				attempt: i,
 				steeringFile: resolveRealContainedPath(`${manifest.artifactsRoot}/steering`, `${task.id}.jsonl`),
 				onSpawn: (pid) => {
+					// spawn.trace: the worker process exists — pre-spawn window closed.
+					spawnTrace.phase("worker-running");
+					spawnTrace.end();
 					// NEW-4/G25: pin this incarnation's pid FIRST so the liveness pulse
 					// corroborates against the real process from its first tick on.
 					attemptWorkerPid = pid;
@@ -1112,6 +1123,9 @@ export async function runChildProcessTask(ctx: TaskExecutionContext): Promise<Ta
 			// heartbeat anymore, including across the model-fallback respawn gap
 			// (where nothing is alive and the heartbeat must be allowed to age).
 			heartbeatPulse.stop();
+			// spawn.trace: attempt settled — always clear the tracer (onSpawn may
+			// never fire for a failed pre-spawn attempt).
+			spawnTrace.end();
 			if (timeoutHandle) clearTimeout(timeoutHandle);
 			// W2 fix — release the listener so it doesn't leak. {once:true}
 			// only auto-removes when the listener FIRES; if the timeout
