@@ -14,12 +14,14 @@
  */
 
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import test from "node:test";
 import { startRunnerHostedBroker } from "../../../../src/runtime/broker/runner-broker.ts";
+import { getBrokerSocketPath } from "../../../../src/utils/socket-path.ts";
 
 const priorBrokerEnv = process.env.PI_CREW_BROKER;
 test.after(() => {
@@ -27,9 +29,12 @@ test.after(() => {
 	else process.env.PI_CREW_BROKER = priorBrokerEnv;
 });
 
-function tempSocketPath(tag: string): string {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pi-crew-runner-broker-${tag}-`));
-	return path.join(dir, `${tag}.sock`);
+/** Platform-correct socket path (win32 named-pipe vs POSIX AF_UNIX) —
+ *  mirrors broker-steer.test.ts: a raw temp-file .sock path is INVALID for
+ *  net.listen on win32, which soft-fails broker start (live CI catch,
+ *  run 41304305247). Unique sessionId per test → no shard collisions. */
+function derivedSocketPath(tag: string): string {
+	return getBrokerSocketPath(`rb-${tag}-${randomUUID()}`);
 }
 
 function tempCwd(): string {
@@ -52,7 +57,7 @@ function canConnect(socketPath: string, timeoutMs = 2000): Promise<boolean> {
 
 test("runner-broker: starts, binds the overridden socket, and accepts connects", async () => {
 	delete process.env.PI_CREW_BROKER;
-	const socketPath = tempSocketPath("happy");
+	const socketPath = derivedSocketPath("happy");
 	const handle = await startRunnerHostedBroker({
 		runId: "team_20261101_runner_broker_happy",
 		cwd: tempCwd(),
@@ -72,7 +77,7 @@ test("runner-broker: issuer is fail-closed and payload-parity token-cached", asy
 	const handle = await startRunnerHostedBroker({
 		runId,
 		cwd: tempCwd(),
-		socketPath: tempSocketPath("issuer"),
+		socketPath: derivedSocketPath("issuer"),
 		resolveMaxDepth: () => 2,
 	});
 	assert.ok(handle);
@@ -99,7 +104,7 @@ test("runner-broker: issuer is fail-closed and payload-parity token-cached", asy
 
 test("runner-broker: PI_CREW_BROKER=0 → soft-fail, nothing bound", async () => {
 	process.env.PI_CREW_BROKER = "0";
-	const socketPath = tempSocketPath("disabled");
+	const socketPath = derivedSocketPath("disabled");
 	const handle = await startRunnerHostedBroker({
 		runId: "team_20261101_runner_broker_disabled",
 		cwd: tempCwd(),
@@ -114,7 +119,7 @@ test("runner-broker: bind collision → soft-fail (legacy dispatcher-socket path
 	skip: process.platform === "win32",
 }, async () => {
 	delete process.env.PI_CREW_BROKER;
-	const socketPath = tempSocketPath("collide");
+	const socketPath = derivedSocketPath("collide");
 	// Occupy the exact path with a foreign listener first.
 	const squatter = net.createServer(() => {});
 	await new Promise<void>((resolve) => squatter.listen(socketPath, resolve));
@@ -139,7 +144,7 @@ test("runner-broker: stop() is idempotent", async () => {
 	const handle = await startRunnerHostedBroker({
 		runId: "team_20261101_runner_broker_stop2",
 		cwd: tempCwd(),
-		socketPath: tempSocketPath("stop2"),
+		socketPath: derivedSocketPath("stop2"),
 		resolveMaxDepth: () => 4,
 	});
 	assert.ok(handle);
