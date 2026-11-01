@@ -102,7 +102,7 @@ export interface RespondDeliveryRow {
 /** Where the delivered row landed — surfaced for events/observability. */
 export interface RespondDeliveryOutcome {
 	messageId: string;
-	via: "broker" | "local";
+	via: "broker" | "forced" | "local";
 	/** Local path only: true when an existing (direction, requestId) row was
 	 *  reused instead of appending a new one (exactly-once re-entry). */
 	deduped: boolean;
@@ -261,30 +261,12 @@ function stringField(value: unknown, field: string): string | undefined {
 
 /** Broker CR path: challenge → nonce → dispatcher-key signature → append,
  *  all on ONE connection (see header). Throws RespondBrokerDeliveryError on
- *  ANY failure — the caller falls back to the local signed append. */
+ *  ANY failure — the caller falls back toward respond.force / local. */
 async function appendResponseRowViaBroker(
 	manifest: TeamRunManifest,
 	row: RespondDeliveryRow,
+	socketPath: string,
 ): Promise<{ messageId: string; deduped: boolean }> {
-	const sessionId = manifest.sessionId;
-	// HƯỚNG A (probe8 live, 2026-11-01): prefer the runner-stamped ACTUAL
-	// socket (async topology: derivation from the dispatcher-side synthetic
-	// sessionId hashes a path this run's broker never bound). Fall back to
-	// derivation for sync runs / pre-stamp manifests (sync: the responder's
-	// own process hosts the broker and the derivation IS its path).
-	const stamped = manifest.brokerSocketPath;
-	const socketPath =
-		typeof stamped === "string" && stamped.length > 0
-			? stamped
-			: typeof sessionId === "string" && sessionId.length > 0
-				? getBrokerSocketPath(sessionId)
-				: undefined;
-	if (socketPath === undefined) {
-		throw new RespondBrokerDeliveryError(
-			"no-session",
-			"manifest has no sessionId and no brokerSocketPath — broker socket not resolvable",
-		);
-	}
 	// Common params — the EXACT object both the append frame and the auth
 	// signature are derived from (respondAppendSignInput covers it whole).
 	const appendParams: RespondCommonParams = {
@@ -333,6 +315,43 @@ async function appendResponseRowViaBroker(
 	return { messageId, deduped };
 }
 
+/** HƯỚNG A follow-up (probes 14–17, 2026-11-01): token-less one-shot force
+ *  append for a LIVE park — the designed lane for a responder that is NOT
+ *  the dispatcher (restarted leader / foreign session: the heap-only
+ *  dispatcher keypair died with the original process, so CR can never
+ *  verify). The broker enforces live-park + one-shot-per-park + heap-side
+ *  dedup and appends a BROKER-SIGNED row the worker verifies (probe13:
+ *  auth:"forced" delivered end-to-end). Single frame, no challenge. */
+async function forceResponseRowViaBroker(
+	socketPath: string,
+	manifest: TeamRunManifest,
+	row: RespondDeliveryRow,
+): Promise<{ messageId: string; deduped: boolean }> {
+	const forceParams: RespondCommonParams = {
+		runId: manifest.runId,
+		taskId: row.taskId,
+		questionId: row.questionId,
+		body: row.body,
+		...(row.replyTo !== undefined ? { replyTo: row.replyTo } : {}),
+		priority: row.priority,
+		deliveryMode: row.deliveryMode,
+		requestId: row.requestId,
+	};
+	let sent = false;
+	const results = await brokerRoundTrip(socketPath, () => {
+		if (sent) return undefined; // force ack received — exchange done
+		sent = true;
+		return { method: "respond.force", params: forceParams };
+	});
+	const forceResult = results.length > 0 ? results[results.length - 1] : undefined;
+	const messageId = stringField(forceResult, "messageId");
+	if (messageId === undefined) {
+		throw new RespondBrokerDeliveryError("protocol", "respond.force result missing messageId");
+	}
+	const deduped = forceResult !== null && typeof forceResult === "object" && (forceResult as Record<string, unknown>).deduped === true;
+	return { messageId, deduped };
+}
+
 /**
  * Deliver one `kind:"response"` row for a LIVE park: broker-first, local
  * fallback — NEVER holds a run lock (the caller must have released
@@ -353,17 +372,45 @@ async function appendResponseRowViaBroker(
  *   append — hướng C behavior preserved.
  */
 export async function deliverResponseRow(manifest: TeamRunManifest, row: RespondDeliveryRow): Promise<RespondDeliveryOutcome> {
-	if (
-		typeof manifest.sessionId === "string" &&
-		manifest.sessionId.length > 0 &&
-		manifest.dispatcherVerifyKey === getMailboxVerifyKeyPublic()
-	) {
+	const sessionId = manifest.sessionId;
+	const stamped = manifest.brokerSocketPath;
+	const socketPath =
+		typeof stamped === "string" && stamped.length > 0
+			? stamped
+			: typeof sessionId === "string" && sessionId.length > 0
+				? getBrokerSocketPath(sessionId)
+				: undefined;
+	if (socketPath !== undefined) {
+		const isDispatcher = manifest.dispatcherVerifyKey === getMailboxVerifyKeyPublic();
+		if (isDispatcher) {
+			try {
+				const brokerOutcome = await appendResponseRowViaBroker(manifest, row, socketPath);
+				return { messageId: brokerOutcome.messageId, via: "broker", deduped: brokerOutcome.deduped };
+			} catch (error) {
+				logInternalError(
+					"respond.broker-delivery-fallback",
+					error instanceof Error ? error : new Error(String(error)),
+					`runId=${manifest.runId} taskId=${row.taskId} questionId=${row.questionId}`,
+					"warn",
+				);
+			}
+		}
+		// HƯỚNG A follow-up (probes 14–17): a non-dispatcher responder (restarted
+		// leader / foreign session — the heap-only dispatcher keypair is gone)
+		// could previously only reach the LOCAL append, whose row is signed with
+		// a key the worker does not hold → dropped as noise → the ask timed out
+		// with NO product surface able to answer it. respond.force is the
+		// designed lane: token-less, live-park-gated, one-shot, broker-SIGNED
+		// (probe13 end-to-end). Same-uid trust domain unchanged — any local
+		// process could already speak the protocol; this surfaces it through the
+		// product respond tool. Failure (dead park / no broker) falls through to
+		// the local append as the last-resort event trail.
 		try {
-			const brokerOutcome = await appendResponseRowViaBroker(manifest, row);
-			return { messageId: brokerOutcome.messageId, via: "broker", deduped: brokerOutcome.deduped };
+			const forced = await forceResponseRowViaBroker(socketPath, manifest, row);
+			return { messageId: forced.messageId, via: "forced", deduped: forced.deduped };
 		} catch (error) {
 			logInternalError(
-				"respond.broker-delivery-fallback",
+				"respond.force-delivery-fallback",
 				error instanceof Error ? error : new Error(String(error)),
 				`runId=${manifest.runId} taskId=${row.taskId} questionId=${row.questionId}`,
 				"warn",

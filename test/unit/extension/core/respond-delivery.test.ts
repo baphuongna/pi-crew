@@ -482,3 +482,56 @@ test("lock-safety: respond.force under a LIVE run.lock holder → typed busy fra
 		await fx.stop();
 	}
 });
+
+// ----------------------------------------------------------------------------
+// deliverResponseRow — HƯỚNG A follow-up (probes 14–17): force tier for a
+// non-dispatcher responder against a LIVE park
+// ----------------------------------------------------------------------------
+
+test("deliverResponseRow: restarted/foreign responder + LIVE park → respond.force delivers a broker-signed row (via 'forced')", async () => {
+	const pub = getMailboxVerifyKeyPublic();
+	// Manifest says SOMEONE ELSE is the dispatcher (original leader died with
+	// its heap keypair); the broker is bound to that dead key (CR can never
+	// verify for us). The park is LIVE → force is the designed lane.
+	const fx = await scaffold({ dispatcherVerifyKey: foreignPublicKeyB64(), brokerBoundKey: foreignPublicKeyB64() });
+	try {
+		const questionId = `q-forced-${randomBytes(3).toString("hex")}`;
+		fx.park(questionId);
+		const outcome = await deliverResponseRow(fx.manifest, responseRow(fx, questionId, "restarted leader forces through"));
+		assert.equal(outcome.via, "forced", "non-dispatcher responder with a live park must deliver via respond.force");
+		assert.ok(outcome.messageId.length > 0);
+		// Exactly ONE row on disk — the broker-signed append. No local
+		// duplicate row (a foreign local row would be unverifiable noise).
+		const rows = rawRows(fx.taskInbox);
+		assert.equal(rows.length, 1, "exactly one row — broker append only");
+		// The broker host (this test process) signed it — verifiable by any
+		// worker holding the broker/spawner public key.
+		assert.ok(verifyMailboxRowSig(rows[0]!, [pub]), "broker-signed row verifies");
+		// And the respond.broker_append audit event landed in events.jsonl.
+		const events = fs.readFileSync(fx.manifest.eventsPath, "utf8");
+		assert.ok(events.includes("respond.broker_append"), "audit event present");
+		assert.ok(events.includes('"auth":"forced"'), "auth:forced recorded");
+	} finally {
+		await fx.stop();
+	}
+});
+
+test("deliverResponseRow: non-dispatcher + park NOT live (dead park) → force no-park → local trail row", async () => {
+	const pub = getMailboxVerifyKeyPublic();
+	const fx = await scaffold({ dispatcherVerifyKey: foreignPublicKeyB64(), brokerBoundKey: foreignPublicKeyB64() });
+	try {
+		const questionId = `q-dead-${randomBytes(3).toString("hex")}`;
+		// NO park() — nothing waiting.
+		const lines = await captureConsoleError(async () => {
+			const outcome = await deliverResponseRow(fx.manifest, responseRow(fx, questionId, "late answer"));
+			assert.equal(outcome.via, "local", "dead park → force rejects no-park → local append");
+		});
+		assert.ok(
+			lines.some((l) => l.includes("respond.force-delivery-fallback")),
+			"force fallback warn recorded",
+		);
+		assert.equal(rawRows(fx.taskInbox).length, 1, "local trail row appended");
+	} finally {
+		await fx.stop();
+	}
+});

@@ -9589,3 +9589,19 @@ the repo. Two genuine wins, plus an informational CI job that never blocks.
   → park SURVIVED heartbeats (R6-5) → FOREIGN session (no token/key) responded via
   `respond.force` (`auth:"forced"`) → worker resumed with the answer and completed
   the task — the full hướng A acceptance that probes 8/9 could not reach.
+
+### HƯỚNG A follow-up: respond.force surfaced through the product respond tool (2026-11-01, probes 14-18)
+
+- Probes 14-17 exposed a dead end: a RESTARTED/foreign responder (the heap-only
+  dispatcher keypair died with the original `pi -p` process — which structurally
+  exits after async dispatch) could only reach the LOCAL append, whose row is
+  signed with a key the worker does not hold → dropped as noise → the ask timed
+  out with NO product surface able to answer it. deliverResponseRow now has a
+  three-tier chain: broker CR (dispatcher only) → **respond.force** (token-less
+  one-shot for a LIVE park, broker-SIGNED row — probe13/18 live-proven, incl.
+  `task.respond_delivered` worker ack) → local signed append (last-resort trail).
+  Same-uid trust domain unchanged (any local process could already speak the
+  protocol); this surfaces the existing capability through the product tool.
+- probe18 product-level proof: a foreign session's `team respond` on a live park
+  of a dead-dispatcher run delivered via force end-to-end (respond.broker_append
+  auth:forced → worker ack → task resumed).
