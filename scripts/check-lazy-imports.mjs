@@ -188,7 +188,20 @@ const BUDGETS = {
 		// transcript, theme gallery, tool-renderers). Statically imported by
 		// inline-panel/agent-transcript.ts which is already in the graph — hot render
 		// path, not deferrable; pure file-count growth, zero new reachability).
-		maxFiles: 542,
+		// HƯỚNG A wave (2026-11-01): 542 → 548 — six new product modules, each
+		// statically imported by an already-in-graph host (same shape, zero new
+		// reachability beyond the new files themselves):
+		//   • extension/team-tool/respond-delivery.ts (handleRespond delivery tiers)
+		//   • broker/dispatcher-key-registry.ts (CR trust-anchor registry)
+		//   • broker/protocol/broker-steer.ts (steer.force handler — crew-broker host)
+		//   • broker/runner-broker.ts (FINDING D runner-hosted broker — background-
+		//     runner LAZY-imports it at runtime; its static graph edge is the type
+		//     import chain via CrewBrokerOptions already in-graph)
+		//   • runtime/spawn-phase-trace.ts (incident-074334 breadcrumbs — child-
+		//     executor hot path, not deferrable)
+		//   • +1 pull-in from the mailbox/coordination cluster the new handlers
+		//     share with existing in-graph importers
+		maxFiles: 548,
 		forbid: ["test/", "scripts/", "docs/", "dist/"],
 	},
 };

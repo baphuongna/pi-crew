@@ -1075,8 +1075,8 @@ function clampSteerBody(message: string): string {
  *  pair. Mirrors respond-delivery's force tier; LAZY imports keep the
  *  extension registration cold-start free of the broker-client graph. */
 async function attemptSteerForceViaBroker(manifest: TeamRunManifest, taskId: string, message: string): Promise<void> {
-	const { brokerRoundTrip } = await import("./team-tool/respond-delivery.ts");
-	const { getBrokerSocketPath } = await import("../utils/socket-path.ts");
+	const { brokerRoundTrip } = await import("./team-tool/respond-delivery.ts"); // LAZY: broker-client graph out of extension registration cold-start
+	const { getBrokerSocketPath } = await import("../utils/socket-path.ts"); // LAZY: same — keep cold-start lean
 	const stamped = manifest.brokerSocketPath;
 	const socketPath = typeof stamped === "string" && stamped.length > 0 ? stamped : getBrokerSocketPath(manifest.sessionId ?? "");
 	let sent = false;

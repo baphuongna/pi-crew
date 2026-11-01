@@ -853,7 +853,7 @@ async function main(): Promise<void> {
 			// correct while the dispatcher still lives.
 			let hostedBroker: RunnerHostedBrokerHandle | undefined;
 			try {
-				const { startRunnerHostedBroker } = await import("./broker/runner-broker.ts");
+				const { startRunnerHostedBroker } = await import("./broker/runner-broker.ts"); // LAZY: broker module has process-level side effects at load
 				hostedBroker = await startRunnerHostedBroker({
 					runId,
 					cwd,
