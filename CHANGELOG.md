@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.11.56] — hướng A broker-signed respond + FINDING D runner-hosted broker + R6-5 + steer.force + spawn-trace (2026-11-01)
+
+Wave theme: **the broker-host (detached runner) becomes the trust anchor of async runs** — the dispatcher dies, the broker lives; the signer is foreign, the broker signs. Four commits, every layer live-proven.
+
 ## [Unreleased] — hướng A: broker-signed respond delivery (ADR Option 3)
 
 **Added (product, HƯỚNG A — broker-appended respond rows).** The 0.11.55 dispatcher-key distribution (hướng C) still left every responder that is NOT the
