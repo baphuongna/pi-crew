@@ -16,7 +16,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { persistSingleTaskUpdate } from "../../src/runtime/task-runner/state-helpers.ts";
 import { atomicWriteJsonCoalesced, flushPendingAtomicWrites } from "../../src/state/atomic-write.ts";
-import { __test__clearManifestCache, createRunManifest, loadRunManifestById } from "../../src/state/stores/state-store.ts";
+import { __test__clearManifestCache, createRunManifest, loadRunManifestById, saveRunTasks } from "../../src/state/stores/state-store.ts";
 import type { TeamTaskState } from "../../src/state/types.ts";
 import type { TeamConfig } from "../../src/teams/team-config.ts";
 import type { WorkflowConfig } from "../../src/workflows/workflow-config.ts";
@@ -155,4 +155,109 @@ test("persistSingleTaskUpdate does not drain unrelated coalesced writes (scoped 
 	} finally {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+// ─── R6-5 WAITING-PRESERVE (FINDING D root fix, 2026-11-01) ─────────────────
+// Live probes 10/11/12 (run team_20261101040510 pinned the stack): the
+// runner's persistHeartbeat ~1s whole-record persist carries a dispatch-time
+// task snapshot that never learned the broker parked the task — the first
+// post-park heartbeat ERASED the park from tasks.json, breaking
+// respond.force's live-park gate. mergeTaskUpdateWithDisk now preserves a
+// disk park against park-unaware non-terminal snapshots; legitimate clears
+// (respond requeue / broker wait-resolve) write full arrays via saveRunTasks
+// directly and are unaffected.
+
+test("R6-5: heartbeat snapshot must NOT erase a disk park (waiting-preserve)", () => {
+	withIsolatedHome(() => {
+		const cwd = makeTempDir("pi-crew-state-helpers-r65a-");
+		try {
+			const created = createRunManifest({ cwd, team, workflow, goal: "R6-5 heartbeat clobber" });
+			const task = created.tasks[0]!;
+			// Broker-style park: direct full-array write under the run lock.
+			const parked = {
+				...task,
+				status: "waiting" as const,
+				waiting: { questionId: "q-r65", askedAt: new Date().toISOString(), deadline: Date.now() + 480_000 },
+			};
+			saveRunTasks(
+				created.manifest,
+				created.tasks.map((t) => (t.id === task.id ? parked : t)),
+			);
+			// Runner heartbeat: stale in-memory snapshot (running, no waiting).
+			const heartbeatSnapshot: TeamTaskState = { ...task, status: "running" };
+			const result = persistSingleTaskUpdate(created.manifest, created.tasks, heartbeatSnapshot);
+			flushPendingAtomicWrites();
+			__test__clearManifestCache();
+			const reloaded = loadRunManifestById(cwd, created.manifest.runId);
+			assert.ok(reloaded, "manifest reloads");
+			const diskTask = reloaded!.tasks.find((t) => t.id === task.id)!;
+			assert.equal(diskTask.status, "waiting", "disk park survives the heartbeat persist");
+			assert.equal(diskTask.waiting?.questionId, "q-r65", "park payload preserved");
+			const returned = result.find((t) => t.id === task.id)!;
+			assert.equal(returned.status, "waiting", "returned (in-memory) task carries the preserved park");
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+});
+
+test("R6-5: terminal settle still clears the park (completed wins over waiting disk)", () => {
+	withIsolatedHome(() => {
+		const cwd = makeTempDir("pi-crew-state-helpers-r65b-");
+		try {
+			const created = createRunManifest({ cwd, team, workflow, goal: "R6-5 terminal settle" });
+			const task = created.tasks[0]!;
+			const parked = {
+				...task,
+				status: "waiting" as const,
+				waiting: { questionId: "q-r65", askedAt: new Date().toISOString(), deadline: Date.now() + 480_000 },
+			};
+			saveRunTasks(
+				created.manifest,
+				created.tasks.map((t) => (t.id === task.id ? parked : t)),
+			);
+			const settled: TeamTaskState = { ...task, status: "completed", finishedAt: new Date().toISOString() };
+			persistSingleTaskUpdate(created.manifest, created.tasks, settled, "child-stdout-final", true);
+			flushPendingAtomicWrites();
+			__test__clearManifestCache();
+			const reloaded = loadRunManifestById(cwd, created.manifest.runId);
+			const diskTask = reloaded!.tasks.find((t) => t.id === task.id)!;
+			assert.equal(diskTask.status, "completed", "terminal settle is let through");
+			assert.equal(diskTask.waiting, undefined, "park cleared by the terminal settle");
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+});
+
+test("R6-5: park-aware incoming (re-park) replaces the disk park", () => {
+	withIsolatedHome(() => {
+		const cwd = makeTempDir("pi-crew-state-helpers-r65c-");
+		try {
+			const created = createRunManifest({ cwd, team, workflow, goal: "R6-5 re-park" });
+			const task = created.tasks[0]!;
+			const parkedA = {
+				...task,
+				status: "waiting" as const,
+				waiting: { questionId: "q-old", askedAt: new Date().toISOString(), deadline: Date.now() + 480_000 },
+			};
+			saveRunTasks(
+				created.manifest,
+				created.tasks.map((t) => (t.id === task.id ? parkedA : t)),
+			);
+			const parkedB: TeamTaskState = {
+				...task,
+				status: "waiting",
+				waiting: { questionId: "q-new", askedAt: new Date().toISOString(), deadline: Date.now() + 480_000 },
+			};
+			persistSingleTaskUpdate(created.manifest, created.tasks, parkedB);
+			flushPendingAtomicWrites();
+			__test__clearManifestCache();
+			const reloaded = loadRunManifestById(cwd, created.manifest.runId);
+			const diskTask = reloaded!.tasks.find((t) => t.id === task.id)!;
+			assert.equal(diskTask.waiting?.questionId, "q-new", "incoming park-aware write wins");
+		} finally {
+			fs.rmSync(cwd, { recursive: true, force: true });
+		}
+	});
 });

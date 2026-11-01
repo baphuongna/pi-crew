@@ -46,6 +46,7 @@ import { writeAsyncStartMarker } from "./async-marker.ts";
 // (pure module — background-runner runs await main() at module scope, so
 // importing THIS file from tests would boot the runner).
 import { setActiveDispatcherVerifyKey } from "./broker/dispatcher-key-registry.ts";
+import type { RunnerHostedBrokerHandle } from "./broker/runner-broker.ts";
 import { parseStdinBrokerPayload, readStdinFirstLine } from "./broker/stdin-handshake.ts";
 import { terminateActiveChildPiProcesses } from "./child-pi/child-pi.ts";
 import { directTeamAndWorkflowFromRun } from "./direct-run.ts";
@@ -322,7 +323,7 @@ function setupUnhandledRejectionGuard(
  * and error handlers. This ensures consistent cleanup regardless of how
  * the process exits (normal flow, unhandled rejection, or main() exception).
  */
-function runCleanup(
+async function runCleanup(
 	stopInterruptGuard: () => void,
 	stopParentGuard: () => void,
 	stopHeartbeat: () => void,
@@ -330,7 +331,7 @@ function runCleanup(
 	watchdogTimer: NodeJS.Timeout,
 	exitDueToRejection: boolean,
 	eventsPath?: string,
-): void {
+): Promise<void> {
 	console.log(`[background-runner] runCleanup, exitDueToRejection=${exitDueToRejection}`);
 	stopInterruptGuard();
 	stopParentGuard();
@@ -351,6 +352,19 @@ function runCleanup(
 		console.log(`[background-runner] runCleanup: terminateActiveChildPiProcesses error: ${errorMessage(error)}`);
 	}
 	console.log(`[background-runner] runCleanup: killed ${killed} child processes`);
+	// FINDING D: stop the runner-hosted broker AFTER the children (they may
+	// still flush final frames) — ownership-gated unlink of its socket. Never
+	// re-throws: cleanup must keep going.
+	if (activeRunnerBroker) {
+		const brokerToStop = activeRunnerBroker;
+		activeRunnerBroker = undefined;
+		try {
+			await brokerToStop.stop();
+			console.log("[background-runner] runCleanup: runner-hosted broker stopped");
+		} catch (error) {
+			console.log(`[background-runner] runCleanup: broker stop error: ${errorMessage(error)}`);
+		}
+	}
 	// FIX Issue #5: Unregister this worker from the orphan registry on exit.
 	// Previously this was only cleaned up on the next session_start cleanup cycle,
 	// causing unnecessary delay in removing stale registrations.
@@ -382,6 +396,9 @@ function runCleanup(
 // Module-level flag: set by unhandled rejection guard and main() catch.
 // Used by the module-level catch to signal that finally should call process.exit(1).
 let exitDueToRejection = false;
+/** FINDING D: the runner-hosted broker for THIS run (undefined = legacy
+ *  dispatcher-socket path / hosting failed). Stopped in runCleanup(). */
+let activeRunnerBroker: RunnerHostedBrokerHandle | undefined;
 
 export interface ExecuteBackgroundRunOptions {
 	/**
@@ -811,20 +828,6 @@ async function main(): Promise<void> {
 			const { setActiveBrokerIssuer } = await import("./broker/broker-issuer.ts");
 			// LAZY: pi-args pulls the model registry chain.
 			const { resolveCrewMaxDepth } = await import("./model/pi-args.ts");
-			// Static issuer scoped to THIS run, serving PRE-MINTED per-task COMPOUND
-			// tokens — wait.* rejects bare-runId tokens (ADR-0 item 6), so the v1
-			// single-token shortcut left every park forbidden. Unknown taskIds
-			// (dynamic workflows planned in-runner) get NO creds — follow-up:
-			// broker-side mint RPC. Depth-cap parity with the parent-side
-			// issueForChild gate (lifecycle-handlers.ts:1130-1136).
-			setActiveBrokerIssuer(async (rid, taskId, childDepth) => {
-				if (rid !== payload.runId) return undefined;
-				if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;
-				if (!taskId) return undefined;
-				const token = payload.tasks[taskId];
-				if (!token) return undefined;
-				return { socketPath: payload.socketPath, token };
-			});
 			// HƯỚNG A (ADR Option 3): bind the dispatcher's PUBLIC verify key from
 			// the same start-options payload (heap → pipe → heap). A broker
 			// constructed in THIS process (lifecycle-handlers.ts construct site)
@@ -837,19 +840,62 @@ async function main(): Promise<void> {
 				setActiveDispatcherVerifyKey(payload.dispatcherVerifyKey);
 				debugLog(`[broker] dispatcher verify key bound from start options (run ${runId})`);
 			}
-			// HƯỚNG A (probe8 live, 2026-11-01): persist the ACTUAL broker socket
-			// path onto the manifest so cross-process responders can find it —
-			// getBrokerSocketPath(manifest.sessionId) derives the DISPATCHER-side
-			// synthetic session hash, NOT this runner's socket (live probe: derived
-			// 7e4df036 vs actual 9529a08a → ENOENT → respond-delivery's RPC path
-			// was unreachable in async production topology). Best-effort: a stamp
-			// failure never blocks the run (responders fall back to derivation,
-			// then to the local signed append — hướng C).
+			// FINDING D (2026-11-01, probes 8/9): payload.socketPath is the
+			// DISPATCHER's broker — a `pi -p` dispatcher exits seconds after
+			// async dispatch and session_shutdown unlinks that socket while the
+			// run lives on (every later worker broker op hit ENOENT). Host the
+			// run's broker HERE instead: the runner outlives the whole run, mints
+			// its own per-task tokens, and stamps ITS socket on the manifest so
+			// cross-process responders (respond-delivery RPC / respond.force)
+			// reach a listener that exists for the run's full lifetime. Soft-fail:
+			// when hosting fails (disabled / bind error), keep the legacy payload
+			// issuer + dispatcher socket below — exact pre-Finding-D behavior,
+			// correct while the dispatcher still lives.
+			let hostedBroker: RunnerHostedBrokerHandle | undefined;
+			try {
+				const { startRunnerHostedBroker } = await import("./broker/runner-broker.ts");
+				hostedBroker = await startRunnerHostedBroker({
+					runId,
+					cwd,
+					dispatcherVerifyKey: payload.dispatcherVerifyKey,
+					resolveMaxDepth: () => resolveCrewMaxDepth(undefined),
+				});
+			} catch (error) {
+				logInternalError("background-runner.runner-broker-boot", error, `runId=${runId}`, "warn");
+			}
+			if (hostedBroker) {
+				activeRunnerBroker = hostedBroker;
+				setActiveBrokerIssuer(hostedBroker.issueForChild);
+				debugLog(`[broker] runner-hosted broker listening (${hostedBroker.socketPath})`);
+			} else {
+				// Legacy path: static issuer scoped to THIS run, serving PRE-MINTED
+				// per-task COMPOUND tokens — wait.* rejects bare-runId tokens
+				// (ADR-0 item 6). Unknown taskIds get NO creds — follow-up:
+				// broker-side mint RPC. Depth-cap parity with the parent-side
+				// issueForChild gate (lifecycle-handlers.ts:1130-1136).
+				setActiveBrokerIssuer(async (rid, taskId, childDepth) => {
+					if (rid !== payload.runId) return undefined;
+					if (childDepth !== undefined && childDepth >= resolveCrewMaxDepth(undefined)) return undefined;
+					if (!taskId) return undefined;
+					const token = payload.tasks[taskId];
+					if (!token) return undefined;
+					return { socketPath: payload.socketPath, token };
+				});
+			}
+			// HƯỚNG A + FINDING D: persist the run's ACTUAL broker socket path onto
+			// the manifest so cross-process responders can find it — the
+			// runner-hosted socket when hosting succeeded, else the dispatcher's
+			// (pre-Finding-D semantics; derivation from manifest.sessionId was
+			// never correct in async topology — probe8: derived 7e4df036 vs actual
+			// 9529a08a). Best-effort: a stamp failure never blocks the run
+			// (responders fall back to derivation, then to the local signed
+			// append — hướng C).
+			const stampPath = hostedBroker?.socketPath ?? payload.socketPath;
 			try {
 				const loaded = loadRunManifestById(cwd, runId);
-				if (loaded && loaded.manifest.brokerSocketPath !== payload.socketPath) {
-					await saveRunManifestAsync({ ...loaded.manifest, brokerSocketPath: payload.socketPath });
-					debugLog(`[broker] manifest.brokerSocketPath stamped (${payload.socketPath})`);
+				if (loaded && loaded.manifest.brokerSocketPath !== stampPath) {
+					await saveRunManifestAsync({ ...loaded.manifest, brokerSocketPath: stampPath });
+					debugLog(`[broker] manifest.brokerSocketPath stamped (${stampPath})`);
 				}
 			} catch (error) {
 				logInternalError("background-runner.broker-socket-stamp", error, `runId=${runId}`, "warn");
@@ -1103,7 +1149,7 @@ async function main(): Promise<void> {
 		// FIX Issue #1: Wrap runCleanup in try/catch to ensure process.exit(1)
 		// is called even if runCleanup throws unexpectedly.
 		try {
-			runCleanup(
+			await runCleanup(
 				stopInterruptGuard,
 				stopParentGuard,
 				stopHeartbeat,

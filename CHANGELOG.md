@@ -9563,3 +9563,29 @@ the repo. Two genuine wins, plus an informational CI job that never blocks.
   fully once the socket lifetime is fixed. Suspected vectors: sibling lifecycle stale-sweep /
   libuv close-unlink-by-name (socket-stop.ts documents the primitive) / sessionId inheritance
   collision between the runner and its children.
+
+### FINDING D closed + R6-5 waiting-preserve (2026-11-01, probes 10-13)
+
+- **FINDING D root cause**: async runs handed every worker the DISPATCHER's broker
+  socket; a `pi -p` dispatcher exits seconds after dispatch and session_shutdown
+  unlinks that socket while the run lives on — every later broker op (parks,
+  messages, respond RPC) hit ENOENT. Fix: the detached runner now HOSTS the run's
+  broker (`runner-broker.ts`) — fresh `runner-<runId>` socket, per-task compound
+  tokens minted in the runner heap (same one-pipe trust domain as the stdin
+  pre-mints), dispatcher's public verify key still the respond.append CR anchor,
+  construction mirrors the lifecycle host config-for-config, stopped in runCleanup.
+  Soft-fail to the legacy dispatcher-socket issuer when hosting fails.
+- **R6-5 waiting-preserve** (FINDING A residual closed): the runner's
+  persistHeartbeat ~1s whole-record persist carried a dispatch-time snapshot that
+  never learned the broker parked the task — the first post-park heartbeat ERASED
+  the park from tasks.json (probe10 "no-park" on a verifiably parked worker; stack
+  pinned via temporary saveRunTasksCoalesced instrumentation, probe12 run
+  team_20261101040510). mergeTaskUpdateWithDisk now preserves a disk park against
+  park-unaware non-terminal snapshots (mirror of R6-1 terminal-preserve);
+  legitimate clears (respond requeue / broker wait-resolve victim flip) write full
+  arrays via saveRunTasks directly and are unaffected.
+- **Live-proven end-to-end (probe13, run team_20261101041053)**: leader dispatched
+  async and exited → runner-hosted broker (manifest-stamped socket) → worker parked
+  → park SURVIVED heartbeats (R6-5) → FOREIGN session (no token/key) responded via
+  `respond.force` (`auth:"forced"`) → worker resumed with the answer and completed
+  the task — the full hướng A acceptance that probes 8/9 could not reach.

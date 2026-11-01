@@ -91,6 +91,38 @@ function mergeTaskUpdateWithDisk(diskTasks: TeamTaskState[], incoming: TeamTaskS
 			},
 		};
 	}
+
+	// R6-5 WAITING-PRESERVE (FINDING D root fix, live probes 10/11/12,
+	// 2026-11-01): a runner-side snapshot (child-executor persistHeartbeat's
+	// ~1s whole-record persist is the caught clobberer — stack pinned via
+	// saveRunTasksCoalesced instrumentation, probe12 run
+	// team_20261101040510) carries a dispatch-time task object that NEVER
+	// learned the broker parked the task (the park is written disk-side by the
+	// broker's wait.request handler under the run lock; the runner's in-memory
+	// copy keeps status "running", no `waiting`). Without this guard the first
+	// post-park heartbeat persist ERASED the park (tasks.json → running,
+	// waiting:null), which broke respond.force's live-park gate ("no-park"
+	// while the worker was verifiably parked — probe10) — the FINDING A
+	// residual class, now closed at the merge chokepoint every
+	// persistSingleTaskUpdate caller funnels through.
+	//
+	// Rule (mirror of R6-1's "the verdict is not ours to overwrite"): when
+	// DISK holds a live park (`waiting` payload, non-terminal status) and the
+	// incoming snapshot does not itself carry park-awareness
+	// (waiting === undefined) and is NON-terminal, the disk park survives —
+	// the heartbeat was never authoritative over an ask park. Legitimate
+	// clears do NOT pass through here: respond.ts requeueWaitingTask and the
+	// broker's wait-resolve victim flip write FULL task arrays directly via
+	// saveRunTasks under the run lock (verified 2026-11-01), and terminal
+	// settles (post-execution) are let through by the non-terminal condition.
+	if (
+		diskTask.status === "waiting" &&
+		diskTask.waiting !== undefined &&
+		incoming.waiting === undefined &&
+		!isTerminalTaskStatus(effective.status)
+	) {
+		effective = { ...effective, status: "waiting" as const, waiting: diskTask.waiting };
+	}
 	return effective;
 }
 
