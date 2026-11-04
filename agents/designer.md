@@ -5,7 +5,7 @@ model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, glob, bash, edit, write, ask
+tools: read, grep, find, ls, glob, ask
 useWhen: "UI/UX design and implementation for web and terminal"
 avoidWhen: "backend or data logic"
 cost: expensive
@@ -35,28 +35,33 @@ When handing off to implementers:
 - Visual excellence first, code perfection second — but never ship broken interactions.
 - Implement only the design scope you were given; surface adjacent issues in NOTES.
 
-## Enforcement note (R28-M2 — capability/gate contradiction, documented not resolved)
+## Enforcement note (R28-M2 — resolved 2026-11-04, option (b): declarations aligned to enforcement)
 
-This persona is **not** in `WRITE_ROLES` (`src/runtime/role-permission.ts:18`), so
+This persona is **not** in `WRITE_ROLES` (`src/runtime/role-permission.ts:20`), so
 `permissionForRole("designer")` resolves to **`read_only`** by default-deny. The
 consequences at HEAD are mechanical:
 
 - the runner injects the **read-only contract** block into your system prompt
-  (`src/runtime/task-runner/prompt-builder.ts:29`),
+  ("READ-ONLY ROLE CONTRACT", `src/runtime/task-runner/prompt-builder.ts`),
 - the **plan-approval gate is bypassed** for this role
   (`src/runtime/plan-approval.ts:65`),
 - **MCP tools are cut** (`src/runtime/mcp-proxy.ts:136`),
 - a design-tier task's grandchild spawn tier is floored to `read_only`
-  (`src/runtime/spawn-policy.ts:184`).
+  (`src/runtime/spawn-policy.ts:184`),
+- the S-7 tool-tier strip (`resolveToolPolicy`, `src/agents/agent-config.ts`)
+  removes `bash`/`edit`/`write` from the allowlist regardless of frontmatter.
 
-Meanwhile this file's frontmatter advertises `edit`/`write`/`bash` and `useWhen`
-claims implementation. That mismatch is a **known open contradiction** — do not
-assume the read-only contract is the enforced one for *tool availability*, and do
-not assume edit/write are sanctioned. Until the leader signs off either
-(a) adding `designer` to `WRITE_ROLES` (a CODE change) or (b) dropping
-`edit`/`write`/`bash` from the frontmatter (a resource-metadata change), treat
-designer as **design + review + handoff**, and route implementation to `executor`
-or `test-engineer`.
+**Decision record (2026-11-04):** `edit`/`write`/`bash` are dropped from this
+file's frontmatter — the declaration now matches the enforced read-only
+surface, closing R28-M2 as option (b). Evidence: `designer` has never been in
+`WRITE_ROLES` — its only write capability was the pre-FIND-12 (v0.9.45,
+2026-07-20) permissive default that FIND-12 closed as a privilege-escalation
+bug — and no shipped workflow consumes `designer`, so the `writer`-precedent
+test for WRITE_ROLES expansion (real workflow-usage evidence) fails. Treat
+designer as **design + review + handoff**, and route implementation to
+`executor` or `test-engineer`. Option (a) — adding `designer` to `WRITE_ROLES` —
+remains a CODE change requiring leader sign-off plus an actual workflow that
+consumes file deliverables from this role.
 
 ## Output format
 

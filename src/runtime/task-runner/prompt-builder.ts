@@ -8,7 +8,7 @@ import { buildMemoryBlock } from "../agent-memory.ts";
 import { permissionForRole } from "../role-permission.ts";
 import { scrubDependencyContextBody } from "../task-output-context.ts";
 import { HANDOFF_TEMPLATE, renderTaskPacket, sanitizeTaskText } from "../task-packet.ts";
-import { buildWorkspaceTree } from "../workspace-tree.ts";
+import { buildTaskWorkspaceTree } from "../workspace-tree.ts";
 import { renderSuggestedFilesSection, runRetrievalCycle } from "./retrieval-orchestrator.ts";
 
 /**
@@ -159,23 +159,29 @@ export function renderOutputSchemaBlock(outputSchema: TaskOutputSchema): string 
  * Expensive async sub-results that compose the stable prefix.
  * These are cached per (cwd, step.task, runId) so parallel siblings
  * in the same batch reuse them instead of recomputing.
+ *
+ * R2 (adaptive-04): the workspace tree is NO LONGER part of these
+ * components — it is now per-task (subtree around the task's working
+ * files), so caching it under the shared keys below would leak one task's
+ * subtree into its siblings. renderTaskPrompt builds the tree itself via
+ * buildTaskWorkspaceTree, which has its own per-root TTL cache.
  */
 export interface StableComponents {
-	treeBlock: string;
 	suggestedFilesBlock: string;
 	knowledgeFragment: string;
 }
 
 const stableComponentCache = new Map<string, StableComponents>();
 
-// P9 (perf): cross-run cache for the I/O-heavy sub-results (workspace tree +
-// retrieval + knowledge). The tree and retrieval don't depend on runId, but
-// they DO depend on the run GOAL: `runRetrievalCycle(step.task, goal, cwd)`
-// and `buildKnowledgeFragment(cwd, { goal, taskText, role })` both take the
-// goal as a query signal. A short-lived (TTL-bounded) cross-run cache lets
-// sequential runs in the same session amortize the cost: run #2 in cwd X with
-// the same step text AND the same goal gets a cache hit instead of redoing
-// `buildWorkspaceTree` (which walks the FS) and `runRetrievalCycle`. The TTL
+// P9 (perf): cross-run cache for the I/O-heavy sub-results (retrieval +
+// knowledge; R2 moved the workspace tree out to a per-task scope, so it no
+// longer rides these goal-scoped caches). Retrieval and knowledge don't
+// depend on runId, but they DO depend on the run GOAL:
+// `runRetrievalCycle(step.task, goal, cwd)` and `buildKnowledgeFragment(cwd,
+// { goal, taskText, role })` both take the goal as a query signal. A
+// short-lived (TTL-bounded) cross-run cache lets sequential runs in the same
+// session amortize the cost: run #2 in cwd X with the same step text AND the
+// same goal gets a cache hit instead of redoing `runRetrievalCycle`. The TTL
 // bounds staleness in long-lived sessions (e.g., the workspace may have
 // changed between runs); a mtime check on the .git/HEAD or workspace marker
 // would be overkill for an already-bounded perf win. The full per-run cache
@@ -195,7 +201,6 @@ const stableComponentCache = new Map<string, StableComponents>();
 // (src/extension/knowledge-injection.ts:61-68); if it ever starts scoring, the
 // key must gain it too.
 interface CachedStableIO {
-	treeBlock: string;
 	suggestedFilesBlock: string;
 	knowledgeFragment: string;
 	at: number;
@@ -229,7 +234,8 @@ export function clearStablePrefixCache(): void {
 
 /**
  * Compute (or return cached) expensive async sub-results that compose
- * the stable prefix: workspace tree, file retrieval, knowledge fragment.
+ * the stable prefix: file retrieval, knowledge fragment. (R2: the workspace
+ * tree left this cache — it is per-task now; see StableComponents.)
  * Parallel siblings with the same cwd/step/run reuse the cached result.
  */
 export async function computeStablePrefixComponents(
@@ -255,16 +261,12 @@ export async function computeStablePrefixComponents(
 	const ioFresh = ioCached && now - ioCached.at < STABLE_IO_TTL_MS;
 	if (ioFresh) {
 		const components: StableComponents = {
-			treeBlock: ioCached!.treeBlock,
 			suggestedFilesBlock: ioCached!.suggestedFilesBlock,
 			knowledgeFragment: ioCached!.knowledgeFragment,
 		};
 		stableComponentCache.set(cacheKey, components);
 		return components;
 	}
-
-	const tree = await buildWorkspaceTree(task.cwd);
-	const treeBlock = tree.rendered ? `# Workspace Structure\n${tree.rendered}` : "";
 
 	const retrieval = await runRetrievalCycle(step.task, manifest.goal, task.cwd);
 	const suggestedFilesBlock = renderSuggestedFilesSection(retrieval);
@@ -275,7 +277,7 @@ export async function computeStablePrefixComponents(
 		role: step.role,
 	});
 
-	const components: StableComponents = { treeBlock, suggestedFilesBlock, knowledgeFragment };
+	const components: StableComponents = { suggestedFilesBlock, knowledgeFragment };
 	stableComponentCache.set(cacheKey, components);
 	// RR-021 WI-4.3f: same insertion-order eviction cap as the stableIOCache
 	// sibling below — stableComponentCache had NO cap (unbounded across a
@@ -413,7 +415,13 @@ export async function renderTaskPrompt(
 		`Step: ${step.id}`,
 		`Role: ${step.role}`,
 	].join("\n");
-	const taskPacketBlock = task.taskPacket ? renderTaskPacket(task.taskPacket) : "";
+	// R3 (adaptive-04): single-canonical task body. The packet JSON used to
+	// re-embed the full objective — the SAME text as the `Task:` narrative
+	// below — a second time ("task body ×3" finding; the third copy is the
+	// parent-context embed in child-pi.ts, outside this seam). The JSON block
+	// now carries a pointer; renderTaskPacket's default still embeds the
+	// objective for non-prompt consumers and the direct unit contract.
+	const taskPacketBlock = task.taskPacket ? renderTaskPacket(task.taskPacket, { omitObjective: true }) : "";
 	const specContractBlock = task.taskPacket?.specSnapshots?.length
 		? renderSpecContractBlock(task.taskPacket, { verifier: step.role === "verifier" })
 		: "";
@@ -427,16 +435,28 @@ export async function renderTaskPrompt(
 		HANDOFF_TEMPLATE,
 	].join("\n");
 
-	// Stable prefix: role instructions, coordination, workspace tree — rarely changes.
+	// R2 (adaptive-04): the workspace tree is scoped to a subtree AROUND this
+	// task's working files (step.reads) instead of the identical
+	// whole-workspace walk that every sibling worker used to carry. Per-task
+	// content must NOT ride the byte-stable shared prefix (ARCH-3), so the
+	// block lives at the END of the dynamic suffix; buildWorkspaceTree's
+	// per-root TTL cache keeps parallel siblings sharing a scope on one walk.
+	// No reads / out-of-workspace / non-existent scope ⇒ legacy full tree.
+	const { tree: taskTree, scope: treeScope } = await buildTaskWorkspaceTree(task.cwd, step.reads);
+	const treeBlock = taskTree.rendered
+		? `# Workspace Structure${treeScope.relativePath === "." ? "" : ` (subtree: ${treeScope.relativePath})`}\n${taskTree.rendered}`
+		: "";
+
+	// Stable prefix: role instructions, coordination — rarely changes.
 	// ARCH-3 (byte-stable worker prefix): per-task values (Task ID, Task cwd, mailbox
-	// target) live in dynamicSuffix so siblings sharing a run+role produce a
-	// byte-identical prefix and hit provider KV-cache across the batch.
+	// target, the R2 task-scoped workspace tree) live in dynamicSuffix so siblings
+	// sharing a run+role produce a byte-identical prefix and hit provider KV-cache
+	// across the batch.
 	const stablePrefix = [
 		headerBlock,
 		protocolBlock,
 		roleInstructions,
 		coordination,
-		stableComponents.treeBlock,
 		stableComponents.suggestedFilesBlock,
 		toolGuidance,
 		// O4 (ARCH-2 corrected): project knowledge (.crew/knowledge.md). Builtin
@@ -451,8 +471,10 @@ export async function renderTaskPrompt(
 		.filter(Boolean)
 		.join("\n");
 
-	// Dynamic suffix: goal, step, skills, task packet, dependency context, memory — changes per task
-	const dynamicSuffix = [
+	// Dynamic suffix: goal, step, skills, task packet, dependency context, memory — changes per task.
+	// R2: the task-scoped workspace tree is pinned LAST (the most task-variable
+	// block) so everything before it keeps the per-task layout stable.
+	const dynamicParts = [
 		taskHeader,
 		"",
 		skillBlock,
@@ -465,7 +487,9 @@ export async function renderTaskPrompt(
 		memoryBlock,
 		outputSchemaBlock,
 		taskAndHandoff,
-	].join("\n");
+	];
+	if (treeBlock) dynamicParts.push("", treeBlock);
+	const dynamicSuffix = dynamicParts.join("\n");
 
 	const full = [stablePrefix, "", dynamicSuffix].join("\n");
 	const sections: Record<string, number> | undefined = promptBreakdownEnabled()
@@ -476,7 +500,11 @@ export async function renderTaskPrompt(
 				"stable.protocol": protocolBlock.length,
 				"stable.roleInstructions": roleInstructions.length,
 				"stable.coordination": coordination.length,
-				"stable.workspaceTree": stableComponents.treeBlock.length,
+				// R2 mapping for before/after comparison: pre-R2 key was
+				// "stable.workspaceTree" (identical whole-workspace walk ×N,
+				// riding the system-append channel); post-R2 the tree is a
+				// per-task subtree in the user message → "dynamic.workspaceTree".
+				"dynamic.workspaceTree": treeBlock.length,
 				"stable.suggestedFiles": stableComponents.suggestedFilesBlock.length,
 				"stable.toolGuidance": toolGuidance.length,
 				"stable.knowledge": stableComponents.knowledgeFragment.length,

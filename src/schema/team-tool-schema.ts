@@ -291,7 +291,7 @@ const sharedFields = {
 			minimum: 1,
 			maximum: 1_000_000,
 			description:
-				"Est-token (chars/4) budget cap on the dependency-context layer of worker prompts (default 1800). When exceeded, later dependencies are trimmed to summary head + artifact pointer. Out-of-range values are ignored.",
+				"Effective-token budget cap on the dependency-context layer of worker prompts (default 1800). Tokens are counted by the in-tree CJK-aware counter (utils/token-counter.ts countTokens, floored by measured worker usage) — NOT a chars/4 estimate. When exceeded, later dependencies are trimmed to summary head + artifact pointer. Out-of-range values are ignored here; env PI_CREW_HANDOFF_BUDGET_TOKENS overrides, and a RESOLVED value ≤0 or >1_000_000 disables the trim entirely.",
 		}),
 	),
 	budgetTotal: Type.Optional(
@@ -612,7 +612,7 @@ export interface TeamToolParamsValue {
 	b?: number;
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens (default: false). */
 	excludeContextBash?: boolean;
-	/** Est-token (chars/4) budget cap on the dependency-context layer of worker prompts (default 1800). Later dependencies get trimmed to summary head + artifact pointer when exceeded. */
+	/** Effective-token budget cap on the dependency-context layer of worker prompts (default 1800; CJK-aware countTokens from utils/token-counter.ts — the old chars/4 wording was drift). Later dependencies get trimmed to summary head + artifact pointer when exceeded. */
 	handoffBudgetTokens?: number;
 	/** Total token budget for the run. When set, enables budget tracking (minimum 1000). */
 	budgetTotal?: number;

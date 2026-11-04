@@ -79,8 +79,9 @@ export const LIMIT_CEILINGS = {
 	// (10_000 turns), which capped the effective timeout at 10s and silently disabled
 	// any larger value (e.g. 300_000 = 5min) via parsePositiveInteger returning undefined.
 	runtimeTaskTimeoutMs: 24 * 60 * 60 * 1000,
-	// Handoff budget (est tokens, chars/4) for the dynamic.dependencyContext
-	// prompt layer. Above the ceiling the budget is treated as the OFF-switch
+	// Handoff budget (effective tokens — CJK-aware countTokens,
+	// utils/token-counter.ts) for the dynamic.dependencyContext prompt layer.
+	// Above the ceiling the budget is treated as the OFF-switch
 	// (untrimmed render), mirroring the render-site semantics in
 	// task-output-context.ts.
 	runtimeHandoffBudgetTokens: 1_000_000,
@@ -413,8 +414,10 @@ function parseModelFallbackConfig(value: unknown): CrewRuntimeConfig["modelFallb
 }
 
 /**
- * Handoff budget for the dynamic.dependencyContext prompt layer (est tokens,
- * chars/4). Deliberately NOT parsePositiveInteger: out-of-range values are
+ * Handoff budget for the dynamic.dependencyContext prompt layer (effective
+ * tokens — CJK-aware countTokens from utils/token-counter.ts, floored by the
+ * measured-output anchor at the render site; the old chars/4 wording was
+ * drift). Deliberately NOT parsePositiveInteger: out-of-range values are
  * dropped silently (undefined → render site falls back to default 1800)
  * rather than rejecting the whole runtime block. The ≤0 / >1_000_000
  * OFF-switch is expressible only via env PI_CREW_HANDOFF_BUDGET_TOKENS

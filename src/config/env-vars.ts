@@ -263,6 +263,11 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		name: "PI_CREW_PROMPT_SKILLS",
 		doc: "'full' inlines complete skill bodies in worker prompts (SR-02 escape hatch); default injects compact index entries (name+description+path, read-on-demand)",
 	},
+	PI_CREW_KNOWLEDGE_MAX_BYTES: {
+		name: "PI_CREW_KNOWLEDGE_MAX_BYTES",
+		parser: "int",
+		doc: "R1 (adaptive context diet): byte cap for knowledge.md injection — overrides EVERY knowledge-injection cap at once (worker/query path MAX_SESSION_LOG_BYTES 5000 + MAX_CONVENTIONS_BYTES 2048, no-query main-session path MAX_KNOWLEDGE_HEAD_BYTES 2000; knowledge-injection.ts readKnowledge). Unset/non-integer → per-path defaults (byte-identical to pre-R1 behavior, pinned by unit test); ≥1 → each cap becomes N; ≤0 → off-switch, injects NO knowledge",
+	},
 	PI_CREW_ASYNC_EARLY_EXIT_GUARD: {
 		name: "PI_CREW_ASYNC_EARLY_EXIT_GUARD",
 		doc: "'0' skips the async-run early-exit guard (team-tool/run.ts:103)",
@@ -345,7 +350,7 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 	PI_CREW_HANDOFF_BUDGET_TOKENS: {
 		name: "PI_CREW_HANDOFF_BUDGET_TOKENS",
 		parser: "int",
-		doc: "est-token (chars/4) budget for the dynamic.dependencyContext prompt layer; beats runtime.handoffBudgetTokens, default 1800; resolved ≤0 or >1_000_000 disables the trim (task-output-context.ts renderDependencyOutputContext)",
+		doc: "effective-token budget for the dynamic.dependencyContext prompt layer (CJK-aware countTokens, utils/token-counter.ts — NOT chars/4, that wording was drift); beats runtime.handoffBudgetTokens, default 1800; resolved ≤0 or >1_000_000 disables the trim (task-output-context.ts renderDependencyOutputContext)",
 	},
 	PI_CREW_MOCK_LIVE_SESSION: {
 		name: "PI_CREW_MOCK_LIVE_SESSION",

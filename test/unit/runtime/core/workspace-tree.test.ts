@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import test from "node:test";
-import { buildWorkspaceTree, formatAge, formatBytes } from "../../../../src/runtime/workspace-tree.ts";
+import { describe, it, test } from "node:test";
+import {
+	buildTaskWorkspaceTree,
+	buildWorkspaceTree,
+	formatAge,
+	formatBytes,
+	resolveTaskTreeScope,
+} from "../../../../src/runtime/workspace-tree.ts";
 
 // ── Helper: create a temp directory tree ───────────────────────────────
 
@@ -214,4 +220,104 @@ test("includes file size and age for files", async () => {
 	} finally {
 		await fs.rm(dir, { recursive: true, force: true });
 	}
+});
+
+// ── R2 (adaptive-04): task-scoped subtree ──────────────────────────────
+
+describe("resolveTaskTreeScope — R2 scoping rule (pure, no FS)", () => {
+	it("no focus paths ⇒ whole workspace (legacy behavior)", () => {
+		for (const none of [undefined, false, null, []] as const) {
+			const scope = resolveTaskTreeScope("/ws/repo", none);
+			assert.equal(scope.rootPath, "/ws/repo");
+			assert.equal(scope.relativePath, ".");
+		}
+	});
+
+	it("single file focus narrows to its directory", () => {
+		const scope = resolveTaskTreeScope("/ws/repo", ["src/runtime/tree.ts"]);
+		assert.equal(scope.relativePath, "src/runtime");
+		assert.equal(scope.rootPath, "/ws/repo/src/runtime");
+	});
+
+	it("multiple focuses narrow to their deepest shared directory", () => {
+		const scope = resolveTaskTreeScope("/ws/repo", ["src/runtime/a.ts", "src/runtime/deep/b.ts", "src/other/c.ts"]);
+		assert.equal(scope.relativePath, "src");
+	});
+
+	it("divergent focuses (no shared dir below root) fall back to the whole workspace", () => {
+		const scope = resolveTaskTreeScope("/ws/repo", ["src/a.ts", "docs/b.md"]);
+		assert.equal(scope.relativePath, ".");
+		assert.equal(scope.rootPath, "/ws/repo");
+	});
+
+	it("focuses outside the workspace are ignored", () => {
+		const onlyOutside = resolveTaskTreeScope("/ws/repo", ["../elsewhere/a.ts", "/abs/other/b.ts"]);
+		assert.equal(onlyOutside.relativePath, ".");
+		// Outside paths must not veto an in-workspace sibling either.
+		const mixed = resolveTaskTreeScope("/ws/repo", ["../elsewhere/a.ts", "src/runtime/b.ts"]);
+		assert.equal(mixed.relativePath, "src/runtime");
+	});
+
+	it("absolute in-workspace focus paths scope too", () => {
+		const scope = resolveTaskTreeScope("/ws/repo", ["/ws/repo/src/x.ts"]);
+		assert.equal(scope.relativePath, "src");
+	});
+
+	it("glob-style focus (non-existent dir) resolves the literal dir — fallback is the async layer", () => {
+		// "src/**/*.ts" has no "/" after the last separator, so dirname = "src/**";
+		// the walk root will not exist and buildTaskWorkspaceTree must fall back.
+		const scope = resolveTaskTreeScope("/ws/repo", ["src/**/*.ts"]);
+		assert.equal(scope.relativePath, "src/**");
+	});
+});
+
+describe("buildTaskWorkspaceTree — R2 scoped walk", () => {
+	it("walks the subtree around the focus files, not the whole workspace", async () => {
+		const dir = await makeTmpDir();
+		try {
+			await createTempTree(
+				{
+					src: { runtime: { "focus-file.ts": "export {}" }, "top.ts": "x" },
+					unrelated: { "far-away.ts": "y" },
+				},
+				dir,
+			);
+
+			const { tree, scope } = await buildTaskWorkspaceTree(dir, ["src/runtime/focus-file.ts"]);
+			assert.equal(scope.relativePath, "src/runtime");
+			assert.ok(tree.rendered.includes("focus-file.ts"), `expected focus file in:\n${tree.rendered}`);
+			assert.ok(!tree.rendered.includes("far-away.ts"), "scoped walk must not render outside the subtree");
+			assert.ok(!tree.rendered.includes("top.ts"), "parent-dir siblings are outside the subtree walk");
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("non-existent scope falls back to the whole-workspace walk (fail-safe)", async () => {
+		const dir = await makeTmpDir();
+		try {
+			await createTempTree({ src: { "real.ts": "x" }, "root-file.ts": "y" }, dir);
+
+			const { tree, scope } = await buildTaskWorkspaceTree(dir, ["typo-dir/file.ts"]);
+			assert.equal(scope.relativePath, ".", "must fall back to the unscoped walk");
+			assert.ok(tree.rendered.includes("src/"), `expected full tree in:\n${tree.rendered}`);
+			assert.ok(tree.rendered.includes("root-file.ts"));
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps the legacy walk (defaults) when no focus paths are given", async () => {
+		const dir = await makeTmpDir();
+		try {
+			await createTempTree({ src: { "a.ts": "x" }, docs: { "b.md": "y" } }, dir);
+
+			const { tree, scope } = await buildTaskWorkspaceTree(dir, undefined);
+			assert.equal(scope.relativePath, ".");
+			assert.ok(tree.rendered.includes("src/"));
+			assert.ok(tree.rendered.includes("docs/"));
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
 });

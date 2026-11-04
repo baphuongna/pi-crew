@@ -130,9 +130,10 @@ export const PiTeamsRuntimeConfigSchema = Type.Object(
 			),
 		),
 		excludeContextBash: Type.Optional(Type.Boolean()),
-		// Handoff budget: est-token (chars/4) cap on the dynamic.dependencyContext
-		// prompt layer. Matches parseHandoffBudgetTokens in config-validation.ts
-		// (out-of-range values are dropped → render default 1800).
+		// Handoff budget: effective-token cap on the dynamic.dependencyContext
+		// prompt layer (CJK-aware countTokens, utils/token-counter.ts — the old
+		// chars/4 wording was drift). Matches parseHandoffBudgetTokens in
+		// config-validation.ts (out-of-range values are dropped → render default 1800).
 		handoffBudgetTokens: Type.Optional(Type.Integer({ minimum: 1, maximum: 1_000_000 })),
 		agentExtensions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { sensitive: true })),
 		// Mux-surface policy (spec v0.7 §8.2.4): no sensitive marks — surface

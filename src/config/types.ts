@@ -180,10 +180,12 @@ export interface CrewRuntimeConfig {
 	/** Mark certain bash commands as excludeFromContext to reduce context tokens. Default: false */
 	excludeContextBash?: boolean;
 	/**
-	 * Est-token budget for the dynamic.dependencyContext prompt layer
+	 * Effective-token budget for the dynamic.dependencyContext prompt layer
 	 * (handoff budget). When the rendered dependency output exceeds this many
-	 * estimated tokens (chars/4 — the same heuristic the prompt breakdown
-	 * uses), dependencies are trimmed IN DECLARATION ORDER: earlier deps keep
+	 * effective tokens (countTokens — the CJK-aware estimator in
+	 * utils/token-counter.ts, floored by the measured-output anchor; the old
+	 * chars/4 wording was drift), dependencies are trimmed IN DECLARATION
+	 * ORDER: earlier deps keep
 	 * their full output, later ones are downgraded to taskId/role/status + a
 	 * ≤240-char summary head + an artifact pointer
 	 * (`artifacts/<runId>/results/<taskId>.txt`) the worker can `read` back.

@@ -384,6 +384,22 @@ export function parseHandoffFromOutput(output: string): ParsedHandoff {
 	};
 }
 
-export function renderTaskPacket(packet: TaskPacket): string {
-	return ["# Task Packet", "", "```json", JSON.stringify(packet, null, 2), "```", ""].join("\n");
+/** R3 (adaptive-04, 2026-11-04): render options for the prompt seam.
+ * `omitObjective` swaps the packet's `objective` field for a POINTER line —
+ * the worker prompt already carries the task body as the canonical `Task:`
+ * narrative (prompt-builder.ts taskAndHandoff), and the JSON re-embed
+ * duplicated it verbatim (measured ~0.5-1K est-tok/worker, the "task body
+ * ×3" finding). Default (no options) keeps the full objective so non-prompt
+ * consumers and the direct unit contract (task-handoff-template.test.ts)
+ * are unchanged. The substitution is render-only: `TaskPacket` state and
+ * `validateTaskPacket` still see the real objective. */
+export interface RenderTaskPacketOptions {
+	omitObjective?: boolean;
+}
+
+const OMITTED_OBJECTIVE_POINTER = "(see the 'Task:' section below — task body rendered once, not re-embedded here)";
+
+export function renderTaskPacket(packet: TaskPacket, options?: RenderTaskPacketOptions): string {
+	const body = options?.omitObjective ? { ...packet, objective: OMITTED_OBJECTIVE_POINTER } : packet;
+	return ["# Task Packet", "", "```json", JSON.stringify(body, null, 2), "```", ""].join("\n");
 }

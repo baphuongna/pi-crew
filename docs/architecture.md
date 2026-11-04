@@ -102,6 +102,7 @@ lives there. The ones most likely to be set by hand:
 | `PI_CREW_ASYNC_EARLY_EXIT_GUARD=0` | Disable the async-run early-exit guard. |
 | `PI_TEAMS_MOCK_CHILD_PI` / `PI_CREW_MOCK_LIVE_SESSION` | Test hooks for mocked worker execution. |
 | `PI_CREW_MAX_WORKERS` | Cap concurrent workers (default `max(2, cpus−2)`). |
+| `PI_CREW_KNOWLEDGE_MAX_BYTES` | Cap knowledge.md injection (bytes) across every path — worker prompts and the main session alike; `0`/negative disables knowledge injection entirely (unset keeps per-path defaults 5000/2048/2000). |
 | `PI_TEAMS_CHILD_RESPONSE_TIMEOUT_MS` | Child Pi response timeout. |
 
 ### Debugging a run

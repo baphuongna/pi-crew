@@ -245,6 +245,99 @@ function applyLineCap(lines: RenderLine[], cap: number): { lines: RenderLine[]; 
 	return { lines: kept, elided: removable.length };
 }
 
+// ── Task-scoped subtree (R2, adaptive-04 2026-11-04) ───────────────────
+
+export interface TaskTreeScope {
+	/** Absolute directory the walk roots at. */
+	rootPath: string;
+	/** Scope relative to the workspace root; "." when the walk covers the whole workspace. */
+	relativePath: string;
+}
+
+/** Longest shared directory prefix across relative dir paths ("." when none). */
+function commonDirPrefix(dirs: string[]): string {
+	const split = dirs.map((d) => d.split(path.sep).filter((p) => p !== "" && p !== "."));
+	let prefix = split[0] ?? [];
+	for (let i = 1; i < split.length && prefix.length > 0; i++) {
+		const other = split[i]!;
+		const keep: string[] = [];
+		for (let j = 0; j < Math.min(prefix.length, other.length); j++) {
+			if (prefix[j] === other[j]) keep.push(prefix[j]!);
+			else break;
+		}
+		prefix = keep;
+	}
+	return prefix.length > 0 ? prefix.join(path.sep) : ".";
+}
+
+/**
+ * R2 (adaptive-04): resolve the walk root for a task-scoped workspace tree.
+ *
+ * The legacy prompt seam walked the ENTIRE workspace from `task.cwd` — in
+ * shared-workspace mode that is the same root for every sibling worker, so
+ * each prompt carried an identical whole-workspace tree (measured 26% of the
+ * 01_discover artifact, ~0.9K est-tok/worker). This resolves a subtree
+ * AROUND the task's working files instead: the deepest directory that is an
+ * ancestor of every in-workspace focus path (focus paths are the step's
+ * `reads`, which follow file-path semantics — a directory-valued read
+ * contributes its parent and therefore narrows nothing).
+ *
+ * Deterministic and pure (no FS access) so unit tests pin the scoping rule
+ * directly. Falls back to "." (whole workspace, legacy behavior) when there
+ * are no focus paths, when they all live outside the workspace, or when they
+ * share no directory below the root.
+ */
+export function resolveTaskTreeScope(workspaceCwd: string, focusPaths?: readonly string[] | false | null): TaskTreeScope {
+	const rootPath = path.resolve(workspaceCwd);
+	if (!focusPaths || focusPaths.length === 0) return { rootPath, relativePath: "." };
+
+	const insideDirs: string[] = [];
+	for (const entry of focusPaths) {
+		if (typeof entry !== "string" || entry.trim() === "") continue;
+		const rel = path.relative(rootPath, path.resolve(rootPath, entry));
+		// Outside the workspace ("../x", absolute elsewhere) cannot scope it.
+		if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) continue;
+		insideDirs.push(path.dirname(rel));
+	}
+	if (insideDirs.length === 0) return { rootPath, relativePath: "." };
+
+	const common = commonDirPrefix(insideDirs);
+	if (common === ".") return { rootPath, relativePath: "." };
+	return { rootPath: path.join(rootPath, common), relativePath: common };
+}
+
+export interface TaskWorkspaceTree {
+	tree: WorkspaceTree;
+	scope: TaskTreeScope;
+}
+
+/**
+ * R2 (adaptive-04): build the workspace tree scoped to a subtree around the
+ * task's working files. Options/defaults are the legacy `buildWorkspaceTree`
+ * ones (depth 3 / dirLimit 12 / lineCap 120) — only the walk ROOT narrows.
+ *
+ * Fail-safe: a focus path pointing at a directory that does not exist (typo,
+ * glob pattern, stale path) must not strip the worker's tree — the walk falls back to the whole workspace, byte-identical to pre-R2.
+ * Per-root walks reuse `buildWorkspaceTree`'s TTL cache, so parallel
+ * siblings that share a scope do one FS walk.
+ */
+export async function buildTaskWorkspaceTree(
+	workspaceCwd: string,
+	focusPaths?: readonly string[] | false | null,
+	options?: WorkspaceTreeOptions,
+): Promise<TaskWorkspaceTree> {
+	const scope = resolveTaskTreeScope(workspaceCwd, focusPaths);
+	if (scope.relativePath !== ".") {
+		try {
+			await fs.stat(scope.rootPath);
+		} catch {
+			const rootPath = path.resolve(workspaceCwd);
+			return { tree: await buildWorkspaceTree(rootPath, options), scope: { rootPath, relativePath: "." } };
+		}
+	}
+	return { tree: await buildWorkspaceTree(scope.rootPath, options), scope };
+}
+
 // ── Public API ────────────────────────────────────────────────────────
 
 const emptyResult = (rootPath: string): WorkspaceTree => ({

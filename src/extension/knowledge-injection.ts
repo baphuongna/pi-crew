@@ -53,6 +53,46 @@ const MAX_SESSION_LOG_BYTES = 5_000;
 export const MAX_CONVENTIONS_BYTES = 2_048;
 
 /**
+ * R1 (adaptive context diet, 2026-11-04): single env knob capping how much
+ * knowledge.md content is injected, read via getCrewEnv so the registry +
+ * env gate stay the single read path. PI_CREW_KNOWLEDGE_MAX_BYTES overrides
+ * EVERY injection cap in this file — the worker/query-path caps
+ * (MAX_SESSION_LOG_BYTES + MAX_CONVENTIONS_BYTES) AND the no-query
+ * main-session head cap (MAX_KNOWLEDGE_HEAD_BYTES).
+ *
+ * WHY one knob over all three caps (decision recorded per task packet):
+ * the three caps are per-path bounds of the SAME injection surface — one
+ * dial means one mental model ("max bytes of knowledge per agent") for
+ * both the host session and worker prompts; a per-path split would need
+ * three env names to move one budget, and the worker path (the context-diet
+ * target) spans TWO caps that must move together anyway.
+ *
+ * Semantics (mirrors PI_CREW_HANDOFF_BUDGET_TOKENS):
+ *   - unset / non-integer / empty → per-path defaults above — output is
+ *     BYTE-IDENTICAL to pre-R1 behavior (HARD RULE, pinned by unit test);
+ *   - N ≥ 1 → every cap becomes N (raising above a default is allowed);
+ *   - N ≤ 0 → off-switch: NO knowledge injected (readKnowledge → "").
+ */
+const KNOWLEDGE_MAX_BYTES_ENV_RE = /^[+-]?\d+$/;
+
+/** Resolve the R1 knob: undefined = unset/invalid (keep per-path defaults),
+ *  otherwise the parsed integer (≤0 = off-switch). Never throws. */
+function resolveKnowledgeMaxBytes(): number | undefined {
+	const raw = getCrewEnv("PI_CREW_KNOWLEDGE_MAX_BYTES");
+	if (raw === undefined) return undefined;
+	const trimmed = raw.trim();
+	if (!KNOWLEDGE_MAX_BYTES_ENV_RE.test(trimmed)) return undefined;
+	const parsed = Number.parseInt(trimmed, 10);
+	return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** Effective cap for one path: knob override (guaranteed ≥1 — the ≤0
+ *  off-switch returns early in readKnowledge), else the path default. */
+function knowledgeCap(defaultBytes: number, knob: number | undefined): number {
+	return knob === undefined ? defaultBytes : knob;
+}
+
+/**
  * Relevance context for section-aware injection. When omitted (or when goal/
  * taskText are both absent), injection falls back to conventions-only — no
  * IDF computation, no session-log body. This keeps callers without query
@@ -268,6 +308,10 @@ function selectSessionLog(query: string, sessionLog: KnowledgeSection[], budgetB
 /** Read knowledge content. "" if absent/empty. */
 export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 	try {
+		// R1 knob: resolved once per call; ≤0 short-circuits BOTH paths to ""
+		// (off-switch) BEFORE any file I/O or cache interaction.
+		const maxBytes = resolveKnowledgeMaxBytes();
+		if (maxBytes !== undefined && maxBytes <= 0) return "";
 		const p = knowledgePath(cwd);
 		const stat = tryStat(p);
 		if (!stat) {
@@ -286,7 +330,11 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 		// start (main session + every worker), re-reading the file each time.
 		// For a run with N workers this is N redundant readFileSync of the same
 		// file. Cache by (mtimeMs, size) and only re-read when the file changes.
-		const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+		// R1: the no-query CONTENT depends on the effective head cap, so the cap
+		// rides the content-cache key (a same-process env change between reads
+		// must not serve a stale truncation). Parsed sections stay cap-independent.
+		const headCap = knowledgeCap(MAX_KNOWLEDGE_HEAD_BYTES, maxBytes);
+		const cacheKey = `${stat.mtimeMs}:${stat.size}:${headCap}`;
 
 		// B2: when no query context is provided (main-session hook, legacy
 		// callers, tests), keep the simple head-only path. This preserves the
@@ -298,8 +346,8 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 			// markers are added, so system-generated HTML comments (truncation
 			// notices) survive — sanitizeAgentSystemPrompt strips ALL HTML comments.
 			let content = sanitizeAgentSystemPrompt(fs.readFileSync(p, "utf8").trim(), "project");
-			if (content.length > MAX_KNOWLEDGE_HEAD_BYTES) {
-				content = `${content.slice(0, MAX_KNOWLEDGE_HEAD_BYTES)}\n\n<!-- knowledge.md truncated at ${MAX_KNOWLEDGE_HEAD_BYTES} bytes (head shown). Full file: ${p} — use the \`read\` tool if you need sections beyond the head. -->`;
+			if (content.length > headCap) {
+				content = `${content.slice(0, headCap)}\n\n<!-- knowledge.md truncated at ${headCap} bytes (head shown). Full file: ${p} — use the \`read\` tool if you need sections beyond the head. -->`;
 			}
 			knowledgeCache.set(p, { key: cacheKey, content });
 			enforceKnowledgeCacheCap(knowledgeCache);
@@ -331,17 +379,21 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 		}
 
 		const queryText = [query.goal, query.taskText].filter(Boolean).join(" \n ");
-		const matchedSessionLog = selectSessionLog(queryText, parsed.sessionLog, MAX_SESSION_LOG_BYTES);
+		const sessionLogCap = knowledgeCap(MAX_SESSION_LOG_BYTES, maxBytes);
+		const matchedSessionLog = selectSessionLog(queryText, parsed.sessionLog, sessionLogCap);
 
 		const parts: string[] = [];
 		// Conventions: always injected, but capped at MAX_CONVENTIONS_BYTES
 		// (SEC-2 LOW defense-in-depth — the no-query path already bounds raw
 		// content at MAX_KNOWLEDGE_HEAD_BYTES; this mirrors that bound on the
 		// worker/query path where convention sections were previously uncapped).
+		// R1: the effective cap is the R1 knob when set (byte-identical defaults
+		// when unset).
+		const conventionsCap = knowledgeCap(MAX_CONVENTIONS_BYTES, maxBytes);
 		const conventionsBody = parsed.conventions.map((s) => s.body).join("\n");
-		if (conventionsBody.length > MAX_CONVENTIONS_BYTES) {
+		if (conventionsBody.length > conventionsCap) {
 			parts.push(
-				`${conventionsBody.slice(0, MAX_CONVENTIONS_BYTES)}\n\n<!-- ...[truncated] conventions section capped at ${MAX_CONVENTIONS_BYTES} bytes. Full file: ${p} — use \`read\`. -->`,
+				`${conventionsBody.slice(0, conventionsCap)}\n\n<!-- ...[truncated] conventions section capped at ${conventionsCap} bytes. Full file: ${p} — use \`read\`. -->`,
 			);
 		} else if (conventionsBody) {
 			parts.push(conventionsBody);

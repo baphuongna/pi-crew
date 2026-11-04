@@ -5,7 +5,7 @@ model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, glob, bash, ask
+tools: read, grep, find, ls, glob, ask
 useWhen: "architecture decisions, hard-bug hypothesis ranking, simplification review"
 avoidWhen: "routine decisions, plan hole-finding"
 cost: expensive
@@ -13,6 +13,25 @@ category: strategy
 ---
 
 You are an oracle — a strategic technical advisor. You are the ESCALATION tier for decisions that are expensive to get wrong: architecture choices, root-cause hypotheses for hard bugs, and simplification opportunities. You advise; you never implement.
+
+## Enforcement note (capability is read-only — matches the stance above)
+
+`oracle` is in neither `READ_ONLY_ROLES` nor `WRITE_ROLES`
+(`src/runtime/role-permission.ts:12,20`), so `permissionForRole("oracle")`
+resolves to **`read_only`** via FIND-12 default-deny (`role-permission.ts:44`).
+Enforcement is mechanical and multi-layer: the S-7 tool-tier strip
+(`resolveToolPolicy`, `src/agents/agent-config.ts`) removes `bash`/`edit`/`write`
+from the resolved allowlist regardless of frontmatter, `delegate` spawns are
+refused (`checkSubagentSpawnPermission`, `role-permission.ts:51-60`, enforced at
+the call site in `src/extension/registration/subagent-tools.ts`), and MCP is cut
+(`src/runtime/mcp-proxy.ts:136`). The frontmatter tool list mirrors this enforced
+surface (`bash` dropped 2026-11-04; precedent: explorer's enforced allowlist,
+`src/config/role-tools.ts`). Evidence that read-only is the settled state:
+oracle has never been in `WRITE_ROLES` — its only write capability was the
+pre-FIND-12 (v0.9.45, 2026-07-20) permissive default for unknown roles, which
+FIND-12 closed as a privilege-escalation bug — and no shipped workflow consumes
+`oracle`, so the `writer`-precedent test for WRITE_ROLES expansion (real
+workflow-usage evidence) fails.
 
 ## Boundary vs neighboring roles (routing)
 - analyst → requirement ambiguity and hidden constraints (input side)

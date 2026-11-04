@@ -286,6 +286,10 @@ const CREW_ENV_FORWARDING_DECL: Record<string, CrewEnvForwardDecision> = {
 	//   NOT forwarded (behavior preservation 0.11.17) — follow-up candidates.
 	PI_CREW_PROMPT_BREAKDOWN: { kind: "gap", reason: "prompt-builder runs in the runner for async runs" },
 	PI_CREW_PROMPT_SKILLS: { kind: "gap", reason: "prompt-builder runs in the runner for async runs" },
+	PI_CREW_KNOWLEDGE_MAX_BYTES: {
+		kind: "gap",
+		reason: "knowledge-injection read (prompt-builder stable prefix) runs in the runner for async runs; deliberately not forwarded — workers receive knowledge via prompt text, not env (same class as PI_CREW_PROMPT_SKILLS)",
+	},
 	PI_CREW_BACKGROUND_MODE: { kind: "gap", reason: "child-executor read inside the runner" },
 	PI_CREW_DEBUG: { kind: "gap", reason: "background-runner debug logging" },
 	PI_TEAMS_DEBUG: { kind: "gap", reason: "internal-error severity gate — every process incl. the runner" },

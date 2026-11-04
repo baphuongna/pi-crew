@@ -320,9 +320,9 @@ describe("computeStablePrefixComponents — P9 cross-run cache", () => {
 		clearStablePrefixCache();
 		// After clear, the cache lookup misses and the cross-run cache is also dropped;
 		// we cannot intercept the FS calls easily but we can verify the function still
-		// returns components of the same shape.
+		// returns components of the same shape. (R2 adaptive-04: treeBlock left the
+		// stable components — the tree is per-task now; see prompt-tree-scope.test.ts.)
 		const after = await computeStablePrefixComponents(manifest, step, task);
-		assert.ok(typeof after.treeBlock === "string");
 		assert.ok(typeof after.suggestedFilesBlock === "string");
 		assert.ok(typeof after.knowledgeFragment === "string");
 	});

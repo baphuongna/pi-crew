@@ -57,6 +57,7 @@ const SRC_READ_NAMES: readonly string[] = [
 	"PI_CREW_ASYNC_EARLY_EXIT_GUARD",
 	"PI_CREW_PROMPT_BREAKDOWN",
 	"PI_CREW_PROMPT_SKILLS",
+	"PI_CREW_KNOWLEDGE_MAX_BYTES", // R1 (adaptive context diet): knowledge-injection byte cap knob
 	"PI_CREW_BACKGROUND_MODE",
 	"PI_CREW_BROKER",
 	"PI_CREW_DEBUG",
