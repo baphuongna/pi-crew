@@ -4,7 +4,13 @@ import * as path from "node:path";
 import { describe, it } from "node:test";
 import type { PiTeamsToolResult } from "../../../../src/extension/tool-result.ts";
 import type { SubagentRecord, SubagentSpawnOptions } from "../../../../src/runtime/subagent-manager.ts";
-import { readPersistedSubagentRecord, SubagentManager, savePersistedSubagentRecord } from "../../../../src/runtime/subagent-manager.ts";
+import {
+	prunePersistedSubagentRecords,
+	readPersistedSubagentRecord,
+	resolveSubagentRecordTtlDays,
+	SubagentManager,
+	savePersistedSubagentRecord,
+} from "../../../../src/runtime/subagent-manager.ts";
 import { createTrackedTempDir, removeTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
 function makeSpawnOptions(cwd: string, overrides: Partial<SubagentSpawnOptions> = {}): SubagentSpawnOptions {
@@ -221,5 +227,129 @@ describe("subagent-manager", () => {
 			assert.equal(waited, undefined);
 			removeTrackedTempDir(tmpDir);
 		});
+	});
+});
+
+// FIX 3 (retention): terminal subagent records accumulate forever (1,229
+// files / 6.7 MB Jun–Oct) because removePersistedSubagentRecord only fires on
+// explicit cancel. prunePersistedSubagentRecords TTL-prunes terminal records
+// while NEVER touching queued/running/blocked (blocked drives
+// blockedSignalFromSubagentDir terminal-status derivation).
+describe("FIX 3: prunePersistedSubagentRecords", () => {
+	const DAY = 24 * 60 * 60 * 1000;
+
+	function subagentDir(cwd: string): string {
+		return path.join(cwd, ".crew", "state", "subagents");
+	}
+
+	it("removes terminal+old; keeps terminal+recent, blocked, running, malformed", () => {
+		const tmpDir = createTrackedTempDir("pi-crew-subagent-ttl-");
+		try {
+			const now = Date.now();
+			const records: SubagentRecord[] = [
+				makeRecord({ id: "agent_old_done", status: "completed", startedAt: now - 30 * DAY, completedAt: now - 30 * DAY }),
+				makeRecord({ id: "agent_new_done", status: "completed", startedAt: now - 1 * DAY, completedAt: now - 1 * DAY }),
+				// blocked: completedAt undefined → age from startedAt (old) — must STILL be kept.
+				makeRecord({ id: "agent_old_blocked", status: "blocked", startedAt: now - 30 * DAY, blockedAt: now - 30 * DAY }),
+				makeRecord({ id: "agent_old_running", status: "running", startedAt: now - 30 * DAY }),
+				makeRecord({ id: "agent_old_failed", status: "failed", startedAt: now - 40 * DAY, completedAt: now - 40 * DAY }),
+			];
+			for (const record of records) savePersistedSubagentRecord(tmpDir, record);
+			// Malformed JSON file → skipped (kept), never a delete target.
+			fs.writeFileSync(path.join(subagentDir(tmpDir), "agent_garbage.json"), "{not json");
+			const { removed, kept } = prunePersistedSubagentRecords(tmpDir, { ttlDays: 7, keepRecent: 0, now });
+			assert.deepEqual(removed, ["agent_old_done", "agent_old_failed"]);
+			// 5 parsed records (2 removed) + 1 malformed file → 4 kept on disk.
+			assert.equal(kept, 4);
+			const dir = subagentDir(tmpDir);
+			assert.ok(!fs.existsSync(path.join(dir, "agent_old_done.json")));
+			assert.ok(!fs.existsSync(path.join(dir, "agent_old_failed.json")));
+			assert.ok(fs.existsSync(path.join(dir, "agent_new_done.json")));
+			assert.ok(fs.existsSync(path.join(dir, "agent_old_blocked.json")), "blocked records are NEVER pruned");
+			assert.ok(fs.existsSync(path.join(dir, "agent_old_running.json")), "running records are NEVER pruned");
+			assert.ok(fs.existsSync(path.join(dir, "agent_garbage.json")), "malformed records are skipped (kept)");
+		} finally {
+			removeTrackedTempDir(tmpDir);
+		}
+	});
+
+	it("keep-N retains the most recent terminal records regardless of age", () => {
+		const tmpDir = createTrackedTempDir("pi-crew-subagent-keepn-");
+		try {
+			const now = Date.now();
+			savePersistedSubagentRecord(
+				tmpDir,
+				makeRecord({ id: "agent_older", status: "completed", startedAt: now - 40 * DAY, completedAt: now - 40 * DAY }),
+			);
+			savePersistedSubagentRecord(
+				tmpDir,
+				makeRecord({ id: "agent_newer", status: "completed", startedAt: now - 30 * DAY, completedAt: now - 30 * DAY }),
+			);
+			// Both are terminal + past TTL; keepRecent=1 shields the newer one.
+			const { removed, kept } = prunePersistedSubagentRecords(tmpDir, { ttlDays: 7, keepRecent: 1, now });
+			assert.deepEqual(removed, ["agent_older"]);
+			assert.equal(kept, 1);
+			assert.ok(
+				fs.existsSync(path.join(subagentDir(tmpDir), "agent_newer.json")),
+				"keep-N shield must retain the most recent record",
+			);
+		} finally {
+			removeTrackedTempDir(tmpDir);
+		}
+	});
+
+	it("ttlDays=0 (disabled) removes nothing without scanning", () => {
+		const tmpDir = createTrackedTempDir("pi-crew-subagent-ttl0-");
+		try {
+			const now = Date.now();
+			savePersistedSubagentRecord(
+				tmpDir,
+				makeRecord({ id: "agent_old", status: "completed", startedAt: now - 90 * DAY, completedAt: now - 90 * DAY }),
+			);
+			const { removed, kept } = prunePersistedSubagentRecords(tmpDir, { ttlDays: 0, keepRecent: 0, now });
+			assert.deepEqual(removed, []);
+			assert.equal(kept, 0); // early-out: no scan performed
+			assert.ok(fs.existsSync(path.join(subagentDir(tmpDir), "agent_old.json")));
+		} finally {
+			removeTrackedTempDir(tmpDir);
+		}
+	});
+
+	it("is a no-op when the subagents dir does not exist (never throws)", () => {
+		const tmpDir = createTrackedTempDir("pi-crew-subagent-nodir-");
+		try {
+			const { removed, kept } = prunePersistedSubagentRecords(tmpDir, { ttlDays: 7 });
+			assert.deepEqual(removed, []);
+			assert.equal(kept, 0);
+		} finally {
+			removeTrackedTempDir(tmpDir);
+		}
+	});
+
+	it("resolveSubagentRecordTtlDays: unset→7, '0'→0, invalid→7", () => {
+		assert.equal(
+			resolveSubagentRecordTtlDays(() => undefined),
+			7,
+		);
+		assert.equal(
+			resolveSubagentRecordTtlDays(() => ""),
+			7,
+		);
+		assert.equal(
+			resolveSubagentRecordTtlDays(() => "0"),
+			0,
+		);
+		assert.equal(
+			resolveSubagentRecordTtlDays(() => "30"),
+			30,
+		);
+		assert.equal(
+			resolveSubagentRecordTtlDays(() => "not-a-number"),
+			7,
+		);
+		assert.equal(
+			resolveSubagentRecordTtlDays(() => "-3"),
+			7,
+		);
 	});
 });

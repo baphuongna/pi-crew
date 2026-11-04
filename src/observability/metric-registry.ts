@@ -1,5 +1,5 @@
 import { logInternalError } from "../utils/internal-error.ts";
-import { Counter, Gauge, Histogram, type Metric, type MetricSnapshot } from "./metrics-primitives.ts";
+import { Counter, Gauge, Histogram, type Metric, type MetricLabels, type MetricSnapshot } from "./metrics-primitives.ts";
 
 const METRIC_NAME_PATTERN = /^crew\.[a-z]+\.[a-z][a-z_]*$/;
 
@@ -88,6 +88,19 @@ export class MetricRegistry {
 
 	snapshot(): MetricSnapshot[] {
 		return [...this.metrics.values()].map((metric) => metric.snapshot());
+	}
+
+	/**
+	 * LABEL-GC: release stored label values matching `predicate` across every
+	 * registered metric; returns the total number of series dropped. Dispatches
+	 * polymorphically to {@link Metric.releaseLabelValues}, so Histograms (not
+	 * run-scoped) are untouched and no private Map is reached into from here.
+	 * A release is not an eviction — `cardinalityEvictions` is unaffected.
+	 */
+	releaseLabels(predicate: (labels: MetricLabels) => boolean): number {
+		let released = 0;
+		for (const metric of this.metrics.values()) released += metric.releaseLabelValues(predicate);
+		return released;
 	}
 
 	dispose(): void {

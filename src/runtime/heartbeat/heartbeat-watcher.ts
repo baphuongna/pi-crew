@@ -46,6 +46,14 @@ export class HeartbeatWatcher {
 	private consecutiveDead = new Map<string, number>();
 	private lastSeen = new Map<string, number>(); // key → last time it was active
 	private lastDeadletterTriggerAt = new Map<string, number>(); // 3.6 cooldown gate
+	/**
+	 * Run-scoped metric label GC (FIX 2, 2026-11): runIds whose label values are
+	 * still live — observed running in a previous tick and not yet released.
+	 * Per-run label values are live only while the run is active; durable
+	 * per-run detail lives in the run's own events.jsonl + health snapshot.
+	 * See the release loop at the end of tickUnsafe().
+	 */
+	private activeRunIds = new Set<string>();
 	/** Max age (ms) to retain a stale key before garbage-collecting it. */
 	private readonly maxKeyAgeMs = 600_000; // 10 minutes
 	private readonly opts: HeartbeatWatcherOptions;
@@ -83,6 +91,8 @@ export class HeartbeatWatcher {
 		const thresholds = this.opts.thresholds ?? DEFAULT_GRADIENT_THRESHOLDS;
 		const tickThreshold = this.opts.deadletterTickThreshold ?? 3;
 		const activeKeys = new Set<string>();
+		// runIds confirmed running on disk this tick (see activeRunIds above).
+		const runningRunIds = new Set<string>();
 
 		for (const run of this.opts.manifestCache.list(50)) {
 			if (run.status !== "running") continue;
@@ -96,6 +106,8 @@ export class HeartbeatWatcher {
 			// This closes the false-positive alert loop when a run completes but the
 			// manifestCache.list(50) still serves a pre-completion snapshot.
 			if (loaded.manifest.status !== "running") continue;
+			// Confirmed running on disk → its run-scoped label values stay live.
+			runningRunIds.add(run.runId);
 			for (const task of loaded.tasks) {
 				if (task.status !== "running") continue;
 				// Guest-child tasks (delegate subagents, agent === "delegate") have NO
@@ -244,6 +256,42 @@ export class HeartbeatWatcher {
 			}
 		}
 
+		// Run-scoped metric label GC. `crew.heartbeat.staleness_ms`
+		// ({runId,taskId}) and `crew.heartbeat.level_total` ({runId,level}) are the
+		// only run-scoped series; without this the registry's label Maps grow
+		// unbounded (the MAX_LABEL_COMBINATIONS=10_000 FIFO cap is never reached at
+		// realistic volumes — measured: 101 label values/day across 33 runs, the
+		// heartbeat pair = 58% of a 26.9 KB metrics snapshot). Release a run's
+		// label values once it stops being active: durable per-run detail lives in
+		// the run's own events.jsonl + health snapshot — the same tradeoff OBS-1
+		// already applied to event metrics (src/observability/event-to-metric.ts:
+		// "Using runId/taskId as METRIC labels would blow up cardinality").
+		// Re-check the manifest cache first: a run may have fallen out of the
+		// top-50 scan window while still active, and a BLOCKED run (parked on
+		// `ask`, resumable — blocked is terminal-for-UI but never released) must
+		// keep its labels. Only a run that is neither running nor blocked, or that
+		// has vanished from the cache entirely, is released. Still-active runs stay
+		// in the tracking set so their release fires once they truly stop.
+		//
+		// Robustness: this pass must NEVER abort the tick — the stale-key cleanup
+		// below is load-bearing (it drops the deadletter cooldown marker, M-8) — so
+		// it is guarded and tolerates caches/registries that omit the reader
+		// (partial test seams).
+		try {
+			const nextActiveRunIds = new Set(runningRunIds);
+			for (const runId of this.activeRunIds) {
+				if (runningRunIds.has(runId)) continue;
+				if (this.isRunStillActive(runId)) {
+					nextActiveRunIds.add(runId);
+					continue;
+				}
+				this.opts.registry.releaseLabels?.((labels) => labels.runId === runId);
+			}
+			this.activeRunIds = nextActiveRunIds;
+		} catch (error) {
+			logInternalError("heartbeat-watcher.label-gc", error);
+		}
+
 		// Cleanup: drop keys that were NOT in this tick's active set AND
 		// haven't been seen for > maxKeyAgeMs.  This covers runs that
 		// completed or fell out of the manifest cache's top-50 window.
@@ -262,6 +310,31 @@ export class HeartbeatWatcher {
 		}
 	}
 
+	/**
+	 * Is the run still active per the manifest cache?
+	 *
+	 * `true` for "running" (it may simply have fallen out of the top-50 scan
+	 * window) and for "blocked" (parked on `ask`, resumable — blocked is
+	 * terminal-for-UI but must keep its labels). `false` when the run is gone or
+	 * carries a non-active status — that is the release case.
+	 *
+	 * A cache that cannot answer (missing `get`, or a throw) resolves to `true`
+	 * (keep): a wrongly released series belonging to a still-active run is
+	 * re-added on the next tick, but a series kept for a vanished run is only a
+	 * bounded leak — and the definitive release happens on the run-prune path.
+	 */
+	private isRunStillActive(runId: string): boolean {
+		const getStatus = this.opts.manifestCache.get;
+		if (typeof getStatus !== "function") return true;
+		try {
+			const manifest = getStatus.call(this.opts.manifestCache, runId);
+			return manifest?.status === "running" || manifest?.status === "blocked";
+		} catch (error) {
+			logInternalError("heartbeat-watcher.label-gc.status", error, `runId=${runId}`);
+			return true;
+		}
+	}
+
 	dispose(): void {
 		if (this.timer) clearTimeout(this.timer);
 		this.timer = undefined;
@@ -270,5 +343,8 @@ export class HeartbeatWatcher {
 		this.lastSeen.clear();
 		// M-8: clear the deadletter cooldown map too (was leaked before).
 		this.lastDeadletterTriggerAt.clear();
+		// Label-GC bookkeeping only (the registry outlives the watcher; labels
+		// are released on run inactivity, not on watcher teardown).
+		this.activeRunIds.clear();
 	}
 }

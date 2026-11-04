@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_PATHS, DEFAULT_SUBAGENT } from "../config/defaults.ts";
+import { getCrewEnv } from "../config/env-vars.ts";
 import type { PiTeamsToolResult } from "../extension/tool-result.ts";
 import { atomicWriteFile } from "../state/atomic-write.ts";
 import { loadRunManifestById } from "../state/stores/state-store.ts";
@@ -138,6 +139,128 @@ export function removePersistedSubagentRecord(cwd: string, id: string): boolean 
  * kept (older ones remain readable from disk via readPersistedSubagentRecord).
  */
 export const MAX_TERMINAL_SUBAGENT_RECORDS = 50;
+
+/** FIX 3: statuses whose persisted record may be TTL-pruned. Anything else
+ * (queued | running | blocked) is NEVER deleted — `blocked` especially, since
+ * blockedSignalFromSubagentDir (terminal-status-wiring.ts) derives terminal
+ * blocked-state from blocked records on disk; deleting one breaks detection. */
+const TTL_PRUNABLE_STATUSES = new Set<SubagentStatus>(["completed", "failed", "cancelled", "error", "stopped"]);
+
+/** Default bound for the TTL prune scan: files examined per call (1,229 files
+ *  had accumulated on the dev box at discovery; 2,000 leaves headroom while
+ *  keeping session-start I/O bounded). */
+export const PRUNE_SUBAGENT_RECORDS_MAX_FILES = 2000;
+
+/**
+ * FIX 3: resolve the subagent record TTL (days) from
+ * PI_CREW_SUBAGENT_RECORD_TTL_DAYS (default 7; 0 disables). Invalid/negative
+ * values fall back to 7 with a logged warning — mirrors resolveAutoPruneKeep.
+ */
+export function resolveSubagentRecordTtlDays(env: (name: string) => string | undefined = getCrewEnv): number {
+	const raw = env("PI_CREW_SUBAGENT_RECORD_TTL_DAYS")?.trim();
+	if (raw === undefined || raw === "") return 7;
+	const parsed = Number.parseInt(raw, 10);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		logInternalError(
+			"subagent-manager.ttl-invalid",
+			new Error(`PI_CREW_SUBAGENT_RECORD_TTL_DAYS=${JSON.stringify(raw)} is not a non-negative integer; using 7`),
+		);
+		return 7;
+	}
+	return parsed;
+}
+
+export interface PrunePersistedSubagentRecordsOptions {
+	/** TTL in days. Defaults to resolveSubagentRecordTtlDays() (env-driven, 7).
+	 *  0 disables the prune entirely. */
+	ttlDays?: number;
+	/** Always keep this many most-recent records regardless of age/status.
+	 *  Default 50 (matches MAX_TERMINAL_SUBAGENT_RECORDS). */
+	keepRecent?: number;
+	/** Bound on files scanned per call. Default PRUNE_SUBAGENT_RECORDS_MAX_FILES. */
+	maxFiles?: number;
+	/** Clock injection for tests. */
+	now?: number;
+}
+
+/**
+ * FIX 3: TTL-prune persisted TERMINAL subagent records under
+ * `<projectCrewRoot(cwd)>/state/subagents/*.json`. removePersistedSubagentRecord
+ * only fires on explicit cancel/stop, so terminal records accumulated
+ * indefinitely (1,229 files / 6.7 MB over Jun–Oct).
+ *
+ * Safety contract:
+ *  - ONLY terminal statuses (see TTL_PRUNABLE_STATUSES) are eligible.
+ *    queued/running/blocked are never deleted (blocked drives
+ *    blockedSignalFromSubagentDir terminal-status derivation).
+ *  - The `keepRecent` most-recent records (by completedAt ?? startedAt) are
+ *    retained regardless of age or status (recent history stays inspectable).
+ *  - Malformed JSON is skipped (kept) — a corrupt file is never a prune target.
+ *  - Bounded scan + best-effort: never throws; per-file failures are kept.
+ */
+export function prunePersistedSubagentRecords(
+	cwd: string,
+	opts: PrunePersistedSubagentRecordsOptions = {},
+): { removed: string[]; kept: number } {
+	const ttlDays = opts.ttlDays ?? resolveSubagentRecordTtlDays();
+	if (ttlDays === 0) return { removed: [], kept: 0 }; // disabled — no scan, no delete
+	const removed: string[] = [];
+	let kept = 0;
+	try {
+		const dir = path.join(projectCrewRoot(cwd), DEFAULT_PATHS.state.subagentsSubdir);
+		let files: string[];
+		try {
+			files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
+		} catch {
+			return { removed, kept }; // no dir / unreadable → nothing to do
+		}
+		const maxFiles = opts.maxFiles ?? PRUNE_SUBAGENT_RECORDS_MAX_FILES;
+		const now = opts.now ?? Date.now();
+		const ttlMs = ttlDays * 24 * 60 * 60 * 1000;
+		// Parse every (bounded) file; malformed → keep, tracked as kept so the
+		// caller can see the sweep saw it.
+		const parsed: Array<{ id: string; ageMs: number; terminal: boolean }> = [];
+		for (const file of files.slice(0, maxFiles)) {
+			try {
+				const raw = JSON.parse(fs.readFileSync(path.join(dir, file), "utf-8")) as unknown;
+				const record = sanitizePersistedRecord(raw);
+				if (!record) {
+					kept++;
+					continue;
+				}
+				const ageMs = now - (record.completedAt ?? record.startedAt);
+				parsed.push({ id: record.id, ageMs, terminal: TTL_PRUNABLE_STATUSES.has(record.status) });
+			} catch {
+				kept++; // unreadable/parse error → skip (keep)
+			}
+		}
+		// Keep-N shield: the keepRecent most-recent records survive regardless
+		// of age or status.
+		const keepRecent = opts.keepRecent ?? MAX_TERMINAL_SUBAGENT_RECORDS;
+		const shielded = new Set(
+			parsed
+				.slice()
+				.sort((a, b) => a.ageMs - b.ageMs) // smallest age = most recent first
+				.slice(0, Math.max(0, keepRecent))
+				.map((entry) => entry.id),
+		);
+		for (const entry of parsed) {
+			if (!entry.terminal || entry.ageMs <= ttlMs || shielded.has(entry.id)) {
+				kept++;
+				continue;
+			}
+			try {
+				fs.unlinkSync(path.join(dir, `${entry.id}.json`));
+				removed.push(entry.id);
+			} catch {
+				kept++; // unlink failed → still on disk
+			}
+		}
+	} catch (error) {
+		logInternalError("subagent-manager.prune-persisted", error, `cwd=${cwd}`);
+	}
+	return { removed, kept };
+}
 
 /**
  * Predicate: should this record's persisted file be deleted on terminal status?

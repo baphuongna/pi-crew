@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Counter, Gauge, Histogram, labelKey } from "../../../src/observability/metrics-primitives.ts";
+import { Counter, Gauge, getCardinalityEvictions, Histogram, labelKey } from "../../../src/observability/metrics-primitives.ts";
 
 test("metric labels are stable regardless of insertion order", () => {
 	assert.equal(labelKey({ b: 2, a: "x" }), labelKey({ a: "x", b: 2 }));
@@ -52,4 +52,56 @@ test("Gauge delete-then-set preserves value after re-insertion", () => {
 	gauge.set({ id: "y" }, 100);
 	gauge.set({ id: "y" }, 200);
 	assert.equal(gauge.value({ id: "y" }), 200);
+});
+
+// ---------------------------------------------------------------- LABEL-GC
+test("Counter.releaseLabelValues drops only matching series", () => {
+	const counter = new Counter("test.release_counter", "release test");
+	counter.inc({ runId: "r1", level: "healthy" }, 3);
+	counter.inc({ runId: "r1", level: "dead" }, 1);
+	counter.inc({ runId: "r2", level: "healthy" }, 5);
+
+	assert.equal(
+		counter.releaseLabelValues((labels) => labels.runId === "r1"),
+		2,
+		"both r1 series dropped",
+	);
+	const values = counter.snapshot().values;
+	assert.equal(values.length, 1);
+	assert.deepEqual(values[0]?.labels, { level: "healthy", runId: "r2" });
+	assert.equal(counter.value({ runId: "r2", level: "healthy" }), 5, "non-matching value retained");
+	assert.equal(counter.value({ runId: "r1", level: "healthy" }), 0, "matching value gone");
+});
+
+test("Gauge.releaseLabelValues drops only matching series", () => {
+	const gauge = new Gauge("test.release_gauge", "release test");
+	gauge.set({ runId: "r1", taskId: "t1" }, 10);
+	gauge.set({ runId: "r2", taskId: "t2" }, 20);
+
+	assert.equal(
+		gauge.releaseLabelValues((labels) => labels.runId === "r1"),
+		1,
+	);
+	const values = gauge.snapshot().values;
+	assert.equal(values.length, 1);
+	assert.deepEqual(values[0]?.labels, { runId: "r2", taskId: "t2" });
+	assert.equal(gauge.value({ runId: "r2", taskId: "t2" }), 20);
+});
+
+test("Histogram.releaseLabelValues is a no-op (base default)", () => {
+	const hist = new Histogram("test.release_hist", "release test", [10]);
+	hist.observe({ runId: "r1" }, 3);
+	assert.equal(
+		hist.releaseLabelValues((labels) => labels.runId === "r1"),
+		0,
+	);
+	assert.equal(hist.count({ runId: "r1" }), 1, "observation untouched");
+});
+
+test("releaseLabelValues does not count as a cardinality eviction", () => {
+	const before = getCardinalityEvictions();
+	const counter = new Counter("test.release_evictions", "release test");
+	counter.inc({ runId: "r1" }, 1);
+	counter.releaseLabelValues(() => true);
+	assert.equal(getCardinalityEvictions(), before, "deliberate release is not an eviction");
 });

@@ -44,7 +44,9 @@ import { createSessionSnapshot } from "../../runtime/session-snapshot.ts";
 import { applyCrewSettingsTiersToConfig, loadCrewSettingsTiers, scheduledJobsHiddenCountOf } from "../../runtime/settings-store.ts";
 import type { ReconcileResult } from "../../runtime/stale-reconciler.ts";
 import { flushReapEscalationsSync } from "../../runtime/stale-reconciler.ts";
+import { prunePersistedSubagentRecords, resolveSubagentRecordTtlDays } from "../../runtime/subagent-manager.ts";
 import { ensureCoordinationPublicVerifyKey, getMailboxVerifyKeyPublic } from "../../state/coordination/mailbox.ts";
+import { sweepOrphanHealthSnapshots } from "../../state/stores/health-store.ts";
 import { loadRunManifestById, saveRunManifest } from "../../state/stores/state-store.ts";
 import type { TeamRunManifest } from "../../state/types.ts";
 import { installInlinePanel } from "../../ui/inline-panel/index.ts";
@@ -52,6 +54,7 @@ import { clearSessionSwitchInFlight, markSessionSwitchInFlight } from "../../ui/
 import { registerPiCrewPowerbarSegments, resetPowerbarDedupState, updatePiCrewPowerbar } from "../../ui/powerbar-publisher.ts";
 import { updateCrewWidget } from "../../ui/widget/index.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
+import { projectCrewRoot, userCrewRoot } from "../../utils/paths.ts";
 import { extractBrokerSessionId } from "../../utils/session-utils.ts";
 import { getBrokerSocketPath } from "../../utils/socket-path.ts";
 import { startAsyncRunNotifier, stopAsyncRunNotifier } from "../async-notifier.ts";
@@ -508,6 +511,14 @@ async function runDeferredSessionCleanup(
 		logInternalError("register.sessionStart.reconcileStale", error);
 	}
 
+	// FIX 2 phase-2: wait for the observability init (kicked off synchronously
+	// in session_start) so the prunes below release metric labels on the LIVE
+	// registry — releasing on a fresh registry would be an empty no-op lie.
+	// Best-effort: an init failure (already logged by configureObservability)
+	// leaves metricRegistry undefined → prune simply skips label release.
+	await ctx.observabilityState.initPromise?.catch(() => {});
+	if (ctx.cleanedUp || ctx.sessionGeneration !== ownerGeneration) return; // session switched while we waited
+
 	// Auto-prune finished project-level run directories
 	try {
 		// DP-01: keep + age-floor are env-driven; the age floor means a run
@@ -515,6 +526,7 @@ async function runDeferredSessionCleanup(
 		const { removed } = pruneFinishedRuns(extensionCtx.cwd, resolveAutoPruneKeep(), {
 			ageFloorMs: resolveAutoPruneAgeFloorMs(),
 			intent: "session-start-auto",
+			metricRegistry: ctx.observabilityState.metricRegistry,
 		});
 		if (removed.length > 0) {
 			ctx.notifyOperator({
@@ -534,6 +546,7 @@ async function runDeferredSessionCleanup(
 		const { removed } = pruneUserLevelRuns(resolveAutoPruneKeep(), {
 			ageFloorMs: resolveAutoPruneAgeFloorMs(),
 			intent: "session-start-auto",
+			metricRegistry: ctx.observabilityState.metricRegistry,
 		});
 		if (removed.length > 0) {
 			ctx.notifyOperator({
@@ -546,6 +559,47 @@ async function runDeferredSessionCleanup(
 		}
 	} catch (error) {
 		logInternalError("register.sessionStart.autoPruneUser", error);
+	}
+
+	// FIX 1: sweep orphaned health snapshots — files under
+	// <crewRoot>/state/health/ whose run dir is already gone (left behind by
+	// pre-fix prunes; 2,322 files / 9.3 MB on the dev box at discovery).
+	// Conservative (exists-but-unreadable run dir → KEEP), bounded, never throws.
+	try {
+		for (const crewRoot of new Set([projectCrewRoot(extensionCtx.cwd), userCrewRoot()])) {
+			const { removed } = sweepOrphanHealthSnapshots(crewRoot);
+			if (removed.length > 0) {
+				ctx.notifyOperator({
+					id: `orphan_health_sweep`,
+					severity: "info",
+					source: "run-maintenance",
+					title: `Removed ${removed.length} orphaned health snapshot(s)`,
+					body: `Health snapshots whose runs were already pruned (under ${crewRoot}): ${removed
+						.slice(0, 10)
+						.join(", ")}${removed.length > 10 ? ", …" : ""}`,
+				});
+			}
+		}
+	} catch (error) {
+		logInternalError("register.sessionStart.sweepOrphanHealth", error);
+	}
+
+	// FIX 3: TTL-prune old TERMINAL subagent records (running/blocked/queued
+	// never touched — blocked drives blockedSignalFromSubagentDir; keep-50
+	// shield preserves recent history).
+	try {
+		const { removed } = prunePersistedSubagentRecords(extensionCtx.cwd);
+		if (removed.length > 0) {
+			ctx.notifyOperator({
+				id: `subagent_record_ttl_prune`,
+				severity: "info",
+				source: "run-maintenance",
+				title: `Pruned ${removed.length} old subagent record(s)`,
+				body: `Terminal subagent records past the ${resolveSubagentRecordTtlDays()}-day TTL (PI_CREW_SUBAGENT_RECORD_TTL_DAYS=0 disables).`,
+			});
+		}
+	} catch (error) {
+		logInternalError("register.sessionStart.pruneSubagentRecords", error);
 	}
 }
 

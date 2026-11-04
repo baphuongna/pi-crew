@@ -9641,3 +9641,8 @@ the repo. Two genuine wins, plus an informational CI job that never blocks.
 - `runWorker` slot-wait timing: acquire→fn-start >5s logs
   `[spawn.trace] worker-slot wait=…ms` — separates slot starvation from in-child phases
   in the next hang's trail.
+## [Unreleased]
+### Retention — stop unbounded `.crew` garbage accumulation (measured: 330 MB, 97% never pruned)
+- **FIX 1 — health snapshot lifecycle**: `removeHealthSnapshot()` + conservative orphan sweep (`sweepOrphanHealthSnapshots`, ENOENT-only absent-run proof, bounded 5k). Wired into both prune paths, ghost-run removal, `team forget`, and session-start (both crew roots). Evidence: 2322 orphaned snapshots (9.3 MB, oldest 2026-06-18) on the dev box; 2312 sweepable on first run.
+- **FIX 2 — metric label release (LABEL-GC)**: `Metric.releaseLabelValues(predicate)` on Counter/Gauge (Histogram untouched, `cardinalityEvictions` semantics preserved) + `MetricRegistry.releaseLabels()`. Heartbeat watcher releases a run's series once it leaves `running|blocked`; prune paths release on the LIVE session registry (awaits observability init first — a fresh registry's release would be a no-op lie). Fixes unbounded `crew.heartbeat.*` label cardinality (measured: 101 series / 33 runs in ONE day = 58% of every 60s snapshot line; 84 MB/day of metrics).
+- **FIX 3 — subagent record TTL**: `prunePersistedSubagentRecords()` — terminal-status records past `PI_CREW_SUBAGENT_RECORD_TTL_DAYS` (default 7, 0 disables; registered env var) are pruned at session-start, keep-50 most-recent shield, running/blocked/queued NEVER deleted (blocked drives `blockedSignalFromSubagentDir`). Evidence: 1229 records Jun–Oct; ~1117 prunable on first run.

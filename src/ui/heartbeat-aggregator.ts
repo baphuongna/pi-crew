@@ -78,6 +78,17 @@ export function summarizeHeartbeats(snapshot: RunUiSnapshot, opts: HeartbeatSumm
 	// carry "running" task statuses that lag the run manifest's terminal
 	// transition. Defense-in-depth: skip ALL task counting when the run manifest
 	// itself is terminal. Runs with a non-terminal manifest are unaffected.
+	//
+	// LABEL-GC invariant (FIX 2, 2026-11): this same gate is what stops a
+	// terminal run from RE-ADDING the {runId,taskId} / {runId,level} label
+	// values released by HeartbeatWatcher once the run stopped being active
+	// (run-scoped label values are live only while the run is active; durable
+	// detail lives in events.jsonl + health snapshot). The write predicate
+	// below (`!isTerminalRunStatus(manifest.status)` AND a running task) never
+	// admits a status the watcher releases on (watcher releases only when the
+	// status is neither running nor blocked, i.e. completed/failed/cancelled),
+	// so a released series cannot be re-added. Blocked runs are skipped on BOTH
+	// sides — retained, resumable.
 	const runTerminal = isTerminalRunStatus(snapshot.manifest.status);
 	for (const task of snapshot.tasks) {
 		if (runTerminal || !isActiveTask(task)) continue;

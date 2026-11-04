@@ -7,6 +7,7 @@ import { killProcessPid } from "../../runtime/child-pi/child-pi.ts";
 import { terminateLiveAgentsForRun } from "../../runtime/live-session/live-agent-manager.ts";
 import type { TeamToolParamsValue } from "../../schema/team-tool-schema.ts";
 import { appendEvent, appendEventAsync } from "../../state/event-log/event-log.ts";
+import { removeHealthSnapshot } from "../../state/stores/health-store.ts";
 import { loadRunManifestById } from "../../state/stores/state-store.ts";
 import { logInternalError } from "../../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot, userPiRoot } from "../../utils/paths.ts";
@@ -220,6 +221,9 @@ export async function handlePrune(params: TeamToolParamsValue, ctx: TeamContext)
 		intent,
 		signal: ctx.signal,
 		dryRun,
+		// FIX 2 phase-2: release pruned runs' metric labels on the LIVE session
+		// registry (undefined in synthesized contexts → prune skips the release).
+		metricRegistry: ctx.metricRegistry,
 	});
 	// Fire hook once with all removed run IDs for batch visibility
 	if (pruned.removed.length > 0) {
@@ -352,6 +356,10 @@ export async function handleForget(params: TeamToolParamsValue, ctx: TeamContext
 	const resolvedArtifactsRoot = resolveRealContainedPath(crewRoot, loaded.manifest.artifactsRoot);
 	fs.rmSync(resolvedStateRoot, { recursive: true, force: true });
 	fs.rmSync(resolvedArtifactsRoot, { recursive: true, force: true });
+	// FIX 1: forget removes the run dir, so its health snapshot (which lives at
+	// <crewRoot>/state/health/<runId>.json, outside stateRoot) must go too or it
+	// orphans forever (2,322 orphans / 9.3 MB accumulated before this call).
+	removeHealthSnapshot(crewRoot, loaded.manifest.runId);
 	// FORGET-RESURRECT (observed 2026-08-04): the SIGTERM above is fire-and-forget
 	// (killProcessPid returns void; no await on process-group exit). A still-alive
 	// background runner/worker can land one final heartbeat write (15s interval)

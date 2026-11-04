@@ -2,7 +2,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_PATHS } from "../config/defaults.ts";
 import { getCrewEnv } from "../config/env-vars.ts";
+import type { MetricRegistry } from "../observability/metric-registry.ts";
 import { createCancellationToken } from "../runtime/process/cancellation-token.ts";
+import { removeHealthSnapshot } from "../state/stores/health-store.ts";
 import type { TeamRunManifest } from "../state/types.ts";
 import { logInternalError } from "../utils/internal-error.ts";
 import { projectCrewRoot, userCrewRoot } from "../utils/paths.ts";
@@ -29,6 +31,12 @@ export interface PruneRunsOptions {
 	 *  0 disables the floor. Defaults to the PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS
 	 *  value (24h) for auto-prune callers; manual prune passes 0 explicitly. */
 	ageFloorMs?: number;
+	/** FIX 2 phase-2: the LIVE MetricRegistry to release pruned runs' label
+	 *  series from. Callers pass the shared session registry (TeamContext /
+	 *  observabilityState.metricRegistry) — a second, fresh registry would hold
+	 * no labels and its release would be a silent no-op lie. Optional: callers
+	 * without a registry handle (tests) simply skip label release. */
+	metricRegistry?: MetricRegistry;
 }
 
 /**
@@ -270,6 +278,15 @@ export function pruneFinishedRuns(cwd: string, keep: number, options: PruneRunsO
 		}
 		fs.rmSync(run.stateRoot, { recursive: true, force: true });
 		fs.rmSync(run.artifactsRoot, { recursive: true, force: true });
+		// FIX 1: the run's health snapshot lives OUTSIDE stateRoot/artifactsRoot
+		// (<crewRoot>/state/health/<runId>.json) and was left orphaned forever.
+		// crewRoot derivation mirrors isSafeToPrune above.
+		const healthCrewRoot = run.stateRoot.startsWith(userCrewRoot() + path.sep) ? userCrewRoot() : projectCrewRoot(cwd);
+		removeHealthSnapshot(healthCrewRoot, run.runId);
+		// FIX 2 phase-2: a pruned run must stop pinning metric label series
+		// (cardinality) in the live registry. Missing registry = skip (see
+		// PruneRunsOptions.metricRegistry).
+		options.metricRegistry?.releaseLabels((l) => l.runId === run.runId);
 		// DP-01: preserve the reason of a pruned failed/blocked run in a durable
 		// index (the run dir that held it is gone now).
 		if (run.status === "failed" || run.status === "blocked") appendPrunedFailureIndex(cwd, run);
@@ -348,6 +365,9 @@ export function pruneUserLevelRuns(keep: number, options: PruneRunsOptions = {})
 				recursive: true,
 				force: true,
 			});
+			// FIX 1: ghost-run removal also orphans the health snapshot — remove it
+			// in the same breath (crewRoot here is always the user root).
+			removeHealthSnapshot(crewRoot, manifest.runId);
 			ghostRemoved.push(manifest.runId);
 			continue;
 		}
@@ -390,6 +410,11 @@ export function pruneUserLevelRuns(keep: number, options: PruneRunsOptions = {})
 		}
 		fs.rmSync(run.stateRoot, { recursive: true, force: true });
 		fs.rmSync(run.artifactsRoot, { recursive: true, force: true });
+		// FIX 1: user-level runs snapshot to <userCrewRoot>/state/health/ — remove
+		// it alongside the state/artifacts dirs (crewRoot is userCrewRoot() here).
+		removeHealthSnapshot(crewRoot, run.runId);
+		// FIX 2 phase-2: same label release as the project-level prune.
+		options.metricRegistry?.releaseLabels((l) => l.runId === run.runId);
 		// DP-01: preserve a pruned failed/blocked run's reason (the user-level
 		// index lives under the user crew root).
 		if (run.status === "failed" || run.status === "blocked") {

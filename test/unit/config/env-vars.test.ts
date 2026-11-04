@@ -140,6 +140,8 @@ const SRC_READ_NAMES: readonly string[] = [
 	// DP-01: auto-prune retention guards (read via a passed-in env getter)
 	"PI_CREW_AUTO_PRUNE_KEEP",
 	"PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS",
+	// FIX 3: subagent record TTL (read via a passed-in env getter)
+	"PI_CREW_SUBAGENT_RECORD_TTL_DAYS",
 	"PI_CREW_SURFACE",
 	"PI_CREW_PARENT_START_TIME",
 	"PI_CREW_GUEST",

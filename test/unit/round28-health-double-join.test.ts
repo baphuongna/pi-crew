@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, it } from "node:test";
-import { HealthStore } from "../../src/state/stores/health-store.ts";
+import { HealthStore, removeHealthSnapshot, sweepOrphanHealthSnapshots } from "../../src/state/stores/health-store.ts";
 
 function tmpDir(): string {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "pi-crew-health-path-"));
@@ -77,6 +77,74 @@ describe("BUG A: health snapshot path is NOT double-joined", () => {
 				createdAt: new Date().toISOString(),
 			});
 			assert.ok(fs.existsSync(path.join(crewRoot, "state", "health", "team_xyz.json")));
+		} finally {
+			fs.rmSync(crewRoot, { recursive: true, force: true });
+		}
+	});
+});
+
+// FIX 1 (retention): health snapshots live outside the run dir, so prune/forget
+// must call removeHealthSnapshot, and a sweep must clean up orphans left by
+// pre-fix prunes. Conservative: exists-but-unreadable run dir → KEEP.
+describe("FIX 1: removeHealthSnapshot / sweepOrphanHealthSnapshots", () => {
+	it("removeHealthSnapshot deletes the file once and reports false when absent", () => {
+		const crewRoot = tmpDir();
+		try {
+			const store = new HealthStore(crewRoot);
+			store.saveSnapshot({
+				runId: "team_gone_001",
+				tasks: [],
+				createdAt: new Date().toISOString(),
+			});
+			assert.equal(removeHealthSnapshot(crewRoot, "team_gone_001"), true);
+			assert.ok(!fs.existsSync(path.join(crewRoot, "state", "health", "team_gone_001.json")));
+			// Second call: ENOENT → false (already gone), not an error.
+			assert.equal(removeHealthSnapshot(crewRoot, "team_gone_001"), false);
+		} finally {
+			fs.rmSync(crewRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("sweep removes ONLY snapshots whose run dir is absent; keeps one whose run dir exists", () => {
+		const crewRoot = tmpDir();
+		try {
+			const healthDir = path.join(crewRoot, "state", "health");
+			fs.mkdirSync(healthDir, { recursive: true });
+			// Orphan: no run dir under state/runs/.
+			fs.writeFileSync(path.join(healthDir, "team_orphan_001.json"), "{}\n");
+			// Owned: run dir exists → snapshot is still referenced.
+			fs.writeFileSync(path.join(healthDir, "team_live_001.json"), "{}\n");
+			fs.mkdirSync(path.join(crewRoot, "state", "runs", "team_live_001"), { recursive: true });
+			const { removed, kept } = sweepOrphanHealthSnapshots(crewRoot);
+			assert.deepEqual(removed, ["team_orphan_001"]);
+			assert.equal(kept, 1);
+			assert.ok(!fs.existsSync(path.join(healthDir, "team_orphan_001.json")));
+			assert.ok(fs.existsSync(path.join(healthDir, "team_live_001.json")));
+		} finally {
+			fs.rmSync(crewRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("sweep is a no-op when the health dir does not exist", () => {
+		const crewRoot = tmpDir();
+		try {
+			const { removed, kept } = sweepOrphanHealthSnapshots(crewRoot);
+			assert.deepEqual(removed, []);
+			assert.equal(kept, 0);
+		} finally {
+			fs.rmSync(crewRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("sweep honors the bounded maxFiles option", () => {
+		const crewRoot = tmpDir();
+		try {
+			const healthDir = path.join(crewRoot, "state", "health");
+			fs.mkdirSync(healthDir, { recursive: true });
+			for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(healthDir, `team_orphan_${i}.json`), "{}\n");
+			const { removed } = sweepOrphanHealthSnapshots(crewRoot, { maxFiles: 2 });
+			assert.equal(removed.length, 2); // bounded — remaining 3 untouched
+			assert.ok(fs.existsSync(path.join(healthDir, "team_orphan_4.json")));
 		} finally {
 			fs.rmSync(crewRoot, { recursive: true, force: true });
 		}

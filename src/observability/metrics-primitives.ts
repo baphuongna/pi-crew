@@ -108,6 +108,18 @@ export abstract class Metric {
 	}
 
 	abstract snapshot(): MetricSnapshot;
+
+	/**
+	 * LABEL-GC: drop every stored label value whose labels match `predicate`;
+	 * returns the number of series dropped. Default is a no-op — only the
+	 * run-scoped value metrics (Counter/Gauge) override it. A deliberate
+	 * release is NOT a cardinality eviction ({@link cardinalityEvictions} is
+	 * reserved for MAX_LABEL_COMBINATIONS overflow) — the series is dropped
+	 * because it can no longer occur, not because the cap was hit.
+	 */
+	releaseLabelValues(_predicate: (labels: MetricLabels) => boolean): number {
+		return 0;
+	}
 }
 
 export class Counter extends Metric {
@@ -132,6 +144,22 @@ export class Counter extends Metric {
 
 	value(labels: MetricLabels = {}): number {
 		return this.values.get(labelKey(labels))?.value ?? 0;
+	}
+
+	/**
+	 * LABEL-GC: delete stored series whose labels match `predicate`.
+	 * `cardinalityEvictions` is deliberately NOT touched — a run-scoped series
+	 * is released because its run stopped being active, not because the
+	 * MAX_LABEL_COMBINATIONS FIFO cap evicted it.
+	 */
+	releaseLabelValues(predicate: (labels: MetricLabels) => boolean): number {
+		let dropped = 0;
+		for (const [key, entry] of this.values) {
+			if (!predicate(entry.labels)) continue;
+			this.values.delete(key);
+			dropped += 1;
+		}
+		return dropped;
 	}
 
 	snapshot(): MetricSnapshot {
@@ -166,6 +194,18 @@ export class Gauge extends Metric {
 
 	value(labels: MetricLabels = {}): number {
 		return this.values.get(labelKey(labels))?.value ?? 0;
+	}
+
+	/** LABEL-GC: see {@link Counter.releaseLabelValues} — Gauge shares the same
+	 *  semantics (series released by predicate, eviction counter untouched). */
+	releaseLabelValues(predicate: (labels: MetricLabels) => boolean): number {
+		let dropped = 0;
+		for (const [key, entry] of this.values) {
+			if (!predicate(entry.labels)) continue;
+			this.values.delete(key);
+			dropped += 1;
+		}
+		return dropped;
 	}
 
 	snapshot(): MetricSnapshot {

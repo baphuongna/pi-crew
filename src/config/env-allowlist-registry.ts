@@ -279,6 +279,7 @@ const CREW_ENV_FORWARDING_DECL: Record<string, CrewEnvForwardDecision> = {
 	PI_CREW_KEYBINDINGS: { kind: "host-only", reason: "host keybinding map" },
 	PI_CREW_AUTO_PRUNE_KEEP: { kind: "host-only", reason: "session-start auto-prune (run-maintenance, host)" },
 	PI_CREW_AUTO_PRUNE_AGE_FLOOR_HOURS: { kind: "host-only", reason: "session-start auto-prune (host)" },
+	PI_CREW_SUBAGENT_RECORD_TTL_DAYS: { kind: "host-only", reason: "session-start subagent-record TTL prune (subagent-manager, host)" },
 	PI_CREW_USE_BUNDLE: { kind: "host-only", reason: "root index.ts loader choice (outside src/ gate scope)" },
 
 	// — gap: read by code that ALSO runs in the detached runner, deliberately

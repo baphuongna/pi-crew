@@ -606,6 +606,12 @@ export const CREW_ENV_VARS: Record<string, CrewEnvVarSpec> = {
 		default: 24, // wave-2b: numeric default (was string "24" — fallback bypassed the parser)
 		doc: "DP-01: auto-prune never deletes a finished run younger than this many hours, even beyond top-keep — evidence/incident runs survive a session restart (0 disables; run-maintenance.ts:resolveAutoPruneAgeFloorMs)",
 	},
+	PI_CREW_SUBAGENT_RECORD_TTL_DAYS: {
+		name: "PI_CREW_SUBAGENT_RECORD_TTL_DAYS",
+		parser: "int",
+		default: 7,
+		doc: "FIX 3: days a TERMINAL subagent record (<crewRoot>/state/subagents/*.json) survives before the session-start prune deletes it (0 disables; running/blocked/queued records are NEVER deleted — blocked drives blockedSignalFromSubagentDir; subagent-manager.ts prunePersistedSubagentRecords)",
+	},
 	PI_CREW_SURFACE: {
 		name: "PI_CREW_SURFACE",
 		doc: "surface provider kind for this worker ('tmux'|'herdr') — arms the worker-side recorder/parent-guard (written by prepareSurfaceSpawn.ts:214, read by surface-worker.ts)",
