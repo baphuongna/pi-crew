@@ -5,23 +5,22 @@
  * `.crew/state/runs/` dir and filtered by STATUS only, ignoring `ownerSessionId`.
  * Multiple Pi sessions in the same project share that dir, so Session B's
  * compaction picked up Session A's in-flight runs and injected them into B's
- * continuation prompt — making B wrongly try to resume A's run. The same leak
- * affected ambient-status injection (context-status-injection.ts).
+ * resume directive. The same leak affected ambient-status injection
+ * (context-status-injection.ts).
  *
  * Fix: `collectInFlightRuns(cwd, currentSessionId?)` now restricts to runs
  * owned by the current session (`run.ownerSessionId === currentSessionId`),
  * strict (legacy ownerless runs excluded). `collectCrewArtifactIndex` stays
  * UNFILTERED (durable cross-session memory, not a resume directive).
  *
- * Also covers `extractSessionId(ctx)` (shared safe accessor) and the
- * `triggerContinuation` sendUserMessage race downgrade.
+ * Also covers `extractSessionId(ctx)` (shared safe accessor).
  */
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { handleContextEvent } from "../../../../src/extension/context-status-injection.ts";
-import { buildContinuationPrompt, collectInFlightRuns } from "../../../../src/extension/registration/compaction-guard.ts";
+import { collectInFlightRuns } from "../../../../src/extension/registration/compaction-guard.ts";
 import { registerActiveRun, unregisterActiveRun } from "../../../../src/state/stores/active-run-registry.ts";
 import { createRunManifest, loadRunManifestById, saveRunManifest } from "../../../../src/state/stores/state-store.ts";
 import type { TeamConfig } from "../../../../src/teams/team-config.ts";
@@ -278,18 +277,5 @@ describe("handleContextEvent: ambient status respects session ownership", () => 
 		const text = JSON.stringify(res!.messages);
 		assert.ok(text.includes("session A work"));
 		assert.ok(text.includes("session B work"));
-	});
-});
-
-describe("buildContinuationPrompt: never references foreign sessions", () => {
-	it("only includes runs passed in (caller is now responsible for session filter)", () => {
-		const cwd = freshProjectWithCrewRoot();
-		makeRun(cwd, "session A work", "sess-a");
-		makeRun(cwd, "session B work", "sess-b");
-		// Simulate session A's compaction: it must pass ONLY its own runs.
-		const ownedByA = collectInFlightRuns(cwd, "sess-a");
-		const prompt = buildContinuationPrompt(ownedByA);
-		assert.ok(prompt.includes("session A work"));
-		assert.ok(!prompt.includes("session B work"), "no cross-session leak in continuation prompt");
 	});
 });
