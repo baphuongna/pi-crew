@@ -296,7 +296,8 @@ export function resolveTaskTreeScope(workspaceCwd: string, focusPaths?: readonly
 		if (typeof entry !== "string" || entry.trim() === "") continue;
 		const rel = path.relative(rootPath, path.resolve(rootPath, entry));
 		// Outside the workspace ("../x", absolute elsewhere) cannot scope it.
-		if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) continue;
+		// Exact `..` or `..`+sep only — a literal "..foo" sibling stays inside.
+		if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue;
 		insideDirs.push(path.dirname(rel));
 	}
 	if (insideDirs.length === 0) return { rootPath, relativePath: "." };
