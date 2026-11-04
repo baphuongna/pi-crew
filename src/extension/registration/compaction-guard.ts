@@ -185,30 +185,33 @@ export function buildContinuationPrompt(runs: TeamRunManifest[]): string {
  * detect that specific race and downgrade it to a silent debug log instead of
  * surfacing a scary warning to the user. Other errors still notify.
  */
-export function triggerContinuation(pi: ExtensionAPI, ctx: ExtensionContext, runs: TeamRunManifest[]): void {
-	if (!runs.length) return;
+const isBenignContinuationRace = (err: unknown): boolean => {
+	const msg = err instanceof Error ? err.message : String(err ?? "");
+	// Pi 1.4.0 wording: queueing requires an explicit streaming behavior.
+	return /already processing/i.test(msg) || /streamingBehavior/i.test(msg) || /compaction is in progress/i.test(msg);
+};
+
+async function sendContinuation(pi: ExtensionAPI, ctx: ExtensionContext, runs: TeamRunManifest[]): Promise<boolean> {
+	if (!runs.length) return false;
 	const prompt = buildContinuationPrompt(runs);
-	const isBenignProcessingRace = (err: unknown): boolean => {
-		const msg = err instanceof Error ? err.message : String(err ?? "");
-		return /already processing a prompt/i.test(msg) || /use steer\(\) or followUp\(\)/i.test(msg);
-	};
 	try {
-		const result = pi.sendUserMessage(prompt) as unknown;
-		Promise.resolve(result).catch((err: unknown) => {
-			// Benign race: the worker keeps running independently — no need to alarm.
-			if (isBenignProcessingRace(err)) return;
-			// Real failure: surface a hint so the user can resume manually.
+		await Promise.resolve(pi.sendUserMessage(prompt, { deliverAs: "followUp" }));
+		return true;
+	} catch (err: unknown) {
+		if (!isBenignContinuationRace(err)) {
 			try {
 				ctx.ui.notify("pi-crew: auto-continuation after compaction failed — use team status to resume manually.", "warning");
 			} catch {
 				// swallow
 			}
-		});
-	} catch (err: unknown) {
-		// Synchronous throw — same benign-race handling.
-		if (isBenignProcessingRace(err)) return;
-		// best-effort
+		}
+		return false;
 	}
+}
+
+export function triggerContinuation(pi: ExtensionAPI, ctx: ExtensionContext, runs: TeamRunManifest[]): Promise<boolean> {
+	if (!runs.length) return Promise.resolve(false);
+	return sendContinuation(pi, ctx, runs);
 }
 
 /** Combined customInstructions injected into proactive compaction summaries. */
@@ -226,9 +229,17 @@ function buildCompactionInstructions(cwd: string, currentSessionId?: string): st
 export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompactionGuardOptions): void {
 	let pendingCompactReason: string | null = null;
 	let compactionInProgress = false;
+	let postCompactionContinuationPending = false;
 
 	const startCompact = (ctx: ExtensionContext, reason: string): void => {
 		if (compactionInProgress) return;
+		// Manual compaction aborts an active turn. Defer while busy so native
+		// threshold compaction can handle it at the settle boundary.
+		const idle = typeof ctx.isIdle === "function" ? ctx.isIdle() : true;
+		if (!idle) {
+			pendingCompactReason = reason === "critical" ? "critical" : "threshold-during-foreground-run";
+			return;
+		}
 		compactionInProgress = true;
 		const sessionId = extractSessionId(ctx);
 		const customInstructions = buildCompactionInstructions(ctx.cwd, sessionId);
@@ -252,11 +263,7 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 			customInstructions,
 			onComplete: () => {
 				compactionInProgress = false;
-				// O10 FIX: Pi's threshold compaction does NOT auto-retry — it
-				// stops and waits for user input. Trigger automatic
-				// continuation so the agent resumes the in-flight crew task.
-				const runs = collectInFlightRuns(ctx.cwd, extractSessionId(ctx));
-				triggerContinuation(pi, ctx, runs);
+				// session_compact triggers continuation after compaction state is cleared.
 				ctx.ui.notify(reason === "deferred" ? "Deferred compaction completed" : "Auto-compacted context during team run", "info");
 			},
 			onError: (error) => {
@@ -298,9 +305,11 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 				})),
 			});
 			ctx.ui.notify(`Context compacted. ${inFlight.length} pi-crew run(s) still in-flight — auto-resuming.`, "info");
-			// THE FIX: trigger automatic continuation. Without this, Pi stops
-			// after threshold compaction and the user must type "continue".
-			triggerContinuation(pi, ctx, inFlight);
+			// If queueing races with compaction, agent_before_settle retries once.
+			postCompactionContinuationPending = true;
+			void triggerContinuation(pi, ctx, inFlight).then((queued) => {
+				if (queued) postCompactionContinuationPending = false;
+			});
 		} catch {
 			// best-effort: never block compaction completion
 		}
@@ -325,9 +334,30 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 				startCompact(ctx, "critical");
 			} else {
 				pendingCompactReason = "threshold-during-foreground-run";
+				return;
 			}
-			return;
 		}
 		startCompact(ctx, "threshold");
+	});
+
+	// If queueing after compaction raced with settlement, continue exactly once.
+	pi.on("agent_before_settle", (_event, ctx) => {
+		if (!postCompactionContinuationPending) return;
+		// Consume the latch at this settlement boundary so it cannot leak into
+		// a later unrelated abort or error.
+		postCompactionContinuationPending = false;
+		if (_event.outcome === "completed") return;
+		const inFlight = collectInFlightRuns(ctx.cwd, extractSessionId(ctx));
+		const pending = typeof ctx.hasPendingMessages === "function" ? ctx.hasPendingMessages() : false;
+		if (!inFlight.length || pending) return;
+		return {
+			entries: [..._event.entries, {
+				type: "custom_message",
+				customType: "crew:post-settle-continuation",
+				content: buildContinuationPrompt(inFlight),
+				display: false,
+			}],
+			continue: true,
+		};
 	});
 }

@@ -48,11 +48,13 @@ describe("buildContinuationPrompt", () => {
 });
 
 describe("triggerContinuation", () => {
-	it("calls pi.sendUserMessage with the continuation prompt", () => {
+	it("queues the continuation as a follow-up", () => {
 		let sentContent: unknown;
+		let sentOptions: unknown;
 		const fakePi = {
-			sendUserMessage: (content: string) => {
+			sendUserMessage: (content: string, options: unknown) => {
 				sentContent = content;
+				sentOptions = options;
 				return Promise.resolve();
 			},
 		};
@@ -61,6 +63,7 @@ describe("triggerContinuation", () => {
 		triggerContinuation(fakePi as never, fakeCtx as never, [makeRun()]);
 
 		assert.equal(typeof sentContent, "string");
+		assert.deepEqual(sentOptions, { deliverAs: "followUp" });
 		const content = sentContent as string;
 		assert.ok(content.includes("run-abc-123"));
 		assert.ok(content.includes("do not wait for me"));
@@ -84,7 +87,6 @@ describe("triggerContinuation", () => {
 	it("notifies on error instead of crashing", async () => {
 		let notifyCalled = false;
 		let notifyMsg = "";
-		// sendUserMessage returns a rejected promise
 		const fakePi = {
 			sendUserMessage: () => Promise.reject(new Error("agent busy")),
 		};
@@ -98,11 +100,21 @@ describe("triggerContinuation", () => {
 		};
 
 		triggerContinuation(fakePi as never, fakeCtx as never, [makeRun()]);
-
-		// Wait for the promise rejection to be caught
 		await new Promise((r) => setTimeout(r, 50));
 
 		assert.equal(notifyCalled, true);
 		assert.ok(notifyMsg.includes("failed"));
+	});
+
+	it("silently ignores the expected busy race", async () => {
+		let notifyCalled = false;
+		const fakePi = {
+			sendUserMessage: () => Promise.reject(new Error("Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.")),
+		};
+		const fakeCtx = { ui: { notify: () => { notifyCalled = true; } } };
+
+		triggerContinuation(fakePi as never, fakeCtx as never, [makeRun()]);
+		await new Promise((r) => setTimeout(r, 50));
+		assert.equal(notifyCalled, false);
 	});
 });
