@@ -153,67 +153,6 @@ function formatResumeDirective(runs: TeamRunManifest[]): string {
 	return lines.join("\n");
 }
 
-/**
- * Build a short continuation prompt for sendUserMessage. This is what actually
- * makes the agent resume after compaction — Pi's threshold compaction does NOT
- * auto-retry (it stops and waits for user input). By injecting this as a user
- * message that triggers a turn, the agent automatically continues the in-flight
- * crew task instead of stalling until the user types "continue".
- */
-export function buildContinuationPrompt(runs: TeamRunManifest[]): string {
-	if (!runs.length) return "";
-	const lines = ["[pi-crew] Context was compacted while crew tasks were still in-flight. Continue the work — do not wait for me."];
-	for (const run of runs) {
-		const wf = run.workflow ? `, workflow=${run.workflow}` : "";
-		lines.push(`- runId=${run.runId} (status=${run.status}, team=${run.team}${wf}): ${run.goal}`);
-	}
-	lines.push("");
-	lines.push(
-		"Resume: call `team` with action='status' to check progress, then action='wait' (join a running task), action='summary', or action='get' as appropriate. If a worker is still alive it continues independently — just re-attach. Do NOT restart completed work.",
-	);
-	return lines.join("\n");
-}
-
-/**
- * Trigger automatic agent continuation after compaction. Fire-and-forget the
- * promise — never block the compaction flow. The sendUserMessage type is
- * declared `void` but the runtime returns a Promise (it triggers an agent turn).
- *
- * During compaction the agent may still be mid-processing, so Pi can reject
- * the queued message with "Agent is already processing a prompt...". This is
- * BENIGN — the in-flight worker continues independently regardless — so we
- * detect that specific race and downgrade it to a silent debug log instead of
- * surfacing a scary warning to the user. Other errors still notify.
- */
-const isBenignContinuationRace = (err: unknown): boolean => {
-	const msg = err instanceof Error ? err.message : String(err ?? "");
-	// Pi 1.4.0 wording: queueing requires an explicit streaming behavior.
-	return /already processing/i.test(msg) || /streamingBehavior/i.test(msg) || /compaction is in progress/i.test(msg);
-};
-
-async function sendContinuation(pi: ExtensionAPI, ctx: ExtensionContext, runs: TeamRunManifest[]): Promise<boolean> {
-	if (!runs.length) return false;
-	const prompt = buildContinuationPrompt(runs);
-	try {
-		await Promise.resolve(pi.sendUserMessage(prompt, { deliverAs: "followUp" }));
-		return true;
-	} catch (err: unknown) {
-		if (!isBenignContinuationRace(err)) {
-			try {
-				ctx.ui.notify("pi-crew: auto-continuation after compaction failed — use team status to resume manually.", "warning");
-			} catch {
-				// swallow
-			}
-		}
-		return false;
-	}
-}
-
-export function triggerContinuation(pi: ExtensionAPI, ctx: ExtensionContext, runs: TeamRunManifest[]): Promise<boolean> {
-	if (!runs.length) return Promise.resolve(false);
-	return sendContinuation(pi, ctx, runs);
-}
-
 /** Combined customInstructions injected into proactive compaction summaries. */
 function buildCompactionInstructions(cwd: string, currentSessionId?: string): string {
 	const artifactIndex = collectCrewArtifactIndex(cwd);
@@ -229,7 +168,6 @@ function buildCompactionInstructions(cwd: string, currentSessionId?: string): st
 export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompactionGuardOptions): void {
 	let pendingCompactReason: string | null = null;
 	let compactionInProgress = false;
-	let postCompactionContinuationPending = false;
 
 	const startCompact = (ctx: ExtensionContext, reason: string): void => {
 		if (compactionInProgress) return;
@@ -263,7 +201,6 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 			customInstructions,
 			onComplete: () => {
 				compactionInProgress = false;
-				// session_compact triggers continuation after compaction state is cleared.
 				ctx.ui.notify(reason === "deferred" ? "Deferred compaction completed" : "Auto-compacted context during team run", "info");
 			},
 			onError: (error) => {
@@ -273,91 +210,38 @@ export function registerCompactionGuard(pi: ExtensionAPI, options: RegisterCompa
 		});
 	};
 
-	// Allow compaction to proceed. pi-crew state is preserved via the
-	// customInstructions + resume-directive entry appended in startCompact,
-	// and re-injected post-compaction by the session_compact handler below.
+	// Allow native and proactive compaction to proceed. pi-crew state is
+	// preserved via custom instructions and the durable resume-directive entry.
 	pi.on("session_before_compact", async (_event, _ctx) => {
 		return;
 	});
 
-	// O10: After ANY compaction (proactive OR reactive/Pi-triggered), detect
-	// in-flight crew runs and trigger automatic continuation. This is the
-	// critical fix: Pi's threshold compaction does NOT auto-retry — it stops
-	// and waits for user input. By injecting a continuation user message that
-	// triggers a turn, the agent automatically resumes the in-flight crew task.
-	// This covers the common case where Pi auto-compacts without going through
-	// our proactive startCompact path.
-	pi.on("session_compact", (_event, ctx) => {
-		try {
-			const sessionId = extractSessionId(ctx);
-			const inFlight = collectInFlightRuns(ctx.cwd, sessionId);
-			if (inFlight.length === 0) return;
-			// Re-append the resume directive entry for durable record.
-			pi.appendEntry("crew:resume-directive", {
-				reason: "post-compaction-continuation",
-				createdAt: new Date().toISOString(),
-				runs: inFlight.map((r) => ({
-					runId: r.runId,
-					status: r.status,
-					team: r.team,
-					workflow: r.workflow,
-					goal: r.goal,
-				})),
-			});
-			ctx.ui.notify(`Context compacted. ${inFlight.length} pi-crew run(s) still in-flight — auto-resuming.`, "info");
-			// If queueing races with compaction, agent_before_settle retries once.
-			postCompactionContinuationPending = true;
-			void triggerContinuation(pi, ctx, inFlight).then((queued) => {
-				if (queued) postCompactionContinuationPending = false;
-			});
-		} catch {
-			// best-effort: never block compaction completion
-		}
-	});
-
-	// Proactive compaction with dynamic threshold.
+	// Observe usage at turn_end, but never compact there: Pi is still busy and
+	// ctx.compact() would abort the active turn. Consume the request only after
+	// agent_settled establishes a genuine idle boundary.
 	pi.on("turn_end", (_event, ctx) => {
 		if (compactionInProgress) return;
-		const hasActiveForeground = options.foregroundControllers.size > 0 || options.foregroundTeamRunControllers.size > 0;
 		const ratio = usageRatio(ctx);
-		// If deferred compaction is pending and foreground just ended, check if still needed
-		if (!hasActiveForeground && pendingCompactReason) {
-			pendingCompactReason = null;
-			if (ratio === undefined || ratio < TRIGGER_RATIO) return;
-			startCompact(ctx, "deferred");
-			return;
-		}
 		if (ratio === undefined || ratio < TRIGGER_RATIO) return;
-		// During foreground run: defer unless context is critically full
-		if (hasActiveForeground) {
-			if (ratio >= HARD_RATIO) {
-				startCompact(ctx, "critical");
-			} else {
-				pendingCompactReason = "threshold-during-foreground-run";
-				return;
-			}
+		const hasActiveForeground = options.foregroundControllers.size > 0 || options.foregroundTeamRunControllers.size > 0;
+		if (ratio >= HARD_RATIO) {
+			pendingCompactReason = "critical";
+		} else if (hasActiveForeground) {
+			pendingCompactReason = "threshold-during-foreground-run";
+		} else {
+			pendingCompactReason = "threshold";
 		}
-		startCompact(ctx, "threshold");
 	});
 
-	// If queueing after compaction raced with settlement, continue exactly once.
-	pi.on("agent_before_settle", (_event, ctx) => {
-		if (!postCompactionContinuationPending) return;
-		// Consume the latch at this settlement boundary so it cannot leak into
-		// a later unrelated abort or error.
-		postCompactionContinuationPending = false;
-		if (_event.outcome === "completed") return;
-		const inFlight = collectInFlightRuns(ctx.cwd, extractSessionId(ctx));
-		const pending = typeof ctx.hasPendingMessages === "function" ? ctx.hasPendingMessages() : false;
-		if (!inFlight.length || pending) return;
-		return {
-			entries: [..._event.entries, {
-				type: "custom_message",
-				customType: "crew:post-settle-continuation",
-				content: buildContinuationPrompt(inFlight),
-				display: false,
-			}],
-			continue: true,
-		};
+	pi.on("agent_settled", (_event, ctx) => {
+		if (compactionInProgress || !pendingCompactReason) return;
+		const ratio = usageRatio(ctx);
+		if (ratio !== undefined && ratio < TRIGGER_RATIO) {
+			pendingCompactReason = null;
+			return;
+		}
+		const reason = pendingCompactReason;
+		pendingCompactReason = null;
+		startCompact(ctx, reason === "threshold" ? "threshold" : "deferred");
 	});
 }

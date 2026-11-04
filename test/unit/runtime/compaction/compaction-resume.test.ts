@@ -1,120 +1,98 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildContinuationPrompt, triggerContinuation } from "../../../../src/extension/registration/compaction-guard.ts";
-import type { TeamRunManifest } from "../../../../src/state/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerCompactionGuard } from "../../../../src/extension/registration/compaction-guard.ts";
+import { createTrackedTempDir } from "../../../fixtures/test-tempdir.ts";
 
-function makeRun(overrides: Partial<TeamRunManifest> = {}): TeamRunManifest {
+type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
+
+function makeHarness(options: { tokens?: number; idle?: boolean } = {}) {
+	const handlers = new Map<string, Handler[]>();
+	const compactCalls: Array<{ onComplete?: () => void }> = [];
+	let sendUserMessageCalls = 0;
+	let tokens = options.tokens ?? 160_000;
+	let idle = options.idle ?? false;
+	const pi = {
+		on: (event: string, handler: Handler) => {
+			const current = handlers.get(event) ?? [];
+			current.push(handler);
+			handlers.set(event, current);
+		},
+		appendEntry: () => undefined,
+		sendUserMessage: () => {
+			sendUserMessageCalls += 1;
+		},
+	} as unknown as ExtensionAPI;
+	const ctx = {
+		cwd: createTrackedTempDir("pi-crew-compaction-lifecycle-"),
+		model: { contextWindow: 200_000 },
+		getContextUsage: () => ({ tokens }),
+		isIdle: () => idle,
+		compact: (compactOptions: { onComplete?: () => void }) => {
+			compactCalls.push(compactOptions);
+		},
+		ui: { notify: () => undefined },
+	} as unknown as ExtensionContext;
+	registerCompactionGuard(pi, {
+		foregroundControllers: new Map(),
+		foregroundTeamRunControllers: new Map(),
+	});
 	return {
-		schemaVersion: 1,
-		runId: "run-abc-123",
-		team: "default",
-		workflow: "default",
-		goal: "Build a login feature",
-		status: "running",
-		workspaceMode: "single",
-		createdAt: "2026-06-15T00:00:00.000Z",
-		updatedAt: "2026-06-15T00:01:00.000Z",
-		cwd: "/tmp",
-		stateRoot: "/tmp/.crew/state/runs/run-abc-123",
-		artifactsRoot: "/tmp/.crew/artifacts/run-abc-123",
-		tasksPath: "/tmp/tasks.json",
-		eventsPath: "/tmp/events.jsonl",
-		artifacts: [],
-		...overrides,
-	} as TeamRunManifest;
+		compactCalls,
+		fire(event: string) {
+			for (const handler of handlers.get(event) ?? []) handler({}, ctx);
+		},
+		setIdle(value: boolean) {
+			idle = value;
+		},
+		setTokens(value: number) {
+			tokens = value;
+		},
+		get sendUserMessageCalls() {
+			return sendUserMessageCalls;
+		},
+	};
 }
 
-describe("buildContinuationPrompt", () => {
-	it("returns empty string for no in-flight runs", () => {
-		assert.equal(buildContinuationPrompt([]), "");
+describe("compaction lifecycle", () => {
+	it("does not call ctx.compact during a busy turn", () => {
+		const harness = makeHarness({ idle: false, tokens: 195_000 });
+
+		harness.fire("turn_end");
+
+		assert.equal(harness.compactCalls.length, 0);
 	});
 
-	it("includes the continuation instruction and runId", () => {
-		const prompt = buildContinuationPrompt([makeRun()]);
-		assert.ok(prompt.includes("[pi-crew]"), "should have pi-crew tag");
-		assert.ok(prompt.includes("do not wait for me"), "should tell agent to continue without waiting");
-		assert.ok(prompt.includes("run-abc-123"), "should include runId");
-		assert.ok(prompt.includes("Build a login feature"), "should include goal");
-		assert.ok(prompt.includes("action='status'"), "should give resume instructions");
+	it("runs a deferred proactive compaction once at agent_settled", () => {
+		const harness = makeHarness({ idle: false, tokens: 160_000 });
+		harness.fire("turn_end");
+		assert.equal(harness.compactCalls.length, 0, "busy turn must not be aborted");
+
+		harness.setIdle(true);
+		harness.fire("agent_settled");
+		assert.equal(harness.compactCalls.length, 1, "idle settlement consumes the deferred request");
+
+		harness.compactCalls[0]?.onComplete?.();
+		harness.fire("agent_settled");
+		assert.equal(harness.compactCalls.length, 1, "deferred request is consumed exactly once");
 	});
 
-	it("lists multiple in-flight runs", () => {
-		const prompt = buildContinuationPrompt([makeRun({ runId: "run-a", goal: "Task A" }), makeRun({ runId: "run-b", goal: "Task B" })]);
-		assert.ok(prompt.includes("run-a"));
-		assert.ok(prompt.includes("run-b"));
-		assert.ok(prompt.includes("Task A"));
-		assert.ok(prompt.includes("Task B"));
-	});
-});
+	it("does not send a synthetic user message after session_compact", () => {
+		const harness = makeHarness({ idle: true });
 
-describe("triggerContinuation", () => {
-	it("queues the continuation as a follow-up", () => {
-		let sentContent: unknown;
-		let sentOptions: unknown;
-		const fakePi = {
-			sendUserMessage: (content: string, options: unknown) => {
-				sentContent = content;
-				sentOptions = options;
-				return Promise.resolve();
-			},
-		};
-		const fakeCtx = { ui: { notify: () => undefined } };
+		harness.fire("session_compact");
 
-		triggerContinuation(fakePi as never, fakeCtx as never, [makeRun()]);
-
-		assert.equal(typeof sentContent, "string");
-		assert.deepEqual(sentOptions, { deliverAs: "followUp" });
-		const content = sentContent as string;
-		assert.ok(content.includes("run-abc-123"));
-		assert.ok(content.includes("do not wait for me"));
+		assert.equal(harness.sendUserMessageCalls, 0);
 	});
 
-	it("does nothing when no in-flight runs", () => {
-		let called = false;
-		const fakePi = {
-			sendUserMessage: () => {
-				called = true;
-				return Promise.resolve();
-			},
-		};
-		const fakeCtx = { ui: { notify: () => undefined } };
+	it("drops a deferred request when usage falls below the threshold before settlement", () => {
+		const harness = makeHarness({ idle: false, tokens: 160_000 });
+		harness.fire("turn_end");
+		harness.setTokens(100_000);
+		harness.setIdle(true);
 
-		triggerContinuation(fakePi as never, fakeCtx as never, []);
+		harness.fire("agent_settled");
 
-		assert.equal(called, false);
-	});
-
-	it("notifies on error instead of crashing", async () => {
-		let notifyCalled = false;
-		let notifyMsg = "";
-		const fakePi = {
-			sendUserMessage: () => Promise.reject(new Error("agent busy")),
-		};
-		const fakeCtx = {
-			ui: {
-				notify: (msg: string, _level: string) => {
-					notifyCalled = true;
-					notifyMsg = msg;
-				},
-			},
-		};
-
-		triggerContinuation(fakePi as never, fakeCtx as never, [makeRun()]);
-		await new Promise((r) => setTimeout(r, 50));
-
-		assert.equal(notifyCalled, true);
-		assert.ok(notifyMsg.includes("failed"));
-	});
-
-	it("silently ignores the expected busy race", async () => {
-		let notifyCalled = false;
-		const fakePi = {
-			sendUserMessage: () => Promise.reject(new Error("Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.")),
-		};
-		const fakeCtx = { ui: { notify: () => { notifyCalled = true; } } };
-
-		triggerContinuation(fakePi as never, fakeCtx as never, [makeRun()]);
-		await new Promise((r) => setTimeout(r, 50));
-		assert.equal(notifyCalled, false);
+		assert.equal(harness.compactCalls.length, 0);
 	});
 });
