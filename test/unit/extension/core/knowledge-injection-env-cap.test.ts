@@ -229,6 +229,28 @@ test("R1.1: section-index bounded to the 15 most recent entries BY DEFAULT (knob
 	}
 });
 
+test("R1.1: ≤15 sections — index lists every header, NO counter (full-string fixture)", async () => {
+	const cwd = makeTmpCrewDir("pi-crew-knowledge-r11-le15-");
+	try {
+		const kPath = knowledgePath(cwd);
+		fs.writeFileSync(
+			kPath,
+			Array.from({ length: 3 }, (_, i) => `## redaction case${i + 1} postmortem\nbody-${i + 1}`).join("\n\n"),
+			"utf-8",
+		);
+		const out = withKnob(undefined, () => readKnowledge(cwd, { goal: "redaction", taskText: "" }));
+		const expectedIndex = [
+			"<!-- Session-log sections in knowledge.md (not injected unless matched above — use \`read\` for detail):",
+			...Array.from({ length: 3 }, (_, i) => `  - redaction case${i + 1} postmortem`),
+			`Full file: ${kPath} -->`,
+		].join("\n");
+		assert.ok(out.includes(expectedIndex), "index must list all 3 headers with no counter line");
+		assert.equal(out.includes("earlier session-log sections omitted"), false, "no counter when under the bound");
+	} finally {
+		await removeDirWithRetry(cwd);
+	}
+});
+
 test("R1.1 HARD RULE: env unset with >15 sections — CONTENT is byte-identical (all matched bodies verbatim, no new truncation notices); only the index is bounded", async () => {
 	const cwd = makeTmpCrewDir("pi-crew-knowledge-r11-unset-");
 	try {
