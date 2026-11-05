@@ -120,4 +120,27 @@ describe("buildParentContext", () => {
 		assert.ok(result!.includes("# Parent Conversation Context"));
 		assert.ok(result!.includes("reference-only"));
 	});
+
+	it("pins MAX_PARENT_CONTEXT_CHARS at 12_000 (R5 cap census)", () => {
+		// R5 census (2026-11-05): every parent-context embed site (child-pi.ts
+		// effectiveTask, live-session-runtime.ts effectivePrompt) consumes the
+		// string produced here, so this constant is the whole-layer ceiling
+		// (~3K tokens). The behavior tests above import the constant, so a
+		// silent value change would still pass them — pin the number.
+		assert.equal(MAX_PARENT_CONTEXT_CHARS, 12_000);
+	});
+
+	it("bounds the final block to budget + fixed wrapper overhead (R5 census)", () => {
+		// 20 × ~2.5Kc user messages = ~50Kc input, all inside the slice(-20)
+		// window — only the total budget can bound the render. The output may
+		// never exceed budget + header (2 lines + blank) + join separators
+		// (≤19 × "\n\n"), i.e. a fixed ~160c over 12_000.
+		const branch = Array.from({ length: 20 }, (_, i) => userMsg(`${String(i).padStart(3, "0")} ${"x".repeat(2_500)}`));
+		const result = buildParentContext(ctxWithBranch(branch));
+		assert.ok(result);
+		assert.ok(result!.length <= MAX_PARENT_CONTEXT_CHARS + 200, `block ${result!.length}c exceeds budget + wrapper overhead`);
+		// Drop-oldest engaged at this volume: oldest gone, newest kept.
+		assert.ok(!result!.includes("000 "));
+		assert.ok(result!.includes("019 "));
+	});
 });
