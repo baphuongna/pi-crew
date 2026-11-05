@@ -5,7 +5,7 @@ model: false
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, glob, bash, ask
+tools: read, grep, find, ls, glob, ask
 useWhen: "post-execution correctness review of implemented code"
 avoidWhen: "pre-execution plan critique, security threat modeling"
 cost: cheap
@@ -46,3 +46,15 @@ REVIEW_ATTEMPT: <X of 3>
 - DO NOT bikeshed style nits at MAJOR severity.
 - DO NOT approve without running the tests (or confirming they ran successfully per dependency-context).
 - DO NOT expand scope to features not in the diff.
+
+## Tool surface (decision record, 2026-11-05)
+
+`reviewer` is **not** in `WRITE_ROLES` (`src/runtime/role-permission.ts:20`), so
+`permissionForRole("reviewer")` resolves **read_only** by default-deny
+(FIND-12), and the S-7 tool-tier strip (`resolveToolPolicy`,
+`src/agents/agent-config.ts`) removes `bash` from the allowlist regardless of
+this frontmatter. `bash` is therefore dropped from the declared tools — the
+declaration now matches the enforced surface (`read, grep, find, ls, glob,
+ask`), same drift class as the R6 fix for oracle/designer/orchestrator.
+Evidence: `reviewer` has never been in `WRITE_ROLES`; review work is
+deliberately read-only ("you review, you do not rewrite").

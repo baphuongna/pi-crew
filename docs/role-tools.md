@@ -13,7 +13,7 @@
 | `planner` | read_only | read, grep, find, ls, glob, ask | edit, write, bash, web | — |
 | `critic` | read_only | read, grep, find, ls, glob, ask | edit, write, bash, web | — |
 | `executor` | workspace_write | — | — | ✅ |
-| `reviewer` | read_only | read, grep, find, ls, glob, bash, ask | edit, write | — |
+| `reviewer` | read_only | read, grep, find, ls, glob, ask | edit, write | — |
 | `writer` | workspace_write | read, edit, write, ls, ask | bash, web | — |
 | `security-reviewer` | read_only | read, grep, find, ask | edit, write, bash, web | — |
 | `verifier` | workspace_write | read, grep, find, ls, bash, scratchpad, ask | edit, write, web | ✅ |

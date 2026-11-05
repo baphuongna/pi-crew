@@ -74,11 +74,14 @@ test("explorer has read-only tools (no bash — Wave-3 Chain A), excludes edit/w
 	assert.ok(!explorer.tools!.includes("web"));
 });
 
-test("reviewer can use bash but not edit/write", () => {
+test("reviewer is read-only surface: no bash/edit/write (R6 drift fix 2026-11-05)", () => {
 	const reviewer = getToolConfig("reviewer");
-	assert.ok(reviewer.tools!.includes("bash"));
+	assert.ok(!reviewer.tools!.includes("bash"), "bash dropped — read_only tier strips it at runtime anyway");
+	assert.ok(!reviewer.tools!.includes("edit"));
+	assert.ok(!reviewer.tools!.includes("write"));
 	assert.ok(reviewer.excludeTools!.includes("edit"));
 	assert.ok(reviewer.excludeTools!.includes("write"));
+	assert.ok(reviewer.tools!.includes("ask"));
 });
 
 test("writer has edit and write but no bash", () => {

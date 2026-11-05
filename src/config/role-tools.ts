@@ -60,9 +60,10 @@ export const ROLE_TOOL_CONFIGS: Record<string, RoleToolConfig> = {
 		scratchpad: true,
 	},
 
-	// Reviewer - Read and review, no write
+	// Reviewer - Read and review, no write (bash dropped 2026-11-05: read_only
+	// tier strips it at runtime anyway — R6 drift fix, agents/reviewer.md)
 	reviewer: {
-		tools: ["read", "grep", "find", "ls", "glob", "bash", "ask"],
+		tools: ["read", "grep", "find", "ls", "glob", "ask"],
 		excludeTools: ["edit", "write"],
 	},
 

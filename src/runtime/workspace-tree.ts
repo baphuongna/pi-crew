@@ -328,15 +328,46 @@ export async function buildTaskWorkspaceTree(
 	options?: WorkspaceTreeOptions,
 ): Promise<TaskWorkspaceTree> {
 	const scope = resolveTaskTreeScope(workspaceCwd, focusPaths);
-	if (scope.relativePath !== ".") {
+	// NIT-2 (review follow-up): a top-level directory-valued focus path
+	// (e.g. reads: ["pi-crew"]) contributes dirname "." in the PURE resolver —
+	// file-path semantics — and de-scopes to the whole workspace even though
+	// the task plainly scopes to that directory. Refine HERE (the FS layer;
+	// resolveTaskTreeScope stays FS-free): on the fallback path only, stat each
+	// inside-workspace focus path and treat an EXISTING directory as its own
+	// scope root. Nonexistent paths keep file-path semantics (dirname), so a
+	// typo/glob still falls back fail-safe; a directory mixed with a root-level
+	// file still resolves to the whole workspace (conservative, no narrowing).
+	let effective = scope;
+	if (scope.relativePath === "." && Array.isArray(focusPaths) && focusPaths.length > 0) {
+		const rootPath = path.resolve(workspaceCwd);
+		const candidates: string[] = [];
+		for (const entry of focusPaths) {
+			if (typeof entry !== "string" || entry.trim() === "") continue;
+			const abs = path.resolve(rootPath, entry);
+			const rel = path.relative(rootPath, abs);
+			if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue;
+			let isDir = false;
+			try {
+				isDir = (await fs.stat(abs)).isDirectory();
+			} catch {
+				isDir = false;
+			}
+			candidates.push(isDir ? rel : path.dirname(rel));
+		}
+		if (candidates.length > 0) {
+			const common = commonDirPrefix(candidates);
+			if (common !== ".") effective = { rootPath: path.join(rootPath, common), relativePath: common };
+		}
+	}
+	if (effective.relativePath !== ".") {
 		try {
-			await fs.stat(scope.rootPath);
+			await fs.stat(effective.rootPath);
 		} catch {
 			const rootPath = path.resolve(workspaceCwd);
 			return { tree: await buildWorkspaceTree(rootPath, options), scope: { rootPath, relativePath: "." } };
 		}
 	}
-	return { tree: await buildWorkspaceTree(scope.rootPath, options), scope };
+	return { tree: await buildWorkspaceTree(effective.rootPath, options), scope: effective };
 }
 
 // ── Public API ────────────────────────────────────────────────────────

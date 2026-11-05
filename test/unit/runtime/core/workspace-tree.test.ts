@@ -206,6 +206,57 @@ test("returns empty result for non-existent path", async () => {
 
 // ── File metadata in output ────────────────────────────────────────────
 
+// ── Task-scoped tree (R2) ─────────────────────────────────────────────
+
+describe("buildTaskWorkspaceTree — NIT-2 directory-valued focus refinement", () => {
+	test("top-level directory read scopes the walk to that directory", async () => {
+		const dir = await makeTmpDir();
+		try {
+			await createTempTree({ pi: { "a.ts": "export {}" }, other: { "b.md": "x" } }, dir);
+			const r = await buildTaskWorkspaceTree(dir, ["pi"]);
+			assert.equal(r.scope.relativePath, "pi");
+			assert.ok(r.tree.rootPath.endsWith("pi"), `rootPath=${r.tree.rootPath}`);
+			assert.ok(r.tree.rendered.includes("a.ts"), `expected a.ts in:\n${r.tree.rendered}`);
+			assert.ok(!r.tree.rendered.includes("b.md"), `b.md must not leak into the scoped tree`);
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("directory mixed with a root-level file stays whole-workspace (conservative)", async () => {
+		const dir = await makeTmpDir();
+		try {
+			await createTempTree({ pi: { "a.ts": "export {}" }, "README.md": "z" }, dir);
+			const r = await buildTaskWorkspaceTree(dir, ["pi", "README.md"]);
+			assert.equal(r.scope.relativePath, ".");
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("nonexistent top-level path keeps file-path semantics (fail-safe fallback)", async () => {
+		const dir = await makeTmpDir();
+		try {
+			await createTempTree({ pi: { "a.ts": "export {}" } }, dir);
+			const r = await buildTaskWorkspaceTree(dir, ["ghost"]);
+			assert.equal(r.scope.relativePath, ".");
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("directory plus file inside it narrows to the directory", async () => {
+		const dir = await makeTmpDir();
+		try {
+			await createTempTree({ pi: { "a.ts": "export {}", deep: { "b.ts": "export {}" } } }, dir);
+			const r = await buildTaskWorkspaceTree(dir, ["pi", "pi/a.ts"]);
+			assert.equal(r.scope.relativePath, "pi");
+		} finally {
+			await fs.rm(dir, { recursive: true, force: true });
+		}
+	});
+});
+
 test("includes file size and age for files", async () => {
 	const dir = await makeTmpDir();
 	try {

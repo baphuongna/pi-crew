@@ -335,6 +335,10 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 		// must not serve a stale truncation). Parsed sections stay cap-independent.
 		const headCap = knowledgeCap(MAX_KNOWLEDGE_HEAD_BYTES, maxBytes);
 		const cacheKey = `${stat.mtimeMs}:${stat.size}:${headCap}`;
+		// NIT-3 (review follow-up): parsed sections are cap-INDEPENDENT — key
+		// them by file identity only, so a mid-process knob change re-truncates
+		// (knowledgeCache above) but never re-parses the file.
+		const sectionKey = `${stat.mtimeMs}:${stat.size}`;
 
 		// B2: when no query context is provided (main-session hook, legacy
 		// callers, tests), keep the simple head-only path. This preserves the
@@ -360,7 +364,7 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 			conventions: KnowledgeSection[];
 			sessionLog: KnowledgeSection[];
 		};
-		if (cachedSections && cachedSections.key === cacheKey) {
+		if (cachedSections && cachedSections.key === sectionKey) {
 			parsed = {
 				conventions: cachedSections.conventions,
 				sessionLog: cachedSections.sessionLog,
@@ -371,7 +375,7 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 			const content = sanitizeAgentSystemPrompt(fs.readFileSync(p, "utf8").trim(), "project");
 			parsed = parseKnowledgeSections(content);
 			sectionCache.set(p, {
-				key: cacheKey,
+				key: sectionKey,
 				conventions: parsed.conventions,
 				sessionLog: parsed.sessionLog,
 			});
