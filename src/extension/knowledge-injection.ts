@@ -75,6 +75,24 @@ export const MAX_CONVENTIONS_BYTES = 2_048;
  */
 const KNOWLEDGE_MAX_BYTES_ENV_RE = /^[+-]?\d+$/;
 
+/**
+ * R1.1 (adaptive context diet, 2026-11-05): bound on the session-log
+ * section INDEX rendered into every worker prompt. The index used to list
+ * EVERY session-log header — a recovery safety net that grew linearly with
+ * knowledge.md history (measured 2026-11-05 on this repo: 130 entries ≈
+ * 10.4K chars = 82% of the whole injected block, dwarfing the ~2K of matched
+ * content the knob actually caps). The index is now bounded to the most
+ * recent MAX_INDEX_ENTRIES entries (file order — the session-log is
+ * chronological, newest appended last) plus a one-line counter pointing
+ * `read` at the full file for the omitted earlier ones. Unlike the byte caps
+ * this bound applies BY DEFAULT (knob unset) — the unbounded index was the
+ * real growth bug. Unset output changes ONLY inside this index comment, and
+ * only when a project has more than MAX_INDEX_ENTRIES session-log sections;
+ * injected CONTENT (conventions + matched session-log bodies + their
+ * truncation notices) is byte-identical when unset.
+ */
+const MAX_INDEX_ENTRIES = 15;
+
 /** Resolve the R1 knob: undefined = unset/invalid (keep per-path defaults),
  *  otherwise the parsed integer (≤0 = off-switch). Never throws. */
 function resolveKnowledgeMaxBytes(): number | undefined {
@@ -404,14 +422,39 @@ export function readKnowledge(cwd: string, query?: KnowledgeQuery): string {
 		}
 		// Matched session-log (drop-whole, budget-capped).
 		for (const sec of matchedSessionLog) parts.push(sec.body);
-		// Always: section-index of ALL session-log headers (recovery safety net).
+		// Always: section-index of session-log headers (recovery safety net).
+		// R1.1: bounded to the last MAX_INDEX_ENTRIES headers plus a counter —
+		// see MAX_INDEX_ENTRIES doc for the growth-bug rationale. The counter
+		// line sits ABOVE the kept entries because the omitted ones are the
+		// earlier sections (keep-tail policy).
 		if (parsed.sessionLog.length > 0) {
-			const indexLines = parsed.sessionLog.map((s) => `  - ${s.header}`);
+			const omitted = parsed.sessionLog.length - MAX_INDEX_ENTRIES;
+			const indexLines = (omitted > 0 ? parsed.sessionLog.slice(-MAX_INDEX_ENTRIES) : parsed.sessionLog).map(
+				(s) => `  - ${s.header}`,
+			);
+			if (omitted > 0) {
+				indexLines.unshift(
+					`… ${omitted} earlier session-log sections omitted (index capped at ${MAX_INDEX_ENTRIES} most recent) — use \`read\` on the full file to browse them.`,
+				);
+			}
 			parts.push(
 				`<!-- Session-log sections in knowledge.md (not injected unless matched above — use \`read\` for detail):\n${indexLines.join("\n")}\nFull file: ${p} -->`,
 			);
 		}
-		return parts.join("\n").trim();
+		const joined = parts.join("\n").trim();
+		// R1.1 whole-block backstop (knob set ONLY): the knobbled query-path
+		// budgets (conventions N + session-log N) plus the no-query head budget
+		// (N) justify up to 3N of knowledge — but truncation notices and the
+		// section-index ride on top. When the FINAL joined block would exceed
+		// 3N bytes, cut the tail and point `read` at the file so the knob stays
+		// a true upper bound ("max bytes of knowledge per agent" × 3 paths).
+		// Unset = no whole-block cap (pre-R1.1 behavior; the per-path defaults
+		// already bound each part).
+		if (maxBytes !== undefined && joined.length > maxBytes * 3) {
+			const wholeBlockCap = maxBytes * 3;
+			return `${joined.slice(0, wholeBlockCap)}\n\n<!-- knowledge block truncated at ${wholeBlockCap} bytes (whole-block cap). Full file: ${p} — use the \`read\` tool. -->`;
+		}
+		return joined;
 	} catch {
 		return "";
 	}

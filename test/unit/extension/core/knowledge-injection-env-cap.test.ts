@@ -197,3 +197,85 @@ test("R1: N overrides BOTH query-path caps — conventions marker AND session-lo
 		await removeDirWithRetry(cwd);
 	}
 });
+
+// ---------------------------------------------------------------------------
+// R1.1 (2026-11-05): section-index bound + whole-block cap.
+// ---------------------------------------------------------------------------
+
+/** 20 tiny session-log sections whose headers all overlap the query token
+ *  "redaction" (so the section-aware path always runs); 5 more than the
+ *  MAX_INDEX_ENTRIES=15 bound. */
+function twentySessionLogSections(): string {
+	return Array.from({ length: 20 }, (_, i) => `## redaction case${i + 1} postmortem\nbody-${i + 1}`).join("\n\n");
+}
+
+test("R1.1: section-index bounded to the 15 most recent entries BY DEFAULT (knob unset) — counter + kept-tail, byte-exact", async () => {
+	const cwd = makeTmpCrewDir("pi-crew-knowledge-r11-index-");
+	try {
+		const kPath = knowledgePath(cwd);
+		fs.writeFileSync(kPath, twentySessionLogSections(), "utf-8");
+
+		const out = withKnob(undefined, () => readKnowledge(cwd, { goal: "redaction", taskText: "" }));
+		const expectedIndex = [
+			"<!-- Session-log sections in knowledge.md (not injected unless matched above — use \`read\` for detail):",
+			"… 5 earlier session-log sections omitted (index capped at 15 most recent) — use \`read\` on the full file to browse them.",
+			...Array.from({ length: 15 }, (_, i) => `  - redaction case${i + 6} postmortem`),
+			`Full file: ${kPath} -->`,
+		].join("\n");
+		assert.ok(out.includes(expectedIndex), "index must list exactly the last 15 headers under the counter line");
+		assert.equal(out.includes("  - redaction case5 postmortem"), false, "omitted (older) header must not be listed in the index");
+	} finally {
+		await removeDirWithRetry(cwd);
+	}
+});
+
+test("R1.1 HARD RULE: env unset with >15 sections — CONTENT is byte-identical (all matched bodies verbatim, no new truncation notices); only the index is bounded", async () => {
+	const cwd = makeTmpCrewDir("pi-crew-knowledge-r11-unset-");
+	try {
+		const kPath = knowledgePath(cwd);
+		const sections = Array.from({ length: 20 }, (_, i) => `## redaction case${i + 1} postmortem\nverbatim body ${i + 1} ${"x"}`);
+		fs.writeFileSync(kPath, sections.join("\n\n"), "utf-8");
+
+		const out = withKnob(undefined, () => readKnowledge(cwd, { goal: "redaction", taskText: "" }));
+		// Every matched body survives verbatim (default 5000 budget; total
+		// bodies ≪ 5000) — no truncation notices introduced by R1.1.
+		for (let i = 1; i <= 20; i++) {
+			assert.ok(out.includes(`verbatim body ${i} x`), `matched body ${i} must be byte-identical`);
+		}
+		assert.equal(out.includes("...[truncated]"), false, "no conventions truncation notice on tiny content");
+		assert.equal(out.includes("section truncated"), false, "no session-log truncation notice on tiny content");
+		assert.equal(out.includes("whole-block cap"), false, "unset = no whole-block cap (pre-R1.1 behavior)");
+		// The ONLY unset difference vs pre-R1.1: the index comment (counter + 15).
+		assert.match(out, /… 5 earlier session-log sections omitted/);
+	} finally {
+		await removeDirWithRetry(cwd);
+	}
+});
+
+test("R1.1: whole-block cap — knob N bounds the FINAL joined query block at N*3 bytes (tail cut + notice)", async () => {
+	const cwd = makeTmpCrewDir("pi-crew-knowledge-r11-block-");
+	try {
+		const kPath = knowledgePath(cwd);
+		// N=100: conventions body (412c) → truncated at 100 + ~118c notice;
+		// matching session-log body (412c) > 100 budget → head-slice 100 +
+		// ~130c notice; index ≈ 220c. Joined ≈ 690c > 3N = 300 → backstop fires.
+		const content = `## Code Style\n${"c".repeat(400)}\n\n## redaction case1 postmortem\n${"r".repeat(400)}\n\n## other topic alpha\n${"o".repeat(400)}\n`;
+		fs.writeFileSync(kPath, content, "utf-8");
+
+		const out = withKnob("100", () => readKnowledge(cwd, { goal: "redaction", taskText: "" }));
+		const notice = `\n\n<!-- knowledge block truncated at 300 bytes (whole-block cap). Full file: ${kPath} — use the \`read\` tool. -->`;
+		assert.ok(out.endsWith(notice), "whole-block truncation notice must terminate the block");
+		assert.equal(out.length, 300 + notice.length, "final block must be exactly 3N content + notice");
+		assert.ok(
+			out.startsWith(`## Code Style\n${"c".repeat(86)}`),
+			"head of the joined block survives the tail cut (14c header + 86c body = 100c cap)",
+		);
+		// The session-log head-slice notice lives past the cut → must be gone.
+		assert.equal(out.includes("session-log budget"), false, "tail past 3N is cut, not kept");
+		// Unset with the same fixture: no whole-block cap (690c block passes through).
+		const unsetOut = withKnob(undefined, () => readKnowledge(cwd, { goal: "redaction", taskText: "" }));
+		assert.equal(unsetOut.includes("whole-block cap"), false, "unset must never trigger the whole-block cap");
+	} finally {
+		await removeDirWithRetry(cwd);
+	}
+});
