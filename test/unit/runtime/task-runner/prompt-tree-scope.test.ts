@@ -149,6 +149,132 @@ test("R2: breakdown key mapping stable.workspaceTree → dynamic.workspaceTree",
 	}
 });
 
+/** R2.2 helper: precomputed stable components with ONLY the retrieval paths. */
+function precomputedWith(files: string[]): Parameters<typeof renderTaskPrompt>[5] {
+	return { suggestedFilesBlock: "", knowledgeFragment: "", suggestedFiles: files };
+}
+
+test("R2.2: step without reads + retrieval suggestedFiles scopes the tree around the suggestions", async () => {
+	const { manifest, task, workspace } = makeFixture();
+	const step = makeStep(); // NO reads
+	try {
+		const rendered = await renderTaskPrompt(manifest, step, task, undefined, "", precomputedWith(["src/runtime/focus-file.ts"]), []);
+
+		assert.ok(rendered.dynamicSuffix.includes(`(subtree: src${path.sep}runtime)`), "tree must scope to the suggestions' subtree");
+		assert.ok(rendered.dynamicSuffix.includes("focus-file.ts"), "suggested file is rendered");
+		assert.ok(!rendered.dynamicSuffix.includes("far-away.ts"), "out-of-scope files stay elided when scoping from suggestions");
+	} finally {
+		fs.rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("R2.2: no reads AND no (usable) suggestedFiles keeps the whole-workspace tree", async () => {
+	const { manifest, task, workspace } = makeFixture();
+	const step = makeStep(); // NO reads
+	try {
+		// Empty list…
+		const empty = await renderTaskPrompt(manifest, step, task, undefined, "", precomputedWith([]), []);
+		// …and junk-only entries (non-strings/whitespace are filtered) must both
+		// fall back to the legacy whole tree — the fail-safe is unchanged.
+		const junk = await renderTaskPrompt(
+			manifest,
+			step,
+			task,
+			undefined,
+			"",
+			precomputedWith(["", "   ", "not-a-string" as unknown as string]),
+			[],
+		);
+		for (const rendered of [empty, junk]) {
+			const treeLine = rendered.dynamicSuffix.split("\n").find((l) => l.startsWith("# Workspace Structure"));
+			assert.ok(treeLine, "tree block present");
+			assert.ok(!treeLine.includes("subtree"), "no signal ⇒ no subtree header");
+			assert.ok(rendered.dynamicSuffix.includes("far-away.ts"), "whole workspace is covered");
+		}
+	} finally {
+		fs.rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("R2.2: non-empty step.reads WINS over suggestedFiles (declared inputs are the stronger signal)", async () => {
+	const { manifest, task, workspace } = makeFixture();
+	const step = makeStep(["src/runtime/focus-file.ts"]); // reads present
+	try {
+		// Suggestions point somewhere ELSE — if they won, the scope would be
+		// `unrelated` and the focus file would be elided.
+		const rendered = await renderTaskPrompt(manifest, step, task, undefined, "", precomputedWith(["unrelated/far-away.ts"]), []);
+		assert.ok(rendered.dynamicSuffix.includes(`(subtree: src${path.sep}runtime)`), "reads must win the scope");
+		assert.ok(rendered.dynamicSuffix.includes("focus-file.ts"), "read file is rendered");
+		assert.ok(!rendered.dynamicSuffix.includes("far-away.ts"), "suggestion-only file stays elided when reads win");
+	} finally {
+		fs.rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
+test("R2.2 end-to-end: real retrieval (no precomputed components) narrows a reads-less step's tree", async () => {
+	// Goal-keyword fixture (same pattern as prompt-builder-cache-goal.test.ts):
+	// the ONLY path matching the goal keywords lives under src/, so retrieval
+	// suggests exactly that file and the tree scopes to src/.
+	const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "r22-e2e-"));
+	fs.mkdirSync(path.join(workspace, "src"), { recursive: true });
+	fs.mkdirSync(path.join(workspace, "unrelated"), { recursive: true });
+	fs.writeFileSync(path.join(workspace, "src", "alpha-widget-handler.ts"), "// alpha widget\n", "utf8");
+	fs.writeFileSync(path.join(workspace, "unrelated", "far-away.ts"), "// far\n", "utf8");
+
+	const stateRoot = path.join(workspace, ".crew", "state", "runs", "team_r22e2e");
+	fs.mkdirSync(stateRoot, { recursive: true });
+	fs.writeFileSync(path.join(stateRoot, "events.jsonl"), "", "utf8");
+
+	const manifest = {
+		runId: "team_r22e2e",
+		schemaVersion: 1,
+		status: "running",
+		stateRoot,
+		tasksPath: path.join(stateRoot, "tasks.json"),
+		eventsPath: path.join(stateRoot, "events.jsonl"),
+		artifactsRoot: path.join(workspace, ".crew", "artifacts", "team_r22e2e"),
+		team: "test",
+		workflow: "test",
+		goal: "alpha widget repro",
+		cwd: workspace,
+		workspaceMode: "single",
+		createdAt: PINNED.toISOString(),
+	} as unknown as TeamRunManifest;
+	const task = {
+		id: "01_exec",
+		runId: manifest.runId,
+		stepId: "01",
+		role: "executor",
+		agent: "executor",
+		title: "Investigate the alpha widget defect",
+		status: "running",
+		dependsOn: [],
+		cwd: workspace,
+	} as unknown as TeamTaskState;
+	const step: WorkflowStep = {
+		id: "01",
+		role: "executor",
+		task: "Investigate the reported defect and report the findings back", // NO reads
+	};
+	try {
+		const rendered = await renderTaskPrompt(manifest, step, task, undefined, "", undefined, []);
+		assert.ok(rendered.stablePrefix.includes("alpha-widget-handler.ts"), "sanity: retrieval suggested the goal file");
+		assert.ok(rendered.dynamicSuffix.includes(`(subtree: src)`), "tree scopes to the retrieval suggestion's subtree");
+		assert.ok(!rendered.dynamicSuffix.includes("far-away.ts"), "out-of-scope sibling stays elided");
+
+		// Per-run cache site: a sibling renderTaskPrompt (new task id, same
+		// cwd/step/runId) hits the stableComponentCache fast path — the cached
+		// read must still carry the paths, or the sibling's tree de-scopes.
+		const sibling = { ...task, id: "01_exec-b" } as unknown as TeamTaskState;
+		const renderedSibling = await renderTaskPrompt(manifest, step, sibling, undefined, "", undefined, []);
+		assert.ok(renderedSibling.dynamicSuffix.includes("(subtree: src)"), "cached-component read (fast path) keeps the scoped tree");
+		assert.ok(!renderedSibling.dynamicSuffix.includes("far-away.ts"), "sibling tree stays scoped from the cached paths");
+	} finally {
+		clearStablePrefixCache();
+		fs.rmSync(workspace, { recursive: true, force: true });
+	}
+});
+
 test("R3: single canonical task body — packet JSON points at the narrative instead of re-embedding it", async () => {
 	const { manifest, task, workspace } = makeFixture();
 	const step = makeStep(["src/runtime/focus-file.ts"]);

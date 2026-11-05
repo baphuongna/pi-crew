@@ -168,6 +168,17 @@ export function renderOutputSchemaBlock(outputSchema: TaskOutputSchema): string 
  */
 export interface StableComponents {
 	suggestedFilesBlock: string;
+	/**
+	 * R2.2 (adaptive-03): the retrieval-suggested file paths (relative to
+	 * the task cwd) behind `suggestedFilesBlock`. Carried alongside the
+	 * rendered block so the per-task workspace-tree scoping in
+	 * renderTaskPrompt can fall back to them when a step declares no
+	 * `reads` — no second retrieval pass. Both cache read sites must return
+	 * the SAME array the fresh compute produced: the keys already cover the
+	 * retrieval inputs (per-run key = cwd+step+runId with a run-fixed goal;
+	 * the cross-run io key includes the goal), so no key change is needed.
+	 */
+	suggestedFiles: string[];
 	knowledgeFragment: string;
 }
 
@@ -202,6 +213,8 @@ const stableComponentCache = new Map<string, StableComponents>();
 // key must gain it too.
 interface CachedStableIO {
 	suggestedFilesBlock: string;
+	/** R2.2: retrieval file paths ride the cross-run cache with the block. */
+	suggestedFiles: string[];
 	knowledgeFragment: string;
 	at: number;
 }
@@ -262,6 +275,10 @@ export async function computeStablePrefixComponents(
 	if (ioFresh) {
 		const components: StableComponents = {
 			suggestedFilesBlock: ioCached!.suggestedFilesBlock,
+			// R2.2: reconstruct the retrieval paths too — a cross-run hit that
+			// dropped them would silently de-scope the caller's task tree back
+			// to the whole workspace.
+			suggestedFiles: ioCached!.suggestedFiles,
 			knowledgeFragment: ioCached!.knowledgeFragment,
 		};
 		stableComponentCache.set(cacheKey, components);
@@ -270,6 +287,9 @@ export async function computeStablePrefixComponents(
 
 	const retrieval = await runRetrievalCycle(step.task, manifest.goal, task.cwd);
 	const suggestedFilesBlock = renderSuggestedFilesSection(retrieval);
+	// R2.2: keep the raw paths (relative to task.cwd) next to the rendered
+	// block so the tree scoping below can reuse the retrieval result.
+	const suggestedFiles = retrieval.files.map((file) => file.path);
 
 	const knowledgeFragment = buildKnowledgeFragment(task.cwd, {
 		goal: manifest.goal,
@@ -277,7 +297,7 @@ export async function computeStablePrefixComponents(
 		role: step.role,
 	});
 
-	const components: StableComponents = { suggestedFilesBlock, knowledgeFragment };
+	const components: StableComponents = { suggestedFilesBlock, suggestedFiles, knowledgeFragment };
 	stableComponentCache.set(cacheKey, components);
 	// RR-021 WI-4.3f: same insertion-order eviction cap as the stableIOCache
 	// sibling below — stableComponentCache had NO cap (unbounded across a
@@ -321,6 +341,28 @@ export interface RenderedTaskPrompt {
 /** SR-02: env gate for the per-section prompt breakdown (default off). */
 export function promptBreakdownEnabled(): boolean {
 	return getCrewEnv("PI_CREW_PROMPT_BREAKDOWN") === "1";
+}
+
+/**
+ * R2.2 (adaptive-03): pick the focus paths for the task-scoped workspace
+ * tree. `step.reads` (declared inputs) is the strongest signal and wins
+ * whenever it yields at least one non-empty string (`reads: false` means
+ * "no declared reads" — the same normalization used by task-packet.ts and
+ * task-output-context.ts — so it falls through, it does not opt out). When
+ * the step declares none, fall back to the retrieval-suggested files that
+ * already ride the (cached) StableComponents — zero extra I/O. Anything
+ * else (no reads AND no suggestions, junk-only entries) yields `undefined`
+ * so buildTaskWorkspaceTree keeps the whole-workspace fallback, the
+ * pre-R2.2 fail-safe. Out-of-workspace/nonexistent paths keep their
+ * existing NIT-2/dir-refinement semantics inside the resolver.
+ */
+function treeFocusPaths(reads: WorkflowStep["reads"], suggestedFiles: readonly string[] | undefined): string[] | undefined {
+	const declared = Array.isArray(reads) ? reads.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "") : [];
+	if (declared.length > 0) return declared;
+	const retrieved = Array.isArray(suggestedFiles)
+		? suggestedFiles.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+		: [];
+	return retrieved.length > 0 ? retrieved : undefined;
 }
 
 /**
@@ -436,13 +478,20 @@ export async function renderTaskPrompt(
 	].join("\n");
 
 	// R2 (adaptive-04): the workspace tree is scoped to a subtree AROUND this
-	// task's working files (step.reads) instead of the identical
-	// whole-workspace walk that every sibling worker used to carry. Per-task
-	// content must NOT ride the byte-stable shared prefix (ARCH-3), so the
-	// block lives at the END of the dynamic suffix; buildWorkspaceTree's
-	// per-root TTL cache keeps parallel siblings sharing a scope on one walk.
-	// No reads / out-of-workspace / non-existent scope ⇒ legacy full tree.
-	const { tree: taskTree, scope: treeScope } = await buildTaskWorkspaceTree(task.cwd, step.reads);
+	// task's working files instead of the identical whole-workspace walk that
+	// every sibling worker used to carry. Per-task content must NOT ride the
+	// byte-stable shared prefix (ARCH-3), so the block lives at the END of the
+	// dynamic suffix; buildWorkspaceTree's per-root TTL cache keeps parallel
+	// siblings sharing a scope on one walk.
+	// R2.2 (adaptive-03): the focus signal is reads-first — step.reads when the
+	// step declares inputs, else the retrieval-suggested files from the stable
+	// components (the smoke-run steps declare no reads, so pre-R2.2 they always
+	// carried the whole tree). No signal / out-of-workspace / non-existent
+	// scope ⇒ legacy full tree (fail-safe unchanged).
+	const { tree: taskTree, scope: treeScope } = await buildTaskWorkspaceTree(
+		task.cwd,
+		treeFocusPaths(step.reads, stableComponents.suggestedFiles),
+	);
 	const treeBlock = taskTree.rendered
 		? `# Workspace Structure${treeScope.relativePath === "." ? "" : ` (subtree: ${treeScope.relativePath})`}\n${taskTree.rendered}`
 		: "";

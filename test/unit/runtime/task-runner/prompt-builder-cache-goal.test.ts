@@ -140,6 +140,13 @@ describe("BR-06: cross-run stable-prefix I/O cache is goal-scoped", () => {
 				!beta.suggestedFilesBlock.includes("alpha-widget-handler.ts"),
 				"run B must NOT reuse run A's suggested files (BR-06: goal missing from the io cache key)",
 			);
+			// R2.2: the raw retrieval paths (which the task-tree scoping consumes)
+			// must obey the same goal scoping as the rendered block.
+			assert.ok(
+				Array.isArray(beta.suggestedFiles) && beta.suggestedFiles.includes("beta-gadget-handler.ts"),
+				"run B's cached paths are its own goal's (R2.2 plumbing is goal-scoped)",
+			);
+			assert.ok(!beta.suggestedFiles.includes("alpha-widget-handler.ts"), "run B's paths must NOT leak run A's suggested file");
 			assert.notEqual(beta.knowledgeFragment, alpha.knowledgeFragment, "the two goals' fragments must differ");
 		} finally {
 			removeTrackedTempDir(dir);

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AgentConfig } from "../../src/agents/agent-config.ts";
 import {
@@ -325,5 +327,84 @@ describe("computeStablePrefixComponents — P9 cross-run cache", () => {
 		const after = await computeStablePrefixComponents(manifest, step, task);
 		assert.ok(typeof after.suggestedFilesBlock === "string");
 		assert.ok(typeof after.knowledgeFragment === "string");
+		// R2.2: the cache-miss recompute must also (re)build the paths array.
+		assert.ok(Array.isArray(after.suggestedFiles), "post-clear recompute re-derives suggestedFiles");
+	});
+});
+
+// R2.2 (adaptive-03): retrieval file paths ride the StableComponents/
+// CachedStableIO plumbing so the task-tree scoping can reuse them without a
+// second retrieval pass. A cache-hit reconstruction that drops the paths
+// would silently de-scope every cached read back to the whole workspace —
+// these pin BOTH cache sites (per-run fast path + cross-run io path).
+describe("computeStablePrefixComponents — R2.2 retrieval paths through caches", () => {
+	beforeEach(() => clearStablePrefixCache());
+	afterEach(() => clearStablePrefixCache());
+
+	it("fresh compute exposes the retrieval paths (relative to cwd) alongside the rendered block", async () => {
+		// Goal-keyword fixture (prompt-builder-cache-goal.test.ts pattern): the
+		// only path matching the goal keywords is the alpha handler file.
+		const dir = createTrackedTempDir("pi-crew-r22-fresh-");
+		fs.mkdirSync(path.join(dir, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(dir, ".crew", "knowledge.md"), "## Code Style\n- Use TABS.\n", "utf8");
+		fs.writeFileSync(path.join(dir, "alpha-widget-handler.ts"), "// alpha\n", "utf8");
+		try {
+			const manifest = makeManifest(dir, { runId: "run-r22-fresh", goal: "alpha widget repro" });
+			const step: WorkflowStep = { id: "01", role: "executor", task: "Investigate the reported defect and report the findings back" };
+			const task = makeTask({ cwd: dir });
+
+			const a = await computeStablePrefixComponents(manifest, step, task);
+			assert.ok(Array.isArray(a.suggestedFiles), "suggestedFiles is an array");
+			assert.ok(
+				a.suggestedFiles.includes("alpha-widget-handler.ts"),
+				`retrieval paths must include the goal-matched file (got ${JSON.stringify(a.suggestedFiles)})`,
+			);
+			assert.ok(
+				a.suggestedFiles.every((p) => !path.isAbsolute(p)),
+				"paths are relative to the task cwd",
+			);
+		} finally {
+			removeTrackedTempDir(dir);
+		}
+	});
+
+	it("cross-run cache-hit reconstruction (second call within TTL) returns the paths too", async () => {
+		const dir = createTrackedTempDir("pi-crew-r22-cache-");
+		fs.mkdirSync(path.join(dir, ".crew"), { recursive: true });
+		fs.writeFileSync(path.join(dir, ".crew", "knowledge.md"), "## Alpha widget subsystem\nalpha-body-marker\n", "utf8");
+		fs.writeFileSync(path.join(dir, "alpha-widget-handler.ts"), "// alpha\n", "utf8");
+		try {
+			const step: WorkflowStep = { id: "01", role: "executor", task: "Investigate the reported defect and report the findings back" };
+			const first = await computeStablePrefixComponents(
+				makeManifest(dir, { runId: "run-r22-a", goal: "alpha widget repro" }),
+				step,
+				makeTask({ cwd: dir, runId: "run-r22-a" }),
+			);
+			assert.ok(first.suggestedFiles.includes("alpha-widget-handler.ts"), "sanity: fresh compute captured the paths");
+
+			// Rewrite knowledge.md with a marker only a FRESH compute would see —
+			// used below to prove the second call really was a cache hit.
+			await new Promise((r) => setTimeout(r, 5));
+			fs.writeFileSync(path.join(dir, ".crew", "knowledge.md"), "## Alpha widget subsystem\nalpha-body-marker-REWRITTEN\n", "utf8");
+
+			// Different runId ⇒ per-run fast path misses ⇒ the cross-run (io)
+			// cache is the only hit path. Same cwd/step/goal ⇒ same io key.
+			const second = await computeStablePrefixComponents(
+				makeManifest(dir, { runId: "run-r22-b", goal: "alpha widget repro" }),
+				step,
+				makeTask({ cwd: dir, runId: "run-r22-b" }),
+			);
+			assert.ok(
+				!second.knowledgeFragment.includes("REWRITTEN"),
+				"sanity: the second call really hit the cross-run cache (pre-rewrite fragment returned)",
+			);
+			assert.ok(
+				Array.isArray(second.suggestedFiles) && second.suggestedFiles.includes("alpha-widget-handler.ts"),
+				"cache-hit reconstruction must carry the retrieval paths (R2.2)",
+			);
+			assert.deepEqual(second.suggestedFiles, first.suggestedFiles, "cached paths are identical to the fresh compute's");
+		} finally {
+			removeTrackedTempDir(dir);
+		}
 	});
 });
