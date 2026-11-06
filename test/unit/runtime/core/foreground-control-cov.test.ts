@@ -364,10 +364,13 @@ describe("foreground-control dir-lock (F1+F2)", () => {
 			const resultsPath = path.join(stateRoot, "guard-results.json");
 
 			// Consumer side: cycles fresh guard instances (each performs exactly
-			// one locked ack write) for ~2s.
+			// one locked ack write) for ~5s. The window must comfortably exceed
+			// 10 cycles x ~250ms/cycle under 1ms-hammer lock contention — at the old
+			// 2s window the vacuity guard (fires >= 10) sat exactly on the boundary
+			// and flaked ~50% (fires=8-9) on loaded runners AND in isolation.
 			const child = spawn(
 				process.execPath,
-				["--experimental-strip-types", "--no-warnings", harnessPath, stateRoot, projectRoot, "2000"],
+				["--experimental-strip-types", "--no-warnings", harnessPath, stateRoot, projectRoot, "5000"],
 				{
 					cwd: projectRoot,
 					stdio: ["ignore", "ignore", "pipe"],
