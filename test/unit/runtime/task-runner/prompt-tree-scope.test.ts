@@ -107,7 +107,7 @@ test("R2: task-scoped tree rides the END of dynamicSuffix, never the stablePrefi
 		assert.ok(treeIndex > handoffIndex, "tree block must come after the handoff narrative (pinned last)");
 
 		// Scoped header names the subtree so the worker keeps its orientation.
-		assert.ok(rendered.dynamicSuffix.includes(`(subtree: src${path.sep}runtime)`), "header must name the subtree");
+		assert.ok(rendered.dynamicSuffix.includes("(subtree: src/runtime)"), "header must name the subtree");
 		// And the walk actually focused on the task's files.
 		assert.ok(rendered.dynamicSuffix.includes("focus-file.ts"), "focused file is rendered");
 		assert.ok(!rendered.dynamicSuffix.includes("far-away.ts"), "out-of-scope files are elided");
@@ -160,7 +160,7 @@ test("R2.2: step without reads + retrieval suggestedFiles scopes the tree around
 	try {
 		const rendered = await renderTaskPrompt(manifest, step, task, undefined, "", precomputedWith(["src/runtime/focus-file.ts"]), []);
 
-		assert.ok(rendered.dynamicSuffix.includes(`(subtree: src${path.sep}runtime)`), "tree must scope to the suggestions' subtree");
+		assert.ok(rendered.dynamicSuffix.includes("(subtree: src/runtime)"), "tree must scope to the suggestions' subtree");
 		assert.ok(rendered.dynamicSuffix.includes("focus-file.ts"), "suggested file is rendered");
 		assert.ok(!rendered.dynamicSuffix.includes("far-away.ts"), "out-of-scope files stay elided when scoping from suggestions");
 	} finally {
@@ -203,7 +203,7 @@ test("R2.2: non-empty step.reads WINS over suggestedFiles (declared inputs are t
 		// Suggestions point somewhere ELSE — if they won, the scope would be
 		// `unrelated` and the focus file would be elided.
 		const rendered = await renderTaskPrompt(manifest, step, task, undefined, "", precomputedWith(["unrelated/far-away.ts"]), []);
-		assert.ok(rendered.dynamicSuffix.includes(`(subtree: src${path.sep}runtime)`), "reads must win the scope");
+		assert.ok(rendered.dynamicSuffix.includes("(subtree: src/runtime)"), "reads must win the scope");
 		assert.ok(rendered.dynamicSuffix.includes("focus-file.ts"), "read file is rendered");
 		assert.ok(!rendered.dynamicSuffix.includes("far-away.ts"), "suggestion-only file stays elided when reads win");
 	} finally {

@@ -254,6 +254,11 @@ export interface TaskTreeScope {
 	relativePath: string;
 }
 
+/** Normalize a native-separator relative path to forward slashes (no-op on POSIX). */
+function toPosixRel(p: string): string {
+	return path.sep === "/" ? p : p.split(path.sep).join("/");
+}
+
 /** Longest shared directory prefix across relative dir paths ("." when none). */
 function commonDirPrefix(dirs: string[]): string {
 	const split = dirs.map((d) => d.split(path.sep).filter((p) => p !== "" && p !== "."));
@@ -304,7 +309,9 @@ export function resolveTaskTreeScope(workspaceCwd: string, focusPaths?: readonly
 
 	const common = commonDirPrefix(insideDirs);
 	if (common === ".") return { rootPath, relativePath: "." };
-	return { rootPath: path.join(rootPath, common), relativePath: common };
+	// relativePath is a POSIX-style contract (prompt header, breakdown, tests) —
+	// normalize Windows separators at the boundary; rootPath stays native for FS.
+	return { rootPath: path.join(rootPath, common), relativePath: toPosixRel(common) };
 }
 
 export interface TaskWorkspaceTree {
@@ -356,7 +363,7 @@ export async function buildTaskWorkspaceTree(
 		}
 		if (candidates.length > 0) {
 			const common = commonDirPrefix(candidates);
-			if (common !== ".") effective = { rootPath: path.join(rootPath, common), relativePath: common };
+			if (common !== ".") effective = { rootPath: path.join(rootPath, common), relativePath: toPosixRel(common) };
 		}
 	}
 	if (effective.relativePath !== ".") {

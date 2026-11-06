@@ -276,10 +276,14 @@ test("includes file size and age for files", async () => {
 // ── R2 (adaptive-04): task-scoped subtree ──────────────────────────────
 
 describe("resolveTaskTreeScope — R2 scoping rule (pure, no FS)", () => {
+	// Windows CI: path.resolve/dirname return native separators — build the
+	// expected rootPath values the same way (relativePath is a posix contract).
+	const ROOT = path.resolve("/ws/repo");
+
 	it("no focus paths ⇒ whole workspace (legacy behavior)", () => {
 		for (const none of [undefined, false, null, []] as const) {
 			const scope = resolveTaskTreeScope("/ws/repo", none);
-			assert.equal(scope.rootPath, "/ws/repo");
+			assert.equal(scope.rootPath, ROOT);
 			assert.equal(scope.relativePath, ".");
 		}
 	});
@@ -287,7 +291,7 @@ describe("resolveTaskTreeScope — R2 scoping rule (pure, no FS)", () => {
 	it("single file focus narrows to its directory", () => {
 		const scope = resolveTaskTreeScope("/ws/repo", ["src/runtime/tree.ts"]);
 		assert.equal(scope.relativePath, "src/runtime");
-		assert.equal(scope.rootPath, "/ws/repo/src/runtime");
+		assert.equal(scope.rootPath, path.join(ROOT, "src/runtime"));
 	});
 
 	it("multiple focuses narrow to their deepest shared directory", () => {
@@ -298,7 +302,7 @@ describe("resolveTaskTreeScope — R2 scoping rule (pure, no FS)", () => {
 	it("divergent focuses (no shared dir below root) fall back to the whole workspace", () => {
 		const scope = resolveTaskTreeScope("/ws/repo", ["src/a.ts", "docs/b.md"]);
 		assert.equal(scope.relativePath, ".");
-		assert.equal(scope.rootPath, "/ws/repo");
+		assert.equal(scope.rootPath, ROOT);
 	});
 
 	it("focuses outside the workspace are ignored", () => {
